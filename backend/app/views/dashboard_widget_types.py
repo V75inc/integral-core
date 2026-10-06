@@ -41,7 +41,7 @@ TYPE_ALIASES: Dict[str, str] = {
     "chart": "chart_bar",
     "feed": "activity_digest",
     "calendar": "activity_digest",
-    "table": "recent_entries",
+    "table": "table_widget",
     "quick_link": "recent_entries",
 }
 
@@ -204,14 +204,16 @@ def _register_builtins() -> None:
         DashboardWidgetSpec(
             type="recent_entries",
             label="Recent entries",
-            description="Latest entries across app tracks.",
+            description="Titles of the latest matching entries. No configurable columns or due-date ordering.",
+            config_schema={"type": "object", "additionalProperties": False},
             palette_group="summaries",
             data_source_schema={"properties": {"limit": {"type": "integer"}}},
         ),
         DashboardWidgetSpec(
             type="table_widget",
             label="Top records",
-            description="Tabular view of the latest matching entries.",
+            description="Latest matching entries: Record, platform Status, Updated. No configurable columns or due-date ordering.",
+            config_schema={"type": "object", "additionalProperties": False},
             palette_group="summaries",
             data_source_schema={
                 "properties": {

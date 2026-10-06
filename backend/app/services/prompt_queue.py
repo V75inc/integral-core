@@ -345,6 +345,19 @@ def build_resume_agent_directive(queue: Dict[str, Any]) -> Optional[str]:
             "The expired writes above were not applied. Do not claim they "
             "were applied or retry them without a fresh user request."
         )
+    if (
+        any(
+            item.get("status") in {STATUS_REJECTED, STATUS_CANCELLED}
+            for item in queue.get("items") or []
+        )
+        or queue.get("close_reason") == "cancelled"
+    ):
+        return (
+            "The user rejected or cancelled the changes above. They were not "
+            "applied. Acknowledge that outcome; do not re-stage, retry, or "
+            "continue those writes without a fresh user request. This host "
+            "continuation is not a new approval or instruction to write."
+        )
     return None
 
 
@@ -524,6 +537,7 @@ async def _attach_profile_revision_review(
     if not isinstance(result, dict) or result.get("error"):
         item["profile_revision_review_error"] = "diff unavailable"
         return
+    item.pop("profile_revision_review_error", None)
     item["profile_revision_review"] = _summarize_profile_revision_diff(result)
     item["profile_revision_draft_id"] = draft_id
 
@@ -856,11 +870,13 @@ async def mark_write_item(
             }
         item["status"] = status
         item["resolved_at"] = utc_now_iso()
-        if (
-            status == STATUS_APPROVED
-            and item.get("write_kind") == "propose_profile_revision"
-        ):
-            await _attach_profile_revision_review(user_id=user_id, item=item)
+    if (
+        status == STATUS_APPROVED
+        and item.get("status") == STATUS_APPROVED
+        and item.get("write_kind") == "propose_profile_revision"
+        and not item.get("profile_revision_review")
+    ):
+        await _attach_profile_revision_review(user_id=user_id, item=item)
 
     resume = _maybe_close(queue, reason="drained")
     thread.prompt_queue = queue
@@ -1020,11 +1036,31 @@ async def reconcile_staged_write_items(*, user_id: str, thread: ChatThread) -> d
             None: (STATUS_CANCELLED, "unavailable"),
         }.get(state)
         if terminal is None:
+            # Keep execution failure/progress visible across reloads without
+            # treating approval as proof that the write landed.
+            snapshot = {}
+            if state != item.get("staged_state", state):
+                snapshot["staged_state"] = state
+            last_error = getattr(staged, "last_error", None)
+            if last_error is not None or "last_error" in item:
+                snapshot["last_error"] = last_error
+            progress = getattr(staged, "progress", None)
+            if progress is not None or "completed_operations" in item:
+                snapshot["completed_operations"] = (progress or {}).get("completed", 0)
+            for key, value in snapshot.items():
+                if item.get(key) != value:
+                    item[key] = value
+                    changed = True
             # ``pending`` and ``blessed`` remain actionable. An unfamiliar
             # non-terminal state is safer left visible than guessed at.
             continue
         item["status"], item["terminal_reason"] = terminal
         item["resolved_at"] = utc_now_iso()
+        if (
+            item["status"] == STATUS_APPROVED
+            and item.get("write_kind") == "propose_profile_revision"
+        ):
+            await _attach_profile_revision_review(user_id=user_id, item=item)
         changed = True
 
     if not changed:

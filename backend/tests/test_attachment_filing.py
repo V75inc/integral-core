@@ -255,8 +255,9 @@ async def test_rollback_attachment_filing_refuses_to_orphan_attachment(monkeypat
     assert any(item.id == attachment_id for item in linked)
 
 
-def test_stager_shapes_staged_change():
-    staged = bindings._stage_attach_uploaded_file(
+@pytest.mark.asyncio
+async def test_stager_shapes_staged_change():
+    staged = await bindings._stage_attach_uploaded_file(
         {"entry_id": "n.Entry.e1", "attachment_id": "n.Attachment.a1"}
     )
     assert staged["kind"] == "attach_uploaded_file"

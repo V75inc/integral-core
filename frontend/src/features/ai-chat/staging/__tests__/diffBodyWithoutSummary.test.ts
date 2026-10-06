@@ -19,6 +19,18 @@ describe('diffBodyWithoutSummary', () => {
     expect(diffBodyWithoutSummary('Title', '- step one')).toBe('- step one');
   });
 
+  it('removes only the exact Core resource heading, preserving field detail', () => {
+    expect(diffBodyWithoutSummary('Update entry “Kitchen_tap”', '**Update entry** *Kitchen_tap*\r\n\r\n- cost: 26000'))
+      .toBe('- cost: 26000');
+    expect(diffBodyWithoutSummary('Update entry "Kitchen_tap"', '**Update entry** *Kitchen_tap*')).toBe('');
+    expect(diffBodyWithoutSummary('Create entry “The Hobbit” in Loans', '**Create entry** *The Hobbit*\n\n- Track: Loans'))
+      .toBe('- Track: Loans');
+    expect(diffBodyWithoutSummary('Publish profile draft Loans', '**Publish profile draft** `Loans`\n\nSwap the approved draft.'))
+      .toBe('Swap the approved draft.');
+    expect(diffBodyWithoutSummary('Update entry “Kitchen_tap”', '**Update entry** *Kitchen_tap_other*\n- cost: 26000'))
+      .toBe('**Update entry** *Kitchen_tap_other*\n- cost: 26000');
+  });
+
   it('does not strip when title is only a same-line prefix', () => {
     expect(diffBodyWithoutSummary('Create track', 'Create track Clients')).toBe(
       'Create track Clients',

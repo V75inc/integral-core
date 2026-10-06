@@ -8,6 +8,7 @@ at this seam and qualified by adapter contract tests.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Callable
 
 from pydantic_ai import (
@@ -59,6 +60,7 @@ from pydantic_ai_harness.step_persistence import (
 from pydantic_core import SchemaValidator, core_schema, to_jsonable_python
 
 
+@dataclass
 class IntegralToolDisclosure(ToolSearch):
     """Use unified catalog search with framework-owned deferred disclosure.
 
@@ -67,6 +69,10 @@ class IntegralToolDisclosure(ToolSearch):
     filtering remove the duplicate search entrypoint, without altering skill
     loading, history or library code. Used only with search_capabilities.
     """
+
+    require_initial_search: bool = True
+    pending_decision_tool: str | None = None
+    continuation_tools: frozenset[str] = frozenset()
 
     def get_native_tools(self):
         return []
@@ -83,6 +89,9 @@ class IntegralToolDisclosure(ToolSearch):
         def settings(ctx: RunContext[Any]) -> ModelSettings:
             baseline = inherited(ctx) if callable(inherited) else inherited
             resolved = ModelSettings(**(baseline or {}))
+            # A scoped pending proposal already supplies its decision tool.
+            # Do not force rediscovery of a different workflow before the
+            # model can interpret the reply; Core still validates that decision.
             profile = ctx.model.profile
             # Respect public model capabilities. Conservatively leave models
             # with thinking-specific restrictions on normal choice rather than
@@ -106,6 +115,22 @@ class IntegralToolDisclosure(ToolSearch):
                 ),
                 0,
             )
+            if self.pending_decision_tool:
+                decided = any(
+                    isinstance(part, ToolReturnPart)
+                    and part.tool_name == self.pending_decision_tool
+                    for message in ctx.messages[turn_start:]
+                    if isinstance(message, ModelRequest)
+                    for part in message.parts
+                )
+                if not decided:
+                    # The primary model interprets approve/reject/no-decision
+                    # against a concrete Core proposal. Questions and ambiguous
+                    # replies select no-decision; no text classifier participates.
+                    resolved["tool_choice"] = [self.pending_decision_tool]
+                    return resolved
+            if not self.require_initial_search:
+                return resolved
             searched = any(
                 isinstance(part, ToolReturnPart)
                 and part.tool_name == "search_capabilities"
@@ -150,6 +175,13 @@ class IntegralToolDisclosure(ToolSearch):
                 return False
             if definition.name == "search_capabilities":
                 return True
+            if (
+                definition.name == self.pending_decision_tool
+                or definition.name in self.continuation_tools
+            ):
+                # This exact decision capability was supplied from current
+                # Core authority, not the searchable skill catalog.
+                return ctx.is_tool_available(definition)
             # Pydantic AI owns deferred skill activation through this tool.
             # Keep it available; the model-settings policy still requires the
             # catalog search first on providers that support forced choice.
@@ -203,6 +235,7 @@ def build_integral_json_schema_tool(
     prepare: Callable[..., Any] | None,
     defer_loading: bool,
     sequential: bool = False,
+    max_retries: int | None = None,
 ) -> Tool[Any, Any]:
     """Adapt an Integral JSON Schema tool to Pydantic AI's callable tool API.
 
@@ -222,6 +255,7 @@ def build_integral_json_schema_tool(
     )
     tool.prepare = prepare
     tool.defer_loading = defer_loading
+    tool.max_retries = max_retries
     return tool
 
 

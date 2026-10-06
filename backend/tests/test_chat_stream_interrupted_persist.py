@@ -137,6 +137,38 @@ async def test_cancelled_turn_still_persists_its_tool_results(monkeypatch):
     tool_calls = [e for e in events if e.get("type") == "tool-call"]
     assert tool_calls, f"tool-call event missing from persisted draft: {events}"
     assert tool_calls[0]["result"]["token"] == "tok-orphan"
+    notices = [e for e in events if e.get("code") == "turn.interrupted"]
+    assert len(notices) == 1
+    assert "before retrying" in notices[0]["message"]
+
+
+@pytest.mark.asyncio
+async def test_interruption_before_any_content_persists_recovery_notice(monkeypatch):
+    monkeypatch.setattr(chat_streaming, "_register_cancel_hook", lambda *a, **k: None)
+
+    async def noop(*_a, **_k):
+        pass
+
+    monkeypatch.setattr(chat_streaming, "notify_thread_stream_update", noop)
+    gate = asyncio.Event()
+
+    class BeforeContentProvider:
+        async def stream_turn(self, _ctx):
+            gate.set()
+            await asyncio.Event().wait()
+            yield {"type": "message-finish"}
+
+    persisted = []
+    gen = chat_streaming.generate_chat_turn_sse(
+        **_make_kwargs(_FakeThread(), BeforeContentProvider(), persisted)
+    )
+    task = asyncio.create_task(_drain_until(gen, gate))
+    await asyncio.wait_for(gate.wait(), timeout=5)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert persisted
+    assert persisted[-1]["events"][0]["code"] == "turn.interrupted"
 
 
 @pytest.mark.asyncio

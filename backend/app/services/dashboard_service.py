@@ -299,6 +299,61 @@ def _normalize_widgets(raw: Optional[List[Any]]) -> List[Dict[str, Any]]:
     return widgets
 
 
+async def validate_dashboard_field_bindings(
+    *, user_id: str, app_id: str, widgets: List[Dict[str, Any]]
+) -> None:
+    """Reject business-field bindings absent from visible published schemas."""
+    from app.services.permissions import can_view_track
+
+    app = await _get_app_or_none(app_id)
+    if app is None or not await can_view_app(user_id, app_id):
+        raise PermissionError("Dashboard source is unavailable")
+    fields_by_track: Dict[str, set[str]] = {}
+    for widget in widgets:
+        source = widget.get("data_source") or {}
+        if source.get("kind") == "declared_query":
+            # Packaged Apps own their declared query schema and authorization.
+            continue
+        requested: set[str] = set()
+        value_field = str(source.get("field") or "")
+        if value_field:
+            requested.add(value_field.removeprefix("custom_fields."))
+        group = str(source.get("group_by") or "")
+        if group.startswith("date:"):
+            group = group[5:]
+            if group not in {"created_at", "updated_at"}:
+                requested.add(group.removeprefix("custom_fields."))
+        elif group.startswith("custom_fields."):
+            requested.add(group[len("custom_fields.") :])
+        for predicate in source.get("filters") or []:
+            field = str(predicate.get("field") or "")
+            if field.startswith("custom_fields."):
+                requested.add(field[len("custom_fields.") :])
+        if not requested:
+            continue
+        available: set[str] = set()
+        for track_id in await _data_source_track_ids(app, source):
+            if track_id not in fields_by_track:
+                track = await Track.get(track_id)
+                if track is None or not await can_view_track(user_id, track_id):
+                    raise PermissionError("Dashboard source is unavailable")
+                fields_by_track[track_id] = {
+                    field["key"] for field in await _track_dashboard_fields(track)
+                }
+            available.update(fields_by_track[track_id])
+        # Schema-less Core tracks support arbitrary custom fields. Their
+        # governed query boundary remains authoritative; only a declared
+        # published field contract can reject an unknown schema binding.
+        if not available:
+            continue
+        missing = requested - available
+        if missing:
+            raise ValueError(
+                "Dashboard fields are not available in the selected published model: "
+                + ", ".join(sorted(missing))
+            )
+
+
 async def create_dashboard(
     *,
     user_id: str,
@@ -331,6 +386,9 @@ async def create_dashboard(
     now = datetime.now(timezone.utc).isoformat()
     dreg = await get_or_create_dashboards_registry(app)
     norm_widgets = _normalize_widgets(widgets)
+    await validate_dashboard_field_bindings(
+        user_id=user_id, app_id=app_id, widgets=norm_widgets
+    )
     norm_layout = dict(layout or {"columns": 12, "row_height": 80})
 
     if is_default:
@@ -398,7 +456,11 @@ async def update_dashboard(
     if layout is not None:
         dash.layout = dict(layout)
     if widgets is not None:
-        dash.widgets = _normalize_widgets(widgets)
+        normalized = _normalize_widgets(widgets)
+        await validate_dashboard_field_bindings(
+            user_id=user_id, app_id=app_id, widgets=normalized
+        )
+        dash.widgets = normalized
     if is_default is not None:
         if is_default:
             app = await _get_app_or_none(app_id)

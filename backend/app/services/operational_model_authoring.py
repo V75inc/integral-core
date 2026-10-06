@@ -23,6 +23,8 @@ Return shapes mirror the existing MCP tool envelopes one-for-one:
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import re
 from datetime import datetime, timezone
@@ -1410,6 +1412,19 @@ async def apply_patch_to_draft(
     }
 
 
+def publication_review_fingerprint(draft: Any, parent: Any) -> str:
+    """Bind publication consent to the exact source and destination schemas."""
+    payload = {
+        "draft_id": draft.id,
+        "parent_id": parent.id,
+        "before": parent.manifest or {},
+        "after": draft.manifest or {},
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
 async def diff_draft(
     *,
     user_id: str,
@@ -1446,6 +1461,7 @@ async def diff_draft(
         "candidate_id": draft.id,
         "reference_id": parent.id,
         "diff": diff,
+        "review_fingerprint": publication_review_fingerprint(draft, parent),
     }
     if include_entry_impact:
         payload["entry_impact"] = await compute_entry_impact_for_attached(
@@ -1462,6 +1478,7 @@ async def publish_draft_for_agent(
     draft_id: str,
     run_migrations: bool = True,
     abort_on_migration_failure: bool = True,
+    expected_review_fingerprint: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Publish a draft (atomic swap + migrations) on behalf of the agent."""
     from app.exceptions import BadRequestError as _BadRequest
@@ -1478,6 +1495,13 @@ async def publish_draft_for_agent(
         return {"error": "not_found", "detail": "published parent missing"}
     if not await _user_can_edit_cp(user_id=user_id, cp=parent):
         return {"error": "forbidden", "detail": "no edit access to this profile"}
+    if expected_review_fingerprint is not None and (
+        publication_review_fingerprint(draft, parent) != expected_review_fingerprint
+    ):
+        return {
+            "error": "review_stale",
+            "detail": "The draft or published profile changed after review. Review the current diff before publishing.",
+        }
     try:
         from app.services.operational_model_runtime import compile_canonical_manifest
 

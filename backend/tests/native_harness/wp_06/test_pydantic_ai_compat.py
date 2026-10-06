@@ -516,3 +516,68 @@ def test_harness_errors_translate_to_integral_error_codes() -> None:
         == "model_context_limit"
     )
     assert classify_integral_harness_exception(RuntimeError("unexpected")) is None
+
+
+def test_known_pending_workflow_does_not_force_rediscovery():
+    settings = IntegralToolDisclosure(require_initial_search=False).get_model_settings()
+    ctx = SimpleNamespace(model=SimpleNamespace(profile={}), messages=[])
+    assert settings(ctx) == {}
+
+
+def test_pending_reply_is_semantic_decision_without_rediscovery():
+    capability = IntegralToolDisclosure(
+        require_initial_search=False,
+        pending_decision_tool="integral_resolve_pending_write",
+    )
+    settings = capability.get_model_settings()
+    ctx = SimpleNamespace(model=SimpleNamespace(profile={}), messages=[])
+    assert settings(ctx) == {"tool_choice": ["integral_resolve_pending_write"]}
+    ctx.messages = [
+        ModelRequest(
+            parts=[
+                ToolReturnPart(
+                    "integral_resolve_pending_write",
+                    {"decision": "no_decision"},
+                    "call",
+                )
+            ]
+        )
+    ]
+    assert settings(ctx) == {}
+
+
+@pytest.mark.asyncio
+async def test_pending_decision_schema_is_visible_before_catalog_search():
+    async def integral_resolve_pending_write(item_reference: str, decision: str):
+        assert item_reference == "reference"
+        assert decision == "no_decision"
+        return {"decision": decision, "applied": False}
+
+    def respond(messages, info):
+        choice = (info.model_settings or {}).get("tool_choice", "auto")
+        if choice == ["integral_resolve_pending_write"]:
+            assert "integral_resolve_pending_write" in {
+                tool.name for tool in info.function_tools
+            }
+            return ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        "integral_resolve_pending_write",
+                        {"item_reference": "reference", "decision": "no_decision"},
+                    )
+                ]
+            )
+        return ModelResponse(parts=[TextPart("Nothing changed; here is the answer.")])
+
+    agent = Agent(
+        FunctionModel(respond),
+        tools=[integral_resolve_pending_write],
+        capabilities=[
+            IntegralToolDisclosure(
+                require_initial_search=False,
+                pending_decision_tool="integral_resolve_pending_write",
+            )
+        ],
+    )
+    result = await agent.run("What would this change?")
+    assert result.output == "Nothing changed; here is the answer."

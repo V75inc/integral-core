@@ -12,7 +12,7 @@
  * disclosure:
  *   - rendered for the `group-chainOfThought` grouped part in `Thread.tsx`
  *   - stays closed while running (`useState(false)`); the label carries the
- *     live status, and the effect calls `setOpen(false)` when the turn finishes
+ *     live status; a manual expansion survives completion of that turn
  *
  * The previous component-mount cases (which imported the now-removed
  * `<Disclosure>` directly) are gone because their subject no longer exists. The
@@ -37,14 +37,12 @@ describe('Thread.tsx — B-AGENT-01 guard (reasoning collapsed at rest)', () => 
     expect(body.includes("if (running) setOpen(true)")).toBe(false);
   });
 
-  it('WorkTrail auto-collapses when the turn finishes', () => {
-    const collapsesOnFinish = threadSource.match(
-      /function WorkTrail[\s\S]*?wasRunning\.current\)\s*setOpen\(false\)/,
-    );
-    expect(
-      collapsesOnFinish,
-      'WorkTrail does not auto-collapse when the turn finishes',
-    ).toBeTruthy();
+  it('WorkTrail preserves manual expansion when the turn finishes', () => {
+    const start = threadSource.indexOf("function WorkTrail");
+    const end = threadSource.indexOf("// Assistant message", start);
+    const body = threadSource.slice(start, end);
+    expect(body).not.toContain("setOpen(false)");
+    expect(body).toContain("onOpenChange={setOpen}");
   });
 
   it('ReasoningRoot defaults to closed (defaultOpen = false)', () => {

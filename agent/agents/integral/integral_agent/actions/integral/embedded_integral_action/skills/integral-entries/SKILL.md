@@ -1,7 +1,7 @@
 ---
 name: integral-entries
-description: 'Handles one record at a time in an existing Track or list: find a record by exact name, ID, or serial number and answer questions about its status or fields; create, update, delete, tag, comment on, or link a specific entry. Use for requests such as finding a mower by serial number or changing one item. Use integral-scaffold for a new App or a multi-part app workflow; use integral-filing when the user supplies unstructured content to place, and integral-organize for one approved change across a selected set of records.'
-allowed-tools: integral_query_entries integral_resolve_entry integral_create_entry integral_update_entry integral_delete_entry integral_add_comment integral_list_comments integral_edit_comment integral_delete_comment integral_get_related integral_list_tags integral_add_entry_tag integral_remove_entry_tag integral_create_tag integral_link_entries integral_transform_entry integral_list_tracks integral_get_track_schema integral_get_page_context
+description: 'Handles explicit record requests in an existing Track or list: find records by name, ID, or serial number; answer questions about their status or fields; create, update, delete, tag, comment on, or link entries. Batch compatible records supplied together into one review. Use integral-scaffold for a new App; integral-filing for unstructured content with an unknown destination; integral-organize for bulk reorganization.'
+allowed-tools: integral_query_entries integral_resolve_entry integral_create_entry integral_update_entry integral_delete_entry integral_add_comment integral_list_comments integral_edit_comment integral_delete_comment integral_get_related integral_list_tags integral_add_entry_tag integral_remove_entry_tag integral_create_tag integral_link_entries integral_transform_entry integral_list_tracks integral_get_track_schema integral_get_page_context integral_begin_batch integral_commit_batch integral_cancel_batch
 ---
 
 # Integral entries — SOP
@@ -73,7 +73,13 @@ allowed-tools: integral_query_entries integral_resolve_entry integral_create_ent
      or other detail missing from the query result. (If the user named
      the entry by title, resolve the id first via
      `integral_query_entries`.)
-4. Mutations are **propose** tools: you call a single tool, it
+4. For multiple compatible records requested together, call
+   `integral_begin_batch` **before the first mutation**, stage all requested
+   records, then `integral_commit_batch` with one concise itemized summary.
+   Until commit, records are only accumulated, not created. If preparation
+   fails, cancel the open batch. Never claim a queued operation exists without
+   a durable staged result. For a single record, use the mutation directly.
+   Mutations are **propose** tools: you call a single tool, it
    **stages** a change the user approves in Integral. There is **no
    separate execute step** — when the user blesses the staged change in
    the chat surface, the backend applies it. Present the staged card
@@ -293,3 +299,19 @@ For filing freeform content where the track/type is inferred, use
    the goal was created. If the user then asks to move it on the board,
    `integral_update_entry(entry_id=<id>, updates={fields:
    {_kanban_stage: "in_progress"}})` → stage again and wait.
+
+## Exact changes and monetary provenance
+
+Update only the fields the user requested. Do not rewrite narrative descriptions
+or historical estimates merely to match a changed structured amount. When those
+values differ, report which structured field changed and that the historical
+wording remains unchanged; offer a separate correction if useful. Preserve an
+explicitly stated currency and amount; never infer cents, pounds, dollars or a
+conversion from an unlabelled numeric field. Clarify only when the requested
+action depends on an unknown unit.
+
+For multiple compatible record writes requested together, use the existing
+batch tools to present one itemized review. A batch may partially apply: report
+applied, failed and unattempted outcomes from its receipt, and read back the
+result before claiming success. Retry only unresolved effects, using the
+existing identities. Do not restage a completed record.

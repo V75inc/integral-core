@@ -569,7 +569,7 @@ async def _continue_from_checkpoint(store, run_id: str):
         ) from exc
 
 
-async def _refresh_staged_history(history, scope):
+async def _refresh_staged_history(history, scope, *, conversation_id=None):
     """Reconcile model-visible proposals with Core's current decision facts.
 
     A library snapshot records the result at proposal time. Approval, rejection
@@ -596,7 +596,7 @@ async def _refresh_staged_history(history, scope):
             )
             if current is not None and (
                 current.user_id == scope.principal_id
-                and current.session_id == scope.session_id
+                and current.session_id == (conversation_id or scope.session_id)
                 and current.workspace_id == scope.workspace_id
             ):
                 updated = {
@@ -918,6 +918,30 @@ class PydanticAIProvider:
                 "integral_verify_build with these exact values; do not ask the "
                 "user to provide them."
             )
+        from app.agentive.staging import get_token
+
+        approval_snapshot = []
+        for reference, token in (
+            (ctx.extra_data or {}).get("pending_approval_tokens") or {}
+        ).items():
+            change = await get_token(token)
+            if change is not None:
+                approval_snapshot.append(
+                    {
+                        "item_reference": reference,
+                        "summary": change.summary,
+                        "state": change.state,
+                    }
+                )
+        approval_instructions = (
+            "\n\nCurrent conversation approvals (server state): "
+            + json.dumps(approval_snapshot, ensure_ascii=False)
+            + ". Clear approval or rejection of a listed change in the latest user message "
+            "is a decision: use integral_resolve_pending_write with that item_reference. "
+            "Ask only when the intended change or decision is ambiguous. Do not restage "
+            "a pending change or require a button for an ordinary verbal decision. "
+            "If this list is empty, older pending cards in history are not current authority."
+        )
         instructions = (
             "You are Integral's resident intelligence. For Integral work, use "
             "search_capabilities for operational requests to set up, inspect "
@@ -992,6 +1016,7 @@ class PydanticAIProvider:
             "discovery does not find the required capability.\n\n"
             + (ctx.system_context or "")
             + receipt_instructions
+            + approval_instructions
             + "\n\nRespond to the user with the final answer only. Do not "
             "include internal reasoning, a thought field, or a serialized "
             "assistant-message envelope unless the user explicitly requests "
@@ -1040,6 +1065,7 @@ class PydanticAIProvider:
                 work_execution_context=work_execution_context,
                 skill_library=Path(skill_temp.name),
                 run_state=run_state,
+                conversation_id=ctx.thread_id,
                 pending_approval_tokens=dict(
                     (ctx.extra_data or {}).get("pending_approval_tokens") or {}
                 ),
@@ -1079,7 +1105,9 @@ class PydanticAIProvider:
                 recovery_message=recovery_message,
                 previous_run=previous_run,
             )
-            history = await _refresh_staged_history(history, scope)
+            history = await _refresh_staged_history(
+                history, scope, conversation_id=ctx.thread_id
+            )
         except BaseException:
             skill_temp.cleanup()
             raise
@@ -1181,10 +1209,9 @@ class PydanticAIProvider:
                             "revision instead: that clears the old approval, so "
                             "present the revised proposal and wait for approval. "
                             "The approved-build capability is available for this "
-                            "turn. This harness requires its initial capability "
-                            "search on each new turn: satisfy that requirement once, "
-                            "then call the approved-build capability exactly once "
-                            "with the saved design. Do not search again, reload skills, "
+                            "turn; use it with the saved design. Correct argument "
+                            "validation only when the framework requests a retry. "
+                            "Do not rediscover the already supplied continuation, reload skills, "
                             "re-propose the design, or call separate create tools."
                         )
                     elif prepared[7].get("pending_design"):

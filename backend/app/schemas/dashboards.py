@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas.entry_aggregate import AggregateOp
 from app.schemas.governed_query import FilterExpr
@@ -71,6 +71,12 @@ class DataSourceSpec(BaseModel):
         return value
 
 
+class DashboardEntryListConfig(BaseModel):
+    """The built-in list renderers have no configurable field columns yet."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class DashboardWidgetSpec(BaseModel):
     id: str
     type: str
@@ -78,6 +84,12 @@ class DashboardWidgetSpec(BaseModel):
     grid: GridPlacement = Field(default_factory=GridPlacement)
     config: Dict[str, Any] = Field(default_factory=dict)
     data_source: DataSourceSpec = Field(default_factory=DataSourceSpec)
+
+    @model_validator(mode="after")
+    def _validate_renderer_config(self) -> "DashboardWidgetSpec":
+        if self.type in {"recent_entries", "table_widget"}:
+            DashboardEntryListConfig.model_validate(self.config)
+        return self
 
 
 class DashboardLayoutSpec(BaseModel):

@@ -1186,13 +1186,13 @@ async def resolve_transcript_anchor_for_token(
     if not session_id or not token:
         return None, None
     try:
-        from app.models.nodes import ChatThread
         from app.services import chat_threads
     except Exception:  # noqa: BLE001
         return None, None
 
     try:
-        threads = await ChatThread.find({"context.provider_session_id": session_id})
+        thread = await chat_threads.get_thread_by_session(session_id)
+        threads = [thread] if thread else []
         for thread in threads:
             messages = await chat_threads.list_messages(thread)
             for message in messages:
@@ -1229,13 +1229,13 @@ async def _persist_staged_envelope_patch(
     if not session_id:
         return
     try:
-        from app.models.nodes import ChatThread
         from app.services import chat_threads
     except Exception:  # noqa: BLE001
         return
 
     try:
-        threads = await ChatThread.find({"context.provider_session_id": session_id})
+        thread = await chat_threads.get_thread_by_session(session_id)
+        threads = [thread] if thread else []
         for thread in threads:
             messages = await chat_threads.list_messages(thread)
             for message in messages:
@@ -1273,7 +1273,6 @@ async def persist_consumed_nav_in_transcript(
     if not sc.session_id or sc.state != "consumed":
         return
     try:
-        from app.models.nodes import ChatThread  # lazy: keep import light for tests
         from app.services import chat_threads
         from app.services.staging_consumed_nav import extract_consumed_nav
     except Exception:  # noqa: BLE001
@@ -1295,7 +1294,8 @@ async def persist_consumed_nav_in_transcript(
         return
 
     try:
-        threads = await ChatThread.find({"context.provider_session_id": sc.session_id})
+        thread = await chat_threads.get_thread_by_session(sc.session_id)
+        threads = [thread] if thread else []
         if not threads:
             if exec_record:
                 await _persist_staged_envelope_patch(
@@ -1374,7 +1374,6 @@ async def _persist_terminal_state_in_transcript(sc: StagedChange) -> None:
     if not sc.session_id:
         return
     try:
-        from app.models.nodes import ChatThread  # lazy: keep import light for tests
         from app.services import chat_threads
     except Exception:  # noqa: BLE001
         logger.debug(
@@ -1383,7 +1382,8 @@ async def _persist_terminal_state_in_transcript(sc: StagedChange) -> None:
         )
         return
     try:
-        threads = await ChatThread.find({"context.provider_session_id": sc.session_id})
+        thread = await chat_threads.get_thread_by_session(sc.session_id)
+        threads = [thread] if thread else []
         if not threads:
             return
         for thread in threads:
@@ -2298,7 +2298,9 @@ async def commit_batch(
             lines.append(detail)
         else:
             lines.append(summary_line)
-    diff_human = "\n".join(lines) or (summary or f"{label}: {len(ops)} step(s)")
+    # Each operation owns a Markdown block, including any final paragraph.
+    # A blank boundary keeps the next operation's heading out of that prose.
+    diff_human = "\n\n".join(lines) or (summary or f"{label}: {len(ops)} step(s)")
     change = await create_staged_change(
         user_id=user_id,
         session_id=session_id,

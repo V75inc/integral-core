@@ -1597,6 +1597,15 @@ async def _pending_staged_for_turn(user_id: str, thread) -> list:
     store is unreachable the chat still works, it just loses the reminder.
     """
     try:
+        if getattr(thread, "provider_id", None) == "integral_native":
+            from app.agentive.staging import get_pending_for_user
+
+            return [
+                change
+                for change in await get_pending_for_user(user_id)
+                if change.session_id == thread.id
+                and change.workspace_id == thread.workspace_id
+            ]
         return await list_unresolved_for_session(
             user_id, getattr(thread, "provider_session_id", None)
         )
@@ -2003,7 +2012,7 @@ async def send_message(
     # Prompt Sheet residual: people see quiet past-tense confirmation; the
     # resident gets wrap_system_context continuation (same convention as
     # staging carry-forward). Never leave HTML directives in the utterance.
-    if _is_prompt_sheet_resume(text):
+    if host_prompt_sheet_resume or _is_prompt_sheet_resume(text):
         from app.services.prompt_queue import (
             build_resume_agent_directive,
             extract_legacy_resume_directive,
@@ -2295,6 +2304,16 @@ async def _start_user_turn(
         await thread.save()
 
     extra_data: Dict[str, Any] = {}
+    if native_turn and host_action == "prompt_sheet_resume":
+        from app.services.prompt_queue import get_queue
+
+        # A negative host receipt contains no new user authority. Readback and
+        # acknowledgment may continue, but rejected work must not be restaged.
+        queue = get_queue(thread)
+        if not any(
+            item.get("status") == "approved" for item in queue.get("items") or []
+        ):
+            extra_data["no_workspace_writes"] = True
     if thread.agent_id:
         extra_data["agent_id"] = thread.agent_id
 
