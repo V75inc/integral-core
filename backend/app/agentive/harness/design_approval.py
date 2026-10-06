@@ -9,6 +9,7 @@ and user message with a graph CAS before exposing the build tool.
 from __future__ import annotations
 
 import json
+import logging
 from contextlib import asynccontextmanager
 from typing import Any, Literal
 
@@ -25,6 +26,7 @@ from app.services import chat_threads
 from app.services.app_operations.transaction_scope import postgres_graph_transaction
 
 DesignReply = Literal["approve", "amend", "decline", "other"]
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -93,12 +95,20 @@ async def resolve_pending_design_reply(
         cancellation_token=cancellation,
     )
     approved = decision.output == "approve"
+    logger.info(
+        "Native design reply run=%s design=%s revision=%s verdict=%s",
+        scope.run_id,
+        marker.get("design_id"),
+        marker.get("blueprint_revision"),
+        decision.output,
+    )
     stamped = dict(marker)
     stamped.update(
         affirm_for=utterance,
         affirm=approved,
         affirm_via="native_semantic",
         affirm_run_id=scope.run_id,
+        reply_kind=decision.output,
         approved=approved,
     )
     if approved:

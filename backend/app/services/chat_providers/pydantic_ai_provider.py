@@ -135,7 +135,11 @@ def _scaffold_completion_validator(run_state: dict[str, Any]):
                 # The proposal tool is the durable source of truth. Returning
                 # its saved markdown prevents later commentary from replacing
                 # the artifact the user asked Integral to record.
-                return recorded_proposal
+                return (
+                    "Proposed setup — nothing has been built yet.\n\n"
+                    + recorded_proposal
+                    + "\n\nConfirm this setup when you're ready, or tell me what to change."
+                )
         return output
 
     return validate
@@ -892,7 +896,6 @@ class PydanticAIProvider:
                     and design_marker.get("approved")
                     and not design_marker.get("build_receipt")
                 ),
-                "scaffold_coverage_validated": False,
                 "scaffold_coverage_attempted": False,
                 "capability_search_completed": False,
             }
@@ -1026,7 +1029,11 @@ class PydanticAIProvider:
                         approval_instructions = (
                             "Core has recorded the user's approval of the exact "
                             "saved design. Build that design and verify its receipt "
-                            "in this turn. Do not re-propose it or ask approval again."
+                            "in this turn. Approval applies only to that saved "
+                            "blueprint. If the user's reply changes it, save the "
+                            "revision instead: that clears the old approval, so "
+                            "present the revised proposal and wait for approval. "
+                            "Do not re-propose an unchanged approved design."
                         )
                 async with agent.run_stream_events(
                     ctx.text,

@@ -278,6 +278,80 @@ async def _thread(session_id: str) -> ChatThread:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("approved", [False, True])
+async def test_native_amendment_replaces_typed_design_and_invalidates_old_approval(
+    monkeypatch, approved
+):
+    thread = await _thread(f"native-amend-{approved}")
+    thread.provider_id = "integral_native"
+    await thread.save()
+    first = await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id=thread.provider_session_id,
+        summary="Bike Repair",
+        proposal=_PROPOSAL,
+        blueprint=_blueprint(),
+    )
+    thread = await ChatThread.get(thread.id)
+    thread.design_proposed.update(approved=approved, affirm=approved)
+    await thread.save()
+    correction = await ChatMessage.create(
+        role="user",
+        thread_id=thread.id,
+        parts=[{"type": "text", "text": "Remove the due date; the rest looks good."}],
+    )
+    await thread.connect(correction, edge=CONTAINS)
+
+    async def legacy_judge(*args, **kwargs):
+        raise AssertionError("Native proposal amendments must not invoke JV approval")
+
+    monkeypatch.setattr(chat_threads, "looks_like_design_affirm", legacy_judge)
+    amended = _blueprint()
+    amended["tracks"][0]["entry_types"][0]["fields"].pop()
+    result = await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id=thread.provider_session_id,
+        summary="Bike Repair without a due date",
+        proposal=_PROPOSAL.replace(", due date", "") + "No due date will be stored.",
+        blueprint=amended,
+    )
+    assert result.get("ok") is True, result
+    assert result["blueprint_revision"] == 2
+    assert result["blueprint_digest"] != first["blueprint_digest"]
+    current = await ChatThread.get(thread.id)
+    assert current.design_proposed["approved"] is False
+    assert "affirm" not in current.design_proposed
+    assert current.design_proposed["proposed_at_user_turn"] == 2
+    assert current.design_proposed.get("build_receipt") is None
+
+
+@pytest.mark.asyncio
+async def test_native_same_approved_blueprint_cannot_be_reproposed():
+    thread = await _thread("native-same-approved")
+    thread.provider_id = "integral_native"
+    await thread.save()
+    await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id=thread.provider_session_id,
+        summary="Bike Repair",
+        proposal=_PROPOSAL,
+        blueprint=_blueprint(),
+    )
+    thread = await ChatThread.get(thread.id)
+    thread.design_proposed["approved"] = True
+    await thread.save()
+    result = await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id=thread.provider_session_id,
+        summary="Another heading",
+        proposal=_PROPOSAL,
+        blueprint=_blueprint(),
+    )
+    assert result["error"] == "already_proposed"
+    assert (await ChatThread.get(thread.id)).design_proposed["approved"] is True
+
+
+@pytest.mark.asyncio
 async def test_propose_design_records_revisions_and_requires_blueprint_on_amend() -> (
     None
 ):

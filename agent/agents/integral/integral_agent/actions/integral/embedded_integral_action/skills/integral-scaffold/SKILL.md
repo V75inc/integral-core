@@ -282,7 +282,9 @@ Track, no `tag_groups` yet) — never also under `tracks` — and the parent
 entry type carries the field that anchors it:
 `{"key":"details","name":"Details","type":"relation","relation":{"target":"track","target_track_template":"tpl.details"}}`.
 
-For each seed, put only values the user supplied or explicitly approved in
+Start empty unless the user requested sample records or supplied records to
+include. Do not introduce demonstration rows or offer them as a default.
+For each requested seed, put only values the user supplied or explicitly approved in
 `fields`. Leave every other field absent, including dates, locations, status,
 and contact details on a Demo or Example record. Show the exact proposed seed
 values in the design preview. Ask before adding an illustrative value: it
@@ -399,7 +401,7 @@ paths. Do not open a manual batch for a freshly approved design.
    `group_by: custom_fields.<select_field>` and `kanban_columns`; a calendar
    must include `calendar_mapping.dateField`. An empty config produces a
    generic platform view and does not complete a scaffold.
-5. `integral_create_entry` demos unless empty requested — `entry_type` +
+5. `integral_create_entry` only for requested records — `entry_type` +
    structured `fields`; referenced records before dependents. Never put
    `Field: value` lines only in `text`: that supplies a title but leaves every
    operational field empty. For a linked record use a named batch reference,
@@ -484,7 +486,7 @@ User asks for an operational app. Propose directly from the types in this skill:
 track; kanban or `composable_board` on A only if the select exists; calendar
 or `composable_timeline` on C only if date fields exist; no gallery without
 `file`/`files`. Name skills that keep A and C consistent; name any routine
-that watches date fields. Demo seeds exercise A, B, then linked C. Checklist
+that watches date fields. If requested, demo seeds exercise A, B, then linked C. Checklist
 maps 1:1 to those objects.
 
 **On affirm:** one batch — create app → create/shape tracks → save views →
