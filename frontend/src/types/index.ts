@@ -197,6 +197,13 @@ export interface OperationalModelFieldSpec {
   /** Never shown in forms or the entry field list; still stored and readable via the API. */
   hidden?: boolean;
   default?: unknown;
+  /**
+   * Prefill from the parent App's settings at compose/create time.
+   * Key must exist on the App's ``settings_schema`` / ``settings`` bag
+   * (e.g. Finance ``currency`` ← ``default_currency``). Does not lock the
+   * field — the user may still override.
+   */
+  default_from_setting?: string;
   /** Enumerated allowed values. Element type depends on ``type`` — string for
    *  ``select``/``multi_select``, number for numeric enums, etc. */
   enum?: unknown[];

@@ -44,6 +44,31 @@ def _resolve_field_default(raw: Any) -> Any:
     return raw
 
 
+async def _resolve_setting_default(track: Track, setting_key: str) -> Any:
+    """Read one key from the parent App's settings for ``default_from_setting``.
+
+    Returns ``None`` when the track has no App, the key is missing, or the
+    stored value is empty — caller falls through to the normal required check.
+    """
+    key = str(setting_key or "").strip()
+    if not key:
+        return None
+    from app.services.query_boundary import parent_app_for_track
+
+    app_node = await parent_app_for_track(track)
+    if app_node is None:
+        return None
+    settings = getattr(app_node, "settings", None) or {}
+    if not isinstance(settings, dict):
+        return None
+    value = settings.get(key)
+    if value is None:
+        return None
+    if isinstance(value, str) and value.strip() == "":
+        return None
+    return value
+
+
 async def _resolve_or_create_labeled_relation(
     *,
     source_track: Track,
@@ -632,6 +657,18 @@ async def validate_and_materialize_entry_custom_fields(
                     resolved = None
                 if resolved:
                     value = resolved
+
+        # Prefill from parent App settings when the OM declares
+        # ``default_from_setting`` (create only — updates keep explicit clears).
+        if (
+            entry is None
+            and (value is None or (isinstance(value, str) and value.strip() == ""))
+        ):
+            setting_key = str(fd.get("default_from_setting") or "").strip()
+            if setting_key:
+                resolved_setting = await _resolve_setting_default(track, setting_key)
+                if resolved_setting is not None:
+                    value = resolved_setting
 
         # Auto-generate employee_id if left blank on employee creation
         if (

@@ -284,14 +284,22 @@ export function LayoutContainerWidget({ view, entries, isLoading, onEntryOpen }:
         />
       );
     }
+    // Stack/grid/flex already render ``region.title`` as the section label.
+    // Do not also pass it into FormRegionWidget or every form region shows
+    // the heading twice (CONTACT + Contact) — that reads as unfinished chrome.
     const syntheticView: SavedView = {
       ...view,
       id: `${view.id}:${region.key}`,
       type: 'form_region',
       track_id: view.track_id,
+      // Prefer the container's default entry type so form regions on a
+      // multi-type track (e.g. Customers polluted with Invoice) still bind
+      // the contributed entry type's fields.
+      default_entry_type_key:
+        view.default_entry_type_key ||
+        (Array.isArray(view.entry_type_keys) ? view.entry_type_keys[0] : undefined),
       config: {
         fields: region.fields,
-        title: region.title,
         columns: region.columns,
         __bindings: bindings,
       },
