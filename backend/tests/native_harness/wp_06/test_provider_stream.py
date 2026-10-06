@@ -20,6 +20,7 @@ from app.services.chat_providers.base import ChatTurnContext
 from app.services.chat_providers.pydantic_ai_provider import (
     PydanticAIProvider,
     _bind_integral_turn_context,
+    _refresh_staged_history,
     _resume_history,
     _scaffold_completion_validator,
 )
@@ -36,6 +37,74 @@ def _scope(run_id: str) -> HarnessExecutionScope:
         permission_revision="membership-v1",
         capability_version="tools-v1",
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["consumed", "revoked", "expired"])
+async def test_restored_staging_results_use_current_scoped_core_state(
+    monkeypatch, state
+):
+    from pydantic_ai.messages import ModelRequest, ToolReturnPart
+
+    original = {"_kind": "staged_change", "token": "proposal", "state": "pending"}
+    history = [
+        ModelRequest(parts=[ToolReturnPart("integral_create_entry", original, "call")])
+    ]
+    current = SimpleNamespace(
+        user_id="user-a",
+        session_id="session-a",
+        workspace_id="workspace-a",
+        to_dict=lambda: {**original, "state": state},
+    )
+
+    async def get_token(token):
+        assert token == "proposal"
+        return current
+
+    monkeypatch.setattr("app.agentive.staging.get_token", get_token)
+    refreshed = await _refresh_staged_history(history, _scope("next-run"))
+    assert refreshed[0].parts[0].content["state"] == state
+    assert refreshed[0].parts[0].content["state_source"] == "current_core_staging"
+    assert history[0].parts[0].content["state"] == "pending"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mismatch", ["user_id", "session_id", "workspace_id", "missing"]
+)
+async def test_staging_history_never_exposes_foreign_or_unknown_decision(
+    monkeypatch, mismatch
+):
+    from pydantic_ai.messages import ModelRequest, ToolReturnPart
+
+    history = [
+        ModelRequest(
+            parts=[
+                ToolReturnPart(
+                    "integral_create_entry",
+                    {"_kind": "staged_change", "token": "proposal", "state": "pending"},
+                    "call",
+                )
+            ]
+        )
+    ]
+    current = SimpleNamespace(
+        user_id="user-a",
+        session_id="session-a",
+        workspace_id="workspace-a",
+        to_dict=lambda: {"private": "must not appear"},
+    )
+    if mismatch != "missing":
+        setattr(current, mismatch, "another-scope")
+
+    async def get_token(_token):
+        return None if mismatch == "missing" else current
+
+    monkeypatch.setattr("app.agentive.staging.get_token", get_token)
+    refreshed = await _refresh_staged_history(history, _scope("next-run"))
+    assert refreshed[0].parts[0].content["error_code"] == "staging_state_unavailable"
+    assert "private" not in refreshed[0].parts[0].content
+    assert "state" not in refreshed[0].parts[0].content
 
 
 @pytest.mark.asyncio
@@ -72,6 +141,7 @@ async def test_provider_persists_session_and_resumes_previous_run(
     from app.config import settings
 
     monkeypatch.setattr(settings, "INTEGRAL_NATIVE_TURN_TOKEN_LIMIT", token_limit)
+    monkeypatch.setattr(settings, "INTEGRAL_NATIVE_TURN_REQUEST_LIMIT", 20)
     backend = InMemoryStepStore()
     session = _Session()
     scopes = [_scope("run-a"), _scope("run-b")]
@@ -183,7 +253,7 @@ async def test_provider_persists_session_and_resumes_previous_run(
         {"type": "text-delta", "delta": "answer-run-b"}
     ]
     assert len(observed_limits) == 2
-    assert all(limit.request_limit == 10 for limit in observed_limits)
+    assert all(limit.request_limit == 20 for limit in observed_limits)
     assert all(limit.total_tokens_limit == token_limit for limit in observed_limits)
 
 

@@ -17,6 +17,7 @@ from pydantic_ai import (
     FunctionToolCallEvent,
     FunctionToolResultEvent,
     ModelRetry,
+    ModelSettings,
     PartDeltaEvent,
     PartEndEvent,
     PartStartEvent,
@@ -70,6 +71,79 @@ class IntegralToolDisclosure(ToolSearch):
     def get_native_tools(self):
         return []
 
+    def get_model_settings(self):
+        """Require initial discovery through the library's dynamic tool choice.
+
+        Framework-recorded discovery in the current user turn permits normal
+        choice thereafter. An old search cannot select a new workflow. No user-text intent
+        classifier or second planning loop participates in this decision.
+        """
+        inherited = super().get_model_settings()
+
+        def settings(ctx: RunContext[Any]) -> ModelSettings:
+            baseline = inherited(ctx) if callable(inherited) else inherited
+            resolved = ModelSettings(**(baseline or {}))
+            profile = ctx.model.profile
+            # Respect public model capabilities. Conservatively leave models
+            # with thinking-specific restrictions on normal choice rather than
+            # duplicating the library's provider/thinking resolution rules.
+            if not profile.get("supports_forced_tool_choice", True) or not profile.get(
+                "supports_forced_tool_choice_with_thinking", True
+            ):
+                return resolved
+            # Public message boundaries separate the current request from
+            # restored discovery. This is structural turn state, not intent
+            # classification or routing based on the user's wording.
+            turn_start = next(
+                (
+                    index
+                    for index in range(len(ctx.messages) - 1, -1, -1)
+                    if isinstance(ctx.messages[index], ModelRequest)
+                    and any(
+                        isinstance(part, UserPromptPart)
+                        for part in ctx.messages[index].parts
+                    )
+                ),
+                0,
+            )
+            discovered = any(
+                isinstance(part, ToolReturnPart)
+                and part.tool_name in {"search_capabilities", "load_capability"}
+                and not (isinstance(part.content, dict) and part.content.get("error"))
+                for message in ctx.messages[turn_start:]
+                if isinstance(message, ModelRequest)
+                for part in message.parts
+            )
+            if not discovered:
+                resolved["tool_choice"] = ["search_capabilities"]
+            else:
+                candidates = {
+                    item.get("load_with", {}).get("id")
+                    for message in ctx.messages[turn_start:]
+                    if isinstance(message, ModelRequest)
+                    for part in message.parts
+                    if isinstance(part, ToolReturnPart)
+                    and part.tool_name == "search_capabilities"
+                    and isinstance(part.content, dict)
+                    and not part.content.get("error")
+                    for item in part.content.get("results", ())
+                    if isinstance(item, dict)
+                    and item.get("kind") == "skill"
+                    and isinstance(item.get("load_with"), dict)
+                    and item["load_with"].get("tool") == "load_capability"
+                }
+                candidates.discard(None)
+                if candidates and not candidates.intersection(
+                    ctx.active_capability_ids
+                ):
+                    # The model chooses the fitting returned procedure. Core
+                    # metadata requires a procedure to be loaded, without
+                    # selecting it from user wording or assigning authority.
+                    resolved["tool_choice"] = ["load_capability"]
+            return resolved
+
+        return settings
+
     def get_wrapper_toolset(self, toolset):
         return (
             super()
@@ -88,6 +162,7 @@ def build_integral_json_schema_tool(
     json_schema: dict[str, Any],
     prepare: Callable[..., Any] | None,
     defer_loading: bool,
+    sequential: bool = False,
 ) -> Tool[Any, Any]:
     """Adapt an Integral JSON Schema tool to Pydantic AI's callable tool API.
 
@@ -100,6 +175,7 @@ def build_integral_json_schema_tool(
     tool = Tool.from_schema(
         function=function,
         takes_ctx=True,
+        sequential=sequential,
         name=name,
         description=description,
         json_schema=dict(json_schema),
@@ -122,16 +198,40 @@ def build_integral_run_instructions(
 
     def instructions(ctx: RunContext[Any]) -> str:
         active_ids = sorted(ctx.active_capability_ids)
-        if not active_ids:
-            return base_instructions
-        active_list = ", ".join(active_ids)
-        return (
-            f"{base_instructions}\n\n"
-            f"Integral runtime state: these capabilities are already loaded and "
-            f"their instructions are active: {active_list}. Do not call "
-            "load_capability for them again. Continue the current workflow using "
-            "the loaded instructions and their tools."
-        )
+        blocks = [base_instructions]
+        if active_ids:
+            blocks.append(
+                "Integral runtime state: these capabilities are already loaded and "
+                f"their instructions are active: {', '.join(active_ids)}. Do not call "
+                "load_capability for them again. Continue the current workflow using "
+                "the loaded instructions and their tools."
+            )
+        outcomes = {}
+        for message in getattr(ctx, "messages", ()):
+            if not isinstance(message, ModelRequest):
+                continue
+            for part in message.parts:
+                if not isinstance(part, ToolReturnPart) or not isinstance(
+                    part.content, dict
+                ):
+                    continue
+                content = part.content
+                if content.get("state_source") == "current_core_staging":
+                    state = content.get("state")
+                    if state in {"consumed", "revoked", "expired"}:
+                        outcomes[content["token"]] = state
+        if outcomes:
+            blocks.append(
+                "Current Core approval outcomes (authoritative, superseding old "
+                "proposal text and skill instructions to wait): "
+                + "; ".join(f"{token}: {state}" for token, state in outcomes.items())
+                + ". Consumed changes have already been applied: read back their "
+                "saved records and report the result. Revoked changes were rejected: "
+                "acknowledge that they were not applied. Expired changes cannot be "
+                "applied. None of these changes is awaiting approval. Do not replay "
+                "them or ask for approval again."
+            )
+        return "\n\n".join(blocks)
 
     return instructions
 
@@ -139,15 +239,19 @@ def build_integral_run_instructions(
 def build_integral_context_compaction() -> ClearToolResults:
     """Construct the adapter-owned context policy for Integral tool turns.
 
-    Preserve the newest tool result so the model can act on its outcome. Older
-    call arguments and results are recoverable from Integral's durable audit
-    records and should not be replayed into every subsequent provider request.
+    Preserve the recent working set: filing needs the source, destination,
+    schema and duplicate check together before proposing its writes. A fixed
+    12k trigger retaining one result discarded those inputs during ordinary
+    receipt filing. Let the library resolve the model's context window and
+    compact older work only when the request approaches that window. Use a
+    conservative fallback for routes absent from the library's model registry.
     Keep capability-load parts intact because the Harness derives active skill
     state from them.
     """
     return ClearToolResults(
-        max_tokens=12_000,
-        keep_pairs=1,
+        max_fraction=0.7,
+        fallback_context_window=32_768,
+        keep_pairs=8,
         exclude_tools=frozenset({"load_capability"}),
         clear_tool_inputs=True,
     )

@@ -1,6 +1,6 @@
 ---
 name: integral-filing
-description: Files user-supplied unstructured facts—notes, observations, pasted email, or meeting summaries—into the best authorized Track and Entry shape after grounding on its Operational Model. Use when content needs interpretation and placement; use integral-entries for a named record or an explicit structured CRUD request. Stage the filing for approval.
+description: Files user-typed unstructured facts—notes, observations, pasted email, or meeting summaries—into the best authorized Track and Entry shape. For uploaded files or receipts, use integral-attachments first to read the source. Use integral-entries for a named record or explicit structured CRUD request. Clarify ambiguous destinations and stage filing for approval.
 allowed-tools: integral_file_content integral_rank_destinations integral_list_tracks integral_get_track_schema integral_query_entries
 ---
 
@@ -18,15 +18,21 @@ workspace's configured structure before filing — track titles, entry type name
 and field keys come from tool results **this turn**, not from memory, training
 priors, or example content.
 
-Call `integral_rank_destinations` before staging. Tell the user, in plain
-words, which track leads and the reason the tool gave. When `prefer_skill`
-is set, do not file. Tell the user that App skill handles this kind of note,
-and let that skill take it. When `no_fit` wins, do not file the note into a
-track. Follow `route` / `route.stage`: `new_app` (scaffold), `new_track`
-(create a track on the named App), or `new_entry_type` (add a type on the
-named track). `preserve` is stored on the session as `no_fit.preserve` and
-filed once after that structure is approved — do not drop it and do not
-file it twice.
+Call `integral_rank_destinations` before staging. Its candidates and `no_fit`
+are advisory evidence, not authority to create structure. If the note does not
+say what was checked, which object it concerns, or what kind of work it records,
+ask one concise clarification naming the relevant existing App/Track choices.
+An underspecified note is not proof that a new Track or App is needed. Wait for
+the answer before staging a write or proposing new structure. Do not invent a
+record identity or classify an ambiguous observation from generic shared words.
+
+When one destination is clear, use its selected schema and stage directly.
+When `prefer_skill` identifies an installed procedure, discover and load that
+procedure yourself and continue; do not ask the user to load it or imply this
+requires another permission. Only use the appropriate setup skill for genuinely missing structure after
+the user need and destination are understood. Preserve
+that original content through the approved setup so it is filed once, not lost
+or duplicated.
 
 | You need | Call |
 |----------|------|
@@ -35,6 +41,14 @@ file it twice.
 | Entry types, fields, tags for a track | `integral_get_track_schema(track_id=…)` |
 | Stage one entry (one approval card) | `integral_file_content` |
 | Check for duplicates | `integral_query_entries` or ranking `likely_entries` |
+
+Ranked `likely_entries` and search hits are candidates, not duplicate proofs.
+Read the candidate's identifying facts before updating, appending, linking or
+attaching content to it. Different reference numbers, subjects or transactions
+mean different records even when their titles share words. Use the authorized
+schema to create a new record for new facts. When the destination or identity
+is genuinely ambiguous, ask one concise question naming the App/Track choices
+before staging any write; do not guess or create another App as a shortcut.
 
 `integral_file_content` is a **propose** tool — it stages one facet the user
 blesses in Integral. `mode=create` (default) files a new entry; `mode=update`
@@ -45,10 +59,8 @@ Compound filing = **multiple calls in the same turn**, one per facet.
 **Required params per call:** `text`, `type_hint`, and `track_id` or
 `track_hint`. Strongly recommended: `title`, `fields`.
 
-`integral_file_content` is pinned on the lean surface every turn so filing
-can start without a discovery hop. List/schema/query tools are **not**
-always pinned — call `use_skill` for this skill (or `find_tool`) before
-introspecting when they are absent from the turn's tool list.
+Load this skill through the harness's available capability discovery surface.
+Reuse its loaded procedure and tools rather than rediscovering the same workflow.
 
 ## When to use this
 
@@ -107,14 +119,18 @@ Do not echo these markers in replies.
 **Never assume** track names, entry type names, or field keys. Every workspace
 configures its own Operational Model. Filing decisions flow from introspection:
 
-1. **`integral_list_tracks`** — list tracks visible in the active workspace.
-   Use returned `title` and `id` values only.
-2. **`integral_get_track_schema`** — for each track you might file into, read
-   `entry_types` (names, keys, `form_schema` fields), `tags`, and `views`.
-3. **Match facets to schema** — pick `track_hint` / `type_hint` from returned
-   titles and entry type names; map `fields` to returned field `key`s; shape
-   `title` from whichever field the schema marks as primary display (or the
-   first prominent text field).
+1. Read the factual source first. For an attachment, use `integral-attachments`
+   to obtain its contents; filenames alone are not filing evidence.
+2. Call `integral_rank_destinations` with those facts. Select the appropriate
+   authorized App and Track from the returned evidence. Use `integral_list_tracks`
+   only if the returned candidates do not identify a suitable destination.
+   Do not read every track's schema as a routine preliminary step.
+3. Read `integral_get_track_schema` for the selected destination once. Map
+   `fields` to returned field keys and choose `type_hint` from its entry types.
+   If multiple App/Track choices are genuinely plausible, ask one concise
+   question naming those choices before proposing any write.
+4. Check candidate record identity before staging. Similarity is not proof of
+   a duplicate; a distinct document reference describes a new record.
 
 If the user is already focused on a track (UI context / `focused_track_id`),
 still call `integral_get_track_schema` for that track **this turn** unless you

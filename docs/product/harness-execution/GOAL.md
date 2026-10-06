@@ -135,6 +135,29 @@ count, scaffolding, or the amount of code written.
   surfaces are outside the V1 critical path unless required for an ordinary
   Integral user workflow.
 
+- Post-build browser CRUD now has persisted OpenAI create/read/update and
+  recoverable delete evidence in the agent-created Delivery Register. Receipt
+  filing selects the destination, maps typed fields, and attaches the source in
+  one batch after an ordinary request. Earlier wrong-target and incomplete
+  proposals were rejected before applying. Keep their failure evidence.
+- Pydantic's public sequential tool barriers own stateful operation ordering;
+  independent reads remain parallel eligible. Discovery is renewed at the
+  public message boundary for each new request so changing workflows does not
+  require a user to name or authorize loading a capability. This adds no intent
+  classifier, lexical gate, custom planner or execution loop.
+- Open gaps from these real inputs include chat disabled during pending record
+  approval, earlier automatic replies incorrectly reporting pending state,
+  narrative/typed-field inconsistency after an update, and model claims broader
+  than an active-record search proves. Qualify corrections on actual user
+  journeys rather than considering source assertions sufficient.
+- GLM control also qualifies ordinary PDF filing, typed recipient update with
+  source attachment retained, recoverable deletion and subsequent read denial
+  in the same conversation. Text PDFs are qualified; photo/OCR remains open.
+- Destination ranking no longer turns low text similarity into a new App/Track
+  route or writes an automatic preservation artifact. It is an advisory read;
+  the loaded procedure asks about an unclear subject/destination and proposes
+  setup only for an understood need that existing structure cannot serve.
+
 ## Completion contract
 
 The normal experience is a useful result as soon as the user's authorization
@@ -158,6 +181,15 @@ substitute for acceptance of the resident user experience.
 
 ## Evidence required
 
+- After an agent creates an App, qualify ordinary record requests in that App:
+  add, file, search, read, update and delete disposable test records, then
+  verify the persisted outcome and search again. Exercise both explicit and
+  inferred destinations without naming skills or tools in the user's request.
+- Qualify attachment-driven filing with a synthetic receipt: interpret its
+  contents, discover the appropriate authorized App and Track, preserve the
+  attachment's provenance, and verify the resulting record. When destinations
+  are ambiguous, ask one concise question before writing; do not guess, create
+  duplicate structure, or claim an unsupported attachment was interpreted.
 - Independently validate each integration slice through the applicable
   repository gates; satisfy the commit gates before committing.
 - Run real browser smoke tests in every build/test round and for every major

@@ -172,6 +172,22 @@ async def test_minimal_app_without_optional_features_verifies():
     )
     assert result["status"] == "verified"
     assert {item["status"] for item in result["items"]} == {"present"}
+    assert result["resources"] == [
+        {
+            "blueprint_item_id": "app",
+            "kind": "app",
+            "id": "a1",
+            "name": "Bike Repair",
+            "url": "/apps/a1",
+        },
+        {
+            "blueprint_item_id": "track.jobs",
+            "kind": "track",
+            "id": "t1",
+            "name": "Jobs",
+            "url": "/tracks/t1",
+        },
+    ]
     assert all(
         item["id"] not in {"dash", "skill.x", "routine.x"} for item in result["items"]
     )
@@ -207,6 +223,7 @@ async def test_denied_read_is_not_missing_or_verified():
     )
     assert result["status"] == "blocked"
     assert {item["status"] for item in result["items"]} == {"denied"}
+    assert result["resources"] == []
 
 
 @pytest.mark.asyncio
@@ -221,6 +238,7 @@ async def test_failed_read_is_not_missing_or_verified():
     )
     assert result["status"] == "failed"
     assert {item["status"] for item in result["items"]} == {"read_failed"}
+    assert result["resources"] == []
 
 
 @pytest.mark.asyncio
@@ -371,6 +389,24 @@ async def test_a_deleted_object_reads_as_missing_not_denied():
     assert await reader.read({"kind": "app", "object_id": "n.App.gone"}) is None
     assert await reader.read({"kind": "track", "object_id": "n.Track.gone"}) is None
     assert await reader.read({"kind": "seed", "object_id": "n.Entry.gone"}) is None
+
+
+@pytest.mark.asyncio
+async def test_verify_rejects_another_workspace_before_reading(monkeypatch):
+    """Same-principal access elsewhere must not widen a scoped tool read."""
+
+    async def found(_user_id, _design_id):
+        return SimpleNamespace(workspace_id="other-workspace"), {
+            "blueprint": {"private": "not visible"}
+        }
+
+    monkeypatch.setattr(bv, "_find_design", found)
+    result = await verify_build(
+        "user", "design", 1, "receipt", workspace_id="active-workspace"
+    )
+    assert result["error"] == "design_not_found"
+    assert "blueprint" not in result
+    assert "resources" not in result
 
 
 @pytest.mark.asyncio

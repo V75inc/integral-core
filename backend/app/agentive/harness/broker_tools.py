@@ -114,6 +114,7 @@ def _make_handler(
     call_state: dict[str, Any],
     no_workspace_writes: bool,
     design_only: bool,
+    workflow_skills: frozenset[str] = frozenset(),
 ):
     """Freeze capability identity and host scope into one function tool."""
 
@@ -175,6 +176,21 @@ def _make_handler(
                     f"Load the {required_skill} skill with load_capability before "
                     f"calling {capability_name}. Use the initial capability "
                     "search results or search_capabilities to find it."
+                ),
+                "retryable": False,
+            }
+        if workflow_skills and not workflow_skills.intersection(
+            ctx.active_capability_ids
+        ):
+            return {
+                "error": True,
+                "error_code": "required_skill_not_loaded",
+                "message": (
+                    "Load the relevant authorized workflow with load_capability "
+                    "before proposing this change, then follow its procedure. "
+                    "The skills declaring this tool are: "
+                    + ", ".join(sorted(workflow_skills))
+                    + ". Choose the one that fits the user's request."
                 ),
                 "retryable": False,
             }
@@ -377,6 +393,14 @@ def build_brokered_tools(
             call_state=call_state,
             no_workspace_writes=no_workspace_writes,
             design_only=design_only,
+            # Standard skill/tool relationships, never user-text intent, bind
+            # protected Core writes to their procedure. Reads remain directly
+            # discoverable; loading a skill does not grant write authority.
+            workflow_skills=(
+                frozenset(skill_owners.get(name, ()))
+                if source == "core" and op_class != "read"
+                else frozenset()
+            ),
         )
 
         # Integral's capability broker validates the exact JSON schema from
@@ -395,6 +419,10 @@ def build_brokered_tools(
                     frozenset(skill_owners.get(name, ())),
                 ),
                 defer_loading=name not in immediately_available,
+                # Public Pydantic barriers preserve model-emitted order for
+                # stateful Core writes, including batch start/append/commit.
+                # Independent reads remain eligible for parallel execution.
+                sequential=op_class != "read",
             )
         )
     if skill_library is not None:

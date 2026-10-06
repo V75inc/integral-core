@@ -1009,15 +1009,13 @@ domains:
           Rank where a note could be filed. For each facet, returns the open
           tracks the caller may use, with schema overlap, which supplied fields
           land, which required fields are missing, a small history prior,
-          likely existing entries (update or link those; do not duplicate),
-          and a no_fit score. When no_fit wins, route names the smallest
-          structure to add (new_app / new_track / new_entry_type) and preserve
-          holds the note to file once after that lands. prefer_skill is set
-          when the note overlaps an App skill's declared intake domain; defer
-          to that skill instead of filing. Embeddings are null when this
-          deployment has none. Does not classify the text and does not stage
-          an entry. Tell the user the why. When no_fit wins, do not file it
-          into a track.
+          candidate existing entries (verify identity; shared words do not prove a duplicate),
+          and a no_fit score. Scores and prefer_skill are advisory candidates.
+          A low score does not prove missing structure: clarify an unclear
+          subject or App/Track before proposing a setup. Never choose the first
+          App or invent a new Track from ranking alone. Embeddings are null
+          when this deployment has none. This is a side-effect-free read; it
+          does not classify the text, preserve an artifact or stage a write.
         http: "(destination rank service)"
         policy_action: null
         params:

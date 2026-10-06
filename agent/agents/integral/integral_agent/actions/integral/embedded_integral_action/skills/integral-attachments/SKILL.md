@@ -1,7 +1,7 @@
 ---
 name: integral-attachments
-description: Lists, reads, files, and delivers files attached to Integral entries — including across a whole track or workspace, and files the user just dropped in this chat. Use when the user asks what is attached, wants file contents summarized, or asks to attach/file/post a chat-uploaded file into an entry.
-allowed-tools: integral_list_attachments integral_list_track_attachments integral_list_workspace_attachments integral_get_attachment_text integral_transcribe_audio integral_attach_file integral_attach_uploaded_file_to_entry integral_attach_uploaded_image_to_entry integral_resolve_entry integral_query_entries integral_begin_batch integral_commit_batch integral_create_entry
+description: Reads and interprets uploaded documents, PDFs and receipts, then files the source attachment with the matching authorized App, Track and record. Use first for a file dropped in chat, including “file this where it belongs”. Also lists, summarizes and delivers existing entry attachments across a track or workspace. Clarify ambiguous destinations before writing.
+allowed-tools: integral_list_attachments integral_list_track_attachments integral_list_workspace_attachments integral_get_attachment_text integral_transcribe_audio integral_attach_file integral_attach_uploaded_file_to_entry integral_attach_uploaded_image_to_entry integral_resolve_entry integral_query_entries integral_rank_destinations integral_list_tracks integral_get_track_schema integral_begin_batch integral_commit_batch integral_create_entry
 ---
 
 # Integral attachments — SOP
@@ -36,15 +36,25 @@ entry.
 
 ## When NOT to use this
 
-- Entry create/update/delete, comments, tags → **`integral-entries`**
-  (create/identify the entry there first, THEN come back here to attach a
-  chat-uploaded file to it).
+- Entry create/update/delete without a file, comments, tags → **`integral-entries`**.
+  This skill owns the combined record-and-attachment workflow when filing an
+  uploaded document; follow the procedure below without bouncing between skills.
 - Filing freeform user-typed content (not a file) → **`integral-filing`**.
 - Analytics/rollups across many entries → **`integral-insights`**.
 
 ## Grounding — resolve the entry first
 
 You need an `entry_id` before listing its attachments. Never fabricate one.
+
+For a newly supplied receipt or other document, read its contents first. A
+search hit is a candidate, not proof that it is the same record. Check the
+document's identifying facts against the saved entry, including its reference
+number and subject. Similar words or filenames do not establish identity. If
+the document describes a different transaction, create its own record in the
+appropriate authorized track and attach the source there in one batch. Never
+attach it to a loosely related record merely because search returned that
+record. If the App, Track or record identity remains ambiguous, ask one concise
+question naming the actual choices and wait before proposing the write.
 
 1. If the user is focused on an entry (UI context / a prior tool result this
    turn), use that id.
@@ -92,6 +102,21 @@ and can render an empty "No attachments on this entry" card.
    don't guess at the recording's contents.
 3. **File a chat-uploaded file into an entry** — when the user asks to
    attach/file/post a file they just dropped in this chat:
+   - Rank destinations with the extracted facts using
+     `integral_rank_destinations`. Choose the appropriate authorized App and
+     Track. Use `integral_list_tracks` only if the ranking does not supply a
+     usable destination; do not inspect every track as a preliminary ritual.
+   - For a new record, read the selected `integral_get_track_schema` once and
+     map the document's facts to its actual typed fields. Pass those values in
+     `integral_create_entry.fields`, including available identifying references,
+     dates and subjects. A body containing those facts is not a substitute for
+     filling the matching structured fields. Do not invent absent values.
+   - Check possible duplicates by their identifying facts. A different document
+     reference is a different record, even if a search hit shares its words.
+   - If one destination clearly fits, stage the combined write directly. The
+     user's request to file already asks for this work; do not ask whether they
+     want you to prepare it, or ask them to choose an App without a real ambiguity.
+     If choices remain ambiguous, ask one concise App/Track question and wait.
    a. **Entry already exists** (resolved via `integral_resolve_entry` /
       `integral_query_entries`, or UI-focused): call
       `integral_attach_uploaded_file_to_entry(entry_id=<real id>,
@@ -117,11 +142,13 @@ both proposals — neither writes anything until approved, so the entry has
 no real id until its own card is blessed. Chaining them as two independent
 tool calls cannot work (there is no id yet to pass to the second call).
 Instead, group them into ONE approval using the batch tools (same pattern
-as the `integral-scaffold` skill):
+as the `integral-scaffold` skill). Issue these dependent steps in order and
+wait for each tool result before issuing the next; a batch reference cannot
+refer to an operation that has not been staged yet:
 
 1. `integral_begin_batch(label="File <filename> into <post title>")`.
 2. `integral_create_entry(track_id=<id>, title=<post title>, body=<post
-   text>)` — the **first** op after `begin_batch`.
+   text>, fields=<mapped schema fields>)` — the **first** op after `begin_batch`.
 3. `integral_attach_uploaded_file_to_entry(entry_id="{{entry.id}}",
    attachment_id=<real chat attachment id>)` — the literal string
    `{{entry.id}}` (or, with several entries in one batch, the named

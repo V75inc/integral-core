@@ -1,4 +1,4 @@
-plan_revision: 29
+plan_revision: 30
 goal_file: docs/product/harness-execution/GOAL.md
 goal_recalibrated_at: "2026-10-05"
 goal_amendment: thin_library_owned_runtime_remove_native_legacy_routing_and_qualify_complete_user_journeys
@@ -19,6 +19,26 @@ candidate:
   pydantic_ai: 2.54.0
   backend_lock_resolved: true
 verification:
+  post_build_crud_and_filing_2026_10_06:
+    evidence: docs/product/harness-evidence/crud-filing-2026-10-06/README.md
+    previous_checkpoint_commit: ad32b374
+    browser_openai_create_search_update: passed_typed_fields_with_body_consistency_gap
+    browser_openai_receipt_interpret_destination_schema_attach: passed_after_six_candidate_rounds
+    browser_openai_receipt_actual_entry_panel: passed_correct_record_pdf_attachment
+    browser_openai_delete_active_readback: passed_recoverable_delete_after_turn_discovery_fix
+    browser_openai_post_approval_outcome: passed_delete_and_comment_readback_other_outcomes_pending
+    browser_ambiguity: passed_one_clarification_and_actual_existing_drill_comment
+    browser_glm_control: passed_receipt_filing_update_recoverable_delete_and_post_delete_read
+    browser_glm_actual_entry_panel: passed_updated_typed_fields_source_pdf_retained
+    browser_post_delete_actual_track: passed_only_retained_test_delivery_002_active
+    natural_staged_record_approval: blocked_by_prompt_sheet_composer_ui
+    model_context_compaction: public_fractional_policy_preserves_eight_pairs_and_loaded_skills
+    stateful_tool_execution: public_pydantic_sequential_barriers
+    native_default_request_limit: 20
+    default_aggregate_turn_tokens: 300000
+    source_gate: passed_full_make_verify
+    reproducible_wheel_sha256: 1a386da81bdc3423f15970f1e69d2429a976b99686b3de7f464530c75766ec30
+    frontend_suite: passed_1306_tests_220_files
   native_amendment_2026_10_05:
     previous_checkpoint_commit: 977a9706
     previous_checkpoint_pushed: true

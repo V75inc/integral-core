@@ -57,8 +57,10 @@ def test_runtime_uses_zero_cost_compaction_and_session_scoped_search() -> None:
         item for item in _capabilities(agent) if isinstance(item, ConversationSearch)
     )
 
-    assert compaction.max_tokens == 12_000
-    assert compaction.keep_pairs == 1
+    assert compaction.max_tokens is None
+    assert compaction.max_fraction == 0.7
+    assert compaction.fallback_context_window == 32_768
+    assert compaction.keep_pairs == 8
     assert compaction.exclude_tools == frozenset({"load_capability"})
     assert compaction.clear_tool_inputs is True
     assert search.effective_scope == "conversation"
