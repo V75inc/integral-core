@@ -771,8 +771,7 @@ def _normalize_ui_contributions(raw: Any, *, where: str) -> List[Dict[str, Any]]
         if not has_ext and not has_native:
             raise BadRequestError(
                 message=(
-                    f"{where}[{idx}] requires extension_view_key or "
-                    f"view/view_type"
+                    f"{where}[{idx}] requires extension_view_key or " f"view/view_type"
                 )
             )
         contrib: Dict[str, Any] = {"placement": placement}
@@ -789,7 +788,9 @@ def _normalize_ui_contributions(raw: Any, *, where: str) -> List[Dict[str, Any]]
         layout = str(ed.get("layout") or "").strip().lower()
         if layout:
             contrib["layout"] = layout
-        if ed.get("owns_form") is True or str(ed.get("owns_form") or "").strip().lower() in (
+        if ed.get("owns_form") is True or str(
+            ed.get("owns_form") or ""
+        ).strip().lower() in (
             "true",
             "1",
             "yes",
@@ -2962,7 +2963,9 @@ def _parse_manifest_tools(
             # Only honoured for a tool that is itself a write tool (so an assistant runs it
             # behind an approval card; a button click is the person's own approval).
             "connector_writes": [
-                str(x).strip() for x in (ed.get("connector_writes") or []) if str(x).strip()
+                str(x).strip()
+                for x in (ed.get("connector_writes") or [])
+                if str(x).strip()
             ],
         }
         out.append(spec)
@@ -3830,6 +3833,12 @@ def compile_canonical_manifest(
                             "must be boolean"
                         )
                     )
+                if "nav_visible" in td and not isinstance(td.get("nav_visible"), bool):
+                    raise BadRequestError(
+                        message=(
+                            f"app_node.tracks[{tname!r}].nav_visible must be boolean"
+                        )
+                    )
                 public_share = _normalize_public_share_spec(
                     td.get("public_share"),
                     where=f"app.tracks[{tname!r}].public_share",
@@ -3843,6 +3852,9 @@ def compile_canonical_manifest(
                             "provision_on_create": bool(
                                 td.get("provision_on_create", True)
                             ),
+                            # When false, Track is provisioned / addressable but
+                            # omitted from default App nav lists (see Track.nav_visible).
+                            "nav_visible": bool(td.get("nav_visible", True)),
                             # Declared intent only — never auto-minted. The
                             # owner's explicit enable mints the token.
                             **({"public_share": public_share} if public_share else {}),
@@ -4197,9 +4209,7 @@ def normalize_entry_type_form_schema(
     }
     canvas = raw.get("canvas")
     if canvas is not None:
-        out["canvas"] = _normalize_canvas(
-            canvas, where="entry_type.form_schema.canvas"
-        )
+        out["canvas"] = _normalize_canvas(canvas, where="entry_type.form_schema.canvas")
     manifest_key = str(raw.get("_manifest_entry_type_key") or "").strip()
     if manifest_key:
         out["_manifest_entry_type_key"] = manifest_key

@@ -182,7 +182,9 @@ def _list_tracks_params(args: Dict[str, Any]) -> Dict[str, Any]:
     app's id. The open app replaces that id. A turn with no focused app
     keeps the id the model passed.
     """
-    out = _pick("cursor", "limit", "app_id", "include_total")(args)
+    out = _pick("cursor", "limit", "app_id", "include_total", "include_nav_hidden")(
+        args
+    )
     focused = _focused_app_id()
     if focused:
         out["app_id"] = focused
@@ -190,7 +192,7 @@ def _list_tracks_params(args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 _list_tracks_params.picked_keys = frozenset(  # type: ignore[attr-defined]
-    {"cursor", "limit", "app_id", "include_total"}
+    {"cursor", "limit", "app_id", "include_total", "include_nav_hidden"}
 )
 
 

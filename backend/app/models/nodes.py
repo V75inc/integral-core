@@ -531,6 +531,11 @@ class Track(Node):
     # personal workspace). Additive field — existing Tracks default to ""; no
     # migration. CONTEXT lock #1 / RESEARCH §Q7 Option A.
     kind: str = ""
+    # App navigation visibility. False = omit from default App track lists /
+    # Feed filters while the Track remains addressable (direct URL, pins,
+    # agent tools with include_nav_hidden). Sourced from OM app.tracks[].
+    # Additive — existing Tracks default True; no migration.
+    nav_visible: bool = True
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 

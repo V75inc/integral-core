@@ -1092,34 +1092,46 @@ async def sync_attached_manifest(operational_model: OperationalModel) -> None:
             edge=["DEFINES_TRACK_PROFILE"], node=["OperationalModel"]
         )
 
-        tracks_list = []
-        for tcp in template_cps:
-            tcp_manifest = tcp.manifest or {}
-            tcp_tier = tcp_manifest.get("track", {})
-            tracks_list.append(
-                {
-                    "key": str(
-                        tcp_manifest.get("package", {}).get("name")
-                        or _slug(str(tcp.name or ""))
-                    ),
-                    "name": str(tcp.name or ""),
-                    "provision_on_create": bool(
-                        (tcp_manifest.get("package") or {}).get(
-                            "provision_on_create", False
-                        )
-                    ),
-                    "entry_types": list(tcp_tier.get("entry_types", [])),
-                    "views": list(tcp_tier.get("views", [])),
-                    "taxonomy": dict(tcp_tier.get("taxonomy", {})),
-                }
-            )
-
         old_defaults = (existing.get("app") or {}).get("defaults", {})
         old_relations = (existing.get("app") or {}).get("relations", [])
         # Operational / ADR-012 layers are not reconstructed from graph nodes —
         # preserve them from the existing attached manifest so sync does not
         # silently strip hooks/tools/operations/queries after install.
         old_app = existing.get("app") or {}
+        old_tracks_by_key = {
+            str(t.get("key") or ""): t
+            for t in list(old_app.get("tracks") or [])
+            if isinstance(t, dict) and str(t.get("key") or "").strip()
+        }
+
+        tracks_list = []
+        for tcp in template_cps:
+            tcp_manifest = tcp.manifest or {}
+            tcp_tier = tcp_manifest.get("track", {})
+            key = str(
+                tcp_manifest.get("package", {}).get("name")
+                or _slug(str(tcp.name or ""))
+            )
+            prior = old_tracks_by_key.get(key) or {}
+            tracks_list.append(
+                {
+                    "key": key,
+                    "name": str(tcp.name or ""),
+                    "provision_on_create": bool(
+                        prior.get(
+                            "provision_on_create",
+                            (tcp_manifest.get("package") or {}).get(
+                                "provision_on_create", False
+                            ),
+                        )
+                    ),
+                    # Track node flag is not on template CPs — keep prior OM value.
+                    "nav_visible": bool(prior.get("nav_visible", True)),
+                    "entry_types": list(tcp_tier.get("entry_types", [])),
+                    "views": list(tcp_tier.get("views", [])),
+                    "taxonomy": dict(tcp_tier.get("taxonomy", {})),
+                }
+            )
 
         manifest = {
             "operational_model_schema_version": 2,
