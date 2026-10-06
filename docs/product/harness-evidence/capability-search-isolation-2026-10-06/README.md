@@ -132,10 +132,10 @@ reported no match. It did not create a record, propose an App, make extra
 variant searches, or search conversation history. It invited the user to
 provide another identifier or detail if needed.
 
-These runs show improved behavior for this exact-identifier read. The earlier
-`integral_query` `internal_error` remains unresolved for semantic/conceptual
-queries; this change makes no claim to fix that route. Existing-workspace hits,
-cross-workspace lookup, and semantic-retrieval recovery remain separate
+These runs show improved behavior for this exact-identifier read. At this
+point, the earlier `integral_query` `internal_error` remained unresolved for
+semantic/conceptual queries; a later investigation and fix are recorded below.
+Existing-workspace hits and cross-workspace lookup remain separate
 qualification cases.
 
 The final source revision passed `make verify`: substrate guards,
@@ -144,3 +144,46 @@ CI-faithful backend smoke, 1,308 frontend tests, and the full backend suite.
 PostgreSQL, Atlas, and seeded-package integrations skipped where their required
 services or fixtures were unavailable. The normal frontend lint warning
 backlog remains non-blocking.
+
+## Follow-up: pgvector capability fallback — 2026-10-06
+
+The correct branch UI/runtime is `127.0.0.1:9012` → `127.0.0.1:4011`, with
+the isolated `integral_v1_branch` PostgreSQL database and Integral AI native
+harness. An ordinary browser request asked:
+
+> Can you find anything about keeping company equipment in good working condition?
+
+The native harness selected `integral_query` in `hybrid` mode. Before the fix,
+the local PostgreSQL server rejected `CREATE EXTENSION IF NOT EXISTS vector`
+with SQLSTATE `0A000` because pgvector was not installed. The adapter leaked
+that known deployment capability gap to generic dispatch handling, producing
+`internal_error`. The model then made broad keyword and workspace reads to
+recover, taking 25.4 seconds and 38.3k tokens across seven steps.
+
+The fix adds a provider-neutral `EmbeddingStoreUnavailable` signal. The
+pgvector adapter raises it only for PostgreSQL's specific missing-vector
+extension error; permission failures and unrelated database errors still
+propagate. The retrieval boundary recognizes the signal, marks semantic
+retrieval unavailable for the process, and falls back to the existing
+permission-gated graph path. A direct dispatch against the same isolated
+database returned `mode: graph`, `requested_mode: hybrid`, `degraded: true`,
+and zero results rather than an error.
+
+After the fix, a fresh lay-user browser request asked:
+
+> Do we have anything filed about keeping equipment serviceable?
+
+The live run used `provider_id: integral_native`, `provider_label: Integral AI`,
+and `ollama_chat/glm-5.3:cloud`. Debug showed one `integral_query` call with
+`isError: false`; its result had `mode: graph`, `requested_mode: hybrid`, and
+`degraded: true`. The assistant accurately reported no matching data in the
+empty workspace and did not expose an internal error. It took 2m29s (73.4k
+tokens; cost unavailable) and six steps. The semantic error is fixed, but this
+run also exposed excessive latency/token use and unnecessary capability
+discovery/loading; this is not V1 acceptance.
+
+Focused regression coverage passes for adapter translation, preservation of
+unrelated PostgreSQL errors, and graph fallback. The isolated branch database
+does not have pgvector, so the live pgvector integration suite remains
+unavailable; its real failure was reproduced by in-process dispatch against
+that same database before the fix.

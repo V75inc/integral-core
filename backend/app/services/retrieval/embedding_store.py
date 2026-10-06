@@ -37,6 +37,15 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Protocol, Tuple, runtime_checkable
 
 
+class EmbeddingStoreUnavailable(RuntimeError):
+    """A configured embedding store cannot serve semantic searches here.
+
+    Drivers translate only known deployment-capability failures into this
+    provider-neutral signal. Retrieval can then degrade to the authorized graph
+    path without hiding authentication, query, or programming errors.
+    """
+
+
 @runtime_checkable
 class EmbeddingStore(Protocol):
     """Protocol for pluggable embedding stores."""
@@ -89,4 +98,4 @@ class EmbeddingStore(Protocol):
         ...
 
 
-__all__ = ["EmbeddingStore"]
+__all__ = ["EmbeddingStore", "EmbeddingStoreUnavailable"]
