@@ -706,7 +706,6 @@
         "integral_register_track_template",
         "integral_save_view",
         "integral_schedule_task",
-        "integral_upsert_artifact",
         "integral_verify_build",
         "integral_whoami"
       ],
@@ -1611,8 +1610,7 @@
       "op_class": "propose",
       "policy_action": null,
       "skills": [
-        "integral-artifacts",
-        "integral-scaffold"
+        "integral-artifacts"
       ],
       "status": "existing"
     },

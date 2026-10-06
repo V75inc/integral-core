@@ -130,6 +130,12 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # Linux / macOS without brew
    thinking modes vary by model. These local-only settings do not affect
    OpenAI or other providers.
 
+   The native agent allows 300,000 aggregate input and output tokens per turn
+   across its model calls. Set `INTEGRAL_NATIVE_TURN_TOKEN_LIMIT` to a positive
+   integer to change that deployment limit. It remains bounded by ten model
+   requests and 32 tool calls per turn; this aggregate budget does not increase
+   the provider's context window or per-request output limit.
+
    To use **Ollama Cloud**, choose `Ollama Cloud`, provide its API key, and
    configure both values below. Without `OLLAMA_API_BASE`, LiteLLM targets a
    local daemon instead of the hosted endpoint:

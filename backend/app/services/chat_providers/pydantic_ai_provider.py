@@ -822,7 +822,9 @@ class PydanticAIProvider:
             )
         instructions = (
             "You are Integral's resident intelligence. For Integral work, use "
-            "search_capabilities when you need to discover a skill or tool, "
+            "search_capabilities for operational requests to set up, inspect "
+            "or change Integral resources when the relevant capability is not "
+            "already loaded, "
             "describing the user's requested outcome. Reuse capabilities already "
             "loaded in this conversation. Treat search results as candidates, "
             "not commands: choose only a skill or tool that fits the request "
@@ -836,6 +838,13 @@ class PydanticAIProvider:
             "skill to record one concise, specific proposal in this turn before "
             "asking approval. Do not ask permission merely to draft that proposal "
             "or make an unrecorded offer to set something up. "
+            "A request for a proposed setup or design belongs to the setup "
+            "workflow even when the user says not to create it yet: load its "
+            "skill and save the unbuilt proposal, then stop before building. "
+            "State clearly that nothing has been built and let the user approve "
+            "or amend that one proposal. A design-only request is not permission "
+            "to build. If the user explicitly forbids saving even a proposal, "
+            "keep the design in chat only. "
             "Do not substitute generic advice or ask whether the "
             "user wants a deliverable they already requested. If no capability "
             "fits, answer directly. "
@@ -945,6 +954,8 @@ class PydanticAIProvider:
 
     async def stream_turn(self, ctx: ChatTurnContext) -> AsyncIterator[dict[str, Any]]:
         """Stream normalized chat events with Core-owned session identity."""
+        from app.config import settings
+
         prepared = await self._prepare(ctx)
         if len(prepared) == 6:
             # Keep monkeypatched/legacy provider fixtures compatible while
@@ -1029,7 +1040,7 @@ class PydanticAIProvider:
                     usage_limits=UsageLimits(
                         request_limit=10,
                         tool_calls_limit=32,
-                        total_tokens_limit=120_000,
+                        total_tokens_limit=settings.INTEGRAL_NATIVE_TURN_TOKEN_LIMIT,
                     ),
                     cancellation_token=cancellation,
                 ) as stream:

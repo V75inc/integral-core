@@ -1,4 +1,4 @@
-plan_revision: 27
+plan_revision: 28
 goal_file: docs/product/harness-execution/GOAL.md
 goal_recalibrated_at: "2026-10-05"
 goal_amendment: thin_library_owned_runtime_remove_native_legacy_routing_and_qualify_complete_user_journeys
@@ -19,6 +19,19 @@ candidate:
   pydantic_ai: 2.54.0
   backend_lock_resolved: true
 verification:
+  native_routing_and_token_budget_2026_10_05:
+    previous_checkpoint_commit: b85cf5ab
+    previous_checkpoint_pushed: true
+    default_aggregate_turn_tokens: 300000
+    deployment_setting: INTEGRAL_NATIVE_TURN_TOKEN_LIMIT
+    request_preparation_and_budget_regressions: passed_37_tests
+    native_legacy_intent_helpers: excluded_from_native_request_preparation
+    browser_glm_design_only_saved_proposal: passed_136000_tokens_six_calls_no_build
+    browser_glm_natural_amendment: failed_hidden_proposal_tool_build_preflight_rejected
+    browser_openai_design_only_saved_proposal: failed_plain_chat_without_tools
+    repository_commit_gate: passed_full_make_verify
+    reproducible_wheel_sha256: f9b76e22826585fc0cc32fafdb1dfb28c156647eb1ad089aace601f66afdab1e
+    frontend_suite: passed_1306_tests_220_files
   continuation_2026_10_05:
     integration_checkpoint_commit: 47b258e0
     integration_checkpoint_pushed: true

@@ -148,3 +148,55 @@ belongs to the native library run; host context should carry resource and
 authority facts rather than lexical routing directives. No fix for that gap
 is asserted in this slice. The backend default was restored to GLM cloud after
 the OpenAI controls; tenant credentials were not changed.
+
+## Third round: native routing separation and increased turn budget
+
+The second slice was committed and pushed as `b85cf5ab` after its complete
+repository gate passed. This section describes a subsequent candidate whose
+complete `make verify` gate also passed: staged guards, lint, types, reproducible
+wheel, CI-faithful smoke, frontend tests (1,306 tests across 220 files), and the
+full backend suite. PostgreSQL-only skips are not PostgreSQL qualification.
+The reproducible wheel SHA-256 is
+`f9b76e22826585fc0cc32fafdb1dfb28c156647eb1ad089aace601f66afdab1e`.
+
+- Native request preparation no longer invokes the JV greenfield judge,
+  lexical no-write/schema/dashboard/approval helpers, query planner preamble,
+  or legacy completion validator. Scope, resource context, pending authority
+  facts and Integral broker enforcement remain in the native path. Route
+  regression tests fail if those legacy helpers are called for native turns.
+- A GLM design-only attempt was interrupted by the development server
+  reloading after a test-file edit. It is not counted as a completed model
+  workflow. Subsequent browser tests used a stable backend without auto-reload.
+- On that stable runtime with the original 120,000-token aggregate limit,
+  GLM loaded the scaffold skill and saved the vehicle design, but exhausted
+  the budget before displaying it (136.4k tokens across five physical calls).
+  The proposal receipt succeeded; no build call ran.
+- By explicit user direction, the default aggregate input/output turn budget
+  is now 300,000 tokens. `INTEGRAL_NATIVE_TURN_TOKEN_LIMIT` permits positive
+  deployment overrides. The independent ten-request and 32-tool-call library
+  limits remain. This is not a provider context-window or output-budget change.
+- Repeat of the identical ordinary vehicle-register request completed under
+  GLM: 136.0k tokens, six physical calls, 20.7s. The trace showed search,
+  skill loading, app lookup, two coverage calls and a successful persisted
+  proposal (`run_id=8b2ea9ea-9088-4943-b66c-8e288e62e2d5`). No build ran.
+  The response still omitted the required explicit unbuilt-status sentence
+  and included an unsolicited sample record in the proposal; presentation
+  and minimum-scope behavior remain acceptance work.
+- Ordinary amendment: `Keep it empty, with no sample records. Otherwise the
+  setup looks good.` Failed: the proposal call returned `Unknown tool name`
+  because the adapter had hidden it pending this turn's coverage check. The
+  available-tools error listed the build tool. A build excluding the sample
+  failed saved-blueprint preflight, and the adapter denied another attempt.
+  No successful build is asserted. The next correction must expose the
+  proposal through its normal Core validation contract and qualify an
+  amendment without turning it into approval of the previous design.
+- OpenAI repeat after native routing separation still returned a plain outline
+  with no tools or saved proposal (3.7k tokens, $0.0052, 4.2s). Removing the
+  legacy directives alone did not qualify this workflow.
+- Request preparation, configuration and adjacent stream regressions passed
+  together (37 tests). Default, positive override, invalid override and actual
+  library usage-limit propagation are covered.
+
+![Completed proposal with the increased GLM budget](glm-increased-budget-proposal.jpg)
+
+![Rejected amendment without a completed build](glm-amendment-preflight-rejected.jpg)
