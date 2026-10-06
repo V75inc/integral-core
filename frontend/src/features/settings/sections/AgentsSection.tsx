@@ -4,8 +4,8 @@
  *
  * Resident harness
  * ----------------
- *   Integral AI          → your workspace coworker (jvagent embedded).
- *                          Active by default.
+ *   jvagent              → embedded jvagent harness.
+ *   Integral AI          → the integral_native harness.
  *   Echo                 → dev/smoke harness for local development +
  *                          smoke tests. Not a peer coworker mind.
  *
@@ -83,8 +83,8 @@ interface HarnessAgentRow {
 
 const BUILTIN_AGENT: HarnessAgentRow = {
   id: 'integral-builtin',
-  displayName: 'Integral AI',
-  subtitle: 'Your workspace coworker',
+  displayName: 'jvagent',
+  subtitle: 'Embedded jvagent harness',
 };
 
 const ECHO_AGENT: HarnessAgentRow = {
@@ -117,7 +117,7 @@ interface ProviderDef {
 const PROVIDERS: ProviderDef[] = [
   {
     key: 'jvagent_embedded',
-    label: 'Integral',
+    label: 'jvagent',
     blurb: 'Helps you find information, organize work, and make updates.',
     routingId: 'jvagent-embedded',
     technicalLabel: 'jvagent (embedded)',
@@ -128,7 +128,7 @@ const PROVIDERS: ProviderDef[] = [
     label: 'Integral AI',
     blurb: 'Integral Core’s Pydantic AI harness with scoped sessions and brokered tools.',
     routingId: 'pydantic-ai-native',
-    technicalLabel: 'Pydantic AI Harness (native)',
+    technicalLabel: 'integral_native (Integral AI)',
     agent: {
       id: 'integral-native',
       displayName: 'Integral AI',
@@ -272,7 +272,7 @@ function AdvancedHarnessIds() {
             ))}
             <div className="contents">
               <Text variant="body-sm" tone="subtle" as="dt">
-                Integral AI row
+                jvagent row
               </Text>
               <Text variant="mono" as="dd" className="truncate">
                 {BUILTIN_AGENT.id}

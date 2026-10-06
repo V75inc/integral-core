@@ -69,6 +69,7 @@ PolicyAction = Literal[
     # ride — see the ``_MODERATION_ACTIONS`` note there.
     "comment.moderate",
     "attachment.create",
+    "attachment.attach",
     "attachment.delete",
     "entry_type.create",
     "entry_type.update",
