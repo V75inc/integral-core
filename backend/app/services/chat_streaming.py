@@ -95,6 +95,10 @@ _ERROR_MESSAGES: Dict[str, str] = {
         "No model API key is configured for this workspace. "
         "Add one in Settings and try again."
     ),
+    "ai_quota_exceeded": (
+        "This workspace has reached its AI usage limit. Add your own model "
+        "API key in Settings → Agents, or try again later."
+    ),
     "walker_failed": (
         "The assistant hit an internal error before it could finish. "
         "Please try again."
@@ -144,6 +148,15 @@ def classify_turn_exception(
     if model_key_exc is not None and isinstance(exc, model_key_exc):
         code = "model_key_required"
     else:
+        try:
+            from app.api.errors import QuotaExceededError as _QuotaExceededError
+
+            if isinstance(exc, _QuotaExceededError):
+                code = "ai_quota_exceeded"
+                msg = str(exc).strip()
+                return code, msg or _ERROR_MESSAGES[code]
+        except Exception:  # noqa: BLE001
+            pass
         classify_provider_error = getattr(provider, "classify_exception", None)
         provider_code = None
         if callable(classify_provider_error):

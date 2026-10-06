@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import multiprocessing
+import secrets
 import uuid
 from typing import Any
 
@@ -22,6 +24,15 @@ from app.services.chat_threads import create_thread
 from app.services.chat_turn_events import replay_work_item_chat_events
 from app.services.chat_turn_submissions import submit_chat_turn
 from tests.fixtures.workspaces import make_org_workspace
+
+
+@pytest.fixture(autouse=True)
+def encrypted_turn_storage(monkeypatch):
+    """Exercise encrypted turn persistence without depending on a developer .env."""
+    monkeypatch.setenv(
+        "INTEGRAL_CREDENTIAL_ENC_KEY",
+        base64.b64encode(secrets.token_bytes(32)).decode("ascii"),
+    )
 
 
 def _claim_from_independent_process(

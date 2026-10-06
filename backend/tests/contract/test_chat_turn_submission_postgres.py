@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import secrets
 import uuid
 from typing import Any
 
@@ -31,6 +33,15 @@ from app.services.chat_turn_transcript import persist_work_item_assistant_result
 from app.services.chat_turn_worker import terminalize_chat_turn
 from app.services.chat_turn_worker_input import load_claimed_chat_turn_input
 from tests.fixtures.workspaces import make_org_workspace
+
+
+@pytest.fixture(autouse=True)
+def encrypted_turn_storage(monkeypatch):
+    """Exercise encrypted turn persistence without depending on a developer .env."""
+    monkeypatch.setenv(
+        "INTEGRAL_CREDENTIAL_ENC_KEY",
+        base64.b64encode(secrets.token_bytes(32)).decode("ascii"),
+    )
 
 
 @pytest.fixture

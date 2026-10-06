@@ -1,6 +1,7 @@
 """API endpoints for Integral."""
 
 import importlib
+import os
 
 # Register all core @endpoint modules (side effect: route registration)
 # Agentive routes register via main.py at startup.
@@ -60,3 +61,16 @@ for _mod in (
     "workspaces",
 ):
     importlib.import_module(f"app.api.{_mod}")
+
+# Optional host-extension module (routes + host_hooks registration).
+# Open-source Core leaves this empty.
+_host_mod = os.environ.get("INTEGRAL_HOST_EXTENSION_MODULE", "").strip()
+if not _host_mod:
+    try:
+        from app.config import settings as _host_settings
+
+        _host_mod = (_host_settings.INTEGRAL_HOST_EXTENSION_MODULE or "").strip()
+    except Exception:  # noqa: BLE001
+        _host_mod = ""
+if _host_mod:
+    importlib.import_module(_host_mod)

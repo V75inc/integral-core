@@ -522,6 +522,11 @@ class Settings(BaseSettings):
     # from an explicit package path or after disabling this flag.
     INTEGRAL_CORE_ONLY: bool = False
 
+    # ===== Optional host-extension module =====
+    # Module path imported after the Core API so a host process can register
+    # routes/hooks. Open-source Core leaves this empty.
+    INTEGRAL_HOST_EXTENSION_MODULE: str = ""
+
     # ===== Chunked / resumable uploads (Plan 03 — Phase 6) =====
     # When False (the default) the chunked upload endpoints reject with
     # 503 so the client falls back to single-request multipart. Flip on

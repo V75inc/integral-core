@@ -58,6 +58,10 @@ vi.mock('../../context/AuthContext', () => ({
   }),
 }));
 
+vi.mock('../../context/ScopeContext', () => ({
+  useScope: () => ({ scope: { workspaceId: 'ws_1' } }),
+}));
+
 const INSTALLED_APP: App = {
   id: 'app-installed',
   name: 'Content Factory',
