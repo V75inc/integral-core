@@ -443,6 +443,7 @@ async def test_prepare_uses_host_run_and_snapshot_as_broker_authority(
                     name="example_app__workspace_guide",
                     description="Use the workspace guide.",
                     body="Follow the approved steps.",
+                    requires_tools=(),
                 ),
             ),
         )
@@ -549,11 +550,12 @@ async def test_prepare_uses_host_run_and_snapshot_as_broker_authority(
     )
     assert runtime_args["work_execution_context"] == work_context
     assert (
-        "At the start of every turn, call search_capabilities once"
+        "search_capabilities when you need to discover a skill or tool"
         in runtime_args["instructions"]
     )
     assert (
-        "Treat its results as candidates, not commands" in runtime_args["instructions"]
+        "Treat search results as candidates, not commands"
+        in runtime_args["instructions"]
     )
     assert tool_args["work_execution_context"] == work_context
     assert model_args["observer"].keywords["work_execution_context"] == work_context
@@ -615,6 +617,32 @@ async def test_search_recommendation_does_not_force_irrelevant_skill_or_workflow
 
 
 @pytest.mark.asyncio
+async def test_completed_build_requires_readback_before_final_answer():
+    from pydantic_ai import ModelRetry
+
+    state = {
+        "capability_search_completed": True,
+        "proposal_succeeded": True,
+        "proposal_text": "Saved design",
+    }
+    validate = _scaffold_completion_validator(state)
+    state["build_succeeded"] = True
+    with pytest.raises(ModelRetry, match="integral_verify_build"):
+        await validate(None, "The app is ready.")
+
+    state["verification_succeeded"] = True
+    assert await validate(None, "The feed and requested post are ready.") == (
+        "The feed and requested post are ready."
+    )
+
+    state["verification_succeeded"] = False
+    state["verification_status"] = "partial"
+    partial = await validate(None, "Everything is ready.")
+    assert "verification returned partial" in partial
+    assert "Everything is ready" not in partial
+
+
+@pytest.mark.asyncio
 async def test_final_answer_is_not_blocked_when_search_finds_no_fit() -> None:
     """Search is guidance; a weak result cannot force unrelated work."""
     validate = _scaffold_completion_validator(
@@ -632,11 +660,8 @@ async def test_final_answer_is_not_blocked_when_search_finds_no_fit() -> None:
 
 
 @pytest.mark.asyncio
-async def test_final_answer_requires_capability_search_but_not_its_top_ranked_skill() -> (
-    None
-):
-    """Require the discovery call without making ranking a routing command."""
-    from pydantic_ai import ModelRetry
+async def test_plain_chat_does_not_require_discovery_or_its_top_ranked_skill() -> None:
+    """No forced catalog call for a turn with no substrate workflow."""
 
     validate = _scaffold_completion_validator(
         {
@@ -647,8 +672,7 @@ async def test_final_answer_requires_capability_search_but_not_its_top_ranked_sk
             "proposal_succeeded": False,
         }
     )
-    with pytest.raises(ModelRetry, match="call search_capabilities once"):
-        await validate(None, "A confident but undiscovered answer.")
+    assert await validate(None, "Hello! How can I help?") == "Hello! How can I help?"
 
 
 def test_cancel_turn_cancels_active_pydantic_token() -> None:

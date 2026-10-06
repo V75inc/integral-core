@@ -163,6 +163,9 @@ class ModelUsageObservation(BaseModel):
     cached_input_tokens: int | None = Field(default=None, ge=0)
     reasoning_tokens: int | None = Field(default=None, ge=0)
     provider_cost_usd: Decimal | None = Field(default=None, ge=Decimal("0"))
+    # Preserve SDK accounting even when its zero is an unpriced-route
+    # placeholder rather than evidence of a free provider response.
+    litellm_response_cost_usd: Decimal | None = Field(default=None, ge=Decimal("0"))
     cost_source: Literal[
         "litellm_response",
         "provider_response",

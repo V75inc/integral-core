@@ -13,7 +13,7 @@ from typing import Annotated, Any, Sequence
 import yaml
 from pydantic import Field
 
-from app.agentive.harness.pydantic_ai_compat import Tool
+from app.agentive.harness.pydantic_ai_compat import Tool, ToolReturn
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+", re.IGNORECASE)
 _STOP_WORDS = frozenset(
@@ -260,6 +260,10 @@ def _search_catalog(
         ranked_tools = _rank(query, tool_documents)
     # Preserve room for the strongest tool match while retaining enough skill
     # candidates for similarly worded routes (for example scaffold vs. insights).
+    # A workflow and its callable operation are complementary results. Even
+    # limit=1 must retain the best of each when both kinds match; otherwise a
+    # model asking for a specific tool can receive only a skill indefinitely.
+    limit = max(2, limit) if ranked_skills and ranked_tools else limit
     skill_slots = min(len(ranked_skills), max(1, min(4, limit - 1)))
     tool_slots = min(len(ranked_tools), max(0, limit - skill_slots))
     candidates = [
@@ -451,7 +455,7 @@ def build_search_capabilities_tool(
     """Build a model-callable search surface over one run's authorized catalog."""
     skills = _load_skills(skill_library)
     tools = _valid_catalogue(catalogue)
-    seen_queries: set[str] = set()
+    cached_results: dict[tuple[str, int], dict[str, Any]] = {}
     state = run_state if run_state is not None else {}
     state.setdefault("capability_search_completed", False)
 
@@ -507,32 +511,13 @@ def build_search_capabilities_tool(
     async def search_capabilities(
         query: Annotated[str, Field(min_length=2, max_length=_MAX_QUERY_CHARS)],
         limit: Annotated[int, Field(ge=1, le=_MAX_RESULTS)] = 8,
-    ) -> dict[str, Any]:
+    ) -> ToolReturn:
         """Find the most relevant authorized Integral skill and tool metadata."""
         normalized_query = " ".join(query.lower().split())
-        if normalized_query in seen_queries:
-            return {
-                "error": True,
-                "error_code": "repeated_capability_search_suppressed",
-                "message": (
-                    "This query was already searched. Use the results from that "
-                    "search, load the relevant skill, and call the listed tool. "
-                    "If none applies, stop and explain the limitation."
-                ),
-                "retryable": False,
-            }
-        if seen_queries:
-            return {
-                "error": True,
-                "error_code": "capability_search_limit",
-                "message": (
-                    "Capability discovery has already run for this turn. Use its "
-                    "results to load the relevant skill and continue, or explain "
-                    "which required capability was not found."
-                ),
-                "retryable": False,
-            }
-        seen_queries.add(normalized_query)
+        cache_key = (normalized_query, limit)
+        if cache_key in cached_results:
+            result = cached_results[cache_key]
+            return ToolReturn(return_value=result, tools=result["available_tools"])
         state["capability_search_completed"] = True
         try:
             ranked_skills = await rank_skills_semantically(query)
@@ -568,7 +553,21 @@ def build_search_capabilities_tool(
         state["recommended_tool_id"] = (
             recommended_tool.get("name") if isinstance(recommended_tool, dict) else None
         )
-        return result
+        available_tools = [
+            item["name"] for item in result["results"] if item["kind"] == "tool"
+        ]
+        for item in result["results"]:
+            if item["kind"] == "tool":
+                item.pop("discover_with", None)
+        result["available_tools"] = available_tools
+        result["recommendation"]["instruction"] += (
+            " The returned tool schemas are disclosed by this search. Call the "
+            "selected tool directly when available; no second tool search is "
+            "needed. Search again only if observed results require a different "
+            "capability."
+        )
+        cached_results[cache_key] = result
+        return ToolReturn(return_value=result, tools=available_tools)
 
     return Tool(
         search_capabilities,
@@ -577,8 +576,8 @@ def build_search_capabilities_tool(
             "Search the authorized Integral Agent Skills and tool catalog for "
             "the best capabilities for a user request. Start with "
             "recommendation.skill and recommendation.tool when they fit; "
-            "load the skill once with load_capability and discover a deferred "
-            "tool with search_tools. Other results are alternatives. Search "
+            "load the skill once with load_capability. This search reveals "
+            "the matched tool schemas directly. Other results are alternatives. Search "
             "guides discovery but does not authorize or execute a tool."
         ),
         takes_ctx=False,

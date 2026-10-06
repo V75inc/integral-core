@@ -29,11 +29,11 @@ from pydantic_ai import (
     UsageLimitExceeded,
     UsageLimits,
 )
-from pydantic_ai._function_schema import FunctionSchema
 from pydantic_ai.capabilities import Instrumentation, ToolSearch
 from pydantic_ai.messages import (
     ModelMessagesTypeAdapter,
     ModelRequest,
+    ToolReturn,
     UserPromptPart,
 )
 from pydantic_ai.models.openai import OpenAIChatModel
@@ -56,6 +56,28 @@ from pydantic_ai_harness.step_persistence import (
 from pydantic_core import SchemaValidator, core_schema, to_jsonable_python
 
 
+class IntegralToolDisclosure(ToolSearch):
+    """Use unified catalog search with framework-owned deferred disclosure.
+
+    Search returns ``ToolReturn.tools``; Pydantic AI records and replays that
+    availability itself. Supported ToolSearch extension points and toolset
+    filtering remove the duplicate search entrypoint, without altering skill
+    loading, history or library code. Used only with search_capabilities.
+    """
+
+    def get_native_tools(self):
+        return []
+
+    def get_wrapper_toolset(self, toolset):
+        return (
+            super()
+            .get_wrapper_toolset(toolset)
+            .filtered(
+                lambda _ctx, definition: definition.name != self.function_tool_name
+            )
+        )
+
+
 def build_integral_json_schema_tool(
     *,
     function: Callable[..., Any],
@@ -68,35 +90,21 @@ def build_integral_json_schema_tool(
     """Adapt an Integral JSON Schema tool to Pydantic AI's callable tool API.
 
     Integral validates the authoritative, complete JSON Schema again at the
-    capability broker. This adapter validates only that tool arguments are a
-    strict object, avoiding a second and potentially divergent schema engine.
-    The private ``FunctionSchema`` dependency is deliberately isolated here.
+    capability broker. Pydantic calls this function with keyword arguments;
+    construction uses public Tool.from_schema rather than a second schema
+    engine or a private library import.
     """
 
-    function_schema = FunctionSchema(
+    tool = Tool.from_schema(
         function=function,
+        takes_ctx=True,
         name=name,
         description=description,
-        validator=SchemaValidator(
-            core_schema.dict_schema(
-                keys_schema=core_schema.str_schema(),
-                values_schema=core_schema.any_schema(),
-                strict=True,
-            )
-        ),
         json_schema=dict(json_schema),
-        takes_ctx=True,
-        is_async=True,
     )
-    return Tool(
-        function,
-        takes_ctx=True,
-        name=name,
-        description=description,
-        function_schema=function_schema,
-        prepare=prepare,
-        defer_loading=defer_loading,
-    )
+    tool.prepare = prepare
+    tool.defer_loading = defer_loading
+    return tool
 
 
 def build_integral_run_instructions(
@@ -174,6 +182,7 @@ __all__ = [
     "PlanItem",
     "PlanStore",
     "Planning",
+    "IntegralToolDisclosure",
     "RetryPromptPart",
     "RunContext",
     "RunRecord",
@@ -189,6 +198,7 @@ __all__ = [
     "ThinkingPart",
     "Tool",
     "ToolEffectRecord",
+    "ToolReturn",
     "ToolSearch",
     "UsageLimitExceeded",
     "UsageLimits",

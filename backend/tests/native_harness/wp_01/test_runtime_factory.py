@@ -49,6 +49,24 @@ async def test_native_factory_composes_with_required_store() -> None:
     assert records[0].run_id == scope.framework_run_id
 
 
+def test_resident_does_not_add_a_second_planning_workflow() -> None:
+    """Integral's saved blueprint already supplies the scaffold plan artifact."""
+    from pydantic_ai.capabilities.combined import CombinedCapability
+    from pydantic_ai_harness import Planning
+
+    agent = build_native_agent(
+        model=TestModel(call_tools=[]),
+        instructions="",
+        tools=(),
+        step_store_backend=InMemoryStepStore(),
+        scope=_scope(),
+        agent_name="integral-core",
+    )
+    root = agent._root_capability
+    assert isinstance(root, CombinedCapability)
+    assert not any(isinstance(capability, Planning) for capability in root.capabilities)
+
+
 def test_native_factory_requires_a_source_for_selected_skills() -> None:
     """Selected skills cannot be discovered from an unscoped filesystem."""
     with pytest.raises(ValueError, match="require a Core skill source"):

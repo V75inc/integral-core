@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Mapping, Sequence
 
 import yaml
 
@@ -22,13 +22,16 @@ def _portable_name(value: str) -> str:
 
 
 def materialize_standard_skill_library(
-    skills: Iterable[tuple[str, str, str]], *, root: Path
+    skills: Iterable[tuple[str, str, str]],
+    *,
+    root: Path,
+    allowed_tools: Mapping[str, Sequence[str]] | None = None,
 ) -> frozenset[str]:
     """Write private per-run SKILL.md copies with only standard frontmatter.
 
     The harness's Skills capability reads only these generated files. Source
     directories are not exposed to Pydantic AI, and the generated frontmatter
-    contains only the standard ``name`` and ``description`` fields. Caller
+    contains only standard name, description and allowed-tools fields. Caller
     supplies an already authorization-filtered skill set.
     """
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -46,8 +49,12 @@ def materialize_standard_skill_library(
         folder = root / name
         folder.mkdir(mode=0o700)
         skill_file = folder / "SKILL.md"
+        metadata = {"name": name, "description": clean_description}
+        declared_tools = (allowed_tools or {}).get(original_name, ())
+        if declared_tools:
+            metadata["allowed-tools"] = " ".join(declared_tools)
         frontmatter = yaml.safe_dump(
-            {"name": name, "description": clean_description},
+            metadata,
             allow_unicode=True,
             sort_keys=False,
         )

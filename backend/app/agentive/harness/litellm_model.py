@@ -240,6 +240,15 @@ def _usage(
     prompt_details = raw_usage.get("prompt_tokens_details") or {}
     completion_details = raw_usage.get("completion_tokens_details") or {}
     normalized_cost, cost_source = _reported_cost(response, payload)
+    hidden = getattr(response, "_hidden_params", None)
+    sdk_cost = (
+        _cost_value(hidden.get("response_cost")) if isinstance(hidden, dict) else None
+    )
+    if cost_source == "litellm_response" and normalized_cost == 0:
+        # LiteLLM streaming accounting coerces unavailable calculated cost to
+        # 0.0. Keep that raw value, but require known pricing before presenting
+        # it as a cost. Explicit zero from the provider remains authoritative.
+        normalized_cost, cost_source = None, "unavailable"
     if (
         normalized_cost is None
         and raw_usage.get("prompt_tokens") is not None
@@ -256,6 +265,7 @@ def _usage(
         cached_input_tokens=prompt_details.get("cached_tokens"),
         reasoning_tokens=completion_details.get("reasoning_tokens"),
         provider_cost_usd=normalized_cost,
+        litellm_response_cost_usd=sdk_cost,
         cost_source=cost_source,
         complete=complete
         and raw_usage.get("prompt_tokens") is not None
