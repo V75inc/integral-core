@@ -73,6 +73,50 @@ def test_unknown_key_and_new_action_are_rejected() -> None:
         )
 
 
+def test_overlay_accepts_openrouter_vendor_model_ids() -> None:
+    """OpenRouter ids are vendor/model and still need the openrouter/ prefix."""
+    model = "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"
+    merged = apply_agent_override(
+        _base(),
+        {
+            "actions": [
+                {
+                    "action": "jvagent/orchestrator",
+                    "context": {"model": model},
+                }
+            ],
+        },
+    )
+    assert merged["actions"][0]["context"]["model"] == model
+
+
+def test_overlay_rejects_malformed_model_ids() -> None:
+    with pytest.raises(ValueError, match="provider/model"):
+        apply_agent_override(
+            _base(),
+            {
+                "actions": [
+                    {
+                        "action": "jvagent/orchestrator",
+                        "context": {"model": "gpt-4.1"},
+                    }
+                ]
+            },
+        )
+    with pytest.raises(ValueError, match="provider/model"):
+        apply_agent_override(
+            _base(),
+            {
+                "actions": [
+                    {
+                        "action": "jvagent/orchestrator",
+                        "context": {"model": "openai/gpt 4.1"},
+                    }
+                ]
+            },
+        )
+
+
 def test_shipped_agent_yaml_keeps_its_actions() -> None:
     from app.agentive.resident_root import resident_agent_root
 
