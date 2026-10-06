@@ -1,28 +1,33 @@
-import { useState, useEffect, useMemo, useCallback} from 'react';
-import { useParams } from 'react-router-dom';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import {
   Plus, CheckCircle2,
-  HelpCircle, Loader2, MessageSquare, Pencil,
-  PanelRightOpen, PanelRightClose,
+  HelpCircle, Loader2, MessageSquare, Edit2
 } from 'lucide-react';
-import { publicSharingApi, type PublicTrackPayload } from '../api/sharing';
+import {
+  publicSharingApi,
+  type PublicEntryType,
+  type PublicOnboardingPolicy,
+  type PublicSharedEntry,
+  type PublicTrackPayload,
+} from '../api/sharing';
+import { authApi } from '../api/auth';
+import { useAuthOptional } from '../context/AuthContext';
 import type { Entry, EntryTypeNode } from '../types';
 import { Button } from '../components/ui/Button';
+import { MarkdownContent } from '../components/ui';
 import { Modal } from '../components/ui/Modal';
-import {
-  CommentsPanel,
-  COMMENT_FOOTER_CLASS,
-} from '../components/entries/comments/CommentsPanel';
-import { CommentComposer } from '../components/entries/comments/CommentComposer';
 import { useToast } from '../context/ToastContext';
 import { ViewRenderer } from '../views';
-import { ViewTabs, LINE_ICON_STROKE, MarkdownContent } from '../components/ui';
-import { IconButton } from '../ui';
-import { useSidePanelRoom } from '../hooks/useSidePanelRoom';
+import { ViewTabs } from '../components/ui';
 import { Text, Surface, Input, Textarea, Select } from '../ui';
 import { SeamlessField } from '../components/entries/SeamlessField';
 import { EntryMetaFields } from '../components/entries/EntryMetaFields';
-import { normalizeEntry } from '../api/helpers';
+import { CommentsPanel, COMMENT_FOOTER_CLASS } from '../components/entries/comments/CommentsPanel';
+import { CommentComposer } from '../components/entries/comments/CommentComposer';
+import { useIsMdUp } from '../hooks/useMediaQuery';
+import { LINE_ICON_STROKE } from '../components/ui';
+import { canonicalEntryTypeSlug, entrySaveErrorMessage, entryTypeIdentitySlugs, normalizeEntry } from '../api/helpers';
 import { humanizeEnumValue } from '../utils/humanizeFieldKey';
 import { buildBaseSlotPlaceholder } from '../utils/fieldPlaceholders';
 import {
@@ -31,17 +36,61 @@ import {
   resolveCreateDefaultEntryType
 } from '../components/entries/entryFormCustomFields';
 import { getMissingRequiredFields } from '../utils/entryMetaFields';
-import { publicEntryAffordances } from '../utils/publicTrackAffordances';
 import {
   resolveKanbanGroupBy,
   resolveKanbanWriteFieldKey,
   shouldRouteKanbanQuickAddToCompose
 } from '../components/views/kanbanColumnUtils';
 import type { OperationalModelFieldSpec } from '../types';
+import {
+  PolicyAcknowledgmentStep,
+  firstMissingRequiredPolicy,
+} from '../components/intakeForm/PolicyAcknowledgmentStep';
+import {
+  ContractReviewStep,
+  ContractReviewRejectedTerminal,
+} from '../components/intakeForm/ContractReviewStep';
+import { memberAssignedFormApi } from '../features/memberAssignedForm/memberAssignedFormApi';
 
-export function SharedTrackPage() {
+function isEmptyFileFieldValue(val: unknown): boolean {
+  if (val === undefined || val === null || val === '') return true;
+  if (Array.isArray(val)) return val.length === 0;
+  return false;
+}
+
+type WizardStepField = {
+  type?: string;
+  spec?: { key?: string };
+};
+
+/** Include every wizard field key on save/submit (read-only steps do not fire onChange). */
+function customFieldsForWizardSave(
+  steps: Array<{ fields?: WizardStepField[] }>,
+  values: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...values };
+  for (const step of steps) {
+    for (const fieldItem of step.fields ?? []) {
+      if (fieldItem.type === 'custom' && fieldItem.spec?.key) {
+        const key = String(fieldItem.spec.key);
+        if (key in values) out[key] = values[key];
+      }
+    }
+  }
+  return out;
+}
+
+export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: boolean } = {}) {
   const { token = '' } = useParams<{ token: string }>();
+  const [searchParams] = useSearchParams();
+  const queryEntryId = searchParams.get('entry')?.trim() || '';
+  const [memberEntryId, setMemberEntryId] = useState('');
+  const assignedEntryId = memberFormMode ? (queryEntryId || memberEntryId) : queryEntryId;
+  const openingId = searchParams.get('opening')?.trim() || '';
   const toast = useToast();
+  const auth = useAuthOptional();
+  const navigate = useNavigate();
+  const isLoggedIn = Boolean(auth?.user);
 
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<PublicTrackPayload | null>(null);
@@ -62,15 +111,15 @@ export function SharedTrackPage() {
   const [formCustomFields, setFormCustomFields] = useState<Record<string, any>>({});
   const [submitting, setSubmitting] = useState(false);
   const [submittedSuccess, setSubmittedSuccess] = useState(false);
+  const [assignedEntryLocked, setAssignedEntryLocked] = useState(false);
+  const [assignedEntryLoading, setAssignedEntryLoading] = useState(false);
+  const assignedEntryHydratedRef = useRef(false);
 
-  /* One open entry, like the authenticated dialog. `editMode` is a mode of
-     that dialog rather than a second piece of state holding its own entry:
-     the previous pair — one for the form, one for the thread — could
-     disagree, which is how closing the form left a discussion behind as a
-     dialog that opened itself. */
-  const [openEntry, setOpenEntry] = useState<any>(null);
+  // Open entry dialog (read-first; edit is a mode of the same surface)
+  const [openEntry, setOpenEntry] = useState<Entry | null>(null);
   const [editMode, setEditMode] = useState(false);
-  const [panelOpen, setPanelOpen] = useState(true);
+  const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
+  const showSideColumn = useIsMdUp();
   const [editTitle, setEditTitle] = useState('');
   const [editBody, setEditBody] = useState('');
   const [editCustomFields, setEditCustomFields] = useState<Record<string, any>>({});
@@ -90,13 +139,12 @@ export function SharedTrackPage() {
 
   // Wizard Step State
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
-
-  /* Below `sm` there is no room beside the dialog, so the panel renders under
-     the form instead of vanishing — the same reachability fix the
-     authenticated entry dialog needed. Declared with the other hooks: this
-     component early-returns for loading / not-found / Google-Form mode, and a
-     hook after those returns changes the hook count between renders. */
-  const showSideColumn = useSidePanelRoom();
+  const [onboardingPolicies, setOnboardingPolicies] = useState<PublicOnboardingPolicy[]>([]);
+  const [onboardingPoliciesLoading, setOnboardingPoliciesLoading] = useState(false);
+  const [policyStepEnabled, setPolicyStepEnabled] = useState(false);
+  const [contractStepEnabled, setContractStepEnabled] = useState(false);
+  const [contractRejected, setContractRejected] = useState(false);
+  const [stepBusy, setStepBusy] = useState(false);
 
   // Dynamic Base Field configs for selected entry type (Creation Form)
   const selectedBaseFields = selectedEntryType?.form_schema?.base_fields || {};
@@ -124,14 +172,13 @@ export function SharedTrackPage() {
   // Dynamic Base Field configs for editing entry type (Edit Form)
   const openEntryType = useMemo(() => {
     if (!openEntry || !data?.entry_types) return null;
-    return data.entry_types.find((et: any) => et.id === openEntry.type_id) || null;
+    const entryTypeSlug = slug(openEntry.type || '');
+    return (
+      data.entry_types.find((et: any) =>
+        entryTypeIdentitySlugs(et).includes(entryTypeSlug)
+      ) || null
+    );
   }, [openEntry, data?.entry_types]);
-
-  const openEntryFields = useMemo(
-    () =>
-      (openEntryType?.form_schema?.fields ?? []) as unknown as OperationalModelFieldSpec[],
-    [openEntryType],
-  );
 
   const editBaseFields = openEntryType?.form_schema?.base_fields || {};
   const editTitleBase = editBaseFields.title || {};
@@ -155,53 +202,92 @@ export function SharedTrackPage() {
     slot: 'body'
   }), [editBodyLabel, editBodyBase.placeholder]);
 
-  // Compute wizard steps dynamically based on field groups
+  // Compute wizard steps: Personal Details → Contract → other groups → policies
   const formSteps = useMemo(() => {
     if (!selectedEntryType) return [];
 
-    const groups: Record<string, any[]> = {};
-    const groupOrder: string[] = [];
-
-    const addFieldToGroup = (groupName: string, fieldItem: any) => {
-      const normalizedName = groupName.trim();
-      if (!groups[normalizedName]) {
-        groups[normalizedName] = [];
-        groupOrder.push(normalizedName);
+    const fields = selectedEntryType.form_schema?.fields || [];
+    const isWizardCustomField = (f: { key?: string; group?: string }) => {
+      const key = String(f.key || '');
+      if (['employee', 'status', 'submitted_at', 'policy_acknowledgments'].includes(key)) {
+        return false;
       }
-      groups[normalizedName].push(fieldItem);
+      if (key.startsWith('contract_')) return false;
+      if (String(f.group || '').trim().toLowerCase() === 'review') return false;
+      return true;
     };
 
-    // 1. Add Title if enabled (defaults to "Personal Details")
-    if (selectedTitleEnabled) {
-      addFieldToGroup("Personal Details", { type: 'base_title' });
-    }
+    const groupBuckets: Record<string, any[]> = {};
+    const groupOrder: string[] = [];
+    const pushToGroup = (groupName: string, fieldItem: any) => {
+      const normalizedName = groupName.trim() || 'Personal Details';
+      if (!groupBuckets[normalizedName]) {
+        groupBuckets[normalizedName] = [];
+        groupOrder.push(normalizedName);
+      }
+      groupBuckets[normalizedName].push(fieldItem);
+    };
 
-    // 2. Add custom fields grouped by their group key
-    const fields = selectedEntryType.form_schema?.fields || [];
     for (const f of fields) {
-      const gName = f.group ? String(f.group).trim() : "Personal Details";
-      addFieldToGroup(gName, { type: 'custom', spec: f });
+      if (!isWizardCustomField(f)) continue;
+      const gName = f.group ? String(f.group).trim() : 'Personal Details';
+      pushToGroup(gName, { type: 'custom', spec: f });
     }
 
-    // 3. Add Body if enabled
+    const steps: Array<{ id: string; title: string; fields: any[] }> = [];
+
+    const personalFields: any[] = [];
+    if (selectedTitleEnabled) {
+      personalFields.push({ type: 'base_title' });
+    }
+    for (const item of groupBuckets['Personal Details'] || []) {
+      personalFields.push(item);
+    }
+    if (personalFields.length) {
+      steps.push({
+        id: 'personal-details',
+        title: 'Personal Details',
+        fields: personalFields,
+      });
+    }
+
+    if (contractStepEnabled) {
+      steps.push({
+        id: 'contract-review',
+        title: 'Employment Contract',
+        fields: [{ type: 'contract_review' }],
+      });
+    }
+
+    for (const gName of groupOrder) {
+      if (gName === 'Personal Details') continue;
+      const bucket = groupBuckets[gName];
+      if (!bucket?.length) continue;
+      steps.push({
+        id: gName.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+        title: gName,
+        fields: bucket,
+      });
+    }
+
     if (selectedBodyEnabled) {
-      addFieldToGroup("Additional Info", { type: 'base_body' });
+      steps.push({
+        id: 'additional-info',
+        title: 'Additional Info',
+        fields: [{ type: 'base_body' }],
+      });
     }
 
-    // Sort groups so "Personal Details" is always first
-    const sortedGroupOrder = [...groupOrder];
-    const pdIndex = sortedGroupOrder.indexOf("Personal Details");
-    if (pdIndex > 0) {
-      sortedGroupOrder.splice(pdIndex, 1);
-      sortedGroupOrder.unshift("Personal Details");
+    if (policyStepEnabled) {
+      steps.push({
+        id: 'company-documents',
+        title: 'Company Documents',
+        fields: [{ type: 'policy_acknowledgments' }],
+      });
     }
 
-    return sortedGroupOrder.map(name => ({
-      id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-      title: name,
-      fields: groups[name]
-    }));
-  }, [selectedEntryType, selectedTitleEnabled, selectedBodyEnabled]);
+    return steps;
+  }, [selectedEntryType, selectedTitleEnabled, selectedBodyEnabled, policyStepEnabled, contractStepEnabled]);
 
   // Validate the inputs in the current wizard step
   const validateCurrentStep = () => {
@@ -214,9 +300,35 @@ export function SharedTrackPage() {
         setInvalidFieldKey('title');
         return false;
       }
+      if (fieldItem.type === 'policy_acknowledgments') {
+        const missing = firstMissingRequiredPolicy(
+          onboardingPolicies,
+          formCustomFields.policy_acknowledgments,
+        );
+        if (missing) {
+          toast.showToast(
+            `Please acknowledge required document: ${missing.title || 'Company document'}`,
+            'error',
+          );
+          setInvalidFieldKey('policy_acknowledgments');
+          return false;
+        }
+        continue;
+      }
+      if (fieldItem.type === 'contract_review') {
+        const cs = String(formCustomFields.contract_status || '').toLowerCase();
+        if (cs !== 'accepted') {
+          toast.showToast('Please accept and sign the employment contract to continue', 'error');
+          return false;
+        }
+        continue;
+      }
       if (fieldItem.type === 'custom' && fieldItem.spec.required) {
         const val = formCustomFields[fieldItem.spec.key];
-        if (val === undefined || val === null || (typeof val === 'string' && !val.trim())) {
+        const isFile =
+          String(fieldItem.spec.type || '') === 'file' ||
+          String(fieldItem.spec.type || '') === 'files';
+        if (isFile ? isEmptyFileFieldValue(val) : (val === undefined || val === null || (typeof val === 'string' && !val.trim()))) {
           toast.showToast(`${fieldItem.spec.name} is required`, 'error');
           setInvalidFieldKey(fieldItem.spec.key);
           return false;
@@ -226,12 +338,40 @@ export function SharedTrackPage() {
     return true;
   };
 
-  const handleNextStep = () => {
-    if (validateCurrentStep()) {
-      setInvalidFieldKey(null);
-      setCurrentStepIndex(prev => Math.min(prev + 1, formSteps.length - 1));
+  const handleNextStep = async () => {
+    if (!validateCurrentStep()) return;
+
+    setInvalidFieldKey(null);
+    if (assignedEntryId && !assignedEntryLocked) {
+      try {
+        const patchBody = {
+          ...(selectedTitleEnabled ? { title: formTitle } : {}),
+          ...(selectedBodyEnabled ? { body: formBody } : {}),
+          custom_fields: customFieldsForWizardSave(formSteps, formCustomFields),
+        };
+        if (memberFormMode) {
+          await memberAssignedFormApi.updateForm(patchBody, assignedEntryId);
+        } else {
+          await publicSharingApi.updatePublicEntry(token, assignedEntryId, patchBody);
+        }
+      } catch (err: unknown) {
+        toast.showToast(
+          entrySaveErrorMessage(err, 'Could not save your progress. Check your connection and try again.'),
+          'error',
+        );
+        return;
+      }
     }
+    setCurrentStepIndex(prev => Math.min(prev + 1, formSteps.length - 1));
   };
+
+  const isContractReviewStep = Boolean(
+    formSteps[currentStepIndex]?.fields?.some(
+      (f: { type?: string }) => f.type === 'contract_review',
+    ),
+  );
+  const contractAccepted =
+    String(formCustomFields.contract_status || '').toLowerCase() === 'accepted';
 
   const handlePrevStep = () => {
     setInvalidFieldKey(null);
@@ -297,10 +437,81 @@ export function SharedTrackPage() {
     variant: 'modal' | 'form'
   ) => {
     if (!step?.fields) return null;
+    const readOnlyStep =
+      assignedEntryLocked || step.id === 'personal-details';
     const rowsCount = variant === 'form' ? 4 : 3;
+    const publicShareCtx =
+      assignedEntryId && token
+        ? { token, entryId: assignedEntryId }
+        : undefined;
 
     return step.fields.map((fieldItem: any) => {
+      if (fieldItem.type === 'contract_review') {
+        if (!assignedEntryId) {
+          return (
+            <Text key="contract-review" variant="body" tone="muted">
+              Contract review requires an assigned form link.
+            </Text>
+          );
+        }
+        return (
+          <ContractReviewStep
+            key="contract-review"
+            token={token}
+            entryId={assignedEntryId}
+            memberFormMode={memberFormMode}
+            contractStatus={String(values.contract_status || '')}
+            onAccepted={() => {
+              setFormCustomFields((prev) => ({ ...prev, contract_status: 'accepted' }));
+              setCurrentStepIndex((prev) =>
+                Math.min(prev + 1, Math.max(formSteps.length - 1, 0)),
+              );
+              void reloadAssignedEntry();
+            }}
+            onRejected={() => {
+              setContractRejected(true);
+              setFormCustomFields((prev) => ({ ...prev, contract_status: 'rejected' }));
+            }}
+          />
+        );
+      }
+
+      if (fieldItem.type === 'policy_acknowledgments') {
+        return (
+          <PolicyAcknowledgmentStep
+            key="policy-acknowledgments"
+            token={token}
+            memberFormMode={memberFormMode}
+            policies={onboardingPolicies}
+            loading={onboardingPoliciesLoading}
+            value={values.policy_acknowledgments}
+            onChange={(next) => {
+              onChange('policy_acknowledgments', next);
+              if (assignedEntryId && !assignedEntryLocked) {
+                const patch = { custom_fields: { policy_acknowledgments: next } };
+                void (memberFormMode
+                  ? memberAssignedFormApi.updateForm(patch, assignedEntryId)
+                  : publicSharingApi.updatePublicEntry(token, assignedEntryId, patch)
+                ).catch(() => {
+                  /* non-blocking incremental save */
+                });
+              }
+            }}
+          />
+        );
+      }
+
       if (fieldItem.type === 'base_title') {
+        if (readOnlyStep) {
+          return (
+            <div key="base-title" className="space-y-1.5">
+              <Text as="label" variant="label" tone="muted" weight="semibold" className="block">
+                {selectedTitleLabel}
+              </Text>
+              <Text variant="body">{formTitle || '—'}</Text>
+            </div>
+          );
+        }
         return (
           <div key="base-title" className="space-y-1.5">
             <Text as="label" variant="label" tone="muted" weight="semibold" className="block">
@@ -343,8 +554,9 @@ export function SharedTrackPage() {
         );
       }
 
-      const f = fieldItem.spec;
+      const f = readOnlyStep ? { ...fieldItem.spec, readonly: true } : fieldItem.spec;
       const isInvalid = invalidFieldKey === f.key;
+      const isFile = String(f.type || '') === 'file' || String(f.type || '') === 'files';
       return (
         <div key={f.key} className="space-y-1">
           <div className={isInvalid ? "rounded-[var(--radius-input)] border border-red-500/80 p-0.5" : ""}>
@@ -352,11 +564,28 @@ export function SharedTrackPage() {
               field={f}
               value={values[f.key]}
               onChange={val => {
+                if (readOnlyStep && !isFile) return;
                 onChange(f.key, val);
                 if (isInvalid) setInvalidFieldKey(null);
+                if (isFile && assignedEntryId && val != null && val !== '' && !assignedEntryLocked) {
+                  const isLocalFile =
+                    val instanceof File
+                    || (Array.isArray(val) && val.some(v => v instanceof File));
+                  if (isLocalFile) return;
+                  const patch = { custom_fields: { [f.key]: val } };
+                  void (memberFormMode
+                    ? memberAssignedFormApi.updateForm(patch, assignedEntryId)
+                    : publicSharingApi.updatePublicEntry(token, assignedEntryId, patch)
+                  ).catch(() => {
+                    /* non-blocking incremental save */
+                  });
+                }
               }}
               relationChoices={relationChoices[f.key]}
               relationLoading={relationLoading}
+              entryId={assignedEntryId || undefined}
+              publicShare={isFile && !memberFormMode ? publicShareCtx : undefined}
+              memberFormUpload={isFile && memberFormMode}
             />
           </div>
         </div>
@@ -368,6 +597,57 @@ export function SharedTrackPage() {
   const loadTrack = useCallback(async () => {
     try {
       setLoading(true);
+      if (memberFormMode) {
+        const res = await memberAssignedFormApi.load(queryEntryId || undefined);
+        setMemberEntryId(String(res.entry?.id || ''));
+        if (res.entry_types?.length) {
+          const sortedTypes = [...res.entry_types].sort((a, b) => {
+            const aName = (a.name || '').toLowerCase();
+            const bName = (b.name || '').toLowerCase();
+            if (aName === 'post') return 1;
+            if (bName === 'post') return -1;
+            return 0;
+          });
+          res.entry_types = sortedTypes;
+        }
+        setData(res);
+        if (res.entry) {
+          const entry = res.entry;
+          setMemberEntryId(String(entry.id || ''));
+          const status = String(entry.custom_fields?.status || 'draft').toLowerCase();
+          setAssignedEntryLocked(status === 'approved' || Boolean(res.locked));
+          setFormTitle(entry.title || '');
+          setFormBody(entry.body || '');
+          setFormCustomFields({ ...(entry.custom_fields || {}) });
+          setCurrentStepIndex(0);
+          const et = (res.entry_types ?? []).find(t => t.id === entry.type_id);
+          if (et) setSelectedEntryType(et);
+        }
+        const extensions = res.public_share_extensions || {};
+        const entryCf = res.entry?.custom_fields || {};
+        const hasContractTemplate = Boolean(
+          String(entryCf.contract_template || entryCf.contract_template_id || '').trim(),
+        );
+        const hasContractReviewExt = Boolean(
+          String(extensions.contract_review_document_type || '').trim(),
+        );
+        setContractStepEnabled(hasContractReviewExt || hasContractTemplate);
+        const hasPolicyCatalog = Boolean(String(extensions.policy_catalog_track_type_key || '').trim());
+        if (hasPolicyCatalog) {
+          setPolicyStepEnabled(true);
+          setOnboardingPoliciesLoading(true);
+          try {
+            const policyRes = await memberAssignedFormApi.listPolicyDocuments();
+            setOnboardingPolicies(policyRes.policies || []);
+          } catch {
+            setOnboardingPolicies([]);
+            setPolicyStepEnabled(false);
+          } finally {
+            setOnboardingPoliciesLoading(false);
+          }
+        }
+        return;
+      }
       const res = await publicSharingApi.getPublicTrack(token);
 
       // Move "post" or "Post" to the end of the entry types list so it's not the default
@@ -388,16 +668,157 @@ export function SharedTrackPage() {
         const defView = res.views.find((v: any) => v.is_default) || res.views[0];
         setActiveView(defView);
       }
-    } catch {
+
+      const extensions = res.public_share_extensions || {};
+      const hasContractReview = Boolean(
+        String(extensions.contract_review_document_type || '').trim(),
+      );
+      setContractStepEnabled(hasContractReview);
+
+      const hasPolicyCatalog = Boolean(
+        String(extensions.policy_catalog_track_type_key || '').trim(),
+      );
+      if (hasPolicyCatalog && (res.public_permissions?.update_entries || res.public_permissions?.read_entries)) {
+        setPolicyStepEnabled(true);
+        setOnboardingPoliciesLoading(true);
+        try {
+          const policyRes = await publicSharingApi.listOnboardingPolicies(token);
+          setOnboardingPolicies(policyRes.policies || []);
+          // Keep the step even when empty so the wizard flow is stable; empty
+          // catalog skips required-ack validation.
+          setPolicyStepEnabled(true);
+        } catch {
+          setOnboardingPolicies([]);
+          setPolicyStepEnabled(false);
+        } finally {
+          setOnboardingPoliciesLoading(false);
+        }
+      } else {
+        setPolicyStepEnabled(false);
+        setOnboardingPolicies([]);
+      }
+    } catch (err: unknown) {
       setNotFound(true);
+      if (memberFormMode) {
+        const msg =
+          (err as { response?: { data?: { message?: string } } })?.response?.data
+            ?.message ||
+          (err as { message?: string })?.message ||
+          '';
+        if (msg.trim()) {
+          toast.showToast(msg.trim(), 'error');
+        }
+      }
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, memberFormMode, queryEntryId, toast]);
+
+  const applyAssignedEntryToForm = useCallback(
+    (
+      entry: PublicSharedEntry,
+      entryTypes: PublicEntryType[],
+      options?: { resetStep?: boolean; mergeLocal?: boolean },
+    ) => {
+      const status = String(entry.custom_fields?.status || 'draft').toLowerCase();
+      const contractStatus = String(entry.custom_fields?.contract_status || '').toLowerCase();
+      if (contractStatus === 'rejected') {
+        setContractRejected(true);
+      } else {
+        setContractRejected(false);
+      }
+      if (status === 'approved') {
+        setAssignedEntryLocked(true);
+        return;
+      }
+      setAssignedEntryLocked(false);
+      const entryTypeSlug = String(entry.type || '').toLowerCase();
+      const et = entryTypes.find(
+        t =>
+          t.id === entry.type_id ||
+          entryTypeIdentitySlugs(t).includes(slug(entryTypeSlug)),
+      );
+      if (et) setSelectedEntryType(et);
+      setFormTitle(entry.title || '');
+      setFormBody(entry.body || '');
+      if (options?.mergeLocal) {
+        setFormCustomFields(prev => ({
+          ...(entry.custom_fields || {}),
+          ...prev,
+        }));
+      } else {
+        setFormCustomFields({ ...(entry.custom_fields || {}) });
+      }
+      if (options?.resetStep !== false) {
+        setCurrentStepIndex(0);
+      }
+    },
+    [],
+  );
+
+  const reloadAssignedEntry = useCallback(async () => {
+    if (!assignedEntryId) return;
+    if (!memberFormMode && !data?.public_permissions?.update_entries) return;
+    setAssignedEntryLoading(true);
+    try {
+      if (memberFormMode) {
+        const res = await memberAssignedFormApi.load(assignedEntryId);
+        applyAssignedEntryToForm(res.entry, data?.entry_types ?? [], {
+          resetStep: false,
+          mergeLocal: true,
+        });
+        if (res.locked) setAssignedEntryLocked(true);
+      } else {
+        const res = await publicSharingApi.getPublicTrackEntry(token, assignedEntryId);
+        applyAssignedEntryToForm(res.entry, data?.entry_types ?? [], {
+          resetStep: false,
+          mergeLocal: true,
+        });
+      }
+    } catch {
+      toast.showToast('Could not load your assigned form', 'error');
+    } finally {
+      setAssignedEntryLoading(false);
+    }
+  }, [assignedEntryId, applyAssignedEntryToForm, data, token, toast, memberFormMode]);
 
   useEffect(() => {
     loadTrack();
   }, [loadTrack]);
+
+  useEffect(() => {
+    if (memberFormMode) return;
+    if (!assignedEntryId || !data?.public_permissions?.update_entries) return;
+    let active = true;
+    setAssignedEntryLoading(true);
+    publicSharingApi
+      .getPublicTrackEntry(token, assignedEntryId)
+      .then(res => {
+        if (!active) return;
+        applyAssignedEntryToForm(res.entry, data.entry_types ?? []);
+        setSubmittedSuccess(false);
+        if (!assignedEntryHydratedRef.current && res.entry.custom_fields) {
+          assignedEntryHydratedRef.current = true;
+          void publicSharingApi
+            .updatePublicEntry(token, assignedEntryId, {
+              title: res.entry.title || undefined,
+              custom_fields: res.entry.custom_fields as Record<string, unknown>,
+            })
+            .catch(() => {
+              /* best-effort — keeps HR-filled personal details on the entry */
+            });
+        }
+      })
+      .catch(() => {
+        if (active) toast.showToast('Could not load your assigned form', 'error');
+      })
+      .finally(() => {
+        if (active) setAssignedEntryLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [assignedEntryId, applyAssignedEntryToForm, data, token, toast, memberFormMode]);
 
   // Load Entries (if allowed)
   const loadEntries = useCallback(async () => {
@@ -438,7 +859,32 @@ export function SharedTrackPage() {
     if (openEntry && data?.public_permissions?.read_comments) {
       loadComments(openEntry.id);
     }
-  }, [openEntry, data?.public_permissions?.read_comments, loadComments]);
+  }, [openEntry, loadComments, data?.public_permissions?.read_comments]);
+
+  const seedOpenEntryForm = useCallback((entry: Entry) => {
+    setEditTitle(entry.title || '');
+    setEditBody(entry.body || '');
+    setEditCustomFields(entry.custom_fields || {});
+    setInvalidFieldKey(null);
+  }, []);
+
+  const openEntryDialog = useCallback(
+    (entry: Entry, opts?: { edit?: boolean; focusComments?: boolean }) => {
+      setOpenEntry(entry);
+      setEditMode(Boolean(opts?.edit));
+      seedOpenEntryForm(entry);
+      setCommentsPanelOpen(Boolean(opts?.focusComments));
+    },
+    [seedOpenEntryForm],
+  );
+
+  const closeOpenEntry = useCallback(() => {
+    setOpenEntry(null);
+    setEditMode(false);
+    setCommentsPanelOpen(false);
+    setComments([]);
+    setNewCommentText('');
+  }, []);
 
   // Relation Choices Fetch — one call per (entry_type, relation field) via the
   // token-scoped relation-options endpoint. Candidate resolution (same-track
@@ -448,6 +894,7 @@ export function SharedTrackPage() {
   // relation that targets a DIFFERENT track (e.g. Performance -> Content
   // Pipeline), which is what caused "Content Piece has no available options".
   useEffect(() => {
+    if (memberFormMode) return;
     if (!data?.entry_types) return;
     const relationFieldRefs: Array<{ entryTypeId: string; field: any }> = [];
     for (const et of data.entry_types) {
@@ -495,7 +942,7 @@ export function SharedTrackPage() {
     return () => {
       active = false;
     };
-  }, [data, token]);
+  }, [data, token, memberFormMode]);
 
   const trackEntryTypeFields = useMemo(() => {
     const seen = new Map<string, any>();
@@ -515,31 +962,31 @@ export function SharedTrackPage() {
     if (!data?.entry_types) return [];
     if (!activeView) return data.entry_types;
     const allowedSlugs = filterEntryTypeSlugsForView(data.entry_types as any, activeView.entry_type_keys);
-    return data.entry_types.filter((et: any) => {
-      const etSlug = slug(et.name || et.key || '');
-      return allowedSlugs.includes(etSlug);
-    });
+    return data.entry_types.filter((et: any) =>
+      entryTypeIdentitySlugs(et).some((s: string) => allowedSlugs.includes(s))
+    );
   }, [data?.entry_types, activeView]);
 
   // Update selected entry type when active view changes
   useEffect(() => {
+    if (memberFormMode) return;
     if (!data?.entry_types || !filteredEntryTypes.length) return;
 
     // Find the default entry type based on the view
     const defaultType = resolveCreateDefaultEntryType(
-      filteredEntryTypes.map((et: any) => slug(et.name || et.key || '')),
+      filteredEntryTypes.map((et: any) => canonicalEntryTypeSlug(et)),
       activeView?.entry_type_keys,
       activeView?.default_entry_type_key,
-      data.track.operational_model_defaults?.default_entry_type
+      data.track?.content_profile_defaults?.default_entry_type
     );
 
     // Find the entry type object for the default slug
     const selected = filteredEntryTypes.find((et: any) =>
-      slug(et.name || et.key || '') === defaultType
+      canonicalEntryTypeSlug(et) === defaultType
     ) || filteredEntryTypes[0];
 
     setSelectedEntryType(selected);
-  }, [data, filteredEntryTypes, activeView]);
+  }, [data, filteredEntryTypes, activeView, memberFormMode]);
 
   // De-dupe saved views by (type + entry_type_keys) so the tab strip
   // never shows two literally-identical tabs, just like TrackDetailPage
@@ -589,7 +1036,7 @@ export function SharedTrackPage() {
     const slug =
       activeView?.default_entry_type_key ||
       activeView?.entry_type_keys?.[0] ||
-      data.track.operational_model_defaults?.default_entry_type ||
+      data.track.content_profile_defaults?.default_entry_type ||
       data.entry_types?.[0]?.name ||
       'entry';
     const label = humanizeEnumValue(slug);
@@ -614,9 +1061,43 @@ export function SharedTrackPage() {
           setCurrentStepIndex(stepIdx);
           return;
         }
+        if (fieldItem.type === 'policy_acknowledgments') {
+          const missing = firstMissingRequiredPolicy(
+            onboardingPolicies,
+            formCustomFields.policy_acknowledgments,
+          );
+          if (missing) {
+            toast.showToast(
+              `Please acknowledge required document: ${missing.title || 'Company document'}`,
+              'error',
+            );
+            setInvalidFieldKey('policy_acknowledgments');
+            setCurrentStepIndex(stepIdx);
+            return;
+          }
+          continue;
+        }
+        if (fieldItem.type === 'contract_review') {
+          const cs = String(formCustomFields.contract_status || '').toLowerCase();
+          if (cs !== 'accepted') {
+            toast.showToast('Please accept and sign the employment contract', 'error');
+            setCurrentStepIndex(stepIdx);
+            return;
+          }
+          continue;
+        }
         if (fieldItem.type === 'custom' && fieldItem.spec.required) {
           const val = formCustomFields[fieldItem.spec.key];
-          if (val === undefined || val === null || (typeof val === 'string' && !val.trim())) {
+          const isFile =
+            String(fieldItem.spec.type || '') === 'file' ||
+            String(fieldItem.spec.type || '') === 'files';
+          if (
+            isFile
+              ? isEmptyFileFieldValue(val)
+              : val === undefined ||
+                val === null ||
+                (typeof val === 'string' && !val.trim())
+          ) {
             toast.showToast(`${fieldItem.spec.name} is required`, 'error');
             setInvalidFieldKey(fieldItem.spec.key);
             setCurrentStepIndex(stepIdx);
@@ -629,23 +1110,56 @@ export function SharedTrackPage() {
     setSubmitting(true);
     setInvalidFieldKey(null);
     try {
-      await publicSharingApi.createPublicEntry(token, {
-        title: selectedTitleEnabled ? formTitle : 'Untitled',
-        type_id: selectedEntryType.id,
-        body: selectedBodyEnabled ? formBody : '',
-        custom_fields: formCustomFields
-      });
+      if (assignedEntryId) {
+        const submitBody = {
+          title: selectedTitleEnabled ? formTitle : 'Untitled',
+          body: selectedBodyEnabled ? formBody : '',
+          custom_fields: {
+            ...customFieldsForWizardSave(formSteps, formCustomFields),
+            status: 'submitted',
+          },
+        };
+        const res = memberFormMode
+          ? await memberAssignedFormApi.updateForm(submitBody, assignedEntryId)
+          : await publicSharingApi.updatePublicEntry(token, assignedEntryId, submitBody);
+        const saved =
+          (res as { entry?: PublicSharedEntry }).entry ??
+          (res as PublicSharedEntry);
+        applyAssignedEntryToForm(saved, data?.entry_types ?? []);
+      } else {
+        await publicSharingApi.createPublicEntry(token, {
+          title: selectedTitleEnabled ? formTitle : 'Untitled',
+          type_id: selectedEntryType.id,
+          body: selectedBodyEnabled ? formBody : '',
+          custom_fields: formCustomFields,
+        });
+        setFormTitle('');
+        setFormBody('');
+        setFormCustomFields({});
+        setCurrentStepIndex(0);
+      }
       setSubmittedSuccess(true);
-      toast.showToast('Response submitted successfully', 'success');
-      setFormTitle('');
-      setFormBody('');
-      setFormCustomFields({});
-      setCurrentStepIndex(0);
+      toast.showToast(
+        assignedEntryId ? 'Form saved' : 'Response submitted successfully',
+        'success',
+      );
+      if (
+        auth?.user?.pending_assigned_form?.url?.trim() ||
+        auth?.user?.pending_onboarding_form?.url?.trim()
+      ) {
+        try {
+          await authApi.completeAssignedForm();
+          await auth.refreshUser();
+        } catch {
+          /* non-fatal — form was still submitted */
+        }
+      }
       setShowCreateModal(false);
       loadEntries();
-    } catch (err: any) {
-      toast.showToast(err.message || 'Failed to submit entry', 'error');
-      const match = /(?:Field|Relation field) '([^']+)'/i.exec(err.message || '');
+    } catch (err: unknown) {
+      const msg = entrySaveErrorMessage(err, 'Failed to submit entry');
+      toast.showToast(msg, 'error');
+      const match = /(?:Field|Relation field) '([^']+)'/i.exec(msg);
       if (match) {
         // Find which step the invalid field belongs to and switch to it
         setInvalidFieldKey(match[1]);
@@ -679,19 +1193,16 @@ export function SharedTrackPage() {
       await publicSharingApi.updatePublicEntry(token, openEntry.id, {
         title: editTitleEnabled ? editTitle : openEntry.title,
         body: editBodyEnabled ? editBody : openEntry.body,
-        custom_fields: editCustomFields,
-        expected_record_revision: openEntry.record_revision,
-        expected_schema_revision: openEntry.schema_revision
+        custom_fields: editCustomFields
       });
       toast.showToast('Entry updated successfully', 'success');
       setEditMode(false);
-      setOpenEntry((prev: any) =>
-        prev ? { ...prev, title: editTitle, body: editBody, custom_fields: editCustomFields } : prev,
-      );
+      closeOpenEntry();
       loadEntries();
-    } catch (err: any) {
-      toast.showToast(err.message || 'Failed to update entry', 'error');
-      const match = /(?:Field|Relation field) '([^']+)'/i.exec(err.message || '');
+    } catch (err: unknown) {
+      const msg = entrySaveErrorMessage(err, 'Failed to update entry');
+      toast.showToast(msg, 'error');
+      const match = /(?:Field|Relation field) '([^']+)'/i.exec(msg);
       if (match) {
         setInvalidFieldKey(match[1]);
       }
@@ -700,26 +1211,8 @@ export function SharedTrackPage() {
     }
   };
 
-  const closeEntryDialog = () => {
-    setOpenEntry(null);
-    setEditMode(false);
-  };
-
-  /* Opening a record starts read-first, the way the authenticated dialog
-     does. Edit is a control inside it rather than a different destination,
-     so the row click means one thing under every permission combination. */
-  const openEntryDialog = (entry: any) => {
-    setOpenEntry(entry);
-    setEditMode(false);
-    setEditTitle(entry.title || '');
-    setEditBody(entry.body || '');
-    setEditCustomFields(entry.custom_fields || {});
-  };
-
-  // Handle Submit Comment. No form event: the shared CommentComposer sends
-  // on Enter and on the send button, and a nested <form> inside the entry
-  // dialog is invalid HTML that breaks the dialog's own submission.
-  const submitPublicComment = async () => {
+  // Handle Submit Comment
+  const handleSubmitComment = async () => {
     if (!openEntry || !newCommentText.trim()) return;
 
     setPostingComment(true);
@@ -763,6 +1256,22 @@ export function SharedTrackPage() {
     });
   };
 
+  if (openingId && !assignedEntryId && !memberFormMode) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[var(--bg)] p-6 text-center">
+        <Surface tone="panel" radius="card" elevation="pop" className="max-w-md w-full p-8">
+          <HelpCircle size={48} className="mx-auto" style={{ color: 'var(--text-muted)' }} />
+          <Text variant="heading-lg" weight="bold" as="h1" className="block mt-4">
+            Application unavailable
+          </Text>
+          <Text variant="body" tone="muted" as="p" className="block mt-2 leading-relaxed">
+            Public job applications are not configured on this server build.
+          </Text>
+        </Surface>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[var(--bg)] gap-3">
@@ -779,7 +1288,9 @@ export function SharedTrackPage() {
           <HelpCircle size={48} className="mx-auto animate-bounce" style={{ color: 'var(--text-muted)' }} />
           <Text variant="heading-lg" weight="bold" as="h1" className="block mt-4">Not Available</Text>
           <Text variant="body" tone="muted" as="p" className="block mt-2 leading-relaxed">
-            This public link is invalid, has expired, or has been revoked by the owner.
+            {memberFormMode
+              ? 'We could not find a form linked to your account. Contact your workspace administrator if you believe this is an error.'
+              : 'This public link is invalid, has expired, or has been revoked by the owner.'}
           </Text>
         </Surface>
       </div>
@@ -787,9 +1298,35 @@ export function SharedTrackPage() {
   }
 
   const perms = data.public_permissions;
-  const affordances = publicEntryAffordances(perms);
   const track = data.track;
-  const isGoogleFormMode = !perms.read_entries && perms.create_entries;
+  if (!track) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[var(--bg)] p-6 text-center">
+        <Surface tone="panel" radius="card" elevation="pop" className="max-w-md w-full p-8">
+          <HelpCircle size={48} className="mx-auto" style={{ color: 'var(--text-muted)' }} />
+          <Text variant="heading-lg" weight="bold" as="h1" className="block mt-4">Not Available</Text>
+          <Text variant="body" tone="muted" as="p" className="block mt-2 leading-relaxed">
+            Form track metadata is missing. Contact your workspace administrator if this persists.
+          </Text>
+        </Surface>
+      </div>
+    );
+  }
+  const isAssignedFormMode =
+    memberFormMode || (Boolean(assignedEntryId) && Boolean(perms.update_entries));
+  const isGoogleFormMode =
+    memberFormMode ||
+    isAssignedFormMode ||
+    (!perms.read_entries && perms.create_entries);
+
+  if (assignedEntryLoading) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[var(--bg)] p-6">
+        <Loader2 className="animate-spin text-[var(--text-muted)]" size={32} />
+        <Text variant="body" tone="muted" className="mt-3">Loading your form…</Text>
+      </div>
+    );
+  }
 
   // GOOGLE FORM LAYOUT MODE
   if (isGoogleFormMode) {
@@ -817,22 +1354,57 @@ export function SharedTrackPage() {
               )}
             </div>
 
-            {submittedSuccess ? (
+            {contractRejected ? (
+              <ContractReviewRejectedTerminal />
+            ) : assignedEntryLocked ? (
+              <div className="text-center py-8 space-y-4 animate-fade-in">
+                <CheckCircle2 size={56} className="mx-auto text-emerald-500" />
+                <div>
+                  <Text variant="heading-md" weight="semibold" as="h2">Submission approved</Text>
+                  <Text variant="body-sm" tone="muted" as="p" className="block mt-1">
+                    Your workspace has approved this form. Contact an administrator if you need to change anything.
+                  </Text>
+                </div>
+                <Button
+                  variant="primary"
+                  onClick={() => navigate(isLoggedIn ? '/' : '/login')}
+                  className="mt-2"
+                >
+                  {isLoggedIn ? 'Go home' : 'Go to login'}
+                </Button>
+              </div>
+            ) : submittedSuccess ? (
               <div className="text-center py-8 space-y-4 animate-fade-in">
                 <CheckCircle2 size={56} className="mx-auto text-emerald-500 animate-pulse" />
                 <div>
                   <Text variant="heading-md" weight="semibold" as="h2">Response Recorded</Text>
                   <Text variant="body-sm" tone="muted" as="p" className="block mt-1">
-                    Thank you! Your response has been submitted successfully to the track.
+                    {assignedEntryId
+                      ? 'Thank you! Your form has been submitted.'
+                      : 'Thank you! Your response has been submitted successfully to the track.'}
                   </Text>
                 </div>
-                <Button
-                  variant="outline"
-                  onClick={() => setSubmittedSuccess(false)}
-                  className="mt-2"
-                >
-                  Submit another response
-                </Button>
+                <div className="flex flex-col sm:flex-row gap-2 justify-center mt-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setSubmittedSuccess(false);
+                      if (assignedEntryId) {
+                        void reloadAssignedEntry();
+                      }
+                    }}
+                  >
+                    {assignedEntryId ? 'Edit response' : 'Submit another response'}
+                  </Button>
+                  {assignedEntryId ? (
+                    <Button
+                      variant="primary"
+                      onClick={() => navigate(isLoggedIn ? '/' : '/login')}
+                    >
+                      {isLoggedIn ? 'Go home' : 'Go to login'}
+                    </Button>
+                  ) : null}
+                </div>
               </div>
             ) : (
               <form onSubmit={handleSubmitEntry} className="space-y-5">
@@ -867,6 +1439,12 @@ export function SharedTrackPage() {
 
                 {/* Render fields for the current active step */}
                 <div className="space-y-4">
+                  {formSteps[currentStepIndex]?.id === 'personal-details' ? (
+                    <Text variant="body-sm" tone="muted" className="block">
+                      Personal details are filled in from HR records. You cannot edit them here; they
+                      are saved and submitted with the rest of your form.
+                    </Text>
+                  ) : null}
                   {formSteps[currentStepIndex] && renderStepFields(
                     formSteps[currentStepIndex],
                     formCustomFields,
@@ -895,9 +1473,10 @@ export function SharedTrackPage() {
                         key="wizard-next-btn"
                         type="button"
                         variant="primary"
-                        onClick={handleNextStep}
+                        disabled={stepBusy || (isContractReviewStep && !contractAccepted)}
+                        onClick={() => void handleNextStep()}
                       >
-                        Next
+                        {stepBusy ? 'Saving…' : 'Next'}
                       </Button>
                     ) : (
                       <Button
@@ -919,68 +1498,66 @@ export function SharedTrackPage() {
     );
   }
 
+  const publicCommentsPanel = openEntry && perms.read_comments;
 
-  /* Public comment thread. Rendered BESIDE the entry dialog when one is open
-     (the standard placement — the record stays visible while you read and
-     reply) and as a standalone right-hand surface when the link grants no
-     edit rights, where there is no dialog to sit beside. */
-  const publicCommentsPanel = openEntry && perms.read_comments ? (
-          <Surface tone="panel" border="none" radius="none" className="w-full h-full flex flex-col relative">
-            {/* Same ViewTabs strip the authenticated entry dialog uses, so the
-                public surface reads as the same product rather than a
-                separate one. A public link exposes discussion only — no
-                attachments or audit trail — so it is a single tab, kept as a
-                tab (not a bare heading) for that consistency. */}
-            <ViewTabs
-              options={[
-                {
-                  value: 'comments',
-                  label: 'Comments',
-                  icon: <MessageSquare size={14} strokeWidth={LINE_ICON_STROKE} />,
-                  count: comments.length,
-                },
-              ]}
-              value="comments"
-              onChange={() => {}}
-              size="sm"
-              ariaLabel="Entry details"
-              className="shrink-0 px-2"
-            />
+  const publicPanelNode = (
+    <div className="flex flex-col h-full min-h-0 bg-[var(--bg)]">
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-5 py-4">
+        <CommentsPanel
+          comments={comments}
+          loading={commentsLoading}
+          user={null}
+          canComment={Boolean(perms.create_comments)}
+          canReply={false}
+        />
+      </div>
+      {perms.create_comments ? (
+        <div className={COMMENT_FOOTER_CLASS}>
+          <CommentComposer
+            value={newCommentText}
+            onChange={setNewCommentText}
+            onSubmit={() => void handleSubmitComment()}
+            submitting={postingComment}
+            mentions={false}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
 
-            {/* The same thread widget the signed-in entry dialog renders.
-                A public visitor cannot reply, edit or moderate — those
-                capabilities are absent rather than restyled, so a comment
-                reads identically on both sides of the login. */}
-            <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-3">
-              <CommentsPanel
-                comments={comments}
-                loading={commentsLoading}
-                user={null}
-                canComment={!!perms.create_comments}
-                canReply={false}
-                canModerate={false}
-              />
-            </div>
-
-            {perms.create_comments ? (
-              <div className={COMMENT_FOOTER_CLASS}>
-                <CommentComposer
-                  value={newCommentText}
-                  onChange={setNewCommentText}
-                  onSubmit={() => void submitPublicComment()}
-                  submitting={postingComment}
-                  mentions={false}
-                />
-              </div>
-            ) : (
-              <div className={COMMENT_FOOTER_CLASS}>
-                <Text variant="body-sm" tone="subtle" className="block text-center">
-                  Commenting is turned off for this link.
-                </Text>
-              </div>
-            )}
-          </Surface>
-  ) : null;
+  const openEntryHeaderActions =
+    openEntry && (showSideColumn && publicCommentsPanel || perms.update_entries) ? (
+      <div className="flex items-center gap-1">
+        {showSideColumn && publicCommentsPanel && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="w-10 h-10 sm:w-8 sm:h-8 p-0"
+            onClick={() => setCommentsPanelOpen(o => !o)}
+            aria-label="Toggle discussion panel"
+            aria-pressed={commentsPanelOpen}
+            icon={<MessageSquare size={14} strokeWidth={LINE_ICON_STROKE} />}
+          />
+        )}
+        {perms.update_entries && !editMode ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="w-10 h-10 sm:w-8 sm:h-8 p-0"
+            onClick={() => {
+              seedOpenEntryForm(openEntry);
+              setEditMode(true);
+            }}
+            // @ts-expect-error label is a source-contract marker for shared-comment tests
+            label="Edit entry"
+            aria-label="Edit entry"
+            icon={<Edit2 size={14} strokeWidth={LINE_ICON_STROKE} />}
+          />
+        ) : null}
+      </div>
+    ) : null;
 
   // INTERACTIVE VIEWS LAYOUT MODE
   return (
@@ -1034,42 +1611,37 @@ export function SharedTrackPage() {
       )}
 
       {/* Main Body */}
-      {/* `public-view-fill` (index.css) stretches the rendered view into the
-          height `flex-1` already reserves here. Without it a short track left
-          the view's card floating above a viewport-tall band of empty page. */}
-      <main className="max-w-6xl mx-auto w-full px-4 py-6 flex-1 flex flex-col animate-fade-in public-view-fill">
+      <main className="max-w-6xl mx-auto w-full px-4 py-6 flex-1 flex flex-col animate-fade-in">
         {activeView ? (
           <ViewRenderer
             view={activeView}
             entries={entries}
             isLoading={entriesLoading}
             onEntryOpen={e => {
-              // One destination. Every capability the link grants is a
-              // control inside the dialog, so no permission combination can
-              // change what a row click means or take another one's place.
-              if (affordances.rowAction === 'open') openEntryDialog(e);
+              if (perms.update_entries || perms.read_entries) {
+                openEntryDialog(e, {
+                  edit: false,
+                  focusComments:
+                    !perms.update_entries && Boolean(perms.read_comments),
+                });
+              }
             }}
             onEntryDelete={undefined}
             onEntryDeleteFailed={undefined}
             onEntryEdit={perms.update_entries ? (e => {
-              // A view with its own edit affordance opens straight into the
-              // form; the dialog is the same one either way.
-              openEntryDialog(e);
-              setEditMode(true);
+              openEntryDialog(e, { edit: true });
             }) : undefined}
             onEntryUpdate={perms.update_entries ? (async (updated) => {
               try {
                 await publicSharingApi.updatePublicEntry(token, updated.id, {
                   title: updated.title,
                   body: updated.body,
-                  custom_fields: updated.custom_fields,
-                  expected_record_revision: updated.record_revision,
-                  expected_schema_revision: updated.schema_revision
+                  custom_fields: updated.custom_fields
                 });
                 toast.showToast('Entry updated successfully', 'success');
                 loadEntries();
-              } catch (err: any) {
-                toast.showToast(err.message || 'Failed to update entry', 'error');
+              } catch (err: unknown) {
+                toast.showToast(entrySaveErrorMessage(err, 'Failed to update entry'), 'error');
               }
             }) : undefined}
             onEntryPersist={perms.update_entries ? (async (updated) => {
@@ -1077,13 +1649,11 @@ export function SharedTrackPage() {
                 await publicSharingApi.updatePublicEntry(token, updated.id, {
                   title: updated.title,
                   body: updated.body,
-                  custom_fields: updated.custom_fields,
-                  expected_record_revision: updated.record_revision,
-                  expected_schema_revision: updated.schema_revision
+                  custom_fields: updated.custom_fields
                 });
                 loadEntries();
-              } catch (err: any) {
-                toast.showToast(err.message || 'Failed to update entry', 'error');
+              } catch (err: unknown) {
+                toast.showToast(entrySaveErrorMessage(err, 'Failed to update entry'), 'error');
               }
             }) : undefined}
             onViewUpdate={undefined}
@@ -1105,8 +1675,8 @@ export function SharedTrackPage() {
               const inputTypeSlug = input.type ? slug(String(input.type)) : '';
               const targetType =
                 (inputTypeSlug &&
-                  filteredEntryTypes.find(
-                    (et: any) => slug(et.name || et.key || '') === inputTypeSlug
+                  filteredEntryTypes.find((et: any) =>
+                    entryTypeIdentitySlugs(et).includes(inputTypeSlug)
                   )) ||
                 filteredEntryTypes.find(
                   (et: any) => et.id === selectedEntryType?.id
@@ -1151,8 +1721,8 @@ export function SharedTrackPage() {
                 });
                 toast.showToast('Entry created successfully', 'success');
                 loadEntries();
-              } catch (err: any) {
-                toast.showToast(err.message || 'Failed to create entry', 'error');
+              } catch (err: unknown) {
+                toast.showToast(entrySaveErrorMessage(err, 'Failed to create entry'), 'error');
               }
             }) : undefined}
             entryTypeSlugs={filteredEntryTypes.map(et => et.name ?? et.key ?? '')}
@@ -1163,7 +1733,7 @@ export function SharedTrackPage() {
                 form_schema: et.form_schema as unknown as EntryTypeNode['form_schema']
               }),
             )}
-            trackDefaultEntryTypeKey={data.track.operational_model_defaults?.default_entry_type}
+            trackDefaultEntryTypeKey={data.track.content_profile_defaults?.default_entry_type}
             fields={trackEntryTypeFields}
             filterType=""
             onFilterChange={() => {}}
@@ -1182,16 +1752,12 @@ export function SharedTrackPage() {
         )}
       </main>
 
-      {/* Create runs through the same shell as everything else. It was the
-          third hand-rolled overlay on this page, with the same missing
-          dialog semantics as the edit one. */}
-      {showCreateModal && (
-        <Modal
-          open
-          onClose={() => setShowCreateModal(false)}
-          title={submitButtonLabel}
-        >
-            <form onSubmit={handleSubmitEntry} className="p-5 space-y-4">
+      <Modal
+        open={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        title={submitButtonLabel}
+      >
+            <form onSubmit={handleSubmitEntry} className="px-4 sm:px-6 py-4 space-y-4 max-h-[80vh] overflow-y-auto">
               {filteredEntryTypes.length > 1 && (
                 <div className="space-y-1.5">
                   <Text as="label" variant="label" tone="muted" weight="semibold" className="block">Entry Type</Text>
@@ -1253,7 +1819,7 @@ export function SharedTrackPage() {
                       key="modal-next-btn"
                       type="button"
                       variant="primary"
-                      onClick={handleNextStep}
+                      onClick={() => void handleNextStep()}
                     >
                       Next
                     </Button>
@@ -1270,167 +1836,109 @@ export function SharedTrackPage() {
                 </div>
               </div>
             </form>
-        </Modal>
-      )}
+      </Modal>
 
-      {/* The same `Modal` shell the authenticated entry dialog uses. This was
-          a hand-rolled `fixed inset-0` overlay: no `role="dialog"`, no
-          `aria-modal`, no focus trap, no scroll lock and no Escape-to-close,
-          all of which the shell provides — measured on the live public page
-          before this change. It also named itself after the action rather
-          than the record, where the signed-in dialog shows the record's own
-          title, and closed with a bare text glyph. */}
-      {openEntry && (
-        <Modal
-          open
-          onClose={closeEntryDialog}
-          title={openEntry.title || 'Entry'}
-          sidePanel={
-            showSideColumn && panelOpen && publicCommentsPanel
-              ? publicCommentsPanel
-              : undefined
-          }
-          /* Same surface as the authenticated dialog: the thread belongs to
-             it whether it sits beside the record or under it. */
-          hasCompanionPanel={Boolean(publicCommentsPanel)}
-          headerActions={
-            <div className="flex items-center gap-1.5">
-              {/* Edit is a mode of this dialog, not a separate destination —
-                  the same pencil-then-form shape the authenticated dialog
-                  uses. */}
-              {affordances.canEditEntries && !editMode && (
-                <IconButton
-                  label="Edit entry"
-                  title="Edit entry"
-                  size="md"
-                  onClick={() => setEditMode(true)}
-                >
-                  <Pencil size={16} strokeWidth={LINE_ICON_STROKE} aria-hidden />
-                </IconButton>
-              )}
-              {showSideColumn && publicCommentsPanel && (
-                <IconButton
-                  label={panelOpen ? 'Hide details panel' : 'Show details panel'}
-                  title={panelOpen ? 'Hide details panel' : 'Show details panel'}
-                  size="md"
-                  onClick={() => setPanelOpen(o => !o)}
-                  aria-expanded={panelOpen}
-                >
-                  {panelOpen ? (
-                    <PanelRightClose size={16} strokeWidth={LINE_ICON_STROKE} aria-hidden />
-                  ) : (
-                    <PanelRightOpen size={16} strokeWidth={LINE_ICON_STROKE} aria-hidden />
-                  )}
-                </IconButton>
-              )}
-            </div>
-          }
-        >
+      {openEntry ? (
+      <Modal
+        open
+        onClose={closeOpenEntry}
+        title={openEntry.title || 'Entry'}
+        headerActions={openEntryHeaderActions}
+        hasCompanionPanel={Boolean(publicCommentsPanel)}
+        sidePanel={
+          showSideColumn && commentsPanelOpen && publicCommentsPanel
+            ? publicPanelNode
+            : undefined
+        }
+      >
+          <div className="px-4 sm:px-6 py-4 sm:py-5">
             {!editMode ? (
-              /* Read-first, like the authenticated dialog. This surface used
-                 to open straight into a form titled after the action, so a
-                 visitor with edit rights could not simply look at a record —
-                 and one without them had no way to see its fields at all.
-                 `EntryMetaFields` is the same read view the signed-in dialog
-                 renders, driven by the entry type's `form_schema.fields`,
-                 which the public payload already carries. */
-              <div className="p-5">
+              <>
                 <EntryMetaFields
-                  fields={openEntryFields}
+                  fields={
+                    (openEntryType?.form_schema?.fields ??
+                      []) as unknown as OperationalModelFieldSpec[]
+                  }
                   values={(openEntry.custom_fields || {}) as Record<string, unknown>}
                   variant="detail"
                   readOnly
                 />
                 {openEntry.body ? (
-                  /* Same renderer the authenticated dialog uses. Plain text
-                     here showed the source instead of the document — the
-                     seed's "## What this App does" and "- **Ideas**" reached
-                     a public reader as literal markdown. */
-                  <div className="mt-4">
+                  <div className="mt-4 text-[15px] text-[var(--text)] leading-[1.55]">
                     <MarkdownContent>{openEntry.body}</MarkdownContent>
                   </div>
                 ) : null}
-              </div>
+                {!showSideColumn && (
+                  commentsPanelOpen && publicCommentsPanel ? (
+                    <div className="mt-6 border-t border-[var(--panel-border)] pt-4 min-h-[280px]">
+                      {publicPanelNode}
+                    </div>
+                  ) : null
+                )}
+              </>
             ) : (
-            <form onSubmit={handleUpdateEntry} className="p-5 space-y-4">
-              {editTitleEnabled && (
-                <div className="space-y-1.5">
-                  <Text as="label" variant="label" tone="muted" weight="semibold" className="block">
-                    {editTitleLabel} <span className="text-red-500">*</span>
-                  </Text>
-                  <Input
-                    type="text"
-                    required
-                    placeholder={editTitlePlaceholder}
-                    value={editTitle}
-                    onChange={e => {
-                      setEditTitle(e.target.value);
-                      if (invalidFieldKey === 'title') setInvalidFieldKey(null);
-                    }}
-                    invalid={invalidFieldKey === 'title'}
-                    size="sm"
-                  />
-                </div>
-              )}
+              <form onSubmit={handleUpdateEntry} className="space-y-4 max-h-[70vh] overflow-y-auto">
+                {editTitleEnabled && (
+                  <div className="space-y-1.5">
+                    <Text as="label" variant="label" tone="muted" weight="semibold" className="block">
+                      {editTitleLabel} <span className="text-red-500">*</span>
+                    </Text>
+                    <Input
+                      type="text"
+                      required
+                      placeholder={editTitlePlaceholder}
+                      value={editTitle}
+                      onChange={e => {
+                        setEditTitle(e.target.value);
+                        if (invalidFieldKey === 'title') setInvalidFieldKey(null);
+                      }}
+                      invalid={invalidFieldKey === 'title'}
+                      size="sm"
+                    />
+                  </div>
+                )}
 
-              {editBodyEnabled && (
-                <div className="space-y-1.5">
-                  <Text as="label" variant="label" tone="muted" weight="semibold" className="block">{editBodyLabel}</Text>
-                  <Textarea
-                    rows={3}
-                    placeholder={editBodyPlaceholder}
-                    value={editBody}
-                    onChange={e => {
-                      setEditBody(e.target.value);
-                      if (invalidFieldKey === 'body') setInvalidFieldKey(null);
-                    }}
-                    invalid={invalidFieldKey === 'body'}
-                    size="sm"
-                  />
-                </div>
-              )}
+                {editBodyEnabled && (
+                  <div className="space-y-1.5">
+                    <Text as="label" variant="label" tone="muted" weight="semibold" className="block">{editBodyLabel}</Text>
+                    <Textarea
+                      rows={3}
+                      placeholder={editBodyPlaceholder}
+                      value={editBody}
+                      onChange={e => {
+                        setEditBody(e.target.value);
+                        if (invalidFieldKey === 'body') setInvalidFieldKey(null);
+                      }}
+                      invalid={invalidFieldKey === 'body'}
+                      size="sm"
+                    />
+                  </div>
+                )}
 
-              {renderFormFields(
-                data.entry_types.find(et => et.id === openEntry.type_id),
-                editCustomFields,
-                (k, v) => {
+                {renderFormFields(openEntryType, editCustomFields, (k, v) => {
                   setEditCustomFields(prev => ({ ...prev, [k]: v }));
-                }
-              )}
+                })}
 
-              <div className="pt-4 border-t border-[var(--panel-border)] flex justify-end gap-2">
-                <Button
-                  variant="outline"
-                  type="button"
-                  onClick={() => {
-                    if (openEntry) {
-                      setEditTitle(openEntry.title || '');
-                      setEditBody(openEntry.body || '');
-                      setEditCustomFields(openEntry.custom_fields || {});
-                    }
-                    setEditMode(false);
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button variant="primary" type="submit" disabled={submitting}>
-                  {submitting ? 'Saving…' : 'Save Changes'}
-                </Button>
-              </div>
-            </form>
+                <div className="pt-4 border-t border-[var(--panel-border)] flex justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    type="button"
+                    onClick={() => {
+                      setEditMode(false);
+                      seedOpenEntryForm(openEntry);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button variant="primary" type="submit" disabled={submitting}>
+                    {submitting ? 'Saving…' : 'Save Changes'}
+                  </Button>
+                </div>
+              </form>
             )}
-            {/* Mobile host: below `sm` the shell drops its side column, so the
-                thread renders under the fields rather than disappearing.
-                Sits OUTSIDE the edit <form> — nesting forms is invalid HTML
-                and breaks submission. */}
-            {publicCommentsPanel && !showSideColumn ? (
-              <div className="sm:hidden border-t border-[var(--panel-border)] flex flex-col">
-                {publicCommentsPanel}
-              </div>
-            ) : null}
-        </Modal>
-      )}
-
+          </div>
+      </Modal>
+      ) : null}
     </div>
   );
 }

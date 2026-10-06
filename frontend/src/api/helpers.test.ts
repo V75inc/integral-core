@@ -5,6 +5,7 @@ import {
   formatApiErrorDetail,
   errorMessageFromAxios,
   agentiveErrorMessage,
+  entrySaveErrorMessage,
   slugifyEntryTypeKey,
 } from './helpers';
 
@@ -48,6 +49,22 @@ describe('formatApiErrorDetail', () => {
 
   it('uses fallback for empty array', () => {
     expect(formatApiErrorDetail([], 'nope')).toBe('nope');
+  });
+});
+
+describe('entrySaveErrorMessage', () => {
+  it('prefers API envelope message over axios Error.message', () => {
+    const err = Object.assign(new Error('Request failed with status code 400'), {
+      response: {
+        data: {
+          error_code: 'bad_request',
+          message: "Field 'emergency_contact_phone' must be a valid phone number",
+        },
+      },
+    });
+    expect(entrySaveErrorMessage(err, 'Failed to submit entry')).toBe(
+      "Field 'emergency_contact_phone' must be a valid phone number",
+    );
   });
 });
 

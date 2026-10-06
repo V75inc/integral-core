@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 
 class MintShareLinkRequest(BaseModel):
@@ -19,6 +19,15 @@ class RedeemShareLinkRequest(BaseModel):
 class UpdatePublicTrackShareRequest(BaseModel):
     enabled: bool
     public_permissions: Dict[str, bool] = Field(default_factory=dict)
+
+
+class NotifyPublicTrackShareRequest(BaseModel):
+    """Request body for ``POST /tracks/{id}/public-share/notify``."""
+
+    email: EmailStr
+    recipient_name: Optional[str] = None
+    form_url: Optional[str] = None
+    form_entry_id: Optional[str] = None
 
 
 class PublicEntryCreateRequest(BaseModel):
@@ -43,3 +52,10 @@ class PublicCommentCreateRequest(BaseModel):
 
 class PublicReactionCreateRequest(BaseModel):
     emoji: str
+
+
+class PublicContractDecisionRequest(BaseModel):
+    action: str = Field(description="accept or reject")
+    signature_png: Optional[str] = None
+    reason: Optional[str] = None
+    return_url: Optional[str] = None

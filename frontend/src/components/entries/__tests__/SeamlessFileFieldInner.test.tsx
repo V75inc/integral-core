@@ -18,8 +18,8 @@ vi.mock('../../../api/attachments', () => ({
   },
 }));
 
-vi.mock('../../../features/hr/memberOnboardingApi', () => ({
-  memberOnboardingApi: {
+vi.mock('../../../features/memberAssignedForm/memberAssignedFormApi', () => ({
+  memberAssignedFormApi: {
     uploadAttachment: vi.fn(),
   },
 }));

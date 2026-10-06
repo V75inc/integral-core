@@ -24,7 +24,7 @@ def test_onboarding_form_email_html():
     msg = render_public_form_email(
         recipient_email="casper@example.com",
         recipient_name="Casper",
-        form_url="http://localhost:9006/hr/employee-onboarding?entry=1",
+        form_url="http://localhost:9006/me/assigned-form?entry=1",
         form_title="employee onboarding form",
     )
     assert msg.subject == "Welcome — complete your onboarding"
