@@ -33,6 +33,10 @@ import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useToast } from '../../context/ToastContext';
 import { isSamePrincipal } from '../../utils';
+import {
+  resolveInstallDenial,
+  type InstallDenialAction,
+} from '../../host/registry';
 
 const LINE_STROKE = 1.5;
 
@@ -79,6 +83,9 @@ export function AppManagerDialog({
   const [profiles, setProfiles] = useState<OperationalModelNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [denialAction, setDenialAction] = useState<InstallDenialAction | null>(
+    null,
+  );
   const [phase, setPhase] = useState<DialogPhase>('manage');
   const [selectedInstall, setSelectedInstall] = useState<
     Map<string, SelectedInstallRow>
@@ -116,6 +123,7 @@ export function AppManagerDialog({
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setDenialAction(null);
     setResults(null);
     setPhase('manage');
     setSelectedInstall(new Map());
@@ -298,6 +306,7 @@ export function AppManagerDialog({
     if (selectedInstallCount === 0) return;
     setSubmitting(true);
     setError(null);
+    setDenialAction(null);
     const outcome: ManagerResults = {
       uninstalled: [],
       uninstallQueued: [],
@@ -349,9 +358,15 @@ export function AppManagerDialog({
         onChanged?.();
       }
     } catch (err) {
-      setError(
-        (err as { message?: string })?.message || 'Failed to install apps.',
-      );
+      const denial = resolveInstallDenial(err);
+      if (denial) {
+        setError(denial.message);
+        setDenialAction(denial);
+      } else {
+        setError(
+          (err as { message?: string })?.message || 'Failed to install apps.',
+        );
+      }
     } finally {
       setSubmitting(false);
     }
@@ -427,11 +442,21 @@ export function AppManagerDialog({
                   <div
                     role="alert"
                     data-testid="app-manager-error"
-                    className="rounded-[var(--radius-card)] border border-[color:var(--danger-fg)]/30 bg-[color:var(--danger-fg)]/10 px-4 py-3"
+                    className="rounded-[var(--radius-card)] border border-[color:var(--danger-fg)]/30 bg-[color:var(--danger-fg)]/10 px-4 py-3 space-y-2"
                   >
                     <Text variant="body-sm" tone="danger">
                       {error}
                     </Text>
+                    {denialAction?.actionLabel && denialAction.onAction ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={denialAction.onAction}
+                        data-testid="app-manager-denial-action"
+                      >
+                        {denialAction.actionLabel}
+                      </Button>
+                    ) : null}
                   </div>
                 )}
 

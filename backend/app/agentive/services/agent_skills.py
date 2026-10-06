@@ -415,7 +415,7 @@ async def list_workspace_skills(
         user_id=user_id,
         active_apps_only=True,
         include_disabled=True,
-        include_private=include_private,
+        include_private=include_private or bool(private_app_id),
     )
     workspace_authored = await Skill.find(
         {"workspace_id": workspace_id, "origin": "workspace"}

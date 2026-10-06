@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 from app.agentive.harness.model_route import resolve_native_model_route
@@ -296,3 +298,44 @@ async def test_invalid_default_model_route_fails_before_credential_lookup(
             workspace_id="workspace-1", default_model="gpt-4.1"
         )
     assert called is False
+
+
+@pytest.mark.asyncio
+async def test_native_platform_route_honors_host_quota_denial(monkeypatch):
+    from app.api.errors import QuotaExceededError
+
+    monkeypatch.setattr(
+        "app.services.model_credential_resolver.resolve_agent_model_override",
+        AsyncMock(return_value=None),
+    )
+    gate = AsyncMock(side_effect=QuotaExceededError(message="Host quota reached"))
+    monkeypatch.setattr("app.services.host_hooks.assert_platform_quota", gate)
+    with pytest.raises(QuotaExceededError, match="Host quota reached"):
+        await resolve_native_model_route(
+            workspace_id="workspace-1", default_model="openai/gpt-4.1"
+        )
+    gate.assert_awaited_once_with("workspace-1")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("local", [True, False])
+async def test_native_local_and_byok_routes_bypass_platform_quota(monkeypatch, local):
+    override = (
+        None
+        if local
+        else {
+            "slots": {"default": {"model": "openai/gpt-4.1", "api_key": "byok-secret"}}
+        }
+    )
+    monkeypatch.setattr(
+        "app.services.model_credential_resolver.resolve_agent_model_override",
+        AsyncMock(return_value=override),
+    )
+    gate = AsyncMock()
+    monkeypatch.setattr("app.services.host_hooks.assert_platform_quota", gate)
+    route = await resolve_native_model_route(
+        workspace_id="workspace-1",
+        default_model="ollama/gemma4" if local else "openai/gpt-4.1",
+    )
+    assert route.credential_source == ("local" if local else "workspace_byok")
+    gate.assert_not_awaited()

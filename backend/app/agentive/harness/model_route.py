@@ -120,6 +120,10 @@ async def resolve_native_model_route(
             ollama_num_ctx, ollama_num_predict = _local_ollama_generation_settings()
             ollama_think = _local_ollama_think_setting()
             ollama_clear_thinking = _local_ollama_clear_thinking()
+        if not local_route:
+            from app.services.host_hooks import assert_platform_quota
+
+            await assert_platform_quota(workspace_id)
         return ResolvedModelRoute(
             provider="ollama_chat" if local_route else provider,
             model=model,

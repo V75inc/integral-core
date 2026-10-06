@@ -345,7 +345,10 @@ async def test_effective_skills_context_uses_authorized_profile_for_focus(
             ),
         )
 
-    async def fake_visible_skills(_workspace_id, *, user_id, private_app_id=None):
+    async def fake_visible_skills(
+        _workspace_id, *, user_id, private_app_id=None, include_private=True
+    ):
+        assert include_private is False
         assert user_id
         requested_private_apps.append(private_app_id)
         return [
@@ -448,7 +451,10 @@ async def test_effective_skills_context_lists_private_skills_for_authorized_focu
             ),
         )
 
-    async def fake_visible_skills(_workspace_id, *, user_id, private_app_id=None):
+    async def fake_visible_skills(
+        _workspace_id, *, user_id, private_app_id=None, include_private=True
+    ):
+        assert include_private is False
         assert user_id == "user-visible"
         assert private_app_id == "app-visible"
         return [
@@ -601,3 +607,38 @@ async def test_register_skill_upgrade_preserves_override():
     assert skill.body_override == "KEEP ME"
     assert skill.name == "Custom Name"
     assert skill.description == "New manifest description"
+
+
+@pytest.mark.asyncio
+async def test_private_bundle_skills_preserve_editor_and_focused_runtime_modes():
+    """Runtime focus admits its private bundle skills without exposing another App."""
+    owner = await _user("skills-private-integration@example.com")
+    workspace = await _personal_workspace(owner)
+    apps = []
+    for key in ("focused_private", "other_private"):
+        app = await _app_with_skill(
+            name=key,
+            slug=key,
+            workspace_id=workspace.id,
+            owner_id=owner.id,
+            skill_key=key,
+        )
+        skills = await app.nodes(edge=[CONTAINS], node=["Skill"])
+        skill = next(row for row in skills if row.key == key)
+        skill.private = True
+        await skill.save()
+        apps.append(app)
+
+    editor = await list_workspace_skills(workspace.id, user_id=owner.id)
+    assert {row["key"] for row in editor} == {"focused_private", "other_private"}
+    focused = await list_workspace_skills(
+        workspace.id,
+        user_id=owner.id,
+        private_app_id=apps[0].id,
+        include_private=False,
+    )
+    assert {row["key"] for row in focused} == {"focused_private"}
+    unfocused = await list_workspace_skills(
+        workspace.id, user_id=owner.id, include_private=False
+    )
+    assert unfocused == []
