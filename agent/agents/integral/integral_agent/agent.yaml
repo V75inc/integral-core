@@ -438,6 +438,26 @@ actions:
       skills_source: app
       skills: "-all"
 
+  # ── Public web research ──
+  # System-level fallback for public web research. A workspace may instead
+  # install the Serper Web Search catalog Connector, which stores its key
+  # encrypted and exposes a scoped MCP tool. When both are available, the
+  # web_research skill prefers the Connector. Never put either key in a prompt.
+  - action: jvagent/serper_web_search
+    context:
+      enabled: true
+      max_results: 5
+
+  # Fetch selected public sources. jvagent guards private/loopback hosts,
+  # validates redirect targets, caps response size, and marks page text
+  # untrusted before returning it to the orchestrator.
+  - action: jvagent/web_fetch
+    context:
+      enabled: true
+      max_chars: 8000
+      max_bytes: 1000000
+      timeout: 15
+
   # ── Integral tool surface (backs the integral_* skill SOPs) ──
   # In-process embedded action — runs inside the Integral backend via
   # jvagent.embed.bootstrap, calling integral's endpoint handlers
