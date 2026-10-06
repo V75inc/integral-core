@@ -45,21 +45,10 @@ describe('PromptSheetResumeNote', () => {
 });
 
 describe('liveWorkSynopsis', () => {
-  it('prefers the live activity, then the tool, then a short thought', () => {
-    expect(liveWorkSynopsis('Filing your content', 'integral_list_apps', 'long thought')).toBe(
-      'Filing your content',
-    );
-    expect(liveWorkSynopsis(undefined, 'integral_describe_substrate', '')).toBe(
-      'Describe substrate',
-    );
-    expect(
-      liveWorkSynopsis(
-        '',
-        '',
-        'First I listed the apps. Checking whether the app already exists.',
-      ),
-    ).toBe('Checking whether the app already exists.');
-    expect(liveWorkSynopsis('', '', '')).toBe('Thinking');
+  it('uses observable activity and tools, with a neutral fallback', () => {
+    expect(liveWorkSynopsis('Filing your content', 'integral_list_apps')).toBe('Filing your content');
+    expect(liveWorkSynopsis(undefined, 'integral_describe_substrate')).toBe('Describe substrate');
+    expect(liveWorkSynopsis('', '')).toBe('Working');
   });
 });
 

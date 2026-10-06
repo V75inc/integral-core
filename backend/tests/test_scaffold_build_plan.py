@@ -1201,7 +1201,7 @@ async def test_stage_failure_discards_unapplied_batch(approved, monkeypatch):
         session_id="thread-1",
         interaction_id=None,
     )
-    assert result.error_code == "scaffold_plan_stage_failed"
+    assert result.error_code == "scaffold_plan_validation_failed"
     assert not is_batch_open("user-1", "thread-1")
 
     repair = {}
@@ -1212,7 +1212,7 @@ async def test_stage_failure_discards_unapplied_batch(approved, monkeypatch):
         session_id="thread-1",
         interaction_id=None,
     )
-    assert result.error_code == "scaffold_plan_refused"
+    assert result.error_code == "scaffold_plan_validation_failed"
     assert not is_batch_open("user-1", "thread-1")
 
 

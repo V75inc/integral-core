@@ -471,6 +471,13 @@ async def get_thread_by_session(
     session key). jvspatial stores node scalars under ``context.<field>``."""
     if not provider_session_id:
         return None
+    # Native Core workflows use the durable conversation ID. Pydantic's
+    # checkpoint session may rotate with capabilities/permissions; it is not
+    # an approval or prompt-queue identity. Legacy providers retain their key.
+    if provider_session_id.startswith("n.ChatThread."):
+        native_thread = await ChatThread.get(provider_session_id)
+        if native_thread is not None and native_thread.provider_id == "integral_native":
+            return native_thread
     threads = await ChatThread.find(
         {"context.provider_session_id": provider_session_id}
     )

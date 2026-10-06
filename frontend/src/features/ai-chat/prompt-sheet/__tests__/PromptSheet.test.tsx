@@ -9,7 +9,7 @@ vi.mock('../usePromptQueue', () => ({
 
 const approveWrite = vi.fn(async () => undefined);
 
-function renderPendingWrite() {
+function renderPendingWrite(failed = false) {
   vi.mocked(usePromptQueue).mockReturnValue({
     open: true,
     current: {
@@ -19,6 +19,7 @@ function renderPendingWrite() {
       token: 'token-1',
       write_kind: 'create_entry',
       summary: 'Create entry “Sample Widget”',
+      ...(failed ? {staged_state: 'blessed', last_error: {message: 'Validation failed'}, completed_operations: 2} : {}),
     },
     page: {
       total: 1,
@@ -62,4 +63,11 @@ describe('PromptSheet staged-write approval', () => {
 
     expect(approveWrite).toHaveBeenCalledOnce();
   });
+});
+
+it('retains execution failure and partial progress in the review card', () => {
+  renderPendingWrite(true);
+  expect(screen.getByRole('alert')).toHaveTextContent('Approval recorded; application failed');
+  expect(screen.getByRole('alert')).toHaveTextContent('Validation failed');
+  expect(screen.getByRole('alert')).toHaveTextContent('2 operations already applied');
 });

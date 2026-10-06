@@ -41,3 +41,5 @@ coverage.xml
 
 # Local qualification fixtures and evidence are never image inputs.
 .qualification-evidence
+# Generated wheel resources must not shadow current agent sources in Docker.
+backend/app/resident_harness

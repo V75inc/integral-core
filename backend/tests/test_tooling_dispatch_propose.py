@@ -392,12 +392,22 @@ async def test_publish_model_draft_is_blocked_until_approved_diff_is_visible(
 @pytest.mark.asyncio
 async def test_profile_propose_tools_stage(
     bind_fresh_graph_context_for_async_tests,
+    monkeypatch,
     tool_name,
     kind,
     args,
 ):
     """Profile-family propose tools mint a pending StagedChange with expected kind."""
     auth_user_id, workspace_id, track_id = await _bootstrap_principal_and_track()
+    if tool_name == "integral_publish_model_draft":
+
+        async def review(**kwargs):
+            assert kwargs["user_id"] == auth_user_id
+            return {"review_fingerprint": "review-v1", "diff": {}, "entry_impact": []}
+
+        monkeypatch.setattr(
+            "app.services.operational_model_authoring.diff_draft", review
+        )
     call_args = dict(args)
     if call_args.get("track_id") == "TRACK":
         call_args["track_id"] = track_id
@@ -1530,6 +1540,34 @@ async def test_save_view_propose_returns_staged_token_no_view(
 
     after = await _count_views(auth_user_id, workspace_id, track_id)
     assert after == before, f"propose must not apply (view created): {after}"
+
+
+@pytest.mark.asyncio
+async def test_save_view_normalizes_single_sort_object_before_canonical_validation():
+    from app.agentive.tooling.bindings import _stage_save_view
+
+    staged = await _stage_save_view(
+        {
+            "track_id": "track",
+            "name": "Plants",
+            "view_type": "table",
+            "config": {
+                "sort": {"field": "custom_fields.last_watered", "direction": "asc"}
+            },
+        }
+    )
+    assert staged["payload"]["config"]["sort"] == [
+        {"field": "custom_fields.last_watered", "direction": "asc"}
+    ]
+    with pytest.raises(ValueError, match="sort must be a list"):
+        await _stage_save_view(
+            {
+                "track_id": "track",
+                "name": "Plants",
+                "view_type": "table",
+                "config": {"sort": "last_watered"},
+            }
+        )
 
 
 @pytest.mark.asyncio

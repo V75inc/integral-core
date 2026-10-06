@@ -112,7 +112,30 @@ def build_native_runtime(
         # discovery order only; the broker remains the authorization boundary.
         (
             IntegralToolDisclosure(
-                strategy=pydantic_tool_search_strategy, max_results=8
+                strategy=pydantic_tool_search_strategy,
+                max_results=8,
+                require_initial_search=not any(
+                    tool.name == "integral_resolve_pending_write"
+                    or (
+                        tool.name == "integral_build_approved_design"
+                        and not tool.defer_loading
+                    )
+                    for tool in tools
+                ),
+                continuation_tools=frozenset(
+                    tool.name
+                    for tool in tools
+                    if tool.name == "integral_build_approved_design"
+                    and not tool.defer_loading
+                ),
+                pending_decision_tool=next(
+                    (
+                        tool.name
+                        for tool in tools
+                        if tool.name == "integral_resolve_pending_write"
+                    ),
+                    None,
+                ),
             )
             if any(tool.name == "search_capabilities" for tool in tools)
             else ToolSearch(strategy=pydantic_tool_search_strategy, max_results=8)

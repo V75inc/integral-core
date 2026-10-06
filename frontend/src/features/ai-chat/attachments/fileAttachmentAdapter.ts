@@ -1,7 +1,7 @@
 /**
  * General file attachment adapter for the AI chat composer (Slice B — general
- * file persistence). Unlike the image adapter (inline base64, no server
- * upload), a general file is uploaded to the chat-upload endpoint
+ * file persistence). Shared by general files and the persisted image adapter.
+ * The original file is uploaded to the chat-upload endpoint
  * (`POST /chat/threads/{id}/attachments`) at `send()` time and referenced by
  * id — the turn forwards `attachment_ids[]` so the backend builds a per-turn
  * context note (see `useAIChatRuntime`'s `attachmentIdsFromContent`).

@@ -5,7 +5,7 @@ manifest, bindings, core skills, and App fixtures under `examples/`. Do
 not edit; `tests/test_capability_map.py` fails when this file is stale.
 The JSON beside it carries every field.
 
-122 of 124 manifest tools are advertised (50 read, 70 propose, 2 execute) across 16 core skills.
+123 of 125 manifest tools are advertised (51 read, 70 propose, 2 execute) across 16 core skills.
 
 ## Skills → tools
 
@@ -13,8 +13,8 @@ The JSON beside it carries every field.
 | --- | --- | --- | --- |
 | `integral-artifacts` | Maintains session working artifacts — upsert, get, and list harness-agnostic blueprints, checklists, and notes keyed on the conversation for multi-turn fidelity without Integral UI cards. | 3 | `integral-scaffold` |
 | `integral-attachments` | Reads and interprets uploaded documents, PDFs and receipts, then files the source attachment with the matching authorized App, Track and record. Use first for a file dropped in chat, including “file this where it belongs”. Also lists, summarizes and delivers existing entry attachments across a track or workspace. Clarify ambiguous destinations before writing. | 16 | `integral-entries`, `integral-filing`, `integral-insights`, `integral-scaffold` |
-| `integral-dashboards` | Compose and customize app-scoped analytics dashboards — create, adjust, add/remove widgets, change layout, rename. Use for bar charts, KPI tiles, edits to an existing board, or vague requests like the best dashboard for this App. | 11 | `integral-insights`, `integral-models` |
-| `integral-entries` | Handles one record at a time in an existing Track or list: find a record by exact name, ID, or serial number and answer questions about its status or fields; create, update, delete, tag, comment on, or link a specific entry. Use for requests such as finding a mower by serial number or changing one item. Use integral-scaffold for a new App or a multi-part app workflow; use integral-filing when the user supplies unstructured content to place, and integral-organize for one approved change across a selected set of records. | 19 | `integral-attachments`, `integral-filing`, `integral-insights`, `integral-models`, `integral-navigation`, `integral-workspace` |
+| `integral-dashboards` | Compose and customize app-scoped analytics dashboards — create, adjust, add/remove widgets, change layout, rename. Use for bar charts, KPI tiles, edits to an existing board, or vague requests like the best dashboard for this App. | 12 | `integral-insights`, `integral-models` |
+| `integral-entries` | Handles explicit record requests in an existing Track or list: find records by name, ID, or serial number; answer questions about their status or fields; create, update, delete, tag, comment on, or link entries. Batch compatible records supplied together into one review. Use integral-scaffold for a new App; integral-filing for unstructured content with an unknown destination; integral-organize for bulk reorganization. | 22 | `integral-attachments`, `integral-filing`, `integral-insights`, `integral-models`, `integral-navigation`, `integral-workspace` |
 | `integral-filing` | Files user-typed unstructured facts—notes, observations, pasted email, or meeting summaries—into the best authorized Track and Entry shape. For uploaded files or receipts, use integral-attachments first to read the source. Use integral-entries for a named record or explicit structured CRUD request. Clarify ambiguous destinations and stage filing for approval. | 5 | `integral-attachments`, `integral-entries`, `integral-insights`, `integral-models`, `integral-workspace` |
 | `integral-identity` | Resolves the acting Integral user's identity (id, display name, email). For workspace orientation maps (apps/tracks), activate integral-workspace. | 1 | — |
 | `integral-insights` | Search existing Integral records and current workspace state to answer one-time questions. Find whether information is already filed, search entries by meaning, summarize, count, rank, compare, or break down current data; optionally save a query as a View. For a new operational app, use integral-scaffold. For periodic or recurring review deliverables, use integral-review. | 21 | `integral-entries`, `integral-filing`, `integral-models` |
@@ -71,10 +71,10 @@ The JSON beside it carries every field.
 | `integral_get_artifact` | propose | intercept: `app.agentive.tooling.dispatch` | — | `integral:propose` | integral-artifacts, integral-scaffold |
 | `integral_list_artifacts` | propose | intercept: `app.agentive.tooling.dispatch` | — | `integral:propose` | integral-artifacts, integral-scaffold |
 | `integral_ask_user` | propose | intercept: `app.agentive.tooling.dispatch` | — | `integral:propose` | integral-scaffold |
-| `integral_begin_batch` | propose | intercept: `app.agentive.tooling.dispatch` | — | `integral:propose` | integral-attachments, integral-onboard, integral-organize, integral-scaffold |
+| `integral_begin_batch` | propose | intercept: `app.agentive.tooling.dispatch` | — | `integral:propose` | integral-attachments, integral-entries, integral-onboard, integral-organize, integral-scaffold |
 | `integral_build_approved_design` | propose | intercept: `app.agentive.tooling.dispatch` | — | `integral:propose` | integral-scaffold |
-| `integral_commit_batch` | propose | intercept: `app.agentive.tooling.dispatch` | — | `integral:propose` | integral-attachments, integral-onboard, integral-organize, integral-scaffold |
-| `integral_cancel_batch` | propose | intercept: `app.agentive.tooling.dispatch` | — | `integral:propose` | integral-onboard, integral-organize, integral-scaffold |
+| `integral_commit_batch` | propose | intercept: `app.agentive.tooling.dispatch` | — | `integral:propose` | integral-attachments, integral-entries, integral-onboard, integral-organize, integral-scaffold |
+| `integral_cancel_batch` | propose | intercept: `app.agentive.tooling.dispatch` | — | `integral:propose` | integral-entries, integral-onboard, integral-organize, integral-scaffold |
 | `integral_bulk_update_entries` | propose | stager: `app.agentive.tooling.bindings._stage_bulk_update_entries` | PUT /api/entries/{entry_id}  (fan-out, single envelope) | `integral:propose` | integral-organize |
 | `integral_bulk_move_entries` | propose | stager: `app.agentive.tooling.bindings._stage_bulk_move_entries` | — | `integral:propose` | integral-organize |
 | `integral_bulk_delete_entries` | propose | stager: `app.agentive.tooling.bindings._stage_bulk_delete_entries` | DELETE /api/entries/{entry_id}  (fan-out) | `integral:propose` | integral-organize |
@@ -110,6 +110,7 @@ The JSON beside it carries every field.
 | `integral_delete_view` | propose | stager: `app.agentive.tooling.bindings._stage_delete_view` | DELETE /api/views/{view_id} | `integral:propose` | integral-review |
 | `integral_describe_dashboard_substrate` | read | handler: `app.api.apps_dashboards.get_dashboard_widget_substrate` | GET /api/dashboard-widget-substrate | `integral:read` | integral-dashboards |
 | `integral_list_dashboards` | read | handler: `app.api.apps_dashboards.list_app_dashboards` | GET /api/apps/{app_id}/dashboards | `integral:read` | integral-dashboards |
+| `integral_read_dashboard_data` | read | handler: `app.api.apps_dashboards.get_app_dashboard_data` | GET /api/apps/{app_id}/dashboards/{dashboard_id}/data | `integral:read` | integral-dashboards |
 | `integral_suggest_dashboard` | read | handler: `app.api.apps_dashboards.suggest_app_dashboard` | GET /api/apps/{app_id}/dashboards/suggest | `integral:read` | integral-dashboards |
 | `integral_create_dashboard` | propose | stager: `app.agentive.tooling.bindings._stage_create_dashboard` | POST /api/apps/{app_id}/dashboards | `integral:propose` | integral-dashboards, integral-scaffold |
 | `integral_update_dashboard` | propose | stager: `app.agentive.tooling.bindings._stage_update_dashboard` | PATCH /api/apps/{app_id}/dashboards/{dashboard_id} | `integral:propose` | integral-dashboards |

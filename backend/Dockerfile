@@ -26,6 +26,9 @@ RUN apt-get update \
 # Build context is the repo root (see deploy.yml / docker-compose.local.yml).
 COPY backend/pyproject.toml backend/README.md ./
 COPY backend/app ./app
+# Build the wheel's resident assets from the canonical sources, never a stale
+# locally generated app/resident_harness tree. The runtime also uses this copy.
+COPY agent ./app/resident_harness
 # Trusted external App handlers import the public SDK at runtime. Install
 # its independent package alongside Core so no host PYTHONPATH mount is needed.
 COPY sdk/python ./sdk

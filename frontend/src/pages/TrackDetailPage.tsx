@@ -213,6 +213,9 @@ export function TrackDetailPage() {
   );
 
   const closeEntryModal = useCallback(() => {
+    // Invalidate an outstanding deep-link read before dismissing. A late
+    // result must not recreate the sheet after its URL has been cleared.
+    deeplinkReqIdRef.current += 1;
     setEntryModal(null);
     setSearchParams(
       prev => {
@@ -247,7 +250,7 @@ export function TrackDetailPage() {
           n.delete('from_title');
           return n;
         },
-        { replace: true }
+        { replace: false }
       );
     },
     [setSearchParams]
@@ -629,6 +632,8 @@ export function TrackDetailPage() {
     [entriesData]
   );
   const openModalEntryId = entryModal?.entry.id;
+  const openModalEntryIdRef = useRef(openModalEntryId);
+  openModalEntryIdRef.current = openModalEntryId;
 
   useEffect(() => {
     if (!openModalEntryId) return;
@@ -651,10 +656,14 @@ export function TrackDetailPage() {
   useOpenEntryModalRefetch(openModalEntryId, handleOpenEntryRefetched);
 
   useEffect(() => {
-    if (!id || !entryIdFromQuery) return;
+    if (!id) return;
+    if (!entryIdFromQuery) {
+      setEntryModal(null);
+      return;
+    }
     // openEntryModal (card click) already set the modal — avoid a refetch
     // that may navigate away when list cache track_id differs from URL id.
-    if (entryModal?.entry.id === entryIdFromQuery) {
+    if (openModalEntryIdRef.current === entryIdFromQuery) {
       return;
     }
 
@@ -693,8 +702,6 @@ export function TrackDetailPage() {
   }, [
     id,
     entryIdFromQuery,
-    entryModal?.entry.id,
-    entryModal?.entry.track_id,
     navigate,
     setSearchParams,
     showToast,
