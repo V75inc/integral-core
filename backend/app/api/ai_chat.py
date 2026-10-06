@@ -1917,6 +1917,7 @@ async def send_message(
             message="a message must have text, an image, or an attachment"
         )
     thread = await _resolve_owned_thread(thread_id, user_id)
+    native_turn = thread.provider_id == "integral_native"
     if host_prompt_sheet_resume:
         from app.services.prompt_queue import (
             QUEUE_STATUS_CLOSED,
@@ -1937,11 +1938,17 @@ async def send_message(
     # conversation belongs to. See ``_resolve_turn_workspace`` for why the
     # ``X-Integral-Scope`` header is a consistency check here, not the source.
     active_workspace_id = await _resolve_turn_workspace(request, user_id, thread)
-    greenfield_proposal_required = await _requires_greenfield_proposal(
-        text,
-        getattr(thread, "design_proposed", None),
-        workspace_id=active_workspace_id,
-        agent_id=getattr(thread, "agent_id", None) or None,
+    # Native workflow selection belongs to the Pydantic run. The legacy judge
+    # is an inference call outside native admission, usage and BYOK accounting.
+    greenfield_proposal_required = (
+        False
+        if native_turn
+        else await _requires_greenfield_proposal(
+            text,
+            getattr(thread, "design_proposed", None),
+            workspace_id=active_workspace_id,
+            agent_id=getattr(thread, "agent_id", None) or None,
+        )
     )
 
     ref_resolution = await resolve_entity_refs(
@@ -1987,7 +1994,7 @@ async def send_message(
     # carried in the authenticated system context instead.
     system_context_blocks: List[str] = []
     user_utterance = "" if host_prompt_sheet_resume else sanitize_user_text(text)
-    if _is_explicit_no_workspace_write_request(text):
+    if not native_turn and _is_explicit_no_workspace_write_request(text):
         no_write_block = wrap_system_context(
             "user_forbids_saving",
             _NO_WORKSPACE_WRITE_DIRECTIVE,
@@ -2037,7 +2044,8 @@ async def send_message(
         )
         system_context_blocks.append(design_request_block)
     elif (
-        not focused_track_id
+        not native_turn
+        and not focused_track_id
         and not focused_space_id
         and not getattr(thread, "design_proposed", None)
         and not _is_prompt_sheet_resume(text)
@@ -2048,7 +2056,7 @@ async def send_message(
             "unmet_need_default", _UNMET_NEED_DIRECTIVE
         )
         system_context_blocks.append(unmet_need_block)
-    if _is_existing_schema_field_request(text, focused_track_id):
+    if not native_turn and _is_existing_schema_field_request(text, focused_track_id):
         schema_field_request_block = wrap_system_context(
             "existing_schema_field_request",
             "[SYSTEM:EXISTING-SCHEMA-FIELD-REQUEST]\n"
@@ -2071,7 +2079,7 @@ async def send_message(
             "revision has been approved and read back.",
         )
         system_context_blocks.append(schema_field_request_block)
-    if _is_dashboard_skill_request(text, page_context):
+    if not native_turn and _is_dashboard_skill_request(text, page_context):
         focused_dash = _focused_dashboard_id(page_context)
         dash_body = _DASHBOARD_SKILL_DIRECTIVE
         if focused_dash:
@@ -2081,11 +2089,12 @@ async def send_message(
             dash_body,
         )
         system_context_blocks.append(dashboard_skill_block)
-    from app.services.query_plan import insights_plan_preamble
+    if not native_turn:
+        from app.services.query_plan import insights_plan_preamble
 
-    plan_body = insights_plan_preamble(text or "")
-    if plan_body:
-        system_context_blocks.append(wrap_system_context("query_plan", plan_body))
+        plan_body = insights_plan_preamble(text or "")
+        if plan_body:
+            system_context_blocks.append(wrap_system_context("query_plan", plan_body))
     if image_context_note:
         system_context_blocks.append(image_context_note)
     if attachment_context_note:
@@ -2093,7 +2102,7 @@ async def send_message(
     # Pending design body as context data on correction turns (procedure is in
     # skill integral-scaffold). Affirm only stamps approved — no tutoring.
     design_marker = getattr(thread, "design_proposed", None) or {}
-    native_design_approval = thread.provider_id == "integral_native"
+    native_design_approval = native_turn
     if native_design_approval:
         # Native approval is interpreted inside the claimed, metered run.
         # No lexical gate or JVAgent light-model inference before admission.
@@ -2400,7 +2409,11 @@ async def _start_user_turn(
         )
         system_context_blocks.append(approved_block)
 
-    if looks_like_bless(text) and not pending_writes:
+    if (
+        provider.id != "integral_native"
+        and looks_like_bless(text)
+        and not pending_writes
+    ):
         # User confirmed a prior plan but nothing is waiting on the Prompt
         # Sheet. Observed failure: model re-grounds (schema reads) then
         # narrates "I'll start filing" and ends the turn — no propose call,
@@ -2428,11 +2441,13 @@ async def _start_user_turn(
             )
         )
 
-    # These policies are carried in the server-created Pydantic context and
-    # enforced by its brokered tools as well as the legacy dispatcher guards.
-    # Keeping the decision on the execution context makes it portable to the
-    # durable worker instead of relying on a process-local session timer.
-    no_workspace_writes = _is_explicit_no_workspace_write_request(user_text)
+    # Legacy intent gates do not classify native requests. Native tools retain
+    # live broker policy and exact proposal approval; skills interpret the
+    # user's design-only or chat-only request inside the metered model run.
+    no_workspace_writes = (
+        provider.id != "integral_native"
+        and _is_explicit_no_workspace_write_request(user_text)
+    )
     if no_workspace_writes:
         extra_data["no_workspace_writes"] = True
     if greenfield_proposal_required:
@@ -2493,6 +2508,10 @@ async def _start_user_turn(
         events: Optional[Iterable[Dict[str, Any]]] = None,
     ) -> Optional[Dict[str, str]]:
         """Fail a design/build turn that claims completion without a receipt."""
+        if provider.id == "integral_native":
+            # The native output validator checks execution receipts in its
+            # library run; do not add a second legacy prose-based validator.
+            return None
         proposal_error = await _greenfield_proposal_error(
             thread.id, greenfield_proposal_required
         )

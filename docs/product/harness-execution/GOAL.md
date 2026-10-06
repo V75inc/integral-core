@@ -103,6 +103,14 @@ count, scaffolding, or the amount of code written.
   directives in native request preparation. Remove this overlapping routing
   from the native path, then retest the same ordinary design-only request.
   Do not replace it with keyword gates, a second planner or another classifier.
+- Native preparation now excludes those legacy helpers in the current
+  candidate, with route regression coverage. The default aggregate turn budget
+  is 300,000 tokens by user direction, configurable per deployment. The GLM
+  design-only request now completes with a saved proposal and no build. Its
+  natural amendment still failed because a custom preparation gate hid the
+  proposal tool; remove redundant adapter prerequisites where Core already
+  validates the operation. Keep failed build preflight distinct from applied
+  effects, and qualify amendments before treating approval as complete.
 - Natural approval must apply to the exact pending action through existing
   Integral authority contracts. Remove repeated reviews and unnecessary
   dialogue requirements. Any added interpretation adapter must have a

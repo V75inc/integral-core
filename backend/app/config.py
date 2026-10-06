@@ -114,6 +114,9 @@ class Settings(BaseSettings):
     INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS: int = Field(
         default=180, ge=10, le=900
     )
+    # Aggregate input and output tokens across the native agent's model calls
+    # in one turn; independent from any provider's per-request output limit.
+    INTEGRAL_NATIVE_TURN_TOKEN_LIMIT: int = Field(default=300_000, ge=1)
 
     # JWT signing key consumed by integral app code (ws auth, service
     # auth, tests). Reads only the jvspatial canonical env var —

@@ -1,7 +1,7 @@
 ---
 name: integral-scaffold
 description: 'Designs and delivers a new operational app for a business process or information need. Use for new registers, inventory and asset management, equipment and tool tracking, staff assignments and check-outs, service and maintenance schedules, inspections, reminders, and other business record systems. Turn the need into an approved design, build its schema, relations, views, skills, and requested routines as one staged plan, then verify the result. Retain delivery ownership while consulting integral-model for schema choices and integral-scheduling for routines. Use integral-onboard first only when the user needs workspace orientation before choosing what to build.'
-allowed-tools: integral_whoami integral_describe_substrate integral_list_models integral_list_apps integral_ask_user integral_check_design_coverage integral_verify_build integral_propose_design integral_upsert_artifact integral_get_artifact integral_list_artifacts integral_begin_batch integral_build_approved_design integral_create_app integral_create_app_track integral_apply_model_to_track integral_author_model integral_save_view integral_create_entry integral_create_dashboard integral_author_skill integral_create_tag integral_register_track_template integral_commit_batch integral_list_tracks integral_get_track_schema integral_query_entries integral_list_views integral_schedule_task integral_list_routines integral_cancel_batch
+allowed-tools: integral_whoami integral_describe_substrate integral_list_models integral_list_apps integral_ask_user integral_check_design_coverage integral_verify_build integral_propose_design integral_get_artifact integral_list_artifacts integral_begin_batch integral_build_approved_design integral_create_app integral_create_app_track integral_apply_model_to_track integral_author_model integral_save_view integral_create_entry integral_create_dashboard integral_author_skill integral_create_tag integral_register_track_template integral_commit_batch integral_list_tracks integral_get_track_schema integral_query_entries integral_list_views integral_schedule_task integral_list_routines integral_cancel_batch
 ---
 
 # Operational app delivery
@@ -242,7 +242,9 @@ nearby apps only when they create a concrete naming conflict; do not reopen
 the reuse-versus-create question after the user has affirmed the design.
 
 Call `integral_propose_design` with a concise design in `proposal`. Include
-only the requested scope and necessary setup. For a simple request, a short
+only the requested scope and necessary setup. This tool persists both the
+proposal and its blueprint; do not store them separately with an artifact
+write before proposing. For a simple request, a short
 paragraph or a few bullets with one approval question is sufficient; do not
 add a separate offer, plan review, or confirmation round. When adding a
 Track to an existing App, include its real `target_app_id` from
@@ -270,7 +272,10 @@ of unchanged items and pass the whole revised blueprint. Record platform
 defaults you rely on under `platform_defaults`; the Feed on every Track is
 `{"id": "default.feed", "kind": "feed", "detail": "..."}` (`kind` is the key
 the build checks, so write it exactly), and code-backed actions under `operations`. Unresolved questions go in
-`open_decisions`; the build refuses until they are resolved. A Track's
+`open_decisions`; the build refuses until they are resolved. Include only
+unresolved choices necessary for the requested setup. Optional features that
+the user did not request are omitted, not open decisions or extra approval
+questions. A Track's
 `tag_groups` list tag names; a seed's `tags` must come from its Track's
 groups. An anchor goes **only** under `track_templates` (same shape as a
 Track, no `tag_groups` yet) — never also under `tracks` — and the parent
