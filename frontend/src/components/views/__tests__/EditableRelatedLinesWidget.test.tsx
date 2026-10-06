@@ -12,6 +12,7 @@ vi.mock('../../../api', () => ({
   tracksApi: { list: vi.fn() },
 }));
 
+import { entriesApi } from '../../../api';
 import { EditableRelatedLinesWidget } from '../EditableRelatedLinesWidget';
 import type { ViewWidgetProps } from '../types';
 
@@ -83,5 +84,27 @@ describe('EditableRelatedLinesWidget', () => {
       currency: 'EUR',
     }).format(0);
     await waitFor(() => expect(screen.getAllByText(expected).length).toBeGreaterThan(0));
+  });
+
+  it('does not show a blank placeholder line on a saved invoice with no lines', async () => {
+    vi.mocked(entriesApi.listRelated).mockResolvedValue({
+      entries: [],
+      nextCursor: null,
+      hasMore: false,
+    });
+    render(
+      <EditableRelatedLinesWidget
+        {...lineView({
+          __bindings: {
+            __contributionMode: 'detail',
+            entryId: 'inv-1',
+            appId: 'app1',
+            entryValues: { total_amount: 6000 },
+          },
+        })}
+      />
+    );
+    await waitFor(() => expect(entriesApi.listRelated).toHaveBeenCalled());
+    expect(screen.queryByText('—')).toBeNull();
   });
 });

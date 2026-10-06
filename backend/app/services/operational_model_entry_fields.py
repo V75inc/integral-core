@@ -326,10 +326,34 @@ def resolve_entry_type_spec(
     }
     key = _entry_type_match_key(entry_type)
     spec = by_key.get(key) or by_name.get(key)
-    if spec:
-        return _as_dict(spec, where="entry_type_spec")
-
     form_schema = _as_dict(entry_type.form_schema, where="entry_type.form_schema")
+    if spec:
+        # The attached runtime tier can lag the EntryType form_schema after a
+        # package update (invoice lines gained net_amount, tax_code, …).
+        # Prefer the tier, but keep form_schema fields it does not declare.
+        # Otherwise an operation write of those fields is rejected and the
+        # document header is saved with no lines.
+        merged = dict(_as_dict(spec, where="entry_type_spec"))
+        spec_fields = [
+            _as_dict(f, where="entry_type_spec field")
+            for f in _as_list(merged.get("fields"), where="entry_type_spec.fields")
+        ]
+        known = {str(f.get("key") or "") for f in spec_fields}
+        extras: List[Dict[str, Any]] = []
+        for raw in _as_list(
+            form_schema.get("fields"), where="entry_type.form_schema.fields"
+        ):
+            field = _normalize_field_spec(
+                _as_dict(raw, where="entry_type.form_schema field")
+            )
+            field_key = str(field.get("key") or "")
+            if field_key and field_key not in known:
+                extras.append(field)
+                known.add(field_key)
+        if extras:
+            merged["fields"] = [*spec_fields, *extras]
+        return merged
+
     fields = [
         _normalize_field_spec(_as_dict(f, where="entry_type.form_schema field"))
         for f in _as_list(

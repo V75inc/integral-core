@@ -265,9 +265,9 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
     (currencyField && String(entryValues[currencyField] || '').trim()) || fallbackCurrency;
   const readOnly = mode === 'detail';
 
-  const [lines, setLines] = useState<DraftLine[]>(() => [
-    newDraftLine(defaults, 1),
-  ]);
+  const [lines, setLines] = useState<DraftLine[]>(() =>
+    readOnly ? [] : [newDraftLine(defaults, 1)],
+  );
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [catalogLoaded, setCatalogLoaded] = useState(false);
   const [columnOptions, setColumnOptions] = useState<Record<string, ColumnChoice[]>>({});
@@ -407,7 +407,13 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
           entry_id: e.id,
           fields: { ...(e.custom_fields || {}) },
         }));
-        setLines(loaded.length ? loaded : [newDraftLine(defaults, 1)]);
+        setLines(
+          loaded.length
+            ? loaded
+            : readOnly
+              ? []
+              : [newDraftLine(defaults, 1)],
+        );
         if (loaded.length) patchParentTotals(loaded);
       })
       .catch(() => {
@@ -419,8 +425,11 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
     return () => {
       cancelled = true;
     };
+    // defaults and patchParentTotals are omitted: reloading when they change
+    // would wipe in-progress edits. readOnly is included so a detail view
+    // does not keep the compose placeholder row.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hostEntryId, relation, childEntryType]);
+  }, [hostEntryId, relation, childEntryType, readOnly]);
 
   useEffect(() => {
     const entries = Object.entries(columnOptionSpecs);

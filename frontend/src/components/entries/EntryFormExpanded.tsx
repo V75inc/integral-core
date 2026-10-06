@@ -1394,23 +1394,34 @@ export function useEntryExpandedForm(
         );
       }
 
+      let contributionFailed = false;
       if (contributionApi?.hasContribution) {
         contributionApi.notifyCommitted(created.id, 'create');
         try {
           const submitResult = await contributionApi.requestSubmit(created.id);
           if (!submitResult.ok) {
+            contributionFailed = true;
             showToast(
               submitResult.error ||
-                'Entry created but contribution data could not be saved',
+                'Entry created but related data could not be saved. Open it to finish the missing rows.',
               'error',
+              {
+                label: 'View entry',
+                href: entryPath(created.id, tid),
+              },
             );
           }
         } catch (contribErr) {
+          contributionFailed = true;
           showToast(
             contribErr instanceof Error
               ? contribErr.message
-              : 'Entry created but contribution data could not be saved',
+              : 'Entry created but related data could not be saved. Open it to finish the missing rows.',
             'error',
+            {
+              label: 'View entry',
+              href: entryPath(created.id, tid),
+            },
           );
         }
       }
@@ -1429,10 +1440,12 @@ export function useEntryExpandedForm(
       setLinkPreview(null);
       setDismissedPreviewUrl('');
       onCreated?.(created);
-      showToast('Entry created!', 'success', {
-        label: 'View entry',
-        href: entryPath(created.id, tid)
-      });
+      if (!contributionFailed) {
+        showToast('Entry created!', 'success', {
+          label: 'View entry',
+          href: entryPath(created.id, tid)
+        });
+      }
     } catch (e: unknown) {
       showToast(errorMessageFromAxios(e, 'Failed to create entry'), 'error');
     } finally {
