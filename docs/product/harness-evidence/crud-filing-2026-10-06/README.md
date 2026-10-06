@@ -25,6 +25,7 @@ PDF were used. This is not V1 acceptance or production qualification.
 | Natural record approval | Prompt Sheet currently disables chat input while pending, so an ordinary typed approval cannot be entered. | Unqualified / UI gap |
 | App/Track ambiguity | `File this note: checked today, everything looks fine.` Initially incorrectly proposed a new track on the first App. Removed automatic no-fit routing from ranking. Repeated input now asks one clarification naming the four current tracks. Answer named drill DR-001; correct comment proposal staged. | Passed one clarification, exact existing drill, one approved comment and actual Entry Comments 1 readback |
 | GLM receipt control | Same `Please file this where it belongs.` with TEST-DEL-003 PDF. Correct three fields, combined create+attach, one approved card, automatic readback with source PDF. | Passed filing and readback |
+| GLM ambiguous receipt | Fresh upload, same `Please file this where it belongs.` PDF lacks an equipment/vehicle identifier. Asked one Equipment/Vehicle question. Answer: `It was the cordless drill DR-001 in the Equipment Register.` Proposed attaching to the exact existing drill, not creating a record or track. | Passed one clarification, exact-target proposal, approved PDF attachment, automatic readback and actual drill Attachments 1 panel |
 | GLM update / delete | Same receipt conversation, recipient change to Anita James followed by deletion. | Passed applied typed update with PDF retained, recoverable delete, automatic readback and subsequent read denied for deleted record; actual table retains only TEST-DEL-002 |
 
 Receipt success: gpt-4.1, 105.8k tokens, $0.0883, 14.4s, 9 tool steps.
@@ -75,7 +76,11 @@ isolation and credential ownership require their independent contract evidence.
 The deletion search proves absence from active results, not erasure from every
 status; the OpenAI prose overstated that coverage and remains a claim-quality
 gap. Typed chat approval while a record card is pending is still blocked by the
-Prompt Sheet UI.
+Prompt Sheet UI. The standalone uploaded-file approval also exposes no recorded
+effect receipt for Undo; filing succeeded, but its undo/receipt coverage remains
+a separate gap. The canonical `/entries/<id>` page did not expose the attachment
+panel in this journey; the track record panel did. That navigation parity is
+not qualified by this harness filing success.
 
 ## Source gates
 
@@ -102,3 +107,7 @@ used the live PostgreSQL branch runtime.
 ![GLM recoverable deletion and subsequent read](glm-delete-search-readback.jpg)
 
 ![Actual register after both recoverable delete tests](post-delete-active-register.jpg)
+
+![GLM ambiguous receipt asks which existing destination](glm-ambiguous-receipt-clarification.jpg)
+
+![Clarified PDF attached to the existing drill](glm-clarified-drill-attachment.jpg)

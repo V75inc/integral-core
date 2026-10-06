@@ -31,6 +31,9 @@ verification:
     browser_glm_control: passed_receipt_filing_update_recoverable_delete_and_post_delete_read
     browser_glm_actual_entry_panel: passed_updated_typed_fields_source_pdf_retained
     browser_post_delete_actual_track: passed_only_retained_test_delivery_002_active
+    browser_glm_ambiguous_attachment: passed_one_question_exact_existing_drill_approved_pdf_and_actual_attachment_panel
+    standalone_attachment_effect_receipt: unqualified_undo_reports_receipt_unavailable
+    canonical_entry_attachment_panel: unqualified_track_panel_readback_passed
     natural_staged_record_approval: blocked_by_prompt_sheet_composer_ui
     model_context_compaction: public_fractional_policy_preserves_eight_pairs_and_loaded_skills
     stateful_tool_execution: public_pydantic_sequential_barriers
