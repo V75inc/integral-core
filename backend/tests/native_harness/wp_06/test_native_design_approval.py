@@ -1,19 +1,17 @@
-"""Approval uses the native Agent and exact proposal/message authority."""
+"""The primary tool choice grants exact pending-design approval."""
 
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import pytest
-from pydantic_ai import CancellationToken
-from pydantic_ai.messages import ModelResponse, ToolCallPart
-from pydantic_ai.models.function import FunctionModel
 
 from app.agentive.harness import design_approval
 from app.agentive.harness.contracts import HarnessExecutionScope
-from app.api.errors import InsufficientPermissionsError, ResourceConflictError
+from app.api.errors import InsufficientPermissionsError
 
 
 def scope():
+    """Return a representative, isolated native execution scope."""
     return HarnessExecutionScope(
         tenant_id="workspace-a",
         workspace_id="workspace-a",
@@ -27,12 +25,9 @@ def scope():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("verdict", ["approve", "amend", "decline", "other"])
-@pytest.mark.parametrize("cas_success", [True, False])
-async def test_native_verdict_is_bound_to_current_proposal_and_message(
-    monkeypatch, verdict, cas_success
-):
-    utterance = "That sounds good. Go ahead."
+async def test_build_tool_selection_persists_scoped_approval(monkeypatch):
+    """Primary tool selection persists approval against the live run fence."""
+    utterance = "That looks good. Please build it and add the drill now."
     thread = SimpleNamespace(
         user_id="user-a",
         workspace_id="workspace-a",
@@ -42,7 +37,6 @@ async def test_native_verdict_is_bound_to_current_proposal_and_message(
         active_harness_session_id="n.HarnessSession.session-node-a",
         design_proposed={
             "design_id": "design-a",
-            "proposal": "One equipment register.",
             "proposed_at": "proposal-a",
             "proposed_at_user_turn": 1,
             "blueprint_digest": "digest-a",
@@ -50,13 +44,11 @@ async def test_native_verdict_is_bound_to_current_proposal_and_message(
         },
     )
     writes = []
-    requests = []
 
     async def get_thread(_id):
         return thread
 
     async def get_session(_id):
-        assert _id == thread.active_harness_session_id
         return SimpleNamespace(
             id=thread.active_harness_session_id,
             session_id="session-a",
@@ -78,18 +70,11 @@ async def test_native_verdict_is_bound_to_current_proposal_and_message(
             writes.append((predicate, change))
             if predicate["id"] == thread.active_harness_session_id:
                 return {"id": thread.active_harness_session_id}
-            return {"id": "thread-a"} if cas_success else None
+            return {"id": "thread-a"}
 
     @asynccontextmanager
     async def transaction(_work):
         yield Transaction()
-
-    def respond(messages, info):
-        requests.append(messages)
-        assert not info.function_tools
-        return ModelResponse(
-            parts=[ToolCallPart(info.output_tools[0].name, {"response": verdict})]
-        )
 
     monkeypatch.setattr(design_approval.ChatThread, "get", get_thread)
     monkeypatch.setattr(design_approval.HarnessSession, "get", get_session)
@@ -98,44 +83,61 @@ async def test_native_verdict_is_bound_to_current_proposal_and_message(
         design_approval.chat_threads, "latest_user_message_text", latest
     )
     monkeypatch.setattr(design_approval, "_authority_transaction", transaction)
-    if not cas_success:
-        with pytest.raises(ResourceConflictError, match="changed during approval"):
-            await design_approval.resolve_pending_design_reply(
-                scope=scope(),
-                utterance=utterance,
-                model=FunctionModel(respond),
-                cancellation=CancellationToken(),
-            )
-        return
-    result = await design_approval.resolve_pending_design_reply(
-        scope=scope(),
-        utterance=utterance,
-        model=FunctionModel(respond),
-        cancellation=CancellationToken(),
+
+    assert await design_approval.authorize_pending_design_build(
+        scope=scope(), expected_user_turn=2, expected_utterance=utterance
     )
-    assert result is (verdict == "approve")
-    assert len(requests) == 1
+    assert len(writes) == 2
     fence, _ = writes[0]
     assert fence["context.last_run_id"] == "run-a"
-    assert fence["context.session_id"] == "session-a"
     predicate, change = writes[1]
     assert predicate["context.design_proposed.design_id"] == "design-a"
     assert predicate["context.design_proposed.blueprint_digest"] == "digest-a"
     assert predicate["context.design_proposed.blueprint_revision"] == 1
-    assert predicate["context.last_message_at"] == "message-a"
-    assert (
-        predicate["context.active_harness_session_id"]
-        == thread.active_harness_session_id
-    )
-    stamped = change["$set"]["context.design_proposed"]
-    assert stamped["approved"] is result
-    assert stamped["affirm_for"] == utterance
-    assert stamped["affirm_run_id"] == "run-a"
-    assert stamped["reply_kind"] == verdict
+    approved = change["$set"]["context.design_proposed"]
+    assert approved["approved"] is True
+    assert approved["affirm_for"] == utterance
+    assert approved["affirm_via"] == "native_build_tool_selection"
+    assert approved["approved_via"] == "native_build_tool_selection"
 
 
 @pytest.mark.asyncio
-async def test_foreign_thread_cannot_be_judged_or_approved(monkeypatch):
+async def test_preflight_does_not_run_a_second_approval_judge(monkeypatch):
+    """Approval preflight reads durable state without classifying user text."""
+    thread = SimpleNamespace(
+        user_id="user-a",
+        workspace_id="workspace-a",
+        provider_id="integral_native",
+        design_proposed={
+            "design_id": "design-a",
+            "proposed_at_user_turn": 1,
+            "approved": False,
+        },
+    )
+
+    async def get_thread(_id):
+        return thread
+
+    async def count(_thread):
+        return 2
+
+    async def latest(_thread):
+        return "That looks good. Please build it."
+
+    monkeypatch.setattr(design_approval.ChatThread, "get", get_thread)
+    monkeypatch.setattr(design_approval.chat_threads, "count_user_turns", count)
+    monkeypatch.setattr(
+        design_approval.chat_threads, "latest_user_message_text", latest
+    )
+    assert not await design_approval.pending_design_is_approved_for_reply(
+        scope=scope(), utterance="That looks good. Please build it."
+    )
+
+
+@pytest.mark.asyncio
+async def test_foreign_thread_cannot_receive_build_authority(monkeypatch):
+    """A thread owned by another principal cannot grant build authority."""
+
     async def foreign(_id):
         return SimpleNamespace(
             user_id="another-user",
@@ -145,9 +147,6 @@ async def test_foreign_thread_cannot_be_judged_or_approved(monkeypatch):
 
     monkeypatch.setattr(design_approval.ChatThread, "get", foreign)
     with pytest.raises(InsufficientPermissionsError):
-        await design_approval.resolve_pending_design_reply(
-            scope=scope(),
-            utterance="yes",
-            model=None,
-            cancellation=CancellationToken(),
+        await design_approval.authorize_pending_design_build(
+            scope=scope(), expected_user_turn=2, expected_utterance="Go ahead"
         )

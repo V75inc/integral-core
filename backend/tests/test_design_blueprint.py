@@ -280,8 +280,9 @@ async def _thread(session_id: str) -> ChatThread:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("approved", [False, True])
 async def test_native_amendment_replaces_typed_design_and_invalidates_old_approval(
-    monkeypatch, approved
+    monkeypatch: pytest.MonkeyPatch, approved: bool
 ):
+    """A real blueprint amendment invalidates approval for the previous draft."""
     thread = await _thread(f"native-amend-{approved}")
     thread.provider_id = "integral_native"
     await thread.save()
@@ -302,7 +303,7 @@ async def test_native_amendment_replaces_typed_design_and_invalidates_old_approv
     )
     await thread.connect(correction, edge=CONTAINS)
 
-    async def legacy_judge(*args, **kwargs):
+    async def legacy_judge(*args: object, **kwargs: object):
         raise AssertionError("Native proposal amendments must not invoke JV approval")
 
     monkeypatch.setattr(chat_threads, "looks_like_design_affirm", legacy_judge)
@@ -327,6 +328,7 @@ async def test_native_amendment_replaces_typed_design_and_invalidates_old_approv
 
 @pytest.mark.asyncio
 async def test_native_same_approved_blueprint_cannot_be_reproposed():
+    """An identical approved blueprint cannot be reset to pending."""
     thread = await _thread("native-same-approved")
     thread.provider_id = "integral_native"
     await thread.save()
@@ -349,6 +351,41 @@ async def test_native_same_approved_blueprint_cannot_be_reproposed():
     )
     assert result["error"] == "already_proposed"
     assert (await ChatThread.get(thread.id)).design_proposed["approved"] is True
+
+
+@pytest.mark.asyncio
+async def test_native_same_pending_blueprint_does_not_reset_approval_turn():
+    """Saving an identical blueprint preserves its original approval turn."""
+    thread = await _thread("native-same-pending")
+    thread.provider_id = "integral_native"
+    await thread.save()
+    await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id=thread.provider_session_id,
+        summary="Bike Repair",
+        proposal=_PROPOSAL,
+        blueprint=_blueprint(),
+    )
+    correction = await ChatMessage.create(
+        role="user",
+        thread_id=thread.id,
+        parts=[{"type": "text", "text": "Looks good, build it."}],
+    )
+    await thread.connect(correction, edge=CONTAINS)
+
+    result = await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id=thread.provider_session_id,
+        summary="Bike Repair",
+        proposal=_PROPOSAL,
+        blueprint=_blueprint(),
+    )
+
+    assert result["error"] == "unchanged_design"
+    marker = (await ChatThread.get(thread.id)).design_proposed
+    assert marker["proposed_at_user_turn"] == 1
+    assert marker["blueprint_revision"] == 1
+    assert marker["approved"] is False
 
 
 @pytest.mark.asyncio

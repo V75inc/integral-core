@@ -4,12 +4,9 @@ import uuid
 
 import pytest
 from jvspatial.core.context import GraphContext, set_default_context
-from pydantic_ai import CancellationToken
-from pydantic_ai.messages import ModelResponse, ToolCallPart
-from pydantic_ai.models.function import FunctionModel
 
 from app.agentive.harness.contracts import HarnessExecutionScope
-from app.agentive.harness.design_approval import resolve_pending_design_reply
+from app.agentive.harness.design_approval import authorize_pending_design_build
 from app.api.errors import ResourceConflictError
 from app.models.edges import IS_MEMBER_OF
 from app.models.nodes import ChatThread
@@ -22,6 +19,7 @@ pytestmark = pytest.mark.postgres
 
 @pytest.fixture
 def postgres_graph_context(postgres_raw_db):
+    """Provide an isolated graph context backed by PostgreSQL."""
     from jvspatial.core.context import _default_context_var
 
     token = set_default_context(GraphContext(database=postgres_raw_db))
@@ -33,9 +31,10 @@ def postgres_graph_context(postgres_raw_db):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("replace_run_during_judgment", [False, True])
-async def test_exact_proposal_approval_uses_graph_session_and_current_run(
+async def test_primary_build_selection_uses_graph_session_and_current_run(
     postgres_graph_context, replace_run_during_judgment
 ):
+    """The selected build tool can approve only the current graph run."""
     from app.services.app_graph import catalog_workspace, ensure_integral_app_graph
 
     await ensure_integral_app_graph(include_library=False)
@@ -81,28 +80,22 @@ async def test_exact_proposal_approval_uses_graph_session_and_current_run(
     assert session.id != scope.session_id
     await claim_harness_run(scope=scope)
 
-    async def reply(_messages, info):
-        if replace_run_during_judgment:
-            await claim_harness_run(
-                scope=scope.model_copy(update={"run_id": "newer-run"})
-            )
-        return ModelResponse(
-            parts=[ToolCallPart(info.output_tools[0].name, {"response": "approve"})]
-        )
-
-    arguments = dict(
-        scope=scope,
-        utterance=utterance,
-        model=FunctionModel(reply),
-        cancellation=CancellationToken(),
-    )
     if replace_run_during_judgment:
+        await claim_harness_run(scope=scope.model_copy(update={"run_id": "newer-run"}))
         with pytest.raises(ResourceConflictError, match="no longer current"):
-            await resolve_pending_design_reply(**arguments)
+            await authorize_pending_design_build(
+                scope=scope,
+                expected_user_turn=2,
+                expected_utterance=utterance,
+            )
         current = await ChatThread.get(thread.id)
         assert not current.design_proposed.get("approved")
     else:
-        assert await resolve_pending_design_reply(**arguments)
+        assert await authorize_pending_design_build(
+            scope=scope,
+            expected_user_turn=2,
+            expected_utterance=utterance,
+        )
         current = await ChatThread.get(thread.id)
         assert current.active_harness_session_id == session.id
         assert current.design_proposed["approved"] is True

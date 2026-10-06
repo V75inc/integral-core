@@ -884,6 +884,14 @@ async def design_amend_required(session_id: Optional[str]) -> bool:
     marker = getattr(thread, "design_proposed", None) or {}
     if not marker or marker.get("approved"):
         return False
+    # The native Pydantic run makes the semantic choice by selecting either
+    # the approved-build tool or a new proposal. Do not run a second lexical
+    # or model judge here; the broker fences all pending-design writes.
+    if getattr(thread, "provider_id", None) == "integral_native":
+        return bool(
+            marker.get("affirm_via") == "native_semantic"
+            and marker.get("reply_kind") == "amend"
+        )
     proposed_at = marker.get("proposed_at_user_turn")
     if not isinstance(proposed_at, int):
         return False
@@ -1240,6 +1248,25 @@ async def record_design_proposed(
             "detail": (
                 "This design has a typed blueprint; an amendment must pass the "
                 "complete revised blueprint, keeping item ids of unchanged items."
+            ),
+        }
+
+    if (
+        native_turn
+        and existing.get("blueprint")
+        and canonical_blueprint == existing.get("blueprint")
+        and isinstance(prior_turn, int)
+        and current_turns > prior_turn
+        and not existing.get("build_receipt")
+    ):
+        return {
+            "error": "unchanged_design",
+            "detail": (
+                "This exact design is already saved. Do not replace or present "
+                "it again. If the latest user reply authorizes building it, call "
+                "integral_build_approved_design; if it asks for a change, "
+                "propose the materially revised blueprint. For a question or "
+                "unclear reply, answer without writes."
             ),
         }
 

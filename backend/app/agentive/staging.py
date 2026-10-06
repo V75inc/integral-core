@@ -660,10 +660,13 @@ def format_staging_pending_marker(changes: List["StagedChange"]) -> str:
     """
     if not changes:
         return ""
+    import hashlib
+
     parts = []
     for sc in changes:
         summary = (sc.summary or "").replace("\n", " ").strip()
-        parts.append(f'kind={sc.kind} summary="{summary}"')
+        reference = hashlib.sha256(sc.token.encode()).hexdigest()[:16]
+        parts.append(f'item_reference={reference} kind={sc.kind} summary="{summary}"')
     return "[SYSTEM:STAGING-PENDING] " + " | ".join(parts)
 
 

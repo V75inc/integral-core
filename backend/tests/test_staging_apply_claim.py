@@ -77,6 +77,7 @@ def _fake_executor(monkeypatch, *, result=None, delay: float = 0.0):
 @pytest.mark.smoke
 @pytest.mark.asyncio
 async def test_two_concurrent_approves_run_the_executor_once(monkeypatch):
+    """Concurrent approval attempts execute a write only once."""
     sc = await _mint()
     calls = _fake_executor(monkeypatch, delay=0.05)
 
@@ -98,6 +99,7 @@ async def test_two_concurrent_approves_run_the_executor_once(monkeypatch):
 @pytest.mark.smoke
 @pytest.mark.asyncio
 async def test_a_refused_execute_releases_the_claim_for_a_retry(monkeypatch):
+    """A refused write releases its execution claim for a later retry."""
     sc = await _mint()
     _fake_executor(monkeypatch, result={"error": True, "message": "refused"})
 
@@ -118,6 +120,7 @@ async def test_a_refused_execute_releases_the_claim_for_a_retry(monkeypatch):
 @pytest.mark.smoke
 @pytest.mark.asyncio
 async def test_an_executor_exception_releases_the_claim(monkeypatch):
+    """An executor error releases its claim without consuming the change."""
     sc = await _mint()
 
     async def boom(**_kwargs):
@@ -132,6 +135,7 @@ async def test_an_executor_exception_releases_the_claim(monkeypatch):
 @pytest.mark.smoke
 @pytest.mark.asyncio
 async def test_claim_execution_refuses_a_pending_token():
+    """Pending changes cannot be claimed before they are approved."""
     sc = await _mint()
     with pytest.raises(StagingError) as exc:
         await staging.claim_execution(user_id="u1", token=sc.token)
@@ -144,6 +148,7 @@ async def test_claim_execution_refuses_a_pending_token():
 @pytest.mark.smoke
 @pytest.mark.asyncio
 async def test_a_refused_write_grants_no_session_autonomy(monkeypatch):
+    """A refused write cannot create persistent session autonomy."""
     sc = await _mint()
     _fake_executor(monkeypatch, result={"error": True, "message": "refused"})
 
@@ -157,6 +162,7 @@ async def test_a_refused_write_grants_no_session_autonomy(monkeypatch):
 @pytest.mark.smoke
 @pytest.mark.asyncio
 async def test_a_clean_write_grants_session_autonomy(monkeypatch):
+    """A clean write may grant the requested session autonomy."""
     sc = await _mint()
     _fake_executor(monkeypatch)
 
@@ -170,6 +176,7 @@ async def test_a_clean_write_grants_session_autonomy(monkeypatch):
 @pytest.mark.smoke
 @pytest.mark.asyncio
 async def test_blocked_kinds_never_gain_session_autonomy(monkeypatch):
+    """Blocked write kinds never create session-level autonomy."""
     sc = await _mint(kind="delete_entry")
     _fake_executor(monkeypatch)
 
@@ -193,6 +200,7 @@ def _request(user_id: str = "u1"):
 async def test_text_approve_executes_in_the_workspace_the_card_was_staged_in(
     monkeypatch,
 ):
+    """Legacy text approval executes in the captured staging workspace."""
     from app.agentive.api.staging import text_approve_endpoint
 
     sc = await _mint(workspace_id="n.Workspace.acme")
@@ -217,6 +225,7 @@ async def test_text_approve_executes_in_the_workspace_the_card_was_staged_in(
 @pytest.mark.smoke
 @pytest.mark.asyncio
 async def test_text_approve_records_a_refusal_on_the_change(monkeypatch):
+    """Legacy text approval preserves a declined executor outcome."""
     from app.agentive.api.staging import text_approve_endpoint
 
     sc = await _mint()
@@ -232,8 +241,14 @@ async def test_text_approve_records_a_refusal_on_the_change(monkeypatch):
 
 @pytest.mark.smoke
 @pytest.mark.asyncio
-async def test_native_chat_approval_uses_only_this_workspace_pending_write(monkeypatch):
-    from app.api.ai_chat import _apply_native_chat_approval
+async def test_native_model_tool_approval_uses_only_this_workspace_pending_write(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The native model tool resolves and executes the scoped pending write."""
+    import hashlib
+
+    from app.agentive.harness.broker_tools import build_brokered_tools
+    from app.agentive.harness.contracts import HarnessExecutionScope
     from app.services import prompt_queue
 
     workspace_id = "n.Workspace.chat-approval"
@@ -245,37 +260,69 @@ async def test_native_chat_approval_uses_only_this_workspace_pending_write(monke
         marked.append(kwargs["token"])
         return {"closed": True}
 
+    async def get_thread(_thread_id):
+        return SimpleNamespace(workspace_id=workspace_id)
+
     monkeypatch.setattr(prompt_queue, "mark_write_item", mark_write_item)
-    thread = SimpleNamespace(workspace_id=workspace_id)
-    outcomes = await _apply_native_chat_approval(
-        request=None,
-        user_id="u1",
-        thread=thread,
-        text="Yes, please go ahead.",
-        pending=[sc],
+    monkeypatch.setattr("app.models.nodes.ChatThread.get", get_thread)
+    reference = hashlib.sha256(sc.token.encode()).hexdigest()[:16]
+    scope = HarnessExecutionScope(
+        tenant_id=workspace_id,
+        workspace_id=workspace_id,
+        principal_id="u1",
+        thread_id="thread-1",
+        session_id="s1",
+        run_id="run-1",
+        permission_revision="p1",
+        capability_version="c1",
+    )
+    tools = build_brokered_tools(
+        scope=scope,
+        catalogue=[],
+        pending_approval_tokens={reference: sc.token},
+    )
+    tool = next(item for item in tools if item.name == "integral_resolve_pending_write")
+    outcome = await tool.function_schema.call(
+        {"item_reference": reference, "decision": "approve"},
+        SimpleNamespace(tool_call_id="approval-1"),
     )
 
-    assert outcomes == [
-        {"verb": "bless", "success": True, "state": "consumed", "queue_closed": True}
-    ]
+    assert outcome == {"ok": True, "decision": "approve", "state": "consumed"}
     assert marked == [sc.token]
     assert len(calls) == 1
 
 
 @pytest.mark.smoke
 @pytest.mark.asyncio
-async def test_native_chat_approval_cannot_match_another_workspace(monkeypatch):
-    from app.api.ai_chat import _apply_native_chat_approval
+async def test_native_model_tool_approval_cannot_cross_workspace(monkeypatch):
+    """The native model tool cannot execute another workspace's pending item."""
+    import hashlib
+
+    from app.agentive.harness.broker_tools import build_brokered_tools
+    from app.agentive.harness.contracts import HarnessExecutionScope
 
     sc = await _mint(workspace_id="n.Workspace.other")
-    thread = SimpleNamespace(workspace_id="n.Workspace.current")
-    outcome = await _apply_native_chat_approval(
-        request=None,
-        user_id="u1",
-        thread=thread,
-        text="Yes.",
-        pending=[sc],
+    reference = hashlib.sha256(sc.token.encode()).hexdigest()[:16]
+    scope = HarnessExecutionScope(
+        tenant_id="n.Workspace.current",
+        workspace_id="n.Workspace.current",
+        principal_id="u1",
+        thread_id="thread-1",
+        session_id="s1",
+        run_id="run-1",
+        permission_revision="p1",
+        capability_version="c1",
+    )
+    tools = build_brokered_tools(
+        scope=scope,
+        catalogue=[],
+        pending_approval_tokens={reference: sc.token},
+    )
+    tool = next(item for item in tools if item.name == "integral_resolve_pending_write")
+    outcome = await tool.function_schema.call(
+        {"item_reference": reference, "decision": "approve"},
+        SimpleNamespace(tool_call_id="approval-cross-workspace"),
     )
 
-    assert outcome is None
+    assert outcome == {"ok": False, "error_code": "pending_item_changed"}
     assert (await get_token(sc.token)).state == "pending"

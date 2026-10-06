@@ -1605,80 +1605,6 @@ async def _pending_staged_for_turn(user_id: str, thread) -> list:
         return []
 
 
-async def _apply_native_chat_approval(
-    *, request: Request, user_id: str, thread: Any, text: str, pending: list
-) -> Optional[List[Dict[str, Any]]]:
-    """Resolve clear chat approval against writes staged in this exact thread.
-
-    This reuses Core's conservative approval parser and the same staged-write
-    executor as the Prompt Sheet. The parser receives only pending writes from
-    this thread and workspace; an LLM cannot approve on the user's behalf.
-    ``None`` means the text was not an actionable approval and the normal
-    resident turn should proceed.
-    """
-    eligible = [
-        item
-        for item in pending
-        if getattr(item, "state", None) == "pending"
-        and getattr(item, "kind", None) != "design_proposal"
-        and getattr(item, "workspace_id", None) == getattr(thread, "workspace_id", None)
-    ]
-    if not eligible:
-        return None
-
-    from app.agentive.services.approval_intent import parse_approval_intent
-
-    intents = parse_approval_intent(text, pending=eligible)
-    if not intents:
-        return None
-
-    from app.agentive.services.staging_apply import bless_and_execute
-    from app.agentive.staging import StagingError, revoke_token
-    from app.services.prompt_queue import mark_write_item
-
-    outcomes: List[Dict[str, Any]] = []
-    for intent in intents:
-        outcome: Dict[str, Any] = {"verb": intent.verb, "success": False}
-        try:
-            if intent.verb == "bless":
-                applied = await bless_and_execute(
-                    user_id=user_id,
-                    token=intent.token,
-                    autonomy=intent.autonomy,
-                    request=request,
-                )
-                outcome["state"] = (
-                    "consumed"
-                    if applied.get("consumed")
-                    else (applied.get("staged_change") or {}).get("state")
-                )
-                outcome["success"] = bool(applied.get("consumed"))
-                if outcome["success"]:
-                    queue_result = await mark_write_item(
-                        user_id=user_id,
-                        thread=thread,
-                        token=intent.token,
-                        status="approved",
-                    )
-                    outcome["queue_closed"] = bool(queue_result.get("closed"))
-            else:
-                resolved = await revoke_token(user_id=user_id, token=intent.token)
-                outcome["state"] = resolved.state
-                outcome["success"] = True
-                queue_result = await mark_write_item(
-                    user_id=user_id,
-                    thread=thread,
-                    token=intent.token,
-                    status="rejected",
-                )
-                outcome["queue_closed"] = bool(queue_result.get("closed"))
-        except StagingError as exc:
-            outcome["error_code"] = exc.code
-        outcomes.append(outcome)
-
-    return outcomes
-
-
 async def _dismiss_pending_design_proposal_cards(
     *,
     user_id: str,
@@ -2399,46 +2325,6 @@ async def _start_user_turn(
     pending_writes = [
         sc for sc in pending_staged if getattr(sc, "kind", None) != "design_proposal"
     ]
-    native_approval_outcomes: Optional[List[Dict[str, Any]]] = None
-    if (
-        native_turn
-        and not host_action
-        and user_utterance.strip()
-        and not images
-        and not attachment_file_parts
-    ):
-        native_approval_outcomes = await _apply_native_chat_approval(
-            request=request,
-            user_id=user_id,
-            thread=thread,
-            text=user_utterance,
-            pending=pending_writes,
-        )
-        if native_approval_outcomes is not None:
-            system_context_blocks.append(
-                wrap_system_context(
-                    "native_chat_approval_outcome",
-                    "Core matched the user's chat reply to a pending write in this "
-                    "conversation and processed it through the normal approval "
-                    "executor. Current outcomes: "
-                    + "; ".join(
-                        f"{item['verb']}={item.get('state', 'unresolved')} "
-                        f"(success={str(item['success']).lower()})"
-                        for item in native_approval_outcomes
-                    )
-                    + ". Do not repeat or restage this write. For a consumed "
-                    "write, read back the saved result before confirming it. For "
-                    "a revoked write, say it was not applied. If execution did "
-                    "not succeed, explain that and leave the approval available "
-                    "for the user to retry or cancel.",
-                )
-            )
-            pending_staged = await _pending_staged_for_turn(user_id, thread)
-            pending_writes = [
-                sc
-                for sc in pending_staged
-                if getattr(sc, "kind", None) != "design_proposal"
-            ]
     if host_action == "staging_follow_through":
         pending_writes = [sc for sc in pending_writes if sc.state == "blessed"]
         if not pending_writes:
@@ -2446,15 +2332,22 @@ async def _start_user_turn(
                 message="No approved staged change is waiting for follow-through"
             )
     if pending_writes:
+        import hashlib
+
+        approval_references = {
+            hashlib.sha256(sc.token.encode()).hexdigest()[:16]: sc.token
+            for sc in pending_writes
+        }
+        extra_data["pending_approval_tokens"] = approval_references
         extra_data["pending_approvals"] = [
             {
-                "token": sc.token,
+                "item_reference": reference,
                 "kind": sc.kind,
                 "summary": sc.summary,
                 "state": sc.state,
                 "created_at": sc.created_at.isoformat(),
             }
-            for sc in pending_writes
+            for reference, sc in zip(approval_references, pending_writes)
         ]
         # Keep host-generated approval state and instructions out of the
         # user-authored utterance. The signed system-context block is verified
@@ -2471,7 +2364,13 @@ async def _start_user_turn(
                 )
             else:
                 staging_instruction = (
-                    "Write awaiting user Approve on the Prompt Sheet. Do not "
+                    "This conversation has staged actions awaiting the user's "
+                    "decision. For a clear approval or rejection of an item, "
+                    "call integral_resolve_pending_write with its item_reference. "
+                    "Do not infer a decision from questions or ambiguous wording. "
+                    "After approval, verify the saved result before confirming."
+                    if native_turn
+                    else "Write awaiting user Approve on the Prompt Sheet. Do not "
                     "re-stage it or report it as done."
                 )
             staging_block = wrap_system_context(
