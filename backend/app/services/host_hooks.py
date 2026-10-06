@@ -57,7 +57,6 @@ _workspace_enricher: Optional[WorkspaceExportEnricher] = None
 _background_task_factories: List[BackgroundTaskFactory] = []
 _middleware_registrations: List[MiddlewareRegistration] = []
 _entitlement_mutation_authorizer: Optional[EntitlementMutationAuthorizer] = None
-_subscription_enforcement: bool = False
 
 _lock = threading.Lock()
 _last_usage_record_failure: Optional[Dict[str, Any]] = None
@@ -111,44 +110,6 @@ def register_entitlement_mutation_authorizer(
     """Register (or clear) host policy for entitlement grant/revoke mutations."""
     global _entitlement_mutation_authorizer
     _entitlement_mutation_authorizer = fn
-
-
-async def _platform_admin_only_entitlement_mutation(
-    request: Any, action: str, workspace_id: str
-) -> None:
-    """Compat gate installed by ``set_subscription_enforcement(True)``."""
-    from app.api.errors import InsufficientPermissionsError
-    from app.api.utils import is_platform_admin
-
-    if is_platform_admin(request):
-        return
-    verb = "granted" if action == "grant" else "changed"
-    raise InsufficientPermissionsError(
-        message=f"entitlements are {verb} by the host subscription path",
-        details={"workspace_id": workspace_id},
-    )
-
-
-def set_subscription_enforcement(enabled: bool) -> None:
-    """Compat shim: when True, only platform admins may grant/revoke entitlements.
-
-    Hosts that need richer policy should call
-    ``register_entitlement_mutation_authorizer`` directly. This helper remains
-    so existing Business boot code keeps working.
-    """
-    global _subscription_enforcement
-    _subscription_enforcement = bool(enabled)
-    if _subscription_enforcement:
-        register_entitlement_mutation_authorizer(
-            _platform_admin_only_entitlement_mutation
-        )
-    else:
-        register_entitlement_mutation_authorizer(None)
-
-
-def subscription_enforcement_enabled() -> bool:
-    """Return whether the subscription-enforcement compat shim is active."""
-    return _subscription_enforcement
 
 
 async def assert_entitlement_mutation_allowed(

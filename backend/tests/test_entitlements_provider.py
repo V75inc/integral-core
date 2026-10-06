@@ -8,6 +8,7 @@ import pytest
 
 from app.models.entitlement import Entitlement
 from app.services.entitlements import (
+    find_entitlement,
     grant_entitlement,
     revoke_provider_entitlement,
 )
@@ -187,3 +188,60 @@ async def test_grant_respect_manual_cas_miss_returns_manual(test_user):
         )
 
     assert (out.source or "") == "manual"
+
+
+@pytest.mark.asyncio
+async def test_fallback_revoke_preserves_real_manual_grant_interleaving(test_user):
+    """Real-storage JSON/memory race: manual grant during provider revoke get.
+
+    Mirrors the merge-fitness reproduction: wrap ``Entitlement.get`` so a real
+    ``grant_entitlement(source='manual')`` commits after the provider object is
+    read inside the CAS path, then assert storage still holds the manual row.
+    Does not mock ``_cas_update_entitlement_if_source``.
+    """
+    workspace = await ensure_personal_workspace(test_user)
+    provider = await grant_entitlement(
+        workspace_id=workspace.id,
+        entitlement_key="crm-real-race",
+        package_slug="crm",
+        actor_id=test_user.id,
+        source="stripe",
+    )
+    provider_id = provider.id
+    injected = {"done": False}
+    original_get = Entitlement.get
+
+    async def _get_with_manual_inject(entity_id: str, *args, **kwargs):
+        row = await original_get(entity_id, *args, **kwargs)
+        if (
+            not injected["done"]
+            and row is not None
+            and str(getattr(row, "id", "")) == str(provider_id)
+            and (getattr(row, "source", None) or "") == "stripe"
+        ):
+            injected["done"] = True
+            await grant_entitlement(
+                workspace_id=workspace.id,
+                entitlement_key="crm-real-race",
+                package_slug="crm",
+                actor_id=test_user.id,
+                source="manual",
+            )
+        return row
+
+    with patch.object(Entitlement, "get", new=staticmethod(_get_with_manual_inject)):
+        result = await revoke_provider_entitlement(
+            workspace_id=workspace.id,
+            entitlement_key="crm-real-race",
+            actor_id="system:billing",
+        )
+
+    assert injected["done"] is True
+    assert result.get("skipped") is True
+    assert result.get("reason") == "manual"
+    fresh = await find_entitlement(
+        workspace_id=workspace.id, entitlement_key="crm-real-race"
+    )
+    assert fresh is not None
+    assert (fresh.source or "") == "manual"
+    assert fresh.status == "active"

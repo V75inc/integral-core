@@ -77,15 +77,14 @@ async def test_enrich_workspace_export_passthrough():
     assert "plan_key" not in out
 
 
-def test_subscription_enforcement_defaults_off():
+def test_entitlement_mutation_authorizer_defaults_noop():
     from app.services import host_hooks as hooks
 
-    hooks.set_subscription_enforcement(False)
-    assert hooks.subscription_enforcement_enabled() is False
+    hooks.register_entitlement_mutation_authorizer(None)
 
 
 @pytest.mark.asyncio
-async def test_subscription_enforcement_shim_installs_authorizer():
+async def test_entitlement_mutation_authorizer_gates_non_admin():
     from app.api.errors import InsufficientPermissionsError
     from app.services import host_hooks as hooks
 
@@ -93,7 +92,17 @@ async def test_subscription_enforcement_shim_installs_authorizer():
         def __init__(self, roles):
             self.state = type("S", (), {"user": type("U", (), {"roles": roles})()})()
 
-    hooks.set_subscription_enforcement(True)
+    async def _platform_admin_only(request, action, workspace_id):
+        from app.api.utils import is_platform_admin
+
+        if is_platform_admin(request):
+            return
+        raise InsufficientPermissionsError(
+            message="entitlements are changed by the host path",
+            details={"workspace_id": workspace_id},
+        )
+
+    hooks.register_entitlement_mutation_authorizer(_platform_admin_only)
     try:
         with pytest.raises(InsufficientPermissionsError):
             await hooks.assert_entitlement_mutation_allowed(
@@ -103,7 +112,7 @@ async def test_subscription_enforcement_shim_installs_authorizer():
             _Req(["admin"]), "grant", "n.Workspace.test"
         )
     finally:
-        hooks.set_subscription_enforcement(False)
+        hooks.register_entitlement_mutation_authorizer(None)
 
 
 def test_middleware_factory_dedupes_same_callable():

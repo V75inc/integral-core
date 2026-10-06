@@ -93,8 +93,8 @@ async def post_grant_entitlement(
         expires_at=expires_at or None,
     )
     await _authorize_workspace(request, user_id, body.workspace_id)
-    # Host may register a mutation authorizer (Business uses the
-    # set_subscription_enforcement compat shim for platform-admin-only).
+    # Host may register a mutation authorizer (Business registers subscription
+    # policy via register_entitlement_mutation_authorizer).
     from app.services.host_hooks import assert_entitlement_mutation_allowed
 
     await assert_entitlement_mutation_allowed(request, "grant", body.workspace_id)
