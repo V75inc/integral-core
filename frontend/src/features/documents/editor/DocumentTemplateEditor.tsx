@@ -39,7 +39,6 @@ import {
 
 /** Horizontal padding inside `.doc-editor-scroll` (16px × 2). */
 const DOC_EDITOR_SCROLL_PAD_X = 32;
-const MIN_PAGE_FIT_SCALE = 0.32;
 import '../document-editor.css';
 
 const EMPTY_DOC = {
@@ -170,11 +169,11 @@ export function DocumentTemplateEditor({
     const page = pageRef.current;
     if (!scroll || !page) return;
 
-    const avail = Math.max(0, scroll.clientWidth - DOC_EDITOR_SCROLL_PAD_X);
-    const scale =
-      avail <= 0
-        ? 1
-        : Math.min(1, Math.max(MIN_PAGE_FIT_SCALE, avail / naturalPageWidth));
+    const host = scroll.parentElement;
+    const hostWidth = host?.clientWidth || scroll.clientWidth;
+    const avail = Math.max(0, hostWidth - DOC_EDITOR_SCROLL_PAD_X);
+    // Fit the sheet to the editor. A landscape page must not widen the column.
+    const scale = avail <= 0 ? 1 : Math.min(1, avail / naturalPageWidth);
     const rounded = Math.round(scale * 1000) / 1000;
 
     /* `zoom` shrinks layout + hit targets together (transform breaks TipTap clicks). */
