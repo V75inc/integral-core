@@ -93,6 +93,11 @@ async def post_grant_entitlement(
         expires_at=expires_at or None,
     )
     await _authorize_workspace(request, user_id, body.workspace_id)
+    # Host may register a mutation authorizer (Business registers subscription
+    # policy via register_entitlement_mutation_authorizer).
+    from app.services.host_hooks import assert_entitlement_mutation_allowed
+
+    await assert_entitlement_mutation_allowed(request, "grant", body.workspace_id)
     row = await grant_entitlement(
         workspace_id=body.workspace_id,
         entitlement_key=body.entitlement_key,
@@ -118,6 +123,9 @@ async def post_revoke_entitlement(
         entitlement_key=entitlement_key,
     )
     await _authorize_workspace(request, user_id, body.workspace_id)
+    from app.services.host_hooks import assert_entitlement_mutation_allowed
+
+    await assert_entitlement_mutation_allowed(request, "revoke", body.workspace_id)
     result = await revoke_entitlement(
         workspace_id=body.workspace_id,
         entitlement_key=body.entitlement_key,

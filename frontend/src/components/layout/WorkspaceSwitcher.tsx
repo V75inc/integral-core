@@ -359,11 +359,7 @@ function SwitcherPopover({
             active={scope?.workspaceId === ws.id}
             busy={busyWorkspaceIds.has(ws.id)}
             label={ws.name?.trim() || (isOwnedPersonal ? 'Personal' : 'Workspace')}
-            sublabel={
-              <span className="text-xs text-[var(--text-muted)]">
-                {workspaceSublabel(ws)}
-              </span>
-            }
+            sublabel={workspaceSublabel(ws)}
             avatarUrl={ws.avatar_url}
             accentColor={ws.accent_color}
             onClick={() => onChoose({ workspaceId: ws.id })}

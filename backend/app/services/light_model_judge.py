@@ -23,7 +23,10 @@ async def light_model_json(
     from jvagent.action.model.context import bind_model_gear
     from jvagent.core.agent import Agent
 
-    from app.services.jvagent_harness import harness_model_override
+    from app.services.jvagent_harness import (
+        enforce_platform_ai_quota,
+        harness_model_override,
+    )
 
     agent = await Agent.get(agent_id) if agent_id else None
     orchestrator = (
@@ -31,6 +34,7 @@ async def light_model_json(
     )
     if orchestrator is None:
         raise RuntimeError("no orchestrator for a light-model verdict")
+    await enforce_platform_ai_quota(workspace_id)
     async with harness_model_override(workspace_id):
         model_action, model_id, *_ = await orchestrator._light_profile()
         if model_action is None:
