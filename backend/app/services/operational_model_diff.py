@@ -24,6 +24,7 @@ back into the manifest.
 
 from __future__ import annotations
 
+import json
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.exceptions import BadRequestError
@@ -557,3 +558,56 @@ async def compute_entry_impact_for_attached(
                     )
                 )
     return impacts
+
+
+def format_publication_review(review: Dict[str, Any]) -> str:
+    """Render canonical schema changes and inspected record impact for consent."""
+    lines: List[str] = []
+    for section, changes in (review.get("diff") or {}).items():
+        if not isinstance(changes, dict):
+            continue
+        if isinstance(changes.get("changed"), bool):
+            if changes["changed"]:
+                lines.append(f"- Changed **{section.replace('_', ' ')}**.")
+                lines.append(
+                    "```json\n"
+                    + json.dumps(changes, ensure_ascii=False, indent=2)
+                    + "\n```"
+                )
+            continue
+        for action in ("added", "removed", "changed"):
+            for item in changes.get(action) or []:
+                label = item.get("name") or item.get("key") or section
+                fields = item.get("fields") if action == "changed" else None
+                if isinstance(fields, dict):
+                    for field_action in ("added", "removed", "changed"):
+                        for field in fields.get(field_action) or []:
+                            value = field.get("after") or field
+                            field_label = value.get("name") or value.get("key")
+                            lines.append(
+                                f"- {field_action.capitalize()} field **{field_label}** on **{label}**."
+                            )
+                            lines.append(
+                                "```json\n"
+                                + json.dumps(field, ensure_ascii=False, indent=2)
+                                + "\n```"
+                            )
+                    if not item.get("meta_changed"):
+                        continue
+                lines.append(
+                    f"- {action.capitalize()} {section.replace('_', ' ')}: **{label}**."
+                )
+                lines.append(
+                    "```json\n"
+                    + json.dumps(item, ensure_ascii=False, indent=2)
+                    + "\n```"
+                )
+    if not lines:
+        lines.append("No structural changes.")
+    for impact in review.get("entry_impact") or []:
+        lines.append(
+            f"Records inspected: **{impact.get('total', 0)}**; "
+            f"validation failures: **{impact.get('would_fail_validation', 0)}**; "
+            f"need migration: **{impact.get('would_need_migration', 0)}**."
+        )
+    return "\n\n".join(lines)

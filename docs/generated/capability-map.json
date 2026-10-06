@@ -263,6 +263,7 @@
         "integral_list_apps",
         "integral_list_dashboards",
         "integral_list_tracks",
+        "integral_read_dashboard_data",
         "integral_suggest_dashboard",
         "integral_update_dashboard"
       ],
@@ -273,6 +274,7 @@
         "integral_list_apps",
         "integral_list_dashboards",
         "integral_list_tracks",
+        "integral_read_dashboard_data",
         "integral_suggest_dashboard",
         "integral_update_dashboard"
       ],
@@ -289,6 +291,9 @@
       "allowed_tools": [
         "integral_add_comment",
         "integral_add_entry_tag",
+        "integral_begin_batch",
+        "integral_cancel_batch",
+        "integral_commit_batch",
         "integral_create_entry",
         "integral_create_tag",
         "integral_delete_comment",
@@ -310,6 +315,8 @@
       "body_tools": [
         "integral_add_comment",
         "integral_add_entry_tag",
+        "integral_begin_batch",
+        "integral_commit_batch",
         "integral_create_entry",
         "integral_create_tag",
         "integral_delete_entry",
@@ -333,7 +340,7 @@
         "integral-navigation",
         "integral-workspace"
       ],
-      "intent": "Handles one record at a time in an existing Track or list: find a record by exact name, ID, or serial number and answer questions about its status or fields; create, update, delete, tag, comment on, or link a specific entry. Use for requests such as finding a mower by serial number or changing one item. Use integral-scaffold for a new App or a multi-part app workflow; use integral-filing when the user supplies unstructured content to place, and integral-organize for one approved change across a selected set of records.",
+      "intent": "Handles explicit record requests in an existing Track or list: find records by name, ID, or serial number; answer questions about their status or fields; create, update, delete, tag, comment on, or link entries. Batch compatible records supplied together into one review. Use integral-scaffold for a new App; integral-filing for unstructured content with an unknown destination; integral-organize for bulk reorganization.",
       "name": "integral-entries",
       "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral-entries/SKILL.md",
       "unresolved_refs": []
@@ -845,15 +852,15 @@
     }
   ],
   "counts": {
-    "advertised": 122,
+    "advertised": 123,
     "apps": 3,
     "by_op_class": {
       "execute": 2,
       "propose": 70,
-      "read": 50
+      "read": 51
     },
     "core_skills": 16,
-    "tools": 124
+    "tools": 125
   },
   "diagnostics": {
     "advertised_tools_without_skill": [
@@ -1694,6 +1701,7 @@
       "policy_action": null,
       "skills": [
         "integral-attachments",
+        "integral-entries",
         "integral-onboard",
         "integral-organize",
         "integral-scaffold"
@@ -1735,6 +1743,7 @@
       "policy_action": null,
       "skills": [
         "integral-attachments",
+        "integral-entries",
         "integral-onboard",
         "integral-organize",
         "integral-scaffold"
@@ -1756,6 +1765,7 @@
       "op_class": "propose",
       "policy_action": null,
       "skills": [
+        "integral-entries",
         "integral-onboard",
         "integral-organize",
         "integral-scaffold"
@@ -2442,6 +2452,25 @@
       "http": "GET /api/apps/{app_id}/dashboards",
       "mcp_min_scope": "integral:read",
       "name": "integral_list_dashboards",
+      "op_class": "read",
+      "policy_action": "app.read",
+      "skills": [
+        "integral-dashboards"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
+          "app.api.apps_dashboards.get_app_dashboard_data"
+        ]
+      },
+      "domain": "G_dashboards",
+      "http": "GET /api/apps/{app_id}/dashboards/{dashboard_id}/data",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_read_dashboard_data",
       "op_class": "read",
       "policy_action": "app.read",
       "skills": [

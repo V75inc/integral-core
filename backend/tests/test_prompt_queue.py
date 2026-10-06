@@ -433,8 +433,10 @@ async def _resolved(value):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("completion_path", ["mark", "poll_then_mark"])
 async def test_approved_profile_revision_resume_computes_and_surfaces_diff(
     monkeypatch,
+    completion_path,
 ):
     thread = await ChatThread.create(
         user_id="u-profile-review",
@@ -481,6 +483,11 @@ async def test_approved_profile_revision_resume_computes_and_surfaces_diff(
             "diff_machine": {"draft_id": "draft-view"},
         },
     )
+    if completion_path == "poll_then_mark":
+        polled = await pq.reconcile_staged_write_items(
+            user_id="u-profile-review", thread=await ChatThread.get(thread.id)
+        )
+        assert "Draft diff (not published)" in polled["resume_text"]
     result = await pq.mark_write_item(
         user_id="u-profile-review",
         thread=await ChatThread.get(thread.id),
@@ -652,3 +659,56 @@ async def test_open_queue_blocks_propose_but_allows_reads(monkeypatch):
     )
     assert read.error_code != "prompt_queue_open", read
     assert not read.is_error, read
+
+
+@pytest.mark.asyncio
+async def test_reconcile_preserves_application_failure_and_progress(monkeypatch):
+    from types import SimpleNamespace
+
+    thread = await ChatThread.create(
+        user_id="u-pq-failure",
+        workspace_id="ws-1",
+        provider_id="integral_native",
+        provider_session_id="sess-failure",
+        title="t",
+    )
+    thread.prompt_queue = {
+        "status": "open",
+        "items": [
+            {
+                "id": "failed",
+                "kind": "staged_write",
+                "status": "pending",
+                "token": "failed-token",
+                "staged_state": "pending",
+            }
+        ],
+    }
+    await thread.save()
+
+    async def token(_token):
+        return SimpleNamespace(
+            state="blessed",
+            last_error={"message": "Validation failed"},
+            progress={"completed": 2},
+        )
+
+    monkeypatch.setattr("app.agentive.staging.get_token", token)
+    result = await pq.reconcile_staged_write_items(
+        user_id=thread.user_id, thread=thread
+    )
+    assert not result["closed"]
+    saved = pq.get_queue(await ChatThread.get(thread.id))["items"][0]
+    assert saved["status"] == "pending"
+    assert saved["staged_state"] == "blessed"
+    assert saved["last_error"]["message"] == "Validation failed"
+    assert saved["completed_operations"] == 2
+
+
+@pytest.mark.parametrize("status", ["rejected", "cancelled"])
+def test_negative_host_continuation_never_requests_a_retry(status):
+    directive = pq.build_resume_agent_directive(
+        {"status": "closed", "items": [{"kind": "staged_write", "status": status}]}
+    )
+    assert "not applied" in directive
+    assert "without a fresh user request" in directive

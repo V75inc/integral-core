@@ -534,6 +534,81 @@ async def attach_image_bytes_to_entry(
     return {"attachment": item, "entry_id": entry.id}
 
 
+async def validate_chat_attachment_for_entry(
+    *, user_id: str, attachment_id: str, entry_id: str
+) -> tuple[Any, Any, Optional[Dict[str, Any]]]:
+    """Shared read-only preflight; execution repeats it at the write boundary."""
+    from app.models.nodes import ChatThread
+    from app.schemas.policy import Resource, Subject
+
+    attachment = await Attachment.get(attachment_id)
+    if not attachment or not is_visible_to_user(attachment):
+        return (
+            None,
+            None,
+            {
+                "error": True,
+                "error_code": "attachment_not_found",
+                "message": "Attachment not found",
+            },
+        )
+    if getattr(attachment, "owner_kind", "entry") != "chat":
+        return (
+            None,
+            None,
+            {
+                "error": True,
+                "error_code": "not_chat_owned",
+                "message": (
+                    "Only files uploaded in this chat can be attached this way"
+                ),
+            },
+        )
+
+    owners = await attachment.nodes(edge=["HAS_ATTACHMENT"], direction="in")
+    thread = next((o for o in owners if isinstance(o, ChatThread)), None)
+    if thread is None or thread.user_id != user_id:
+        return (
+            None,
+            None,
+            {
+                "error": True,
+                "error_code": "permission_denied",
+                "message": "You do not own this file",
+            },
+        )
+
+    entry = await Entry.get(entry_id)
+    if not entry:
+        return (
+            None,
+            None,
+            {
+                "error": True,
+                "error_code": "entry_not_found",
+                "message": "Entry not found",
+            },
+        )
+
+    decision = await policy_evaluate(
+        subject=Subject(kind="human", id=user_id),
+        action="entry.update",
+        resource=Resource(kind="entry", id=entry.id, scope=f"entry:{entry.id}"),
+    )
+    if not decision.allowed:
+        return (
+            None,
+            None,
+            {
+                "error": True,
+                "error_code": "permission_denied",
+                "message": "You do not have permission to add attachments to this entry",
+            },
+        )
+
+    return attachment, entry, None
+
+
 async def attach_uploaded_file_to_entry(
     user_id: str,
     attachment_id: str,
@@ -551,51 +626,12 @@ async def attach_uploaded_file_to_entry(
     """
 
     from app.models.edges import HAS_ATTACHMENT
-    from app.models.nodes import ChatThread
-    from app.schemas.policy import Resource, Subject
 
-    attachment = await Attachment.get(attachment_id)
-    if not attachment or not is_visible_to_user(attachment):
-        return {
-            "error": True,
-            "error_code": "attachment_not_found",
-            "message": "Attachment not found",
-        }
-    if getattr(attachment, "owner_kind", "entry") != "chat":
-        return {
-            "error": True,
-            "error_code": "not_chat_owned",
-            "message": ("Only files uploaded in this chat can be attached this way"),
-        }
-
-    owners = await attachment.nodes(edge=["HAS_ATTACHMENT"], direction="in")
-    thread = next((o for o in owners if isinstance(o, ChatThread)), None)
-    if thread is None or thread.user_id != user_id:
-        return {
-            "error": True,
-            "error_code": "permission_denied",
-            "message": "You do not own this file",
-        }
-
-    entry = await Entry.get(entry_id)
-    if not entry:
-        return {
-            "error": True,
-            "error_code": "entry_not_found",
-            "message": "Entry not found",
-        }
-
-    decision = await policy_evaluate(
-        subject=Subject(kind="human", id=user_id),
-        action="entry.update",
-        resource=Resource(kind="entry", id=entry.id, scope=f"entry:{entry.id}"),
+    attachment, entry, error = await validate_chat_attachment_for_entry(
+        user_id=user_id, attachment_id=attachment_id, entry_id=entry_id
     )
-    if not decision.allowed:
-        return {
-            "error": True,
-            "error_code": "permission_denied",
-            "message": "You do not have permission to add attachments to this entry",
-        }
+    if error:
+        return error
 
     attachment_ids_before = list(entry.attachment_ids or [])
     await entry.connect(

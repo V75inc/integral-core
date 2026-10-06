@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from pydantic_ai import Agent, Tool
+from pydantic_ai import Agent, ModelRetry, Tool, UnexpectedModelBehavior
 from pydantic_ai.capabilities import ToolSearch
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
 from pydantic_ai.models.function import FunctionModel
@@ -1130,6 +1130,197 @@ async def test_approved_build_macro_runs_at_most_once_per_model_turn(
     assert len(invocations) == 1
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "code", ["invalid_scaffold_plan", "scaffold_plan_validation_failed"]
+)
+async def test_pre_effect_build_validation_can_be_corrected_with_framework_retry(
+    monkeypatch, code
+):
+    calls = []
+
+    async def invoke(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return CapabilityResult(
+                ok=False, error_code=code, message="Correct the sort list."
+            )
+        return CapabilityResult(ok=True, data={"applied": True})
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda _: ("core", "write"),
+    )
+    tool = build_brokered_tools(
+        scope=_scope(),
+        run_state={"approved_design_ready": True, "capability_search_completed": True},
+        catalogue=[
+            {
+                "name": "integral_build_approved_design",
+                "description": "Build",
+                "input_schema": {"type": "object", "properties": {}},
+            }
+        ],
+    )[0]
+    assert tool.max_retries == 2
+    ctx = SimpleNamespace(tool_call_id="invalid", active_capability_ids=set())
+    with pytest.raises(ModelRetry, match="Correct the sort"):
+        await tool.function_schema.call({}, ctx)
+    ctx.tool_call_id = "corrected"
+    assert (await tool.function_schema.call({}, ctx))["applied"] is True
+    ctx.tool_call_id = "duplicate"
+    assert (await tool.function_schema.call({}, ctx))[
+        "error_code"
+    ] == "build_already_attempted"
+    assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_framework_bounds_pre_effect_build_correction(monkeypatch):
+    calls = []
+
+    async def invoke(**kwargs):
+        calls.append(kwargs)
+        return CapabilityResult(
+            ok=False,
+            error_code="scaffold_plan_validation_failed",
+            message="Correct invalid arguments.",
+        )
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda _: ("core", "write"),
+    )
+    tools = build_brokered_tools(
+        scope=_scope(),
+        run_state={"approved_design_ready": True, "capability_search_completed": True},
+        catalogue=[
+            {
+                "name": "integral_build_approved_design",
+                "description": "Build",
+                "input_schema": {"type": "object", "properties": {}},
+            }
+        ],
+    )
+    agent = Agent(
+        FunctionModel(
+            lambda _messages, _info: ModelResponse(
+                parts=[ToolCallPart("integral_build_approved_design", {})]
+            )
+        ),
+        tools=tools,
+    )
+    with pytest.raises(UnexpectedModelBehavior, match="retries"):
+        await agent.run("Build the approved design.")
+    assert len(calls) == 3  # Initial validation plus the two library-owned retries.
+
+
+@pytest.mark.asyncio
+async def test_saved_build_continuation_is_visible_before_new_catalog_search(
+    monkeypatch, tmp_path
+):
+    from pydantic_ai_harness.step_persistence import InMemoryStepStore
+
+    calls = []
+
+    async def invoke(**kwargs):
+        calls.append(kwargs)
+        return CapabilityResult(ok=True, data={"applied": True})
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda _: ("core", "write"),
+    )
+    requests = []
+
+    def respond(_messages, info):
+        requests.append({tool.name for tool in info.function_tools})
+        if len(requests) == 1:
+            assert "integral_build_approved_design" in requests[-1]
+            return ModelResponse(
+                parts=[ToolCallPart("integral_build_approved_design", {})]
+            )
+        return ModelResponse(parts=[TextPart("Built.")])
+
+    scope = _scope()
+    tools = build_brokered_tools(
+        scope=scope,
+        skill_library=tmp_path,
+        run_state={"approved_design_ready": True},
+        catalogue=[
+            {
+                "name": "integral_build_approved_design",
+                "description": "Build",
+                "input_schema": {"type": "object", "properties": {}},
+            }
+        ],
+    )
+    agent, _ = build_native_runtime(
+        model=FunctionModel(respond),
+        instructions="Continue the approved design.",
+        tools=tools,
+        step_store_backend=InMemoryStepStore(),
+        scope=scope,
+        agent_name="continuation-test",
+    )
+    result = await agent.run(
+        "Build it.",
+        conversation_id=scope.framework_conversation_id,
+        run_id=scope.framework_run_id,
+    )
+    assert result.output == "Built."
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "code", ["batch_partial_failure", "forbidden", "execution_failed"]
+)
+async def test_effect_or_authority_failure_does_not_allow_build_replay(
+    monkeypatch, code
+):
+    calls = []
+
+    async def invoke(**kwargs):
+        calls.append(kwargs)
+        return CapabilityResult(ok=False, error_code=code, message="Do not replay.")
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda _: ("core", "write"),
+    )
+    tool = build_brokered_tools(
+        scope=_scope(),
+        run_state={"approved_design_ready": True, "capability_search_completed": True},
+        catalogue=[
+            {
+                "name": "integral_build_approved_design",
+                "description": "Build",
+                "input_schema": {"type": "object", "properties": {}},
+            }
+        ],
+    )[0]
+    ctx = SimpleNamespace(tool_call_id="first", active_capability_ids=set())
+    assert (await tool.function_schema.call({}, ctx))["error_code"] == code
+    ctx.tool_call_id = "repeated"
+    assert (await tool.function_schema.call({}, ctx))[
+        "error_code"
+    ] == "build_already_attempted"
+    assert len(calls) == 1
+
+
 def test_approved_saved_build_is_a_known_tool_in_its_resume_turn(
     tmp_path: Path,
 ) -> None:
@@ -1167,7 +1358,7 @@ def test_approved_saved_build_is_a_known_tool_in_its_resume_turn(
 
 
 @pytest.mark.asyncio
-async def test_pending_design_build_is_disclosed_after_fresh_turn_search(
+async def test_pending_design_build_is_disclosed_without_fresh_turn_search(
     tmp_path: Path,
 ) -> None:
     """A fresh user reply can select the saved-design build without skill rediscovery."""
@@ -1205,6 +1396,11 @@ async def test_pending_design_build_is_disclosed_after_fresh_turn_search(
     assert unrelated.defer_loading is True
     assert (
         await build.prepare_tool_def(SimpleNamespace(active_capability_ids=set()))
+        is not None
+    )
+
+    assert (
+        await unrelated.prepare_tool_def(SimpleNamespace(active_capability_ids=set()))
         is None
     )
 
@@ -1214,3 +1410,52 @@ async def test_pending_design_build_is_disclosed_after_fresh_turn_search(
     )
     assert disclosed is not None
     assert disclosed.name == "integral_build_approved_design"
+
+
+@pytest.mark.asyncio
+async def test_verbal_decisions_use_conversation_identity_not_checkpoint_session(
+    monkeypatch,
+):
+    calls = []
+
+    async def decide(**kwargs):
+        calls.append(kwargs)
+        return {"ok": True, "decision": "approve", "state": "consumed"}
+
+    monkeypatch.setattr(
+        "app.agentive.services.approval_decisions.decide_staged_write", decide
+    )
+    tools = build_brokered_tools(
+        scope=_scope(),
+        catalogue=[],
+        conversation_id="conversation-1",
+        pending_approval_tokens={"ref": "proposal-token"},
+    )
+    resolver = next(
+        tool for tool in tools if tool.name == "integral_resolve_pending_write"
+    )
+    result = await resolver.function_schema.call(
+        {"item_reference": "ref", "decision": "approve"}, SimpleNamespace()
+    )
+    assert result["applied"] is True
+    assert calls[0]["conversation_id"] == "conversation-1"
+    assert calls[0]["workspace_id"] == "workspace-1"
+    held = await resolver.function_schema.call(
+        {"item_reference": "ref", "decision": "no_decision"}, SimpleNamespace()
+    )
+    assert held["applied"] is False
+    assert len(calls) == 1
+    guarded = build_brokered_tools(
+        scope=_scope(),
+        catalogue=[],
+        no_workspace_writes=True,
+        pending_approval_tokens={"ref": "proposal-token"},
+    )
+    resolver = next(
+        tool for tool in guarded if tool.name == "integral_resolve_pending_write"
+    )
+    denied = await resolver.function_schema.call(
+        {"item_reference": "ref", "decision": "approve"}, SimpleNamespace()
+    )
+    assert denied["error_code"] == "user_no_workspace_writes"
+    assert len(calls) == 1

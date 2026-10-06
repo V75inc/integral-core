@@ -24,7 +24,7 @@ import type {
   ChatProvider,
   NormalizedEvent,
 } from "./providers/types";
-import { imageAttachmentAdapter } from "./attachments/imageAttachmentAdapter";
+import { createImageAttachmentAdapter } from "./attachments/imageAttachmentAdapter";
 import { createFileAttachmentAdapter } from "./attachments/fileAttachmentAdapter";
 import { useAgentCatalog } from "./useAgentCatalog";
 import { groupThreadsByRecency } from "./threadGrouping";
@@ -1716,14 +1716,14 @@ export function useAIChatRuntime(
     };
   }, [threads, activeThreadId, refreshThreads]);
 
-  // Composite: image branch (inline base64, no server upload) + general
+  // Composite: images retain vision content plus a persisted file identity; general
   // file branch (Slice B — uploads to the chat-upload endpoint at send()
   // time, creating the thread on demand via ensureThreadId if this is the
   // first message of a new conversation).
   const attachmentsAdapter = useMemo(
     () =>
       new CompositeAttachmentAdapter([
-        imageAttachmentAdapter,
+        createImageAttachmentAdapter(ensureThreadId),
         createFileAttachmentAdapter(ensureThreadId),
       ]),
     [ensureThreadId],
@@ -1954,10 +1954,16 @@ function applyEvent(draft: AssistantMessageDraft, ev: NormalizedEvent) {
       return;
     case "final-content":
       if (ev.content) {
-        draft.finalContent = completeCutDesignInvitation(ev.content);
-        const joined = draft.textParts.join("");
-        const fixed = completeCutDesignInvitation(joined);
-        if (fixed !== joined) draft.textParts = [fixed];
+        // The provider's settled answer is authoritative. Streaming deltas
+        // are provisional and may be truncated or formatted differently by
+        // a provider; keeping them in the visible transcript while recording
+        // the final answer only in debug metadata made the two surfaces
+        // disagree. Reconcile at the provider-neutral event boundary.
+        const settled = completeCutDesignInvitation(ev.content);
+        draft.finalContent = settled;
+        if (draft.textParts.join("") !== settled) {
+          draft.textParts = [settled];
+        }
       }
       if (ev.payload !== undefined) draft.finalPayload = ev.payload;
       return;

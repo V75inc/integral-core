@@ -537,6 +537,21 @@ async def generate_chat_turn_sse(
         await _flush_drafts_logged()
         yield sse_bytes("error", error_event)
     finally:
+        if not completed and not work_authority_rejected and not persisted:
+            if not any(event.get("type") == "error" for event in turn_events):
+                # A tool can commit before its return event or final prose.
+                # Preserve uncertainty explicitly rather than a blank turn;
+                # the next request must read current state before retrying.
+                turn_events.append(
+                    {
+                        "type": "error",
+                        "code": "turn.interrupted",
+                        "message": (
+                            "The response was interrupted. Some work may have "
+                            "completed; check the current records before retrying."
+                        ),
+                    }
+                )
         # The turn can end without reaching the persist above: the ASGI server
         # cancels this generator at its `yield` when the client disconnects
         # (navigation, tab close, a routine switching threads), so the

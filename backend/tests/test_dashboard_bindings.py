@@ -88,3 +88,79 @@ async def test_stage_create_dashboard_auto_fills_when_widgets_omitted():
     )
     assert len(staged["payload"]["widgets"]) >= 2
     assert "auto-filled" in staged["diff_human"]
+
+
+@pytest.mark.asyncio
+async def test_dashboard_rejects_invalid_execution_shape_before_approval():
+    from pydantic import ValidationError
+
+    from app.agentive.tooling.bindings import _stage_update_dashboard
+
+    widget = {"id": "count", "type": "metric_card", "data_source": {"field": None}}
+    with pytest.raises(ValidationError):
+        await _stage_create_dashboard(
+            {"app_id": "app-1", "name": "Overview", "widgets": [widget]}
+        )
+    with pytest.raises(ValidationError):
+        await _stage_update_dashboard(
+            {"app_id": "app-1", "dashboard_id": "d-1", "widgets": [widget]}
+        )
+
+
+@pytest.mark.asyncio
+async def test_dashboard_rejects_columns_the_renderer_cannot_display():
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="Extra inputs"):
+        await _stage_create_dashboard(
+            {
+                "app_id": "app-1",
+                "name": "Upcoming",
+                "widgets": [
+                    {
+                        "id": "jobs",
+                        "type": "table_widget",
+                        "config": {"columns": ["due_date", "assignee"]},
+                    }
+                ],
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_dashboard_business_fields_require_visible_published_schema(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.services import dashboard_service as service
+    from app.services import permissions
+
+    monkeypatch.setattr(
+        service, "_get_app_or_none", AsyncMock(return_value=SimpleNamespace(id="app-1"))
+    )
+    monkeypatch.setattr(service, "can_view_app", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        service, "_data_source_track_ids", AsyncMock(return_value=["track-1"])
+    )
+    monkeypatch.setattr(
+        service.Track, "get", AsyncMock(return_value=SimpleNamespace(id="track-1"))
+    )
+    monkeypatch.setattr(permissions, "can_view_track", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        service, "_track_dashboard_fields", AsyncMock(return_value=[{"key": "status"}])
+    )
+    valid = [{"data_source": {"group_by": "custom_fields.status"}}]
+    await service.validate_dashboard_field_bindings(
+        user_id="u1", app_id="app-1", widgets=valid
+    )
+    with pytest.raises(ValueError, match="category"):
+        await service.validate_dashboard_field_bindings(
+            user_id="u1",
+            app_id="app-1",
+            widgets=[{"data_source": {"group_by": "custom_fields.category"}}],
+        )
+    monkeypatch.setattr(permissions, "can_view_track", AsyncMock(return_value=False))
+    with pytest.raises(PermissionError):
+        await service.validate_dashboard_field_bindings(
+            user_id="u1", app_id="app-1", widgets=valid
+        )

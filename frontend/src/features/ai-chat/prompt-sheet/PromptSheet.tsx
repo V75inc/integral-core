@@ -274,11 +274,17 @@ function WritePage({
         tone="muted"
         className="mb-1 uppercase tracking-wide"
       >
-        Write · {item.write_kind || 'change'}
+        Review change
       </Text>
       <Text as="p" variant="body" weight="medium" className="mb-2">
         {item.summary || 'Staged change'}
       </Text>
+      {item.last_error && (
+        <div role="alert"><Text as="p" variant="meta" tone="danger" className="mb-2">
+          Approval recorded; application failed. {item.last_error.message || 'The change could not be applied.'}
+          {item.completed_operations ? ` ${item.completed_operations} operations already applied; retry resumes the remaining changes.` : ''}
+        </Text></div>
+      )}
       {human ? (
         <div className="mb-2 max-h-40 overflow-auto rounded border border-[var(--border-subtle)] p-2 text-xs">
           <MarkdownContent mutedBody={false}>{human}</MarkdownContent>

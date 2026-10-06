@@ -91,6 +91,20 @@ const mockProvider: ChatProvider = {
   listAgents: async () => [],
 };
 
+const settledAnswer =
+  "The [Smoke Test App](/apps/a1) contains one track:\n\n- **[Smoke Test Track](/tracks/t1)** - Browser smoke fixture.";
+
+async function* truncatedThenSettledStream(): AsyncIterable<NormalizedEvent> {
+  yield { type: "text-delta", delta: "The [Smoke Test App](/apps/a1) contains" };
+  yield { type: "final-content", content: settledAnswer };
+  yield { type: "message-finish" };
+}
+
+const truncatedThenSettledProvider: ChatProvider = {
+  ...mockProvider,
+  streamTurn: () => truncatedThenSettledStream(),
+};
+
 describe("useAIChatRuntime parallel streams", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -179,6 +193,32 @@ describe("useAIChatRuntime parallel streams", () => {
     // B stopped, A did not.
     expect(result.current.streamingThreadIds).not.toContain(threadB);
     expect(result.current.streamingThreadIds).toContain(threadA);
+  });
+
+  it("renders the authoritative final answer when streamed text is truncated", async () => {
+    const { result } = renderHook(() =>
+      useAIChatRuntime(truncatedThenSettledProvider),
+    );
+
+    await act(async () => {
+      await result.current.runtime.thread.append({
+        role: "user",
+        content: [{ type: "text", text: "What is in the app?" }],
+      });
+    });
+
+    const assistant = result.current.runtime.thread
+      .getState()
+      .messages.find((message) => message.role === "assistant");
+    const textPart = (
+      assistant?.content as Array<{ type: string; text?: string }>
+    )?.find((part) => part.type === "text");
+
+    expect(textPart?.text).toBe(settledAnswer);
+    expect(textPart?.text).toContain("Smoke Test Track");
+    expect(assistant?.metadata?.custom).toMatchObject({
+      finalContent: settledAnswer,
+    });
   });
 });
 

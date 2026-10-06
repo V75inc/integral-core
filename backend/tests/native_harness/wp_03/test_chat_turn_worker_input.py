@@ -35,3 +35,31 @@ async def test_worker_rejects_unclaimed_or_incomplete_chat_input(
 
     with pytest.raises(WorkError, match=expected_code):
         await load_claimed_chat_turn_input(item)
+
+
+@pytest.mark.asyncio
+async def test_worker_restores_only_live_scoped_approval_authority(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.agentive import staging
+    from app.agentive.services.work_worker import _pending_write_references
+
+    def change(token, **extra):
+        return SimpleNamespace(
+            token=token,
+            kind="attach_uploaded_file",
+            user_id="user-1",
+            session_id="session-1",
+            workspace_id=extra.get("workspace_id", "workspace-1"),
+        )
+
+    async def unresolved(user_id):
+        assert user_id == "user-1"
+        return [change("own"), change("cross-workspace", workspace_id="workspace-2")]
+
+    monkeypatch.setattr(staging, "get_pending_for_user", unresolved)
+    refs = await _pending_write_references(
+        principal_id="user-1", workspace_id="workspace-1", session_id="session-1"
+    )
+    assert list(refs.values()) == ["own"]
+    assert "own" not in refs

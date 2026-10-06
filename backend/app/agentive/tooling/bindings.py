@@ -1387,7 +1387,7 @@ def _stage_propose_profile_revision(args: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _stage_publish_profile_draft(args: Dict[str, Any]) -> Dict[str, Any]:
+async def _stage_publish_profile_draft(args: Dict[str, Any]) -> Dict[str, Any]:
     """Stage a ``publish_profile_draft``.
 
     ``_x_publish_profile_draft`` splats ``{draft_id, run_migrations?,
@@ -1397,7 +1397,16 @@ def _stage_publish_profile_draft(args: Dict[str, Any]) -> Dict[str, Any]:
     draft_id = src.get("draft_id")
     if not draft_id:
         raise ValueError("publish_profile_draft: draft_id is required")
-    payload: Dict[str, Any] = {"draft_id": draft_id}
+    from app.services.operational_model_authoring import diff_draft
+    from app.services.operational_model_diff import format_publication_review
+
+    review = await diff_draft(user_id=_bound_propose_principal(), draft_id=draft_id)
+    if review.get("error"):
+        raise ValueError(review.get("detail") or "Profile review is unavailable")
+    payload: Dict[str, Any] = {
+        "draft_id": draft_id,
+        "expected_review_fingerprint": review["review_fingerprint"],
+    }
     if src.get("run_migrations") is not None:
         payload["run_migrations"] = bool(src["run_migrations"])
     if src.get("abort_on_migration_failure") is not None:
@@ -1405,12 +1414,8 @@ def _stage_publish_profile_draft(args: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "kind": "publish_profile_draft",
         "summary": f"Publish profile draft {draft_id}",
-        "diff_human": (
-            f"**Publish profile draft** `{draft_id}`\n\n"
-            f"Atomically swaps the draft onto its published parent and runs any "
-            f"declared migrations."
-        ),
-        "diff_machine": {"op": "publish_profile_draft", **payload},
+        "diff_human": format_publication_review(review),
+        "diff_machine": {"op": "publish_profile_draft", **payload, "review": review},
         "payload": payload,
     }
 
@@ -1887,8 +1892,20 @@ def _stage_attach_file(args: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _stage_attach_uploaded_file(args: Dict[str, Any]) -> Dict[str, Any]:
+async def _stage_attach_uploaded_file(args: Dict[str, Any]) -> Dict[str, Any]:
     _require(args, "entry_id", "attachment_id")
+    principal = _propose_principal.get()
+    if principal:
+        from app.api.errors import BadRequestError
+        from app.services.attachment_agent import validate_chat_attachment_for_entry
+
+        _, _, error = await validate_chat_attachment_for_entry(
+            user_id=principal,
+            attachment_id=args["attachment_id"],
+            entry_id=args["entry_id"],
+        )
+        if error:
+            raise BadRequestError(message=error["message"])
     payload = {
         "entry_id": args["entry_id"],
         "attachment_id": args["attachment_id"],
@@ -1898,10 +1915,7 @@ def _stage_attach_uploaded_file(args: Dict[str, Any]) -> Dict[str, Any]:
         "summary": (
             f"Attach uploaded file {args['attachment_id']} to entry {args['entry_id']}"
         ),
-        "diff_human": (
-            f"Attach uploaded file `{args['attachment_id']}` to entry "
-            f"`{args['entry_id']}`"
-        ),
+        "diff_human": "The existing uploaded file will be linked to this record; no duplicate file is created.",
         "diff_machine": {"op": "attach_uploaded_file", **payload},
         "payload": payload,
     }
@@ -1918,8 +1932,7 @@ async def _stage_attach_uploaded_image(args: Dict[str, Any]) -> Dict[str, Any]:
     the entry, so attachment storage is only consumed on the approved attach.
     """
     _require(args, "entry_id")
-    from app.models.nodes import ChatThread
-    from app.services.chat_threads import find_uploaded_image
+    from app.services.chat_threads import find_uploaded_image, get_thread_by_session
 
     session_id = _bound_propose_session_id()
     if not session_id:
@@ -1927,8 +1940,7 @@ async def _stage_attach_uploaded_image(args: Dict[str, Any]) -> Dict[str, Any]:
             "attach_uploaded_image: no conversation session bound; the resident "
             "supplies it — this tool is only callable from a chat turn"
         )
-    threads = await ChatThread.find({"context.provider_session_id": session_id})
-    thread = threads[0] if threads else None
+    thread = await get_thread_by_session(session_id)
     if thread is None:
         raise ValueError("attach_uploaded_image: chat thread not found for session")
     found = await find_uploaded_image(thread, args.get("image_id"))
@@ -2169,6 +2181,11 @@ async def _stage_save_view(args: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("save_view: a view name is required")
     view_type = src.get("view_type") or "feed"
     config = src.get("config") or {}
+    # A single sort object has exactly the semantics of a one-item sort list.
+    # Adapt that model representation here; the canonical compiler still
+    # validates the field, direction, and every other config property below.
+    if isinstance(config, dict) and isinstance(config.get("sort"), dict):
+        config = {**config, "sort": [config["sort"]]}
     from app.exceptions import BadRequestError
     from app.services.operational_model_compile import normalize_view_config
 
@@ -2343,6 +2360,21 @@ async def _stage_create_dashboard(args: Dict[str, Any]) -> Dict[str, Any]:
         "widgets": norm_widgets,
         "is_default": bool(src.get("is_default", False)),
     }
+    # Use the execution endpoint's canonical schema before requesting consent.
+    # A staging approval must never authorize a known-invalid request shape.
+    from app.schemas.dashboards import DashboardCreateRequest
+
+    validated = DashboardCreateRequest.model_validate(
+        {key: value for key, value in payload.items() if key != "app_id"}
+    )
+    payload.update(validated.model_dump(mode="json", exclude_none=True))
+    principal = _propose_principal.get()
+    if principal:
+        from app.services.dashboard_service import validate_dashboard_field_bindings
+
+        await validate_dashboard_field_bindings(
+            user_id=principal, app_id=app_id, widgets=payload["widgets"]
+        )
     notes = []
     if auto_filled:
         notes.append("auto-filled starter widgets")
@@ -2352,10 +2384,7 @@ async def _stage_create_dashboard(args: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "kind": "create_dashboard",
         "summary": f"Create dashboard “{name}”",
-        "diff_human": (
-            f"**Create dashboard** *{name}* with "
-            f"{len(norm_widgets)} widget(s){filled_note}."
-        ),
+        "diff_human": (f"{len(norm_widgets)} widget(s){filled_note}."),
         "diff_machine": {"op": "create_dashboard", **payload},
         "payload": payload,
     }
@@ -2384,13 +2413,32 @@ async def _stage_update_dashboard(args: Dict[str, Any]) -> Dict[str, Any]:
             raise ValueError("update_dashboard: invalid widgets — " + "; ".join(errors))
         norm_widgets, _ = normalize_widget_specs(raw_widgets)
         payload["widgets"] = norm_widgets
+    from app.schemas.dashboards import DashboardUpdateRequest
+
+    validated = DashboardUpdateRequest.model_validate(
+        {
+            key: value
+            for key, value in payload.items()
+            if key not in {"app_id", "dashboard_id"}
+        }
+    )
+    payload.update(
+        validated.model_dump(mode="json", exclude_none=True, exclude_unset=True)
+    )
+    principal = _propose_principal.get()
+    if principal and "widgets" in payload:
+        from app.services.dashboard_service import validate_dashboard_field_bindings
+
+        await validate_dashboard_field_bindings(
+            user_id=principal, app_id=app_id, widgets=payload["widgets"]
+        )
     widget_note = ""
     if "widgets" in payload:
         widget_note = f" ({len(payload['widgets'])} widget(s))"
     return {
         "kind": "update_dashboard",
         "summary": f"Update dashboard {dashboard_id}",
-        "diff_human": f"**Update dashboard** `{dashboard_id}`{widget_note}.",
+        "diff_human": f"Revised widgets{widget_note}.",
         "diff_machine": {"op": "update_dashboard", **payload},
         "payload": payload,
     }
@@ -3091,6 +3139,10 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     ),
     "integral_list_dashboards": ToolBinding(
         _h("app.api.apps_dashboards", "list_app_dashboards"), _pick("app_id")
+    ),
+    "integral_read_dashboard_data": ToolBinding(
+        _h("app.api.apps_dashboards", "get_app_dashboard_data"),
+        _pick("app_id", "dashboard_id"),
     ),
     "integral_suggest_dashboard": ToolBinding(
         _h("app.api.apps_dashboards", "suggest_app_dashboard"), _pick("app_id")

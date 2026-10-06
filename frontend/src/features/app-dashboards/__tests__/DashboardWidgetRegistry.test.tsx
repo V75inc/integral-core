@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import {
   ChartBarWidget,
@@ -76,6 +77,11 @@ describe('DashboardWidgetRenderer', () => {
     expect(screen.getByText('Invoice 1042')).toBeInTheDocument();
     expect(screen.getByText('Open')).toBeInTheDocument();
     expect(screen.getByText('2026-09-28')).toBeInTheDocument();
+  });
+
+  it.each(['table_widget', 'recent_entries'])('links %s records to their entry dialog', type => {
+    render(<MemoryRouter><DashboardWidgetRenderer type={type} title="Jobs" data={{entries: [{id: 'entry-1', track_id: 'track-1', title: 'Repair the tap'}]}} /></MemoryRouter>);
+    expect(screen.getByRole('link', {name: 'Repair the tap'})).toHaveAttribute('href', '/tracks/track-1?entry=entry-1');
   });
 
   it('shows error state when data.error is set', () => {

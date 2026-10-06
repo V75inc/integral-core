@@ -1,7 +1,7 @@
 ---
 name: integral-dashboards
 description: Compose and customize app-scoped analytics dashboards — create, adjust, add/remove widgets, change layout, rename. Use for bar charts, KPI tiles, edits to an existing board, or vague requests like the best dashboard for this App.
-allowed-tools: integral_describe_dashboard_substrate integral_list_dashboards integral_suggest_dashboard integral_create_dashboard integral_update_dashboard integral_delete_dashboard integral_list_tracks integral_describe_model integral_activity_digest integral_count_entries integral_list_apps
+allowed-tools: integral_describe_dashboard_substrate integral_list_dashboards integral_read_dashboard_data integral_suggest_dashboard integral_create_dashboard integral_update_dashboard integral_delete_dashboard integral_list_tracks integral_describe_model integral_activity_digest integral_count_entries integral_list_apps
 ---
 
 # Integral dashboards — SOP
@@ -24,6 +24,18 @@ activity summaries, or a full layout of widgets across the app's tracks.
   default grid sizes — do not invent widget `type` strings.
 - For chart breakdowns, resolve `track_id` via `integral_list_tracks` when the
   user names a track; otherwise app-wide `grouped_count` is valid.
+- Read the published Track model before binding business status, due dates, costs,
+  or categories. Draft fields are unavailable until publication. Use explicit
+  `custom_fields.<key>` paths; business Status is not platform status.
+- A starter suggestion is optional inspiration, not proof it answers the request.
+  Preserve the user's requested scope and explain unsupported details.
+- `recent_entries` shows titles only. `table_widget` shows Record, platform Status,
+  and Updated; neither currently renders arbitrary `config.columns`. Do not
+  promise due dates, assignees or an upcoming sort these renderers lack. Offer
+  the existing saved Track view for those details.
+- Currency and scale must come from the published schema or explicit user input.
+  A unitless number is not cents. Preserve provided currency; never invent a
+  currency or divide amounts by 100. Distinguish estimates from paid costs.
 - Only cite dashboard names and widget titles returned by tools in this turn.
 
 ## Procedure
@@ -67,7 +79,7 @@ activity summaries, or a full layout of widgets across the app's tracks.
    approval.
 
 7. **Read back after approval.** On the following turn, call
-   `integral_list_dashboards(app_id)` before describing the dashboard. Name
+   `integral_list_dashboards(app_id)` and `integral_read_dashboard_data(app_id, dashboard_id)` before describing the dashboard. Name
    the dashboard and its persisted widgets from that result. Never say you do
    not know its layout immediately after creating it, and never describe a
    generic starter set as a domain dashboard when the app has operational
@@ -129,3 +141,11 @@ space (not a single column at `x: 0` unless intentional).
    `data_source: { kind: grouped_count, track_id, group_by: custom_fields.<field_key> }`
    after reading the profile to resolve `<field_key>` → present card and wait.
 5. Only after `state=consumed` confirm the chart is live.
+
+## Result verification
+
+After publication or a record update, read live widget values with
+`integral_read_dashboard_data`. Report only values returned by that read, not
+predictions from the configuration or cached record counts. If a widget returns
+an error, report the error and remedy that widget rather than claiming the board
+works. Revise the existing board when requested; preserve unrelated widgets.

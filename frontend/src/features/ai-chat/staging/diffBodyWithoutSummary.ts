@@ -8,11 +8,20 @@ export function diffBodyWithoutSummary(
   const title = (summary ?? "").trim();
   if (!body) return "";
   if (!title) return body;
-  if (body === title) return "";
-  // Require an EOL after the title so a same-line prefix cannot truncate copy
-  // (e.g. summary "Create track" must not strip "Create track Clients").
-  if (body.startsWith(`${title}\n`) || body.startsWith(`${title}\r\n`)) {
-    return body.slice(title.length).replace(/^\r?\n+/, "");
+  const firstLine = body.split(/\r?\n/, 1)[0];
+  // Core's resource stagers use a quoted summary and a formatted heading.
+  // Compare those exact composition forms, never arbitrary model paragraphs
+  // or field values. Retained proposals get the same presentation as new ones.
+  const resourceTitle = /^(.*?) [“"](.+)[”"](?: in .+)?$/.exec(title);
+  const formattedTitle = resourceTitle
+    ? `**${resourceTitle[1]}** *${resourceTitle[2]}*`
+    : null;
+  const renderedHeading = /^\*\*([^*]+)\*\* (?:\*([^*]+)\*|`([^`]+)`)$/.exec(firstLine);
+  const plainHeading = renderedHeading
+    ? `${renderedHeading[1]} ${renderedHeading[2] ?? renderedHeading[3]}`
+    : null;
+  if (firstLine === title || firstLine === formattedTitle || plainHeading === title) {
+    return body.slice(firstLine.length).replace(/^(?:\r?\n)+/, "");
   }
   return body;
 }

@@ -243,3 +243,29 @@ async def test_prompt_sheet_resume_uses_host_context_without_user_utterance(
         if message["role"] == "user"
     ]
     assert user_messages == []
+
+
+@pytest.mark.asyncio
+async def test_native_pending_authority_uses_conversation_not_checkpoint(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.api.ai_chat import _pending_staged_for_turn
+
+    thread = SimpleNamespace(
+        id="n.ChatThread.a",
+        provider_id="integral_native",
+        provider_session_id="rotated-checkpoint",
+        workspace_id="workspace-a",
+    )
+    own = SimpleNamespace(session_id=thread.id, workspace_id=thread.workspace_id)
+    foreign = SimpleNamespace(session_id=thread.id, workspace_id="workspace-b")
+    other_conversation = SimpleNamespace(
+        session_id="n.ChatThread.b", workspace_id=thread.workspace_id
+    )
+
+    async def pending(user_id):
+        assert user_id == "user-a"
+        return [own, foreign, other_conversation]
+
+    monkeypatch.setattr("app.agentive.staging.get_pending_for_user", pending)
+    assert await _pending_staged_for_turn("user-a", thread) == [own]
