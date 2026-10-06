@@ -52,6 +52,7 @@ _MAX_QUERY_CHARS = 500
 _MAX_RESULTS = 12
 _BM25_K1 = 1.5
 _BM25_B = 0.75
+_RRF_K = 60
 logger = logging.getLogger(__name__)
 
 
@@ -82,6 +83,20 @@ def _load_skills(skill_library: Path | None) -> list[dict[str, str]]:
                 {"name": name, "description": description, "body": body.strip()}
             )
     return skills
+
+
+def _searchable_skill_description(description: str) -> str:
+    """Remove negative routing clauses from positive retrieval text only."""
+    clauses = re.split(r"(?<=[.!?;])\s+|(?<=[.!?;])(?=[A-Z])", description)
+    positive = [
+        clause.strip()
+        for clause in clauses
+        if clause.strip()
+        and not re.search(
+            r"\b(?:do not|don't|never|must not)\b", clause, flags=re.IGNORECASE
+        )
+    ]
+    return " ".join(positive)
 
 
 def _tool_workflow_context(name: str, skill: dict[str, str] | None) -> str:
@@ -132,7 +147,12 @@ def _tool_workflow_context(name: str, skill: dict[str, str] | None) -> str:
     return " ".join(passages)
 
 
-def _tool_text(item: dict[str, Any], *, workflow_context: str = "") -> str:
+def _tool_text(
+    item: dict[str, Any],
+    *,
+    workflow_context: str = "",
+    include_schema_details: bool = False,
+) -> str:
     """Build a compact searchable summary without implementation data."""
     description = " ".join(str(item.get("description") or "").split())
     # The first sentence states the tool's positive purpose. Remaining
@@ -141,7 +161,17 @@ def _tool_text(item: dict[str, Any], *, workflow_context: str = "") -> str:
     summary = re.split(r"(?<=[.!?])\s+", description, maxsplit=1)[0]
     summary = re.split(r"[:;]", summary, maxsplit=1)[0]
     fields = item.get("input_schema", {}).get("properties", {})
-    parameter_terms = list(fields) if isinstance(fields, dict) else []
+    parameter_terms: list[str] = []
+    if isinstance(fields, dict):
+        for name, specification in fields.items():
+            parameter_terms.append(str(name))
+            if include_schema_details and isinstance(specification, dict):
+                parameter_terms.append(
+                    " ".join(str(specification.get("description") or "").split())
+                )
+                enum_values = specification.get("enum")
+                if isinstance(enum_values, list):
+                    parameter_terms.extend(str(value) for value in enum_values)
     return " ".join(
         (
             str(item.get("name") or ""),
@@ -150,6 +180,22 @@ def _tool_text(item: dict[str, Any], *, workflow_context: str = "") -> str:
             workflow_context,
         )
     )
+
+
+def _tool_schema_text(item: dict[str, Any]) -> str:
+    """Return argument contracts as a separate searchable document field."""
+    fields = item.get("input_schema", {}).get("properties", {})
+    if not isinstance(fields, dict):
+        return ""
+    terms: list[str] = []
+    for name, specification in fields.items():
+        terms.append(str(name))
+        if isinstance(specification, dict):
+            terms.append(" ".join(str(specification.get("description") or "").split()))
+            enum_values = specification.get("enum")
+            if isinstance(enum_values, list):
+                terms.extend(str(value) for value in enum_values)
+    return " ".join(terms)
 
 
 def _excerpt(text: str, maximum: int = 320) -> str:
@@ -204,12 +250,15 @@ def _search_catalog(
     tools: Sequence[dict[str, Any]],
     immediately_available_tools: Sequence[str],
     ranked_skill_ids: Sequence[tuple[str, float]] | None = None,
+    ranked_tool_ids: Sequence[tuple[str, float]] | None = None,
 ) -> dict[str, Any]:
     # Skill frontmatter is its portable routing contract. Ranking on the full
     # instruction body lets long procedural documents drown out a concise,
     # highly relevant skill description.
     skill_docs = {
-        skill["name"]: " ".join((skill["name"], skill["description"]))
+        skill["name"]: " ".join(
+            (skill["name"], _searchable_skill_description(skill["description"]))
+        )
         for skill in skills
     }
     ranked_skills = (
@@ -225,39 +274,93 @@ def _search_catalog(
     # routes the request to a proposal workflow.
     selected_skill = skills_by_name[ranked_skills[0][0]] if ranked_skills else None
     tool_documents: list[tuple[str, str]] = []
-    workflow_names: set[str] = set()
     for item in tools:
         name = str(item["name"])
         workflow_context = _tool_workflow_context(name, selected_skill)
-        if workflow_context:
-            workflow_names.add(name)
         tool_documents.append(
             (
                 name,
                 _tool_text(item, workflow_context=workflow_context),
             )
         )
-    if selected_skill is not None:
-        # Skill-authored references are a direct relationship between the
-        # selected workflow and its tools. Rank that subset first, then retain
-        # general catalogue retrieval as a fallback. This avoids letting a
-        # generic tool's repeated routing vocabulary outrank the workflow's
-        # own named operations without making discovery an authorization gate.
-        workflow_documents = [
-            (name, document)
-            for name, document in tool_documents
-            if name in workflow_names
-        ]
-        general_documents = [
-            (name, document)
-            for name, document in tool_documents
-            if name not in workflow_names
-        ]
-        ranked_tools = _rank(query, workflow_documents) + _rank(
-            query, general_documents
-        )
+    lexical_tools = _rank(query, tool_documents)
+    schema_tools = _rank(
+        query,
+        [
+            (str(item["name"]), schema_text)
+            for item in tools
+            if (schema_text := _tool_schema_text(item))
+        ],
+    )
+    if ranked_tool_ids is None:
+        if selected_skill is None:
+            ranked_tools = lexical_tools
+        else:
+            # If semantic retrieval is unavailable, keep the skill-authored
+            # tool relationships as a lexical signal. This is a fallback
+            # ordering, not an eligibility rule: unrelated catalog entries
+            # remain searchable after the named workflow tools.
+            workflow_names = {
+                name
+                for name, document in tool_documents
+                if _tool_workflow_context(name, selected_skill)
+            }
+            workflow_ranked = _rank(
+                query,
+                [
+                    (name, document)
+                    for name, document in tool_documents
+                    if name in workflow_names
+                ],
+            )
+            general_ranked = _rank(
+                query,
+                [
+                    (name, document)
+                    for name, document in tool_documents
+                    if name not in workflow_names
+                ],
+            )
+            ranked_tools = workflow_ranked + general_ranked
     else:
-        ranked_tools = _rank(query, tool_documents)
+        # Fuse independent rankings rather than raw scores: embedding cosine
+        # and BM25 are not calibrated to the same scale. RRF lets exact terms
+        # in parameter descriptions correct weak semantic matches while still
+        # recovering paraphrases through semantic rank.
+        lexical_ranks = {
+            name: rank for rank, (name, _score) in enumerate(lexical_tools, 1)
+        }
+        schema_ranks = {
+            name: rank for rank, (name, _score) in enumerate(schema_tools, 1)
+        }
+        semantic_ranks = {
+            name: rank for rank, (name, _score) in enumerate(ranked_tool_ids, 1)
+        }
+        names = set(lexical_ranks) | set(schema_ranks) | set(semantic_ranks)
+        ranked_tools = sorted(
+            (
+                (
+                    name,
+                    (
+                        1.0 / (_RRF_K + semantic_ranks[name])
+                        if name in semantic_ranks
+                        else 0.0
+                    )
+                    + (
+                        2.0 / (_RRF_K + lexical_ranks[name])
+                        if name in lexical_ranks
+                        else 0.0
+                    )
+                    + (
+                        4.0 / (_RRF_K + schema_ranks[name])
+                        if name in schema_ranks
+                        else 0.0
+                    ),
+                )
+                for name in names
+            ),
+            key=lambda item: (-item[1], item[0]),
+        )
     # Preserve room for the strongest tool match while retaining enough skill
     # candidates for similarly worded routes (for example scaffold vs. insights).
     # A workflow and its callable operation are complementary results. Even
@@ -346,6 +449,18 @@ def _valid_catalogue(catalogue: Sequence[dict[str, Any]]) -> list[dict[str, Any]
         if isinstance(item, dict)
         and str(item.get("name") or "").strip()
         and isinstance(item.get("input_schema"), dict)
+    ]
+
+
+def _tool_search_documents(tools: Sequence[dict[str, Any]]) -> list[tuple[str, str]]:
+    """Project the authorized catalogue into semantic-search documents."""
+    return [
+        (
+            str(item["name"]),
+            _tool_text(item, include_schema_details=True),
+        )
+        for item in tools
+        if isinstance(item, dict) and str(item.get("name") or "").strip()
     ]
 
 
@@ -456,6 +571,8 @@ def build_search_capabilities_tool(
     skills = _load_skills(skill_library)
     tools = _valid_catalogue(catalogue)
     cached_results: dict[tuple[str, int], dict[str, Any]] = {}
+    tool_documents = _tool_search_documents(tools)
+    tool_vectors: dict[str, list[float]] = {}
     state = run_state if run_state is not None else {}
     state.setdefault("capability_search_completed", False)
 
@@ -469,11 +586,27 @@ def build_search_capabilities_tool(
         """
         if not skills:
             return []
-        texts = [" ".join((skill["name"], skill["description"])) for skill in skills]
+        texts = [
+            " ".join(
+                (
+                    skill["name"],
+                    _searchable_skill_description(skill["description"]),
+                )
+            )
+            for skill in skills
+        ]
         lexical = _rank(
             query,
             [
-                (skill["name"], " ".join((skill["name"], skill["description"])))
+                (
+                    skill["name"],
+                    " ".join(
+                        (
+                            skill["name"],
+                            _searchable_skill_description(skill["description"]),
+                        )
+                    ),
+                )
                 for skill in skills
             ],
         )
@@ -508,6 +641,36 @@ def build_search_capabilities_tool(
             key=lambda item: (-item[1], item[0]),
         )
 
+    async def rank_tools_semantically(query: str) -> list[tuple[str, float]]:
+        """Rank authorized tools by meaning and cache static catalog vectors."""
+        if not tool_documents:
+            return []
+        missing = [
+            (name, document)
+            for name, document in tool_documents
+            if document not in tool_vectors
+        ]
+        query_vector, *document_vectors = await asyncio.gather(
+            _embed_text_for_capability_search(query),
+            *(
+                _embed_text_for_capability_search(document)
+                for _name, document in missing
+            ),
+        )
+        for (_name, document), vector in zip(missing, document_vectors):
+            tool_vectors[document] = vector
+        query_norm = math.sqrt(sum(value * value for value in query_vector)) or 1.0
+        semantic = []
+        for name, document in tool_documents:
+            vector = tool_vectors[document]
+            vector_norm = math.sqrt(sum(value * value for value in vector)) or 1.0
+            similarity = sum(
+                left * right for left, right in zip(query_vector, vector)
+            ) / (query_norm * vector_norm)
+            semantic.append((name, similarity))
+        semantic.sort(key=lambda item: (-item[1], item[0]))
+        return semantic
+
     async def search_capabilities(
         query: Annotated[str, Field(min_length=2, max_length=_MAX_QUERY_CHARS)],
         limit: Annotated[int, Field(ge=1, le=_MAX_RESULTS)] = 8,
@@ -530,6 +693,14 @@ def build_search_capabilities_tool(
                 exc_info=True,
             )
             ranked_skills = None
+        try:
+            ranked_tools = await rank_tools_semantically(query)
+        except Exception:
+            logger.warning(
+                "Local semantic tool ranking failed; using lexical ranking",
+                exc_info=True,
+            )
+            ranked_tools = None
         result = _search_catalog(
             query=query,
             limit=limit,
@@ -537,9 +708,12 @@ def build_search_capabilities_tool(
             tools=tools,
             immediately_available_tools=immediately_available_tools,
             ranked_skill_ids=ranked_skills,
+            ranked_tool_ids=ranked_tools,
         )
         result["ranking_method"] = (
-            "hybrid_semantic_lexical" if ranked_skills is not None else "lexical"
+            "hybrid_semantic_lexical"
+            if ranked_skills or ranked_tools is not None
+            else "lexical"
         )
         state["capability_ranking_method"] = result["ranking_method"]
         recommendation = result.get("recommendation", {})

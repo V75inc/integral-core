@@ -111,3 +111,30 @@ used the live PostgreSQL branch runtime.
 ![GLM ambiguous receipt asks which existing destination](glm-ambiguous-receipt-clarification.jpg)
 
 ![Clarified PDF attached to the existing drill](glm-clarified-drill-attachment.jpg)
+
+## Follow-up: native chat approval and refusal (2026-10-06)
+
+The Prompt Sheet limitation above describes the earlier browser run. After
+commit `603e368c`, rechecked ordinary staged-write decisions in the branch
+runtime at `127.0.0.1:9012`. The approval card stayed visible while the normal
+chat composer remained enabled. On the existing Equipment track, a lay-user
+request staged a cordless drill (`QA-DRILL-1010`); the ordinary reply “That
+looks right, please add it.” invoked `integral_resolve_pending_write` with an
+opaque item reference and `decision=approve`. Core returned `state=consumed`,
+and a following model call queried the saved entry. That explicitly
+disposable record was then removed through the product Undo control.
+
+A second lay-user request staged a small adjustable wrench (`QA-WRENCH-1011`).
+The ordinary reply “Actually, don't add it. Leave the register as it is.”
+invoked the same decision tool with `decision=reject`; Core returned
+`state=revoked`. A separate exact-serial query returned zero entries. These
+two browser runs supersede the earlier blocked-chat observation for native
+staged writes: ordinary chat approval and rejection are now demonstrated. They
+do not by themselves establish speech approval or every attachment-specific
+approval surface. Full traces and scope limits are recorded in
+[`natural-chat-crud-2026-10-05/README.md`](../natural-chat-crud-2026-10-05/README.md).
+
+The earlier GPT-4.1 receipt-filing, CRUD and measured-cost evidence in this
+document remains applicable to that browser candidate. This follow-up used
+`glm-5.3:cloud`; its UI displayed token counts and elapsed time but no dollar
+cost for the unpriced route.
