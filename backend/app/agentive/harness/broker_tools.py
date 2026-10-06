@@ -163,7 +163,34 @@ def _make_handler(
                 ),
                 "retryable": False,
             }
+        if (
+            call_state.get("pending_design")
+            and capability_op_class != "read"
+            and capability_name
+            not in {"integral_propose_design", "integral_build_approved_design"}
+        ):
+            return {
+                "error": True,
+                "error_code": "design_pending_action",
+                "message": (
+                    "A saved design is awaiting the user's response. Use the "
+                    "approved-build tool only when the latest reply authorizes "
+                    "this design, or propose a revision when the user changes "
+                    "its requirements. Do not perform unrelated writes."
+                ),
+                "retryable": False,
+            }
         if capability_name == "integral_propose_design":
+            if call_state.get("approved_design_ready"):
+                return {
+                    "error": True,
+                    "error_code": "approved_design_immutable",
+                    "message": (
+                        "This design is approved for this turn. Build the saved "
+                        "design; do not replace it with another proposal."
+                    ),
+                    "retryable": False,
+                }
             call_state["proposal_attempted"] = True
         if capability_name == "integral_check_design_coverage":
             call_state["scaffold_coverage_attempted"] = True
@@ -231,15 +258,41 @@ def _make_handler(
             seen_reads.add(signature)
         if capability_name == "integral_build_approved_design":
             if not call_state.get("approved_design_ready"):
-                return {
-                    "error": True,
-                    "error_code": "design_approval_required",
-                    "message": (
-                        "There is no approved design ready to build. Record the "
-                        "proposal and obtain approval for that exact design first."
-                    ),
-                    "retryable": False,
-                }
+                if call_state.get("pending_design"):
+                    from app.agentive.harness.design_approval import (
+                        authorize_pending_design_build,
+                    )
+
+                    try:
+                        call_state["approved_design_ready"] = (
+                            await authorize_pending_design_build(
+                                scope=scope,
+                                expected_user_turn=call_state["active_user_turn"],
+                                expected_utterance=call_state["active_user_text"],
+                                work_context=work_execution_context,
+                            )
+                        )
+                    except Exception:
+                        return {
+                            "error": True,
+                            "error_code": "design_approval_conflict",
+                            "message": (
+                                "Core could not persist approval for the current "
+                                "design and run. Do not execute or replace the "
+                                "design. Resolve by reading current state."
+                            ),
+                            "retryable": False,
+                        }
+                if not call_state.get("approved_design_ready"):
+                    return {
+                        "error": True,
+                        "error_code": "design_approval_required",
+                        "message": (
+                            "No current approved design is ready. Do not build; "
+                            "respond to the user or save a requested revision."
+                        ),
+                        "retryable": False,
+                    }
             if build_attempted:
                 return {
                     "error": True,
@@ -310,6 +363,7 @@ def build_brokered_tools(
     work_execution_context: WorkExecutionContext | None = None,
     skill_library: Path | None = None,
     run_state: dict[str, Any] | None = None,
+    pending_approval_tokens: dict[str, str] | None = None,
     no_workspace_writes: bool = False,
     design_only: bool = False,
 ) -> list[Tool[Any, Any]]:
@@ -351,11 +405,98 @@ def build_brokered_tools(
     call_state.setdefault("build_succeeded", False)
     call_state.setdefault("verification_succeeded", False)
     call_state.setdefault("capability_search_completed", False)
+    call_state.setdefault("pending_staged_tokens", {})
     immediately_available = (
         _ALWAYS_AVAILABLE_TOOLS
         if always_available_tools is None
         else frozenset(always_available_tools)
     )
+    if pending_approval_tokens:
+        # A semantic decision by the primary model; Core maps the opaque item
+        # reference back to a token from this exact conversation at execution.
+        token_map = dict(pending_approval_tokens)
+        call_state["pending_staged_tokens"] = token_map
+        if token_map:
+
+            async def resolve_pending_write(
+                ctx: RunContext[Any], item_reference: str, decision: str
+            ) -> dict[str, Any]:
+                if decision not in {"approve", "reject"}:
+                    return {"ok": False, "error_code": "invalid_decision"}
+                token = call_state["pending_staged_tokens"].get(item_reference)
+                if token is None:
+                    return {"ok": False, "error_code": "pending_item_not_found"}
+                from app.agentive.services.staging_apply import bless_and_execute
+                from app.agentive.staging import (
+                    StagingError,
+                    list_unresolved_for_session,
+                    revoke_token,
+                )
+                from app.models.nodes import ChatThread
+                from app.services.prompt_queue import mark_write_item
+
+                current = await list_unresolved_for_session(
+                    scope.principal_id, scope.session_id
+                )
+                staged = next((item for item in current if item.token == token), None)
+                if (
+                    staged is None
+                    or staged.workspace_id != scope.workspace_id
+                    or staged.state != "pending"
+                ):
+                    return {"ok": False, "error_code": "pending_item_changed"}
+                try:
+                    if decision == "approve":
+                        result = await bless_and_execute(
+                            user_id=scope.principal_id, token=token
+                        )
+                        success = bool(result.get("consumed"))
+                        state = (result.get("staged_change") or {}).get("state")
+                    else:
+                        result = await revoke_token(
+                            user_id=scope.principal_id, token=token
+                        )
+                        success, state = True, result.state
+                    if success:
+                        thread = await ChatThread.get(scope.thread_id)
+                        if thread is not None:
+                            await mark_write_item(
+                                user_id=scope.principal_id,
+                                thread=thread,
+                                token=token,
+                                status=(
+                                    "approved" if decision == "approve" else "rejected"
+                                ),
+                            )
+                    return {"ok": success, "decision": decision, "state": state}
+                except StagingError as exc:
+                    return {"ok": False, "error_code": exc.code}
+
+            tools.append(
+                build_integral_json_schema_tool(
+                    function=resolve_pending_write,
+                    name="integral_resolve_pending_write",
+                    description=(
+                        "Resolve one staged write in this conversation after the "
+                        "user clearly approves or rejects it. Use its item_reference "
+                        "from pending approval context."
+                    ),
+                    json_schema={
+                        "type": "object",
+                        "properties": {
+                            "item_reference": {"type": "string"},
+                            "decision": {
+                                "type": "string",
+                                "enum": ["approve", "reject"],
+                            },
+                        },
+                        "required": ["item_reference", "decision"],
+                        "additionalProperties": False,
+                    },
+                    prepare=None,
+                    defer_loading=False,
+                )
+            )
     skill_owners: dict[str, set[str]] = {}
     if skill_library is not None:
         from app.agentive.workspace_agent_profile import allowed_tools_from_skill_path

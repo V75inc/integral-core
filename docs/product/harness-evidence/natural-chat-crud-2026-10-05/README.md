@@ -132,3 +132,50 @@ the smoke conversation. No message was sent and no data was changed during this
 check. This is browser evidence that the conversation list follows the active
 workspace for one principal. It does not prove isolation between distinct
 principals or cover direct API access to another workspace's thread.
+
+## Natural refusal of a staged create (2026-10-06)
+
+On the same branch runtime and smoke workspace, requested in ordinary language:
+“Please add a low-profile magnetic tool tray to the Equipment register, serial
+SMOKE-REFUSE-20261006, new, stored in the north cupboard.” The harness staged
+one create for approval and stated that it had not yet been recorded. Replied
+in the normal chat composer: “No, don't add it. Leave the register unchanged.”
+The pending approval was withdrawn. The assistant confirmed the record was not
+added (GLM cloud, 16.1k tokens / 3.5s).
+
+Verified with a fresh ordinary chat lookup for the unique serial. The agent
+used an exact serial filter on Equipment and a search across readable tracks;
+both returned zero matches. The readback completed in 6.3 seconds and the UI
+showed `glm-5.3:cloud`, 33.8k tokens, and one additional provider call. This
+qualifies one natural-language refusal and post-refusal readback in one
+workspace on Ollama cloud; it does not establish refusal reliability across
+other action types, providers, tenants, or principals.
+
+## Primary-model staged-write decision tool (2026-10-06)
+
+Removed the native chat endpoint's regex/word-list approval interception.
+Integral Native now receives an `integral_resolve_pending_write` tool only when
+Core supplies pending staged-write references for that conversation. The model
+chooses whether to call it; Core maps the opaque reference to its server-held
+token, re-reads the pending item in the bound user/session/workspace, and uses
+the shared staged-write executor. The raw staging token is not included in the
+tool arguments. Rejected actions use the same scoped lookup and Core state
+transition.
+
+In the branch browser runtime at `127.0.0.1:9012`, used ordinary wording with
+the existing Equipment app: “Add a cordless drill to the equipment register.
+Its serial number is QA-DRILL-1010, description cordless drill, condition Good,
+and it is on the workshop shelf.” Integral staged the create. While the Approval
+card was visible, the normal composer accepted: “That looks right, please add
+it.” The trace showed `integral_resolve_pending_write` with only
+`decision=approve` and an opaque `item_reference`; Core returned
+`state=consumed`. A second tool call queried the saved entry, and Integral
+reported the serial, condition, and location from that readback. The model
+readout showed `glm-5.3:cloud`, 51.5k tokens, 5.9 seconds, and two calls.
+
+Focused approval, broker, design, and staging-continuity tests passed (56
+tests); `compileall` and `git diff --check` passed. This browser run demonstrates
+a single natural approval and readback on Ollama. It does not qualify rejection
+with the new model-selected tool, ambiguous requests, another provider, or
+multi-principal tenant isolation. The staged Approval card remains visible,
+although natural-language chat approval works alongside it.

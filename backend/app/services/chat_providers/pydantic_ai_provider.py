@@ -852,6 +852,12 @@ class PydanticAIProvider:
             timeout_seconds=settings.INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS,
         )
         design_marker = getattr(thread, "design_proposed", None) or {}
+        active_user_turn = 0
+        if isinstance(design_marker, dict) and design_marker.get("blueprint"):
+            from app.services.chat_threads import count_user_turns
+
+            active_user_turn = await count_user_turns(thread)
+
         build_receipt = (
             design_marker.get("build_receipt")
             if isinstance(design_marker, dict)
@@ -949,6 +955,15 @@ class PydanticAIProvider:
                     and design_marker.get("approved")
                     and not design_marker.get("build_receipt")
                 ),
+                "active_user_turn": active_user_turn,
+                "active_user_text": ctx.text,
+                "pending_design": bool(
+                    isinstance(design_marker, dict)
+                    and design_marker.get("blueprint")
+                    and not design_marker.get("build_receipt")
+                    and isinstance(design_marker.get("proposed_at_user_turn"), int)
+                    and active_user_turn > design_marker.get("proposed_at_user_turn")
+                ),
                 "scaffold_coverage_attempted": False,
                 "capability_search_completed": False,
             }
@@ -958,6 +973,9 @@ class PydanticAIProvider:
                 work_execution_context=work_execution_context,
                 skill_library=Path(skill_temp.name),
                 run_state=run_state,
+                pending_approval_tokens=dict(
+                    (ctx.extra_data or {}).get("pending_approval_tokens") or {}
+                ),
                 no_workspace_writes=bool(
                     (ctx.extra_data or {}).get("no_workspace_writes")
                 ),
@@ -1068,15 +1086,12 @@ class PydanticAIProvider:
                 approval_instructions = None
                 if len(prepared) > 7:
                     from app.agentive.harness.design_approval import (
-                        resolve_pending_design_reply,
+                        pending_design_is_approved_for_reply,
                     )
 
-                    approved = await resolve_pending_design_reply(
+                    approved = await pending_design_is_approved_for_reply(
                         scope=scope,
                         utterance=ctx.text,
-                        model=agent.model,
-                        cancellation=cancellation,
-                        work_context=work_execution_context,
                     )
                     prepared[7]["approved_design_ready"] = approved
                     if approved:
@@ -1088,6 +1103,19 @@ class PydanticAIProvider:
                             "revision instead: that clears the old approval, so "
                             "present the revised proposal and wait for approval. "
                             "Do not re-propose an unchanged approved design."
+                        )
+                    elif prepared[7].get("pending_design"):
+                        approval_instructions = (
+                            "This conversation has a saved design awaiting the "
+                            "user's latest response. Use the response and the "
+                            "exact saved design to choose the next capability: "
+                            "select integral_build_approved_design only when the "
+                            "reply authorizes that design; select "
+                            "integral_propose_design only when the reply changes "
+                            "its requirements; for questions, refusal, or "
+                            "uncertainty, answer without writes. Do not repeat an "
+                            "unchanged proposal or ask for approval a second time. "
+                            "Core records approval before any build effect."
                         )
                 async with agent.run_stream_events(
                     ctx.text,

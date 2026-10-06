@@ -37,6 +37,7 @@ def _scope() -> HarnessExecutionScope:
 
 
 def test_resource_urls_preserve_opaque_ids_and_the_original_receipt():
+    """Model-facing route enrichment leaves broker receipts unchanged."""
     source = {
         "tracks": [{"id": "n.Track.example", "title": "Posts"}],
         "apps": [{"id": "n.WorkspaceApp.example", "name": "Discussion"}],
@@ -50,6 +51,26 @@ def test_resource_urls_preserve_opaque_ids_and_the_original_receipt():
     assert result["tracks"][0]["id"] == "n.Track.example"
     assert result["_receipt"] == source["_receipt"]
     assert "url" not in source["tracks"][0]
+
+
+def test_pending_write_resolution_tool_is_only_exposed_for_scoped_pending_items():
+    """Expose the chat decision tool only when Core supplied pending items."""
+    tools = build_brokered_tools(
+        scope=_scope(),
+        catalogue=[],
+        pending_approval_tokens={"ref-123": "secret-token"},
+    )
+    tool = next(item for item in tools if item.name == "integral_resolve_pending_write")
+    assert "secret-token" not in str(tool.function_schema.json_schema)
+    assert (
+        tool.function_schema.json_schema["properties"]["item_reference"]["type"]
+        == "string"
+    )
+
+    without_pending = build_brokered_tools(scope=_scope(), catalogue=[])
+    assert all(
+        item.name != "integral_resolve_pending_write" for item in without_pending
+    )
 
 
 @pytest.mark.asyncio
@@ -951,6 +972,7 @@ async def test_unified_search_discloses_tools_and_replays_native_availability(
 async def test_loading_a_standard_skill_reveals_its_declared_brokered_tools(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """A loaded Agent Skill reveals its declared Core tools."""
     from pydantic_ai_harness.step_persistence import InMemoryStepStore
 
     from app.agentive.harness.skill_sources import materialize_standard_skill_library
