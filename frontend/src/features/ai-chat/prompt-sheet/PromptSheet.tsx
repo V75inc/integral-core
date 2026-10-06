@@ -17,11 +17,23 @@ import type { PromptQuestionItem, PromptStagedWriteItem } from './types';
 export function PromptSheetHost({
   children,
 }: {
-  children: (state: { composerLocked: boolean; sheet: ReactNode }) => ReactNode;
+  children: (state: {
+    composerLocked: boolean;
+    canReplyInChat: boolean;
+    sheet: ReactNode;
+  }) => ReactNode;
 }) {
   const sheet = usePromptQueue();
   const node = sheet.open && sheet.current ? <PromptSheetView sheet={sheet} /> : null;
-  return <>{children({ composerLocked: sheet.open, sheet: node })}</>;
+  return (
+    <>
+      {children({
+        composerLocked: sheet.open,
+        canReplyInChat: sheet.open && sheet.current?.kind === 'staged_write',
+        sheet: node,
+      })}
+    </>
+  );
 }
 
 function PromptSheetView({

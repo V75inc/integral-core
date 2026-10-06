@@ -30,6 +30,7 @@ const ChatActivityContext = createContext<{
   streamError: string | null;
   appendAssistantNote: (text: string) => void;
   activeProviderSessionId: string | null;
+  activeProviderId: string;
   /** ChatThread node id for the open thread — what the questions/staging
    *  REST surface keys on (distinct from the provider session id). */
   activeThreadId: string | null;
@@ -45,6 +46,7 @@ const ChatActivityContext = createContext<{
   streamError: null,
   appendAssistantNote: () => {},
   activeProviderSessionId: null,
+  activeProviderId: "",
   activeThreadId: null,
   streamingThreadIds: [],
   remoteTurns: {},
@@ -158,6 +160,7 @@ function AIChatRuntimeBoundaryInner({
           streamError,
           appendAssistantNote,
           activeProviderSessionId,
+          activeProviderId: provider.id,
           activeThreadId,
           streamingThreadIds,
           remoteTurns,

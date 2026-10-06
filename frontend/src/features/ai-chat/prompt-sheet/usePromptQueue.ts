@@ -36,7 +36,8 @@ export function resumeIfNeeded(
 }
 
 export function usePromptQueue() {
-  const { activeThreadId, appendAssistantNote } = useChatActivity();
+  const { activeThreadId, appendAssistantNote, isThreadStreaming } =
+    useChatActivity();
   const threadRuntime = useThreadRuntime();
   const [queue, setQueue] = useState<PromptQueue | null>(null);
   const [open, setOpen] = useState(false);
@@ -60,7 +61,12 @@ export function usePromptQueue() {
       const resumeKey = `${activeThreadId}:${res?.resume_text ?? ''}`;
       if (res?.resume_text && !resumedRefreshes.current.has(resumeKey)) {
         resumedRefreshes.current.add(resumeKey);
-        resumeIfNeeded(threadRuntime, res.resume_text, appendAssistantNote);
+        // A clear chat approval is applied before its ordinary native turn
+        // continues. The continuation belongs to that run; do not launch a
+        // second Prompt Sheet resume while its stream is active.
+        if (!isThreadStreaming(activeThreadId)) {
+          resumeIfNeeded(threadRuntime, res.resume_text, appendAssistantNote);
+        }
       }
       setQueue(null);
       setOpen(false);
@@ -81,7 +87,7 @@ export function usePromptQueue() {
       if (pendingIdx >= 0) return pendingIdx;
       return Math.min(i, Math.max(0, (items.length || 1) - 1));
     });
-  }, [activeThreadId, appendAssistantNote]);
+  }, [activeThreadId, appendAssistantNote, isThreadStreaming, threadRuntime]);
 
   useEffect(() => {
     void refresh();
