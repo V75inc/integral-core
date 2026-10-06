@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -28,6 +28,8 @@ import { LINE_ICON_STROKE } from '../../../ui/IconWell';
 interface PdfViewerProps {
   attachment: Attachment;
   source?: 'download' | 'preview';
+  /** Shown instead of the error when the PDF cannot be loaded or drawn. */
+  fallback?: ReactNode;
 }
 
 type PdfModule = typeof import('pdfjs-dist');
@@ -50,7 +52,7 @@ async function getPdfjs(): Promise<PdfModule> {
   return pdfModulePromise;
 }
 
-export function PdfViewer({ attachment, source = 'download' }: PdfViewerProps) {
+export function PdfViewer({ attachment, source = 'download', fallback }: PdfViewerProps) {
   const { blob, loading, error } = useAttachmentBlob(
     attachment.id,
     source === 'preview' ? 'preview' : 'download'
@@ -59,6 +61,10 @@ export function PdfViewer({ attachment, source = 'download' }: PdfViewerProps) {
   const [doc, setDoc] = useState<PdfDocument | null>(null);
   const [page, setPage] = useState(1);
   const [zoom, setZoom] = useState(1);
+  // Fit the page to the viewer's width until the person zooms by hand, so a
+  // slide or page is not cut off when the viewer is narrower than the page.
+  const [autoFit, setAutoFit] = useState(true);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -95,8 +101,26 @@ export function PdfViewer({ attachment, source = 'download' }: PdfViewerProps) {
   }, [blob]);
 
   useEffect(() => {
+    if (!doc || !autoFit) return undefined;
+    let cancelled = false;
+    doc.getPage(page).then((p) => {
+      const wrap = wrapRef.current;
+      if (cancelled || !wrap) return;
+      const base = p.getViewport({ scale: 1 });
+      const room = wrap.clientWidth - 32;
+      if (room > 0 && base.width > 0) {
+        setZoom(Math.min(2, Math.max(0.3, +(room / base.width).toFixed(2))));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [doc, page, autoFit]);
+
+  useEffect(() => {
     if (!doc || !canvasRef.current) return;
     let cancelled = false;
+    let task: { cancel(): void; promise: Promise<unknown> } | null = null;
     const canvas = canvasRef.current;
     (async () => {
       try {
@@ -109,9 +133,12 @@ export function PdfViewer({ attachment, source = 'download' }: PdfViewerProps) {
         canvas.height = viewport.height;
         canvas.style.width = `${viewport.width / (window.devicePixelRatio || 1)}px`;
         canvas.style.height = `${viewport.height / (window.devicePixelRatio || 1)}px`;
-        await p.render({ canvasContext: ctx, viewport }).promise;
+        task = p.render({ canvasContext: ctx, viewport });
+        await task.promise;
       } catch (e) {
-        if (!cancelled) {
+        // A superseded render is cancelled on purpose; that is not an error.
+        const name = (e as { name?: string } | null)?.name;
+        if (!cancelled && name !== 'RenderingCancelledException') {
           setRenderError(
             e instanceof Error ? e.message : 'Page failed to render'
           );
@@ -120,12 +147,13 @@ export function PdfViewer({ attachment, source = 'download' }: PdfViewerProps) {
     })();
     return () => {
       cancelled = true;
+      task?.cancel();
     };
   }, [doc, page, zoom]);
 
   if (loading) return <ViewerStatus state="loading" />;
-  if (error) return <ViewerStatus state="error" message={error} />;
-  if (renderError) return <ViewerStatus state="error" message={renderError} />;
+  if (error) return fallback ? <>{fallback}</> : <ViewerStatus state="error" message={error} />;
+  if (renderError) return fallback ? <>{fallback}</> : <ViewerStatus state="error" message={renderError} />;
   if (!doc) return <ViewerStatus state="loading" />;
 
   const totalPages = doc.numPages;
@@ -157,7 +185,10 @@ export function PdfViewer({ attachment, source = 'download' }: PdfViewerProps) {
         <span aria-hidden className="mx-1 h-3 w-px bg-[var(--panel-border)]" />
         <button
           type="button"
-          onClick={() => setZoom((z) => Math.max(0.4, +(z - 0.2).toFixed(2)))}
+          onClick={() => {
+            setAutoFit(false);
+            setZoom((z) => Math.max(0.4, +(z - 0.2).toFixed(2)));
+          }}
           aria-label="Zoom out"
           className="rounded-[var(--radius-input)] p-1 text-[var(--text-muted)] hover:text-[var(--text)]"
         >
@@ -168,14 +199,17 @@ export function PdfViewer({ attachment, source = 'download' }: PdfViewerProps) {
         </span>
         <button
           type="button"
-          onClick={() => setZoom((z) => Math.min(3, +(z + 0.2).toFixed(2)))}
+          onClick={() => {
+            setAutoFit(false);
+            setZoom((z) => Math.min(3, +(z + 0.2).toFixed(2)));
+          }}
           aria-label="Zoom in"
           className="rounded-[var(--radius-input)] p-1 text-[var(--text-muted)] hover:text-[var(--text)]"
         >
           <ZoomIn size={14} strokeWidth={LINE_ICON_STROKE} />
         </button>
       </div>
-      <div className="flex-1 overflow-auto bg-[var(--panel-2)]/40 p-4">
+      <div ref={wrapRef} className="flex-1 overflow-auto bg-[var(--panel-2)]/40 p-4">
         <div className="mx-auto inline-block bg-white shadow-[var(--shadow-card)]">
           <canvas ref={canvasRef} />
         </div>

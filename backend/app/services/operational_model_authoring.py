@@ -215,6 +215,7 @@ _ALLOWED_MANIFEST_FIELD_KEYS = frozenset(
         "default",
         "multiple",
         "expression",
+        "computed",
         "config",
         "is_primary",
         "primary",
@@ -2030,6 +2031,10 @@ async def recommend_profile_customizations(
                         "patch_args": {"key": et_key},
                     }
                 )
+
+    from app.services.improve_this import suggestions_for_track
+
+    suggestions.extend(suggestions_for_track(manifest, sample))
 
     total_fields = sum(len(et.get("fields") or []) for et in entry_types_spec)
 

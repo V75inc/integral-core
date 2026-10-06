@@ -207,6 +207,12 @@ export function SkillsSection() {
   const onToggle = (skill: SkillSummary) =>
     toggleMutation.mutate({ id: skill.id, enabled: !skill.enabled });
 
+  const { data: tools } = useQuery({
+    queryKey: ['skill-tools', workspaceId],
+    queryFn: () => skillsApi.toolCatalogue(),
+    enabled: Boolean(workspaceId),
+  });
+
   const q = query.trim().toLowerCase();
 
   const workspaceSkills = useMemo(
@@ -245,7 +251,7 @@ export function SkillsSection() {
   return (
     <SettingsSection
       title="AI Skills"
-      description="View and customize the skills your workspace agent can use. Core skills are built in and read-only; app and workspace skills can be tailored to your workspace."
+      description="View and customize the skills your workspace agent can use. This list is what a turn in this workspace can load. A private skill you cannot use is not shown."
       actions={
         canManage ? (
           <Button onClick={() => setEditorId('__new__')}>New skill</Button>
@@ -258,6 +264,9 @@ export function SkillsSection() {
         <EmptyState title="Could not load skills" />
       ) : (
         <Stack gap="lg">
+          <Text variant="body" tone="muted">
+            Skills and tools available here: {filteredTotal} skills, {tools?.total ?? 0} tools.
+          </Text>
           <div className="relative">
             <Text
               as="span"

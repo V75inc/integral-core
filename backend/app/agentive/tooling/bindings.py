@@ -43,6 +43,7 @@ Route-backed reads are wired here. Task 4 completes the READ surface:
   ``not_implemented`` / fail-closed ToolResult rather than guessing.
 """
 
+import re
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
@@ -172,6 +173,46 @@ def _h(modpath: str, name: str) -> Callable[[], Any]:
 def _passthrough(args: Dict[str, Any]) -> Dict[str, Any]:
     """Forward all tool args verbatim as handler kwargs (data only)."""
     return dict(args or {})
+
+
+def _list_tracks_params(args: Dict[str, Any]) -> Dict[str, Any]:
+    """List tracks on the focused app when this turn has one.
+
+    A model that just called ``integral_list_apps`` will pass some other
+    app's id. The open app replaces that id. A turn with no focused app
+    keeps the id the model passed.
+    """
+    out = _pick("cursor", "limit", "app_id", "include_total")(args)
+    focused = _focused_app_id()
+    if focused:
+        out["app_id"] = focused
+    return out
+
+
+_list_tracks_params.picked_keys = frozenset(  # type: ignore[attr-defined]
+    {"cursor", "limit", "app_id", "include_total"}
+)
+
+
+def _get_related_params(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Use the open entry when the call does not name one."""
+    src = args or {}
+    entry_id = src.get("entry_id")
+    if not _is_node_id(entry_id):
+        from app.services.agent_scope import current_page_context
+
+        page = current_page_context.get() or {}
+        if isinstance(page, dict):
+            focused = page.get("focused_entry_id")
+            if _is_node_id(focused):
+                entry_id = focused
+    out: Dict[str, Any] = {}
+    if entry_id:
+        out["entry_id"] = entry_id
+    return out
+
+
+_get_related_params.picked_keys = frozenset({"entry_id"})  # type: ignore[attr-defined]
 
 
 def _pick(*keys: str) -> Callable[[Dict[str, Any]], Dict[str, Any]]:
@@ -327,19 +368,297 @@ def _truncate(value: Any, limit: int = 120) -> str:
 
 
 # ---- entries -------------------------------------------------------------- #
-async def _find_visible_entry_with_title(
-    *, user_id: str, track_id: str, title: str
-) -> Optional[Any]:
-    """Find an exact visible title match before an agent stages a create."""
+# Words that show up on almost every row of a track. They must not, by
+# themselves, make a new appointment look like an existing one.
+_GENERIC_MATCH_TOKENS = frozenset(
+    {
+        "appointment",
+        "appointments",
+        "meeting",
+        "meetings",
+        "schedule",
+        "scheduled",
+        "scheduling",
+        "reminder",
+        "reminders",
+        "note",
+        "notes",
+        "record",
+        "records",
+        "entry",
+        "entries",
+        "update",
+        "create",
+        "new",
+        "the",
+        "and",
+        "for",
+        "with",
+        "from",
+        "this",
+        "that",
+        "date",
+        "time",
+        "day",
+        "name",
+        "today",
+        "tomorrow",
+        "yesterday",
+        "january",
+        "february",
+        "march",
+        "april",
+        "june",
+        "july",
+        "august",
+        "september",
+        "october",
+        "november",
+        "december",
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+    }
+)
+
+
+def _distinctive_tokens(text: str) -> set:
+    from app.services.destination_rank import _tokens
+
+    return {token for token in _tokens(text) if token not in _GENERIC_MATCH_TOKENS}
+
+
+def _entry_blob(entry: Any) -> str:
+    """Title plus string field values. Direct fields; deleted rows contribute nothing."""
+    if entry.status == "deleted":
+        return ""
+    parts = [entry.title or ""]
+    fields = entry.custom_fields if isinstance(entry.custom_fields, dict) else {}
+    for value in fields.values():
+        if isinstance(value, str) and value.strip():
+            parts.append(value)
+    return " ".join(parts)
+
+
+def find_likely_duplicates(
+    entries: List[Any], proposed: str, limit: int = 3
+) -> List[Any]:
+    """Rows that share a name with the text about to be created, best first.
+
+    Two distinctive tokens anywhere on the row count, or one token of four
+    or more characters in the title. "Appointment" and month names do not.
+    """
+    wanted = _distinctive_tokens(proposed)
+    if not wanted:
+        return []
+    scored: List[tuple] = []
+    for entry in entries:
+        if entry.status == "deleted":
+            continue
+        title_tokens = _distinctive_tokens(entry.title or "")
+        have = title_tokens | _distinctive_tokens(_entry_blob(entry))
+        hit = wanted & have
+        title_hit = hit & title_tokens
+        strong = len(hit) >= 2 or any(len(token) >= 4 for token in title_hit)
+        if not strong:
+            continue
+        scored.append(((len(hit), len(title_hit)), entry))
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    return [entry for _key, entry in scored[:limit]]
+
+
+def find_likely_duplicate(entries: List[Any], proposed: str) -> Optional[Any]:
+    """The closest row that shares a name with the text about to be created."""
+    found = find_likely_duplicates(entries, proposed, limit=1)
+    return found[0] if found else None
+
+
+def _proposed_blob(title: str, text: str, fields: Any) -> str:
+    parts = [title or "", text or ""]
+    if isinstance(fields, dict):
+        for value in fields.values():
+            if isinstance(value, str) and value.strip():
+                parts.append(value)
+    return " ".join(parts)
+
+
+_MONTH = (
+    "january|february|march|april|may|june|july|august|september|"
+    "october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|"
+    "oct|nov|dec"
+)
+_CALENDAR_DATE = re.compile(
+    rf"\b(?:\d{{4}}-\d{{2}}-\d{{2}}|"
+    rf"\d{{1,2}}(?:st|nd|rd|th)?(?:\s+of)?\s+(?:{_MONTH})|"
+    rf"(?:{_MONTH})\s+\d{{1,2}}(?:st|nd|rd|th)?)\b",
+    re.IGNORECASE,
+)
+
+
+def text_has_calendar_date(text: str) -> bool:
+    """True when the text states a calendar date, not a bare month name."""
+    return _CALENDAR_DATE.search(text or "") is not None
+
+
+def date_field_keys(entry_types: List[Any]) -> List[str]:
+    """Keys whose type is date or datetime on these entry types."""
+    keys: List[str] = []
+    for entry_type in entry_types:
+        schema = (
+            entry_type.form_schema if isinstance(entry_type.form_schema, dict) else {}
+        )
+        for field in schema.get("fields") or []:
+            if not isinstance(field, dict) or not field.get("key"):
+                continue
+            if str(field.get("type") or "").casefold() in ("date", "datetime"):
+                key = str(field["key"])
+                if key not in keys:
+                    keys.append(key)
+    return keys
+
+
+def _field_is_set(fields: Any, key: str) -> bool:
+    if not isinstance(fields, dict):
+        return False
+    for raw, value in fields.items():
+        if str(raw).casefold() != key.casefold():
+            continue
+        if value is None:
+            return False
+        if isinstance(value, str) and not value.strip():
+            return False
+        return True
+    return False
+
+
+def missing_date_fields(
+    keys: List[str], prose: str, fields: Any, stored: Any = None
+) -> List[str]:
+    """Date keys still empty while the request states a calendar date."""
+    if not keys or not text_has_calendar_date(prose):
+        return []
+    return [
+        key
+        for key in keys
+        if not _field_is_set(fields, key) and not _field_is_set(stored, key)
+    ]
+
+
+def date_field_refusal(missing: List[str], *, update: bool) -> str:
+    """Tell the model to resubmit with the date on the field."""
+    place = "updates.fields" if update else "fields"
+    named = ", ".join(f"{place}.{key}" for key in missing)
+    return (
+        "the date belongs in %s, not the title. Resubmit with %s set. "
+        "Nothing was staged." % (named, named)
+    )
+
+
+async def date_left_in_title_block(
+    *,
+    track_id: str,
+    title: str = "",
+    text: str = "",
+    fields: Any = None,
+    stored_fields: Any = None,
+    entry_type_name: str = "",
+    entry_type_id: str = "",
+    update: bool = False,
+) -> Optional[str]:
+    """Refusal when a stated date never lands on the date field."""
+    from app.services.turn_binding import current_user_sentence
+
+    prose = " ".join(
+        part for part in (title, text, current_user_sentence.get() or "") if part
+    )
+    if not text_has_calendar_date(prose):
+        return None
+    if not isinstance(track_id, str) or not track_id or track_id.startswith("{{"):
+        return None
+    from app.models.nodes import Track
+    from app.services.view_create_resolution import load_entry_types_for_track
+
+    track = await Track.get(track_id)
+    if track is None:
+        return None
+    entry_types = await load_entry_types_for_track(track)
+    if entry_type_id:
+        typed = [item for item in entry_types if item.id == entry_type_id]
+        if typed:
+            entry_types = typed
+    elif entry_type_name:
+        wanted = entry_type_name.casefold()
+        named = [item for item in entry_types if item.name.casefold() == wanted]
+        if named:
+            entry_types = named
+    missing = missing_date_fields(
+        date_field_keys(entry_types), prose, fields, stored_fields
+    )
+    if not missing:
+        return None
+    return date_field_refusal(missing, update=update)
+
+
+async def duplicate_create_block(
+    *,
+    track_id: str,
+    title: str,
+    text: str = "",
+    fields: Any = None,
+    allow_duplicate_title: bool = False,
+) -> Optional[str]:
+    """Refusal text when this create should be an update. None when it may stage.
+
+    Exact title still wins its own sentence. A different title that shares a
+    name is the same refusal: no card, and the existing id is in the text.
+    A second record is allowed only when the person's own sentence asks for
+    another one. The model's ``allow_duplicate_title`` flag does not.
+    """
+    del allow_duplicate_title
+    from app.services.turn_binding import (
+        current_user_sentence,
+        user_asked_for_another_record,
+    )
+
+    if user_asked_for_another_record(current_user_sentence.get()):
+        return None
+    if not isinstance(track_id, str) or not track_id or track_id.startswith("{{"):
+        return None
     from app.services.permissions import get_user_accessible_entries
 
-    target = title.strip().casefold()
-    if not target:
+    entries = await get_user_accessible_entries(_bound_propose_principal(), track_id)
+    target = (title or "").strip().casefold()
+    for entry in entries:
+        if entry.status == "deleted":
+            continue
+        if target and (entry.title or "").strip().casefold() == target:
+            return (
+                "create_entry: an entry named %r already exists in this track "
+                "(entry_id=%s). Use integral_update_entry with that entry_id, "
+                "then read it back; do not create a duplicate." % (title, entry.id)
+            )
+    matches = find_likely_duplicates(
+        entries, _proposed_blob(title, text, fields), limit=3
+    )
+    if not matches:
         return None
-    for entry in await get_user_accessible_entries(user_id, track_id):
-        if str(getattr(entry, "title", "") or "").strip().casefold() == target:
-            return entry
-    return None
+    if len(matches) == 1:
+        match = matches[0]
+        return (
+            "create_entry: this matches an existing record %r (entry_id=%s). "
+            "Call integral_update_entry with that entry_id. Nothing was staged."
+            % (match.title, match.id)
+        )
+    listed = "; ".join("%r (entry_id=%s)" % (row.title, row.id) for row in matches)
+    return (
+        "create_entry: this name matches more than one record: %s. "
+        "Update the one the person named with integral_update_entry. "
+        "Nothing was staged." % listed
+    )
 
 
 async def _stage_create_entry(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -411,6 +730,13 @@ async def _stage_create_entry(args: Dict[str, Any]) -> Dict[str, Any]:
         )
     if not title:
         raise ValueError("create_entry: title is required")
+    if is_cleanup_instruction(title) or is_cleanup_instruction(str(text or "")):
+        raise ValueError(
+            "create_entry: this is a cleanup instruction, not a new record. "
+            "Query the track and stage integral_delete_entry or "
+            "integral_update_entry. Do not create an entry whose title is "
+            "the instruction. Nothing was staged."
+        )
 
     if not pending_track:
         from app.api.errors import InsufficientPermissionsError
@@ -436,20 +762,16 @@ async def _stage_create_entry(args: Dict[str, Any]) -> Dict[str, Any]:
             raise InsufficientPermissionsError(message="Access denied")
 
     # A named record normally signals an update request when it already exists.
-    # Refuse the duplicate card before it reaches the user: a false create is
-    # harder to repair than a clear instruction to resolve and update the
-    # existing entry. Callers intentionally modelling repeated same-title
-    # records retain an explicit escape hatch.
-    if not src.get("allow_duplicate_title"):
-        existing = await _find_visible_entry_with_title(
-            user_id=_bound_propose_principal(), track_id=track_id, title=title
-        )
-        if existing is not None:
-            raise ValueError(
-                "create_entry: an entry named %r already exists in this track "
-                "(entry_id=%s). Use integral_update_entry with that entry_id, "
-                "then read it back; do not create a duplicate." % (title, existing.id)
-            )
+    # Refuse before a card: exact title, or a different title that shares a name.
+    blocked = await duplicate_create_block(
+        track_id=track_id,
+        title=title,
+        text=str(text or ""),
+        fields=fields,
+        allow_duplicate_title=bool(src.get("allow_duplicate_title")),
+    )
+    if blocked:
+        raise ValueError(blocked)
 
     view_warnings: List[str] = []
     resolved_view_name = ""
@@ -527,6 +849,16 @@ async def _stage_create_entry(args: Dict[str, Any]) -> Dict[str, Any]:
                 fields = resolve_field_map(fields, catalog)
             except ValueError as exc:
                 raise ValueError(f"create_entry: {exc}") from exc
+
+    date_block = await date_left_in_title_block(
+        track_id=track_id,
+        title=title,
+        text=str(text or body or ""),
+        fields=fields,
+        entry_type_name=str(entry_type or ""),
+    )
+    if date_block:
+        raise ValueError(f"create_entry: {date_block}")
 
     payload: Dict[str, Any] = {"track_id": track_id, "title": title}
     if body:
@@ -651,13 +983,18 @@ async def _stage_update_entry(args: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("update_entry: supply at least one field to change")
 
     current = await _sd.load_entry_record(entry_id)
-    if current:
-        record_revision = current.get("record_revision")
-        if isinstance(record_revision, int) and record_revision >= 1:
-            payload["expected_record_revision"] = record_revision
-        schema_revision = await _schema_revision_for_update(current)
-        if schema_revision is not None:
-            payload["expected_schema_revision"] = schema_revision
+    if not current:
+        raise ValueError(
+            "update_entry: no entry "
+            f"{entry_id!r}. Find it with integral_query_entries and call "
+            "integral_update_entry with that entry_id. Nothing was staged."
+        )
+    record_revision = current.get("record_revision")
+    if isinstance(record_revision, int) and record_revision >= 1:
+        payload["expected_record_revision"] = record_revision
+    schema_revision = await _schema_revision_for_update(current)
+    if schema_revision is not None:
+        payload["expected_schema_revision"] = schema_revision
 
     if isinstance(payload.get("fields"), dict) and payload["fields"]:
         from app.models.nodes import Track
@@ -684,11 +1021,21 @@ async def _stage_update_entry(args: Dict[str, Any]) -> Dict[str, Any]:
             except ValueError as exc:
                 raise ValueError(f"update_entry: {exc}") from exc
 
+    date_block = await date_left_in_title_block(
+        track_id=str(current.get("track_id") or ""),
+        title=str(payload.get("title") or ""),
+        text=str(payload.get("body") or ""),
+        fields=payload.get("fields"),
+        stored_fields=current.get("custom_fields"),
+        entry_type_id=str(current.get("type_id") or ""),
+        update=True,
+    )
+    if date_block:
+        raise ValueError(f"update_entry: {date_block}")
+
     # ``status`` is both a platform lifecycle attribute and a common profile
     # field. An existing typed value makes the user's intent unambiguous.
-    current_fields = (
-        (current or {}).get("custom_fields") or (current or {}).get("fields") or {}
-    )
+    current_fields = current.get("custom_fields") or current.get("fields") or {}
     if (
         "status" in payload
         and isinstance(current_fields, dict)
@@ -697,11 +1044,7 @@ async def _stage_update_entry(args: Dict[str, Any]) -> Dict[str, Any]:
         fields = dict(payload.get("fields") or {})
         fields.setdefault("status", payload.pop("status"))
         payload["fields"] = fields
-    title_lbl = (
-        _sd.entry_display_label(current, entry_id)
-        if current
-        else f"Entry {_sd.short_node_id(entry_id)}"
-    )
+    title_lbl = _sd.entry_display_label(current, entry_id)
 
     label_sources: Dict[str, Any] = {}
     if "tags" in payload:
@@ -755,11 +1098,13 @@ async def _stage_delete_entry(args: Dict[str, Any]) -> Dict[str, Any]:
     payload = {"entry_id": entry_id}
 
     current = await _sd.load_entry_record(entry_id)
-    title_lbl = (
-        _sd.entry_display_label(current, entry_id)
-        if current
-        else f"Entry {_sd.short_node_id(entry_id)}"
-    )
+    if not current:
+        raise ValueError(
+            "delete_entry: no entry "
+            f"{entry_id!r}. Find it with integral_query_entries and call "
+            "integral_delete_entry with that entry_id. Nothing was staged."
+        )
+    title_lbl = _sd.entry_display_label(current, entry_id)
 
     return {
         "kind": "delete_entry",
@@ -956,13 +1301,61 @@ def _normalize_in_batch_app_id(app_id: str) -> str:
     return "{{app.id}}"
 
 
+def _is_node_id(value: Any) -> bool:
+    return isinstance(value, str) and value.startswith("n.") and "." in value[2:]
+
+
+def _focused_app_id() -> Optional[str]:
+    """Return the open app when this turn has one."""
+    from app.services.agent_scope import current_focused_app_id
+
+    focused = current_focused_app_id.get()
+    return focused if _is_node_id(focused) else None
+
+
+def _app_id_for_single_track_create(raw: str) -> str:
+    """Resolve the app for one add-track card.
+
+    ``{{app.id}}`` is valid only inside a batch that creates the app. A
+    standalone approval leaves that token unresolved and policy then says
+    "Cannot add a track to this app." The focused app wins over a different
+    real id the model picked from a workspace-wide list. Otherwise refuse
+    before a card.
+    """
+    focused = _focused_app_id()
+    if focused:
+        return focused
+    normalized = _normalize_in_batch_app_id(str(raw or ""))
+    if _is_node_id(normalized):
+        return normalized
+    raise ValueError(
+        "create_app_track: this approval is not part of a new-App batch. "
+        "Pass the real app_id from integral_list_apps, or focus that app. "
+        "{{app.id}} was not staged."
+    )
+
+
+_CLEANUP_INSTRUCTION = re.compile(
+    r"("
+    r"\bkeep only\b"
+    r"|\bclean\s*up\b"
+    r"|\bremove (the )?duplicates?\b"
+    r"|\bdelete (the )?duplicates?\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def is_cleanup_instruction(text: str) -> bool:
+    """True when the text is an order to keep or delete rows, not a record."""
+    return bool(_CLEANUP_INSTRUCTION.search(text or ""))
+
+
 def _stage_create_app_track(args: Dict[str, Any]) -> Dict[str, Any]:
     """Stage a ``create_track`` inside a specific app (app_id required)."""
     src = args or {}
-    app_id = src.get("app_id") or src.get("space_id")
-    if not app_id:
-        raise ValueError("create_app_track: app_id is required")
-    app_id = _normalize_in_batch_app_id(str(app_id))
+    app_id = src.get("app_id") or src.get("space_id") or ""
+    app_id = _app_id_for_single_track_create(str(app_id))
     staged = _stage_create_track({**src, "app_id": app_id})
     # create_app_track always carries the app_id; app label resolved in async wrapper.
     staged["_app_id_for_summary"] = app_id
@@ -1290,6 +1683,24 @@ def _stage_propose_profile_revision(args: Dict[str, Any]) -> Dict[str, Any]:
         raise BadRequestError(
             message="propose_profile_revision: a non-empty operations list is required"
         )
+    from app.services.agent_profile_patches import coerce_modify_field
+
+    normalized_ops: List[Dict[str, Any]] = []
+    for operation in operations:
+        if not isinstance(operation, dict) or operation.get("op") != "modify_field":
+            normalized_ops.append(operation)
+            continue
+        coerced = coerce_modify_field(operation)
+        if not (coerced["entry_type"] and coerced["field_key"] and coerced["patch"]):
+            raise BadRequestError(
+                message=(
+                    "modify_field needs entry_type, field_key, and a patch "
+                    "(name or type). Aliases entry_type_key, field, and key "
+                    "are accepted. This approval was not staged."
+                )
+            )
+        normalized_ops.append(coerced)
+    operations = normalized_ops
     payload = {"draft_id": draft_id, "operations": operations}
     op_names = [o.get("op") for o in operations if isinstance(o, dict)]
     operation_lines = []
@@ -2200,26 +2611,82 @@ def _starter_dashboard_widgets() -> List[Dict[str, Any]]:
     ]
 
 
-def _canonicalize_dashboard_widget_types(
-    widgets: List[Any],
-) -> tuple[List[Any], int]:
-    """Translate common semantic widget labels into the renderer palette."""
-    from app.views.dashboard_widget_types import TYPE_ALIASES
+_METRIC_TYPE_HINTS = ("tile", "kpi", "metric", "stat", "summary", "count")
 
-    canonical: List[Any] = []
+
+def _resolve_dashboard_widget_type(widget_type: str) -> Optional[str]:
+    """Map a model-authored widget type onto the renderer palette.
+
+    Registered types pass through. Exact aliases win next. Anything else is
+    inferred from the words in the type so a new synonym does not fail the
+    build. ``None`` means the type is not a dashboard widget.
+    """
+    from app.views import dashboard_widget_types as dwt
+
+    key = widget_type.strip().casefold().replace("-", "_")
+    if not key:
+        return None
+    if dwt.validate_widget_type(key):
+        return key
+    aliased = dwt.TYPE_ALIASES.get(key) or {
+        "summary_tile": "metric_card",
+        "summary_tiles": "metric_card",
+    }.get(key)
+    if aliased:
+        return aliased
+    if "pie" in key or "donut" in key:
+        return "chart_pie"
+    if "line" in key and "chart" in key:
+        return "chart_line"
+    if "chart" in key or key == "bar" or key.endswith("_bar"):
+        return "chart_bar"
+    if any(hint in key for hint in _METRIC_TYPE_HINTS):
+        return "metric_card"
+    if "table" in key or "list" in key or "feed" in key:
+        return "recent_entries"
+    if "digest" in key or "activity" in key:
+        return "activity_digest"
+    return None
+
+
+def prepare_dashboard_widgets(
+    widgets: List[Any],
+) -> tuple[List[Any], List[str]]:
+    """Return renderer-backed widgets. Unknown types never fail the caller.
+
+    Recognized widgets keep their title and data source. A type the palette
+    does not know is dropped. When that leaves nothing, the starter set is
+    used so a scaffold build still lands a dashboard with the app.
+    """
+    prepared: List[Any] = []
+    dropped: List[str] = []
     translated = 0
     for widget in widgets:
         if not isinstance(widget, dict):
-            canonical.append(widget)
+            dropped.append("(not a widget)")
             continue
         item = dict(widget)
-        widget_type = str(item.get("type") or "").strip().casefold()
-        target_type = TYPE_ALIASES.get(widget_type)
-        if target_type:
-            item["type"] = target_type
+        original = str(item.get("type") or "").strip()
+        resolved = _resolve_dashboard_widget_type(original)
+        if not resolved:
+            dropped.append(original or "(missing type)")
+            continue
+        if resolved != original.casefold().replace("-", "_"):
             translated += 1
-        canonical.append(item)
-    return canonical, translated
+        item["type"] = resolved
+        prepared.append(item)
+    if not prepared:
+        detail = f" ({', '.join(dropped)})" if dropped else ""
+        return (
+            _starter_dashboard_widgets(),
+            [f"replaced unrecognized widgets with the starter dashboard{detail}"],
+        )
+    notes: List[str] = []
+    if translated:
+        notes.append(f"normalized {translated} widget type(s)")
+    if dropped:
+        notes.append("dropped unrecognized widget types: " + ", ".join(dropped))
+    return prepared, notes
 
 
 async def _stage_create_dashboard(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -2260,12 +2727,17 @@ async def _stage_create_dashboard(args: Dict[str, Any]) -> Dict[str, Any]:
             raw_widgets = _starter_dashboard_widgets()
         auto_filled = True
 
-    raw_widgets, translated_widget_types = _canonicalize_dashboard_widget_types(
-        list(raw_widgets)
-    )
-    errors = validate_widget_specs(raw_widgets)
-    if errors:
-        raise ValueError("create_dashboard: invalid widgets — " + "; ".join(errors))
+    raw_widgets, widget_notes = prepare_dashboard_widgets(list(raw_widgets))
+    kept = [widget for widget in raw_widgets if not validate_widget_specs([widget])]
+    if len(kept) != len(raw_widgets):
+        if kept:
+            raw_widgets = kept
+            widget_notes.append("dropped widgets that failed validation")
+        else:
+            raw_widgets = _starter_dashboard_widgets()
+            widget_notes = [
+                "replaced widgets that failed validation with the starter dashboard"
+            ]
     norm_widgets, _ = normalize_widget_specs(raw_widgets)
     if not norm_widgets:
         raise ValueError(
@@ -2279,11 +2751,9 @@ async def _stage_create_dashboard(args: Dict[str, Any]) -> Dict[str, Any]:
         "widgets": norm_widgets,
         "is_default": bool(src.get("is_default", False)),
     }
-    notes = []
+    notes = list(widget_notes)
     if auto_filled:
         notes.append("auto-filled starter widgets")
-    if translated_widget_types:
-        notes.append(f"normalized {translated_widget_types} widget type(s)")
     filled_note = f" ({'; '.join(notes)})" if notes else ""
     return {
         "kind": "create_dashboard",
@@ -2906,7 +3376,7 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     "integral_get_app": ToolBinding(_h("app.api.apps", "get_app"), _pick("app_id")),
     "integral_list_tracks": ToolBinding(
         _h("app.api.tracks", "list_tracks"),
-        _pick("cursor", "limit", "app_id", "include_total"),
+        _list_tracks_params,
     ),
     "integral_get_track_schema": ToolBinding(
         _h("app.api.tracks", "get_track_detail_bundle"), _pick("track_id")
@@ -2982,7 +3452,7 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     # entry_id -> handler path kwarg; relation -> request.query_params.
     "integral_get_related": ToolBinding(
         _h("app.api.entry_relations", "list_entry_relations"),
-        _pick("entry_id"),
+        _get_related_params,
         query_map=_relation_query_map,
     ),
     # POST /api/retrieve — no-track-scope retrieval; same body path as

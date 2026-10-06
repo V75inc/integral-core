@@ -78,6 +78,24 @@ export interface UseStagedChangeResult {
   };
 }
 
+function execFailureMessage(exec: {
+  message?: unknown;
+  detail?: unknown;
+  skipped?: boolean;
+}): string {
+  if (typeof exec.message === 'string' && exec.message) return exec.message;
+  if (exec.skipped === true) return 'The server skipped this write.';
+  const detail = exec.detail;
+  if (typeof detail === 'string' && detail.trim()) return detail;
+  if (Array.isArray(detail)) {
+    const parts = detail.filter(
+      (item): item is string => typeof item === 'string' && item.trim().length > 0,
+    );
+    if (parts.length) return parts.join(' ');
+  }
+  return 'Server write failed.';
+}
+
 export function useStagedChange(
   staged: StagedChange,
   { onTerminal, onNeedsAgentNudge }: UseStagedChangeOptions = {},
@@ -264,6 +282,7 @@ export function useStagedChange(
               filed?: boolean;
               skipped?: boolean;
               message?: unknown;
+              detail?: unknown;
               needs_agent_build?: boolean;
             })
           | undefined;
@@ -287,12 +306,7 @@ export function useStagedChange(
           setStatus({
             kind: 'error',
             state: 'blessed',
-            message:
-              typeof exec.message === 'string' && exec.message
-                ? exec.message
-                : exec.skipped === true
-                  ? 'The server skipped this write.'
-                  : 'Server write failed.',
+            message: execFailureMessage(exec),
           });
         } else {
           setStatus({ kind: 'idle', state: 'blessed' });

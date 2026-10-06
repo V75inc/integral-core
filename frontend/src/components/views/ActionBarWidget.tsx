@@ -8,6 +8,7 @@ import { toolsApi } from '../../api/tools';
 import { attachmentsApi } from '../../api/attachments';
 import { entriesApi, entryTypesApi } from '../../api';
 import { actionFileToFile, downloadActionFile, isActionFile } from '../../api/actionFiles';
+import { requestOpenCompanionChat } from '../../features/ai-chat/chatHandoff';
 import { isVisible, type VisibleIf } from './regionConditions';
 import type { ViewWidgetProps } from './types';
 
@@ -27,6 +28,10 @@ export interface ActionBarButtonSpec {
   tool?: string;
   /** Key into CLIENT_ACTIONS below. Required when mode is 'client'. */
   client_action?: string;
+  /** For ``client_action: ask_assistant``: the message put in the assistant's
+   *  composer (the person reviews and sends it). The assistant already knows
+   *  which entry is open. */
+  prompt?: string;
   confirm?: boolean;
   confirm_message?: string;
   /** Whether the tool's JSON output carries a ``file`` payload to download. */
@@ -231,6 +236,11 @@ export function ActionBarWidget({ view, entries }: ViewWidgetProps) {
     }
     setRunningKey(button.key);
     try {
+      if (button.mode === 'client' && button.client_action === 'ask_assistant') {
+        // Hand the open entry to the assistant with a ready-to-send request.
+        requestOpenCompanionChat({ draftText: button.prompt || button.label });
+        return;
+      }
       if (button.mode === 'client') {
         const action = button.client_action ? CLIENT_ACTIONS[button.client_action] : undefined;
         if (!action) {

@@ -98,6 +98,10 @@ function normalizeAttachmentList(raw: unknown[]): AttachmentRecord[] {
   return raw.map(normalizeAttachment);
 }
 
+// Core's default per-request batch cap (ATTACHMENT_MAX_BATCH_FILES). Past this,
+// files go one at a time rather than being refused.
+const BATCH_FILE_LIMIT = 10;
+
 export const attachmentsApi = {
   listForEntry: async (entryId: string): Promise<AttachmentRecord[]> => {
     const { data } = await apiClient.get(`/entries/${entryId}/attachments`);
@@ -308,15 +312,17 @@ export const attachmentsApi = {
     // Init session
     let session: ChunkedUploadSession;
     try {
-      const { data } = await apiClient.post(`/entries/${entryId}/uploads`, null, {
-        params: {
+      // The server reads these from the JSON body, not the query string.
+      const { data } = await apiClient.post(
+        `/entries/${entryId}/uploads`,
+        {
           filename: file.name,
           total_bytes: file.size,
           mime_type: file.type || 'application/octet-stream',
           chunk_size: chunkSize,
         },
-        signal: options.signal,
-      });
+        { signal: options.signal }
+      );
       session = (data as { session: ChunkedUploadSession }).session;
     } catch (e) {
       // Server may have chunked disabled — fall back to single shot.
@@ -366,6 +372,64 @@ export const attachmentsApi = {
     return normalizeAttachment(
       (finalRaw as { attachment?: unknown }).attachment
     );
+  },
+
+  /**
+   * Upload many files to one entry. A small set goes as one batch request. A
+   * big set (more files than the batch limit, or any file past the chunked
+   * threshold) goes file by file, a few at a time, each through
+   * ``smartUploadForEntry``. The result has the batch shape either way, so a
+   * failed file is reported without stopping the others.
+   */
+  uploadManyForEntry: async (
+    entryId: string,
+    files: File[],
+    options: {
+      onFileDone?(done: number, total: number): void;
+      thresholdBytes?: number;
+      concurrency?: number;
+      signal?: AbortSignal;
+    } = {}
+  ): Promise<AttachmentBatchResult> => {
+    const threshold = options.thresholdBytes ?? 100 * 1024 * 1024;
+    const batchable =
+      files.length <= BATCH_FILE_LIMIT && files.every(f => f.size <= threshold);
+    if (batchable) {
+      return attachmentsApi.batchUploadForEntry(entryId, files, {
+        signal: options.signal,
+      });
+    }
+    const results: AttachmentBatchResult['results'] = new Array(files.length);
+    let next = 0;
+    let done = 0;
+    const worker = async () => {
+      while (next < files.length) {
+        const i = next++;
+        try {
+          results[i] = {
+            attachment: await attachmentsApi.smartUploadForEntry(entryId, files[i], {
+              thresholdBytes: threshold,
+              signal: options.signal,
+            }),
+          };
+        } catch (e) {
+          results[i] = {
+            error: e instanceof Error ? e.message : 'Upload failed',
+            filename: files[i].name,
+          };
+        }
+        done += 1;
+        options.onFileDone?.(done, files.length);
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(options.concurrency ?? 3, files.length) }, worker)
+    );
+    const failed = results.filter(r => 'error' in r).length;
+    return {
+      results,
+      summary: { total: files.length, succeeded: files.length - failed, failed },
+    };
   },
 
   /**

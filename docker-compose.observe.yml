@@ -1,0 +1,17 @@
+# Untracked port override for the 2026-09-25 main observation.
+# Do not commit. Host ports are not the compose defaults or the retired instance.
+services:
+  db:
+    ports: !override
+      - "5444:5432"
+  api:
+    ports: !override
+      - "4012:4000"
+    environment:
+      APP_BASE_URL: http://localhost:9016
+      JVSPATIAL_CORS_ORIGINS: http://localhost:9016,http://127.0.0.1:9016,http://localhost:4012,http://127.0.0.1:4012
+      # Interpolated from the shell at `up` time. Not stored in this file.
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+  web:
+    ports: !override
+      - "9016:80"

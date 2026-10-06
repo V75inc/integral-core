@@ -44,6 +44,7 @@ See ``backend/tests/test_app_lifecycle.py`` for the regression suite.
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from app.api.utils import export_node
@@ -121,14 +122,41 @@ async def enqueue_install_work(
     include_seed_data: bool = True,
 ) -> Dict[str, Any]:
     """Queue an idempotent package install for the leased lifecycle worker."""
-    from app.agentive.services.work_items import enqueue_work_item
+    from app.agentive.services.work_items import (
+        enqueue_work_item,
+        work_item_object_id,
+    )
+    from app.agentive.work_models import WorkItem
+
+    # One in-flight install per package is the point of the key (a double click
+    # reuses it). A FINISHED install must not block installing again later, e.g.
+    # after an uninstall: the id is deterministic, so reusing the key would hand
+    # back the old "succeeded" item and install nothing.
+    idempotency_key = f"install:{library_cp_id}"
+    previous = await WorkItem.get(
+        work_item_object_id(
+            kind="app_lifecycle",
+            origin="app_lifecycle",
+            principal_id=actor_id,
+            workspace_id=workspace_id,
+            idempotency_key=idempotency_key,
+        )
+    )
+    if previous is not None and str(previous.status or "") in (
+        "succeeded",
+        "failed",
+        "cancelled",
+        "expired",
+        "dead_letter",
+    ):
+        idempotency_key = f"{idempotency_key}:{uuid.uuid4().hex[:12]}"
 
     work = await enqueue_work_item(
         kind="app_lifecycle",
         origin="app_lifecycle",
         principal_id=actor_id,
         workspace_id=workspace_id,
-        idempotency_key=f"install:{library_cp_id}",
+        idempotency_key=idempotency_key,
         input_payload={
             "action": "install",
             "library_cp_id": library_cp_id,

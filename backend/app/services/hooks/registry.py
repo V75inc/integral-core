@@ -855,6 +855,308 @@ class ToolContext:
             return None
         return str((created or {}).get("id") or "") or None
 
+    async def create_entry_in_workspace_bundle_track(
+        self,
+        track_key: str,
+        *,
+        title: str,
+        body: str = "",
+        fields: Optional[Dict[str, Any]] = None,
+        entry_type_key: str = "",
+    ) -> Optional[str]:
+        """Create an entry in the calling bundle's own track, in THIS workspace.
+
+        The workspace-scoped sibling of
+        :meth:`create_entry_in_own_bundle_track`, for a tool that serves other
+        apps (Documents' ``generate_document``): the person's save happened in
+        ``self.workspace_id``, and the record belongs next to it, not in their
+        personal workspace.
+
+        Same narrowness: the target can only be a track of an App installed
+        from **this tool's own bundle** (stamped by the dispatcher, never
+        claimed by the tool), matched by MANIFEST TRACK KEY, in the workspace
+        the call is running in. The caller still needs an editing role on the
+        track and ``entry.create`` policy must allow it. The write goes
+        through ``create_entry_in_track``, so field validation, relation
+        materialisation, graph wiring, ``entry.create`` hooks and change
+        events all run as on the HTTP path.
+
+        Returns ``None`` (never raises) on any missing link or refusal.
+        """
+        from app.models.edges import CONTAINS
+        from app.models.nodes import App
+        from app.schemas.policy import Resource, Subject
+        from app.services.entry_create import create_entry_in_track
+        from app.services.entry_type_resolver import (
+            default_entry_type_id_for_track,
+            resolve_entry_type_id_by_key,
+        )
+        from app.services.permissions import resolve_role
+        from app.services.policy_engine import evaluate as policy_evaluate
+
+        key = (track_key or "").strip()
+        slug = (self.bundle_slug or "").strip()
+        if not (key and slug and self.workspace_id and self.user_id):
+            return None
+        try:
+            found = await App.find({"context.source_operational_model_slug": slug})
+            app_node = next(
+                (
+                    a
+                    for a in list(found or [])
+                    if getattr(a, "workspace_id", "") == self.workspace_id
+                    and getattr(a, "lifecycle_state", "") == "active"
+                ),
+                None,
+            )
+            if app_node is None:
+                return None
+            tracks = await app_node.nodes(
+                edge=[CONTAINS], node=["Track"], direction="out"
+            )
+            track = next(
+                (
+                    t
+                    for t in tracks
+                    if str(getattr(t, "template_id", "") or "") == key
+                    and str(getattr(t, "workspace_id", "") or "")
+                    == self.workspace_id
+                ),
+                None,
+            )
+            if track is None:
+                return None
+            if await resolve_role(self.user_id, "track", track.id) not in (
+                "owner",
+                "admin",
+                "editor",
+            ):
+                return None
+            decision = await policy_evaluate(
+                subject=Subject(kind="human", id=self.user_id),
+                action="entry.create",
+                resource=Resource(kind="entry", id="", scope=f"track:{track.id}"),
+            )
+            if not decision.allowed:
+                return None
+            type_id = ""
+            if entry_type_key:
+                type_id = await resolve_entry_type_id_by_key(track.id, entry_type_key)
+            if not type_id:
+                type_id = await default_entry_type_id_for_track(track.id)
+            if not type_id:
+                return None
+            entry = await create_entry_in_track(
+                track=track,
+                user_id=self.user_id,
+                title=str(title or ""),
+                body=str(body or ""),
+                custom_fields=dict(fields or {}),
+                type_id=type_id,
+                workspace_id=self.workspace_id,
+                actor_kind="human",
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "create_entry_in_workspace_bundle_track failed (bundle=%s key=%s)",
+                slug,
+                key,
+            )
+            return None
+        # The person's save is what caused this, so the actor is them; the ROW
+        # says an app wrote it (same split as create_entry_in_own_bundle_track).
+        try:
+            from app.schemas.provenance import Provenance
+
+            entry.provenance = Provenance(source="agent", source_id=f"bundle:{slug}")
+            await entry.save()
+        except Exception:  # noqa: BLE001
+            logger.exception("provenance stamp failed for entry %s", entry.id)
+        return str(entry.id)
+
+    #: How many app-to-app tool calls may nest (A calls B calls C ...).
+    _MAX_APP_CALL_DEPTH = 3
+
+    async def call_app_tool(
+        self, tool_key: str, payload: Optional[Dict[str, Any]] = None
+    ) -> Any:
+        """Call a tool that another installed app exports to its siblings.
+
+        This is how an app's own code (an action-bar button, a hook) uses a
+        shared service such as Documents. It is deliberately narrower than
+        general tool dispatch:
+
+        * the callee must have opted in with ``exported: true`` in its
+          manifest; every other tool stays unreachable from other apps;
+        * the tool must be registered in THIS workspace (so the providing app
+          is installed here, and an uninstall removes the capability);
+        * the call runs as the same person with the same roles, so every
+          facade gate (``put_attachment``, entry creates) still applies;
+        * the callee's bundle is stamped by ``run_tool`` from its registered
+          spec, so the callee acts as itself, never as the caller;
+        * nesting is capped, and the call is audited with the caller named.
+
+        Raises ``PermissionError`` when the tool is unknown or not exported,
+        and propagates the tool's own validation errors.
+        """
+        import copy
+
+        from app.services.hooks.tool_dispatch import run_tool
+
+        caller = (self.bundle_slug or "").strip()
+        if not caller:
+            raise PermissionError("call_app_tool: only a running app tool may call another app")
+        key = str(tool_key or "").strip()
+        spec = get_workspace_tools(self.workspace_id).get(key)
+        if spec is None or not spec.get("exported"):
+            # One message for both, so a caller cannot probe which tools exist.
+            raise PermissionError(f"call_app_tool: no exported tool {key!r} in this workspace")
+        depth = int(getattr(self, "_app_call_depth", 0) or 0)
+        if depth >= self._MAX_APP_CALL_DEPTH:
+            raise PermissionError("call_app_tool: nested app calls exceed the limit")
+        callee_ctx = copy.copy(self)
+        callee_ctx._app_call_depth = depth + 1  # type: ignore[attr-defined]
+        callee_ctx.actor_kind = self.actor_kind
+        await self.emit_audit(
+            action="tool.cross_app_call",
+            details={
+                "tool_key": key,
+                "caller_bundle": caller,
+                "callee_bundle": spec.get("_bundle_slug"),
+            },
+        )
+        return await run_tool(spec, dict(payload or {}), callee_ctx)
+
+    #: Stamped by ``run_tool`` from the running tool's registered spec.
+    connector_writes: tuple = ()
+    tool_is_write: bool = False
+
+    async def call_connector_tool(
+        self,
+        slug: str,
+        tool: str,
+        payload: Optional[Dict[str, Any]] = None,
+        *,
+        write: bool = False,
+    ) -> Any:
+        """Call a READ-ONLY tool of a connector mounted in this workspace.
+
+        Lets an app's own code (a scheduled check, a button) fetch from a connected
+        service such as Google Drive without an assistant turn carrying the data back
+        and forth. Deliberately narrow:
+
+        * the connector tool must already be mounted in THIS workspace (registered as
+          ``mcp__<slug>__<tool>``), so only connectors somebody installed are reachable;
+        * a READ is allowed only for a tool the connector's vetted catalog entry lists in
+          ``read_only_tools`` (ADR-010 §6: the server's own ``readOnlyHint`` is attacker-controlled
+          and is never trusted, and it is not even kept across a restart). Anything the catalog
+          does not name is a write, and a write must go through an approval card, not a facade;
+        * it runs as the same person; the connector row is resolved for them exactly as
+          for a chat call, and the connector's own invoke policy still applies;
+        * the call is audited with the calling bundle named.
+
+        Raises ``PermissionError`` for an unmounted, unknown or non-read-only tool, and
+        propagates the proxy's own errors (no connector for this user, remote failure).
+        """
+        from app.agentive.connectors.mcp_mount import canonical_mcp_tool_key
+        from app.services.hooks.tool_dispatch import run_tool
+
+        caller = (self.bundle_slug or "").strip()
+        if not caller:
+            raise PermissionError(
+                "call_connector_tool: only a running app tool may call a connector"
+            )
+        key = canonical_mcp_tool_key(str(slug or ""), str(tool or ""))
+        spec = get_workspace_tools(self.workspace_id).get(key)
+        if spec is None or not spec.get("_mcp_connector_slug"):
+            # Same message whether unmounted or unknown: no probing which exist.
+            raise PermissionError(f"call_connector_tool: no mounted connector tool {key!r}")
+        # Classify by the vetted catalog entry, exactly as Core does for approval cards. The remote
+        # server's own annotations are a claim by the party this gate constrains: never used here.
+        from app.agentive.connectors.mcp_tool_class import is_write_tool as _is_write_connector_tool
+
+        connector_slug = str(spec.get("_mcp_connector_slug") or "")
+        connector_tool_is_write = _is_write_connector_tool(
+            spec, auth_state={"catalog_slug": connector_slug}
+        )
+        if write:
+            # A write is allowed only when ALL hold: the running tool declared this exact
+            # connector tool in ``connector_writes``; the running tool is itself a write tool
+            # (an assistant can only run those behind an approval card, and a button click is the
+            # person's own approval); and the catalog does not vouch for the connector tool as
+            # read-only (so it is a real write, not a mislabelled read).
+            if f"{slug}.{tool}" not in tuple(self.connector_writes or ()):
+                raise PermissionError(
+                    f"call_connector_tool: this tool did not declare a write to {slug}.{tool}"
+                )
+            if not self.tool_is_write:
+                raise PermissionError(
+                    "call_connector_tool: a connector write needs a tool declared as a write tool"
+                )
+            if not connector_tool_is_write:
+                raise PermissionError(
+                    f"call_connector_tool: {key!r} is listed read-only by the connector catalog; "
+                    "call it without write=True"
+                )
+        elif connector_tool_is_write:
+            raise PermissionError(
+                f"call_connector_tool: {key!r} is not listed read-only by the connector catalog; "
+                "pass write=True from a tool that declared it"
+            )
+        await self.emit_audit(
+            action="tool.connector_write" if write else "tool.connector_call",
+            details={"tool_key": key, "caller_bundle": caller},
+        )
+        # ``run_tool`` stamps ``bundle_slug`` from the spec; keep the caller's context intact.
+        import copy
+
+        return await run_tool(spec, dict(payload or {}), copy.copy(self))
+
+    async def notify(
+        self,
+        title: str,
+        body: str = "",
+        *,
+        link: str = "",
+        entry_id: str = "",
+        track_id: str = "",
+    ) -> Optional[str]:
+        """Tell the acting person something, through Core's notification system.
+
+        An in-app notification (the person's channel preferences decide the rest) shown in
+        their inbox, titled ``title`` with ``body`` underneath. ``link`` is an in-app path
+        to open; with ``entry_id`` + ``track_id`` and no ``link`` it opens that entry. Only
+        the person the tool is running for can be notified, never somebody else.
+
+        Returns the notification id, or ``None`` (never raises) when it could not be sent,
+        so a check that found something is not failed by a notification problem.
+        """
+        from app.services.notification_router import dispatch
+
+        heading = str(title or "").strip()
+        if not heading or not self.user_id:
+            return None
+        text = heading if not str(body or "").strip() else f"{heading}: {str(body).strip()}"
+        payload: Dict[str, Any] = {"content": text, "title": heading, "body": str(body or "")}
+        if link:
+            payload["action_url"] = str(link)
+        if entry_id:
+            payload["entry_id"] = str(entry_id)
+        if track_id:
+            payload["track_id"] = str(track_id)
+        try:
+            result = await dispatch(
+                user_id=self.user_id,
+                kind="system",
+                payload=payload,
+                actor_id=self.user_id,
+                actor_kind="system",
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("ToolContext.notify failed (bundle=%s)", self.bundle_slug)
+            return None
+        return str((result or {}).get("notification_id") or "") or None
+
     async def put_attachment(
         self,
         entry_id: str,
@@ -931,14 +1233,18 @@ class ToolContext:
         renderer: str,
         sections: Optional[List[Dict[str, str]]] = None,
         rows: Optional[List[Tuple[str, str]]] = None,
+        theme: Optional[Dict[str, Any]] = None,
+        template: Optional[bytes] = None,
     ) -> bytes:
         """Render title/body/sections/rows to document bytes.
 
         Dispatches the substrate ``document_render`` engines (docx / pptx /
         pdf / markdown). Lives on the facade because bundle tools may not
         import ``app.services``; composition tools reach the engines only
-        through here. Privilege redaction and attachment wiring stay in the
-        calling tool.
+        through here. ``body`` is markdown. ``theme`` (accent colour, fonts)
+        restyles the output and ``template`` (a .docx / .pptx, e.g. a company
+        letterhead) is the base file. Privilege redaction and attachment wiring
+        stay in the calling tool.
         """
         from app.services.document_render import render_document
 
@@ -948,7 +1254,41 @@ class ToolContext:
             renderer=renderer,
             sections=sections or [],
             rows=rows or [],
+            theme=theme,
+            template=template,
         )
+
+    async def read_entry_file(
+        self, entry_id: str, attachment_id: str = ""
+    ) -> Optional[Tuple[bytes, str]]:
+        """Read one file attached to an entry the caller may read.
+
+        Returns ``(bytes, filename)``. With no ``attachment_id`` the newest
+        attachment is read. ``None`` when the entry or file is missing, the file
+        is not on that entry, or the caller cannot read the entry. Lets a
+        trusted tool use a stored file (a letterhead template) without reaching
+        into attachment storage.
+        """
+        from app.models.nodes import Attachment, Entry
+        from app.services.attachment_storage import get_attachment_storage_service
+        from app.services.permissions import resolve_role
+
+        ent = await Entry.get(entry_id)
+        if ent is None:
+            return None
+        if await resolve_role(self.user_id, "entry", entry_id) is None:
+            return None
+        ids = [str(a) for a in (ent.attachment_ids or [])]
+        wanted = str(attachment_id or "").strip() or (ids[-1] if ids else "")
+        if not wanted or wanted not in ids:
+            return None
+        att = await Attachment.get(wanted)
+        if att is None or not att.storage_key:
+            return None
+        data = await get_attachment_storage_service().read_attachment(att.storage_key)
+        if not data:
+            return None
+        return data, str(att.filename or "")
 
     async def rollup_plan(self, plan_id: str) -> Dict[str, Any]:
         """Roll a plan's status up from its linked items, return

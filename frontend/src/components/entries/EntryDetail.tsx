@@ -33,6 +33,7 @@ import { useToast } from '../../context/ToastContext';
 import { Avatar, LINE_ICON_STROKE, MarkdownContent, Pill } from '../ui';
 import { Modal } from '../ui/Modal';
 import { EntryDetailPageChrome } from './EntryDetailPageChrome';
+import { EntryCanvasPane } from './EntryCanvasPane';
 import { AddToEntryControl } from './AddToEntryControl';
 import { CommentsPanel, COMMENT_FOOTER_CLASS } from './comments/CommentsPanel';
 import { CommentComposer } from './comments/CommentComposer';
@@ -592,12 +593,66 @@ export function EntryDetail({
   const dynamicFields = useMemo((): OperationalModelFieldSpec[] => {
     if (!matchedEntryType) return [];
     return sortFieldsByOrder(
-      (matchedEntryType.form_schema?.fields ?? []) as OperationalModelFieldSpec[]
+      ((matchedEntryType.form_schema?.fields ?? []) as OperationalModelFieldSpec[]).filter(
+        field => !field.hidden
+      )
     );
   }, [matchedEntryType]);
 
   // Phase 3.1 Plan 03.1-04 (ANC-06) — retain related_views for RelatedViewsSection.
   const entryTypeFormSchema = matchedEntryType?.form_schema ?? null;
+
+  // Entry canvas (entry type ``canvas`` + page variant): keep the file beside
+  // the entry current. A tool or the assistant can render a new file or change
+  // the entry while this page is open, so refetch on graph / staging events and
+  // on a slow timer while the tab is visible.
+  const canvasConfig =
+    variant === 'page' ? (entryTypeFormSchema?.canvas ?? null) : null;
+  const canvasEntryId = entry.id;
+  useEffect(() => {
+    if (!canvasConfig) return undefined;
+    let cancelled = false;
+    let busy = false;
+    const refresh = async () => {
+      if (busy || cancelled || document.visibilityState === 'hidden') return;
+      busy = true;
+      try {
+        const [nextAttachments, nextEntry] = await Promise.all([
+          attachmentsApi.listForEntry(canvasEntryId),
+          entriesApi.get(canvasEntryId),
+        ]);
+        if (cancelled) return;
+        setAttachments(prev =>
+          prev.length === nextAttachments.length &&
+          prev.every((a, i) => a.id === nextAttachments[i]?.id)
+            ? prev
+            : nextAttachments
+        );
+        // Compare the fields too: a tool that renders a file updates
+        // custom_fields without always moving updated_at.
+        setEntry(prev =>
+          prev.updated_at === nextEntry.updated_at &&
+          JSON.stringify(prev.custom_fields) === JSON.stringify(nextEntry.custom_fields)
+            ? prev
+            : nextEntry
+        );
+      } catch {
+        /* keep showing what we have */
+      } finally {
+        busy = false;
+      }
+    };
+    const onEvent = () => void refresh();
+    window.addEventListener('integral:graph-changed', onEvent);
+    window.addEventListener('integral:staging-state-changed', onEvent);
+    const timer = window.setInterval(onEvent, 4000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener('integral:graph-changed', onEvent);
+      window.removeEventListener('integral:staging-state-changed', onEvent);
+    };
+  }, [canvasConfig, canvasEntryId]);
 
   // ``position: 'primary'`` related_views (e.g. a filing's employee-line
   // table + action bar) render as the entry's main content, before
@@ -826,9 +881,9 @@ export function EntryDetail({
     try {
       const uploaded: AttachmentRecord[] = [];
       if (files.length === 1) {
-        uploaded.push(await attachmentsApi.uploadForEntry(entry.id, files[0]));
+        uploaded.push(await attachmentsApi.smartUploadForEntry(entry.id, files[0]));
       } else {
-        const result = await attachmentsApi.batchUploadForEntry(entry.id, files);
+        const result = await attachmentsApi.uploadManyForEntry(entry.id, files);
         result.results.forEach(r => {
           if ('attachment' in r) uploaded.push(r.attachment);
         });
@@ -1500,6 +1555,24 @@ export function EntryDetail({
       /* The panel is part of this surface even when it is hidden or stacked
          into the body, so the dialog keeps its height either way. */
       hasCompanionPanel
+      {...(canvasConfig
+        ? {
+            canvas: (
+              <EntryCanvasPane
+                entry={entry}
+                attachments={attachments}
+                fileField={canvasConfig.file_field || undefined}
+                editable={canvasConfig.editor === 'body'}
+                canEdit={canEdit}
+                trackId={entry.track_id || undefined}
+                onBodySaved={updated => {
+                  setEntry(updated);
+                  onUpdate?.(updated);
+                }}
+              />
+            ),
+          }
+        : {})}
       disableEscape
       /* This dialog publishes its entry as the agent's context on open
          (`pageKind: "entry_dialog"` above), so the assistant is primed to
@@ -1570,7 +1643,7 @@ export function EntryDetail({
                   onCommitField={canEdit ? commitCustomField : undefined}
                 />
               </div>
-              {entry.body ? (
+              {entry.body && canvasConfig?.editor !== 'body' ? (
                 <div className="mt-4 text-[15px] text-[var(--text)] leading-[1.55]">
                   <MarkdownContent>{entry.body}</MarkdownContent>
                 </div>

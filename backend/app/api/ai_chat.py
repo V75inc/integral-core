@@ -870,6 +870,7 @@ class _AssistantDraft:
         # The authoritative final answer text + full final chunk, forwarded by
         # the provider's `final-content` event (debug-view source-of-truth).
         self.final_content: Optional[str] = None
+        self.final_authoritative: bool = False
         self.final_payload: Optional[Dict[str, Any]] = None
         # Terminal failure for this bubble: ``{code, message}`` with the
         # user-facing wording the browser already saw. Persisted so a reload
@@ -931,6 +932,8 @@ class _AssistantDraft:
         elif kind == "final-content":
             if ev.get("content"):
                 self.final_content = ev["content"]
+            if ev.get("authoritative"):
+                self.final_authoritative = True
             if ev.get("payload") is not None:
                 self.final_payload = ev["payload"]
 
@@ -953,7 +956,7 @@ class _AssistantDraft:
                 }
             )
         text = "".join(self.text_parts)
-        if not text.strip() and self.final_content:
+        if self.final_content and (self.final_authoritative or not text.strip()):
             text = self.final_content
         if text:
             parts.append({"type": "text", "text": text})

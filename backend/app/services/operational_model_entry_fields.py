@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from app.exceptions import BadRequestError
 from app.models.nodes import Attachment, Entry, EntryType, Tag, Track
+from app.services.computed_fields import bind_computed_fields
 from app.services.operational_model_compile import (
     SYSTEM_CUSTOM_FIELD_KEYS,
     _as_dict,
@@ -182,14 +183,17 @@ def resolve_entry_type_spec(
         return _as_dict(spec, where="entry_type_spec")
 
     form_schema = _as_dict(entry_type.form_schema, where="entry_type.form_schema")
-    fields = _as_list(form_schema.get("fields"), where="entry_type.form_schema.fields")
+    fields = [
+        _normalize_field_spec(_as_dict(f, where="entry_type.form_schema field"))
+        for f in _as_list(
+            form_schema.get("fields"), where="entry_type.form_schema.fields"
+        )
+    ]
+    bind_computed_fields(fields)
     return {
         "key": key,
         "name": entry_type.name,
-        "fields": [
-            _normalize_field_spec(_as_dict(f, where="entry_type.form_schema field"))
-            for f in fields
-        ],
+        "fields": fields,
         "base_fields": _normalize_entry_type_base_fields(
             form_schema.get("base_fields")
         ),
@@ -424,6 +428,7 @@ async def validate_and_materialize_entry_custom_fields(
     actor_user_id: str = "",
     actor_kind: str = "human",
     source_entry_title: str = "",
+    materialize: bool = True,
 ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     """Validate custom_fields against entry type spec and extract relation refs.
 
@@ -458,6 +463,8 @@ async def validate_and_materialize_entry_custom_fields(
         fd = _as_dict(f, where="field")
         key = str(fd.get("key") or "")
         ftype = str(fd.get("type") or "text")
+        if ftype == "computed":
+            continue
         # Composite field types (declared in manifest ``field_types[]``)
         # carry a ``composite.base`` pointer to the underlying primitive
         # so the validator can dispatch primitive-side rules without
@@ -518,6 +525,7 @@ async def validate_and_materialize_entry_custom_fields(
             ftype == "relation"
             and isinstance(fd.get("relation"), dict)
             and str(fd["relation"].get("target") or "entry") == "track"
+            and materialize
             and (
                 _is_create_sentinel
                 or (value is None and bool(fd["relation"].get("auto_provision", False)))

@@ -106,10 +106,17 @@ def _first_http_status_error(exc: BaseException) -> Optional[httpx.HTTPStatusErr
 
 
 def _google_error_message(response: httpx.Response) -> str:
+    # The MCP client hands over a streaming response whose body was never read;
+    # touching .json() / .text then raises ResponseNotRead. Treat that as "no
+    # message" so the caller still builds its own actionable error, instead of
+    # this helper crashing and hiding it behind a generic 503.
     try:
         payload = response.json()
     except Exception:  # noqa: BLE001
-        return (response.text or "").strip()[:300]
+        try:
+            return (response.text or "").strip()[:300]
+        except Exception:  # noqa: BLE001
+            return ""
     err = payload.get("error") if isinstance(payload, dict) else None
     if isinstance(err, dict):
         return str(err.get("message") or err.get("status") or "").strip()[:500]
@@ -691,5 +698,19 @@ async def complete_mcp_oauth(
     store_auth_state(connector, auth)
     await connector.save()
     await discover(connector)
+    # I-CON-04: the connector subject needs tool.invoke before anyone may call
+    # its tools. Grant it now. It used to happen only at the next API restart
+    # (rehydrate), so a freshly connected server answered every call with
+    # ``fail_closed_no_policy`` until then.
+    try:
+        from app.agentive.connectors.mcp_mount import materialize_mcp_policies
+
+        await materialize_mcp_policies(connector=connector, actor_id=user_id)
+    except Exception:  # noqa: BLE001 - the connection itself succeeded
+        logger.warning(
+            "complete_mcp_oauth: could not grant tool.invoke for %s",
+            connector.id,
+            exc_info=True,
+        )
     refreshed = await Connector.get(connector.id)
     return refreshed if refreshed is not None else connector

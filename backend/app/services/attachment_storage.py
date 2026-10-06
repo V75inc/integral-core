@@ -53,6 +53,42 @@ def _mime_from_filename(filename: str) -> str:
     return _EXT_TO_MIME.get(ext, "")
 
 
+# Media the upload layer accepts by prefix but the storage validator lists by name.
+_MEDIA_EXTRAS = frozenset(
+    {
+        "image/heic", "image/heif", "image/avif", "image/vnd.microsoft.icon",
+        "audio/mp4", "audio/aac", "audio/flac", "audio/webm", "audio/x-wav",
+        "video/quicktime", "video/x-msvideo", "video/x-matroska", "video/ogg",
+    }
+)
+
+
+def _storage_allowed_mime_types() -> set:
+    """What the blob store accepts: the upload layer's list, plus the validator's.
+
+    The upload layer (``attachment_upload_shared``) already decides which types
+    a person may add. The storage validator ran its own, shorter list and
+    rejected real documents the upload layer had accepted (RTF, OpenDocument,
+    CAD, ...), and anything libmagic can only call ``application/octet-stream``
+    (many proprietary binary formats). Align it: the validator's own block list
+    and blocked extensions still refuse executables and scripts.
+    """
+    from jvspatial.storage.security.validator import FileValidator
+
+    from app.services.attachment_upload_shared import (
+        ALLOWED_MIME_TYPES,
+        _extra_allowed_mimes,
+    )
+
+    return (
+        set(FileValidator.DEFAULT_ALLOWED_MIME_TYPES)
+        | set(ALLOWED_MIME_TYPES)
+        | set(_extra_allowed_mimes())
+        | set(_MEDIA_EXTRAS)
+        | {"application/octet-stream"}
+    )
+
+
 class AttachmentStorageService:
     """Thin facade over jvspatial storage interfaces for attachment blobs."""
 
@@ -81,6 +117,7 @@ class AttachmentStorageService:
             root_dir=root_dir,
             base_url=base_url,
             max_size_mb=max_size_mb,
+            allowed_mime_types=_storage_allowed_mime_types(),
             create_root=True,
         )
 
