@@ -1,0 +1,21 @@
+slug: serper_web_search
+display_name: Serper Web Search
+description: Search the public web with Serper and return concise, source-linked results to Integral agents.
+category: mcp_package
+kind: mcp
+icon: search
+transport: stdio
+command: python
+args:
+  - -m
+  - app.connectors.serper_mcp_server
+auth:
+  type: api_key
+  fields:
+    - name: SERPER_API_KEY
+      label: Serper API key
+      secret: true
+      required: false
+      hint: Leave blank to use the system-level SERPER_API_KEY configured by your Integral administrator.
+read_only_tools:
+  - search_web

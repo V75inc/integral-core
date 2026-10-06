@@ -68,7 +68,7 @@ def _package_pins() -> tuple[str, str]:
     try:
         core = version("integral-core")
     except PackageNotFoundError:
-        core = "0.1.1rc14"
+        core = "0.1.1rc15"
     jvagent = "jvagent==0.1.8rc20"
     try:
         for req in requires("integral-core") or []:
@@ -206,6 +206,9 @@ INTEGRAL_AGENT_KEY_MODE=hybrid
 OPENAI_API_KEY=
 ANTHROPIC_API_KEY=
 OPENROUTER_API_KEY=
+# Optional resident public-web search. Searches use the configured Serper.dev
+# account's credits; leave empty until the deployment owner configures it.
+SERPER_API_KEY=
 
 # Optional platform admin bootstrap (created on first launch when no admin
 # exists yet). Set both ADMIN_EMAIL and ADMIN_PASSWORD (min 12 chars) to

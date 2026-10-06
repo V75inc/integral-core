@@ -23,7 +23,7 @@ exclude = ["app.packages", "app.packages.*"]
 
 [project]
 name = "integral-core"
-version = "0.1.1rc14"
+version = "0.1.1rc15"
 description = "Integral Foundation (open core) — substrate without commercial Apps"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -103,6 +103,11 @@ dependencies = [
     # container user and cannot write into /opt/venv. The range matches the
     # action's own pin so the two cannot drift apart.
     "litellm>=1.101.0,<1.102",
+    # jvagent/web_fetch extracts public HTML pages after search. Install these
+    # at image build time; action-load pip installation is disabled in the
+    # non-root runtime container.
+    "beautifulsoup4>=4.12,<5",
+    "markdownify>=0.13,<2",
     # openai stays for the SDK's own use elsewhere in the tree (embeddings,
     # the chat provider surface) -- LiteLLM does not replace it. Same
     # bake-into-the-image reasoning as above.
