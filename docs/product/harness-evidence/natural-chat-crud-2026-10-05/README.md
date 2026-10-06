@@ -55,6 +55,39 @@ failures are regression evidence: lower-level approval-service tests did not
 exercise all of `_start_user_turn`'s request wiring, so browser qualification
 remains necessary for this path.
 
+## Chat attachment filing and undo follow-up
+
+On the same branch runtime, uploaded a generated receipt containing the exact
+serial `DR-001`, then asked in ordinary language, “Please file this where it
+belongs.” The native model selected the existing Cordless Drill entry in the
+Equipment Register, explained the serial match and sibling receipt, and asked
+for one approval. The user approved with “Yes, attach the receipt.” in chat;
+the assistant then confirmed the file on that entry. The first attempt was
+served by a backend process that had not loaded the in-progress receipt code,
+so it is not evidence for the current implementation. The second attempt ran
+against the reloaded branch backend.
+
+The current implementation initially disabled Undo because the staged token
+held both the `attachment.attach` effect receipt and a `policy.deny` audit
+record. Rollback assessment treated the audit-only denial as an unsupported
+mutation. It now excludes `policy.deny` from effect inversion assessment while
+retaining that audit record. After reloading the browser, Undo became available
+for the attachment action. The normal Undo flow detached the receipt, restored
+its chat ownership, and the entry's attachment list returned from three items
+to two: the previous synthetic receipt and the pre-existing sample PDF. The
+chat still displayed the uploaded receipt, verifying that rollback preserved
+the source upload. After a full page reload, the transcript still displayed
+the `Undone:` receipt, confirming the rollback notice is persisted and
+reconciled into the browser UI.
+
+The model readouts showed `glm-5.3:cloud`, 75.4k tokens / 23.1s for the filing
+turn and 39.3k tokens / 4.5s for the approval follow-up. No dollar cost was
+shown for this unpriced route. Focused backend tests for attachment filing,
+rollback assessment, and policy evaluation passed after the change. This
+qualifies one receipt filing, ordinary chat approval, persisted readback, and
+recovery on Ollama; it does not qualify broader CRUD, tenant isolation, OpenAI,
+or release acceptance.
+
 ## Limits of this qualification
 
 - This is one authenticated workspace and one Ollama cloud model route. It does
@@ -66,3 +99,36 @@ remains necessary for this path.
 - The turn readout showed model, token count, elapsed time, and tool-call count.
   This screenshot does not prove token-cost data was displayed or persisted.
 - This smoke does not establish release readiness or complete the V1 goal.
+
+## Follow-up: natural approval and chronological undo notice (2026-10-06)
+
+In the branch browser runtime (`127.0.0.1:9012`, dedicated Harness Smoke Test
+workspace), asked without naming tools or skills: “Add a compact bit holder to
+the equipment register, serial SMOKE-UNDO-20261006, new, kept in the north
+cupboard.” The agent staged one Equipment entry. The normal chat composer
+accepted “Yes, add it.” while the approval card was open; one create was
+executed and the assistant read back the saved fields. The turn readouts showed
+`glm-5.3:cloud`, 56.9k tokens / 10.5s for staging and 31.7k tokens / 4.5s for
+approval.
+
+Used the product’s normal Undo action on this explicitly disposable smoke
+record. The prior inline `Undone:` receipt was attached to the original staged
+message, before the later approval and “Done” response, making the transcript
+chronologically misleading. Undo now appends a persisted assistant note at the
+end: “Undo complete: … was reversed. The earlier completion and readback
+messages describe the state before this undo.” Reloaded the conversation and
+verified the note remained at the end. The synthetic entry was reversed. This
+smoke establishes typed approval and readable recovery ordering for this
+single Ollama/workspace flow; it does not establish cross-tenant isolation,
+OpenAI, pricing data, or V1 completion.
+
+## Same-principal workspace conversation scope (2026-10-06)
+
+In the same authenticated browser session, switched from the `Harness Smoke
+Test` Personal workspace to the `Harness Smoke Workspace` organization
+workspace. The Agent conversation list was empty in the organization workspace;
+returning to the Personal workspace restored its prior conversations, including
+the smoke conversation. No message was sent and no data was changed during this
+check. This is browser evidence that the conversation list follows the active
+workspace for one principal. It does not prove isolation between distinct
+principals or cover direct API access to another workspace's thread.

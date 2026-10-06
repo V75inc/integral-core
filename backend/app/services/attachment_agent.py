@@ -27,6 +27,7 @@ from app.services.attachment_urls import (
     enrich_attachment_export,
     is_visible_to_user,
 )
+from app.services.change_event import emit_change_event
 from app.services.policy_engine import evaluate as policy_evaluate
 from app.utils.time import utc_now_iso
 
@@ -596,6 +597,7 @@ async def attach_uploaded_file_to_entry(
             "message": "You do not have permission to add attachments to this entry",
         }
 
+    attachment_ids_before = list(entry.attachment_ids or [])
     await entry.connect(
         attachment,
         edge=HAS_ATTACHMENT,
@@ -608,6 +610,21 @@ async def attach_uploaded_file_to_entry(
 
     attachment.owner_kind = "entry"
     await attachment.save()
+
+    await emit_change_event(
+        actor_kind="human",
+        actor_id=user_id,
+        action="attachment.attach",
+        resource_type="Entry",
+        resource_id=entry.id,
+        before={"attachment_ids": attachment_ids_before},
+        after={"attachment_ids": list(entry.attachment_ids or [])},
+        scope=f"track:{entry.track_id or ''}",
+        details={
+            "attachment_id": attachment.id,
+            "attachment_owner_kind_before": "chat",
+        },
+    )
 
     item = await export_node(attachment)
     return {"attachment": item, "entry_id": entry.id}
