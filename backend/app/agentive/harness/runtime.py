@@ -131,6 +131,9 @@ def build_native_runtime(
         ConversationSearch(
             SnapshotHistorySource(scoped_store),
             scope="conversation",
+            # Integral supplies task-specific guidance. The generic hint can
+            # invite archive searches during unrelated current-state work.
+            add_instructions=False,
         ),
     ]
     if selected_skills:
