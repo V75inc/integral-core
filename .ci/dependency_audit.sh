@@ -7,7 +7,8 @@
 # frontend, react-router carries an RSC-only advisory whose only "fix" is a
 # downgrade that reintroduces an applicable XSS. On the backend, ecdsa
 # 0.19.2 is flagged by PYSEC-2026-1325 and 0.19.2 IS the latest release; it
-# arrives transitively through python-jose.
+# arrives transitively through python-jose. python-jose itself also carries
+# CVE-2026-85394 with no fixed release beyond 3.5.0.
 #
 # (xlsx/SheetJS used to be the headline example here. It is now installed from
 # the vendor's CDN at 0.20.3 — which carries the fixes the frozen npm 0.18.5
@@ -53,7 +54,14 @@ esac
 # PYSEC-2026-1325 (ecdsa): no fixed version exists; ecdsa 0.19.2 is latest.
 # Transitive via python-jose. Revisit if python-jose moves off ecdsa or a
 # fixed ecdsa ships.
-PIP_IGNORE=(--ignore-vuln PYSEC-2026-1325)
+# CVE-2026-85394 (python-jose): DER public-key-as-HMAC bypass; no fixed
+# release beyond 3.5.0. Mitigate by pinning algorithms= on every jwt.decode
+# (Integral/jvspatial already does). Revisit when upstream ships a fix or
+# when we migrate off python-jose.
+PIP_IGNORE=(
+  --ignore-vuln PYSEC-2026-1325
+  --ignore-vuln CVE-2026-85394
+)
 
 if [ "$TARGET" = "backend" ] || [ "$TARGET" = "all" ]; then
 echo "dependency-audit: backend (pip-audit)..."
@@ -167,6 +175,11 @@ ACCEPTED_ADVISORIES = {
     # GHSA lists no patched release. npm's suggested fix is a Tailwind 4 major
     # migration; do not silently treat that as a routine patch upgrade.
     "GHSA-vfj7-8cjw-p6xm": "No patched braces release listed; Tailwind 4 is a major migration tracked separately.",
+    # postcss-selector-parser quadratic flat-selector parse (moderate). Fixed
+    # in 7.1.6, but Tailwind 3 pins the 6.x line; npm's remediation for the
+    # high parent entry is Tailwind 4. Ordinary trusted build-time CSS is out
+    # of the advisory's reachability scope. Revisit with the Tailwind 4 move.
+    "GHSA-rj75-hqrm-r3gf": "postcss-selector-parser fix is 7.x; Tailwind 3 stays on 6.x. Build-time trusted selectors only.",
 }
 
 vulns = data.get("vulnerabilities") or {}
