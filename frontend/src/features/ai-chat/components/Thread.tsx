@@ -43,6 +43,8 @@ import {
 } from "react";
 import type { PartState } from "@assistant-ui/react";
 import { Link } from "react-router-dom";
+import { useScope } from "../../../context/ScopeContext";
+import { getComposerAccessory } from "../../../host/registry";
 import { sanitizeMarkdownHref } from "../../../utils/safeHref";
 import { useChatActivity } from "../AIChatSurface";
 import { THREAD_ALREADY_RESPONDING } from "../threadSessionRegistry";
@@ -93,6 +95,7 @@ export interface AIChatThreadProps {
  * thought grouping for reasoning + tool calls.
  */
 export function AIChatThread({ providerLabel, showHeader = true }: AIChatThreadProps) {
+  const { activeProviderId } = useChatActivity();
   // Stray keystrokes anywhere on this surface land in the composer. The
   // composer autoFocuses on mount, but any click on a message, a scroll
   // region or a dismissed popover moves focus off it and typing then went
@@ -187,10 +190,15 @@ export function AIChatThread({ providerLabel, showHeader = true }: AIChatThreadP
           >
             <ThreadScrollToBottom />
             <PromptSheetHost>
-              {({ composerLocked, sheet }) => (
+              {({ composerLocked, canReplyInChat, sheet }) => (
                 <>
                   {sheet}
-                  <Composer locked={composerLocked} />
+                  <Composer
+                    locked={
+                      composerLocked &&
+                      !(activeProviderId === 'integral_native' && canReplyInChat)
+                    }
+                  />
                 </>
               )}
             </PromptSheetHost>
@@ -539,6 +547,19 @@ function AssistantMessage() {
   const hasDebugPayload = useAuiState((s) =>
     hasAssistantDebugPayload(s.message.metadata?.custom),
   );
+  const messageText = useAuiState((s) =>
+    (s.message.parts ?? [])
+      .filter((part) => part.type === "text")
+      .map((part) => (part as { text?: string }).text ?? "")
+      .join(""),
+  );
+  if (!isRunning && isPromptSheetResume(messageText)) {
+    return (
+      <MessagePrimitive.Root data-role="assistant" data-prompt-sheet-resume="true">
+        <PromptSheetResumeNote text={messageText} />
+      </MessagePrimitive.Root>
+    );
+  }
   // Reserve action-bar height (min-h + pt) so the row holds its space even
   // while the bar is hidden during streaming. NO negative bottom margin: the
   // bar is now always visible (not hover-revealed), so there's no collapse to
@@ -635,6 +656,25 @@ function AssistantMessage() {
         </div>
       )}
     </MessagePrimitive.Root>
+  );
+}
+
+/** Host approval receipts share one quiet presentation across transcript roles. */
+export function PromptSheetResumeNote({ text }: { text: string }) {
+  const view = parsePromptSheetResume(text);
+  return (
+    <div role="status" className="mx-2 my-3 max-w-xl space-y-1.5">
+      <Text as="p" variant="body" weight="medium">{view.title}</Text>
+      {view.items.length > 0 && (
+        <ul className="list-disc space-y-1 pl-4">
+          {view.items.map((item, index) => (
+            <li key={`${index}:${item}`}>
+              <Text as="span" variant="body" tone="muted">{item}</Text>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -1029,29 +1069,7 @@ function UserMessageParts() {
   const fileParts = (parts ?? []).filter((p) => p.type === "file");
 
   if (isPromptSheetResume(text)) {
-    const view = parsePromptSheetResume(text);
-    return (
-      <div className="text-left text-sm leading-relaxed text-[var(--text)]">
-        <p className="font-medium text-[var(--text)]">{view.title}</p>
-        {view.items.length > 0 ? (
-          <ul className="mt-1.5 list-none space-y-1 text-[var(--text-muted)]">
-            {view.items.map((item) => (
-              <li key={item} className="flex gap-2">
-                <span className="shrink-0 text-[var(--text-subtle)]" aria-hidden>
-                  •
-                </span>
-                <span className="min-w-0 [overflow-wrap:anywhere]">{item}</span>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        {view.footer ? (
-          <span className="sr-only" role="status">
-            Updates applied. Continuing with the rest of your request.
-          </span>
-        ) : null}
-      </div>
-    );
+    return <PromptSheetResumeNote text={text} />;
   }
 
   return (
@@ -1282,6 +1300,14 @@ function BranchPicker({ className = "" }: { className?: string }) {
 // Composer (sticky in viewport footer)
 // ---------------------------------------------------------------------------
 
+function ComposerHostAccessory() {
+  const Hint = getComposerAccessory();
+  const { scope } = useScope();
+  const workspaceId = scope?.workspaceId;
+  if (!Hint || !workspaceId) return null;
+  return <Hint workspaceId={workspaceId} />;
+}
+
 function Composer({ locked = false }: { locked?: boolean }) {
   const { blockedReason } = useAgentiveCapability();
 
@@ -1323,7 +1349,9 @@ function Composer({ locked = false }: { locked?: boolean }) {
   }
 
   return (
-    <ComposerPrimitive.Root
+    <>
+      <ComposerHostAccessory />
+      <ComposerPrimitive.Root
       className="
         relative flex w-full flex-col
       "
@@ -1363,6 +1391,7 @@ function Composer({ locked = false }: { locked?: boolean }) {
         </div>
       </ComposerDictationProvider>
     </ComposerPrimitive.Root>
+    </>
   );
 }
 

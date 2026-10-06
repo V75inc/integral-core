@@ -157,6 +157,88 @@ async def test_lease_loss_blocks_completion() -> None:
 
 
 @pytest.mark.asyncio
+async def test_heartbeat_failure_cancels_active_handler(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cancelled = asyncio.Event()
+
+    async def _heartbeat_lost(*args, **kwargs):
+        raise WorkError("work.lease_lost", "stale lease")
+
+    async def _long_handler(item, ctx) -> None:
+        try:
+            await asyncio.Future()
+        finally:
+            cancelled.set()
+
+    item = await work_items.enqueue_work_item(
+        kind="routine_turn",
+        origin="scheduler",
+        principal_id="ww-u-heartbeat-loss",
+        workspace_id="ww-ws-heartbeat-loss",
+        idempotency_key="ww-heartbeat-loss-cancels-handler",
+        input_payload={},
+    )
+    work_worker.register_test_handler(item.work_item_id, _long_handler)
+    monkeypatch.setattr(work_items, "heartbeat_lease", _heartbeat_lost)
+
+    with pytest.raises(WorkError) as exc_info:
+        await work_worker.process_one_due_item(
+            worker_id="w-heartbeat-loss",
+            work_item_id=item.work_item_id,
+            lease_seconds=0.15,
+        )
+
+    assert exc_info.value.code == "work.lease_lost"
+    assert cancelled.is_set()
+    loaded = await WorkItem.get(f"o.WorkItem.{item.work_item_id}")
+    assert loaded is not None
+    assert loaded.status == "running"
+
+
+@pytest.mark.asyncio
+async def test_durable_cancel_cancels_active_handler() -> None:
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def _long_handler(item, ctx) -> None:
+        started.set()
+        try:
+            await asyncio.Future()
+        finally:
+            cancelled.set()
+
+    item = await work_items.enqueue_work_item(
+        kind="routine_turn",
+        origin="scheduler",
+        principal_id="ww-u-durable-cancel",
+        workspace_id="ww-ws-durable-cancel",
+        idempotency_key="ww-durable-cancel-handler",
+        input_payload={},
+    )
+    work_worker.register_test_handler(item.work_item_id, _long_handler)
+    task = asyncio.create_task(
+        work_worker.process_one_due_item(
+            worker_id="w-durable-cancel",
+            work_item_id=item.work_item_id,
+            lease_seconds=0.6,
+        )
+    )
+    await asyncio.wait_for(started.wait(), timeout=2)
+    await work_items.cancel_work_item(item.work_item_id)
+
+    with pytest.raises(WorkError) as exc_info:
+        await asyncio.wait_for(task, timeout=2)
+
+    assert exc_info.value.code == "work.cancelled"
+    assert cancelled.is_set()
+    loaded = await WorkItem.get(f"o.WorkItem.{item.work_item_id}")
+    assert loaded is not None
+    assert loaded.status == "running"
+    assert loaded.cancel_requested_at
+
+
+@pytest.mark.asyncio
 async def test_migration_work_runs_through_the_leased_worker() -> None:
     """A schema migration is no longer an untracked event-loop task."""
     item = await work_items.enqueue_work_item(

@@ -175,6 +175,19 @@ async def enqueue_upgrade_work(
     """Queue an idempotent package upgrade bound to the active definition."""
     from app.agentive.services.work_items import enqueue_work_item
 
+    target_fingerprint = ""
+    if app_node.installed_from_library_id:
+        from app.models.nodes import OperationalModel
+
+        library_package = await OperationalModel.get(app_node.installed_from_library_id)
+        if library_package:
+            target_fingerprint = str(
+                (library_package.metadata or {}).get("bundle_fingerprint") or ""
+            )
+    target_identity = version or "latest"
+    if target_fingerprint:
+        target_identity = f"{target_identity}:{target_fingerprint}"
+
     work = await enqueue_work_item(
         kind="app_lifecycle",
         origin="app_lifecycle",
@@ -182,7 +195,10 @@ async def enqueue_upgrade_work(
         workspace_id=app_node.workspace_id,
         app_id=app_node.id,
         definition_id=app_node.active_definition_id or None,
-        idempotency_key=f"upgrade:{app_node.id}:{app_node.active_definition_revision}",
+        idempotency_key=(
+            f"upgrade:{app_node.id}:{app_node.active_definition_revision}:"
+            f"{target_identity}"
+        ),
         input_payload={"action": "upgrade", "version": version or ""},
         plan={"action": "upgrade", "app_id": app_node.id},
         remaining_obligations=[{"kind": "lifecycle_completion", "action": "upgrade"}],
@@ -1677,7 +1693,12 @@ async def update_app_from_library(
     # lives on LibraryProfileSpec.name instead"); library_cp.name/
     # .description are where that real display name/description actually
     # land when the library catalog is synced from disk.
-    new_version = (canonical.get("package") or {}).get("version")
+    # Library YAML keeps package.version as a first-class OperationalModel
+    # field; _assemble_manifest intentionally strips it from the canonical
+    # manifest. Hand-authored manifests may still carry package.version, so
+    # preserve that compatibility while preferring the library record's
+    # authoritative version for packages loaded from disk.
+    new_version = library_cp.version or (canonical.get("package") or {}).get("version")
     if new_version is not None:
         app_node.version = str(new_version)
         app_node.installed_package_version = str(new_version)

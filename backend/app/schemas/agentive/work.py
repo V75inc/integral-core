@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -21,6 +22,7 @@ WorkStatus = Literal[
 
 WorkKind = Literal[
     "capability",
+    "chat_turn",
     "routine_turn",
     "approval_resume",
     "event_trigger",
@@ -119,6 +121,80 @@ class RetryPolicy(BaseModel):
         return self
 
 
+class ChatTurnSubmissionRequest(BaseModel):
+    """Trusted server-side envelope for an idempotent user chat submission."""
+
+    principal_id: str = Field(min_length=1, max_length=255)
+    workspace_id: str = Field(min_length=1, max_length=255)
+    thread_id: str = Field(min_length=1, max_length=255)
+    client_request_id: str = Field(
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
+    parts: list[Dict[str, Any]] = Field(min_length=1)
+    provider_metadata: Dict[str, Any] = Field(default_factory=dict)
+    parent_id: Optional[str] = None
+    execution_context: Optional["ChatTurnExecutionContext"] = None
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class ChatTurnExecutionContext(BaseModel):
+    """Bounded trusted host context kept outside the canonical user message."""
+
+    system_context: str = Field(default="", max_length=64_000)
+    no_workspace_writes: bool = False
+    design_only: bool = False
+    focused_track_id: Optional[str] = Field(default=None, max_length=255)
+    focused_space_id: Optional[str] = Field(default=None, max_length=255)
+    focused_view_id: Optional[str] = Field(default=None, max_length=255)
+    extra_data: Dict[str, Any] = Field(default_factory=dict)
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    @field_validator("extra_data")
+    @classmethod
+    def _bounded_allowlisted_extra_data(cls, value: Dict[str, Any]) -> Dict[str, Any]:
+        allowed = {
+            "agent_id",
+            "entities_referenced",
+            "page_context",
+            "pending_approvals",
+            "pending_approvals_marker",
+            "run_id",
+        }
+        if set(value) - allowed:
+            raise ValueError("execution context contains unsupported host fields")
+        try:
+            encoded = json.dumps(
+                value,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError("execution context extra_data must be JSON-safe") from exc
+        if len(encoded.encode("utf-8")) > 192_000:
+            raise ValueError("execution context extra_data exceeds its size limit")
+        return value
+
+
+ChatTurnSubmissionRequest.model_rebuild()
+
+
+class ChatTurnSubmissionReceipt(BaseModel):
+    """Non-content receipt for one accepted message and durable work item."""
+
+    client_request_id: str
+    message_id: str
+    work_item_id: str
+    status: WorkStatus
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
 class WorkFailure(BaseModel):
     """Normalized failure record stored on WorkItem / returned to callers."""
 
@@ -131,21 +207,37 @@ class WorkFailure(BaseModel):
 
 
 class WorkExecutionContext(BaseModel):
-    """Immutable host context propagated through effect boundaries."""
+    """Immutable, server-derived lease authority propagated to effect boundaries."""
 
     work_item_id: str
-    attempt: int
+    attempt: int = Field(ge=1)
     run_id: str
     principal_id: str
     workspace_id: str
+    thread_id: str
     logical_step_key: str
     effect_key: str
     lease_token: str
-    lease_fence: int
+    lease_fence: int = Field(ge=1)
     deadline_at: Optional[str] = None
     cancellation_signal: bool = False
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    @field_validator(
+        "work_item_id",
+        "run_id",
+        "principal_id",
+        "workspace_id",
+        "logical_step_key",
+        "effect_key",
+        "lease_token",
+    )
+    @classmethod
+    def _canonical_nonempty_authority(cls, value: str) -> str:
+        if not value.strip() or value != value.strip():
+            raise ValueError("WorkItem execution authority values must be canonical")
+        return value
 
 
 class WorkItemStatusResponse(BaseModel):

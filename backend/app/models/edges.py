@@ -152,6 +152,18 @@ class CONTAINS(Edge):
     bidirectional: bool = False
 
 
+class HasHarnessSession(Edge):
+    """ChatThread → HarnessSession binding history relationship."""
+
+    binding_id: str = ""
+    generation: int = 0
+    bound_at: Optional[str] = None
+    bidirectional: bool = False
+
+
+HAS_HARNESS_SESSION = HasHarnessSession
+
+
 class IS_OF_TYPE(Edge):
     """Entry → EntryType."""
 

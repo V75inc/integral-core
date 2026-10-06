@@ -31,7 +31,6 @@ import {
   getStagingTokenState,
   revokeStagingToken,
   rollbackStagingToken,
-  type StagingAutonomy,
 } from '../../../api/agentive';
 import { invalidateAfterAgentWrite } from '../../../services/graphMutationInvalidation';
 import type { StagedChange, StagedChangeState } from './types';
@@ -57,6 +56,8 @@ export interface UseStagedChangeOptions {
    * conversation to nudge.
    */
   onNeedsAgentNudge?: () => void;
+  /** Explicit UI confirmation for server-classified high-impact changes. */
+  onNeedsStrongConfirmation?: (summary: string) => Promise<boolean>;
 }
 
 export interface UseStagedChangeResult {
@@ -67,7 +68,7 @@ export interface UseStagedChangeResult {
   consumedNav: ConsumedNav;
   isTerminal: boolean;
   isBlessed: boolean;
-  bless: (autonomy?: StagingAutonomy) => Promise<void>;
+  bless: () => Promise<void>;
   revoke: () => Promise<void>;
   rollback: {
     available: boolean;
@@ -98,7 +99,11 @@ function execFailureMessage(exec: {
 
 export function useStagedChange(
   staged: StagedChange,
-  { onTerminal, onNeedsAgentNudge }: UseStagedChangeOptions = {},
+  {
+    onTerminal,
+    onNeedsAgentNudge,
+    onNeedsStrongConfirmation,
+  }: UseStagedChangeOptions = {},
 ): UseStagedChangeResult {
   const [status, setStatus] = useState<StagedChangeStatus>({
     kind: 'idle',
@@ -253,10 +258,31 @@ export function useStagedChange(
   }, [status.state, staged.token, onTerminal]);
 
   const bless = useCallback(
-    async (autonomy: StagingAutonomy = 'single') => {
+    async () => {
       setStatus((prev) => ({ kind: 'loading', state: prev.state }));
       try {
-        const res = await blessStagingToken(staged.token, autonomy);
+        const current = await getStagingTokenState(staged.token);
+        const requiresStrongConfirmation = Boolean(
+          current?.requires_strong_confirmation ??
+            staged.requires_strong_confirmation,
+        );
+        let strongConfirmation = false;
+        if (requiresStrongConfirmation) {
+          if (!onNeedsStrongConfirmation) {
+            setStatus((prev) => ({
+              kind: 'error',
+              state: prev.state,
+              message: 'Review this high-impact change in chat before approving it.',
+            }));
+            return;
+          }
+          strongConfirmation = await onNeedsStrongConfirmation(staged.summary);
+          if (!strongConfirmation) {
+            setStatus((prev) => ({ kind: 'idle', state: prev.state }));
+            return;
+          }
+        }
+        const res = await blessStagingToken(staged.token, { strongConfirmation });
         if (!res.ok) {
           setStatus((prev) => ({
             kind: 'error',
@@ -335,7 +361,7 @@ export function useStagedChange(
         }));
       }
     },
-    [staged, queryClient, onNeedsAgentNudge],
+    [staged, queryClient, onNeedsAgentNudge, onNeedsStrongConfirmation],
   );
 
   const revoke = useCallback(async () => {

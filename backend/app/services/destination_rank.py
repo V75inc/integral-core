@@ -239,9 +239,9 @@ async def rank_destinations(
 ) -> Dict[str, Any]:
     """Rank open tracks the caller may file into.
 
-    Ranking itself writes no graph records. When a session is present and
-    ``no_fit`` wins, the note is stored as a session artifact so it can be
-    filed once after the named structure is approved.
+    Ranking is an advisory, side-effect-free read. A low score does not
+    prove missing structure or select a new App/Track. The loaded procedure
+    decides whether to clarify, file, or propose a justified setup.
     """
     workspace_id = active_workspace_id()
     pieces = _facets(text, facets)
@@ -353,25 +353,25 @@ async def rank_destinations(
             "prefer_skill": _prefer_skill(intake_skills, text_tokens),
         }
         ranked_facets.append(facet)
-    from app.services.no_fit_route import attach_no_fit_routes, persist_no_fit_preserve
-
-    ranked = attach_no_fit_routes(
-        {
-            "facets": ranked_facets,
-            "excluded_tracks": excluded,
-            "note": (
-                "Evidence only. You choose the destination. likely_entries are "
-                "existing records to update or link; do not create a second copy. "
-                "A high no_fit means do not file it into a track. When no_fit "
-                "wins, route names the smallest structure to add, and preserve "
-                "holds the note to file once after that lands. prefer_skill is "
-                "set when an App skill already owns this kind of note."
-            ),
-        },
-        open_track_count=len(open_tracks),
-    )
-    return await persist_no_fit_preserve(
-        user_id=user_id,
-        session_id=session_id or None,
-        ranked=ranked,
-    )
+    # Ranking is a declared read capability. Similarity does not establish
+    # either the user's subject or a missing schema. Keep it advisory and
+    # side-effect free: the loaded procedure decides whether to clarify,
+    # file into existing structure, or propose a justified setup.
+    return {
+        "facets": ranked_facets,
+        "excluded_tracks": excluded,
+        "note": (
+            "Evidence only. You choose the destination from the user's request "
+            "and the actual candidates. likely_entries are candidate records, "
+            "not proven duplicates. Verify their identifying facts before "
+            "updating or linking; shared words do not establish identity. "
+            "Create a separate record for a different transaction. A high "
+            "no_fit or absent winner does not prove missing structure: it can "
+            "mean the subject or destination is unclear. Ask one concise "
+            "question naming the relevant App/Track choices when ambiguous. "
+            "Do not select the first App or invent a new Track from the score. "
+            "Only propose setup after the intended job and destination are "
+            "understood and existing structure demonstrably cannot serve it. "
+            "prefer_skill is a candidate installed procedure, not authority."
+        ),
+    }

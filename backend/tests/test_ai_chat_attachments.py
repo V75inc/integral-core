@@ -3,8 +3,8 @@
 Files uploaded via ``POST /chat/threads/{id}/attachments`` (Task B2) are
 referenced by id on the next ``SendMessageRequest.attachment_ids``. The
 endpoint resolves ids scoped to the thread, persists a ``file`` part on the
-user's ``ChatMessage``, and prepends a context note to the turn's utterance
-so the agent knows the file exists and how to read it.
+user's ``ChatMessage``, and passes file-handling guidance through the signed
+host context so it is not presented as user-authored text.
 """
 
 from typing import Any, Dict
@@ -42,7 +42,7 @@ def test_rejects_too_many_attachment_ids():
 
 
 # ---------------------------------------------------------------------------
-# Endpoint — attachment_ids build a context note + persisted file part
+# Endpoint — attachment_ids use host context + persisted file part
 # ---------------------------------------------------------------------------
 
 
@@ -82,6 +82,7 @@ async def test_send_message_with_attachment_builds_context_note(
 
     async def fake_stream(self, ctx):
         seen["text"] = ctx.text
+        seen["system_context"] = ctx.system_context or ""
         if False:
             yield  # async generator, yields nothing
 
@@ -96,18 +97,19 @@ async def test_send_message_with_attachment_builds_context_note(
         )
         assert resp.status_code == 200, resp.text
 
-    assert "notes.txt" in seen["text"]
-    assert attachment_id in seen["text"]
+    assert seen["text"] == ""
+    assert "notes.txt" in seen["system_context"]
+    assert attachment_id in seen["system_context"]
     # The agent must be steered toward the filing tool, not just told how to
     # read the file — otherwise it creates the entry and never calls it
     # (observed regression: entry created, file never attached).
-    assert "integral_attach_uploaded_file_to_entry" in seen["text"]
+    assert "integral_attach_uploaded_file_to_entry" in seen["system_context"]
     # And toward the batch/token pattern for a NEW entry — otherwise it
     # passes create_entry's staged_token as entry_id (observed regression:
     # "Entry not found", since the entry doesn't exist until approved).
-    assert "staged_token" in seen["text"]
-    assert "integral_begin_batch" in seen["text"]
-    assert "{{entry.id}}" in seen["text"]
+    assert "staged_token" in seen["system_context"]
+    assert "integral_begin_batch" in seen["system_context"]
+    assert "{{entry.id}}" in seen["system_context"]
 
     fetched = await authenticated_client.get(
         f"/api/chat/threads/{thread_id}", headers=_scope_headers(workspace_id)
@@ -136,6 +138,7 @@ async def test_send_message_drops_attachment_id_not_owned_by_thread(
 
     async def fake_stream(self, ctx):
         seen["text"] = ctx.text
+        seen["system_context"] = ctx.system_context or ""
         if False:
             yield
 
@@ -150,8 +153,8 @@ async def test_send_message_drops_attachment_id_not_owned_by_thread(
         )
         assert resp.status_code == 200, resp.text
 
-    assert seen["text"].endswith("\n\nhi")
-    assert "doesnotexist" not in seen["text"]
+    assert seen["text"] == "hi"
+    assert "doesnotexist" not in seen["system_context"]
 
 
 def _make_upload(content: bytes, filename: str, content_type: str):

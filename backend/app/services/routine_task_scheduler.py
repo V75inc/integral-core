@@ -49,7 +49,7 @@ _DEFAULT_MAX_PARALLEL_RUNS = 4
 _SKIP_RETRY_SECONDS = 120
 
 # Fixed marker prepended to every replayed instruction so the model can tell
-# a scheduled replay from a fresh live ask (integral_scheduling/SKILL.md
+# a scheduled replay from a fresh live ask (integral-scheduling/SKILL.md
 # documents the duplicate-routine failure mode when this signal is absent).
 SCHEDULED_REPLAY_MARKER = (
     "[Scheduled routine replay — perform the task; do not create or modify routines]"

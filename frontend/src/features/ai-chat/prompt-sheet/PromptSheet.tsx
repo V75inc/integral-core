@@ -17,11 +17,23 @@ import type { PromptQuestionItem, PromptStagedWriteItem } from './types';
 export function PromptSheetHost({
   children,
 }: {
-  children: (state: { composerLocked: boolean; sheet: ReactNode }) => ReactNode;
+  children: (state: {
+    composerLocked: boolean;
+    canReplyInChat: boolean;
+    sheet: ReactNode;
+  }) => ReactNode;
 }) {
   const sheet = usePromptQueue();
   const node = sheet.open && sheet.current ? <PromptSheetView sheet={sheet} /> : null;
-  return <>{children({ composerLocked: sheet.open, sheet: node })}</>;
+  return (
+    <>
+      {children({
+        composerLocked: sheet.open,
+        canReplyInChat: sheet.open && sheet.current?.kind === 'staged_write',
+        sheet: node,
+      })}
+    </>
+  );
 }
 
 function PromptSheetView({
@@ -242,7 +254,7 @@ function WritePage({
 }: {
   item: PromptStagedWriteItem;
   busy: boolean;
-  onApprove: (autonomy?: 'single' | 'session') => Promise<void>;
+  onApprove: () => Promise<void>;
   onReject: () => Promise<void>;
 }) {
   const pending = item.status === 'pending';
@@ -278,18 +290,9 @@ function WritePage({
             type="button"
             size="sm"
             disabled={busy}
-            onClick={() => void onApprove('single')}
+            onClick={() => void onApprove()}
           >
             Approve
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            disabled={busy}
-            onClick={() => void onApprove('session')}
-          >
-            Auto-allow kind
           </Button>
           <Button
             type="button"

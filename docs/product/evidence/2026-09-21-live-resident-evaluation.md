@@ -44,7 +44,7 @@ Prompt submitted through the browser chat panel:
 ## Follow-up refinement
 
 The evaluation found the guard was effective but the model still spent one
-failed tool call exploring a prohibited path. The resident `integral_scaffold`
+failed tool call exploring a prohibited path. The resident `integral-scaffold`
 skill and `integral_create_app` manifest description now state that explicit
 “design only,” “do not build,” and “do not create” requests are proposal-only;
 the reply must begin “Proposed — nothing has been built.” and end by asking the

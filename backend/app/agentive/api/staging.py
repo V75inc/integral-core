@@ -3,8 +3,7 @@
 Web flow endpoints:
 
 * ``POST /api/agentive/staging/bless-token`` — frontend approval card calls
-  this when the user clicks Approve. Optionally grants session-scoped
-  autonomy for the change's kind.
+  this when the user approves this specific proposed change.
 * ``POST /api/agentive/staging/revoke-token`` — frontend approval card
   calls this when the user clicks Reject (or undoes an auto-approval).
 * ``GET /api/agentive/staging/pending`` — returns the user's currently
@@ -42,8 +41,8 @@ from app.agentive.staging import (
     StagingError,
     get_pending_for_user,
     get_token,
+    list_unresolved_for_session,
     persist_rollback_in_transcript,
-    revoke_token,
 )
 from app.api.errors import MissingAuthenticationError
 from app.api.utils import resolve_principal_id
@@ -84,6 +83,7 @@ async def bless_token_endpoint(
     request: Request,
     token: str = "",
     autonomy: Literal["single", "session"] = "single",
+    strong_confirmation: bool = False,
 ) -> Dict[str, Any]:
     """Mark pending staged change approved and auto-execute the write.
 
@@ -96,17 +96,25 @@ async def bless_token_endpoint(
     common LLM failure mode (model loses the token between turns or
     misinterprets the user's "Approved" prose).
 
-    If ``autonomy="session"`` and the staged change has a session_id,
-    the change's kind is also added to the session's autonomy grants —
-    subsequent same-kind staged changes in the session will be created
-    already-blessed (with an undo affordance still surfaced in the UI).
+    V1 supports approval of this specific proposal. Session-wide
+    auto-approval is disabled until its scope and policy contract are shipped.
     """
     user_id = _resolve_user(request)
-    from app.agentive.services.staging_apply import bless_and_execute
+    from app.agentive.services.approval_decisions import decide_staged_write
 
     try:
-        return await bless_and_execute(
-            user_id=user_id, token=token, autonomy=autonomy, request=request
+        if autonomy != "single":
+            raise StagingError(
+                "autonomy_disabled",
+                "Integral V1 can approve only this specific proposed change.",
+            )
+        return await decide_staged_write(
+            principal_id=user_id,
+            proposal_id=token,
+            decision="approve",
+            source="card",
+            strong_confirmation=strong_confirmation,
+            request=request,
         )
     except StagingError as exc:
         return _err(exc)
@@ -129,10 +137,19 @@ async def revoke_token_endpoint(
     """
     user_id = _resolve_user(request)
     try:
-        sc = await revoke_token(user_id=user_id, token=token)
+        from app.agentive.services.approval_decisions import decide_staged_write
+
+        result = await decide_staged_write(
+            principal_id=user_id,
+            proposal_id=token,
+            decision="reject",
+            source="card",
+            request=request,
+        )
     except StagingError as exc:
         return _err(exc)
-    return _ok(sc.to_dict())
+    staged = result.get("staged_change")
+    return _ok(staged if isinstance(staged, dict) else {})
 
 
 @endpoint(
@@ -381,6 +398,7 @@ async def text_approve_endpoint(
     request: Request,
     text: str = "",
     channel: str = "text",
+    thread_id: str = "",
 ) -> Dict[str, Any]:
     """Parse user's text reply and dispatch resolved approval intent.
 
@@ -409,18 +427,75 @@ async def text_approve_endpoint(
     safe to call this from any inbound-text adapter pre-emptively.
     """
     user_id = _resolve_user(request)
-    pending = await get_pending_for_user(user_id)
-    from app.agentive.services.approval_intent import parse_approval_intent
-    from app.agentive.services.staging_apply import bless_and_execute
+    thread = None
+    if thread_id:
+        from app.models.nodes import ChatThread
+
+        thread = await ChatThread.get(thread_id)
+        if thread is None:
+            from app.api.errors import ResourceNotFoundError
+
+            raise ResourceNotFoundError(message="Chat thread not found")
+        if getattr(thread, "user_id", "") != user_id:
+            from app.api.errors import InsufficientPermissionsError
+
+            raise InsufficientPermissionsError(
+                message="Thread does not belong to the caller"
+            )
+        if getattr(thread, "provider_id", "") != "integral_native":
+            return {"ok": True, "parsed": 0, "reason": "unsupported_provider"}
+        pending = await list_unresolved_for_session(
+            user_id, getattr(thread, "provider_session_id", None)
+        )
+        pending = [
+            staged
+            for staged in pending
+            if getattr(staged, "workspace_id", None)
+            == getattr(thread, "workspace_id", None)
+        ]
+    else:
+        # Retain the existing cross-channel adapter contract. Browser chat
+        # supplies thread_id so a short "yes" can never approve another chat's
+        # pending write.
+        pending = await get_pending_for_user(user_id)
+    from app.agentive.services.approval_decisions import decide_staged_write
+    from app.agentive.services.approval_intent import (
+        looks_like_approval,
+        parse_approval_intent,
+    )
 
     intents = parse_approval_intent(text, pending=pending)
     if not intents:
+        ambiguous = len(pending) > 1 and looks_like_approval(text)
         return {
             "ok": True,
             "parsed": 0,
-            "reason": "not_approval_intent",
+            "reason": (
+                "select_one_pending_action" if ambiguous else "not_approval_intent"
+            ),
             "pending_count": len(pending),
         }
+
+    # The text parser is an adapter for explicit, single-action replies. A
+    # plural command must never fan out across independently staged effects.
+    # The user can choose a numbered proposal, or approve cards one at a time.
+    if len(intents) != 1:
+        return {
+            "ok": True,
+            "parsed": 0,
+            "reason": "select_one_pending_action",
+            "pending_count": len(pending),
+        }
+
+    if thread is not None:
+        from app.services.chat_threads import append_message
+
+        await append_message(
+            thread=thread,
+            role="user",
+            parts=[{"type": "text", "text": text}],
+            provider_metadata={"source": "user_message", "kind": "chat_approval"},
+        )
 
     results: List[Dict[str, Any]] = []
     for intent in intents:
@@ -432,32 +507,21 @@ async def text_approve_endpoint(
             "confidence": intent.confidence,
         }
         try:
-            if intent.verb == "bless":
-                # Same apply path as ``/bless-token`` (B5): bless, run the
-                # executor in the workspace the change was STAGED in, consume
-                # on success, record the outcome. The previous inline copy
-                # dropped the card's workspace (executes fell back to the
-                # personal workspace) and never recorded a refusal.
-                envelope = await bless_and_execute(
-                    user_id=user_id,
-                    token=intent.token,
-                    autonomy=intent.autonomy,
-                    request=request,
-                )
-                # Adapters expect a ``state: consumed`` echo on the happy path.
-                result["state"] = (
-                    "consumed"
-                    if envelope.get("consumed")
-                    else envelope["staged_change"]["state"]
-                )
-                result["execute_result"] = envelope.get("execute_result")
-                if envelope.get("consume_warning") is not None:
-                    result["consume_warning"] = envelope["consume_warning"]
-                result["success"] = True
-            else:  # revoke
-                sc = await revoke_token(user_id=user_id, token=intent.token)
-                result["state"] = sc.state
-                result["success"] = True
+            decision_result = await decide_staged_write(
+                principal_id=user_id,
+                proposal_id=intent.token,
+                decision="approve" if intent.verb == "bless" else "reject",
+                source="channel",
+                workspace_id=getattr(thread, "workspace_id", None),
+                conversation_id=getattr(thread, "provider_session_id", None),
+                thread_id=getattr(thread, "id", None),
+                request=request,
+            )
+            result["state"] = decision_result.get("state")
+            result["success"] = bool(decision_result.get("ok"))
+            result["execute_result"] = decision_result.get("execute_result")
+            if decision_result.get("consume_warning") is not None:
+                result["consume_warning"] = decision_result["consume_warning"]
         except StagingError as exc:
             result["success"] = False
             result["error_code"] = exc.code

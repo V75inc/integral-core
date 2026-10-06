@@ -108,6 +108,10 @@ export const appsApi = {
     apiClient
       .put(`/apps/${id}`, body)
       .then(r => unwrapResource<App>(r.data, 'app')),
+  updateFromLibrary: (appId: string) =>
+    apiClient
+      .post<LifecycleWorkResponse>(`/apps/${appId}/update-from-library`, {})
+      .then(r => r.data),
   delete: (id: string) => apiClient.delete(`/apps/${id}`),
   listTracks: async (appId: string): Promise<Track[]> => {
     const { data } = await apiClient.get(`/apps/${appId}/tracks`);

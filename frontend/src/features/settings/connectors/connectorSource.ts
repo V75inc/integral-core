@@ -17,7 +17,7 @@ export function catalogPackageSource(entry: CatalogEntry): string {
     if (entry.url) return hostFromUrl(entry.url);
     return 'MCP';
   }
-  return 'Integral native';
+  return 'Integral AI';
 }
 
 export function connectedConnectorOrigin(connector: ConnectorResponse): {
@@ -40,7 +40,7 @@ export function connectedConnectorOrigin(connector: ConnectorResponse): {
     return {
       origin: 'library',
       label: 'Library',
-      detail: isMcp ? mcpDetail : 'Integral native',
+      detail: isMcp ? mcpDetail : 'Integral AI',
     };
   }
   if (registryName) {
@@ -57,7 +57,7 @@ export function connectedConnectorOrigin(connector: ConnectorResponse): {
     return {
       origin: 'library',
       label: 'Library',
-      detail: 'Integral native',
+      detail: 'Integral AI',
     };
   }
   return { origin: 'custom', label: 'Custom', detail: connector.kind };

@@ -643,6 +643,9 @@ def _annotate_plan_cross_track_relations(operations: list[Any]) -> list[Any]:
     ``target_track_types`` is set (see ``relation_allows_cross_track``).
     """
     type_to_tracks: Dict[str, set[str]] = {}
+    type_alias_to_name: Dict[str, str] = {}
+    track_to_types: Dict[str, list[str]] = {}
+    track_alias_to_name: Dict[str, str] = {}
     for item in operations:
         if (
             not isinstance(item, dict)
@@ -653,13 +656,23 @@ def _annotate_plan_cross_track_relations(operations: list[Any]) -> list[Any]:
         track_name = str(args.get("name") or "").strip()
         if not track_name:
             continue
+        track_alias_to_name[_relation_type_slug(track_name)] = track_name
         for entry_type in args.get("entry_types") or []:
             if not isinstance(entry_type, dict):
                 continue
+            canonical_name = str(
+                entry_type.get("name") or entry_type.get("key") or ""
+            ).strip()
+            if canonical_name:
+                track_to_types.setdefault(_relation_type_slug(track_name), []).append(
+                    canonical_name
+                )
             for label in (entry_type.get("key"), entry_type.get("name")):
                 slug = _relation_type_slug(label)
                 if slug:
                     type_to_tracks.setdefault(slug, set()).add(track_name)
+                    if canonical_name:
+                        type_alias_to_name[slug] = canonical_name
 
     annotated: list[Any] = []
     for item in operations:
@@ -689,26 +702,87 @@ def _annotate_plan_cross_track_relations(operations: list[Any]) -> list[Any]:
                 if not isinstance(targets, (list, tuple)):
                     fields.append(field)
                     continue
-                foreign_tracks: set[str] = set()
+                normalized_targets = []
                 for target in targets:
+                    target_slug = _relation_type_slug(target)
+                    canonical_name = type_alias_to_name.get(target_slug)
+                    # Models often use a sibling Track label as shorthand for
+                    # its only EntryType ("Equipment" → "Equipment Item").
+                    # Resolve that safely only when the target Track declares
+                    # exactly one type; ambiguous Tracks retain strict labels.
+                    if canonical_name is None:
+                        sibling_types = track_to_types.get(target_slug) or []
+                        if len(sibling_types) == 1:
+                            canonical_name = sibling_types[0]
+                    normalized_targets.append(canonical_name or str(target))
+                raw_track_types = relation.get("target_track_types") or []
+                if not isinstance(raw_track_types, (list, tuple)):
+                    raw_track_types = []
+                normalized_track_types: set[str] = set()
+                type_targets_from_track_types: list[str] = []
+                for target in raw_track_types:
+                    target_text = str(target).strip()
+                    track_ref = re.fullmatch(r"\{\{track\.id:(.+?)\}\}", target_text)
+                    if track_ref:
+                        referenced_track = track_ref.group(1).strip()
+                        referenced_track_name = track_alias_to_name.get(
+                            _relation_type_slug(referenced_track)
+                        )
+                        if referenced_track_name:
+                            normalized_track_types.add(referenced_track_name)
+                            sibling_types = track_to_types.get(
+                                _relation_type_slug(referenced_track_name), []
+                            )
+                            if len(sibling_types) == 1:
+                                type_targets_from_track_types.append(sibling_types[0])
+                            continue
+                    slug = _relation_type_slug(target_text)
+                    owners = type_to_tracks.get(slug) or set()
+                    if owners:
+                        normalized_track_types.update(owners)
+                        if slug in type_alias_to_name:
+                            type_targets_from_track_types.append(
+                                type_alias_to_name[slug]
+                            )
+                    else:
+                        normalized_track_types.add(str(target).strip())
+                if type_targets_from_track_types:
+                    normalized_targets = list(
+                        dict.fromkeys(
+                            normalized_targets + type_targets_from_track_types
+                        )
+                    )
+                foreign_tracks: set[str] = set()
+                for target in normalized_targets:
                     for owner in type_to_tracks.get(_relation_type_slug(target), ()):
                         if owner != track_name:
                             foreign_tracks.add(owner)
-                if not foreign_tracks:
+                foreign_tracks.update(
+                    owner for owner in normalized_track_types if owner != track_name
+                )
+                if (
+                    not foreign_tracks
+                    and normalized_targets == list(targets)
+                    and normalized_track_types
+                    == {str(x).strip() for x in raw_track_types if str(x).strip()}
+                ):
                     fields.append(field)
                     continue
                 existing = {
-                    str(x).strip()
-                    for x in (relation.get("target_track_types") or [])
-                    if str(x).strip()
+                    str(x).strip() for x in normalized_track_types if str(x).strip()
                 }
                 fields.append(
                     {
                         **field,
                         "relation": {
                             **relation,
+                            "target_entry_types": normalized_targets,
                             "target_track_types": sorted(existing | foreign_tracks),
-                            "allow_cross_track": True,
+                            "allow_cross_track": (
+                                True
+                                if foreign_tracks
+                                else bool(relation.get("allow_cross_track", False))
+                            ),
                         },
                     }
                 )

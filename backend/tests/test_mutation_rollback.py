@@ -78,6 +78,95 @@ async def test_assess_rollback_available_for_entry_create(monkeypatch):
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_assess_rollback_ignores_policy_denial_audit_for_mutation(monkeypatch):
+    token = "tok-attachment"
+    attachment_event = SimpleNamespace(
+        id="evt-attachment",
+        log_level="CHANGE_EVENT",
+        log_data={
+            "ts": "2026-01-01T00:00:00Z",
+            "actor_kind": "human",
+            "actor_id": "user-1",
+            "action": "attachment.attach",
+            "resource_type": "Entry",
+            "resource_id": "entry-1",
+            "scope": "track:track-1",
+            "before": {"attachment_ids": []},
+            "after": {"attachment_ids": ["attachment-1"]},
+            "details": {
+                "staging_token": token,
+                "attachment_id": "attachment-1",
+                "attachment_owner_kind_before": "chat",
+            },
+        },
+    )
+    denial_event = SimpleNamespace(
+        id="evt-denial",
+        log_level="CHANGE_EVENT",
+        log_data={
+            "ts": "2026-01-01T00:00:01Z",
+            "actor_kind": "human",
+            "actor_id": "user-1",
+            "action": "policy.deny",
+            "resource_type": "change_event",
+            "resource_id": "evt-denial",
+            "scope": "track:track-1",
+            "before": None,
+            "after": None,
+            "details": {"staging_token": token, "failed_action": "entry.read"},
+        },
+    )
+    monkeypatch.setattr(
+        "app.services.mutation_rollback.get_change_event_logger",
+        lambda: SimpleNamespace(
+            find_by_staging_token=AsyncMock(
+                return_value=[attachment_event, denial_event]
+            )
+        ),
+    )
+
+    status = await assess_rollback(staging_token=token, user_id="user-1")
+
+    assert status["available"] is True
+    assert status["event_count"] == 1
+    assert status["actions"] == ["attachment.attach"]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_assess_rollback_reports_no_mutation_for_policy_denial_only(monkeypatch):
+    denial_event = SimpleNamespace(
+        id="evt-denial",
+        log_level="CHANGE_EVENT",
+        log_data={
+            "ts": "2026-01-01T00:00:01Z",
+            "actor_kind": "human",
+            "actor_id": "user-1",
+            "action": "policy.deny",
+            "resource_type": "change_event",
+            "resource_id": "evt-denial",
+            "scope": "track:track-1",
+            "before": None,
+            "after": None,
+            "details": {"staging_token": "tok-denial", "failed_action": "entry.read"},
+        },
+    )
+    monkeypatch.setattr(
+        "app.services.mutation_rollback.get_change_event_logger",
+        lambda: SimpleNamespace(
+            find_by_staging_token=AsyncMock(return_value=[denial_event])
+        ),
+    )
+
+    status = await assess_rollback(staging_token="tok-denial", user_id="user-1")
+
+    assert status["available"] is False
+    assert status["reason"] == "no_mutations"
+    assert status["message"] == "This approval recorded no changes to undo"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_rollback_inverts_entry_create(monkeypatch):
     envelope = ChangeEventEnvelope(
         id="evt-1",

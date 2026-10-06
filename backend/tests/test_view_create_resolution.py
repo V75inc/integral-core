@@ -262,8 +262,126 @@ async def test_stage_create_entry_applies_view_resolution(
     )
 
     assert staged["payload"]["entry_type"] == "Goal"
+    assert staged["payload"]["body"] == "On 19 June: Project was tested."
     assert staged["payload"]["fields"]["target_date"] == "2026-06-19"
     assert "Calendar" in staged["diff_human"]
+
+
+@pytest.mark.asyncio
+async def test_stage_create_entry_uses_track_default_without_view(
+    monkeypatch, authorized_create_entry
+):
+    """A declared Track default wins over API ordering when no view is active."""
+    from app.agentive.tooling import bindings
+
+    track = SimpleNamespace(id="n.Track.venture", title="My Venture")
+    venture = SimpleNamespace(id="n.EntryType.venture", name="Venture", key="venture")
+    guide = SimpleNamespace(
+        id="n.EntryType.guide", name="Journey Guide", key="journey_guide"
+    )
+    monkeypatch.setattr(bindings, "_bound_propose_principal", lambda: "n.User.test")
+    monkeypatch.setattr("app.models.nodes.Track.get", AsyncMock(return_value=track))
+    monkeypatch.setattr(
+        bindings, "_find_visible_entry_with_title", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(
+        "app.services.view_create_resolution._track_default_entry_type_key",
+        AsyncMock(return_value="venture"),
+    )
+    monkeypatch.setattr(
+        "app.services.view_create_resolution.load_entry_types_for_track",
+        AsyncMock(return_value=[guide, venture]),
+    )
+    monkeypatch.setattr(
+        bindings._sd, "resolve_track_label", AsyncMock(return_value="My Venture")
+    )
+
+    staged = await bindings._stage_create_entry(
+        {
+            "track_id": track.id,
+            "title": "Bicycle repair service",
+            "text": "A founder-provided service idea.",
+        }
+    )
+
+    assert staged["payload"]["entry_type"] == "Venture"
+    assert staged["payload"]["body"] == "A founder-provided service idea."
+
+
+@pytest.mark.asyncio
+async def test_stage_create_entry_preview_shows_field_values_and_relation_labels(
+    monkeypatch, authorized_create_entry
+):
+    from app.agentive.tooling import bindings
+
+    venture_id = "n.Entry.venture"
+    opportunity_id = "n.Entry.opportunity"
+    track = SimpleNamespace(
+        id="n.Track.decisions", title="Decisions", workspace_id="ws-test"
+    )
+    decision = SimpleNamespace(
+        id="n.EntryType.decision",
+        name="Venture Decision",
+        key="venture_decision",
+        form_schema={
+            "fields": [
+                {"key": "venture", "label": "Venture", "type": "relation"},
+                {"key": "opportunity", "label": "Opportunity", "type": "relation"},
+                {"key": "decision", "label": "Decision", "type": "select"},
+            ]
+        },
+    )
+    monkeypatch.setattr(bindings, "_bound_propose_principal", lambda: "u1")
+    monkeypatch.setattr("app.models.nodes.Track.get", AsyncMock(return_value=track))
+    monkeypatch.setattr(
+        bindings, "_find_visible_entry_with_title", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(
+        "app.services.view_create_resolution.load_entry_types_for_track",
+        AsyncMock(return_value=[decision]),
+    )
+    monkeypatch.setattr(
+        bindings._sd,
+        "resolve_track_label",
+        AsyncMock(return_value="Decisions"),
+    )
+    monkeypatch.setattr(
+        bindings._sd,
+        "resolve_node_labels_for_diff",
+        AsyncMock(
+            return_value=(
+                {},
+                {
+                    venture_id: "Mobile Bike-Repair Service for Office Commuters",
+                    opportunity_id: "Bike-Repair Service for Office Commuters",
+                },
+                {},
+            )
+        ),
+    )
+
+    staged = await bindings._stage_create_entry(
+        {
+            "track_id": track.id,
+            "title": "Continue exploring",
+            "entry_type": "Venture Decision",
+            "fields": {
+                "venture": venture_id,
+                "opportunity": opportunity_id,
+                "decision": "Continue",
+            },
+        }
+    )
+
+    assert (
+        "**Venture:** Mobile Bike-Repair Service for Office Commuters"
+        in staged["diff_human"]
+    )
+    assert (
+        "**Opportunity:** Bike-Repair Service for Office Commuters"
+        in staged["diff_human"]
+    )
+    assert "**Decision:** Continue" in staged["diff_human"]
 
 
 @pytest.mark.asyncio

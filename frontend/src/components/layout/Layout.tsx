@@ -22,6 +22,7 @@ import { OnboardingGetStartedBanner } from '../onboarding/OnboardingGetStartedBa
 import { MustChangePasswordModal } from '../auth/MustChangePasswordModal';
 import { MemberAssignedFormPromptModal } from '../../features/memberAssignedForm/MemberAssignedFormPromptModal';
 import { EmailVerificationBanner } from './EmailVerificationBanner';
+import { getRegisteredLayoutBanners } from '../../host/registry';
 import { ChatPageFocusProvider } from '../../context/ChatPageFocusContext';
 import { useChangeEventInvalidation } from '../../hooks/useChangeEventInvalidation';
 import { useAgentiveWebSocket } from '../../hooks/useAgentiveWebSocket';
@@ -220,6 +221,9 @@ export function Layout() {
       {/* Banner sits above the skip link so screen readers hear the
           welcome status before navigating into the main content. */}
       <EmailVerificationBanner />
+      {getRegisteredLayoutBanners().map((Banner, i) => (
+        <Banner key={i} />
+      ))}
       {shouldOnboard && !agentiveEnabled ? (
         <OnboardingGetStartedBanner />
       ) : null}

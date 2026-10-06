@@ -12,6 +12,7 @@ from unittest.mock import patch
 import pytest
 from httpx import AsyncClient
 
+from app.models.nodes import ChatThread
 from app.schemas.api.ai_chat import SendMessageRequest
 
 PNG_1PX = (
@@ -36,6 +37,22 @@ def test_accepts_image_only_message():
 def test_rejects_empty_text_and_no_images():
     with pytest.raises(ValueError):
         SendMessageRequest.model_validate({"text": "", "images": None})
+
+
+@pytest.mark.parametrize(
+    "host_action", ["prompt_sheet_resume", "staging_follow_through"]
+)
+def test_host_continuation_can_start_without_user_text(host_action: str):
+    req = SendMessageRequest.model_validate({"text": "", "host_action": host_action})
+    assert req.text == ""
+    assert req.host_action == host_action
+
+
+def test_unknown_host_action_is_rejected():
+    with pytest.raises(ValueError):
+        SendMessageRequest.model_validate(
+            {"text": "", "host_action": "pretend_user_said_go_ahead"}
+        )
 
 
 def test_rejects_unsupported_image_type():
@@ -115,3 +132,114 @@ async def test_send_message_injects_image_urls(
         assert resp.status_code == 200, resp.text
 
     assert seen.get("image_urls") == [{"base64": PNG_1PX, "mime_type": "image/png"}]
+
+
+@pytest.mark.asyncio
+async def test_host_policy_stays_out_of_user_utterance(
+    authenticated_client: AsyncClient,
+):
+    workspace_id = await _create_workspace(authenticated_client)
+    create = await authenticated_client.post(
+        "/api/chat/threads",
+        headers=_scope_headers(workspace_id),
+        json={"provider_id": "jvagent", "agent_id": "aiva"},
+    )
+    thread_id = create.json()["id"]
+    user_text = (
+        "Please do not save anything; keep it in chat only. Explain the next step."
+    )
+    seen: Dict[str, Any] = {}
+
+    async def fake_stream(self, ctx):
+        seen["text"] = ctx.text
+        seen["system_context"] = ctx.system_context or ""
+        if False:
+            yield
+
+    with patch(
+        "app.services.chat_providers.jvagent_provider.JvagentProvider.stream_turn",
+        new=fake_stream,
+    ):
+        resp = await authenticated_client.post(
+            f"/api/chat/threads/{thread_id}/messages",
+            headers=_scope_headers(workspace_id),
+            json={"text": user_text},
+        )
+        assert resp.status_code == 200, resp.text
+
+    assert seen["text"] == user_text
+    assert "SYSTEM:USER_FORBIDS_SAVING" in seen["system_context"]
+    assert "Do not call a write, batch, proposal" in seen["system_context"]
+    assert "SYSTEM:USER_FORBIDS_SAVING" not in seen["text"]
+
+    transcript = await authenticated_client.get(
+        f"/api/chat/threads/{thread_id}", headers=_scope_headers(workspace_id)
+    )
+    assert transcript.status_code == 200, transcript.text
+    user_messages = [
+        message
+        for message in transcript.json()["messages"]
+        if message["role"] == "user"
+    ]
+    assert len(user_messages) == 1
+    assert user_messages[0]["parts"] == [{"type": "text", "text": user_text}]
+
+
+@pytest.mark.asyncio
+async def test_prompt_sheet_resume_uses_host_context_without_user_utterance(
+    authenticated_client: AsyncClient,
+):
+    workspace_id = await _create_workspace(authenticated_client)
+    create = await authenticated_client.post(
+        "/api/chat/threads",
+        headers=_scope_headers(workspace_id),
+        json={"provider_id": "jvagent", "agent_id": "aiva"},
+    )
+    thread_id = create.json()["id"]
+    thread = await ChatThread.get(thread_id)
+    thread.prompt_queue = {
+        "status": "closed",
+        "close_reason": "drained",
+        "items": [
+            {
+                "kind": "staged_write",
+                "status": "approved",
+                "write_kind": "create_entry",
+                "summary": "Create the synthetic Venture record",
+            }
+        ],
+    }
+    await thread.save()
+
+    seen: Dict[str, Any] = {}
+
+    async def fake_stream(self, ctx):
+        seen["text"] = ctx.text
+        seen["system_context"] = ctx.system_context or ""
+        if False:
+            yield
+
+    with patch(
+        "app.services.chat_providers.jvagent_provider.JvagentProvider.stream_turn",
+        new=fake_stream,
+    ):
+        resp = await authenticated_client.post(
+            f"/api/chat/threads/{thread_id}/messages",
+            headers=_scope_headers(workspace_id),
+            json={"text": "", "host_action": "prompt_sheet_resume"},
+        )
+        assert resp.status_code == 200, resp.text
+
+    assert seen["text"] == ""
+    assert "prompt_sheet_result" in seen["system_context"]
+    assert "prompt_sheet_continuation" in seen["system_context"]
+    transcript = await authenticated_client.get(
+        f"/api/chat/threads/{thread_id}", headers=_scope_headers(workspace_id)
+    )
+    assert transcript.status_code == 200, transcript.text
+    user_messages = [
+        message
+        for message in transcript.json()["messages"]
+        if message["role"] == "user"
+    ]
+    assert user_messages == []

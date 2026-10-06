@@ -107,20 +107,11 @@ export function StagedChangeReviewModal({
           <div className="flex w-full flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => void handleAction(() => bless('single'))}
+              onClick={() => void handleAction(() => bless())}
               disabled={busy}
               className="inline-flex items-center gap-1 rounded-[var(--radius-pill)] bg-[var(--brand-accent)] px-3 py-1.5 text-xs font-medium text-[var(--brand-accent-fg)] hover:opacity-90 disabled:opacity-50"
             >
               <CheckIcon size={12} /> Approve
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleAction(() => bless('session'))}
-              disabled={busy}
-              title="Approve and auto-allow this kind for the rest of this session"
-              className="staged-review-secondary inline-flex items-center gap-1 rounded-[var(--radius-pill)] border border-[var(--border-subtle)] px-3 py-1.5 text-xs disabled:opacity-50"
-            >
-              <Sparkles size={12} /> Approve &amp; auto-allow
             </button>
             <button
               type="button"

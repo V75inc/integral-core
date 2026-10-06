@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Optional
 
 from app.agentive.services import work_execution, work_items
@@ -30,6 +31,24 @@ _CRASH_POINT: Optional[str] = None
 
 # Test-only handler registry keyed by work_item_id (callables are not JSON-safe).
 _TEST_HANDLERS: dict[str, Callable[..., Awaitable[Any]]] = {}
+
+
+def _chat_turn_timeout_seconds(item: WorkItem) -> float:
+    """Return the remaining persisted deadline, bounded by the configured cap."""
+    from app.config import settings
+
+    maximum = float(settings.INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS)
+    if not item.deadline_at:
+        return maximum
+    try:
+        deadline = datetime.fromisoformat(item.deadline_at.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return maximum
+    if deadline.tzinfo is None:
+        deadline = deadline.replace(tzinfo=timezone.utc)
+    return max(
+        0.01, min(maximum, (deadline - datetime.now(timezone.utc)).total_seconds())
+    )
 
 
 def set_crash_point(name: Optional[str]) -> None:
@@ -62,6 +81,8 @@ async def _heartbeat_loop(
     worker_id: str,
     lease_seconds: float,
     stop: asyncio.Event,
+    lease_lost: asyncio.Event,
+    failure_code: dict[str, str],
 ) -> None:
     interval = work_items.recommended_heartbeat_interval(lease_seconds)
     while not stop.is_set():
@@ -79,10 +100,19 @@ async def _heartbeat_loop(
                 lease_seconds=lease_seconds,
             )
         except WorkError as exc:
-            if exc.code == "work.lease_lost":
-                stop.set()
-                return
-            log.warning("work heartbeat failed: %s", exc)
+            log.warning("work heartbeat failed: %s", exc.code)
+            failure_code["code"] = (
+                exc.code
+                if exc.code in {"work.cancelled", "work.deadline_exceeded"}
+                else "work.lease_lost"
+            )
+            lease_lost.set()
+            return
+        except Exception:  # noqa: BLE001
+            log.exception("work heartbeat failed; stopping the leased handler")
+            failure_code["code"] = "work.lease_lost"
+            lease_lost.set()
+            return
 
 
 async def _with_supervised_heartbeat(
@@ -93,6 +123,8 @@ async def _with_supervised_heartbeat(
     body: Callable[[], Awaitable[Any]],
 ) -> Any:
     stop = asyncio.Event()
+    lease_lost = asyncio.Event()
+    failure_code = {"code": "work.lease_lost"}
     hb = asyncio.create_task(
         _heartbeat_loop(
             item.work_item_id,
@@ -101,12 +133,34 @@ async def _with_supervised_heartbeat(
             worker_id=worker_id,
             lease_seconds=lease_seconds,
             stop=stop,
+            lease_lost=lease_lost,
+            failure_code=failure_code,
         )
     )
+    handler: asyncio.Task[Any] = asyncio.create_task(body())
+    lost_waiter = asyncio.create_task(lease_lost.wait())
     try:
-        return await body()
+        done, _ = await asyncio.wait(
+            {handler, lost_waiter}, return_when=asyncio.FIRST_COMPLETED
+        )
+        if handler in done:
+            return await handler
+        handler.cancel()
+        await asyncio.gather(handler, return_exceptions=True)
+        code = failure_code["code"]
+        message = (
+            "durable cancellation stopped the handler"
+            if code == "work.cancelled"
+            else "lease heartbeat failed; handler was cancelled"
+        )
+        raise WorkError(code, message)
     finally:
         stop.set()
+        lost_waiter.cancel()
+        await asyncio.gather(lost_waiter, return_exceptions=True)
+        if not handler.done():
+            handler.cancel()
+            await asyncio.gather(handler, return_exceptions=True)
         try:
             await hb
         except Exception:  # noqa: BLE001
@@ -317,6 +371,441 @@ async def _handle_routine_turn_safe(
                 ),
             )
         raise
+
+
+def _native_chat_transcript(
+    events: list[dict[str, Any]], *, error: dict[str, str] | None = None
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Fold normalized provider events into the single durable chat result.
+
+    Raw provider payloads and reasoning are deliberately not accepted here;
+    the event store and transcript writer each apply their own public-field
+    allowlists before persistence.
+    """
+    text = ""
+    parts: list[dict[str, Any]] = []
+    steps: list[dict[str, Any]] = []
+    timing: dict[str, Any] = {}
+    for event in events:
+        kind = event.get("type")
+        if kind == "text-delta":
+            text += str(event.get("delta") or "")
+        elif kind == "text-replace":
+            text = str(event.get("content") or "")
+        elif kind == "tool-call":
+            parts.append(
+                {
+                    "type": "tool-call",
+                    "toolCallId": str(event.get("toolCallId") or ""),
+                    "toolName": str(event.get("name") or ""),
+                    "status": str(event.get("status") or "complete"),
+                    "isError": event.get("status") == "error",
+                }
+            )
+        elif kind == "source":
+            parts.append(
+                {
+                    "type": "source",
+                    "sourceType": "url",
+                    "url": event.get("url"),
+                    "title": event.get("title"),
+                }
+            )
+        elif kind == "step":
+            steps.append(
+                {
+                    key: event[key]
+                    for key in (
+                        "usage",
+                        "modelId",
+                        "provider",
+                        "providerCostUsd",
+                        "costSource",
+                        "durationMs",
+                        "outcome",
+                        "attempt",
+                        "requestId",
+                    )
+                    if key in event
+                }
+            )
+        elif kind == "message-finish" and isinstance(event.get("timing"), dict):
+            timing = dict(event["timing"])
+        elif kind == "error":
+            error = {
+                "code": str(event.get("code") or "internal_error"),
+                "message": str(event.get("message") or "The assistant turn failed."),
+            }
+    if text:
+        parts.insert(0, {"type": "text", "text": text})
+    if error:
+        parts.append({"type": "error", **error})
+    if not parts:
+        parts.append({"type": "text", "text": ""})
+    metadata: dict[str, Any] = {"steps": steps}
+    if timing:
+        metadata["timing"] = timing
+    if error:
+        metadata["error"] = error
+    return parts, metadata
+
+
+async def _handle_chat_turn(
+    item: WorkItem,
+    *,
+    worker_id: str,
+    lease_seconds: float,
+) -> WorkItem:
+    """Execute one native turn, committing each public event before replay."""
+    from app.agentive.services.execution_runs import AgentRun, start_run
+    from app.agentive.services.work_items import authorized_work_item_effect
+    from app.services.chat_providers import ChatTurnContext, get_registry
+    from app.services.chat_streaming import classify_turn_exception
+    from app.services.chat_turn_events import (
+        append_work_item_chat_event,
+        replay_work_item_chat_events,
+    )
+    from app.services.chat_turn_transcript import (
+        load_work_item_assistant_result,
+        persist_work_item_assistant_result,
+    )
+    from app.services.chat_turn_worker import (
+        ChatTerminalStatus,
+        terminalize_chat_turn,
+    )
+    from app.services.chat_turn_worker_input import (
+        load_claimed_chat_turn_input,
+    )
+
+    await _recheck_principal_workspace(item)
+    ctx = work_execution.build_work_execution_context(
+        work_item=item,
+        logical_step_key=work_execution.logical_step_key_for(kind="chat_turn"),
+    )
+
+    async def _committed_events() -> list[dict[str, Any]]:
+        """Read the complete committed event sequence for transcript folding."""
+        events: list[dict[str, Any]] = []
+        cursor = 0
+        while True:
+            page = await replay_work_item_chat_events(
+                principal_id=ctx.principal_id,
+                workspace_id=ctx.workspace_id,
+                thread_id=ctx.thread_id,
+                work_item_id=ctx.work_item_id,
+                after_sequence=cursor,
+                limit=500,
+            )
+            if page.gap:
+                raise WorkError(
+                    "work.event_sequence_gap",
+                    "committed chat events contain a sequence gap",
+                )
+            events.extend(
+                {key: value for key, value in event.items() if key != "sequence"}
+                for event in page.events
+            )
+            if not page.has_more:
+                return events
+            if page.next_after_sequence <= cursor:
+                raise WorkError(
+                    "work.event_sequence_gap",
+                    "committed chat event cursor did not advance",
+                )
+            cursor = page.next_after_sequence
+
+    async def _terminalize_pre_stream_failure(
+        failure: dict[str, str], *, status: ChatTerminalStatus = "failed"
+    ) -> WorkItem:
+        await append_work_item_chat_event(
+            context=ctx,
+            event_key=f"{ctx.run_id}:terminal-error",
+            event={"type": "error", **failure},
+        )
+        parts, metadata = _native_chat_transcript(
+            await _committed_events(), error=failure
+        )
+        await persist_work_item_assistant_result(
+            context=ctx, parts=parts, provider_metadata=metadata
+        )
+        return await terminalize_chat_turn(
+            ctx,
+            status=status,
+            failure=failure,
+            result_fingerprint=ctx.effect_key,
+        )
+
+    async def _reconcile_committed_result() -> WorkItem | None:
+        """Finish from terminal output already committed by an earlier attempt."""
+        events = await _committed_events()
+        error_event = next(
+            (event for event in events if event.get("type") == "error"), None
+        )
+        has_terminal_event = error_event is not None or any(
+            event.get("type") == "message-finish" for event in events
+        )
+        existing_result = await load_work_item_assistant_result(context=ctx)
+
+        if not has_terminal_event and existing_result is None:
+            return None
+
+        if has_terminal_event:
+            failure = (
+                {
+                    "code": str(error_event.get("code") or "internal_error"),
+                    "message": str(
+                        error_event.get("message") or "The assistant turn failed."
+                    ),
+                }
+                if error_event is not None
+                else None
+            )
+            status: ChatTerminalStatus = (
+                "cancelled"
+                if failure and failure["code"] == "work.cancelled"
+                else "failed" if failure else "succeeded"
+            )
+        else:
+            # A deterministic transcript without a committed terminal event
+            # is evidence of an interrupted finalization, but not proof that
+            # provider execution ended cleanly. Fail closed instead of issuing
+            # another model request or changing the stable assistant message.
+            failure = {
+                "code": "work.chat_result_unreconciled",
+                "message": (
+                    "The assistant result was saved without a terminal event; "
+                    "the turn needs outcome reconciliation."
+                ),
+            }
+            status = "failed"
+            await append_work_item_chat_event(
+                context=ctx,
+                event_key="work-item:reconciliation-error",
+                event={"type": "error", **failure},
+            )
+            return await terminalize_chat_turn(
+                ctx,
+                status=status,
+                failure=failure,
+                result_fingerprint=ctx.effect_key,
+            )
+
+        parts, metadata = _native_chat_transcript(events, error=failure)
+        await persist_work_item_assistant_result(
+            context=ctx, parts=parts, provider_metadata=metadata
+        )
+        return await terminalize_chat_turn(
+            ctx,
+            status=status,
+            failure=failure,
+            result_fingerprint=ctx.effect_key,
+        )
+
+    try:
+        worker_input = await load_claimed_chat_turn_input(item)
+    except WorkError as exc:
+        if exc.code in {"work.lease_lost", "work.deadline_exceeded"}:
+            raise
+        if exc.code == "work.cancelled":
+            return await _terminalize_pre_stream_failure(
+                {"code": exc.code, "message": exc.message}, status="cancelled"
+            )
+        return await _terminalize_pre_stream_failure(
+            {"code": exc.code, "message": exc.message}
+        )
+    except Exception as exc:  # noqa: BLE001
+        code, message = classify_turn_exception(exc)
+        return await _terminalize_pre_stream_failure({"code": code, "message": message})
+
+    reconciled = await _reconcile_committed_result()
+    if reconciled is not None:
+        return reconciled
+
+    try:
+        provider = get_registry().get("integral_native")
+        if provider is None or not provider.is_available():
+            return await _terminalize_pre_stream_failure(
+                {
+                    "code": "provider_unavailable",
+                    "message": "Integral AI provider is unavailable.",
+                }
+            )
+
+        # Reuse only an exactly scoped live run. Any terminal prior run needs
+        # recovery reconciliation before a new model request may be started.
+        existing = await AgentRun.find_one({"run_id": ctx.run_id})
+        if existing is not None:
+            if (
+                existing.work_item_id != item.work_item_id
+                or existing.thread_id != ctx.thread_id
+                or existing.user_id != ctx.principal_id
+                or existing.workspace_id != ctx.workspace_id
+                or existing.provider_id != "integral_native"
+                or existing.status != "running"
+            ):
+                raise WorkError(
+                    "work.non_replayable_effect",
+                    "native chat run requires outcome reconciliation",
+                )
+        else:
+            async with authorized_work_item_effect(ctx):
+                await start_run(
+                    thread_id=ctx.thread_id,
+                    user_id=ctx.principal_id,
+                    workspace_id=ctx.workspace_id,
+                    provider_id="integral_native",
+                    origin="http",
+                    run_id=ctx.run_id,
+                    work_item_id=ctx.work_item_id,
+                    deadline_at=ctx.deadline_at or "",
+                    # WP-09 may rebuild an interrupted pre-dispatch turn from
+                    # this accepted, scoped message ID. Never store its text.
+                    metadata={
+                        "work_item_id": ctx.work_item_id,
+                        "chat_message_id": worker_input.message.id,
+                    },
+                )
+
+        execution = worker_input.execution_context
+        extra_data = dict(execution.extra_data)
+        extra_data.update(
+            {
+                "run_id": ctx.run_id,
+                "work_execution_context": ctx.model_dump(mode="json"),
+                "no_workspace_writes": execution.no_workspace_writes,
+                "design_only": execution.design_only,
+            }
+        )
+        turn = ChatTurnContext(
+            user_id=ctx.principal_id,
+            user_email=worker_input.user_email,
+            text=worker_input.text,
+            thread_id=ctx.thread_id,
+            session_id=worker_input.thread.provider_session_id,
+            system_context=execution.system_context or None,
+            focused_track_id=execution.focused_track_id,
+            focused_space_id=execution.focused_space_id,
+            focused_view_id=execution.focused_view_id,
+            workspace_id=ctx.workspace_id,
+            extra_data=extra_data,
+        )
+    except WorkError as exc:
+        if exc.code in {"work.lease_lost", "work.deadline_exceeded"}:
+            raise
+        if exc.code == "work.cancelled":
+            return await _terminalize_pre_stream_failure(
+                {"code": exc.code, "message": exc.message}, status="cancelled"
+            )
+        return await _terminalize_pre_stream_failure(
+            {"code": exc.code, "message": exc.message}
+        )
+    except Exception as exc:  # noqa: BLE001
+        code, message = classify_turn_exception(exc, provider=provider)
+        return await _terminalize_pre_stream_failure({"code": code, "message": message})
+    event_ordinal = 0
+    saw_message_finish = False
+
+    async def _body() -> None:
+        nonlocal event_ordinal, saw_message_finish
+        await work_execution.assert_effect_boundary_allowed(ctx)
+        async for event in provider.stream_turn(turn):
+            await work_execution.assert_effect_boundary_allowed(ctx)
+            # Provider session identifiers are adapter state, not public
+            # events. Reasoning is intentionally excluded from chat replay.
+            event_type = str(event.get("type") or "")
+            if event_type in {"_meta", "reasoning-delta"}:
+                continue
+            await append_work_item_chat_event(
+                context=ctx,
+                event_key=f"{ctx.run_id}:{event_ordinal}",
+                event=event,
+            )
+            event_ordinal += 1
+            if event_type == "message-finish":
+                saw_message_finish = True
+
+    failure: dict[str, str] | None = None
+    status: ChatTerminalStatus = "succeeded"
+    try:
+        await asyncio.wait_for(
+            _with_supervised_heartbeat(
+                item, worker_id=worker_id, lease_seconds=lease_seconds, body=_body
+            ),
+            timeout=_chat_turn_timeout_seconds(item),
+        )
+    except asyncio.TimeoutError:
+        status = "failed"
+        failure = {
+            "code": "work.chat_stream_timeout",
+            "message": (
+                "The assistant turn exceeded its execution time limit. "
+                "Start a new message to try again."
+            ),
+        }
+    except WorkError as exc:
+        if exc.code in {"work.lease_lost", "work.deadline_exceeded"}:
+            raise
+        if exc.code == "work.cancelled":
+            status = "cancelled"
+            failure = {"code": exc.code, "message": exc.message}
+        else:
+            status = "failed"
+            failure = {"code": exc.code, "message": exc.message}
+    except Exception as exc:  # noqa: BLE001
+        code, message = classify_turn_exception(exc, provider=provider)
+        status = "failed"
+        failure = {"code": code, "message": message}
+
+    events = await _committed_events()
+    if status == "succeeded" and any(event.get("type") == "error" for event in events):
+        status = "failed"
+        error = next(event for event in events if event.get("type") == "error")
+        failure = {
+            "code": str(error.get("code") or "internal_error"),
+            "message": str(error.get("message") or "The assistant turn failed."),
+        }
+    elif status == "succeeded" and not saw_message_finish:
+        # A provider stream that ends without its explicit completion event is
+        # not proof of a completed turn. Persist a terminal error so a retry
+        # reconciles this outcome instead of issuing another paid request.
+        status = "failed"
+        failure = {
+            "code": "work.chat_stream_incomplete",
+            "message": (
+                "The assistant stream ended before the turn was complete. "
+                "Start a new message to try again."
+            ),
+        }
+
+    if failure:
+        error_event = {"type": "error", **failure}
+        # Stable failure key lets recovery attach to the existing durable
+        # stream without duplicating a public terminal error.
+        already_persisted = any(
+            event.get("type") == "error"
+            and event.get("code") == failure["code"]
+            and event.get("message") == failure["message"]
+            for event in events
+        )
+        if not already_persisted:
+            persisted = await append_work_item_chat_event(
+                context=ctx,
+                event_key=f"{ctx.run_id}:terminal-error",
+                event=error_event,
+            )
+            events.append(
+                {key: value for key, value in persisted.items() if key != "sequence"}
+            )
+    parts, metadata = _native_chat_transcript(events, error=failure)
+    await persist_work_item_assistant_result(
+        context=ctx, parts=parts, provider_metadata=metadata
+    )
+    return await terminalize_chat_turn(
+        ctx,
+        status=status,
+        failure=failure,
+        result_fingerprint=ctx.effect_key,
+    )
 
 
 async def _handle_approval_resume(

@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 _SUPPORTED_ACTIONS: Set[str] = {
     "entry.create",
     "entry.update",
+    "attachment.attach",
     "view.create",
     "view.update",
     "dashboard.create",
@@ -41,6 +42,12 @@ _UNSUPPORTED_ACTIONS: Set[str] = {
     "operational_model.publish",
     "anchor.cascade",
 }
+
+# These records describe authorization decisions, not graph effects. Policy
+# evaluation runs inside staged execution, so its denial audit can share the
+# staging token with a successful mutation. It must stay auditable without
+# making that mutation appear only partially reversible.
+_NON_MUTATING_AUDIT_ACTIONS: Set[str] = {"policy.deny"}
 
 
 class RollbackError(Exception):
@@ -58,6 +65,14 @@ def _envelope_from_row(row: Any) -> ChangeEventEnvelope:
 
 def _snapshot_missing(envelope: ChangeEventEnvelope) -> bool:
     action = envelope.action
+    if action == "attachment.attach":
+        details = envelope.details or {}
+        return (
+            envelope.before is None
+            or envelope.after is None
+            or not details.get("attachment_id")
+            or details.get("attachment_owner_kind_before") != "chat"
+        )
     if action.endswith(".create"):
         return envelope.after is None
     if action.endswith(".update"):
@@ -183,6 +198,78 @@ async def _invert_event(
             "resource_id": resource_id,
             "method": "restore",
             "conflicts": conflicts if conflicts else None,
+        }
+
+    if action == "attachment.attach":
+        from app.models.edges import HAS_ATTACHMENT
+        from app.models.nodes import Attachment, ChatThread, Entry
+        from app.schemas.policy import Resource, Subject
+        from app.services.policy_engine import evaluate as policy_evaluate
+
+        details = envelope.details or {}
+        attachment_id = str(details.get("attachment_id") or "")
+        entry = await Entry.get(resource_id)
+        attachment = await Attachment.get(attachment_id)
+        if entry is None or attachment is None:
+            raise RollbackError(
+                "resource_gone", "The entry or attachment no longer exists"
+            )
+
+        decision = await policy_evaluate(
+            subject=Subject(kind="human", id=user_id),
+            action="entry.update",
+            resource=Resource(kind="entry", id=entry.id, scope=f"entry:{entry.id}"),
+        )
+        if not decision.allowed:
+            raise RollbackError(
+                "permission_denied",
+                "You no longer have permission to update this entry",
+            )
+
+        context = await entry.get_context()
+        edges = await context.find_edges_between(
+            entry.id, attachment.id, edge_class=HAS_ATTACHMENT
+        )
+        if not edges:
+            raise RollbackError(
+                "conflict", "The attachment is no longer linked to this entry"
+            )
+
+        owners = await attachment.nodes(edge=[HAS_ATTACHMENT], direction="in")
+        chat_owners = [
+            owner
+            for owner in owners
+            if isinstance(owner, ChatThread) and owner.user_id == user_id
+        ]
+        other_entry_owners = [
+            owner
+            for owner in owners
+            if isinstance(owner, Entry) and owner.id != entry.id
+        ]
+        if not chat_owners and not other_entry_owners:
+            raise RollbackError(
+                "conflict",
+                "Undo would leave the attachment without a workspace owner",
+            )
+
+        for edge in edges:
+            await edge.delete()
+        current_attachment_ids = list(entry.attachment_ids or [])
+        entry.attachment_ids = [
+            item for item in current_attachment_ids if item != attachment.id
+        ]
+        if entry.attachment_ids != current_attachment_ids:
+            await entry.save()
+
+        if chat_owners and not other_entry_owners:
+            attachment.owner_kind = "chat"
+            await attachment.save()
+
+        return {
+            "action": action,
+            "resource_id": entry.id,
+            "attachment_id": attachment.id,
+            "method": "detach",
         }
 
     if action == "view.create":
@@ -339,9 +426,20 @@ async def assess_rollback(
         }
 
     envelopes = [_envelope_from_row(r) for r in rows]
+    mutation_envelopes = [
+        envelope
+        for envelope in envelopes
+        if envelope.action not in _NON_MUTATING_AUDIT_ACTIONS
+    ]
+    if not mutation_envelopes:
+        return {
+            "available": False,
+            "reason": "no_mutations",
+            "message": "This approval recorded no changes to undo",
+        }
     rolled = [
         e
-        for e in envelopes
+        for e in mutation_envelopes
         if (e.details or {}).get("rolled_back_at")
         or (e.details or {}).get("rolled_back")
     ]
@@ -355,7 +453,7 @@ async def assess_rollback(
 
     reversible: List[str] = []
     blocked: List[Dict[str, str]] = []
-    for env in envelopes:
+    for env in mutation_envelopes:
         if env.action in _UNSUPPORTED_ACTIONS:
             blocked.append(
                 {

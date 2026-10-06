@@ -1,6 +1,7 @@
 """Agentive layer for Integral.
 
-Always-on ops layer on a pluggable harness (default: embedded jvagent). Hosts
+Always-on ops layer on a pluggable harness (default: Integral AI/Pydantic AI;
+jvagent remains selectable for compatibility). Hosts
 the singular resident mind per active harness binding (facets: personal /
 org-facing / system), the MCP tool surface for external agents, staging,
 skills overlay, and conversational context.

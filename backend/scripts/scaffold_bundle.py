@@ -20,29 +20,24 @@ def _slug_to_py(slug: str) -> str:
 
 
 def scaffold_bundle(slug: str, *, trusted: bool = False) -> Path:
+    """Create a bundle with a standard skill package."""
     bundle_dir = _PROFILES_ROOT / slug
     if bundle_dir.exists():
         raise SystemExit(f"Bundle directory already exists: {bundle_dir}")
 
     bundle_dir.mkdir(parents=True)
-    skills_dir = bundle_dir / "skills" / "example_skill"
+    skills_dir = bundle_dir / "skills" / "example-skill"
     skills_dir.mkdir(parents=True)
     agents_dir = bundle_dir / "agents"
     agents_dir.mkdir()
 
     (skills_dir / "SKILL.md").write_text(
         """---
-name: example_skill
+name: example-skill
 description: >-
   Example App-bundled skill — replace with third-person discovery prose
   (what it does and when to route here).
-spec: jv
-extends: action:integral/embedded_integral_action
-requires-actions:
-  - EmbeddedIntegralAction
-allowed-tools:
-  - integral_query_entries
-tags: [example]
+allowed-tools: integral_query_entries
 ---
 
 ## When to use
@@ -143,13 +138,13 @@ app:
   description: Replace with App-level description.
   tracks: []
   skills:
-    - example_skill
+    - example-skill
   agents:
     - key: example_agent
       name: Example Agent
       persona_ref: agents/example.yaml
       skills:
-        - example_skill
+        - example-skill
       scope: app
       staging: optional
 {tools_block}
@@ -161,6 +156,7 @@ app:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the command and report its result."""
     parser = argparse.ArgumentParser(description="Scaffold an App bundle")
     parser.add_argument("slug", help="Bundle slug (directory name, e.g. my-app)")
     parser.add_argument(

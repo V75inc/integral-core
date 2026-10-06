@@ -13,6 +13,7 @@ import {
 } from './components/system';
 import { RequirePlatformAdmin } from './components/admin/RequirePlatformAdmin';
 import { AdminLayout } from './components/admin/AdminLayout';
+import { getRegisteredAdminRoutes } from './host/registry';
 
 const LoginPage = lazy(() =>
   import('./pages/LoginPage').then((m) => ({ default: m.LoginPage })),
@@ -356,6 +357,9 @@ export default function App() {
           <Route path="apps/:appId" element={<AdminAppDetailPage />} />
           <Route path="tracks" element={<AdminTracksPage />} />
           <Route path="tracks/:trackId" element={<AdminTrackDetailPage />} />
+          {getRegisteredAdminRoutes().map(route => (
+            <Route key={route.path} path={route.path} element={route.element} />
+          ))}
         </Route>
         <Route index element={<MissionControlPage />} />
         <Route path="feed" element={<FeedPage />} />

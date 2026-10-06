@@ -780,7 +780,7 @@ async def test_declared_asset_query_matches_dashboard_http_resident_and_mcp(
     assert [ref["id"] for ref in http_result["object_refs"]] == expected_ids
     assert [ref["id"] for ref in mcp.data["object_refs"]] == expected_ids
     assert http_result["evidence"]["applied_scope"] == f"ws:{workspace.id}"
-    assert mcp.data["evidence"]["applied_scope"] == f"ws:{workspace.id}"
+    assert mcp.data["evidence"]["applied_scope"] == f"app:{app.id}"
     assert (
         http_result["evidence"]["policy_decision_id"]
         == dispatcher["policy_decision_id"]

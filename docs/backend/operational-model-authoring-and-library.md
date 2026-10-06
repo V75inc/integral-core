@@ -370,7 +370,7 @@ App-scoped manifests gain five additional optional sections that turn an App int
 
 1. **Schema first.** Write `app.tracks[]` with entry types, taxonomy, views, and relations. Verify the App installs cleanly and the schema reads sensibly in the UI before adding operational behavior.
 2. **Settings schema** (`app.settings_schema`). Define the JSON Schema describing what's user-configurable post-install (publish cadence, target platforms, brand voice references, etc.). The install-time form is rendered from this schema. See [app_bundles_v1.md §7](app-bundles-v1.md#7-settings-schema).
-3. **Skills** (`app.skills[]`). Declare each capability the App ships with. Prefer `kind: declarative` (prompt + tool sequence over Integral's tool manifest) over `kind: custom` (Python handler). Each skill is a `skills/<key>/SKILL.md` JV bundle in the App directory. Skills that call `integral_*` tools **must** declare `extends: action:integral/embedded_integral_action` and `requires-actions: [EmbeddedIntegralAction]` so they inherit the resident propose/stage and identity discipline — see [app-bundles-v1.md §5.2.1](./app-bundles-v1.md#521-extending-the-embedded-integral-base-sop-required-for-integral-tools). Public skills surface in the resident agent's **workspace overlay** after install — [workspace-agent-Operational Model.md](./workspace-agent-profile.md). Full skills reference: [app-bundles-v1.md §5](./app-bundles-v1.md#5-skills-layer).
+3. **Skills** (`app.skills[]`). Declare each capability the App ships with. Prefer `kind: declarative` (prompt + tool sequence over Integral's tool manifest) over `kind: custom` (Python handler). Each skill is a `skills/<key>/SKILL.md` Agent Skills package in the App directory. Skills use standard Agent Skills frontmatter and portable instructions; tool authorization stays in the manifest and broker. Public skills surface in the resident agent's **workspace overlay** after install — [workspace-agent-Operational Model.md](./workspace-agent-profile.md). Full skills reference: [app-bundles-v1.md §5](./app-bundles-v1.md#5-skills-layer).
 4. **Agents** (`app.agents[]`). Declare each long-lived AI worker the App registers on install. Each agent has a persona file (under `agents/<name>.yaml`), a bound skill set, scope (`app` or `workspace`), staging policy, and optional default schedules. See [app_bundles_v1.md §6](app-bundles-v1.md#6-agents-layer).
 5. **Seeds** (`app.seeds`). Optional initial Entries planted on install. Useful for brand voice starter docs, README entries, sample records.
 6. **Permissions** (`app.permissions`). Defaults for install eligibility and post-install member roles.
@@ -382,7 +382,7 @@ backend/app/packages/my-app/
 ├── operational-model.yaml                 # integral_operational_model_version: 3; scope: app
 ├── skills/
 │   ├── carousel_drafter/
-│   │   └── SKILL.md             # extends + allowed-tools + domain workflow
+│   │   └── SKILL.md             # Standard frontmatter + domain workflow
 │   └── example_skill/
 │       └── SKILL.md
 ├── agents/

@@ -34,7 +34,7 @@ describe('ImproveThisButton', () => {
       expect(listener).toHaveBeenCalledOnce();
       const draft = consumePendingChatDraft() ?? '';
       expect(draft).toMatch(
-        /currently open .*“Customer Reviews” .*Focused .* ID: "n\.Resource\.focused".*existing schema.*integral_model skill.*Do not publish.*I approve/i,
+        /currently open .*“Customer Reviews” .*Focused .* ID: "n\.Resource\.focused".*existing schema.*integral-model skill.*Do not publish.*I approve/i,
       );
       if (target === 'track') {
         expect(draft).toContain(
