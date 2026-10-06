@@ -376,6 +376,67 @@ async def test_bundle_rehydration_uses_active_definition_not_unactivated_profile
 
 
 @pytest.mark.asyncio
+async def test_bundle_rehydration_uses_healed_attached_manifest(monkeypatch):
+    """A repaired package layer must supersede a stale definition snapshot."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.models.nodes import App
+    from app.services import (
+        app_lifecycle,
+        application_definitions,
+        operational_model_runtime,
+    )
+    from app.services.hooks import install_hook
+
+    app = SimpleNamespace(id="n.App.rehydrated", workspace_id="n.Workspace.rehydrated")
+    attached = SimpleNamespace(
+        manifest={"scope": "app", "app": {"queries": [{"key": "current"}]}},
+        metadata={"bundle_dir_path": "/tmp/venture-journey"},
+    )
+    stale_definition = SimpleNamespace(
+        canonical_manifest={"scope": "app", "app": {"queries": [{"key": "stale"}]}}
+    )
+    captured = []
+
+    async def only_this_app(_query):
+        return [app]
+
+    async def capture_registration(**kwargs):
+        captured.append(kwargs["canonical"])
+
+    monkeypatch.setattr(App, "find", only_this_app)
+    monkeypatch.setattr(
+        app_lifecycle,
+        "get_app_attached_operational_model",
+        AsyncMock(return_value=attached),
+    )
+    monkeypatch.setattr(
+        application_definitions,
+        "get_active_application_definition",
+        AsyncMock(return_value=stale_definition),
+    )
+    monkeypatch.setattr(
+        operational_model_runtime,
+        "compile_canonical_manifest",
+        lambda **_kwargs: attached.manifest,
+    )
+    monkeypatch.setattr(
+        install_hook,
+        "_heal_stripped_operational_layer",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        install_hook, "register_bundle_on_install", capture_registration
+    )
+
+    await install_hook.rehydrate_all_installed_bundles()
+
+    assert len(captured) == 1
+    assert [query["key"] for query in captured[0]["app"]["queries"]] == ["current"]
+
+
+@pytest.mark.asyncio
 async def test_run_snapshot_uses_active_definition_not_unactivated_profile():
     """Run receipts describe the contract that could actually execute."""
     from app.agentive.services.execution_runs import build_capability_snapshot

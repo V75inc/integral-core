@@ -10,6 +10,7 @@ when the model itself judges its reply left work undone.
 
 from __future__ import annotations
 
+import json
 from typing import Any, Dict, List
 
 import pytest
@@ -29,6 +30,8 @@ def _ctx() -> ChatTurnContext:
         text="build my bike shop app",
         thread_id="thread-1",
         session_id="session-1",
+        system_context="host policy",
+        extra_data={"run_id": "run-1"},
     )
 
 
@@ -60,6 +63,7 @@ async def _run(
     *,
     model_says_unfinished: bool = False,
     checked: List[str] | None = None,
+    captured_extra_data: List[Dict[str, Any]] | None = None,
 ) -> tuple[list, list]:
     """Stream one turn per ``(tool steps, reply)``; return utterances, events."""
     utterances: List[str] = []
@@ -74,6 +78,8 @@ async def _run(
 
     async def _fake_embed_turn(**kwargs):
         utterances.append(kwargs["text"])
+        if captured_extra_data is not None:
+            captured_extra_data.append(kwargs["extra_data"])
         steps, reply = queue.pop(0)
         for ev in steps:
             yield ev
@@ -103,17 +109,25 @@ async def _run(
 
 @pytest.mark.asyncio
 async def test_turn_ending_on_a_failed_step_gets_one_follow_up_pass(monkeypatch):
+    extra_data: List[Dict[str, Any]] = []
     utterances, events = await _run(
         monkeypatch,
         [
             ([_step("integral_build_approved_design", failed=True)], "x"),
             ([_step("integral_build_approved_design")], "Your app is ready."),
         ],
+        captured_extra_data=extra_data,
     )
     assert utterances[0] == "build my bike shop app"
-    assert utterances[1] == jvagent_provider.FOLLOW_THROUGH_UTTERANCE.replace(
-        "{request}", "build my bike shop app"
-    )
+    # The authored request already exists in conversation history. A host
+    # repair pass carries its directive in signed system context and must not
+    # replay that request as a fresh user message.
+    assert utterances[1] == ""
+    envelope = extra_data[1]["integral_system_context"]
+    signed_context = json.loads(envelope["body"])
+    assert signed_context["run_id"] == "run-1"
+    assert "host policy" in signed_context["context"]
+    assert jvagent_provider.FOLLOW_THROUGH_SYSTEM_CONTEXT in signed_context["context"]
     assert {"type": "message-boundary"} in events
     finals = [ev["content"] for ev in events if ev["type"] == "final-content"]
     assert finals[-1] == "Your app is ready."
@@ -179,6 +193,7 @@ async def test_explicit_reply_tool_does_not_start_a_second_pass(monkeypatch):
 @pytest.mark.asyncio
 async def test_model_judged_unfinished_reply_gets_one_pass(monkeypatch):
     checked: List[str] = []
+    extra_data: List[Dict[str, Any]] = []
     utterances, events = await _run(
         monkeypatch,
         [
@@ -187,9 +202,12 @@ async def test_model_judged_unfinished_reply_gets_one_pass(monkeypatch):
         ],
         model_says_unfinished=True,
         checked=checked,
+        captured_extra_data=extra_data,
     )
-    assert "> build my bike shop app" in utterances[1]
-    assert "Estoy creando" not in utterances[1]
+    assert utterances[1] == ""
+    signed_context = json.loads(extra_data[1]["integral_system_context"]["body"])
+    assert jvagent_provider.FOLLOW_THROUGH_SYSTEM_CONTEXT in signed_context["context"]
+    assert "Estoy creando" not in signed_context["context"]
     assert checked == ["Estoy creando la app ahora."]
     assert {"type": "message-boundary"} in events
 

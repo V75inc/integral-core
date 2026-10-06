@@ -4,8 +4,8 @@
  *
  * Resident harness
  * ----------------
- *   Integral AI          → your workspace coworker (jvagent embedded).
- *                          Active by default.
+ *   jvagent              → embedded jvagent harness.
+ *   Integral AI          → the integral_native harness.
  *   Echo                 → dev/smoke harness for local development +
  *                          smoke tests. Not a peer coworker mind.
  *
@@ -30,6 +30,7 @@ import {
   connectedAgentsApi,
   type ConnectedAgent,
 } from '../../../api/connectedAgents';
+import { aiChatApi } from '../../../api/aiChat';
 import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
 import { EmptyState } from '../../../components/ui/EmptyState';
@@ -82,8 +83,8 @@ interface HarnessAgentRow {
 
 const BUILTIN_AGENT: HarnessAgentRow = {
   id: 'integral-builtin',
-  displayName: 'Integral AI',
-  subtitle: 'Your workspace coworker',
+  displayName: 'jvagent',
+  subtitle: 'Embedded jvagent harness',
 };
 
 const ECHO_AGENT: HarnessAgentRow = {
@@ -96,7 +97,7 @@ const ECHO_AGENT: HarnessAgentRow = {
 // Provider definitions
 // ---------------------------------------------------------------------------
 
-type ProviderKey = 'jvagent_embedded' | 'echo';
+type ProviderKey = 'jvagent_embedded' | 'pydantic_native' | 'echo';
 
 interface ProviderDef {
   key: ProviderKey;
@@ -107,19 +108,31 @@ interface ProviderDef {
   /** Routing id stored in ``providers.defaultProviderId`` when this
    *  provider is the active harness. Shown only under Advanced. */
   routingId: HarnessProviderId;
-  /** Technical provider id for Advanced. */
-  technicalLabel: string;
+  /** Provider registry id persisted on chat threads. */
+  providerId: string;
   /** The synthetic row rendered under this provider. */
   agent: HarnessAgentRow;
 }
 
 const PROVIDERS: ProviderDef[] = [
   {
+    key: 'pydantic_native',
+    label: 'Integral AI',
+    blurb: 'Integral Core’s Pydantic AI harness with scoped sessions and brokered tools.',
+    routingId: 'pydantic-ai-native',
+    providerId: 'integral_native',
+    agent: {
+      id: 'integral-native',
+      displayName: 'Integral AI',
+      subtitle: 'Integral Core resident Pydantic AI harness',
+    },
+  },
+  {
     key: 'jvagent_embedded',
-    label: 'Integral',
+    label: 'jvagent',
     blurb: 'Helps you find information, organize work, and make updates.',
     routingId: 'jvagent-embedded',
-    technicalLabel: 'jvagent (embedded)',
+    providerId: 'jvagent',
     agent: BUILTIN_AGENT,
   },
   {
@@ -127,7 +140,7 @@ const PROVIDERS: ProviderDef[] = [
     label: 'Echo',
     blurb: 'Repeats your messages for testing. Does not use an AI model.',
     routingId: 'mock-echo',
-    technicalLabel: 'Echo (mock)',
+    providerId: 'mock-echo',
     agent: ECHO_AGENT,
   },
 ];
@@ -160,10 +173,16 @@ function AgentRow({ agent }: { agent: HarnessAgentRow }) {
 interface ProviderGroupProps {
   provider: ProviderDef;
   active: boolean;
+  disabled?: boolean;
   onActivate: () => void;
 }
 
-function ProviderGroup({ provider, active, onActivate }: ProviderGroupProps) {
+function ProviderGroup({
+  provider,
+  active,
+  disabled = false,
+  onActivate,
+}: ProviderGroupProps) {
   return (
     <section
       className={`
@@ -178,6 +197,7 @@ function ProviderGroup({ provider, active, onActivate }: ProviderGroupProps) {
             name="active-provider"
             checked={active}
             onChange={onActivate}
+            disabled={disabled}
             aria-label={`Activate ${provider.label} assistant`}
             className="h-4 w-4 cursor-pointer accent-[var(--brand-accent)] shrink-0"
           />
@@ -190,8 +210,8 @@ function ProviderGroup({ provider, active, onActivate }: ProviderGroupProps) {
             </p>
           </span>
         </label>
-        <StatusPill state={active ? 'ok' : 'idle'}>
-          {active ? 'Active' : 'Inactive'}
+        <StatusPill state={disabled ? 'warn' : active ? 'ok' : 'idle'}>
+          {disabled ? 'Unavailable' : active ? 'Active' : 'Inactive'}
         </StatusPill>
       </header>
 
@@ -216,7 +236,7 @@ function AdvancedHarnessIds() {
       >
         <CollapsibleTrigger className="group flex w-full items-center justify-between gap-2 px-4 py-3 text-left">
           <Text as="span" variant="body" weight="medium">
-            Advanced · provider IDs
+            Advanced · technical IDs
           </Text>
           <Text
             as="span"
@@ -236,23 +256,29 @@ function AdvancedHarnessIds() {
           className="flex flex-col gap-2"
         >
           <Text variant="body-sm" tone="muted" as="p">
-            Routing identifiers used by the ops layer. Prefer the harness
-            picker above unless you are debugging providers.
+            Provider IDs are recorded on conversations. Settings routes are
+            local assistant-selection keys. Prefer the harness picker above
+            unless you are debugging providers.
           </Text>
-          <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1.5 text-sm">
+          <dl className="flex flex-col gap-3 text-sm">
             {PROVIDERS.map(p => (
-              <div key={p.key} className="contents">
+              <div key={p.key} className="flex flex-col gap-1">
                 <Text variant="body-sm" tone="subtle" as="dt">
-                  {p.technicalLabel}
+                  {p.label}
                 </Text>
-                <Text variant="mono" as="dd" className="truncate">
-                  {p.routingId}
-                </Text>
+                <div className="flex flex-wrap gap-x-4 gap-y-1">
+                  <Text variant="body-sm" as="dd" className="font-mono">
+                    provider_id: {p.providerId}
+                  </Text>
+                  <Text variant="body-sm" as="dd" className="font-mono">
+                    settings_route: {p.routingId}
+                  </Text>
+                </div>
               </div>
             ))}
             <div className="contents">
               <Text variant="body-sm" tone="subtle" as="dt">
-                Integral AI row
+                Built-in jvagent agent_id
               </Text>
               <Text variant="mono" as="dd" className="truncate">
                 {BUILTIN_AGENT.id}
@@ -260,7 +286,7 @@ function AdvancedHarnessIds() {
             </div>
             <div className="contents">
               <Text variant="body-sm" tone="subtle" as="dt">
-                Echo row
+                Built-in Echo agent_id
               </Text>
               <Text variant="mono" as="dd" className="truncate">
                 {ECHO_AGENT.id}
@@ -436,11 +462,28 @@ interface AgentsSectionProps {
  *  snapshot. */
 function activeProviderKey(settings: SettingsSnapshot): ProviderKey {
   if (settings.providers.defaultProviderId === 'mock-echo') return 'echo';
+  if (settings.providers.defaultProviderId === 'pydantic-ai-native') {
+    return 'pydantic_native';
+  }
   return 'jvagent_embedded';
 }
 
 export function AgentsSection(_props: AgentsSectionProps = {}) {
   const [settings, updateSettings] = useSettings();
+  const providersQuery = useQuery({
+    queryKey: ['chat-providers'],
+    queryFn: () => aiChatApi.listProviders(),
+    staleTime: 30_000,
+  });
+  const nativeAvailable = providersQuery.data?.some(
+    provider => provider.id === 'integral_native' && provider.available,
+  ) ?? false;
+  const nativeSelected =
+    settings.providers.defaultProviderId === 'pydantic-ai-native';
+  const visibleProviders = PROVIDERS.filter(
+    provider =>
+      provider.key !== 'pydantic_native' || nativeAvailable || nativeSelected,
+  );
 
   const activeKey = activeProviderKey(settings);
 
@@ -473,11 +516,12 @@ export function AgentsSection(_props: AgentsSectionProps = {}) {
         description="Choose who responds when you ask Integral for help."
       >
         <div className="flex flex-col gap-3">
-          {PROVIDERS.map(p => (
+          {visibleProviders.map(p => (
             <ProviderGroup
               key={p.key}
               provider={p}
               active={p.key === activeKey}
+              disabled={p.key === 'pydantic_native' && !nativeAvailable}
               onActivate={() => setActive(p.key)}
             />
           ))}

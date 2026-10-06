@@ -26,6 +26,27 @@ def test_smallest_and_top_n():
     assert top["sort"][0]["direction"] == "desc"
 
 
+def test_ordinary_superlative_about_unknowns_is_not_a_record_ranking():
+    plan = build_query_plan(
+        "Offer up to three untested ideas and explain the biggest unknown."
+    )
+    assert plan.get("sort") is None
+    assert (
+        insights_plan_preamble(
+            "Offer up to three untested ideas and explain the biggest unknown."
+        )
+        == ""
+    )
+
+
+def test_assume_does_not_match_the_sum_aggregate_keyword():
+    question = "Do not assume a location; prepare a short Venture brief."
+    plan = build_query_plan(question)
+    assert plan.get("instrument") != "integral_aggregate"
+    assert plan.get("aggregation") is None
+    assert insights_plan_preamble(question) == ""
+
+
 def test_totals_and_counts_do_not_share_an_instrument():
     """A sum is an aggregate. A how-many is a count."""
     total = build_query_plan("what's the total value", now=_NOW)
@@ -97,6 +118,21 @@ def test_host_preamble_covers_totals_and_skips_ordinary_chat():
     assert "Do not ask where the records are kept" in preamble
     assert insights_plan_preamble("hello there", now=_NOW) == ""
     assert insights_plan_preamble("of those, which are overdue", now=_NOW) == ""
+
+
+def test_public_activity_constraint_does_not_trigger_activity_digest():
+    question = (
+        "Draft a private test plan with no public activity and no saving; "
+        "state that this cannot validate demand."
+    )
+    plan = build_query_plan(question, now=_NOW)
+    assert plan.get("instrument") == "integral_query_entries"
+    assert insights_plan_preamble(question, now=_NOW) == ""
+
+
+def test_explicit_activity_period_still_uses_activity_digest():
+    plan = build_query_plan("activity this week", now=_NOW)
+    assert plan["instrument"] == "integral_activity_digest"
 
 
 def test_bad_input_is_not_an_empty_result():

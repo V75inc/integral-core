@@ -93,17 +93,17 @@ async def test_list_core_skills_returns_read_only_tier():
 async def test_list_core_skills_description_from_frontmatter():
     """Core skill editor rows expose SKILL.md frontmatter description (when-to-use discovery)."""
     core = {row["key"]: row for row in list_core_skills()}
-    assert "integral_models" in core
-    assert "Operational Model" in core["integral_models"]["description"]
-    assert core["integral_models"]["domain_body"]
-    assert "## When to use" in core["integral_models"]["domain_body"]
+    assert "integral-models" in core
+    assert "Operational Model" in core["integral-models"]["description"]
+    assert core["integral-models"]["domain_body"]
+    assert "## When to use" in core["integral-models"]["domain_body"]
 
 
 @pytest.mark.asyncio
 async def test_reserved_skill_key_rejected():
     """A workspace skill key colliding with an `integral_*` core skill is rejected."""
     with pytest.raises(SkillRegistrationError):
-        validate_skill_key("integral_filing")
+        validate_skill_key("integral-filing")
 
 
 @pytest.mark.asyncio
@@ -345,7 +345,10 @@ async def test_effective_skills_context_uses_authorized_profile_for_focus(
             ),
         )
 
-    async def fake_visible_skills(_workspace_id, *, user_id, private_app_id=None):
+    async def fake_visible_skills(
+        _workspace_id, *, user_id, private_app_id=None, include_private=True
+    ):
+        assert include_private is False
         assert user_id
         requested_private_apps.append(private_app_id)
         return [
@@ -448,7 +451,10 @@ async def test_effective_skills_context_lists_private_skills_for_authorized_focu
             ),
         )
 
-    async def fake_visible_skills(_workspace_id, *, user_id, private_app_id=None):
+    async def fake_visible_skills(
+        _workspace_id, *, user_id, private_app_id=None, include_private=True
+    ):
+        assert include_private is False
         assert user_id == "user-visible"
         assert private_app_id == "app-visible"
         return [
@@ -492,7 +498,7 @@ async def test_get_core_skill_detail_includes_description():
 
     # get_skill_detail for core skips workspace gate — pass dummy ids
     detail = await get_skill_detail(
-        "core:integral_filing",
+        "core:integral-filing",
         workspace_id="ws-dummy",
         user_id="user-dummy",
     )
@@ -601,3 +607,38 @@ async def test_register_skill_upgrade_preserves_override():
     assert skill.body_override == "KEEP ME"
     assert skill.name == "Custom Name"
     assert skill.description == "New manifest description"
+
+
+@pytest.mark.asyncio
+async def test_private_bundle_skills_preserve_editor_and_focused_runtime_modes():
+    """Runtime focus admits its private bundle skills without exposing another App."""
+    owner = await _user("skills-private-integration@example.com")
+    workspace = await _personal_workspace(owner)
+    apps = []
+    for key in ("focused_private", "other_private"):
+        app = await _app_with_skill(
+            name=key,
+            slug=key,
+            workspace_id=workspace.id,
+            owner_id=owner.id,
+            skill_key=key,
+        )
+        skills = await app.nodes(edge=[CONTAINS], node=["Skill"])
+        skill = next(row for row in skills if row.key == key)
+        skill.private = True
+        await skill.save()
+        apps.append(app)
+
+    editor = await list_workspace_skills(workspace.id, user_id=owner.id)
+    assert {row["key"] for row in editor} == {"focused_private", "other_private"}
+    focused = await list_workspace_skills(
+        workspace.id,
+        user_id=owner.id,
+        private_app_id=apps[0].id,
+        include_private=False,
+    )
+    assert {row["key"] for row in focused} == {"focused_private"}
+    unfocused = await list_workspace_skills(
+        workspace.id, user_id=owner.id, include_private=False
+    )
+    assert unfocused == []

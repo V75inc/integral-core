@@ -22,6 +22,7 @@ run_logged() {
   fi
 }
 
+"$ROOT/.ci/bundle_resident_harness.sh"
 run_logged "$TMP/core-build.log" uv build "$ROOT/backend" --wheel --out-dir "$TMP/dist"
 run_logged "$TMP/sdk-build.log" uv build "$ROOT/sdk/python" --wheel --out-dir "$TMP/dist"
 CORE_WHEEL="$(find "$TMP/dist" -maxdepth 1 -name 'integral_core-*.whl' -print -quit)"

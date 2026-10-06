@@ -83,6 +83,50 @@ def test_skill_key_without_skill_md_excludes_that_skill(tmp_path, caplog):
     assert specs[0].skill_keys == []  # ghost excluded
 
 
+def test_skill_key_uses_declared_standard_skill_document_path(tmp_path):
+    """Internal keys may remain stable while the standard directory is kebab-case."""
+    from app.services.operational_model_loader import load_library_operational_models
+
+    d = tmp_path / "b-portable-skill"
+    skill = d / "skills" / "register-asset" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: register-asset\ndescription: Register assets.\n---\n")
+    (d / "operational-model.yaml").write_text(
+        "integral_operational_model_version: 3\nscope: track\n"
+        "package:\n  slug: b-portable-skill\n  name: T\n  version: 1.0.0\n"
+        "track:\n  entry_types: []\n  skills:\n"
+        "  - key: register_asset\n"
+        "    prompt_template: skills/register-asset/SKILL.md\n"
+    )
+
+    specs = load_library_operational_models(packages_root=tmp_path)
+
+    assert len(specs) == 1
+    assert specs[0].skill_keys == ["register_asset"]
+
+
+def test_skill_document_path_cannot_escape_bundle(tmp_path):
+    """A declared document path cannot load skill content outside the bundle."""
+    from app.services.operational_model_loader import load_library_operational_models
+
+    d = tmp_path / "b-path-escape"
+    d.mkdir()
+    outside = tmp_path / "SKILL.md"
+    outside.write_text("---\nname: escaped\ndescription: escaped\n---\n")
+    (d / "operational-model.yaml").write_text(
+        "integral_operational_model_version: 3\nscope: track\n"
+        "package:\n  slug: b-path-escape\n  name: T\n  version: 1.0.0\n"
+        "track:\n  entry_types: []\n  skills:\n"
+        "  - key: escaped\n"
+        "    prompt_template: ../SKILL.md\n"
+    )
+
+    specs = load_library_operational_models(packages_root=tmp_path)
+
+    assert len(specs) == 1
+    assert specs[0].skill_keys == []
+
+
 def test_bundle_fingerprint_changes_when_file_edited(tmp_path):
     from app.services.operational_model_loader import compute_bundle_fingerprint
 

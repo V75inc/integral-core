@@ -55,8 +55,9 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
-logger = logging.getLogger(__name__)
+from .embedding_store import EmbeddingStoreUnavailable
 
+logger = logging.getLogger(__name__)
 
 EMBEDDING_DIM = 384
 DEFAULT_TABLE = "entry_embedding"
@@ -130,7 +131,17 @@ class PgVectorEmbeddingStore:
         track_idx = f"{self._table}_track_idx"
         hnsw_idx = f"{self._table}_hnsw"
         async with pool.acquire() as conn:
-            await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+            try:
+                await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+            except Exception as exc:
+                if (
+                    getattr(exc, "sqlstate", None) == "0A000"
+                    and 'extension "vector" is not available' in str(exc).lower()
+                ):
+                    raise EmbeddingStoreUnavailable(
+                        "PostgreSQL does not have the pgvector extension installed"
+                    ) from exc
+                raise
             await conn.execute(
                 f"""
                 CREATE TABLE IF NOT EXISTS {self._table} (

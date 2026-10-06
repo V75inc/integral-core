@@ -2,10 +2,10 @@
  * Approval card for an agent-staged write.
  *
  * Renders in place of the default raw-JSON tool-call disclosure when a
- * tool-call result matches the StagedChange shape. Four user actions:
- * Approve / Approve & auto-allow this kind / Show raw / Reject. On
- * Approve, also sends a synthetic "Go ahead." turn so
- * the agent re-enters the loop with a now-blessed token.
+ * tool-call result matches the StagedChange shape. User actions:
+ * Approve this change / Show raw / Reject. On
+ * Approve, then starts a host-side continuation so the agent re-enters the
+ * loop with a now-blessed token without fabricating a user utterance.
  *
  * State management is local to the card — the source of truth lives in
  * the backend token store. Optimistic updates on click; if the server
@@ -57,11 +57,22 @@ export function StagedChangeCard({ staged, onTerminal }: StagedChangeCardProps) 
 
   const controls = useStagedChange(staged, {
     onTerminal,
+    onNeedsStrongConfirmation: (summary) =>
+      confirm({
+        title: 'Confirm high-impact change',
+        message: `This is a high-impact change. Review the affected records, access, or structure, then confirm this exact action: ${summary}`,
+        confirmLabel: 'Confirm change',
+        variant: 'danger',
+      }),
     onNeedsAgentNudge: () => {
       try {
-        threadRuntime?.append({
-          role: 'user',
-          content: [{ type: 'text', text: 'Go ahead.' }],
+        if (!threadRuntime) return;
+        const messages = threadRuntime.getState().messages;
+        const parentId = messages[messages.length - 1]?.id ?? null;
+        threadRuntime.startRun({
+          parentId,
+          sourceId: null,
+          runConfig: { custom: { hostAction: 'staging_follow_through' } },
         });
       } catch {
         /* non-fatal — server-side state is correct */
@@ -119,6 +130,26 @@ export function StagedChangeCard({ staged, onTerminal }: StagedChangeCardProps) 
         />
       </div>
 
+      {status.state === 'pending' && staged.effect_class ? (
+        <Text
+          variant="meta"
+          tone={
+            staged.effect_class === 'destructive_security'
+              ? 'danger'
+              : staged.effect_class === 'material_external'
+                ? 'muted'
+                : 'default'
+          }
+          className="mb-2 block"
+        >
+          {staged.effect_class === 'destructive_security'
+            ? 'High impact · requires deliberate confirmation'
+            : staged.effect_class === 'material_external'
+              ? 'Material action · review the destination and effects'
+              : 'Private workspace change'}
+        </Text>
+      ) : null}
+
       {/* Diff body. A diff too long to scan in this column is truncated here
           and read in the review modal instead — a wall of text inside a 380px
           dock panel is not review, it is scrolling. */}
@@ -168,19 +199,11 @@ export function StagedChangeCard({ staged, onTerminal }: StagedChangeCardProps) 
       {status.state === 'pending' && (
         <div className="flex flex-wrap items-center gap-2">
           <button
-            onClick={() => bless('single')}
+            onClick={() => bless()}
             disabled={status.kind === 'loading'}
             className="inline-flex items-center gap-1 rounded-[var(--radius-pill)] bg-[var(--brand-accent)] px-3 py-1 text-xs font-medium text-[var(--brand-accent-fg)] hover:opacity-90 disabled:opacity-50"
           >
             <CheckIcon size={12} /> Approve
-          </button>
-          <button
-            onClick={() => bless('session')}
-            disabled={status.kind === 'loading'}
-            className="inline-flex items-center gap-1 rounded-[var(--radius-pill)] border border-[var(--border-subtle)] px-3 py-1 text-xs text-[var(--text-muted)] hover:text-[var(--text)]"
-            title="Approve and auto-allow this kind for the rest of this session"
-          >
-            <Sparkles size={12} /> Approve &amp; auto-allow
           </button>
           <button
             onClick={() => void revoke()}

@@ -110,8 +110,6 @@ export async function listSkills() {
 // endpoints when the user clicks Approve / Reject. See
 // `.planning/agentive/staging-primitive.md` for the full flow.
 
-export type StagingAutonomy = 'single' | 'session';
-
 export interface StagingResponse {
   ok: boolean;
   /**
@@ -152,9 +150,12 @@ export async function listPendingStagedChanges(): Promise<
 
 export async function blessStagingToken(
   token: string,
-  autonomy: StagingAutonomy = 'single',
+  options: { strongConfirmation?: boolean } = {},
 ): Promise<StagingResponse> {
-  const res = await api.post('/agentive/staging/bless-token', { token, autonomy });
+  const res = await api.post('/agentive/staging/bless-token', {
+    token,
+    strong_confirmation: Boolean(options.strongConfirmation),
+  });
   return res.data;
 }
 

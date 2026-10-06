@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from typing import Any, List
 
 log = logging.getLogger(__name__)
@@ -77,12 +78,45 @@ async def _recovery_loop(*, idle_sleep: float = 15.0) -> None:
         deliver_pending_operation_events,
     )
 
+    next_harness_retention = 0.0
     while True:
         try:
             await run_recovery_pass(reclaim_worker_id="periodic-recovery")
             await deliver_pending_operation_events()
         except Exception:  # noqa: BLE001
             log.exception("work recovery loop failed")
+
+        if time.monotonic() >= next_harness_retention:
+            try:
+                from app.agentive.harness.turn_input import (
+                    purge_expired_turn_input_capsules,
+                )
+                from app.config import settings
+                from app.services.harness_sessions import (
+                    purge_expired_harness_sessions,
+                )
+
+                report = await purge_expired_harness_sessions(
+                    retention_days=settings.INTEGRAL_HARNESS_SESSION_RETENTION_DAYS
+                )
+                log.info(
+                    "Harness session retention: sessions_deleted=%s records_deleted=%s",
+                    report["sessions_deleted"],
+                    report["records_deleted"],
+                )
+                input_report = await purge_expired_turn_input_capsules(
+                    retention_days=settings.INTEGRAL_HARNESS_SESSION_RETENTION_DAYS
+                )
+                log.info(
+                    "Harness turn input retention: capsules_deleted=%s "
+                    "active_work_skipped=%s",
+                    input_report["capsules_deleted"],
+                    input_report["active_work_skipped"],
+                )
+            except Exception:  # noqa: BLE001
+                log.exception("Harness session retention pass failed")
+            next_harness_retention = time.monotonic() + 6 * 60 * 60
+
         await asyncio.sleep(idle_sleep)
 
 

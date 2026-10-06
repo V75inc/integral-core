@@ -103,10 +103,8 @@ class ActionLink(TypedDict):
     # route this to POST /api/agentive/staging/bless-token or
     # POST /api/agentive/staging/revoke-token respectively.
     kind: Literal["bless", "revoke"]
-    # Pass-through autonomy hint for bless calls. ``single`` is the
-    # default (one-shot approval); ``session`` adds the kind to the
-    # user's autonomy grants for the remainder of the session.
-    autonomy: Optional[Literal["single", "session"]]
+    # One-shot approval is the only supported grant in V1.
+    autonomy: Optional[Literal["single"]]
     # Opaque token. Adapters MUST include this as the bless/revoke
     # body's ``token`` field.
     token: str
@@ -199,17 +197,6 @@ def _rejection_keywords_for(channel: ChannelHint) -> List[str]:
     return base
 
 
-def _autonomy_keywords_for(channel: ChannelHint) -> List[str]:
-    """Keywords that map to ``bless`` with ``autonomy=session``.
-
-    ``"always"`` / ``"all"`` are common SMS shorthand for "do this
-    kind without asking next time". Voice and Slack use the same
-    pattern. Email channels typically don't expose autonomy as a
-    text-typed action — adapter UIs render an explicit button.
-    """
-    return ["always", "all", "auto", "auto allow", "always approve"]
-
-
 # ---------------------------------------------------------------------------
 # Public renderer
 # ---------------------------------------------------------------------------
@@ -253,22 +240,15 @@ def render_for_channel(
     )
 
     if channel == "sms":
-        text_prompt = (
-            f"{base_prefix} "
-            f"Reply YES to approve, NO to reject"
-            f"{f', ALWAYS to auto-allow this kind' if sc.kind else ''}."
-        )
+        text_prompt = f"{base_prefix} Reply YES to approve, NO to reject."
     elif channel == "voice":
         text_prompt = (
             f"{base_prefix} "
-            f"Say 'approve' to file it, 'reject' to discard, "
-            f"or 'always' to auto-allow future {sc.kind.replace('_', ' ')} requests."
+            f"Say 'approve' to apply it, or 'reject' to leave things unchanged."
         )
     elif channel == "slack":
         text_prompt = (
-            f"{base_prefix}\n"
-            f"Approve to commit, Reject to discard, or "
-            f"Approve & auto-allow to skip future prompts for this kind."
+            f"{base_prefix}\n" f"Approve to apply, or Reject to leave things unchanged."
         )
     elif channel == "email":
         approve_url = (
@@ -301,13 +281,6 @@ def render_for_channel(
             "autonomy": "single",
             "token": sc.token,
             "keywords": _approval_keywords_for(channel),
-        },
-        {
-            "label": "Approve & auto-allow",
-            "kind": "bless",
-            "autonomy": "session",
-            "token": sc.token,
-            "keywords": _autonomy_keywords_for(channel),
         },
         {
             "label": "Reject",

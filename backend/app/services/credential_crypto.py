@@ -200,3 +200,49 @@ def decrypt_secret_from_storage(stored: str, *, aad: Optional[str] = None) -> st
             logger.warning("decrypt_secret_from_storage failed: %s", type(exc).__name__)
     logger.warning("decrypt_secret_from_storage: no key decrypted the payload")
     return ""
+
+
+def rewrap_secret_for_storage(
+    stored: str, *, aad: Optional[str] = None
+) -> tuple[str, bool]:
+    """Re-encrypt one v1 value under the current key when it uses the previous.
+
+    The operation is idempotent: values already decryptable with the current
+    key are returned unchanged. Callers must persist the returned ciphertext
+    before retiring the previous key. Authentication or codec failures raise
+    rather than converting a damaged value to an empty secret.
+    """
+    if not stored:
+        return stored, False
+    if not stored.startswith(CIPHER_PREFIX_V1):
+        raise ValueError("only versioned encrypted storage values can be rewrapped")
+    current, reason = _resolve_key()
+    if current is None:
+        raise RuntimeError(reason or "current storage encryption key is required")
+
+    body = stored[len(CIPHER_PREFIX_V1) :]
+    try:
+        blob = _b64url_decode(body)
+    except Exception as exc:
+        raise ValueError("encrypted storage value has malformed encoding") from exc
+    if len(blob) <= _NONCE_BYTES:
+        raise ValueError("encrypted storage value is too short")
+    aad_bytes = aad.encode("utf-8") if aad else None
+    nonce, ct_with_tag = blob[:_NONCE_BYTES], blob[_NONCE_BYTES:]
+
+    def decrypt_with(key: bytes) -> Optional[str]:
+        try:
+            return AESGCM(key).decrypt(nonce, ct_with_tag, aad_bytes).decode("utf-8")
+        except Exception:
+            return None
+
+    plaintext = decrypt_with(current)
+    if plaintext is not None:
+        return stored, False
+    previous = _previous_key()
+    if previous is None:
+        raise ValueError("encrypted value is not readable with configured keys")
+    plaintext = decrypt_with(previous)
+    if plaintext is None:
+        raise ValueError("encrypted value is not readable with configured keys")
+    return encrypt_secret_for_storage(plaintext, aad=aad), True

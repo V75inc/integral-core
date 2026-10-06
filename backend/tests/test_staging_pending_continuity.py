@@ -147,7 +147,7 @@ async def test_consumed_create_dashboard_marker_requires_list_readback():
     assert "integral_list_dashboards" in marker
     assert "integral_update_dashboard" in marker
     assert "use_skill" in marker
-    assert "integral_dashboards" in marker
+    assert "integral-dashboards" in marker
     assert "\n" not in marker
 
 

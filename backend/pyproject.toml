@@ -97,6 +97,9 @@ dependencies = [
     # direct wheel URL in Requires-Dist. rc19 is the first candidate requiring
     # jvspatial 0.1.1. This release candidate is published to TestPyPI.
     "jvagent==0.1.8rc20",
+    # Native Integral harness. Keep the 0.x capability API exact-pinned and
+    # upgrade only with the native-harness compatibility/evaluation gates.
+    "pydantic-ai-harness[skills]==0.36.0",
     # LiteLLM is the harness's ONLY model backend (jvagent ADR-0045). Declared
     # explicitly rather than left to the action's own `pip:` block: jvagent
     # installs those at ACTION LOAD, which in this image runs as the non-root

@@ -14,3 +14,6 @@ tar -C "$src" \
   -cf - . | tar -C "$dest" -xf -
 test -f "$dest/app.yaml"
 test -f "$dest/agents/integral/integral_agent/agent.yaml"
+# setuptools may reuse stale build/lib files, including retired skill trees.
+# Clear that generated output so the next wheel contains only this source copy.
+rm -rf "$root/backend/build"

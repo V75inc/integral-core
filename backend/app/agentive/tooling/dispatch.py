@@ -67,6 +67,7 @@ logger = logging.getLogger(__name__)
 
 _GENERIC_DISPATCH_ERROR = "An internal error occurred while dispatching the tool"
 _proposal_only_sessions: Dict[str, float] = {}
+_no_workspace_write_sessions: Dict[str, float] = {}
 
 
 def set_proposal_only_guard(session_id: Optional[str]) -> None:
@@ -87,6 +88,28 @@ def _proposal_only_guard_active(session_id: Optional[str]) -> bool:
     deadline = _proposal_only_sessions.get(session_id, 0.0)
     if deadline <= time.monotonic():
         _proposal_only_sessions.pop(session_id, None)
+        return False
+    return True
+
+
+def set_no_workspace_write_guard(session_id: Optional[str]) -> None:
+    """Block mutation tools for a chat turn that explicitly forbids saving."""
+    if session_id:
+        _no_workspace_write_sessions[session_id] = time.monotonic() + 900.0
+
+
+def clear_no_workspace_write_guard(session_id: Optional[str]) -> None:
+    """Release the no-write barrier when the guarded chat turn ends."""
+    if session_id:
+        _no_workspace_write_sessions.pop(session_id, None)
+
+
+def _no_workspace_write_guard_active(session_id: Optional[str]) -> bool:
+    if not session_id:
+        return False
+    deadline = _no_workspace_write_sessions.get(session_id, 0.0)
+    if deadline <= time.monotonic():
+        _no_workspace_write_sessions.pop(session_id, None)
         return False
     return True
 
@@ -349,8 +372,8 @@ async def dispatch_tool(
             scope source. No tool arg can widen it.
         session_id: Optional conversation/session id the propose dispatch minted
             its StagedChange in. Threaded into ``create_staged_change`` so the
-            frontend inbox scopes the card to the right conversation and the
-            resident's session autonomy-grant can short-circuit the bless. The
+            frontend inbox scopes the card to the right conversation. Approval
+            remains specific to each staged change. The
             external MCP / consent dispatch surfaces omit it (default ``None``).
         interaction_id: Optional jvagent Interaction id of the prepare-X turn
             that minted the token. Threaded through so the closure-recording path
@@ -435,7 +458,7 @@ async def dispatch_tool(
                 return result
 
             # Correction turn: pending design is stale until re-proposed.
-            # Procedure is in skill integral_scaffold; refuse carries prior body.
+            # Procedure is in skill integral-scaffold; refuse carries prior body.
             if await design_amend_required(session_id):
                 from app.services.chat_threads import get_thread_by_session
 
@@ -450,7 +473,7 @@ async def dispatch_tool(
                 msg = (
                     "design_amend_required: call integral_propose_design with "
                     "the prior proposal plus only the user's deltas (skill "
-                    "integral_scaffold). Do not build the stale card."
+                    "integral-scaffold). Do not build the stale card."
                 )
                 if prior:
                     msg = f"{msg}\n\nprior_proposal:\n{prior}"
@@ -463,6 +486,23 @@ async def dispatch_tool(
 
         spec = _registry().get(name)
         binding = TOOL_BINDINGS.get(name)
+
+        # Explicit user no-save intent is a host-enforced capability boundary,
+        # not an instruction left to the resident prompt. Keep reads available
+        # for grounding, but fail closed for every non-read tool (including
+        # batch controls and staged proposals) until this turn finishes.
+        if _no_workspace_write_guard_active(session_id) and (
+            spec is None or spec.op_class != "read"
+        ):
+            return ToolResult(
+                is_error=True,
+                error_code="user_no_workspace_writes",
+                message=(
+                    "The user explicitly asked not to save or create anything. "
+                    "Do not call write, batch, proposal, or direct-action tools "
+                    "for this turn. Answer in chat only."
+                ),
+            )
 
         # A profile-revision approval authorizes a private draft edit only.
         # Its server-computed diff is injected into the user-visible prompt
@@ -698,6 +738,14 @@ async def dispatch_tool(
         )
         return result
     except Exception as exc:  # JVSpatialAPIException etc. -> fail-closed envelope
+        # Keep the model-facing envelope generic, but retain a scoped exception
+        # trace for operators. Tool arguments and user content are deliberately
+        # excluded: they can contain tenant data and credentials.
+        logger.exception(
+            "Agent tool dispatch failed tool=%s workspace=%s",
+            name,
+            _scope_fingerprint(scope),
+        )
         result = _tool_error_from_exception(exc)
         return result
     finally:
@@ -1028,8 +1076,7 @@ async def _dispatch_propose(
     Session threading: ``session_id`` and ``interaction_id`` flow straight
     through to ``create_staged_change`` (NOT from the stager / args — they are
     dispatch context). ``session_id`` scopes the frontend inbox card to the
-    minting conversation and lets the resident's session autonomy-grant
-    short-circuit the bless; ``interaction_id`` lets the closure-recording path
+    minting conversation; ``interaction_id`` lets the closure-recording path
     update the prepare-X interaction's response with the
     ``[SYSTEM:STAGING-RESOLVED]`` marker. Both default ``None`` so the external
     MCP / consent dispatch surfaces (which omit them) stage exactly as before.

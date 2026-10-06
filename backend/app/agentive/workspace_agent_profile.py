@@ -56,9 +56,7 @@ class OverlaySkillDoc:
     description: str
     body: str
     requires_tools: Tuple[str, ...] = ()
-    requires_actions: Tuple[str, ...] = ("EmbeddedIntegralAction",)
     source: str = "workspace"
-    spec: str = "jv"
     always_active: bool = False
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -168,59 +166,14 @@ def _body_from_skill_path(
 
 
 def allowed_tools_from_skill_path(skill_path: Path) -> List[str]:
-    """allowed-tools from SKILL.md frontmatter (jvagent parse or YAML fallback)."""
-    bundle = _parse_skill_disk_bundle(skill_path)
-    if bundle:
-        tools = bundle.get("allowed_tools") or bundle.get("allowed-tools") or []
-        if isinstance(tools, list):
-            return [str(t) for t in tools if str(t).strip()]
+    """Read the standard space-separated allowed-tools field."""
+    from app.services.skill_format import allowed_tool_names, parse_skill_document
+
     try:
-        raw = skill_path.read_text(encoding="utf-8")
-        if raw.startswith("---"):
-            import yaml
-
-            fm = yaml.safe_load(raw.split("---", 2)[1]) or {}
-            tools = fm.get("allowed-tools") or fm.get("allowed_tools") or []
-            if isinstance(tools, list):
-                return [str(t) for t in tools if str(t).strip()]
-    except Exception:
-        pass
-    return []
-
-
-def _compose_bundle_body_with_extends(bundle: Dict[str, Any], raw_body: str) -> str:
-    """Apply ADR-0020 ``extends`` (action base SOP) to an app-bundled skill body."""
-    extends_raw = bundle.get("extends")
-    if not extends_raw:
-        return raw_body
-    try:
-        from jvagent.scaffold.sop_extend import (
-            compose_skill_body,
-            load_action_base_sop_body,
-            parse_extends_ref,
-        )
-
-        parsed = parse_extends_ref(extends_raw)
-        if not parsed:
-            return raw_body
-        kind, target = parsed
-        if kind != "action":
-            return raw_body
-        from app.agentive.resident_root import resident_agent_root
-
-        base = load_action_base_sop_body(
-            target,
-            app_root=str(resident_agent_root()),
-            agent_namespace=_RESIDENT_AGENT_NAMESPACE,
-            agent_name=_RESIDENT_AGENT_NAME,
-        )
-        return compose_skill_body(base, raw_body)
-    except Exception as exc:
-        logger.warning(
-            "workspace_agent_profile: extends compose failed: %s",
-            exc,
-        )
-        return raw_body
+        meta, _ = parse_skill_document(skill_path)
+        return allowed_tool_names(meta.get("allowed-tools"))
+    except (OSError, ValueError):
+        return []
 
 
 def _app_slug(app: App) -> str:
@@ -234,12 +187,17 @@ def _app_slug(app: App) -> str:
 
 
 def _load_parsed_bundle(skill_path: Path) -> Optional[Dict[str, Any]]:
-    try:
-        from jvagent.scaffold.skill_resolve import parse_skill_bundle
+    from app.services.skill_format import allowed_tool_names, parse_skill_document
 
-        return parse_skill_bundle(skill_path.parent, source="workspace")
-    except Exception:
+    try:
+        meta, body = parse_skill_document(skill_path)
+    except (OSError, ValueError):
         return None
+    return {
+        **meta,
+        "content": body,
+        "allowed_tools": allowed_tool_names(meta.get("allowed-tools")),
+    }
 
 
 def _resolve_domain_body(
@@ -248,7 +206,7 @@ def _resolve_domain_body(
     bundle_dir: Optional[Path],
     ignore_override: bool = False,
 ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
-    """Return domain markdown (no extends merge) and optional parsed bundle meta."""
+    """Return domain markdown (no inheritance) and optional parsed bundle meta."""
     skill_path = locate_skill_disk_path(skill, bundle_dir=bundle_dir)
     bundle_meta: Optional[Dict[str, Any]] = None
     if skill_path is not None:
@@ -284,8 +242,7 @@ def _resolve_prompt_body(
 
     resolved_tools = list(tools_required)
     if bundle_meta is not None:
-        body = _compose_bundle_body_with_extends(bundle_meta, domain_body)
-        return body, resolved_tools
+        return domain_body, resolved_tools
 
     return domain_body, resolved_tools
 
@@ -345,7 +302,7 @@ def _skill_to_overlay_doc(
         description=description,
         body=body,
         requires_tools=tuple(resolved_tools),
-        always_active=bool((bundle_meta or {}).get("always_active", False)),
+        always_active=False,
         metadata={
             "skill_key": key,
             "app_id": getattr(skill, "app_id", ""),
@@ -789,10 +746,7 @@ async def resolve_bundle_default_body(
     )
     if not domain_body:
         return None, ""
-    if bundle_meta is not None:
-        merged = _compose_bundle_body_with_extends(bundle_meta, domain_body)
-    else:
-        merged = domain_body
+    merged = domain_body
     digest = hashlib.sha256(domain_body.encode("utf-8")).hexdigest()
     return merged, digest
 
@@ -802,7 +756,7 @@ async def resolve_skill_domain_body(
     *,
     app: Optional[App] = None,
 ) -> Optional[str]:
-    """Domain body: override if set, else disk content (never extends-merged)."""
+    """Domain body: override if set, else disk content (without inheritance)."""
     bundle_dir: Optional[Path] = None
     if app is not None:
         bundle_dir = await _resolve_bundle_dir_async(app)

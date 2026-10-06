@@ -10,6 +10,7 @@ import {
   ArrowRight,
   Boxes,
   Bot,
+  RefreshCw,
 } from 'lucide-react';
 import { operationalModelsApi } from '../api';
 import type { OperationalModelNode } from '../types';
@@ -30,6 +31,9 @@ import { useSetCrumbs } from '../context/CrumbsContext';
 import { useScope } from '../context/ScopeContext';
 import { ImportPackageModal } from '../components/library/ImportPackageModal';
 import { usePublishPageContext } from '../hooks/usePublishPageContext';
+import { usePlatformAdmin } from '../hooks/usePlatformAdmin';
+import { useConfirm } from '../context/ConfirmContext';
+import { useToast } from '../context/ToastContext';
 import {
   manifestKindLabel,
   summarizeLibraryManifest,
@@ -162,6 +166,10 @@ export function OperationalModelsPage() {
   const [importOpen, setImportOpen] = useState(false);
   const { scope } = useScope();
   const queryClient = useQueryClient();
+  const isPlatformAdmin = usePlatformAdmin();
+  const confirm = useConfirm();
+  const { showToast } = useToast();
+  const [rescanning, setRescanning] = useState(false);
 
   const { data: profiles, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['operational-models'],
@@ -203,6 +211,32 @@ export function OperationalModelsPage() {
     if (!profiles) return [];
     return [...new Set(profiles.map(p => p.scope || 'library'))];
   }, [profiles]);
+
+  const rescanPackages = async () => {
+    const ok = await confirm({
+      title: 'Rescan package catalog?',
+      message: 'Re-read package bundles available to this Core instance and refresh their catalog fingerprints. This can add, update, or reconcile catalog entries; installed Apps change only when separately updated from their package.',
+      confirmLabel: 'Rescan packages',
+      variant: 'default',
+    });
+    if (!ok) return;
+    setRescanning(true);
+    try {
+      const result = await operationalModelsApi.rescanPackages();
+      await queryClient.invalidateQueries({ queryKey: ['operational-models'] });
+      const changes = result.added.length + result.updated.length + result.removed.length;
+      showToast(
+        result.issues.length
+          ? `Package rescan found ${result.issues.length} issue(s)`
+          : `Package catalog refreshed (${changes} package change${changes === 1 ? '' : 's'})`,
+        result.issues.length ? 'error' : 'success',
+      );
+    } catch (e: unknown) {
+      showToast((e as Error)?.message || 'Package rescan failed', 'error');
+    } finally {
+      setRescanning(false);
+    }
+  };
 
   if (isError) {
     return (
@@ -260,6 +294,19 @@ export function OperationalModelsPage() {
               className="shrink-0 mt-1"
             >
               Import model
+            </Button>
+          )}
+          {isPlatformAdmin && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              icon={<RefreshCw size={14} strokeWidth={LINE_ICON_STROKE} />}
+              onClick={rescanPackages}
+              disabled={rescanning}
+              className="shrink-0 mt-1"
+            >
+              {rescanning ? 'Refreshing…' : 'Refresh package catalog'}
             </Button>
           )}
         </div>

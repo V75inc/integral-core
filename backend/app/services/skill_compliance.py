@@ -10,6 +10,12 @@ from typing import Any, Dict, List, Literal, Optional, Set, Tuple
 
 import yaml
 
+from app.services.skill_format import (
+    FRONTMATTER_FIELDS,
+    allowed_tool_names,
+    parse_skill_document,
+)
+
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -22,25 +28,25 @@ def _packages_root() -> Path:
 _PROFILES_ROOT = _REPO_ROOT / "backend" / "app" / "packages"
 
 CORE_INTEGRAL_SKILL_NAMES: Tuple[str, ...] = (
-    "integral_artifacts",
-    "integral_attachments",
-    "integral_dashboards",
-    "integral_entries",
-    "integral_filing",
-    "integral_identity",
-    "integral_insights",
-    "integral_model",
-    "integral_navigation",
-    "integral_onboard",
-    "integral_organize",
-    "integral_models",
-    "integral_review",
-    "integral_scaffold",
-    "integral_scheduling",
-    "integral_workspace",
+    "integral-artifacts",
+    "integral-attachments",
+    "integral-dashboards",
+    "integral-entries",
+    "integral-filing",
+    "integral-identity",
+    "integral-insights",
+    "integral-model",
+    "integral-navigation",
+    "integral-onboard",
+    "integral-organize",
+    "integral-models",
+    "integral-review",
+    "integral-scaffold",
+    "integral-scheduling",
+    "integral-workspace",
 )
 
-RESIDENT_DELIVERY_OWNER = "integral_scaffold"
+RESIDENT_DELIVERY_OWNER = "integral-scaffold"
 RESIDENT_DELIVERY_PHASES = (
     "discover",
     "clarify",
@@ -70,16 +76,6 @@ SECTION_ALIASES: Dict[str, Tuple[str, ...]] = {
 }
 
 MERGE_GATE_SECTIONS = ("when_not", "grounding", "staging")
-
-_FORBIDDEN_FRONTMATTER_KEYS = frozenset({"plan-steps", "plan_steps", "version"})
-
-# Anthropic / jvagent discovery voice — reject second-person coaching in description.
-_SECOND_PERSON_DESCRIPTION_RE = re.compile(
-    r"\b(help the user|you should|your job|when you)\b",
-    re.IGNORECASE,
-)
-
-VALID_SKILL_SPECS = frozenset({"jv", "claude"})
 
 
 @dataclass
@@ -111,26 +107,11 @@ class SkillComplianceReport:
 
 
 def _parse_frontmatter(skill_path: Path) -> Tuple[Dict[str, Any], str]:
-    raw = skill_path.read_text(encoding="utf-8")
-    if not raw.startswith("---"):
-        return {}, raw.strip()
-    parts = raw.split("---", 2)
-    if len(parts) < 3:
-        raise ValueError(f"Invalid frontmatter in {skill_path}")
-    meta = yaml.safe_load(parts[1]) or {}
-    if not isinstance(meta, dict):
-        raise ValueError(f"Frontmatter must be a mapping in {skill_path}")
-    return meta, parts[2].strip()
+    return parse_skill_document(skill_path)
 
 
 def _normalize_allowed_tools(raw: Any) -> List[str]:
-    if raw is None:
-        return []
-    if isinstance(raw, str):
-        return [raw.strip()] if raw.strip() else []
-    if isinstance(raw, list):
-        return [str(x).strip() for x in raw if str(x).strip()]
-    return []
+    return allowed_tool_names(raw)
 
 
 def _headings(body: str) -> Set[str]:
@@ -198,11 +179,14 @@ def _load_manifest_skill_meta(bundle_dir: Path) -> Dict[str, Dict[str, Any]]:
                         ),
                         "description": str(entry.get("description") or "").strip(),
                     }
+                    prompt = str(entry.get("prompt_template") or "")
+                    if prompt:
+                        out[Path(prompt).parent.name] = out[key]
     return out
 
 
 def _integral_backtick_refs(body: str) -> List[str]:
-    return re.findall(r"`(integral_[a-z0-9_]+)`", body)
+    return re.findall(r"`(integral[_-][a-z0-9_-]+)`", body)
 
 
 _TOOL_CALL_RE = re.compile(r"\b(integral_[a-z0-9_]+)\(")
@@ -335,31 +319,6 @@ def check_skill_body(
 ) -> List[SkillComplianceIssue]:
     """Body-only compliance for workspace-authored skills (warn at save)."""
     issues: List[SkillComplianceIssue] = []
-    sections = detect_sections(body)
-    enforce = tier in ("core", "bundle_public")
-    if enforce:
-        for sec in MERGE_GATE_SECTIONS:
-            if not sections.get(sec):
-                severity: Literal["error", "warning"] = (
-                    "error" if tier == "core" else "warning"
-                )
-                issues.append(
-                    SkillComplianceIssue(
-                        f"missing_section_{sec}",
-                        f"Missing required section: {sec}",
-                        severity=severity,
-                    )
-                )
-        for sec in ("when_to_use", "procedure", "forbidden", "example"):
-            if not sections.get(sec):
-                severity = "error" if tier == "core" else "warning"
-                issues.append(
-                    SkillComplianceIssue(
-                        f"missing_section_{sec}",
-                        f"Missing section: {sec}",
-                        severity=severity,
-                    )
-                )
     if known_tool_names is not None:
         core_skills = set(CORE_INTEGRAL_SKILL_NAMES)
         for ref in _integral_backtick_refs(body):
@@ -418,102 +377,74 @@ def check_skill_file(
         yaml.dump(meta).splitlines() if meta else []
     )
 
-    if not meta and tier != "core":
+    for key in set(meta) - FRONTMATTER_FIELDS:
+        report.issues.append(
+            SkillComplianceIssue("unknown_frontmatter", f"Non-standard field: {key}")
+        )
+
+    name = meta.get("name")
+    valid_name = (
+        isinstance(name, str)
+        and 1 <= len(name) <= 64
+        and re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name) is not None
+    )
+    if not valid_name:
         report.issues.append(
             SkillComplianceIssue(
-                "missing_frontmatter",
-                "SKILL.md must start with YAML frontmatter",
+                "invalid_name", "name must be 1–64 lowercase letters/numbers/hyphens"
             )
         )
-        return report
-
-    for bad_key in _FORBIDDEN_FRONTMATTER_KEYS:
-        if bad_key in meta:
-            report.issues.append(
-                SkillComplianceIssue(
-                    "forbidden_frontmatter",
-                    f"Remove deprecated frontmatter key '{bad_key}'",
-                )
-            )
-
-    name = str(meta.get("name") or "").strip()
-    if name and name != skill_key:
+    elif name != skill_key:
         report.issues.append(
             SkillComplianceIssue(
-                "name_mismatch",
-                f"frontmatter name={name!r} != directory {skill_key!r}",
+                "name_mismatch", "name must match the parent directory"
             )
         )
-    if not str(meta.get("description") or "").strip():
+
+    description = meta.get("description")
+    if (
+        not isinstance(description, str)
+        or not description.strip()
+        or len(description) > 1024
+    ):
         report.issues.append(
-            SkillComplianceIssue("missing_description", "description is required")
+            SkillComplianceIssue(
+                "invalid_description",
+                "description must be a non-empty string of at most 1024 characters",
+            )
         )
-    else:
-        skill_desc = str(meta.get("description") or "").strip()
-        if _SECOND_PERSON_DESCRIPTION_RE.search(skill_desc):
+    if "license" in meta and not isinstance(meta["license"], str):
+        report.issues.append(
+            SkillComplianceIssue("invalid_license", "license must be a string")
+        )
+    if "compatibility" in meta:
+        value = meta["compatibility"]
+        if not isinstance(value, str) or not 1 <= len(value) <= 500:
             report.issues.append(
                 SkillComplianceIssue(
-                    "description_second_person",
-                    "description must be third-person discovery prose (jvagent / Anthropic)",
+                    "invalid_compatibility",
+                    "compatibility must be a string of 1–500 characters",
                 )
             )
-
-    spec_raw = str(meta.get("spec") or "").strip().lower()
-    if tier in ("core", "bundle_public"):
-        if not spec_raw:
+    if "metadata" in meta:
+        value = meta["metadata"]
+        if not isinstance(value, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) for k, v in value.items()
+        ):
             report.issues.append(
                 SkillComplianceIssue(
-                    "missing_spec",
-                    "frontmatter must declare spec: jv (or spec: claude)",
+                    "invalid_metadata", "metadata must map strings to strings"
                 )
             )
-        elif spec_raw not in VALID_SKILL_SPECS:
-            report.issues.append(
-                SkillComplianceIssue(
-                    "invalid_spec",
-                    f"spec must be jv or claude, got {spec_raw!r}",
-                )
+    if "allowed-tools" in meta and not isinstance(meta["allowed-tools"], str):
+        report.issues.append(
+            SkillComplianceIssue(
+                "invalid_allowed_tools",
+                "allowed-tools must be a space-separated string",
             )
-
-    if tier == "core":
-        req_actions = meta.get("requires-actions") or []
-        if "EmbeddedIntegralAction" not in req_actions:
-            report.issues.append(
-                SkillComplianceIssue(
-                    "missing_requires_actions",
-                    "requires-actions must include EmbeddedIntegralAction",
-                )
-            )
-        if not meta.get("extends"):
-            report.issues.append(
-                SkillComplianceIssue(
-                    "missing_extends",
-                    "core integral_* skills must extend embedded_integral_action base SOP",
-                )
-            )
+        )
 
     allowed_tools = set(_normalize_allowed_tools(meta.get("allowed-tools")))
-    has_integral_tools = bool(
-        allowed_tools or any(t.startswith("integral_") for t in manifest_tools)
-    )
-
-    if tier.startswith("bundle") and has_integral_tools:
-        if not meta.get("extends"):
-            report.issues.append(
-                SkillComplianceIssue(
-                    "missing_extends",
-                    "Bundle skills using integral_* tools must declare extends",
-                )
-            )
-        req_actions = meta.get("requires-actions") or []
-        if "EmbeddedIntegralAction" not in req_actions:
-            report.issues.append(
-                SkillComplianceIssue(
-                    "missing_requires_actions",
-                    "requires-actions must include EmbeddedIntegralAction",
-                )
-            )
-
     if allowed_tools and manifest_tools and not allowed_tools.issubset(manifest_tools):
         extra = sorted(allowed_tools - manifest_tools)
         report.issues.append(
@@ -555,29 +486,8 @@ def check_skill_file(
                 )
             )
 
+    # Body headings are author guidance, not Agent Skills format requirements.
     report.sections_present = detect_sections(body)
-    enforce_sections = tier == "core" or (tier.startswith("bundle") and not private)
-    if enforce_sections:
-        for sec in MERGE_GATE_SECTIONS:
-            if not report.sections_present.get(sec):
-                report.issues.append(
-                    SkillComplianceIssue(
-                        f"missing_section_{sec}",
-                        f"Missing required section: {sec}",
-                    )
-                )
-        for sec in ("when_to_use", "procedure", "forbidden", "example"):
-            if not report.sections_present.get(sec):
-                severity: Literal["error", "warning"] = (
-                    "error" if tier in ("core", "bundle_public") else "warning"
-                )
-                report.issues.append(
-                    SkillComplianceIssue(
-                        f"missing_section_{sec}",
-                        f"Missing section: {sec}",
-                        severity=severity,
-                    )
-                )
 
     if known_tool_names is not None:
         core_skills = set(CORE_INTEGRAL_SKILL_NAMES)
@@ -625,7 +535,7 @@ def iter_core_skill_paths() -> List[Path]:
         / "integral"
         / "embedded_integral_action"
         / "skills"
-        / "integral_*"
+        / "integral-*"
         / "SKILL.md"
     )
     return sorted(Path(p) for p in glob.glob(str(pattern)))
@@ -707,25 +617,25 @@ def format_audit_markdown(reports: List[SkillComplianceReport]) -> str:
     lines.append(f"- **{errors}** skills with compliance errors.")
     lines.append("")
 
-    lines.append("## Core integral_* skills")
+    lines.append("## Core integral-* skills")
     lines.append("")
-    lines.append("| Skill | Sections | Lines | Status |")
-    lines.append("|-------|----------|-------|--------|")
+    lines.append("| Skill | Lines | Status |")
+    lines.append("|-------|-------|--------|")
     for r in sorted(core, key=lambda x: x.skill_key):
         status = "PASS" if r.ok else "FAIL"
-        lines.append(f"| `{r.skill_key}` | {r.score}/7 | {r.line_count} | {status} |")
+        lines.append(f"| `{r.skill_key}` | {r.line_count} | {status} |")
     lines.append("")
 
     for slug in sorted(bundles):
         lines.append(f"## Bundle: `{slug}`")
         lines.append("")
-        lines.append("| Skill | Private | Sections | Lines | Status | Issues |")
-        lines.append("|-------|---------|----------|-------|--------|--------|")
+        lines.append("| Skill | Private | Lines | Status | Issues |")
+        lines.append("|-------|---------|-------|--------|--------|")
         for r in sorted(bundles[slug], key=lambda x: x.skill_key):
             status = "PASS" if r.ok else "FAIL"
             issue_codes = ", ".join(i.code for i in r.issues if i.severity == "error")
             lines.append(
-                f"| `{r.skill_key}` | {r.private} | {r.score}/7 | "
+                f"| `{r.skill_key}` | {r.private} | "
                 f"{r.line_count} | {status} | {issue_codes or '—'} |"
             )
         lines.append("")

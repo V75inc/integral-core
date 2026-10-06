@@ -42,6 +42,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Literal, Optional, Set, Tuple
 
 from app.agentive import staging_store
+from app.agentive.services.approval_policy import effect_class
 
 logger = logging.getLogger(__name__)
 
@@ -62,9 +63,9 @@ StagedChangeState = Literal[
 
 AutonomyMode = Literal["single", "session"]
 
-# Full Sweep S3: kinds that must never enter session autonomy auto-bless.
-# Destructive / sharing / invite mutations always require an explicit bless
-# card per token (session grant is refused at bless_token time).
+# Retained for legacy imports. V1 rejects every session-wide approval request,
+# so this set does not define policy and can be removed with the compatibility
+# API in a later migration.
 SESSION_AUTONOMY_BLOCKED_KINDS: frozenset[str] = frozenset(
     {
         "delete_entry",
@@ -174,6 +175,9 @@ class StagedChange:
     # Caller-supplied key so a retry of the same proposed write returns the
     # existing card instead of minting a second decision.
     idempotency_key: Optional[str] = None
+    # Decision channel is persisted with the pending record so terminal audit
+    # events can distinguish explicit UI approval from conversation approval.
+    decision_source: Optional[str] = None
 
     def is_expired(self, *, now: Optional[datetime] = None) -> bool:
         """Return True when ``expires_at`` is at or before ``now``."""
@@ -207,6 +211,11 @@ class StagedChange:
             # can say WHY rather than just "approved, not yet applied".
             "last_error": self.last_error,
             "idempotency_key": self.idempotency_key,
+            "effect_class": effect_class(self.kind, self.payload).value,
+            "requires_strong_confirmation": (
+                effect_class(self.kind, self.payload).value == "destructive_security"
+            ),
+            "decision_source": self.decision_source,
             # Sentinel the frontend type guard checks for. Letting the
             # whole shape stand on its own (token + kind + state etc.)
             # would also work; this is belt-and-suspenders so a future
@@ -239,22 +248,16 @@ _lock = asyncio.Lock()
 _tokens: Dict[str, StagedChange] = {}
 _autonomy: Dict[Tuple[str, str], Set[str]] = {}
 
-#: Kinds whose ``kind`` string is too coarse to be an autonomy grant on its
-#: own. ``mcp_tool_call`` is one string shared by every remote tool on every
-#: mounted connector, so granting it from a Google Drive ``search_files`` card
-#: also pre-blessed ``trash_thread`` on Gmail and ``create_invoice`` on
-#: QuickBooks for the rest of the session. For these, the grant is keyed by the
-#: specific target instead — see :func:`autonomy_key_for`.
+#: Compatibility helper for persisted callers. V1 does not consult or mint
+#: these keys; retain them only until legacy references are migrated away.
 _TARGET_SCOPED_AUTONOMY_KINDS: frozenset[str] = frozenset({"mcp_tool_call"})
 
 
 def autonomy_key_for(kind: str, payload: Optional[Dict[str, Any]] = None) -> str:
-    """The grant key a session autonomy decision is recorded under.
+    """Return the legacy key shape for callers migrating from session grants.
 
-    Defaults to ``kind`` — one grant covers that kind, which is the right
-    granularity for substrate writes where the kind names the operation
-    ("create_entry"). For kinds in ``_TARGET_SCOPED_AUTONOMY_KINDS`` the kind
-    names only the *mechanism*, so the key is narrowed to the concrete target:
+    Defaults to ``kind``. For legacy kinds in
+    ``_TARGET_SCOPED_AUTONOMY_KINDS`` the key is narrowed to the concrete target:
     ``mcp_tool_call:<connector_id>:<remote_name>``.
 
     A payload that cannot identify its target falls back to a key no bless can
@@ -660,10 +663,13 @@ def format_staging_pending_marker(changes: List["StagedChange"]) -> str:
     """
     if not changes:
         return ""
+    import hashlib
+
     parts = []
     for sc in changes:
         summary = (sc.summary or "").replace("\n", " ").strip()
-        parts.append(f'kind={sc.kind} summary="{summary}"')
+        reference = hashlib.sha256(sc.token.encode()).hexdigest()[:16]
+        parts.append(f'item_reference={reference} kind={sc.kind} summary="{summary}"')
     return "[SYSTEM:STAGING-PENDING] " + " | ".join(parts)
 
 
@@ -761,18 +767,6 @@ async def create_staged_change(
         blocker = _find_unresolved_conflict_locked(sc)
         if blocker is not None:
             raise StagingBlockedError(blocker)
-        # Apply session autonomy grant if present (never for blocked kinds).
-        # Keyed by ``autonomy_key_for`` so a target-scoped kind matches only
-        # the grant made for that same target.
-        if (
-            session_id
-            and kind not in SESSION_AUTONOMY_BLOCKED_KINDS
-            and autonomy_key_for(kind, sc.payload)
-            in _autonomy.get((user_id, session_id), set())
-        ):
-            sc.state = "blessed"
-            sc.autonomy_grant_used = True
-            sc.blessed_at = _now()
         _tokens[sc.token] = sc
 
     # A stale blessed card this mint retired goes through the full terminal
@@ -828,9 +822,9 @@ def _format_staging_closure_marker(sc: StagedChange) -> str:
         [SYSTEM:STAGING-RESOLVED] kind=<kind> state=<consumed|revoked>
         summary="<summary>"
 
-    Single-line so it lands as one utterance in jvagent's interaction
-    chain. The persona / skill prompts (see
-    ``embedded_integral_action/skills/integral_filing/SKILL.md`` and
+    Single-line so it can be stored as assistant-side interaction context
+    in jvagent's history. The persona / skill prompts (see
+    ``embedded_integral_action/skills/integral-filing/SKILL.md`` and
     ``agent.yaml``) instruct the engine to treat any utterance
     starting with ``[SYSTEM:STAGING-RESOLVED]`` as authoritative
     evidence that the named staged change has already been actioned —
@@ -868,7 +862,7 @@ def _format_staging_closure_marker(sc: StagedChange) -> str:
         if app_id:
             marker += (
                 f' app_id="{app_id}" '
-                'next="Call use_skill for integral_dashboards, then '
+                'next="Call use_skill for integral-dashboards, then '
                 "integral_list_dashboards with this app_id; name the new "
                 "dashboard and its widgets from that result. For further "
                 "layout or widget edits, call integral_update_dashboard with "
@@ -1454,13 +1448,19 @@ async def bless_token(
     user_id: str,
     token: str,
     autonomy: AutonomyMode = "single",
+    decision_source: Optional[str] = None,
 ) -> StagedChange:
     """Mark a pending token blessed.
 
-    If ``autonomy="session"``, also add the token's ``kind`` to the
-    user's session autonomy grants so future same-kind staged changes
-    auto-bless.
+    V1 supports approval of this specific proposal. Session-wide
+    auto-approval is disabled until its scope and policy contract are shipped.
     """
+    if autonomy != "single":
+        raise StagingError(
+            "autonomy_disabled",
+            "Integral V1 can approve only the specific proposed change. "
+            "Session-wide auto-approval is not enabled.",
+        )
     async with _lock:
         _sweep_expired_locked()
         sc = await _get_or_load_locked(token)
@@ -1476,26 +1476,9 @@ async def bless_token(
                 f"Token is in terminal state {sc.state!r}",
             )
         sc.state = "blessed"
+        sc.decision_source = decision_source
         sc.blessed_at = _now()
         sc.resolved_at = sc.blessed_at
-        if autonomy == "session" and sc.session_id:
-            if sc.kind in SESSION_AUTONOMY_BLOCKED_KINDS:
-                logger.info(
-                    "staging.autonomy_refused_destructive user=%s session=%s kind=%s",
-                    user_id,
-                    sc.session_id,
-                    sc.kind,
-                )
-            else:
-                grant_key = autonomy_key_for(sc.kind, sc.payload)
-                grants = _autonomy.setdefault((user_id, sc.session_id), set())
-                grants.add(grant_key)
-                logger.info(
-                    "staging.autonomy_granted user=%s session=%s key=%s",
-                    user_id,
-                    sc.session_id,
-                    grant_key,
-                )
     # An expiry the sweeper above just observed is recorded now that the lock
     # is released (ADR-007).
     await _flush_decision_ledger()
@@ -1608,7 +1591,9 @@ async def record_execute_progress(
     return sc
 
 
-async def revoke_token(*, user_id: str, token: str) -> StagedChange:
+async def revoke_token(
+    *, user_id: str, token: str, decision_source: Optional[str] = None
+) -> StagedChange:
     """Reject a staged change.
 
     Tokens in any non-terminal state can be revoked — including blessed
@@ -1640,6 +1625,7 @@ async def revoke_token(*, user_id: str, token: str) -> StagedChange:
                 f"Token is in terminal state {sc.state!r}",
             )
         sc.state = "revoked"
+        sc.decision_source = decision_source
         sc.resolved_at = _now()
     await _flush_decision_ledger()
     await _flush_expiry_closures()
@@ -1832,7 +1818,7 @@ async def get_token(token: str) -> Optional[StagedChange]:
 
 
 # ---------------------------------------------------------------------------
-# Session-scoped autonomy
+# Legacy session-autonomy compatibility surface (disabled in V1)
 # ---------------------------------------------------------------------------
 
 
@@ -1843,39 +1829,13 @@ async def grant_autonomy(
     kind: str,
     payload: Optional[Dict[str, Any]] = None,
 ) -> None:
-    """Add ``kind`` to the session's autonomy grants.
-
-    Subsequent ``create_staged_change`` calls in this session for this
-    kind will return tokens already in the ``blessed`` state.
-
-    Destructive / sharing kinds in ``SESSION_AUTONOMY_BLOCKED_KINDS`` are
-    refused (no-op) so prompt-injection cannot widen blast radius.
-
-    For target-scoped kinds (``_TARGET_SCOPED_AUTONOMY_KINDS``) ``payload``
-    must identify the target; without it the grant is refused rather than
-    recorded under the bare kind, which would cover every target at once.
-    """
-    if not session_id:
-        return
-    if kind in SESSION_AUTONOMY_BLOCKED_KINDS:
-        logger.info(
-            "staging.autonomy_refused_destructive user=%s session=%s kind=%s",
-            user_id,
-            session_id,
-            kind,
-        )
-        return
-    key = autonomy_key_for(kind, payload)
-    if key.endswith(":<unidentified>"):
-        logger.info(
-            "staging.autonomy_refused_untargeted user=%s session=%s kind=%s",
-            user_id,
-            session_id,
-            kind,
-        )
-        return
-    async with _lock:
-        _autonomy.setdefault((user_id, session_id), set()).add(key)
+    """Compatibility no-op; V1 does not grant session-wide auto-approval."""
+    logger.info(
+        "staging.autonomy_disabled user=%s session=%s kind=%s",
+        user_id,
+        session_id,
+        kind,
+    )
 
 
 def has_autonomy(
@@ -1884,26 +1844,14 @@ def has_autonomy(
     kind: str,
     payload: Optional[Dict[str, Any]] = None,
 ) -> bool:
-    """Sync read of the autonomy grant set.
-
-    Used by skills that want to check before staging (e.g., to skip the
-    diff_human composition). ``payload`` is required to get a truthy answer
-    for a target-scoped kind — see :func:`autonomy_key_for`.
-    """
-    if not session_id:
-        return False
-    if kind in SESSION_AUTONOMY_BLOCKED_KINDS:
-        return False
-    return autonomy_key_for(kind, payload) in _autonomy.get(
-        (user_id, session_id), set()
-    )
+    """Compatibility predicate; always false while V1 autonomy is disabled."""
+    return False
 
 
 def clear_autonomy_for_session(user_id: str, session_id: str) -> None:
-    """Drop all autonomy grants for ``(user_id, session_id)``.
+    """Clear legacy grants for ``(user_id, session_id)``.
 
-    Called on explicit user request ("stop auto-approving") or on
-    session end.
+    V1 does not mint grants; this remains for persisted legacy callers.
     """
     _autonomy.pop((user_id, session_id), None)
 
@@ -1922,7 +1870,7 @@ def clear_autonomy_for_session(user_id: str, session_id: str) -> None:
 #
 # Keyed store (not a ContextVar): a batch must survive across several sequential
 # ``dispatch_tool`` calls within one turn and have an explicit open/commit/cancel
-# lifecycle. The same idiom as ``_autonomy`` above.
+# lifecycle. This intentionally remains independent of the legacy grant shim.
 # ---------------------------------------------------------------------------
 
 
@@ -2041,20 +1989,19 @@ async def release_open_batch_auto_continuation(
 
 
 def format_open_batch_marker(snapshot: Dict[str, Any]) -> str:
-    """Utterance marker when a batch is open but no Prompt Sheet is pending."""
+    """System-context marker when a batch is open without a pending Prompt Sheet."""
     missing = snapshot.get("missing") or []
     kinds = snapshot.get("kinds") or []
     if missing:
-        # This marker is delivered in the harness utterance. Literal tool
-        # names there activate jvagent's user-steering guard and deflect the
-        # very repair calls we need; keep the missing operations semantic.
+        # Keep missing operations semantic. This marker is host system context,
+        # while the user utterance remains reserved for user-authored content.
         miss = re.sub(
             r"\bintegral_([a-z_]+)\b",
             lambda match: match.group(1).replace("_", " "),
             "; ".join(str(item) for item in missing),
         )
     else:
-        miss = "(shape looks complete — commit the batch NOW)"
+        miss = "(the proposal is complete; wait for the user decision)"
     shown = ", ".join(kinds[:12]) + ("..." if len(kinds) > 12 else "")
     app_refs = [str(name) for name in snapshot.get("app_refs") or [] if name]
     track_refs = [
@@ -2073,14 +2020,20 @@ def format_open_batch_marker(snapshot: Dict[str, Any]) -> str:
     reference_block = "\n".join(reference_lines)
     return (
         "[SYSTEM:OPEN-BATCH]\n"
-        f"Open build batch: {snapshot.get('op_count', 0)} op(s) [{shown}]. "
+        f"Open uncommitted proposal: {snapshot.get('op_count', 0)} op(s) [{shown}]. "
         f"Missing before commit: {miss}.\n"
-        "The batch is uncommitted: staged Apps and Tracks have NO persisted ids. "
-        "Do not list persisted apps or tracks and do not ask the user for ids; "
-        "append missing operations with the staged refs below.\n"
+        "This proposal has NOT been approved by the user and has not been applied. "
+        "Do not append operations or commit it unless the user's latest message "
+        "clearly authorizes saving this exact work. If the user declines, says "
+        "not to save, or asks to discard/cancel, cancel the open proposal. If "
+        "the user has not clearly approved it, answer their request and leave it "
+        "uncommitted. A commit only creates a review card; execution still waits "
+        "for the user's approval of that card.\n"
+        "Do not list persisted apps or tracks as saved; newly proposed objects "
+        "have no persisted ids. For an explicitly approved continuation, use "
+        "staged refs rather than asking the user for ids.\n"
         f"{reference_block}\n"
-        "Do NOT tell the user the app is staged or ready. Do NOT invent a "
-        "WRITE · BATCH card. Append the missing operations, then commit the batch."
+        "Do not claim that proposed changes have been saved or completed."
     )
 
 
@@ -2196,8 +2149,8 @@ async def commit_batch(
 
     Returns the minted change, or ``None`` when the batch is empty (nothing to
     approve — the open batch is cleared either way). The combined ``diff_human``
-    is the per-op summaries joined as a checklist so the approval card shows the
-    whole workflow at a glance.
+    carries each operation's review diff (falling back to its summary), so the
+    approval card shows proposed fields and relationships as well as titles.
     """
     # Pop the batch under the lock, then mint OUTSIDE the lock —
     # ``create_staged_change`` takes the same ``_lock`` (non-reentrant).
@@ -2330,9 +2283,21 @@ async def commit_batch(
         raise
 
     label = batch.get("label") or "workflow"
-    lines = [f"- {op.get('summary') or op.get('kind')}" for op in ops]
-    # Card title already shows ``summary`` — do not prepend it into the body
-    # or the Approval / Prompt Sheet UI prints the same line twice.
+    lines = []
+    for op in ops:
+        summary_line = f"- {op.get('summary') or op.get('kind')}"
+        detail = str(op.get("diff_human") or "").strip()
+        # Some older/simple stagers supply the summary again (or an ellipsis)
+        # as their diff. Keep useful per-operation details when present and
+        # retain the concise checklist fallback otherwise.
+        if (
+            detail
+            and detail not in {"…", "..."}
+            and detail != str(op.get("summary") or "").strip()
+        ):
+            lines.append(detail)
+        else:
+            lines.append(summary_line)
     diff_human = "\n".join(lines) or (summary or f"{label}: {len(ops)} step(s)")
     change = await create_staged_change(
         user_id=user_id,

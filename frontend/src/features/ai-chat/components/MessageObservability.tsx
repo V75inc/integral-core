@@ -31,6 +31,10 @@ function formatTokens(n: number): string {
   return n >= 1_000 ? `${(n / 1_000).toFixed(1)}k` : String(n);
 }
 
+function formatExactTokens(n: number | undefined): string {
+  return n == null ? "—" : n.toLocaleString();
+}
+
 function formatTime(ms: number | undefined): string | null {
   if (ms == null || ms <= 0) return null;
   return ms >= 1_000 ? `${(ms / 1_000).toFixed(1)}s` : `${Math.round(ms)}ms`;
@@ -99,12 +103,21 @@ export function MessageObservability() {
 
   // Prefer the final payload's authoritative total; fall back to summing the
   // per-step usage (older turns / non-jvagent providers).
-  const stepIn = steps.reduce((s, st) => s + (st.usage?.inputTokens ?? 0), 0);
-  const stepOut = steps.reduce((s, st) => s + (st.usage?.outputTokens ?? 0), 0);
-  const totalIn = finalUsage?.prompt_tokens ?? stepIn;
-  const totalOut = finalUsage?.completion_tokens ?? stepOut;
+  const allInputReported = steps.length > 0 && steps.every((st) => st.usage?.inputTokens != null);
+  const allOutputReported = steps.length > 0 && steps.every((st) => st.usage?.outputTokens != null);
+  const totalIn =
+    finalUsage?.prompt_tokens ??
+    (allInputReported
+      ? steps.reduce((sum, st) => sum + (st.usage?.inputTokens ?? 0), 0)
+      : undefined);
+  const totalOut =
+    finalUsage?.completion_tokens ??
+    (allOutputReported
+      ? steps.reduce((sum, st) => sum + (st.usage?.outputTokens ?? 0), 0)
+      : undefined);
   const totalTokens =
-    finalUsage?.total_tokens ?? (totalIn || totalOut ? totalIn + totalOut : 0);
+    finalUsage?.total_tokens ??
+    (totalIn != null && totalOut != null ? totalIn + totalOut : 0);
 
   // Per-model_call rows for the breakdown table — driven by the final
   // payload's observability_metrics (the per-step extractor's `steps` is often
@@ -118,6 +131,14 @@ export function MessageObservability() {
     .filter((m): m is string => !!m);
   const primaryModel = shortModel(steps[0]?.modelId ?? metricModels[0]);
   const hasModel = !!(steps[0]?.modelId ?? metricModels[0]);
+  const providerCostComplete =
+    steps.length > 0 && steps.every((step) => step.providerCostUsd != null);
+  const providerCostTotal = providerCostComplete
+    ? steps.reduce((sum, step) => sum + (step.providerCostUsd ?? 0), 0)
+    : undefined;
+  const hasNativeCallDetails = steps.some(
+    (step) => step.durationMs != null || step.provider != null || step.outcome != null,
+  );
 
   if (
     steps.length === 0 &&
@@ -131,14 +152,16 @@ export function MessageObservability() {
 
   // Step count for the "(+N steps)" hint: use whichever source has rows.
   const stepCount = steps.length > 0 ? steps.length : metricSteps.length;
-  const multiModel =
-    steps.length > 1
-      ? new Set(steps.map((s) => s.modelId).filter(Boolean)).size > 1
-      : new Set(metricModels).size > 1;
+  const multiModel = new Set(
+    (steps.length > 0 ? steps.map((step) => step.modelId) : metricModels).filter(Boolean),
+  ).size > 1;
 
   const summaryParts: string[] = [];
   if (hasModel) summaryParts.push(primaryModel);
   if (totalTokens > 0) summaryParts.push(`${formatTokens(totalTokens)} tokens`);
+  if (providerCostTotal != null) {
+    summaryParts.push(`$${providerCostTotal.toFixed(4)}`);
+  }
   const timeStr = formatTime(totalStreamMs);
   if (timeStr) summaryParts.push(timeStr);
   const tpsStr = formatTps(timing?.tokensPerSecond);
@@ -158,12 +181,74 @@ export function MessageObservability() {
         />
         <span className="tabular-nums">
           {summaryParts.join(" · ")}
-          {multiModel ? ` (+${stepCount - 1} steps)` : ""}
+          {stepCount > 1
+            ? ` (+${stepCount - 1} ${multiModel ? "steps" : "calls"})`
+            : ""}
         </span>
       </button>
 
       {expanded && (
         <div className="mt-1.5 rounded-[var(--radius-input)] bg-[var(--panel-2)] px-3 py-2 text-[11px] text-[var(--text-muted)]">
+          {hasNativeCallDetails && (
+            <div className="overflow-x-auto">
+            <table className="w-full text-left tabular-nums">
+              <thead>
+                <tr className="text-[10px] uppercase tracking-wide text-[var(--text-subtle)]">
+                  <th className="pb-1 pr-3 font-medium">Call</th>
+                  <th className="pb-1 pr-3 font-medium">Model</th>
+                  <th className="pb-1 pr-3 font-medium text-right">In</th>
+                  <th className="pb-1 pr-3 font-medium text-right">Out</th>
+                  <th className="pb-1 pr-3 font-medium text-right">Cost</th>
+                  <th className="pb-1 pr-3 font-medium text-right">Time</th>
+                  <th className="pb-1 font-medium text-right">State</th>
+                </tr>
+              </thead>
+              <tbody>
+                {steps.map((step, index) => (
+                  <tr key={step.requestId ?? index}>
+                    <td className="pr-3 py-0.5">{index + 1}</td>
+                    <td className="pr-3 py-0.5 font-mono text-[10px]">
+                      <span title={step.modelId ?? step.provider}>
+                        {step.modelId ?? step.provider ?? "unknown"}
+                      </span>
+                    </td>
+                    <td className="pr-3 py-0.5 text-right">
+                      {formatExactTokens(step.usage?.inputTokens)}
+                    </td>
+                    <td className="pr-3 py-0.5 text-right">
+                      {formatExactTokens(step.usage?.outputTokens)}
+                    </td>
+                    <td
+                      className="pr-3 py-0.5 text-right"
+                      title={step.costSource ? `Source: ${step.costSource}` : undefined}
+                    >
+                      {step.providerCostUsd == null
+                        ? "—"
+                        : `$${step.providerCostUsd.toFixed(4)}`}
+                    </td>
+                    <td className="pr-3 py-0.5 text-right">
+                      {formatTime(step.durationMs) ?? "—"}
+                    </td>
+                    <td className="py-0.5 text-right">{step.outcome ?? "—"}</td>
+                  </tr>
+                ))}
+                {steps.length > 1 && (
+                  <tr className="border-t border-[var(--border-subtle)] text-[var(--text)]">
+                    <td className="pr-3 pt-1" colSpan={2}>Total</td>
+                    <td className="pr-3 pt-1 text-right">{formatExactTokens(totalIn)}</td>
+                    <td className="pr-3 pt-1 text-right">{formatExactTokens(totalOut)}</td>
+                    <td className="pr-3 pt-1 text-right">
+                      {providerCostTotal == null
+                        ? "—"
+                        : `$${providerCostTotal.toFixed(4)}`}
+                    </td>
+                    <td className="pt-1" colSpan={2} />
+                  </tr>
+                )}
+              </tbody>
+            </table>
+            </div>
+          )}
           {metricSteps.length > 0 && (
             <table className="w-full text-left tabular-nums">
               <thead>
@@ -183,10 +268,10 @@ export function MessageObservability() {
                       {shortModel(step.data?.model)}
                     </td>
                     <td className="pr-3 py-0.5 text-right">
-                      {formatTokens(step.data?.usage?.prompt_tokens ?? 0)}
+                      {formatExactTokens(step.data?.usage?.prompt_tokens)}
                     </td>
                     <td className="pr-3 py-0.5 text-right">
-                      {formatTokens(step.data?.usage?.completion_tokens ?? 0)}
+                      {formatExactTokens(step.data?.usage?.completion_tokens)}
                     </td>
                     <td className="py-0.5 text-right">
                       {formatTimeSec(step.data?.duration) ?? "—"}
@@ -199,10 +284,10 @@ export function MessageObservability() {
                       Total
                     </td>
                     <td className="pr-3 pt-1 text-right">
-                      {formatTokens(totalIn)}
+                      {formatExactTokens(totalIn)}
                     </td>
                     <td className="pr-3 pt-1 text-right">
-                      {formatTokens(totalOut)}
+                      {formatExactTokens(totalOut)}
                     </td>
                     <td className="pt-1" />
                   </tr>
@@ -220,6 +305,12 @@ export function MessageObservability() {
               {tpsStr && <span>{tpsStr}</span>}
               {totalTokens > 0 && (
                 <span>{totalTokens.toLocaleString()} tokens</span>
+              )}
+              {providerCostTotal != null && (
+                <span>Provider cost ${providerCostTotal.toFixed(4)}</span>
+              )}
+              {hasNativeCallDetails && providerCostTotal == null && (
+                <span>Provider cost unavailable for some calls</span>
               )}
               {typeof finalUsage?.estimated_cost_usd === "number" &&
                 finalUsage.estimated_cost_usd > 0 && (

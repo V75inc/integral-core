@@ -397,9 +397,24 @@ async def _validate_relation_values(
             )
         if target_entry_types:
             target_et = await EntryType.get(target.type_id) if target.type_id else None
-            if not target_et or _slug(str(target_et.name)) not in {
+            # Relation declarations can come from either an Operational Model
+            # display name (``Equipment``) or its stable manifest key
+            # (``equipment_item``). EntryType persists both, so compare both
+            # identities here instead of rejecting valid manifest-key refs.
+            target_type_aliases = set()
+            if target_et:
+                target_type_aliases.add(_slug(str(target_et.name)))
+                form_schema = getattr(target_et, "form_schema", None) or {}
+                manifest_key = (
+                    form_schema.get("_manifest_entry_type_key")
+                    if isinstance(form_schema, dict)
+                    else None
+                )
+                if manifest_key:
+                    target_type_aliases.add(_slug(str(manifest_key)))
+            if not target_et or not target_type_aliases.intersection(
                 _slug(x) for x in target_entry_types
-            }:
+            ):
                 raise BadRequestError(
                     message=f"Relation field '{field_key}' target entry type is not allowed"
                 )

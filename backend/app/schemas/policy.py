@@ -69,6 +69,7 @@ PolicyAction = Literal[
     # ride — see the ``_MODERATION_ACTIONS`` note there.
     "comment.moderate",
     "attachment.create",
+    "attachment.attach",
     "attachment.delete",
     "entry_type.create",
     "entry_type.update",
@@ -87,6 +88,8 @@ PolicyAction = Literal[
     "prompt_queue.resolve_question",
     "prompt_queue.mark_write",
     "prompt_queue.cancel_all",
+    # Mirrors the durable native chat cancellation audit action.
+    "chat_turn.cancel",
     # Agentive mutations
     "agent_config.register",
     "agent_config.update",

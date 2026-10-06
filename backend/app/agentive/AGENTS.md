@@ -57,9 +57,9 @@ rejected. The lone documented exception is the WebSocket carve-out in
   migration-path note.
 - **No walkers exist** in `agentive/`. Most agentive computation is multi-hop and would benefit (workspace skill-overlay resolution, change-event delivery to subscribers, scratch-memory promotion provenance). This is queued for the resident memory/proactivity phase (pulled forward per [ADR-003](../../../docs/backend/adr/003-singular-resident-harness.md)), not the 06-05 convention-conformance migration.
 
-## Workspace Agent Profile (resident jvagent)
+## Workspace Agent Profile (resident harness)
 
-The embedded resident agent uses a **two-tier** skill model:
+The resident harnesses use a **two-tier** skill model:
 
 1. **Base (global)** — filesystem `integral_*` skills + full `tool_manifest.yaml` surface.
 2. **Workspace overlay** — public declarative skills from installed Apps in the active workspace.

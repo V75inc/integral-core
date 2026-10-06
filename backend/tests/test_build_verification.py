@@ -22,6 +22,24 @@ from app.services.build_verification import (
 pytestmark = pytest.mark.smoke
 
 
+def test_select_field_verification_maps_blueprint_options_to_runtime_enum():
+    expected = {
+        "key": "condition",
+        "type": "select",
+        "options": ["Good", "Needs Repair"],
+    }
+    live = {
+        "key": "condition",
+        "type": "select",
+        "enum": ["Good", "Needs Repair"],
+    }
+    assert bv._field_matches(expected, live)
+    assert not bv._field_matches(
+        expected,
+        {**live, "enum": ["Good", "Needs Repair", "Retired"]},
+    )
+
+
 def _blueprint() -> Dict[str, Any]:
     return {
         "app": {"id": "app", "name": "Bike Repair"},
@@ -154,6 +172,22 @@ async def test_minimal_app_without_optional_features_verifies():
     )
     assert result["status"] == "verified"
     assert {item["status"] for item in result["items"]} == {"present"}
+    assert result["resources"] == [
+        {
+            "blueprint_item_id": "app",
+            "kind": "app",
+            "id": "a1",
+            "name": "Bike Repair",
+            "url": "/apps/a1",
+        },
+        {
+            "blueprint_item_id": "track.jobs",
+            "kind": "track",
+            "id": "t1",
+            "name": "Jobs",
+            "url": "/tracks/t1",
+        },
+    ]
     assert all(
         item["id"] not in {"dash", "skill.x", "routine.x"} for item in result["items"]
     )
@@ -189,6 +223,7 @@ async def test_denied_read_is_not_missing_or_verified():
     )
     assert result["status"] == "blocked"
     assert {item["status"] for item in result["items"]} == {"denied"}
+    assert result["resources"] == []
 
 
 @pytest.mark.asyncio
@@ -203,6 +238,7 @@ async def test_failed_read_is_not_missing_or_verified():
     )
     assert result["status"] == "failed"
     assert {item["status"] for item in result["items"]} == {"read_failed"}
+    assert result["resources"] == []
 
 
 @pytest.mark.asyncio
@@ -356,6 +392,24 @@ async def test_a_deleted_object_reads_as_missing_not_denied():
 
 
 @pytest.mark.asyncio
+async def test_verify_rejects_another_workspace_before_reading(monkeypatch):
+    """Same-principal access elsewhere must not widen a scoped tool read."""
+
+    async def found(_user_id, _design_id):
+        return SimpleNamespace(workspace_id="other-workspace"), {
+            "blueprint": {"private": "not visible"}
+        }
+
+    monkeypatch.setattr(bv, "_find_design", found)
+    result = await verify_build(
+        "user", "design", 1, "receipt", workspace_id="active-workspace"
+    )
+    assert result["error"] == "design_not_found"
+    assert "blueprint" not in result
+    assert "resources" not in result
+
+
+@pytest.mark.asyncio
 async def test_wrong_revision_or_receipt_does_not_read(monkeypatch):
     """A changed revision or a foreign receipt is rejected before any read."""
     constructed = []
@@ -395,6 +449,88 @@ def test_verification_does_not_execute_a_build():
     first = build_item_mapping(_blueprint(), _applied())
     second = build_item_mapping(_blueprint(), _applied())
     assert first == second
+
+
+def test_existing_app_extension_maps_the_target_app_into_its_receipt():
+    """An extension receipt references its target App without recreating it."""
+    blueprint = _blueprint()
+    receipt = make_execution_receipt(
+        design_id="d1",
+        design_revision=1,
+        blueprint_digest="abc",
+        blueprint=blueprint,
+        batch_token="batch-extension",
+        execute_result={
+            "results": [
+                {
+                    "kind": "create_track",
+                    "result": {"track": {"id": "t1", "title": "Jobs"}},
+                },
+                {
+                    "kind": "save_view",
+                    "result": {"view_id": "v1", "name": "Jobs board"},
+                },
+            ]
+        },
+        applied_at="2026-10-06T00:00:00Z",
+        user_turn=3,
+        existing_app_id="existing-app-1",
+    )
+
+    assert receipt["mapping"]["app"] == {
+        "kind": "app",
+        "object_id": "existing-app-1",
+    }
+    assert receipt["mapping"]["track.jobs"] == {
+        "kind": "track",
+        "object_id": "t1",
+    }
+
+
+@pytest.mark.asyncio
+async def test_existing_app_extension_verifies_the_target_app_and_new_track():
+    """Verification reads both the existing target and newly applied objects."""
+    blueprint = _blueprint()
+    receipt = make_execution_receipt(
+        design_id="d1",
+        design_revision=1,
+        blueprint_digest="abc",
+        blueprint=blueprint,
+        batch_token="batch-extension",
+        execute_result={
+            "results": [
+                {
+                    "kind": "create_track",
+                    "result": {"track": {"id": "t1", "title": "Jobs"}},
+                },
+                {
+                    "kind": "save_view",
+                    "result": {"view_id": "v1", "name": "Jobs board"},
+                },
+            ]
+        },
+        applied_at="2026-10-06T00:00:00Z",
+        user_turn=3,
+        existing_app_id="a1",
+    )
+
+    result = await verify_loaded(
+        blueprint=blueprint,
+        design_id="d1",
+        design_revision=1,
+        receipt=receipt,
+        reader=_FakeReader(),
+    )
+
+    assert result["status"] == "verified"
+    assert {item["id"]: item["status"] for item in result["items"]} == {
+        "app": "present",
+        "track.jobs": "present",
+        "type.job": "present",
+        "f.customer": "present",
+        "f.vehicle": "present",
+        "view.board": "present",
+    }
 
 
 @pytest.mark.asyncio

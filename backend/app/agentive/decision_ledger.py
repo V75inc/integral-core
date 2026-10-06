@@ -153,6 +153,7 @@ async def _record(sc: "StagedChange") -> Optional[str]:
                 "diff": diff,
                 "token_ref": str(getattr(sc, "token", "") or ""),
                 "decided_at": _decided_at(sc),
+                "decision_source": str(getattr(sc, "decision_source", "") or ""),
             },
         },
     )

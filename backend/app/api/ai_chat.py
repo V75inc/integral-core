@@ -100,7 +100,7 @@ _GREENFIELD_DESIGN_DIRECTIVE = (
     "[SYSTEM:GREENFIELD-DESIGN-REQUEST]\n"
     "The user asked for a new App. Do not ask whether to design, create, "
     "search for, or inspect an existing App. First call use_skill for "
-    "integral_scaffold. Follow that skill: inspect the live substrate "
+    "integral-scaffold. Follow that skill: inspect the live substrate "
     "contract, then record a concise, complete design with the proposal "
     "capability in this turn. Do not list models unless the user asked to "
     "reuse one. After the proposal is recorded, stop calling tools. Do not "
@@ -112,13 +112,47 @@ _UNMET_NEED_DIRECTIVE = (
     "[SYSTEM:UNMET-NEED-DEFAULT]\n"
     "Ignore this note unless the user's message describes work they need to "
     "organise or keep track of. If it does, check their existing Apps "
-    "quietly. If one already covers it, help them there. Otherwise call "
-    "use_skill for integral_scaffold and record a design with the proposal "
-    "capability in this same turn. Do not ask whether to set something up or "
-    "whether to draft a plan, and do not ask about extras first: include the "
-    "sensible ones and let the user trim. Reply in the user's language."
+    "quietly. If an installed App covers the need, call use_skill for that "
+    "App's primary App-scoped guide and follow its declared workflow and "
+    "capabilities. Do not call integral-scaffold, propose a second App, or "
+    "use generic workspace tools in place of the installed App's workflow. "
+    "Only when no installed App covers the need, call use_skill for "
+    "integral-scaffold and record a design with the proposal capability in "
+    "this same turn. Do not ask whether to set something up or whether to "
+    "draft a plan, and do not ask about extras first: include the sensible "
+    "ones and let the user trim. Reply in the user's language."
 )
 _CUT_DESIGN_INVITE_RE = re.compile(r"Please confirm or\s*$", re.IGNORECASE)
+
+_NO_WORKSPACE_WRITE_DIRECTIVE = (
+    "[SYSTEM:USER_FORBIDS_SAVING]\n"
+    "The user explicitly asked not to save, write, or create an artifact. "
+    "Keep the answer in chat only. Do not call a write, batch, proposal, or "
+    "direct-action tool, and do not create a staging card. Do not tell the "
+    "user to write, sketch, list, draft, record, or create separate notes or "
+    "materials. Any private exercise must be mental only, and any signal "
+    "must be noticed without recording it. Read tools may be used only if "
+    "needed to answer the request."
+)
+
+_EXPLICIT_NO_WRITE_PATTERNS = (
+    re.compile(r"\bno\s+(?:saving|writes?|records?|storage)\b", re.I),
+    re.compile(
+        r"\b(?:do\s+not|don't|dont|never|without)\s+"
+        r"(?:save|saving|store|record|write|create)\b",
+        re.I,
+    ),
+    re.compile(
+        r"\bkeep\b.{0,24}\b(?:in\s+)?(?:this\s+)?(?:chat|conversation)\b"
+        r".{0,16}\bonly\b",
+        re.I,
+    ),
+)
+
+
+def _is_explicit_no_workspace_write_request(text: str) -> bool:
+    """Recognize clear user instructions that prohibit workspace writes."""
+    return any(pattern.search(text or "") for pattern in _EXPLICIT_NO_WRITE_PATTERNS)
 
 
 def complete_cut_design_invitation(text: str) -> str:
@@ -132,7 +166,7 @@ def complete_cut_design_invitation(text: str) -> str:
 
 
 # Dashboard compose/adjust — lean+block_raw hides mutate tools; the model then
-# thrashes find_tool instead of use_skill → integral_dashboards. The note is
+# thrashes find_tool instead of use_skill → integral-dashboards. The note is
 # always in view; the model decides whether this message is about a board.
 
 
@@ -147,16 +181,56 @@ def _focused_dashboard_id(page_context: Optional[PageContext]) -> Optional[str]:
     return text or None
 
 
-def _is_dashboard_skill_request(
-    text: str, _page_context: Optional[PageContext]
-) -> bool:
-    """Whether to show the dashboard-skill note. The model decides if it applies.
+def _is_dashboard_skill_request(text: str, page_context: Optional[PageContext]) -> bool:
+    """Whether dashboard-specific routing is relevant to this turn.
 
-    A focused board id is appended to the note when present; it does not
-    decide whether the note is shown.
+    A focused dashboard page is sufficient context; elsewhere, require both
+    dashboard vocabulary and an action request.
     """
     message = (text or "").strip()
-    return bool(message) and not _is_prompt_sheet_resume(message)
+    if not message or _is_prompt_sheet_resume(message):
+        return False
+    if _focused_dashboard_id(page_context):
+        return True
+    folded = message.casefold()
+    nouns = (
+        "dashboard",
+        "chart",
+        "widget",
+        "visualization",
+        "visualisation",
+        "gráfico",
+        "grafico",
+        "panel",
+    )
+    actions = (
+        "create",
+        "build",
+        "add",
+        "update",
+        "change",
+        "edit",
+        "adjust",
+        "modify",
+        "remove",
+        "delete",
+        "refresh",
+        "make",
+        "show",
+        "include",
+        "crear",
+        "agregar",
+        "agrega",
+        "actualizar",
+        "cambiar",
+        "editar",
+        "modificar",
+        "quitar",
+        "eliminar",
+    )
+    return any(noun in folded for noun in nouns) and any(
+        action in folded for action in actions
+    )
 
 
 _DASHBOARD_SKILL_DIRECTIVE = (
@@ -164,7 +238,7 @@ _DASHBOARD_SKILL_DIRECTIVE = (
     "Ignore this note unless the user is asking to create or change a "
     "dashboard, chart, or widget, in whatever language they use. A question "
     "about what a dashboard is, or a greeting, is not that. If they are "
-    "asking for one, call use_skill for integral_dashboards BEFORE find_tool "
+    "asking for one, call use_skill for integral-dashboards BEFORE find_tool "
     "or load_tool. Do not thrash find_tool looking for dashboard tools — the "
     "skill owns the procedure and the allowed tools. For an existing board: "
     "integral_list_dashboards, merge into the full widgets list, then "
@@ -343,12 +417,51 @@ async def _approved_build_receipt_error(
 def _is_existing_schema_field_request(
     text: str, focused_track_id: Optional[str]
 ) -> bool:
-    """Show the field-revision note when a track is in view.
-
-    Whether the message is actually a field change is the model's call, in
-    any language. Without a focused track the note would redirect a new App.
-    """
-    return bool((text or "").strip() and focused_track_id)
+    """Route an explicit field/schema edit on a focused existing track."""
+    if not (text or "").strip() or not focused_track_id:
+        return False
+    folded = text.casefold()
+    field_terms = (
+        "field",
+        "column",
+        "property",
+        "schema",
+        "entry type",
+        "entry-type",
+        "campo",
+        "columna",
+        "propiedad",
+        "esquema",
+        "tipo de registro",
+    )
+    change_terms = (
+        "add",
+        "create",
+        "change",
+        "edit",
+        "modify",
+        "update",
+        "include",
+        "remove",
+        "delete",
+        "rename",
+        "need",
+        "want",
+        "agrega",
+        "agregar",
+        "crear",
+        "cambia",
+        "cambiar",
+        "editar",
+        "modificar",
+        "actualizar",
+        "incluye",
+        "quitar",
+        "eliminar",
+    )
+    return any(term in folded for term in field_terms) and any(
+        term in folded for term in change_terms
+    )
 
 
 def _run_observability_metadata(
@@ -542,6 +655,141 @@ async def _resolve_turn_workspace(
     return thread_ws
 
 
+async def _resolve_owned_chat_work_item(
+    *,
+    work_item_id: str,
+    principal_id: str,
+    workspace_id: str,
+    thread_id: str,
+) -> Any:
+    """Resolve only a native chat WorkItem bound to this owned thread."""
+    from app.agentive.work_models import WorkItem
+
+    canonical_id = work_item_id.removeprefix("o.WorkItem.")
+    item = await WorkItem.get(f"o.WorkItem.{canonical_id}")
+    if (
+        item is None
+        or item.work_item_id != canonical_id
+        or item.kind != "chat_turn"
+        or item.principal_id != principal_id
+        or item.workspace_id != workspace_id
+        or item.thread_id != thread_id
+    ):
+        # Conceal whether a WorkItem exists outside this exact chat authority.
+        raise ResourceNotFoundError(message="Chat turn not found")
+    return item
+
+
+@endpoint(
+    "/chat/threads/{thread_id}/work-items/{work_item_id}/events",
+    methods=["GET"],
+    auth=True,
+    tags=["AI Chat"],
+)
+async def replay_chat_turn_events(
+    request: Request,
+    thread_id: str,
+    work_item_id: str,
+    after_sequence: int = 0,
+    limit: int = 200,
+) -> Dict[str, Any]:
+    """Replay committed public events without executing another model run."""
+    from app.services.chat_turn_events import replay_work_item_chat_events
+
+    user_id, _ = _resolve_principal(request)
+    thread = await _resolve_owned_thread(thread_id, user_id)
+    workspace_id = await _resolve_turn_workspace(request, user_id, thread)
+    if not workspace_id:
+        raise ResourceNotFoundError(message="Chat turn not found")
+    item = await _resolve_owned_chat_work_item(
+        work_item_id=work_item_id,
+        principal_id=user_id,
+        workspace_id=workspace_id,
+        thread_id=thread.id,
+    )
+    try:
+        page = await replay_work_item_chat_events(
+            principal_id=user_id,
+            workspace_id=workspace_id,
+            thread_id=thread.id,
+            work_item_id=item.work_item_id,
+            after_sequence=after_sequence,
+            limit=limit,
+        )
+    except ValueError as exc:
+        if "scope mismatch" in str(exc):
+            raise ResourceNotFoundError(message="Chat turn not found") from exc
+        raise BadRequestError(message="Invalid chat event cursor") from exc
+    return page.model_dump()
+
+
+@endpoint(
+    "/chat/threads/{thread_id}/work-items/{work_item_id}/cancel",
+    methods=["POST"],
+    auth=True,
+    tags=["AI Chat"],
+)
+async def cancel_chat_turn(
+    request: Request,
+    thread_id: str,
+    work_item_id: str,
+) -> Dict[str, Any]:
+    """Cancel a queued or running native chat turn through WorkItem authority."""
+    from app.agentive.services.work_items import cancel_work_item
+    from app.schemas.agentive.chat_events import ChatTurnCancellationReceipt
+    from app.schemas.agentive.work import WorkError
+
+    user_id, _ = _resolve_principal(request)
+    thread = await _resolve_owned_thread(thread_id, user_id)
+    workspace_id = await _resolve_turn_workspace(request, user_id, thread)
+    if not workspace_id:
+        raise ResourceNotFoundError(message="Chat turn not found")
+    item = await _resolve_owned_chat_work_item(
+        work_item_id=work_item_id,
+        principal_id=user_id,
+        workspace_id=workspace_id,
+        thread_id=thread.id,
+    )
+    before = {
+        "status": item.status,
+        "cancel_requested": bool(item.cancel_requested_at),
+    }
+    try:
+        cancelled = await cancel_work_item(item.work_item_id)
+    except WorkError as exc:
+        if exc.code == "work.not_found":
+            raise ResourceNotFoundError(message="Chat turn not found") from exc
+        if exc.code in {"work.invalid_transition", "work.cas_conflict"}:
+            raise ResourceConflictError(
+                message="Chat turn changed while cancellation was requested",
+                details={"reason": "chat_turn_state_changed"},
+            ) from exc
+        logger.exception("Failed to cancel chat WorkItem %s", item.work_item_id)
+        raise InternalServerError(message="Could not cancel chat turn") from exc
+    from app.services.change_event import emit_change_event
+
+    await emit_change_event(
+        actor_kind="human",
+        actor_id=user_id,
+        action="chat_turn.cancel",
+        resource_type="WorkItem",
+        resource_id=cancelled.work_item_id,
+        scope=workspace_id,
+        before=before,
+        after={
+            "status": cancelled.status,
+            "cancel_requested": bool(cancelled.cancel_requested_at),
+        },
+        details={"thread_id": thread.id},
+    )
+    receipt = ChatTurnCancellationReceipt(
+        work_item_id=cancelled.work_item_id,
+        status=cancelled.status,
+        cancel_requested=bool(cancelled.cancel_requested_at),
+    )
+    return receipt.model_dump()
+
+
 # ---------------------------------------------------------------------------
 # Provider listing
 # ---------------------------------------------------------------------------
@@ -584,6 +832,48 @@ async def export_qualification_run(request: Request, run_id: str) -> Dict[str, A
         # Do not reveal whether a run exists outside the caller's scope.
         raise ResourceNotFoundError(message="Run not found")
     return QualificationRunExport.model_validate(payload).model_dump()
+
+
+@endpoint(
+    "/chat/threads/{thread_id}/harness-sessions/{session_id}/export",
+    methods=["GET"],
+    auth=True,
+    tags=["AI Chat"],
+)
+async def export_harness_session_for_thread(
+    request: Request, thread_id: str, session_id: str
+) -> Dict[str, Any]:
+    """Export the authenticated owner's complete private Harness session."""
+    from app.agentive.harness.contracts import HarnessExecutionScope
+    from app.models.nodes import HarnessSession
+    from app.schemas.api.ai_chat import HarnessSessionExport
+    from app.services.harness_sessions import export_harness_session
+
+    user_id, _ = _resolve_principal(request)
+    thread = await _resolve_owned_thread(thread_id, user_id)
+    workspace_id = await _resolve_turn_workspace(request, user_id, thread)
+    session = await HarnessSession.get(session_id)
+    if (
+        session is None
+        or session.thread_id != thread.id
+        or session.workspace_id != (workspace_id or "")
+        or session.principal_id != user_id
+    ):
+        # Do not distinguish a missing session from one outside this owner.
+        raise ResourceNotFoundError(message="Harness session not found")
+
+    scope = HarnessExecutionScope(
+        tenant_id=session.workspace_id,
+        principal_id=session.principal_id,
+        workspace_id=session.workspace_id,
+        thread_id=session.thread_id,
+        session_id=session.session_id,
+        run_id=session.last_run_id or "export",
+        permission_revision=session.permission_revision,
+        capability_version=session.capability_version,
+    )
+    payload = await export_harness_session(scope=scope)
+    return HarnessSessionExport.model_validate(payload).model_dump(mode="json")
 
 
 @endpoint(
@@ -883,6 +1173,10 @@ class _AssistantDraft:
                 "code": str(ev.get("code") or "internal_error"),
                 "message": str(ev.get("message") or "The turn failed."),
             }
+        elif kind == "text-replace":
+            content = ev.get("content")
+            if isinstance(content, str):
+                self.text_parts = [content]
         elif kind == "text-delta":
             self.text_parts.append(ev.get("delta", ""))
         elif kind == "reasoning-delta":
@@ -919,11 +1213,26 @@ class _AssistantDraft:
                 }
             )
         elif kind == "step":
+            # Keep the complete safe per-request observability projection.
+            # Trimming this to aggregate usage/model data caused the streamed
+            # UI to show call details while a reload lost provider, latency,
+            # cost provenance, and outcome.
             self.steps.append(
                 {
-                    "usage": ev.get("usage"),
-                    "modelId": ev.get("modelId"),
-                    "finishReason": ev.get("finishReason"),
+                    key: ev[key]
+                    for key in (
+                        "usage",
+                        "modelId",
+                        "finishReason",
+                        "provider",
+                        "providerCostUsd",
+                        "costSource",
+                        "durationMs",
+                        "outcome",
+                        "attempt",
+                        "requestId",
+                    )
+                    if key in ev
                 }
             )
         elif kind == "message-finish":
@@ -1515,6 +1824,8 @@ async def send_message(
     focused_view_id: Optional[str] = None,
     entity_refs: Optional[List[EntityRef]] = None,
     page_context: Optional[PageContext] = None,
+    host_action: Optional[str] = None,
+    client_request_id: Optional[str] = None,
     # Forwarded by the frontend as a consistency check; the dispatcher
     # uses thread.agent_id as source-of-truth, so this is accepted but
     # not currently honored.
@@ -1535,6 +1846,7 @@ async def send_message(
     )
 
     user_id, email = _resolve_principal(request)
+    raw_body: Dict[str, Any] = {}
     images_raw: Optional[List[Any]] = images if isinstance(images, list) else None
     attachment_ids_raw: Optional[List[str]] = (
         attachment_ids if isinstance(attachment_ids, list) else None
@@ -1562,6 +1874,10 @@ async def send_message(
                 focused_view_id = raw_body.get("focused_view_id")
             if page_context is None and raw_body.get("page_context"):
                 page_context = PageContext.model_validate(raw_body["page_context"])
+            if host_action is None and raw_body.get("host_action"):
+                host_action = str(raw_body["host_action"])
+            if client_request_id is None and raw_body.get("client_request_id"):
+                client_request_id = str(raw_body["client_request_id"])
     except Exception:
         pass
     # Validate merged body shape (best-effort) and capture parsed images.
@@ -1576,6 +1892,8 @@ async def send_message(
                 "focused_view_id": focused_view_id,
                 "entity_refs": entity_refs,
                 "page_context": page_context,
+                "host_action": host_action,
+                "client_request_id": client_request_id,
             }
         )
     except Exception as exc:
@@ -1591,11 +1909,28 @@ async def send_message(
         focused_track_id = focused_track_id or page_context.focused_track_id
         focused_space_id = focused_space_id or page_context.focused_app_id
         focused_view_id = focused_view_id or page_context.focused_view_id
-    if not text and not images and not attachment_ids:
+    host_action = parsed_body.host_action
+    client_request_id = parsed_body.client_request_id
+    host_prompt_sheet_resume = host_action == "prompt_sheet_resume"
+    if not text and not images and not attachment_ids and not host_action:
         raise BadRequestError(
             message="a message must have text, an image, or an attachment"
         )
     thread = await _resolve_owned_thread(thread_id, user_id)
+    native_turn = thread.provider_id == "integral_native"
+    if host_prompt_sheet_resume:
+        from app.services.prompt_queue import (
+            QUEUE_STATUS_CLOSED,
+            build_resume_summary,
+            get_queue,
+        )
+
+        queue = get_queue(thread)
+        if queue.get("status") != QUEUE_STATUS_CLOSED:
+            raise BadRequestError(message="Prompt Sheet is not ready to resume")
+        text = build_resume_summary(queue)
+        if not text:
+            raise BadRequestError(message="Prompt Sheet has no continuation")
 
     # The turn runs in the THREAD's workspace. The chat provider forwards
     # this into the agent's tool-execution path so read/list tools
@@ -1603,11 +1938,17 @@ async def send_message(
     # conversation belongs to. See ``_resolve_turn_workspace`` for why the
     # ``X-Integral-Scope`` header is a consistency check here, not the source.
     active_workspace_id = await _resolve_turn_workspace(request, user_id, thread)
-    greenfield_proposal_required = await _requires_greenfield_proposal(
-        text,
-        getattr(thread, "design_proposed", None),
-        workspace_id=active_workspace_id,
-        agent_id=getattr(thread, "agent_id", None) or None,
+    # Native workflow selection belongs to the Pydantic run. The legacy judge
+    # is an inference call outside native admission, usage and BYOK accounting.
+    greenfield_proposal_required = (
+        False
+        if native_turn
+        else await _requires_greenfield_proposal(
+            text,
+            getattr(thread, "design_proposed", None),
+            workspace_id=active_workspace_id,
+            agent_id=getattr(thread, "agent_id", None) or None,
+        )
     )
 
     ref_resolution = await resolve_entity_refs(
@@ -1647,16 +1988,18 @@ async def send_message(
             images, image_ids, design_only=greenfield_proposal_required
         )
 
-    # Utterance handed to the agent. On an image/file-only turn, give the
-    # model a neutral cue so it engages with the attachment rather than an
-    # empty string; the vision reflex still runs off image_urls regardless.
-    # The user's own words are the last block; a typed ``[SYSTEM:`` cannot
-    # pose as one of the host markers below. Every injected block is
-    # delimited and framed as data (``wrap_injected_context``) so the model
-    # does not read a page title or entry name as an instruction.
-    agent_text = sanitize_user_text(text) or (
-        "(No caption — please look at the attachment.)"
-    )
+    # The utterance is reserved for the user's authored text. Host policy and
+    # contextual material travel separately in a signed system-context field.
+    # Attachment-only turns keep an empty utterance; attachment cues are
+    # carried in the authenticated system context instead.
+    system_context_blocks: List[str] = []
+    user_utterance = "" if host_prompt_sheet_resume else sanitize_user_text(text)
+    if not native_turn and _is_explicit_no_workspace_write_request(text):
+        no_write_block = wrap_system_context(
+            "user_forbids_saving",
+            _NO_WORKSPACE_WRITE_DIRECTIVE,
+        )
+        system_context_blocks.append(no_write_block)
     # Prompt Sheet residual: people see quiet past-tense confirmation; the
     # resident gets wrap_system_context continuation (same convention as
     # staging carry-forward). Never leave HTML directives in the utterance.
@@ -1670,11 +2013,13 @@ async def send_message(
         )
 
         residual = prompt_sheet_agent_residual(text)
-        agent_text = (
+        prompt_sheet_context = (
             wrap_injected_context("prompt_sheet_result", residual)
             if residual
             else residual
         ) or residual
+        if prompt_sheet_context:
+            system_context_blocks.append(prompt_sheet_context)
         directive = build_resume_agent_directive(get_queue(thread))
         if not directive:
             directive = extract_legacy_resume_directive(text)
@@ -1683,11 +2028,11 @@ async def send_message(
                 "prompt_sheet_continuation",
                 directive,
             )
-            agent_text = (
-                f"{resume_block}\n\n---\n\n{agent_text}" if agent_text else resume_block
-            )
+            system_context_blocks.append(resume_block)
         # Persist the quiet residual only (marker + title + bullets).
         text = strip_prompt_sheet_directive(text)
+        # Use the same user-authored content that is persisted to the thread.
+        user_utterance = "" if host_prompt_sheet_resume else sanitize_user_text(text)
     if greenfield_proposal_required:
         # A model may otherwise turn an already-resolved business need into a
         # needless "create or search?" fork. This is host policy, not user
@@ -1697,9 +2042,10 @@ async def send_message(
             "explicit_greenfield_design",
             _GREENFIELD_DESIGN_DIRECTIVE,
         )
-        agent_text = f"{design_request_block}\n\n---\n\n{agent_text}"
+        system_context_blocks.append(design_request_block)
     elif (
-        not focused_track_id
+        not native_turn
+        and not focused_track_id
         and not focused_space_id
         and not getattr(thread, "design_proposed", None)
         and not _is_prompt_sheet_resume(text)
@@ -1709,8 +2055,8 @@ async def send_message(
         unmet_need_block = wrap_system_context(
             "unmet_need_default", _UNMET_NEED_DIRECTIVE
         )
-        agent_text = f"{unmet_need_block}\n\n---\n\n{agent_text}"
-    if _is_existing_schema_field_request(text, focused_track_id):
+        system_context_blocks.append(unmet_need_block)
+    if not native_turn and _is_existing_schema_field_request(text, focused_track_id):
         schema_field_request_block = wrap_system_context(
             "existing_schema_field_request",
             "[SYSTEM:EXISTING-SCHEMA-FIELD-REQUEST]\n"
@@ -1732,8 +2078,8 @@ async def send_message(
             "the existing-record impact. Do not stage publication until the field "
             "revision has been approved and read back.",
         )
-        agent_text = f"{schema_field_request_block}\n\n---\n\n{agent_text}"
-    if _is_dashboard_skill_request(text, page_context):
+        system_context_blocks.append(schema_field_request_block)
+    if not native_turn and _is_dashboard_skill_request(text, page_context):
         focused_dash = _focused_dashboard_id(page_context)
         dash_body = _DASHBOARD_SKILL_DIRECTIVE
         if focused_dash:
@@ -1742,34 +2088,45 @@ async def send_message(
             "dashboard_skill_request",
             dash_body,
         )
-        agent_text = f"{dashboard_skill_block}\n\n---\n\n{agent_text}"
-    from app.services.query_plan import insights_plan_preamble
+        system_context_blocks.append(dashboard_skill_block)
+    if not native_turn:
+        from app.services.query_plan import insights_plan_preamble
 
-    plan_body = insights_plan_preamble(text or "")
-    if plan_body:
-        agent_text = (
-            f"{wrap_system_context('query_plan', plan_body)}\n\n---\n\n{agent_text}"
-        )
+        plan_body = insights_plan_preamble(text or "")
+        if plan_body:
+            system_context_blocks.append(wrap_system_context("query_plan", plan_body))
     if image_context_note:
-        agent_text = f"{image_context_note}\n\n---\n\n{agent_text}"
+        system_context_blocks.append(image_context_note)
     if attachment_context_note:
-        agent_text = f"{attachment_context_note}\n\n---\n\n{agent_text}"
+        system_context_blocks.append(attachment_context_note)
     # Pending design body as context data on correction turns (procedure is in
-    # skill integral_scaffold). Affirm only stamps approved — no tutoring.
+    # skill integral-scaffold). Affirm only stamps approved — no tutoring.
     design_marker = getattr(thread, "design_proposed", None) or {}
-    prior_design_body = await chat_store.pending_design_context_for_utterance(
-        marker=design_marker if isinstance(design_marker, dict) else None,
-        user_turns_before_this_message=await chat_store.count_user_turns(thread),
-        utterance=text or "",
-        workspace_id=active_workspace_id,
-        agent_id=getattr(thread, "agent_id", None) or None,
-    )
+    native_design_approval = native_turn
+    if native_design_approval:
+        # Native approval is interpreted inside the claimed, metered run.
+        # No lexical gate or JVAgent light-model inference before admission.
+        prior_design_body = (
+            str(design_marker.get("proposal") or "")
+            if isinstance(design_marker, dict)
+            else ""
+        )
+    else:
+        prior_design_body = await chat_store.pending_design_context_for_utterance(
+            marker=design_marker if isinstance(design_marker, dict) else None,
+            user_turns_before_this_message=await chat_store.count_user_turns(thread),
+            utterance=text or "",
+            workspace_id=active_workspace_id,
+            agent_id=getattr(thread, "agent_id", None) or None,
+        )
     prior_design_preamble = wrap_injected_context(
         "pending_design_proposal", prior_design_body
     )
     if prior_design_preamble:
-        agent_text = f"{prior_design_preamble}\n\n---\n\n{agent_text}"
-    if await chat_store.stamp_design_approved(thread=thread, utterance=text or ""):
+        system_context_blocks.append(prior_design_preamble)
+    if not native_design_approval and await chat_store.stamp_design_approved(
+        thread=thread, utterance=text or ""
+    ):
         thread = await chat_store.get_thread(thread.id) or thread
         # Chat affirm *is* the design approval — drop the inbox "Confirm in
         # chat" design_proposal card so the model (and user) do not treat it
@@ -1786,7 +2143,7 @@ async def send_message(
         "entity_refs", ref_resolution.context_preamble or ""
     )
     if entity_refs_preamble:
-        agent_text = f"{entity_refs_preamble}\n\n---\n\n{agent_text}"
+        system_context_blocks.append(entity_refs_preamble)
 
     provider = get_registry().get(thread.provider_id)
     if provider is None:
@@ -1818,7 +2175,8 @@ async def send_message(
             provider=provider,
             turn_handle=turn_handle,
             text=text,
-            agent_text=agent_text,
+            user_utterance=user_utterance,
+            system_context_blocks=system_context_blocks,
             images=images,
             image_ids=image_ids,
             attachment_file_parts=attachment_file_parts,
@@ -1833,6 +2191,8 @@ async def send_message(
             entities_referenced_payload=entities_referenced_payload,
             lightweight_page_context_metadata=lightweight_page_context_metadata,
             greenfield_proposal_required=greenfield_proposal_required,
+            host_action=host_action,
+            client_request_id=client_request_id,
         )
     except BaseException:
         await chat_turn_registry.release_turn(thread.id)
@@ -1848,7 +2208,8 @@ async def _start_user_turn(
     provider: Any,
     turn_handle: Any,
     text: str,
-    agent_text: str,
+    user_utterance: str,
+    system_context_blocks: List[str],
     images: List[Any],
     image_ids: List[str],
     attachment_file_parts: List[Dict[str, Any]],
@@ -1863,8 +2224,11 @@ async def _start_user_turn(
     entities_referenced_payload: Any,
     lightweight_page_context_metadata: Any,
     greenfield_proposal_required: bool,
+    host_action: Optional[str],
+    client_request_id: Optional[str],
 ) -> StreamingResponse:
     """Persist the user message and open the stream, under an acquired turn."""
+    native_turn = getattr(thread, "provider_id", None) == "integral_native"
     started = time.monotonic()
     from app.agentive.services.execution_runs import (
         finish_run,
@@ -1873,7 +2237,7 @@ async def _start_user_turn(
     )
 
     # Persist the user message first so it survives even if streaming aborts.
-    user_text = text
+    user_text = "" if host_action else text
     user_provider_metadata: Dict[str, Any] = {}
     if entity_refs:
         user_provider_metadata["entity_refs"] = [
@@ -1899,12 +2263,15 @@ async def _start_user_turn(
             }
         )
     user_parts.extend(attachment_file_parts)
-    await chat_store.append_message(
-        thread=thread,
-        role="user",
-        parts=user_parts,
-        provider_metadata=user_provider_metadata or None,
-    )
+    persisted_user_message_id: Optional[str] = None
+    if user_parts:
+        persisted_user_message = await chat_store.append_message(
+            thread=thread,
+            role="user",
+            parts=user_parts,
+            provider_metadata=user_provider_metadata or None,
+        )
+        persisted_user_message_id = str(persisted_user_message.id)
     # Prompt Sheet locks the composer while open, so a user turn here is
     # either a resume append from the sheet or a non-sheet path. Clear any
     # leftover pending question markers / skip open question items.
@@ -1958,31 +2325,58 @@ async def _start_user_turn(
     pending_writes = [
         sc for sc in pending_staged if getattr(sc, "kind", None) != "design_proposal"
     ]
+    if host_action == "staging_follow_through":
+        pending_writes = [sc for sc in pending_writes if sc.state == "blessed"]
+        if not pending_writes:
+            raise BadRequestError(
+                message="No approved staged change is waiting for follow-through"
+            )
     if pending_writes:
+        import hashlib
+
+        approval_references = {
+            hashlib.sha256(sc.token.encode()).hexdigest()[:16]: sc.token
+            for sc in pending_writes
+        }
+        extra_data["pending_approval_tokens"] = approval_references
         extra_data["pending_approvals"] = [
             {
-                "token": sc.token,
+                "item_reference": reference,
                 "kind": sc.kind,
                 "summary": sc.summary,
                 "state": sc.state,
                 "created_at": sc.created_at.isoformat(),
             }
-            for sc in pending_writes
+            for reference, sc in zip(approval_references, pending_writes)
         ]
-        # The marker goes in the UTTERANCE, not only in data: jvagent has no
-        # schema for a custom data key, so a key alone would never reach the
-        # prompt. This mirrors how [SYSTEM:STAGING-RESOLVED] lands in history,
-        # and is what the model actually reads.
+        # Keep host-generated approval state and instructions out of the
+        # user-authored utterance. The signed system-context block is verified
+        # by JVAgent and added to the system prompt for this run.
         marker = format_staging_pending_marker(pending_writes)
         if marker:
             extra_data["pending_approvals_marker"] = marker
+            if host_action == "staging_follow_through":
+                staging_instruction = (
+                    "The founder has already approved this staged change. "
+                    "Continue by applying only these already-approved changes; "
+                    "do not ask for approval again, restage them, or claim they "
+                    "are complete until execution is confirmed."
+                )
+            else:
+                staging_instruction = (
+                    "This conversation has staged actions awaiting the user's "
+                    "decision. For a clear approval or rejection of an item, "
+                    "call integral_resolve_pending_write with its item_reference. "
+                    "Do not infer a decision from questions or ambiguous wording. "
+                    "After approval, verify the saved result before confirming."
+                    if native_turn
+                    else "Write awaiting user Approve on the Prompt Sheet. Do not "
+                    "re-stage it or report it as done."
+                )
             staging_block = wrap_system_context(
-                "staging_pending",
-                f"{marker}\n"
-                "(Write awaiting user Approve on the Prompt Sheet. Do not "
-                "re-stage it or report it as done.)",
+                "staging_pending", f"{marker}\n({staging_instruction})"
             )
-            agent_text = f"{staging_block}\n\n---\n\n{agent_text}"
+            system_context_blocks.append(staging_block)
     else:
         # Open batch with ops but no minted Prompt Sheet yet (early commit
         # refused, or model still appending). Without this marker the model
@@ -1993,7 +2387,7 @@ async def _start_user_turn(
         if open_snap and (open_snap.get("op_count") or 0) > 0:
             marker = format_open_batch_marker(open_snap)
             open_block = wrap_system_context("open_batch_incomplete", marker)
-            agent_text = f"{open_block}" + "\n\n---\n\n" + agent_text
+            system_context_blocks.append(open_block)
 
     approved_greenfield = bool(
         getattr(thread, "provider_session_id", None)
@@ -2011,7 +2405,7 @@ async def _start_user_turn(
             "Do not start another App or replay the complete plan. Describe "
             "completion only after the missing work has applied and been read back.",
         )
-        agent_text = f"{partial_block}\n\n---\n\n{agent_text}"
+        system_context_blocks.append(partial_block)
     elif (
         approved_greenfield
         and not pending_writes
@@ -2027,14 +2421,18 @@ async def _start_user_turn(
             "Correct rejected preflight plans in this turn without another "
             "approval; report completion only from this design's applied receipt.",
         )
-        agent_text = f"{approved_block}\n\n---\n\n{agent_text}"
+        system_context_blocks.append(approved_block)
 
-    if looks_like_bless(text) and not pending_writes:
+    if (
+        provider.id != "integral_native"
+        and looks_like_bless(text)
+        and not pending_writes
+    ):
         # User confirmed a prior plan but nothing is waiting on the Prompt
         # Sheet. Observed failure: model re-grounds (schema reads) then
         # narrates "I'll start filing" and ends the turn — no propose call,
-        # so no approval card. Mirror the staging_pending injection: put the
-        # instruction in the utterance so the orchestrator actually sees it.
+        # so no approval card. Mirror the staging_pending injection in the
+        # authenticated system context.
         confirm_block = wrap_system_context(
             "user_confirmed_plan",
             "[SYSTEM:USER-CONFIRMED]\n"
@@ -2044,8 +2442,40 @@ async def _start_user_turn(
             "go-ahead. Do not re-fetch schemas you already have. "
             "A text-only reply produces no approval card.",
         )
-        agent_text = f"{confirm_block}\n\n---\n\n{agent_text}"
+        system_context_blocks.append(confirm_block)
+    if host_action == "staging_follow_through":
+        system_context_blocks.append(
+            wrap_system_context(
+                "approved_staging_follow_through",
+                "[SYSTEM:APPROVED-STAGING-FOLLOW-THROUGH]\n"
+                "The user used the approval control for the staged change. "
+                "Use the approved staging token(s) carried in context to execute "
+                "only those changes. Do not create another approval card for the "
+                "same work. Stop if execution cannot be confirmed.",
+            )
+        )
 
+    # Legacy intent gates do not classify native requests. Native tools retain
+    # live broker policy and exact proposal approval; skills interpret the
+    # user's design-only or chat-only request inside the metered model run.
+    no_workspace_writes = (
+        provider.id != "integral_native"
+        and _is_explicit_no_workspace_write_request(user_text)
+    )
+    if no_workspace_writes:
+        extra_data["no_workspace_writes"] = True
+    if greenfield_proposal_required:
+        extra_data["design_only"] = True
+
+    run_metadata = _run_observability_metadata(
+        turn_id=turn_handle.turn_id,
+        provider=provider,
+        agent_id=thread.agent_id or "",
+    )
+    if persisted_user_message_id:
+        run_metadata["chat_message_id"] = persisted_user_message_id
+    if client_request_id:
+        run_metadata["client_request_id"] = client_request_id
     try:
         run = await start_run(
             thread_id=thread.id,
@@ -2053,22 +2483,26 @@ async def _start_user_turn(
             workspace_id=active_workspace_id or "",
             provider_id=provider.id,
             agent_id=thread.agent_id or "",
-            metadata=_run_observability_metadata(
-                turn_id=turn_handle.turn_id,
-                provider=provider,
-                agent_id=thread.agent_id or "",
-            ),
+            metadata=run_metadata,
         )
     except Exception:
         await chat_turn_registry.release_turn(thread.id)
         raise
     extra_data["run_id"] = run.run_id
+    if no_workspace_writes:
+        from app.agentive.tooling.dispatch import set_no_workspace_write_guard
+
+        set_no_workspace_write_guard(thread.provider_session_id)
     if greenfield_proposal_required:
         from app.agentive.tooling.dispatch import set_proposal_only_guard
 
         set_proposal_only_guard(thread.provider_session_id)
 
     async def _finish_run(status: str, error: Optional[Dict[str, Any]]) -> None:
+        if no_workspace_writes:
+            from app.agentive.tooling.dispatch import clear_no_workspace_write_guard
+
+            clear_no_workspace_write_guard(thread.provider_session_id)
         if greenfield_proposal_required:
             from app.agentive.tooling.dispatch import clear_proposal_only_guard
 
@@ -2088,6 +2522,10 @@ async def _start_user_turn(
         events: Optional[Iterable[Dict[str, Any]]] = None,
     ) -> Optional[Dict[str, str]]:
         """Fail a design/build turn that claims completion without a receipt."""
+        if provider.id == "integral_native":
+            # The native output validator checks execution receipts in its
+            # library run; do not add a second legacy prose-based validator.
+            return None
         proposal_error = await _greenfield_proposal_error(
             thread.id, greenfield_proposal_required
         )
@@ -2102,7 +2540,8 @@ async def _start_user_turn(
     turn_ctx = ChatTurnContext(
         user_id=user_id,
         user_email=email,
-        text=agent_text,
+        text=user_utterance,
+        system_context="\n\n".join(block for block in system_context_blocks if block),
         thread_id=thread.id,
         session_id=thread.provider_session_id,
         focused_track_id=focused_track_id,
@@ -2207,10 +2646,8 @@ async def agent_turn(
         thread_id=thread.id, user_id=user_id, origin=origin
     )
     started = time.monotonic()
-    agent_text = prompt or "[agent workstream]"
     extra_data: Dict[str, Any] = {
         "trigger": "agent_workstream",
-        "system_utterance": agent_text,
         "origin": origin,
     }
     if thread.agent_id:
@@ -2319,6 +2756,7 @@ async def agent_turn(
         workspace_id=active_workspace_id,
         start_time=started,
         extra_data=extra_data,
+        system_context=prompt or "Complete the requested background workstream.",
         is_disconnected=request.is_disconnected,
     )
     interact_payload: Dict[str, Any] = {

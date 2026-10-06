@@ -6,10 +6,10 @@ import type { SkillSummary } from '../../api/skills';
 describe('skillBadges', () => {
   it('marks core and customized skills', () => {
     const skill: SkillSummary = {
-      id: 'core:integral_filing',
+      id: 'core:integral-filing',
       source: 'core',
       read_only: true,
-      key: 'integral_filing',
+      key: 'integral-filing',
       name: 'Filing',
       description: '',
       kind: 'declarative',

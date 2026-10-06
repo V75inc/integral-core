@@ -5,8 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional
+from typing import Any, AsyncIterator, Dict, Optional
 
 from app.agentive.work_models import WorkItem
 from app.schemas.agentive.work import (
@@ -123,6 +124,138 @@ def recommended_heartbeat_interval(lease_seconds: float) -> float:
     if lease_seconds <= 0:
         raise ValueError("lease_seconds must be > 0")
     return float(lease_seconds) / 3.0
+
+
+def _parse_lease_timestamp(value: str | None) -> datetime | None:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
+
+
+@asynccontextmanager
+async def authorized_work_item_effect(
+    context: Any,
+) -> AsyncIterator[Any]:
+    """Hold a PostgreSQL transaction that fences one durable-work effect.
+
+    The WorkItem row is conditionally updated inside the same transaction as
+    the effect writes performed by the caller. This obtains the row lock before
+    yielding; cancellation, lease renewal, and lease reclamation serialize
+    against the effect. The caller's jvspatial Object/Node writes use the
+    transaction-bound default GraphContext until the context exits.
+
+    This is intentionally unavailable for non-transactional databases. A
+    preflight lease read followed by an unfenced write is not an acceptable
+    substitute for durable worker effects.
+    """
+    from jvspatial.core.context import graph_transaction
+    from jvspatial.db import get_prime_database
+
+    from app.agentive.services.work_execution import (
+        deterministic_run_id,
+        effect_key,
+    )
+    from app.schemas.agentive.work import WorkExecutionContext
+
+    if not isinstance(context, WorkExecutionContext):
+        raise TypeError("a trusted WorkExecutionContext is required")
+    if context.cancellation_signal:
+        raise WorkError("work.cancelled", "cancel requested")
+    if not context.lease_token or context.lease_fence < 1:
+        raise WorkError("work.lease_lost", "execution lease is unavailable")
+
+    async with graph_transaction(database=get_prime_database()) as graph:
+        item = await WorkItem.get(_object_id(context.work_item_id))
+        if item is None:
+            raise WorkError("work.not_found", "work item not found")
+        now = datetime.now(timezone.utc)
+        if item.status != "running":
+            raise WorkError("work.lease_lost", "execution is no longer running")
+        if (
+            item.attempt != context.attempt
+            or item.principal_id != context.principal_id
+            or item.workspace_id != context.workspace_id
+            or (item.thread_id or "") != context.thread_id
+            or item.lease_token != context.lease_token
+            or int(item.lease_fence or 0) != context.lease_fence
+            or (item.deadline_at or None) != context.deadline_at
+            or context.run_id
+            != deterministic_run_id(
+                work_item_id=item.work_item_id,
+                attempt=int(item.attempt or 0),
+            )
+            or context.effect_key
+            != effect_key(
+                work_item_id=item.work_item_id,
+                logical_step_key=context.logical_step_key,
+            )
+        ):
+            raise WorkError("work.lease_lost", "execution lease is no longer current")
+        if item.cancel_requested_at:
+            raise WorkError("work.cancelled", "cancel requested")
+        lease_expiry = _parse_lease_timestamp(item.lease_expires_at)
+        if lease_expiry is None or lease_expiry <= now:
+            raise WorkError("work.lease_lost", "execution lease expired")
+        deadline = _parse_lease_timestamp(context.deadline_at or item.deadline_at)
+        if deadline is not None and deadline <= now:
+            raise WorkError("work.deadline_exceeded", "execution deadline passed")
+
+        # The CAS holds the authoritative WorkItem row lock until all effect
+        # writes in the yielded transaction commit. Keep token values out of
+        # normalized errors because the generic CAS diagnostics include values.
+        try:
+            await _cas_lease_fence_in_transaction(
+                context=context,
+                lease_expires_at=item.lease_expires_at,
+                transaction=graph.database,
+            )
+        except WorkError as exc:
+            if exc.code in {"work.lease_lost", "work.cas_conflict"}:
+                raise WorkError(
+                    "work.lease_lost", "execution lease is no longer current"
+                ) from None
+            raise
+        yield graph
+
+
+async def assert_work_item_execution_current(context: Any) -> None:
+    """Check durable authority immediately before publishing worker output.
+
+    Output delivery cannot share a database transaction with a remote client,
+    but the assertion serializes with cancellation and lease reclamation. The
+    caller must invoke it at each publication boundary; persistent effects
+    must still use ``authorized_work_item_effect`` around their write.
+    """
+    async with authorized_work_item_effect(context):
+        return None
+
+
+async def _cas_lease_fence_in_transaction(
+    *, context: Any, lease_expires_at: str, transaction: Any
+) -> None:
+    from app.agentive.services.work_outbox import cas_work_item_update
+
+    await cas_work_item_update(
+        context.work_item_id,
+        expected={
+            "status": "running",
+            "attempt": context.attempt,
+            "principal_id": context.principal_id,
+            "workspace_id": context.workspace_id,
+            "lease_token": context.lease_token,
+            "lease_fence": context.lease_fence,
+            "cancel_requested_at": "",
+            "lease_expires_at": lease_expires_at,
+        },
+        updates={},
+        error_code="work.lease_lost",
+        transaction=transaction,
+    )
 
 
 def compute_retry_delay(
@@ -567,19 +700,39 @@ async def heartbeat_lease(
     """Extend lease expiry when token and fence still match."""
     from app.agentive.services.work_outbox import cas_work_item_update
 
+    item = await WorkItem.get(_object_id(work_item_id))
+    if item is None:
+        raise WorkError("work.not_found", "work item not found")
+    if item.cancel_requested_at:
+        raise WorkError("work.cancelled", "cancel requested")
+    now = datetime.now(timezone.utc)
+    deadline = _parse_lease_timestamp(item.deadline_at)
+    if deadline is not None and deadline <= now:
+        raise WorkError("work.deadline_exceeded", "execution deadline passed")
+    current_expiry = _parse_lease_timestamp(item.lease_expires_at)
+    if current_expiry is None or current_expiry <= now:
+        raise WorkError("work.lease_lost", "execution lease expired")
     expires = _lease_expiry(lease_seconds)
-    return await cas_work_item_update(
-        work_item_id,
-        expected={
-            "status": "running",
-            "lease_token": lease_token,
-            "lease_fence": int(lease_fence),
-            "lease_owner": worker_id,
-        },
-        updates={"lease_expires_at": expires},
-        error_code="work.lease_lost",
-        transaction=transaction,
-    )
+    try:
+        return await cas_work_item_update(
+            work_item_id,
+            expected={
+                "status": "running",
+                "lease_token": lease_token,
+                "lease_fence": int(lease_fence),
+                "lease_owner": worker_id,
+                "cancel_requested_at": "",
+            },
+            updates={"lease_expires_at": expires},
+            error_code="work.lease_lost",
+            transaction=transaction,
+        )
+    except WorkError as exc:
+        if exc.code in {"work.lease_lost", "work.cas_conflict"}:
+            current = await WorkItem.get(_object_id(work_item_id))
+            if current is not None and current.cancel_requested_at:
+                raise WorkError("work.cancelled", "cancel requested") from None
+        raise
 
 
 async def transition_leased(
@@ -708,6 +861,7 @@ async def force_expire_lease_for_tests(work_item_id: str) -> WorkItem:
 
 __all__ = [
     "DEFAULT_LEASE_SECONDS",
+    "assert_work_item_execution_current",
     "cancel_work_item",
     "claim_due_candidate",
     "compute_retry_delay",

@@ -9,13 +9,15 @@
 /** Active AI harness routing. Surfaced as a radio toggle on the Agents
  *  panel. Exactly one value is current at a time. */
 export type HarnessProviderId =
-  /** Default. In-process jvagent embedded in the Integral backend. */
+  /** Default. Native Pydantic AI harness hosted by Integral Core. */
+  | 'pydantic-ai-native'
+  /** Compatibility harness: in-process jvagent embedded in the backend. */
   | 'jvagent-embedded'
   /** Mock echo provider — for layout / theming work without a live agent. */
   | 'mock-echo';
 
 export interface ProvidersSettings {
-  /** Active harness routing. Default ``jvagent-embedded``. */
+  /** Active harness routing. Default ``pydantic-ai-native``. */
   defaultProviderId: HarnessProviderId;
 }
 
@@ -41,9 +43,9 @@ export interface SettingsSnapshot {
 }
 
 export const DEFAULT_SETTINGS: SettingsSnapshot = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   providers: {
-    defaultProviderId: 'jvagent-embedded',
+    defaultProviderId: 'pydantic-ai-native',
   },
   appearance: {
     theme: 'light',

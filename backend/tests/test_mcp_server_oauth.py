@@ -632,7 +632,7 @@ async def test_mcp_declared_app_query_matches_authenticated_http_query(
     assert [ref["id"] for ref in http_result["object_refs"]] == expected_ids
     assert [ref["id"] for ref in mcp_query["object_refs"]] == expected_ids
     assert http_result["evidence"]["applied_scope"] == f"ws:{workspace_id}"
-    assert mcp_query["evidence"]["applied_scope"] == f"ws:{workspace_id}"
+    assert mcp_query["evidence"]["applied_scope"] == f"app:{app.id}"
 
 
 @pytest.mark.asyncio
