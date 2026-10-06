@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -26,6 +27,88 @@ _CAROUSEL_DRAFTER_TOOLS = [
     "integral_describe_model",
     "integral_get_track_schema",
 ]
+
+
+def test_bundle_always_active_is_preserved_in_overlay(tmp_path: Path):
+    from app.agentive.workspace_agent_profile import _skill_to_overlay_doc
+
+    skill_dir = tmp_path / "skills" / "founder_journey_guide"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\n"
+        "name: founder_journey_guide\n"
+        "description: Guides a founder through the journey.\n"
+        "always-active: true\n"
+        "---\n\n"
+        "Always orient the founder to the next step.\n",
+        encoding="utf-8",
+    )
+    skill = SimpleNamespace(
+        enabled=True,
+        kind="declarative",
+        tools_required=[],
+        key="founder_journey_guide",
+        origin="bundle",
+        description="",
+        app_id="",
+        name="Founder Journey Guide",
+        prompt_template_ref="skills/founder_journey_guide/SKILL.md",
+        body_override=None,
+    )
+
+    doc = _skill_to_overlay_doc(skill, app_slug="venture-journey", bundle_dir=tmp_path)
+
+    assert doc is not None
+    assert doc.always_active is True
+
+
+def test_bundle_without_always_active_remains_conditional(tmp_path: Path):
+    from app.agentive.workspace_agent_profile import _skill_to_overlay_doc
+
+    skill_dir = tmp_path / "skills" / "conditional_skill"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: conditional_skill\ndescription: Only when relevant.\n---\n\n"
+        "Use only for this task.\n",
+        encoding="utf-8",
+    )
+    skill = SimpleNamespace(
+        enabled=True,
+        kind="declarative",
+        tools_required=[],
+        key="conditional_skill",
+        origin="bundle",
+        description="",
+        app_id="",
+        name="Conditional Skill",
+        prompt_template_ref="skills/conditional_skill/SKILL.md",
+        body_override=None,
+    )
+
+    doc = _skill_to_overlay_doc(skill, app_slug="example", bundle_dir=tmp_path)
+
+    assert doc is not None
+    assert doc.always_active is False
+
+
+def test_overlay_always_active_reaches_jvagent_skill_doc():
+    from app.agentive.skill_bundle_provider import _overlay_to_skill_doc
+
+    doc = SimpleNamespace(
+        name="venture-journey__founder_journey_guide",
+        description="Foundational founder routing.",
+        body="Orient the founder and pick one next action.",
+        requires_tools=("integral_list_tracks",),
+        requires_actions=("EmbeddedIntegralAction",),
+        source="workspace",
+        spec="jv",
+        always_active=True,
+        metadata={"skill_key": "founder_journey_guide"},
+    )
+
+    converted = _overlay_to_skill_doc(doc)
+
+    assert converted.always_active is True
 
 
 async def _make_app(

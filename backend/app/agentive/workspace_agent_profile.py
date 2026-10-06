@@ -345,6 +345,7 @@ def _skill_to_overlay_doc(
         description=description,
         body=body,
         requires_tools=tuple(resolved_tools),
+        always_active=bool((bundle_meta or {}).get("always_active", False)),
         metadata={
             "skill_key": key,
             "app_id": getattr(skill, "app_id", ""),
