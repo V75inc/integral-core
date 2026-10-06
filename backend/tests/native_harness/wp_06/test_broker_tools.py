@@ -18,6 +18,7 @@ from app.agentive.harness.broker_tools import (
     build_brokered_tools,
 )
 from app.agentive.harness.contracts import HarnessExecutionScope
+from app.agentive.harness.pydantic_ai_compat import IntegralToolDisclosure
 from app.agentive.harness.runtime import build_native_runtime
 from app.agentive.tooling.catalogue import build_tool_catalogue
 from app.schemas.capability_broker import CapabilityResult
@@ -794,37 +795,41 @@ def test_broker_registers_search_capabilities_with_the_projected_skills(
 
 
 @pytest.mark.asyncio
-async def test_initial_model_request_exposes_only_unblocked_tools() -> None:
-    """Scaffold APIs wait until discovery and their owning skill are loaded."""
-    catalogue = build_tool_catalogue()
+async def test_integral_tools_wait_for_capability_search(tmp_path: Path) -> None:
+    """Only the unified search tool is available before this turn's search."""
+    catalogue = [
+        item
+        for item in build_tool_catalogue()
+        if item["name"] in {"integral_get_scope", "integral_query_entries"}
+    ]
     tools = build_brokered_tools(
         scope=_scope(),
         catalogue=catalogue,
-        run_state={"capability_search_completed": True},
+        skill_library=tmp_path,
     )
     observed_tool_names: list[set[str]] = []
 
     def respond(_messages: list[Any], info: Any) -> ModelResponse:
-        observed_tool_names.append({tool.name for tool in info.function_tools})
+        visible = {tool.name for tool in info.function_tools}
+        observed_tool_names.append(visible)
+        if len(observed_tool_names) == 1:
+            assert visible == {"search_capabilities"}
+            return ModelResponse(
+                parts=[ToolCallPart("search_capabilities", {"query": "find a record"})]
+            )
+        assert "integral_query_entries" in visible
         return ModelResponse(parts=[TextPart(content="ready")])
 
     agent = Agent(
         FunctionModel(respond),
         tools=tools,
-        capabilities=[ToolSearch(strategy="keywords", max_results=8)],
+        capabilities=[IntegralToolDisclosure(max_results=8)],
     )
-    result = await agent.run("What workspace is this and are there any tracks?")
+    result = await agent.run("Find a record in my workspace.")
 
     assert result.output == "ready"
-    assert len(observed_tool_names) == 1
-    assert observed_tool_names[0] == {
-        "integral_get_scope",
-        "integral_list_workspaces",
-        "integral_list_apps",
-        "integral_list_tracks",
-        "integral_query_entries",
-        "search_tools",
-    }
+    assert len(observed_tool_names) == 2
+    assert observed_tool_names[0] == {"search_capabilities"}
 
 
 @pytest.mark.asyncio
@@ -920,15 +925,15 @@ async def test_unified_search_discloses_tools_and_replays_native_availability(
         visible = {tool.name for tool in info.function_tools}
         requests.append(visible)
         assert "search_tools" not in visible
-        if len(requests) == 1:
-            assert "integral_list_entries" not in visible
+        if len(requests) in {1, 4}:
+            assert visible - {"search_conversation_history"} == {"search_capabilities"}
             return ModelResponse(
                 parts=[
                     ToolCallPart("search_capabilities", {"query": "list entry records"})
                 ]
             )
-        assert "integral_list_entries" in visible
-        if len(requests) == 2:
+        if len(requests) in {2, 5}:
+            assert "integral_list_entries" in visible
             return ModelResponse(parts=[ToolCallPart("integral_list_entries", {})])
         return ModelResponse(parts=[TextPart("No entries yet.")])
 
@@ -963,7 +968,8 @@ async def test_unified_search_discloses_tools_and_replays_native_availability(
         run_id=next_scope.framework_run_id,
     )
     assert second.output == "No entries yet."
-    assert len(invocations) == 1
+    assert len(requests) == 6
+    assert len(invocations) == 2
     assert invocations[0]["workspace_id"] == _scope().workspace_id
     assert invocations[0]["principal_id"] == _scope().principal_id
 
@@ -1004,12 +1010,25 @@ async def test_loading_a_standard_skill_reveals_its_declared_brokered_tools(
         requests.append(visible)
         assert "search_tools" not in visible
         if len(requests) == 1:
+            assert visible - {"search_conversation_history"} == {
+                "search_capabilities",
+                "load_capability",
+            }
+            return ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        "search_capabilities", {"query": "create a record in a track"}
+                    )
+                ]
+            )
+        if len(requests) == 2:
+            assert "load_capability" in visible
             assert "integral_create_entry" not in visible
             return ModelResponse(
                 parts=[ToolCallPart("load_capability", {"id": "integral-entries"})]
             )
-        assert "integral_create_entry" in visible
-        if len(requests) == 2:
+        if len(requests) == 3:
+            assert "integral_create_entry" in visible
             return ModelResponse(parts=[ToolCallPart("integral_create_entry", {})])
         return ModelResponse(parts=[TextPart("The requested record is staged.")])
 

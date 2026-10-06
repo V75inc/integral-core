@@ -3,8 +3,7 @@
 Web flow endpoints:
 
 * ``POST /api/agentive/staging/bless-token`` — frontend approval card calls
-  this when the user clicks Approve. Optionally grants session-scoped
-  autonomy for the change's kind.
+  this when the user approves this specific proposed change.
 * ``POST /api/agentive/staging/revoke-token`` — frontend approval card
   calls this when the user clicks Reject (or undoes an auto-approval).
 * ``GET /api/agentive/staging/pending`` — returns the user's currently
@@ -97,10 +96,8 @@ async def bless_token_endpoint(
     common LLM failure mode (model loses the token between turns or
     misinterprets the user's "Approved" prose).
 
-    If ``autonomy="session"`` and the staged change has a session_id,
-    the change's kind is also added to the session's autonomy grants —
-    subsequent same-kind staged changes in the session will be created
-    already-blessed (with an undo affordance still surfaced in the UI).
+    V1 supports approval of this specific proposal. Session-wide
+    auto-approval is disabled until its scope and policy contract are shipped.
     """
     user_id = _resolve_user(request)
     from app.agentive.services.staging_apply import bless_and_execute

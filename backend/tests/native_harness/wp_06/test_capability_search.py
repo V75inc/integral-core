@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from app.agentive.harness.capability_search import (
+    _search_catalog,
     build_search_capabilities_tool,
     pydantic_tool_search_strategy,
     search_capabilities_for_turn,
@@ -132,6 +133,177 @@ def test_initial_discovery_ranks_a_skill_and_provides_schema_discovery_path(
     }
 
 
+def test_existing_record_lookup_prefers_insights_over_app_scaffolding(
+    tmp_path: Path,
+) -> None:
+    """A lookup about a domain must not route as a request to create a system."""
+    skill_library = tmp_path / "authorized-skills"
+    materialize_standard_skill_library(
+        [
+            (
+                "integral-insights",
+                "Search existing Integral records and current workspace state to "
+                "answer one-time questions. Find whether information is already "
+                "filed, search entries by meaning, summarize, count, rank, compare, "
+                "or break down current data; optionally save a query as a View. "
+                "For a new operational app, use integral-scaffold.",
+                "",
+            ),
+            (
+                "integral-scaffold",
+                "Designs and delivers a new operational app when the user wants "
+                "to create a new system for a business process. Use for new "
+                "registers, inventory and asset management, equipment and tool "
+                "tracking, maintenance schedules, staff check-outs, inspections, "
+                "and reminders when the user wants the process set up.",
+                "",
+            ),
+        ],
+        root=skill_library,
+    )
+
+    result = search_capabilities_for_turn(
+        query=(
+            "concept/meaning search across entries — find anything filed about "
+            "keeping equipment serviceable (maintenance, servicing, upkeep, "
+            "repairs, inspections)"
+        ),
+        skill_library=skill_library,
+        catalogue=[],
+    )
+
+    assert result["recommendation"]["skill"]["name"] == "integral-insights"
+
+
+def test_mower_servicing_tracker_routes_to_scaffold_over_modeling(
+    tmp_path: Path,
+) -> None:
+    """A plain tracker request is app delivery, not schema-only modeling."""
+    skill_library = tmp_path / "authorized-skills"
+    materialize_standard_skill_library(
+        [
+            (
+                "integral-model",
+                "Owns domain schema design and evolution for an existing App or "
+                "Track: shape EntryTypes, fields, and reference patterns from "
+                "the operational need. Advise integral-scaffold during a "
+                "new-App build without taking over its end-to-end delivery.",
+                "",
+            ),
+            (
+                "integral-scaffold",
+                "Designs and delivers an operational app or app extension from a "
+                "work need. Use when someone wants a simple way to keep track of "
+                "a process, a tracker, register, or system for their team, "
+                "including equipment and tool inventory, mower or vehicle "
+                "servicing, maintenance history, due dates, checkouts, "
+                "inspections, and reminders. Check whether an existing app fits, "
+                "propose the smallest useful design, build it after approval, "
+                "and verify the result.",
+                "",
+            ),
+            (
+                "integral-dashboards",
+                "Compose and customize app-scoped analytics dashboards, "
+                "including bar charts and KPI tiles.",
+                "",
+            ),
+        ],
+        root=skill_library,
+    )
+
+    result = search_capabilities_for_turn(
+        query="propose a mower servicing tracker app",
+        skill_library=skill_library,
+        catalogue=[],
+    )
+
+    assert result["recommendation"]["skill"]["name"] == "integral-scaffold"
+
+
+def test_single_item_added_to_existing_track_routes_to_entries() -> None:
+    """An item create in a named existing list is record work, not scaffolding."""
+    backend_root = Path(__file__).resolve().parents[3]
+    skill_library = (
+        backend_root
+        / "app/resident_harness/agents/integral/integral_agent/actions/integral/"
+        / "embedded_integral_action/skills"
+    )
+    result = search_capabilities_for_turn(
+        query=(
+            "Add a mower to our Tools list. Call it QA Mower Alpha, "
+            "serial QA-MOWER-001."
+        ),
+        skill_library=skill_library,
+        catalogue=[],
+    )
+
+    assert result["recommendation"]["skill"]["name"] == "integral-entries"
+
+
+def test_scaffold_workflow_discloses_its_proposal_tool_with_noisy_semantic_ranks() -> (
+    None
+):
+    """Skill procedure relevance keeps required tools discoverable."""
+    skill = {
+        "name": "integral-scaffold",
+        "description": "Designs and delivers an operational app.",
+        "body": (
+            "Check the blueprint with integral_check_design_coverage. "
+            "Call integral_propose_design with a concise design. "
+            "Use integral_build_approved_design after the user affirms."
+        ),
+    }
+
+    def tool(name: str, description: str, *parameters: str) -> dict[str, Any]:
+        return {
+            "name": name,
+            "description": description,
+            "input_schema": {
+                "type": "object",
+                "properties": {parameter: {} for parameter in parameters},
+            },
+        }
+
+    tools = [
+        tool(
+            "integral_propose_design",
+            "Record a new app design proposal.",
+            "proposal",
+            "blueprint",
+        ),
+        tool(
+            "integral_check_design_coverage",
+            "Check an app design blueprint.",
+            "blueprint",
+        ),
+        tool("integral_delete_app", "Delete an app.", "app_id"),
+        tool("integral_get_app", "Fetch an app.", "app_id"),
+        tool(
+            "integral_build_approved_design", "Build an approved design.", "operations"
+        ),
+    ]
+
+    result = _search_catalog(
+        query="propose a mower servicing tracker app",
+        limit=8,
+        skills=[skill],
+        tools=tools,
+        immediately_available_tools=(),
+        ranked_tool_ids=[
+            ("integral_delete_app", 0.99),
+            ("integral_get_app", 0.98),
+            ("integral_build_approved_design", 0.97),
+            ("integral_check_design_coverage", 0.96),
+            ("integral_propose_design", 0.95),
+        ],
+    )
+
+    disclosed = {item["name"] for item in result["results"] if item["kind"] == "tool"}
+    assert "integral_propose_design" in disclosed
+    assert "do not replace a required" in result["recommendation"]["instruction"]
+
+
 def test_tool_ranking_uses_selected_skill_workflow_instead_of_negative_manifest_text(
     tmp_path: Path,
 ) -> None:
@@ -173,8 +345,13 @@ def test_tool_ranking_uses_selected_skill_workflow_instead_of_negative_manifest_
     assert "integral_author_model" not in tool_names[:2]
 
 
-def test_real_scaffold_skill_search_finds_the_proposal_tool_first() -> None:
-    """Lay-user tracker wording resolves to the real scaffold workflow."""
+@pytest.mark.asyncio
+async def test_real_scaffold_skill_search_finds_the_proposal_tool_first(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Lay-user tracker wording resolves through semantic capability search."""
+    from app.agentive.harness import capability_search
+    from app.agentive.harness.capability_search import build_search_capabilities_tool
     from app.agentive.tooling.catalogue import build_tool_catalogue
 
     backend_root = Path(__file__).resolve().parents[3]
@@ -183,18 +360,37 @@ def test_real_scaffold_skill_search_finds_the_proposal_tool_first() -> None:
         / "app/resident_harness/agents/integral/integral_agent/actions/integral/"
         / "embedded_integral_action/skills"
     )
-    result = search_capabilities_for_turn(
-        query=(
-            "tool tracker for maintenance company record tool serial number "
-            "condition storage place purchase date photo current holder"
-        ),
+    query = (
+        "tool tracker for maintenance company record tool serial number "
+        "condition storage place purchase date photo current holder"
+    )
+
+    async def semantic_embedding(text: str) -> list[float]:
+        if text == query or text.startswith("integral-scaffold"):
+            return [1.0, 0.0]
+        if text.startswith("integral-entries"):
+            return [0.8, 0.6]
+        if text.startswith("integral_propose_design"):
+            return [1.0, 0.0]
+        if text.startswith("integral_check_design_coverage"):
+            return [0.9, 0.1]
+        return [0.0, 1.0]
+
+    monkeypatch.setattr(
+        capability_search,
+        "_embed_text_for_capability_search",
+        semantic_embedding,
+    )
+    search_tool = build_search_capabilities_tool(
         skill_library=skill_library,
         catalogue=build_tool_catalogue(),
         immediately_available_tools=("integral_propose_design",),
-        limit=8,
     )
+    returned = await search_tool.function(query=query)
+    result = returned.return_value
 
-    assert result["results"][0]["name"] == "integral-scaffold"
+    assert result["ranking_method"] == "hybrid_semantic_lexical"
+    assert result["recommendation"]["skill"]["name"] == "integral-scaffold"
     tool_names = [item["name"] for item in result["results"] if item["kind"] == "tool"]
     assert tool_names[0] == "integral_propose_design"
     assert "integral_author_model" not in tool_names
@@ -324,8 +520,8 @@ async def test_negative_skill_routing_text_does_not_create_positive_match(
     vectors = {
         "find a specific record by serial number in the workspace": [1.0, 0.0],
         "integral-onboard Guides workspace orientation and discovery when the user's goal is unclear;": [
-            1.0,
             0.0,
+            1.0,
         ],
         "integral-entries Manages a specific existing record or an explicitly requested record operation.": [
             0.99,

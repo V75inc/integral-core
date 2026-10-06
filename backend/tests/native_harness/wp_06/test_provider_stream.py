@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import tempfile
 from datetime import datetime, timezone
@@ -695,16 +696,48 @@ async def test_search_recommendation_does_not_force_irrelevant_skill_or_workflow
         await validate(None, "Here is my proposed design.")
 
     state["proposal_succeeded"] = True
-    state["proposal_text"] = "Recorded proposal markdown."
+    state["proposal_text"] = (
+        "Recorded proposal markdown.\n\n"
+        "Confirm this design, or tell me what to change."
+    )
     assert await validate(None, "Here is unrelated specialist advice.") == (
         "Proposed setup — nothing has been built yet.\n\n"
         "Recorded proposal markdown.\n\n"
         "Confirm this setup when you're ready, or tell me what to change."
     )
 
+    state["proposal_text"] = (
+        "Saved design.\n\nConfirm this design, or tell me what to change."
+        "\n\nConfirm this setup when you're ready, or tell me what to change."
+    )
+    normalized = await validate(None, "Here is unrelated specialist advice.")
+    assert normalized.count("Confirm this") == 1
+    assert normalized.endswith(
+        "Confirm this setup when you're ready, or tell me what to change."
+    )
+
     state["proposal_succeeded"] = False
     with pytest.raises(ModelRetry, match="no design proposal was recorded"):
         await validate(None, "Here is my proposed design.")
+
+
+@pytest.mark.asyncio
+async def test_loaded_scaffold_can_answer_from_existing_workspace_evidence():
+    """Loading a skill alone must not force an extra completion round-trip."""
+    from types import SimpleNamespace
+
+    state = {
+        "proposal_succeeded": False,
+        "build_succeeded": False,
+        "scaffold_completion_retry_requested": False,
+    }
+    validate = _scaffold_completion_validator(state)
+    context = SimpleNamespace(active_capability_ids={"integral-scaffold"})
+
+    assert await validate(context, "Use the existing Service Due field.") == (
+        "Use the existing Service Due field."
+    )
+    assert state["scaffold_completion_retry_requested"] is False
 
 
 @pytest.mark.asyncio
@@ -771,9 +804,41 @@ def test_cancel_turn_cancels_active_pydantic_token() -> None:
     """Integral's turn registry can stop the active model request."""
     provider = PydanticAIProvider()
     token = CancellationToken()
+
+    class ActiveTask:
+        cancelled = False
+
+        def done(self) -> bool:
+            return False
+
+        def cancel(self) -> None:
+            self.cancelled = True
+
+    task = ActiveTask()
     provider._active_tokens["thread-a"] = token
+    provider._active_tasks["thread-a"] = task  # type: ignore[assignment]
     provider.cancel_turn(thread_id="thread-a")
     assert token.cancelled
+    assert task.cancelled
+
+
+@pytest.mark.asyncio
+async def test_cancel_before_provider_generator_starts_prevents_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stop racing the first generator advance cannot start a late run."""
+    provider = PydanticAIProvider()
+    provider.cancel_turn(thread_id="thread-a")
+
+    async def prepare(_ctx: Any) -> Any:
+        raise AssertionError("cancelled provider must not prepare or dispatch")
+
+    monkeypatch.setattr(provider, "_prepare", prepare)
+    with pytest.raises(asyncio.CancelledError):
+        async for _event in provider.stream_turn(SimpleNamespace(thread_id="thread-a")):
+            pass
+
+    assert "thread-a" not in provider._cancelled_before_start
 
 
 @pytest.mark.asyncio

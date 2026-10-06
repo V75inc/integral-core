@@ -21,12 +21,10 @@ from app.agentive.harness.pydantic_ai_compat import (
 from app.agentive.harness.tool_argument_adapter import normalize_tool_arguments
 from app.schemas.agentive.work import WorkExecutionContext
 
-# Keep workspace orientation and the small set of resident workflow lifecycle
-# capabilities directly callable. The broader catalogue is deferred and
-# exposed through unified capability search. In particular, skills can name the
-# proposal/approval/verification APIs without depending on a second model
-# discovery round to reveal those APIs. This controls visible schemas only;
-# every invocation still crosses the same live Integral capability broker.
+# Fallback visibility for broker fixtures or runtimes without a projected skill
+# catalogue. A resident run with skills configured starts with unified
+# capability search, which reveals matching unowned tools and loads
+# skill-owned tools through Pydantic AI's Skills capability.
 _ALWAYS_AVAILABLE_TOOLS = frozenset(
     {
         "integral_get_scope",
@@ -405,9 +403,10 @@ def build_brokered_tools(
     call_state.setdefault("build_succeeded", False)
     call_state.setdefault("verification_succeeded", False)
     call_state.setdefault("capability_search_completed", False)
+    call_state["capability_search_required"] = skill_library is not None
     call_state.setdefault("pending_staged_tokens", {})
     immediately_available = (
-        _ALWAYS_AVAILABLE_TOOLS
+        (frozenset() if skill_library is not None else _ALWAYS_AVAILABLE_TOOLS)
         if always_available_tools is None
         else frozenset(always_available_tools)
     )
@@ -558,6 +557,7 @@ def build_brokered_tools(
                     name,
                     _REQUIRED_SKILLS_BY_TOOL.get(name),
                     frozenset(skill_owners.get(name, ())),
+                    call_state,
                 ),
                 defer_loading=name not in immediately_available,
                 # Public Pydantic barriers preserve model-emitted order for
@@ -577,6 +577,7 @@ def build_brokered_tools(
                     name for name in immediately_available if name in seen_names
                 ),
                 run_state=call_state,
+                skill_owned_tools=frozenset(skill_owners),
             )
         )
     return tools
@@ -586,10 +587,15 @@ def _prepare_capability_tool(
     name: str,
     required_skill: str | None,
     skill_owners: frozenset[str] = frozenset(),
+    call_state: dict[str, Any] | None = None,
 ):
     """Disclose skill tools while preserving the build authority boundary."""
 
     def prepare(ctx: RunContext[Any], tool_def):
+        if (call_state or {}).get("capability_search_required") and not (
+            call_state or {}
+        ).get("capability_search_completed"):
+            return None
         if required_skill and required_skill not in ctx.active_capability_ids:
             return None
         # Core validates the typed blueprint and live coverage on proposal
@@ -602,7 +608,9 @@ def _prepare_capability_tool(
         # Loading that skill reveals their schemas via the public preparation
         # API; it does not widen authority or bypass the broker. Framework
         # capability state is restored from its own conversation history.
-        if skill_owners.intersection(ctx.active_capability_ids):
+        if skill_owners:
+            if not skill_owners.intersection(ctx.active_capability_ids):
+                return None
             return replace(tool_def, defer_loading=False)
         return tool_def
 

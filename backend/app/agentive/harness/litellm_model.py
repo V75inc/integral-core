@@ -9,6 +9,7 @@ route and execution scope.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections import defaultdict
@@ -16,6 +17,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from copy import deepcopy
 from datetime import datetime, timezone
 from decimal import Decimal
+from enum import Enum
 from typing import Any
 from uuid import uuid4
 
@@ -32,6 +34,12 @@ from app.agentive.harness.pydantic_ai_compat import LiteLLMProvider, OpenAIChatM
 logger = logging.getLogger(__name__)
 
 AttemptObserver = Callable[[PhysicalModelRequest], Awaitable[None]]
+
+
+class _ModelStreamOutcome(str, Enum):
+    RESPONDED = "responded"
+    CANCELLED = "cancelled"
+    UNKNOWN = "outcome_unknown"
 
 
 class AmbiguousToolCallStreamError(ValueError):
@@ -305,7 +313,7 @@ class _LiteLLMStream(httpx.AsyncByteStream):
         self,
         *,
         chunks: AsyncIterator[Any],
-        finish: Callable[[Any | None, bool], Awaitable[None]],
+        finish: Callable[[Any | None, _ModelStreamOutcome], Awaitable[None]],
         response: Any = None,
     ) -> None:
         self._chunks = chunks
@@ -397,21 +405,34 @@ class _LiteLLMStream(httpx.AsyncByteStream):
             # outcome_unknown after the known response and permanently block
             # safe session continuation.
             self._finished = True
-            await self._finish(self._accounting_response(), True)
+            await self._finish(
+                self._accounting_response(), _ModelStreamOutcome.RESPONDED
+            )
             yield b"data: [DONE]\n\n"
-        except BaseException:
+        except BaseException as exc:
             if not self._finished:
                 self._finished = True
-                await self._finish(self._accounting_response(), False)
+                outcome = (
+                    _ModelStreamOutcome.CANCELLED
+                    if isinstance(exc, (asyncio.CancelledError, GeneratorExit))
+                    else _ModelStreamOutcome.UNKNOWN
+                )
+                await self._finish(self._accounting_response(), outcome)
             raise
 
     async def aclose(self) -> None:
         close = getattr(self._chunks, "aclose", None)
-        if callable(close):
-            await close()
         if not self._finished:
             self._finished = True
-            await self._finish(self._accounting_response(), False)
+            try:
+                if callable(close):
+                    await close()
+            finally:
+                await self._finish(
+                    self._accounting_response(), _ModelStreamOutcome.CANCELLED
+                )
+        elif callable(close):
+            await close()
 
 
 class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
@@ -579,6 +600,13 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
 
         try:
             response = await self._sdk_completion(**kwargs)
+        except asyncio.CancelledError:
+            await self._observe(
+                request_id=request_id,
+                started_at=started_at,
+                outcome="cancelled",
+            )
+            raise
         except BaseException:
             await self._observe(
                 request_id=request_id,
@@ -600,13 +628,13 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
                     request=request,
                 )
 
-            async def finish(last: Any | None, complete: bool) -> None:
+            async def finish(last: Any | None, outcome: _ModelStreamOutcome) -> None:
                 await self._observe(
                     request_id=request_id,
                     started_at=started_at,
-                    outcome="responded" if complete else "outcome_unknown",
+                    outcome=outcome.value,
                     response=last,
-                    complete=complete,
+                    complete=outcome is _ModelStreamOutcome.RESPONDED,
                 )
 
             return httpx.Response(

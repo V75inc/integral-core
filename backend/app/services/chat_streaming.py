@@ -27,6 +27,18 @@ SSE_HEADERS = {
 }
 
 
+async def _await_cleanup_task(task: asyncio.Task[Any]) -> Any:
+    """Wait for a durable cleanup task even when its parent is cancelled."""
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            # Preserve the parent's cancellation for its caller, but do not
+            # strand run status, transcript persistence, or the thread fence.
+            continue
+    return task.result()
+
+
 def sse_bytes(event: str, data: Dict[str, Any]) -> bytes:
     """Encode a named SSE event frame with JSON-serialized payload."""
     return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n".encode("utf-8")
@@ -526,23 +538,26 @@ async def generate_chat_turn_sse(
         if not persisted and turn_events and not work_authority_rejected:
             flush_task = asyncio.create_task(_flush_drafts_logged())
             try:
-                await asyncio.shield(flush_task)
-            except asyncio.CancelledError:
-                # Swallowed deliberately: the original cancellation keeps
-                # propagating once this block finishes, and the shielded task
-                # runs to completion on its own.
-                pass
+                await _await_cleanup_task(flush_task)
             except Exception:
                 logger.exception(
                     "Unexpected error flushing interrupted turn for thread=%s",
                     thread.id,
                 )
-        if work_execution_context is None:
-            await chat_turn_registry.release_turn(thread.id)
         if on_terminal is not None:
-            try:
+            logger.info(
+                "chat turn terminalizing thread=%s status=%s",
+                thread.id,
+                terminal_status,
+            )
+
+            async def _persist_terminal() -> None:
                 async with _authorized_work_item_effect(work_execution_context):
                     await on_terminal(terminal_status, terminal_error)
+
+            terminal_task = asyncio.create_task(_persist_terminal())
+            try:
+                await _await_cleanup_task(terminal_task)
             except WorkError:
                 logger.info(
                     "Skipped stale WorkItem terminal callback for thread=%s",
@@ -553,6 +568,15 @@ async def generate_chat_turn_sse(
                     "Failed to persist terminal run for thread=%s", thread.id
                 )
         if work_execution_context is None:
+            # Keep the thread fenced until its durable execution status is
+            # terminal. Otherwise an immediate follow-up can begin recovery
+            # while the prior AgentRun still says `running` and cannot yet be
+            # admitted by the safe-resume checks.
+            release_task = asyncio.create_task(
+                chat_turn_registry.release_turn(thread.id)
+            )
+            await _await_cleanup_task(release_task)
+            logger.info("chat turn released thread=%s", thread.id)
             await notify_thread_stream_update(
                 user_id,
                 thread.id,

@@ -28,8 +28,9 @@ class InFlightTurn:
         self._cancel_hook = hook
 
     def cancel(self) -> None:
+        already_cancelled = self.cancel_event.is_set()
         self.cancel_event.set()
-        if self._cancel_hook is not None:
+        if not already_cancelled and self._cancel_hook is not None:
             try:
                 self._cancel_hook()
             except Exception:

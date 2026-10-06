@@ -246,6 +246,54 @@ exposes high latency and material prompt overhead even without prior transcript
 history. The earlier 42.9k turn is therefore not explained only by its long
 history. No repeated Integral tool call occurred in either lookup.
 
+## GLM capability loop and duplicate-read regression (2026-10-06)
+
+On the isolated 9012 browser stack running this branch, repeated the ordinary
+user request that had previously led to repeated capability searches and an
+unavailable-tool Broker error. Before the fix, a successful capability search
+disclosed every Integral tool, including tools absent from Pydantic AI's
+framework-recorded deferred-tool availability. GLM attempted one of those
+unreturned tools, received a Broker rejection, then repeated the search. The
+adapter now asks `RunContext.is_tool_available()` for each Integral tool after
+search, leaving authorization and deferred capability state with the framework.
+
+The same natural-language record lookup now completed with GLM-5.3:cloud. The
+trace contained one capability search, one skill load, and one `query_entries`
+call; there was no unavailable-tool rejection, repeat search, or redundant
+`resolve_entry` read. It found QA Mower Beta and correctly reported its status
+as Out for service. The model readout showed four physical provider calls,
+39,607 input and 5,185 output tokens (44,792 total), 33.8 seconds elapsed,
+32.6 seconds to first token, and unavailable provider cost. This is one browser
+sample, not a controlled performance benchmark: it confirms the tool loop and
+avoids one duplicate read, while leaving substantial token overhead and GLM
+latency unresolved. No record was changed.
+
+After clarifying `integral-entries`' standard skill description to cover exact
+serial-number lookup and current status, repeated a natural request: “Do we
+have a record for serial QA-MOWER-002? I just need its current condition.”
+Discovery now ranked `integral-entries` first and recommended
+`integral_query_entries`, ahead of the broader insights/review workflows. GLM
+returned the correct linked record and Out for service status. The trace used
+search, skill load, query, and one additional `integral_list_tracks` call to
+name the parent track. There was no repeated search or unavailable-tool error.
+This run reported 35,185 input and 2,330 output tokens (37,515 total), 20.0
+seconds elapsed, 19.1 seconds to first token, four provider calls, and no
+provider cost. The ranking change is confirmed in-browser; the extra track
+lookup and high token volume remain improvement opportunities.
+
+Added a skill-level instruction to use the entry's returned link and facts
+without calling `integral_list_tracks` solely for unrequested hierarchy. A
+third fresh-chat request (“Can you see whether QA-MOWER-002 is listed and tell
+me its current status?”) completed with exactly the expected search, skill
+load, and `integral_query_entries` steps; it did not call `integral_resolve_entry`
+or `integral_list_tracks`. The answer correctly identified QA Mower Beta and
+Out for service. GLM reported four physical requests, 32,889 input and 1,149
+output tokens (34,038 total), 48.6 seconds elapsed, 47.9 seconds to first
+token, and unavailable provider cost. The shorter tool sequence passed, but
+the variable and very high provider latency remains a material failure for a
+responsive product experience; no performance improvement is claimed from
+this small, non-controlled sample.
+
 ## Harness labels (2026-10-06)
 
 The same branch UI’s Settings → Agent view presents the inactive embedded
@@ -256,12 +304,14 @@ the requested distinction without changing persisted provider identifiers.
 
 ## Branch validation (2026-10-06)
 
-Against branch head `603e368c`, `make verify` completed successfully: substrate
+Against branch head `603e368c`, `make verify` completed successfully before
+the follow-on uncommitted tool-disclosure and skill-routing edits: substrate
 guards, pre-commit format/lint/type checks, reproducible wheel build and import,
 CI-faithful backend smoke, all 1,308 frontend tests across 221 files, and the
 full backend suite. PostgreSQL-only integration cases skipped because
 `INTEGRAL_TEST_DB=postgres` was not enabled; pgvector/Atlas integration cases
 also skipped where their backing services were unavailable. The run reported
 Pydantic Settings forward-reference and existing deprecation/skill-frontmatter
-warnings, but no failures. The browser smoke above was run on the same branch
-runtime before this gate.
+warnings, but no failures. The follow-on focused backend tests passed after
+those edits, and the later GLM browser smokes exercised the current working tree;
+the full `make verify` gate has not been rerun on that tree.

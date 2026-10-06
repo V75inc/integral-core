@@ -1,6 +1,6 @@
 ---
 name: integral-insights
-description: Answers ad hoc questions about current substrate state with governed queries, counts, rankings, comparisons, breakdowns, or activity digests; optionally save the query as a View. Use for one-time questions such as what's overdue or how two Tracks compare. For a periodic or recurring review deliverable, use integral-review.
+description: Search existing Integral records and current workspace state to answer one-time questions. Find whether information is already filed, search entries by meaning, summarize, count, rank, compare, or break down current data; optionally save a query as a View. For a new operational app, use integral-scaffold. For periodic or recurring review deliverables, use integral-review.
 allowed-tools: integral_describe_capabilities integral_governed_query integral_query_spec integral_plan_query integral_query integral_query_entries integral_count_entries integral_aggregate integral_activity_digest integral_get_digest integral_save_view integral_list_apps integral_list_tracks integral_get_track_schema integral_resolve_entry integral_describe_substrate integral_get_feed integral_list_notifications integral_mark_notification_read integral_search_cross_track integral_list_tags
 ---
 
@@ -65,91 +65,59 @@ This is distinct from individual entry reads in `integral-entries`:
 
 ## Procedure
 
-The insight loop: **ground → plan query → execute → synthesize →
-optionally save as a view.**
+Choose the simplest read that answers the request, execute it, and present
+its result. Ordinary reads should not become multi-call investigations.
 
-1. **Ground first.** If you don't already know the user's tracks /
-   apps, list them via `integral_list_tracks` (or `integral_list_apps`,
-   from the `integral-workspace` skill). Don't query against tracks you
-   haven't verified.
+1. **Choose by outcome.** For open-ended "find anything about X" or
+   "is anything filed about X?" questions, call integral_query directly.
+   It searches readable entries across tracks. Do not first list
+   workspaces, apps, or tracks, inspect schemas, or call
+   integral_plan_query. Narrow by a track or app only when the user names
+   it. Use integral_query_entries for specific filtered records,
+   integral_count_entries for counts, integral_aggregate for exact field
+   calculations, integral_query_spec for bounded structured reads, and
+   digest tools for recent activity. Resolve an ID or field key only when
+   the selected operation needs it.
 
-2. **Plan the query.** Call `integral_plan_query` with the user's
-   question and timezone first. Fill `<track id>`, `<key>`, and
-   `<prior result_set_id>` in the same turn with `integral_list_tracks`
-   and `integral_get_track_schema`. Do not ask the user which track or
-   field holds the data. Then call the plan's `instrument`. A follow-up
-   that says "of those" passes the previous `result_set_id` and does not
-   scan the workspace again. `expired`, `wrong_principal`,
-   `wrong_workspace`, and `schema_drift` are the answer. Follow
-   `on_failure`: a `refused`, `error`, or `over_budget` result is the
-   answer. Do not say "not found" or "no records" in its place. The
-   notes below are how each instrument is filled in:
+2. **Stop when the result is authoritative.** A successful, non-degraded
+   integral_query answers an open-ended concept search, including when it
+   returns zero matches. Report that no matching readable entries were
+   found and stop. Do not repeat it with keyword search, inventory the
+   workspace, or claim that no information exists anywhere unless the
+   result establishes that. Use one relevant fallback only when the result
+   is degraded, refused, or says it could not answer. If a result identifies
+   an App-owned data boundary, search that App only when an authorized
+   matching capability is available; never invent an App result. When the
+   search covers Core-readable entries only, keep the answer scoped to those
+   entries and do not imply App-owned records were searched.
 
-   **Choosing a search mode.** For concept / meaning search reach for
-   `integral_query` (semantic when available). It reports `mode` /
-   `degraded` in its result — and `integral_describe_substrate` exposes
-   `retrieval.semantic_available` up front. When semantic is OFF (the
-   substrate says so, or the result comes back `degraded: true`), the
-   text tools match by KEYWORD TERM OVERLAP, not meaning: phrase the query
-   as concise keywords (multi-word is fine; terms are split and matched
-   any-of — no boolean `OR` needed) and never expect a value ranking from
-   search (a value ranking is the sorted `integral_query_spec` flow below).
+3. **Use specialized reads when needed.** integral_plan_query is for
+   structured or multi-step queries that need explicit instrument
+   selection, field mapping, or a reusable result set. It is not a
+   prerequisite for ordinary retrieval. Never plan a read and then repeat
+   it through another tool. Preserve a result_set_id when continuing a
+   query that returned one. Treat expired, wrong_principal,
+   wrong_workspace, schema_drift, refused, error, or over_budget as
+   authoritative outcomes.
 
-   - Open-ended "find anything about X" / concept search across the
-     substrate → `integral_query` (hybrid retrieval; pass `query` and
-     optionally `mode` / `scope` / `filters`).
-   - Specific filter within a track → `integral_query_entries` with
-     `track_id` plus `tags` / `entry_type` / `query`. `tags` takes tag
-     ids from `integral_list_tags`, not names; a `group_by="tag"` count
-     returns tag ids too, so map them to names before replying.
-   - "How many" question → `integral_count_entries` with the
-     appropriate `group_by` (track / status / tag / entry_type / date);
-     this one accepts a `since` / `until` time window.
-   - "What's the total / average / min / max of field Y" →
-     `integral_aggregate` with `op` and `field`. Do not add pages by
-     hand. A `refused` or `over_budget` result is the answer.
-   - "Recent activity" / "what's been happening" → a digest scoped by
-     `scope` / `scope_id` / `period`: `integral_activity_digest` for the
-     per-track rollup, or `integral_get_digest` when the user wants the
-     itemized created / modified / commented / mentioned breakdown.
-   - **Superlative / ranking** — "the most lucrative / highest-revenue /
-     biggest / top / largest / oldest / smallest X", or "rank X by Y".
-     `integral_aggregate` returns the extreme *value* (`min` / `max` /
-     `sum`) but not which record holds it. `integral_count_entries`
-     only COUNTS rows. `integral_query`
-     is *semantic* and will NOT rank by a value — searching for the word
-     "lucrative" finds nothing because the ranking lives in a numeric
-     field, not the text. Answer a superlative with one sorted call.
-     Do not pull a page and rank it.
-       1. Ground the target track via `integral_list_tracks`. Keep its id.
-       2. Read the field **key** from `integral_get_track_schema`. Keys
-          are lowercase (`value`, `close_date`), never display labels.
-       3. `integral_query_spec` with `resource: "entry"`,
-          `select: ["id", "title", "custom_fields.<key>"]`,
-          `filters: [{field: "track_id", op: "eq", value: <track id>}]`,
-          `sort: [{field: "custom_fields.<key>", direction: "desc"}]`
-          (`asc` for smallest / oldest), and `limit: 1` (or a small
-          limit to list a ranking). The first row is the record. The
-          sort covers every readable match, not one page. Keep
-          `result_set_id`. A built-in date or title uses
-          `integral_query_entries` with that `sort_by` and `limit: 1`.
-          `sort_by: "custom_fields.<key>"` on `integral_query_entries`
-          is the same full-set order.
-       4. If the ranking field is null on every row, the key is wrong.
-          Re-read the schema and re-run; never fill values in from memory,
-          and never rank over a truncated page. Never answer
-          "I couldn't find it" off a semantic `integral_query` miss.
+   - Concept or meaning search → integral_query; inspect its mode and
+     degraded fields. If semantic retrieval is unavailable or degraded,
+     concise keyword retrieval may be a useful fallback.
+   - Specific filters within a track → integral_query_entries; resolve
+     track or tag IDs only when needed. Track names can be passed directly
+     where the tool accepts them.
+   - "How many" → integral_count_entries with the appropriate grouping.
+   - Exact total, average, minimum, or maximum → integral_aggregate.
+   - Recent activity → integral_activity_digest for a per-track rollup
+     or integral_get_digest for itemized changes.
+   - **Superlative or ranking** — "highest value", "largest", "oldest",
+     or "rank by Y" — use one sorted integral_query_spec call (or
+     integral_query_entries for a built-in field); semantic search does
+     not order by field value. Resolve the track and schema only if those
+     IDs or keys are required for the sort. Resolve custom-field schema keys
+     before ranking; never display labels as field keys, and never rank over a truncated page.
 
-   **Track-named queries always use `track_id`, never `entry_type`.**
-   When the user names a track in their question — "our recent
-   opportunities", "show me contacts", "list bugs" — the right
-   filter is `track_id` (resolved from the named track), not
-   `entry_type`. You can pass the track NAME directly as `track_id`;
-   the backend resolves it case- and substring-tolerantly against
-   the user's accessible tracks. Reserve `entry_type` for the
-   "WITHIN this track, only show me X entries" case.
-
-3. **Execute.** Time windowing differs by tool:
+4. **Execute.** Time windowing differs by tool:
    - `integral_activity_digest` / `integral_get_digest` accept `period`
      shortcuts (`today` / `week` / `month`) — use these for
      "this week" / "last 7 days" style activity questions.
@@ -169,10 +137,13 @@ optionally save as a view.**
      yourself. An exact date uses `op: "eq"`.
    - `integral_query` filters by content and scope, not by date.
 
-4. **Synthesize and PRESENT — required, not optional.** After
+5. **Synthesize and PRESENT — required, not optional.** After
    the tool returns data, you MUST list the entries the tool
    returned, by title, in your reply. A reply that omits the data
-   is a failed turn.
+   is a failed turn. Answer only the user's question and stop. Do not
+   volunteer to create an App, propose a new workflow, or offer unrelated
+   setup just because a search returned no matches; use integral-scaffold
+   only when the user asks to design or create a system.
 
    - `integral_query` / `integral_query_entries`: "Your N most recent
      X: 1) <Title> (updated <date>), 2) <Title>, …" For >5 entries,
@@ -187,7 +158,7 @@ optionally save as a view.**
    query. Don't reply with only an offer to "help further" while
    omitting the data the tool returned.
 
-5. **Offer to save.** If the user found the result useful — or if
+6. **Offer to save.** If the user found the result useful — or if
    they explicitly say "save this view" — call `integral_save_view` to
    materialize the query as a persisted View on the relevant track. It
    stages a save the user approves in Integral; there is no separate
@@ -276,9 +247,12 @@ this turn.
 - For aggregates, surface the `total_matched` and `filters_applied`
   from the response so the user can verify the question was
   interpreted correctly.
-- If a query returns zero matches, say so plainly and consider
-  whether the filter was too narrow — offer to re-run with relaxed
-  predicates rather than fabricating examples.
+- If a query returns zero matches, report that result plainly and state
+  the search boundary when it matters. Do not imply unsearched App-owned
+  records were covered, and do not offer to broaden the search unless the
+  user asks or the returned result identifies an unresolved boundary.
+- never fill values in from memory; use only field values returned by the
+  current query.
 
 ## Forbidden patterns
 

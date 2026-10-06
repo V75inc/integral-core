@@ -10,7 +10,7 @@
 
 ## Executive recommendation
 
-Implement an **Integral-owned resident binding by composing Pydantic AI and Pydantic AI Harness** behind the existing provider contract. Adopt upstream planning, discovery, context management, skills loading, persistence, instrumentation and runtime controls through tenant-scoped Integral adapters. Preserve the existing PostgreSQL work kernel, broker, graph conversations, approval authority and usage facts. Keep jvagent as the production default and fallback until measured qualification supports a change.
+Implement an **Integral-owned resident binding by composing Pydantic AI and Pydantic AI Harness** behind the existing provider contract. Adopt upstream planning, discovery, context management, skills loading, persistence, instrumentation and runtime controls through tenant-scoped Integral adapters. Preserve the existing PostgreSQL work kernel, broker, graph conversations, approval authority and usage facts. Integral AI is the default binding; retain jvagent as an explicitly selectable compatibility harness.
 
 This revision supersedes the initial recommendation to use Pydantic AI primarily as a model/tool protocol layer with a custom Integral loop and a new durability engine. The [revision 2 implementation plan](PYDANTIC_AI_HARNESS_IMPLEMENTATION_PLAN.md) contains the authoritative adoption matrix, dependencies, state/store boundaries and evidence gates. Custom loop behavior and additional workflow engines need a demonstrated gap.
 
@@ -34,7 +34,7 @@ This division is already emerging in code. `services/execution_runs.py` persists
 - **Python and graph fit:** its object-spatial model and existing jvspatial integration align naturally with the current Core stack.
 - **Useful loop simplicity:** the published design describes a continuation check followed by a bounded think-act-observe loop. A small loop is understandable and can work well for straightforward tasks.
 - **Skills and tool ecosystem:** YAML app/agent declarations, action plugins, and Markdown skills provide a pragmatic authoring surface. Integral already has a substantial investment in these overlays.
-- **Existing deployment value:** jvagent is already the default binding, and compatibility work and operational knowledge have accumulated around it.
+- **Existing deployment value:** jvagent has accumulated compatibility work and operational knowledge, so keep it selectable during the native harness rollout.
 
 ### Gaps and risks for Integral's target
 

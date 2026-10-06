@@ -31,11 +31,19 @@ function persist(snapshot: SettingsSnapshot) {
 }
 
 function mergeWithDefaults(partial: Partial<SettingsSnapshot>): SettingsSnapshot {
+  const previousHarnessDefault =
+    partial.schemaVersion !== undefined && partial.schemaVersion < 2;
+  const savedProvider = partial.providers?.defaultProviderId;
   return {
     schemaVersion: DEFAULT_SETTINGS.schemaVersion,
     providers: {
       ...DEFAULT_SETTINGS.providers,
       ...(partial.providers ?? {}),
+      // v1 shipped with jvagent as the implicit default. Promote those saved
+      // defaults to Integral AI while preserving explicit Echo/Pydantic picks.
+      ...(previousHarnessDefault && savedProvider === 'jvagent-embedded'
+        ? { defaultProviderId: 'pydantic-ai-native' }
+        : {}),
     },
     appearance: {
       ...DEFAULT_SETTINGS.appearance,

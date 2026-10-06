@@ -81,7 +81,12 @@ export const RECOMMENDED_MODELS: Record<
   },
   ollama: {
     default: [
-      { id: 'gpt-oss:120b', label: 'gpt-oss 120b (cloud)', recommended: true },
+      {
+        id: 'deepseek-v4.1-flash:cloud',
+        label: 'DeepSeek V4.1 Flash (Ollama Cloud)',
+        recommended: true,
+      },
+      { id: 'gpt-oss:120b', label: 'gpt-oss 120b (cloud)' },
     ],
     light: [
       { id: 'gpt-oss:20b', label: 'gpt-oss 20b (cloud)', recommended: true },

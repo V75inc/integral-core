@@ -33,7 +33,7 @@ export interface StagedChange {
    * session (rare edge case — older minting paths).
    */
   session_id?: string | null;
-  /** Verb_noun[.subaction] — the unit at which session autonomy applies. */
+  /** Verb_noun[.subaction] — the type of change proposed for approval. */
   kind: string;
   /** One-sentence agent-narrated headline (e.g., "Create entry “Foo” in Marketing"). */
   summary: string;
@@ -59,7 +59,7 @@ export interface StagedChange {
   created_at: string;
   /** ISO-8601 UTC; default 600s after created_at. */
   expires_at: string;
-  /** True if the token was minted already-blessed via session autonomy grant. */
+  /** Legacy response field; new V1 changes always require one-time approval. */
   autonomy_grant_used: boolean;
   /**
    * Navigable resource ids from a successful consume — persisted server-side
@@ -96,5 +96,5 @@ export function isStagedChange(result: unknown): result is StagedChange {
   );
 }
 
-/** Autonomy choice when blessing — single token or persistent session grant. */
-export type BlessAutonomy = 'single' | 'session';
+/** Approval mode accepted by V1. */
+export type BlessAutonomy = 'single';

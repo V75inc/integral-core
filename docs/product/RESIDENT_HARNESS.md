@@ -12,11 +12,12 @@ remains the runtime reference for overlay composition).
 ## 1. Thesis
 
 Integral is an **ops layer** on a pluggable harness, plus a resident mind.
-Every deployment ships **one active harness binding** — by default the
-embedded jvagent Orchestrator — that reads, writes, schemas, and coordinates
+Every deployment ships **one active harness binding** — by default Integral
+AI, the native Pydantic AI harness — that reads, writes, schemas, and coordinates
 over the same graph, under the same access model, as every human user. A
 first-class **Harness Switcher** selects which provider the ops layer augments
-(Echo for smoke/dev, future harnesses). ADR-003 “singular resident” applies
+(jvagent remains available as a compatibility option; Echo is for smoke/dev).
+ADR-003 “singular resident” applies
 **per active binding** (one mind + facets), not as a ban on provider selection.
 
 The harness is the kernel of the coworker experience; Integral’s ops layer

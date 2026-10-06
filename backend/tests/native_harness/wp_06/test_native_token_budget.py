@@ -7,7 +7,7 @@ from app.config import Settings
 
 
 def test_native_token_budget_default():
-    assert Settings.model_fields["INTEGRAL_NATIVE_TURN_TOKEN_LIMIT"].default == 300_000
+    assert Settings.model_fields["INTEGRAL_NATIVE_TURN_TOKEN_LIMIT"].default == 600_000
 
 
 def test_native_token_budget_reads_deployment_override(monkeypatch):

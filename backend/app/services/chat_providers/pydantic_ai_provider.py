@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import tempfile
 import time
 import uuid
@@ -67,6 +68,26 @@ from app.services.harness_sessions import (
 
 logger = logging.getLogger(__name__)
 
+_SCAFFOLD_CONFIRMATION_INVITATION = (
+    "Confirm this setup when you're ready, or tell me what to change."
+)
+_SCAFFOLD_CONFIRMATION_SUFFIX = re.compile(
+    r"\s*Confirm this (?:design|setup)(?:, or tell me what to change| when you're ready, or tell me what to change)\.\s*$",
+    re.IGNORECASE,
+)
+
+
+def _single_scaffold_confirmation(proposal: str) -> str:
+    """Normalize known proposal-ending invitations to one canonical CTA."""
+    normalized = proposal.strip()
+    while True:
+        without_invitation = _SCAFFOLD_CONFIRMATION_SUFFIX.sub("", normalized).rstrip()
+        if without_invitation == normalized:
+            break
+        normalized = without_invitation
+    return f"{normalized}\n\n{_SCAFFOLD_CONFIRMATION_INVITATION}"
+
+
 _BINDING_ID = "pydantic_ai_v1"
 _POLICY_REVISION = "integral-capability-policy-v1"
 # Read surfaces supplied by the selected library composition, not user-text
@@ -98,7 +119,7 @@ def _read_tools_for_run(run) -> set[str]:
 def _scaffold_completion_validator(run_state: dict[str, Any]):
     """Validate scaffold receipts without imposing discovery on plain chat."""
 
-    async def validate(_ctx: Any, output: str) -> str:
+    async def validate(ctx: Any, output: str) -> str:
         workflow_attempted = run_state.get(
             "scaffold_coverage_attempted"
         ) or run_state.get("proposal_attempted")
@@ -138,8 +159,7 @@ def _scaffold_completion_validator(run_state: dict[str, Any]):
                 # the artifact the user asked Integral to record.
                 return (
                     "Proposed setup — nothing has been built yet.\n\n"
-                    + recorded_proposal
-                    + "\n\nConfirm this setup when you're ready, or tell me what to change."
+                    + _single_scaffold_confirmation(recorded_proposal)
                 )
         return output
 
@@ -661,6 +681,8 @@ class PydanticAIProvider:
 
     def __init__(self) -> None:
         self._active_tokens: dict[str, CancellationToken] = {}
+        self._active_tasks: dict[str, asyncio.Task[Any]] = {}
+        self._cancelled_before_start: set[str] = set()
 
     id = "integral_native"
     label = "Integral AI"
@@ -699,8 +721,22 @@ class PydanticAIProvider:
     def cancel_turn(self, *, thread_id: str) -> None:
         """Cancel the Pydantic run currently streaming for this thread."""
         token = self._active_tokens.get(thread_id)
+        task = self._active_tasks.get(thread_id)
+        logger.info(
+            "native turn cancellation requested thread=%s task_active=%s token_active=%s",
+            thread_id,
+            task is not None and not task.done(),
+            token is not None,
+        )
         if token is not None:
             token.cancel()
+        if task is not None and not task.done():
+            task.cancel()
+        elif token is None:
+            # The host registers its stop hook before the async generator is
+            # first advanced. Remember cancellation in that small window so a
+            # late-starting provider cannot dispatch a model request anyway.
+            self._cancelled_before_start.add(thread_id)
 
     async def _prepare(self, ctx: ChatTurnContext):
         raw_work_context = (ctx.extra_data or {}).get("work_execution_context")
@@ -888,8 +924,11 @@ class PydanticAIProvider:
             "and conversation context. When a candidate clearly owns the "
             "requested Integral workflow, load that skill with Pydantic AI's "
             "load_capability tool and follow its procedure before composing "
-            "the answer. Search reveals the matched tool schemas directly; "
-            "call them without another tool search. If a read shows that a "
+            "the answer. Search reveals matched tool schemas directly; call a "
+            "required tool when disclosed. If the loaded workflow requires a "
+            "tool that was not disclosed, search again for that operation and "
+            "use its returned schema rather than substituting prose. If a read "
+            "shows that a "
             "different workflow is needed, search for that outcome and continue. "
             "For exact record identifiers, names, or text, use "
             "integral_query_entries' cross-track keyword search; use "
@@ -901,6 +940,12 @@ class PydanticAIProvider:
             "skill to record one concise, specific proposal in this turn before "
             "asking approval. Do not ask permission merely to draft that proposal "
             "or make an unrecorded offer to set something up. "
+            "General how-to questions about using an existing workflow are advice, "
+            "not requests to change its structure. If current workspace evidence "
+            "shows that an existing App already supports the stated need, explain "
+            "the simplest current path and do not create a proposal. Load the setup "
+            "skill only when a new or changed structure is needed to satisfy the "
+            "user's requested outcome. "
             "A request for a proposed setup or design belongs to the setup "
             "workflow even when the user says not to create it yet: load its "
             "skill and save the unbuilt proposal, then stop before building. "
@@ -1048,7 +1093,18 @@ class PydanticAIProvider:
         """Stream normalized chat events with Core-owned session identity."""
         from app.config import settings
 
-        prepared = await self._prepare(ctx)
+        active_task = asyncio.current_task()
+        if ctx.thread_id in self._cancelled_before_start:
+            self._cancelled_before_start.discard(ctx.thread_id)
+            raise asyncio.CancelledError
+        if active_task is not None:
+            self._active_tasks[ctx.thread_id] = active_task
+        try:
+            prepared = await self._prepare(ctx)
+        except BaseException:
+            if self._active_tasks.get(ctx.thread_id) is active_task:
+                self._active_tasks.pop(ctx.thread_id, None)
+            raise
         if len(prepared) == 6:
             # Keep monkeypatched/legacy provider fixtures compatible while
             # the optional durable WorkItem path is being introduced.
@@ -1334,6 +1390,13 @@ class PydanticAIProvider:
                     await disconnect_task
             if self._active_tokens.get(ctx.thread_id) is cancellation:
                 self._active_tokens.pop(ctx.thread_id, None)
+            if self._active_tasks.get(ctx.thread_id) is active_task:
+                self._active_tasks.pop(ctx.thread_id, None)
+            logger.info(
+                "native provider stream finished thread=%s task_cancelled=%s",
+                ctx.thread_id,
+                active_task.cancelled() if active_task is not None else False,
+            )
             skill_temp.cleanup()
 
 

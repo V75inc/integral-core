@@ -119,12 +119,12 @@ def test_every_mcp_catalog_entry_declares_its_read_only_stance():
 
 
 # ---------------------------------------------------------------------------
-# Session autonomy must not span connectors or tools
+# Legacy autonomy keys remain deterministic; V1 never activates grants
 # ---------------------------------------------------------------------------
 
 
 def test_autonomy_key_is_per_connector_and_per_tool():
-    """ "Approve & auto-allow" on a Drive search must not pre-bless QuickBooks.
+    """Legacy key scopes remain narrow if persisted clients still reference them.
 
     The grant is keyed by ``kind``, and every mounted MCP call shares the kind
     ``mcp_tool_call`` — so one click on the most innocuous card in the product
@@ -161,7 +161,7 @@ def test_ordinary_kinds_keep_kind_level_grants():
 
 @pytest.mark.asyncio
 async def test_grant_autonomy_refuses_an_untargeted_mcp_grant():
-    """The public helper must not be a back door to the coarse grant."""
+    """The legacy public helper is a no-op and cannot create an approval grant."""
     staging._autonomy.pop(("u1", "s1"), None)
     await staging.grant_autonomy(user_id="u1", session_id="s1", kind="mcp_tool_call")
     assert not staging._autonomy.get(("u1", "s1"))
@@ -172,7 +172,7 @@ async def test_grant_autonomy_refuses_an_untargeted_mcp_grant():
         kind="mcp_tool_call",
         payload={"connector_id": "c1", "remote_name": "t1"},
     )
-    assert staging.has_autonomy(
+    assert not staging.has_autonomy(
         "u1", "s1", "mcp_tool_call", {"connector_id": "c1", "remote_name": "t1"}
     )
     assert not staging.has_autonomy(

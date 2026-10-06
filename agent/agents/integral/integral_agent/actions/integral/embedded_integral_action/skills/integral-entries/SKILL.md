@@ -1,6 +1,6 @@
 ---
 name: integral-entries
-description: 'Manages a specific existing record or an explicitly requested record operation inside a Track: create, update, delete, tag, comment, or wire relation fields. Use integral-filing when the user supplies unstructured notes or other content to place; use integral-organize for one approved change across a selected set of records.'
+description: 'Handles one record at a time in an existing Track or list: find a record by exact name, ID, or serial number and answer questions about its status or fields; create, update, delete, tag, comment on, or link a specific entry. Use for requests such as finding a mower by serial number or changing one item. Use integral-scaffold for a new App or a multi-part app workflow; use integral-filing when the user supplies unstructured content to place, and integral-organize for one approved change across a selected set of records.'
 allowed-tools: integral_query_entries integral_resolve_entry integral_create_entry integral_update_entry integral_delete_entry integral_add_comment integral_list_comments integral_edit_comment integral_delete_comment integral_get_related integral_list_tags integral_add_entry_tag integral_remove_entry_tag integral_create_tag integral_link_entries integral_transform_entry integral_list_tracks integral_get_track_schema integral_get_page_context
 ---
 
@@ -60,9 +60,17 @@ allowed-tools: integral_query_entries integral_resolve_entry integral_create_ent
      markdown link. Use `action_url` from the tool result when present, or
      build `/tracks/{track_id}?entry={entry_id}`. Plain-text titles alone
      are forbidden. See `integral-navigation`.
+   - `integral_query_entries` already returns each matching record's
+     title, track, status, tags, type, and `custom_fields`. Answer from
+     that result when it contains the requested facts; do not fetch the
+     same record again just to repeat those values.
+     Use `integral_list_tracks` only when the user asks which Track
+     contains a record or the requested workflow needs a track; do not
+     call it just to add unrequested track context to an answer. Use the
+     returned `action_url` when linking the record.
    - `integral_resolve_entry` — resolve a single entry by `entry_id`
-     when you need full detail: its fields (incl. custom fields),
-     tags, relations, comment count, and backlinks. (If the user named
+     when the task needs its full body, relations, comments, backlinks,
+     or other detail missing from the query result. (If the user named
      the entry by title, resolve the id first via
      `integral_query_entries`.)
 4. Mutations are **propose** tools: you call a single tool, it

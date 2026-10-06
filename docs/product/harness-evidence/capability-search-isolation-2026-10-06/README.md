@@ -10,6 +10,36 @@
 This is a real browser smoke on the in-progress capability-search change. It is
 one isolated read flow, not V1 acceptance or release qualification.
 
+## Follow-up: ordinary equipment lookup after skill-boundary revision
+
+On the same isolated User B principal and branch runtime, a fresh chat asked:
+
+> Is anything filed about routine equipment maintenance?
+
+The live trace loaded `integral-insights`, called `integral_query` once, then
+used one `integral_query_entries` fallback because the semantic call returned
+`degraded: true` with zero candidates examined. Both calls carried succeeded
+Core receipts scoped to User B's personal workspace and returned zero matches.
+No App-owned data boundary was reported in either result. The final answer
+reported the empty Core-readable result without proposing a new register. The
+response readout showed `glm-5.3:cloud`, 48.0k tokens, 16.4 seconds, and three
+additional calls. This is a degraded-retrieval fallback smoke, not proof that
+semantic indexing works or that App-owned records were searched.
+
+The earlier multi-tool answer in this file's history had overclaimed the
+workspace search and volunteered to create a tracker. After revising the
+insights and scaffold skill boundaries, this rerun removed the unsolicited
+setup offer and qualified the result to readable Core entries. The search still
+required the one fallback because semantic retrieval is degraded in this
+runtime; reducing those two justified reads further would require restoring
+semantic retrieval or accepting a weaker answer.
+
+The final changed source passed `make verify` on this checkout. The gate
+reported all substrate guards, formatter/type checks, clean wheel import,
+CI-faithful backend smoke, 221 frontend files / 1,309 frontend tests, and the
+full backend suite passing. PostgreSQL-, Atlas-, and fixture-dependent skips
+remain outside this evidence. Log: `/tmp/integral-core-make-verify.log`.
+
 ## Lay-user request and result
 
 In a fresh Integral AI chat, the user asked:
@@ -187,3 +217,134 @@ unrelated PostgreSQL errors, and graph fallback. The isolated branch database
 does not have pgvector, so the live pgvector integration suite remains
 unavailable; its real failure was reproduced by in-process dispatch against
 that same database before the fix.
+
+## GPT-5.4 ordinary-user scaffold smoke — 2026-10-06
+
+To compare the stable GPT control models, the branch runtime was configured
+with `openai/gpt-5.4` (platform credentials, isolated browser database) and the
+same fresh-conversation prompt previously exercised with GPT-4.1:
+
+> We keep losing track of when the mowers are serviced. Can you help us sort that out?
+
+The UI confirmed `gpt-5.4`; the response readout showed 178.3k tokens, $0.1867,
+54.6 seconds, and seven additional model calls. GPT-4.1 on the same prompt had
+shown 107.8k tokens, $0.1092, 20.7 seconds, and five additional calls. In this
+single run GPT-5.4 took 2.6x the time, 1.7x the reported token spend, and 1.7x
+the cost. This is a directional comparison from one run per model, not a
+repeatable benchmark.
+
+GPT-5.4 completed the requested workflow through a successful
+`integral_propose_design` receipt, targeting the existing Crew Tools app. It
+returned a saved design proposal and did not build anything, as expected before
+user confirmation. Relative to the GPT-4.1 run, which proposed in prose and
+asked for another formal proposal step, GPT-5.4 followed the proposal-record
+path and ended with one confirmation request.
+
+The design quality still needs correction: the discovered app already has a
+single Tools track whose purpose covers all crew tools, serial number, status,
+service due date, and current holder. GPT-5.4 nevertheless proposed a second
+Mowers register with overlapping fields, plus a Service Log linked to that new
+track and four new views. The minimum extension should preserve the existing
+Tools track and add only service-event history linked to each existing tool,
+with only the view(s) needed for that history. The model also described the
+proposal as “the smallest useful fix” despite the duplicated register and
+unrequested service board/calendar. No design was confirmed and no workspace
+objects were built. This run confirms better workflow completion than GPT-4.1
+in this example, but GPT-5.4 is slower, more expensive, and still over-scopes
+the design; it is not yet a V1 quality pass.
+
+### GPT-5.4 retest after fixing entity reuse guidance
+
+The existing `Tools` schema was inspected in the browser and confirmed to
+already represent each tool, with serial number, status, current service due
+date, holder, and return date. The scaffold skill was tightened to require new
+event relations to point to the matching existing entity Track, prohibit a
+parallel register or copied source-of-truth fields, and add only the views
+needed for the requested workflow. Its focused runtime-alignment regression
+was added; the capability map was regenerated and the focused harness/skill
+tests passed.
+
+The exact same ordinary-user prompt was run in a fresh GPT-5.4 chat. It again
+used seven steps and recorded a successful `integral_propose_design` receipt
+against Crew Tools. This time it proposed one Service Log track linked to the
+existing `Tool` entry type and one Service history table, with no parallel
+Mowers register, board, calendar, or sample data. The proposal remained
+unbuilt and asked for one confirmation. The readout showed 173.2k tokens,
+$0.1270, and 35.3 seconds. Compared with GPT-5.4's previous design on the same
+prompt, time fell from 54.6s to 35.3s and reported cost from $0.1867 to
+$0.1270, while token count stayed similarly high (178.3k to 173.2k). This
+single rerun shows the targeted skill correction worked for this scenario;
+it is not broad model qualification, and latency/token volume remain high.
+The final `make verify` invocation exited successfully, including substrate
+guards, format/type checks, wheel import validation, CI-faithful backend smoke,
+the 221-file/1,309-test frontend suite, and full backend suite. PostgreSQL,
+Atlas, and seeded-package cases skipped where their required services or
+fixtures were unavailable. The staged-index substrate guards noted that
+nothing was staged, so those specific checks were vacuous for the unstaged
+working tree; no commit was made.
+
+## GLM 5.3 maintenance register CRUD smoke — 2026-10-06
+
+The browser runtime was switched back to `ollama_chat/glm-5.3:cloud` on the
+isolated branch runtime and the existing Maintenance Log in Crew Tools. These
+were fresh lay-user requests in the Integral AI chat; no skill or tool names
+were supplied.
+
+The request “Log today’s blade sharpening for QA Mower Beta in the maintenance
+history” reached the correct track. The streamed tool trace emitted a reused
+provider tool-call index warning, which the LiteLLM adapter normalized, and
+the agent then read available tracks, entries, and the target track schema.
+After six steps (72.2k tokens, 32.1 seconds, five additional calls), it staged
+one maintenance record, resolved the mower by its QA-MOWER-002 serial, set the
+date to the current date, and left unspecified worker and cost fields blank.
+After approval, the agent read the saved row back with its generated entry
+link and exact field values (four steps, 101.0k tokens, 36.3 seconds, four
+additional calls).
+
+A separate request, “Find the blade sharpening entry for QA Mower Beta,” found
+that row and returned its track and entry links, tool relation, date, and
+status (19.1k tokens, 7.4 seconds). The edit request changed only `work_done`
+to “QA smoke test: blade sharpening”; after approval, the agent confirmed the
+updated value by readback, revision 2 (the staged turn used 70.6k tokens,
+10.4 seconds, and two additional calls; approval/readback used 99.8k tokens,
+27.1 seconds, and three additional calls). Finally, a plain deletion request
+staged the correct QA entry as a reversible soft delete without affecting the
+mower. After approval, the Maintenance Log showed zero entries and the agent
+reported the entry no longer resolved while the source mower remained intact
+(staged turn: 81.6k tokens, 13.4 seconds, two additional calls; confirmation:
+76.1k tokens, 12.1 seconds, two additional calls).
+
+This is successful browser evidence for create, exact readback, search,
+update, verified readback, and delete on a track created through the native
+harness. It also surfaced a performance problem: a simple create plus
+readback consumed over 170k reported tokens across multiple model calls, and
+the initial request performed overlapping broad reads before schema lookup.
+The stream-index warning was recovered by the existing compatibility adapter,
+but this single observed recovery does not qualify all concurrent or malformed
+tool-call shapes. Token and time readouts appeared; the Ollama route continued
+to report no monetary cost, so charge analytics remain unqualified. No source
+change in this turn altered CRUD semantics; the existing tool-boundary,
+provider translation, token budget, and verified-build fixes were exercised
+against this browser flow. The QA row was soft-deleted and does not remain in
+the register.
+
+### Natural chat approval and cancellation follow-up
+
+In the same isolated browser chat, a second ordinary request staged
+“Drive belt replacement — QA Mower Beta.” Replying “Yes, go ahead.” applied
+that exact create and returned its linked record and fields after a verified
+readback (20 seconds, 138.5k tokens, four additional calls). A later delete
+request was staged for that exact row. “No, cancel that.” caused no deletion;
+the assistant reported that the row remained, confirmed by the row still being
+visible in the track. After the user issued a new delete request, the agent
+correctly said the old decision had been cancelled and presented a fresh
+pending action. “Yes, delete that test entry.” approved the new action; the
+agent verified the entry no longer resolved and reported the source mower was
+untouched. The track UI then showed zero entries. Approval/cancel behavior was
+correct for these typed natural-language turns, including binding to the
+current pending action rather than reusing a prior decision. The assistant
+needed five steps to process cancellation (178.3k tokens, 28.6 seconds, five
+additional calls); the subsequent fresh delete/approval/readback used four
+steps (159.6k tokens, 22.1 seconds, four additional calls). This confirms the
+authority boundary but leaves a major efficiency gap. Typed approval is
+qualified here; live speech capture was not exercised in this run.

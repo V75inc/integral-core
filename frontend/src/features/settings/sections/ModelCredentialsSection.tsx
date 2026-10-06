@@ -594,13 +594,13 @@ export function ModelCredentialsSection() {
   const toast = useToast();
   const { agentKeyMode } = useAgentiveCapability();
 
-  const [provider, setProvider] = useState<ModelProvider>('openai');
-  const [model, setModel] = useState(() => defaultModelForSlot('openai', 'default'));
+  const [provider, setProvider] = useState<ModelProvider>('ollama');
+  const [model, setModel] = useState(() => defaultModelForSlot('ollama', 'default'));
   const [apiKey, setApiKey] = useState('');
   const [slots, setSlots] = useState<Record<OptionalSlot, OptionalSlotState>>(() => ({
-    light: freshOptionalSlot('light', 'openai'),
-    heavy: freshOptionalSlot('heavy', 'openai'),
-    vision: freshOptionalSlot('vision', 'openai'),
+    light: freshOptionalSlot('light', 'ollama'),
+    heavy: freshOptionalSlot('heavy', 'ollama'),
+    vision: freshOptionalSlot('vision', 'ollama'),
   }));
   const [speech, setSpeech] = useState<SpeechSlotState>(freshSpeechSlot);
 
@@ -668,13 +668,13 @@ export function ModelCredentialsSection() {
     });
   }, [activeSyncKey, active]);
 
-  const applyRecommendedOpenAI = () => {
-    setProvider('openai');
-    setModel(defaultModelForSlot('openai', 'default'));
+  const applyRecommendedOllama = () => {
+    setProvider('ollama');
+    setModel(defaultModelForSlot('ollama', 'default'));
     setSlots({
-      light: { ...freshOptionalSlot('light', 'openai'), enabled: true },
-      heavy: freshOptionalSlot('heavy', 'openai'),
-      vision: freshOptionalSlot('vision', 'openai'),
+      light: { ...freshOptionalSlot('light', 'ollama'), enabled: true },
+      heavy: freshOptionalSlot('heavy', 'ollama'),
+      vision: freshOptionalSlot('vision', 'ollama'),
     });
   };
 
@@ -925,9 +925,9 @@ export function ModelCredentialsSection() {
                     variant="secondary"
                     size="sm"
                     icon={<Sparkles size={14} />}
-                    onClick={applyRecommendedOpenAI}
+                    onClick={applyRecommendedOllama}
                   >
-                    Use recommended OpenAI setup
+                    Use recommended Ollama Cloud setup
                   </Button>
                 </div>
 

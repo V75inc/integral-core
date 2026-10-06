@@ -105,10 +105,13 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # Linux / macOS without brew
        "$(openssl rand -base64 32)" >> ../.env
    ```
 
-   Then set a provider key. The shipped heavy model is
-   `openai/gpt-4.1` in `agent/agents/integral/integral_agent/agent.yaml`.
-   A distro can change that model, and the persona and budget numbers, with
-   `agent.override.yaml` next to `.env`. See the
+   The shipped resident default is `ollama_chat/deepseek-v4.1-flash:cloud`
+   in `agent/agents/integral/integral_agent/agent.yaml`. To run that default,
+   configure Ollama Cloud using the `OLLAMA_API_BASE` and `OLLAMA_API_KEY`
+   settings below. A workspace owner's saved model credential in Settings →
+   AI Models continues to override the deployment default. A distro can change
+   the resident model, persona, and budget numbers with `agent.override.yaml`
+   next to `.env`. See the
    [quick start](../docs/developer/quickstart.md#resident-agent-override).
    To use a **local Ollama** daemon, choose `Ollama (Local)` in Settings → AI
    Models and leave the API key empty. Core connects to
@@ -130,9 +133,9 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # Linux / macOS without brew
    thinking modes vary by model. These local-only settings do not affect
    OpenAI or other providers.
 
-   The native agent allows 300,000 aggregate input and output tokens per turn
+   The native agent allows 600,000 aggregate input and output tokens per turn
    across its model calls. Set `INTEGRAL_NATIVE_TURN_TOKEN_LIMIT` to a positive
-   integer to change that deployment limit. It remains bounded by ten model
+   integer to change that deployment limit. It remains bounded by twenty model
    requests and 32 tool calls per turn; this aggregate budget does not increase
    the provider's context window or per-request output limit.
 

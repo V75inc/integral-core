@@ -1129,8 +1129,8 @@ domains:
           correct. Pure affirm → do not call again (errors affirm_build_instead);
           shape change → call again with prior proposal + deltas only. Does not
           create the app and does not mint a Prompt Sheet card. Skill
-          integral-scaffold owns propose/amend/build. Consult
-          integral_list_models before proposing. For an existing-App addition,
+          integral-scaffold owns propose/amend/build. Run its narrow workspace
+          grounding and coverage steps first. For an existing-App addition,
           include target_app_id from integral_list_apps so the approved target
           is bound and the builder cannot create a duplicate App.
         http: "(conversation context)"

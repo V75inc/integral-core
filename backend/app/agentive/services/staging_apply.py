@@ -13,12 +13,10 @@ from __future__ import annotations
 from typing import Any, Dict, Literal, Optional
 
 from app.agentive.staging import (
-    StagedChange,
     StagingError,
     bless_token,
     claim_execution,
     consume_token,
-    grant_autonomy,
     persist_consumed_nav_in_transcript,
     record_execute_outcome,
     record_external_result_for_agent,
@@ -91,15 +89,19 @@ async def bless_and_execute(
     (``already_executing``) — callers that want a soft failure should catch it
     themselves.
 
-    Session autonomy (``autonomy="session"``) is granted only AFTER a clean
-    execute (C2): a refused write must not leave a standing grant that
-    auto-blesses the next same-kind card. The grant itself goes through
-    ``grant_autonomy``, which keeps ``SESSION_AUTONOMY_BLOCKED_KINDS`` refused.
+    V1 accepts only one-time approval for this token. Session-wide approval
+    is rejected before deciding linked work or dispatching any mutation.
 
     When a durable ``WorkApproval`` is linked to ``token``, the decide unit
     requeues the original WorkItem before the staging apply path continues.
     Cards without a linked approval keep the legacy inline path.
     """
+    if autonomy != "single":
+        raise StagingError(
+            "autonomy_disabled",
+            "Integral V1 can approve only the specific proposed change. "
+            "Session-wide auto-approval is not enabled.",
+        )
     await _maybe_decide_linked_work_approval(
         token=token, user_id=user_id, decision="approved"
     )
@@ -116,7 +118,6 @@ async def bless_and_execute(
             "reason": f"No executor registered for kind {sc.kind!r}",
         }
         # Nothing was refused — the agent's own execute turn applies it.
-        await _maybe_grant_session_autonomy(sc, user_id=user_id, autonomy=autonomy)
         return response
 
     # One executor per token (B3): a second concurrent approve gets
@@ -196,7 +197,6 @@ async def bless_and_execute(
             await release_execution_claim(token)
         # A retry that lands clears any earlier explanation.
         await record_execute_outcome(token=token, error=None)
-        await _maybe_grant_session_autonomy(sc, user_id=user_id, autonomy=autonomy)
     else:
         # The write is still owed: release the claim so a retry can run.
         await release_execution_claim(token)
@@ -213,28 +213,6 @@ async def bless_and_execute(
         )
 
     return response
-
-
-async def _maybe_grant_session_autonomy(
-    sc: StagedChange, *, user_id: str, autonomy: str
-) -> None:
-    """Grant session autonomy for ``sc.kind`` once the write is known clean.
-
-    ``payload`` is threaded through because some kinds are too coarse to grant
-    on the kind alone — ``mcp_tool_call`` is one string shared by every remote
-    tool on every mounted connector, so a kind-level grant here would let one
-    "approve & auto-allow" on a Drive search pre-bless a QuickBooks invoice.
-    ``staging.autonomy_key_for`` narrows those to the specific target, and this
-    is the call site that has to supply the target for it to do so.
-    """
-    if autonomy != "session" or not sc.session_id:
-        return
-    await grant_autonomy(
-        user_id=user_id,
-        session_id=sc.session_id,
-        kind=sc.kind,
-        payload=sc.payload,
-    )
 
 
 def _failure_message(result: Dict[str, Any]) -> str:
