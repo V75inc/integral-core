@@ -42,6 +42,7 @@ from app.agentive.staging import (
     StagingError,
     get_pending_for_user,
     get_token,
+    list_unresolved_for_session,
     persist_rollback_in_transcript,
     revoke_token,
 )
@@ -381,6 +382,7 @@ async def text_approve_endpoint(
     request: Request,
     text: str = "",
     channel: str = "text",
+    thread_id: str = "",
 ) -> Dict[str, Any]:
     """Parse user's text reply and dispatch resolved approval intent.
 
@@ -409,7 +411,37 @@ async def text_approve_endpoint(
     safe to call this from any inbound-text adapter pre-emptively.
     """
     user_id = _resolve_user(request)
-    pending = await get_pending_for_user(user_id)
+    thread = None
+    if thread_id:
+        from app.models.nodes import ChatThread
+
+        thread = await ChatThread.get(thread_id)
+        if thread is None:
+            from app.api.errors import ResourceNotFoundError
+
+            raise ResourceNotFoundError(message="Chat thread not found")
+        if getattr(thread, "user_id", "") != user_id:
+            from app.api.errors import InsufficientPermissionsError
+
+            raise InsufficientPermissionsError(
+                message="Thread does not belong to the caller"
+            )
+        if getattr(thread, "provider_id", "") != "integral_native":
+            return {"ok": True, "parsed": 0, "reason": "unsupported_provider"}
+        pending = await list_unresolved_for_session(
+            user_id, getattr(thread, "provider_session_id", None)
+        )
+        pending = [
+            staged
+            for staged in pending
+            if getattr(staged, "workspace_id", None)
+            == getattr(thread, "workspace_id", None)
+        ]
+    else:
+        # Retain the existing cross-channel adapter contract. Browser chat
+        # supplies thread_id so a short "yes" can never approve another chat's
+        # pending write.
+        pending = await get_pending_for_user(user_id)
     from app.agentive.services.approval_intent import parse_approval_intent
     from app.agentive.services.staging_apply import bless_and_execute
 
@@ -421,6 +453,16 @@ async def text_approve_endpoint(
             "reason": "not_approval_intent",
             "pending_count": len(pending),
         }
+
+    if thread is not None:
+        from app.services.chat_threads import append_message
+
+        await append_message(
+            thread=thread,
+            role="user",
+            parts=[{"type": "text", "text": text}],
+            provider_metadata={"source": "user_message", "kind": "chat_approval"},
+        )
 
     results: List[Dict[str, Any]] = []
     for intent in intents:
@@ -453,11 +495,31 @@ async def text_approve_endpoint(
                 result["execute_result"] = envelope.get("execute_result")
                 if envelope.get("consume_warning") is not None:
                     result["consume_warning"] = envelope["consume_warning"]
-                result["success"] = True
+                result["success"] = bool(envelope.get("consumed"))
+                if result["success"] and thread is not None:
+                    from app.services.prompt_queue import mark_write_item
+
+                    queue_result = await mark_write_item(
+                        user_id=user_id,
+                        thread=thread,
+                        token=intent.token,
+                        status="approved",
+                    )
+                    result["prompt_queue"] = queue_result
             else:  # revoke
                 sc = await revoke_token(user_id=user_id, token=intent.token)
                 result["state"] = sc.state
                 result["success"] = True
+                if thread is not None:
+                    from app.services.prompt_queue import mark_write_item
+
+                    queue_result = await mark_write_item(
+                        user_id=user_id,
+                        thread=thread,
+                        token=intent.token,
+                        status="rejected",
+                    )
+                    result["prompt_queue"] = queue_result
         except StagingError as exc:
             result["success"] = False
             result["error_code"] = exc.code

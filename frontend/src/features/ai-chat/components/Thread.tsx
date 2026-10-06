@@ -93,6 +93,7 @@ export interface AIChatThreadProps {
  * thought grouping for reasoning + tool calls.
  */
 export function AIChatThread({ providerLabel, showHeader = true }: AIChatThreadProps) {
+  const { activeProviderId } = useChatActivity();
   // Stray keystrokes anywhere on this surface land in the composer. The
   // composer autoFocuses on mount, but any click on a message, a scroll
   // region or a dismissed popover moves focus off it and typing then went
@@ -186,10 +187,15 @@ export function AIChatThread({ providerLabel, showHeader = true }: AIChatThreadP
           >
             <ThreadScrollToBottom />
             <PromptSheetHost>
-              {({ composerLocked, sheet }) => (
+              {({ composerLocked, canReplyInChat, sheet }) => (
                 <>
                   {sheet}
-                  <Composer locked={composerLocked} />
+                  <Composer
+                    locked={
+                      composerLocked &&
+                      !(activeProviderId === 'integral_native' && canReplyInChat)
+                    }
+                  />
                 </>
               )}
             </PromptSheetHost>

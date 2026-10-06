@@ -228,3 +228,54 @@ async def test_text_approve_records_a_refusal_on_the_change(monkeypatch):
     assert result["state"] == "blessed"
     live = await get_token(sc.token)
     assert live.last_error["message"] == "refused"
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+async def test_native_chat_approval_uses_only_this_workspace_pending_write(monkeypatch):
+    from app.api.ai_chat import _apply_native_chat_approval
+    from app.services import prompt_queue
+
+    workspace_id = "n.Workspace.chat-approval"
+    sc = await _mint(workspace_id=workspace_id)
+    calls = _fake_executor(monkeypatch)
+    marked = []
+
+    async def mark_write_item(**kwargs):
+        marked.append(kwargs["token"])
+        return {"closed": True}
+
+    monkeypatch.setattr(prompt_queue, "mark_write_item", mark_write_item)
+    thread = SimpleNamespace(workspace_id=workspace_id)
+    outcomes = await _apply_native_chat_approval(
+        request=None,
+        user_id="u1",
+        thread=thread,
+        text="Yes, please go ahead.",
+        pending=[sc],
+    )
+
+    assert outcomes == [
+        {"verb": "bless", "success": True, "state": "consumed", "queue_closed": True}
+    ]
+    assert marked == [sc.token]
+    assert len(calls) == 1
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+async def test_native_chat_approval_cannot_match_another_workspace(monkeypatch):
+    from app.api.ai_chat import _apply_native_chat_approval
+
+    sc = await _mint(workspace_id="n.Workspace.other")
+    thread = SimpleNamespace(workspace_id="n.Workspace.current")
+    outcome = await _apply_native_chat_approval(
+        request=None,
+        user_id="u1",
+        thread=thread,
+        text="Yes.",
+        pending=[sc],
+    )
+
+    assert outcome is None
+    assert (await get_token(sc.token)).state == "pending"
