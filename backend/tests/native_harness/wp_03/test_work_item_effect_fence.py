@@ -611,7 +611,6 @@ async def test_stale_workitem_fence_blocks_brokered_capability_and_receipt(
             "proposal_attempted": False,
             "proposal_succeeded": False,
             "scaffold_coverage_attempted": False,
-            "scaffold_coverage_validated": True,
         },
     )
 

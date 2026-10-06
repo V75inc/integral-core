@@ -178,19 +178,6 @@ def _make_handler(
                 ),
                 "retryable": False,
             }
-        if (
-            capability_name == "integral_propose_design"
-            and not call_state["scaffold_coverage_validated"]
-        ):
-            return {
-                "error": True,
-                "error_code": "design_coverage_required",
-                "message": (
-                    "Check the complete blueprint with integral_check_design_coverage "
-                    "and resolve every unsupported item before proposing it."
-                ),
-                "retryable": False,
-            }
         capability_calls = call_state["capability_calls"]
         capability_calls[capability_name] = capability_calls.get(capability_name, 0) + 1
         max_calls = _MAX_TOOL_CALLS_PER_RUN.get(capability_name)
@@ -287,12 +274,6 @@ def _make_handler(
             call_state["verification_succeeded"] = bool(
                 result.ok and model_result.get("status") == "verified"
             )
-        if capability_name == "integral_check_design_coverage" and result.ok:
-            if model_result.get("status") in {
-                "buildable",
-                "needs_trusted_package",
-            } and not model_result.get("unsupported"):
-                call_state["scaffold_coverage_validated"] = True
         if capability_name == "integral_propose_design" and result.ok:
             call_state["proposal_succeeded"] = True
             call_state["approved_design_ready"] = bool(model_result.get("approved"))
@@ -347,7 +328,6 @@ def build_brokered_tools(
     call_state.setdefault("attempted", 0)
     call_state.setdefault("capability_calls", {})
     call_state.setdefault("read_signatures", set())
-    call_state.setdefault("scaffold_coverage_validated", False)
     call_state.setdefault("scaffold_coverage_attempted", False)
     call_state.setdefault("proposal_attempted", False)
     call_state.setdefault("proposal_succeeded", False)
@@ -410,7 +390,6 @@ def build_brokered_tools(
                 description=description,
                 json_schema=schema,
                 prepare=_prepare_capability_tool(
-                    call_state,
                     name,
                     _REQUIRED_SKILLS_BY_TOOL.get(name),
                     frozenset(skill_owners.get(name, ())),
@@ -435,24 +414,21 @@ def build_brokered_tools(
 
 
 def _prepare_capability_tool(
-    call_state: dict[str, Any],
     name: str,
     required_skill: str | None,
     skill_owners: frozenset[str] = frozenset(),
 ):
-    """Expose scaffold tools after their skill and prerequisite validation."""
+    """Disclose skill tools while preserving the build authority boundary."""
 
     def prepare(ctx: RunContext[Any], tool_def):
         if required_skill and required_skill not in ctx.active_capability_ids:
             return None
-        if name == "integral_build_approved_design" and not call_state.get(
-            "approved_design_ready"
-        ):
-            return None
-        if name == "integral_propose_design" and not call_state.get(
-            "scaffold_coverage_validated"
-        ):
-            return None
+        # Core validates the typed blueprint and live coverage on proposal
+        # dispatch. Hiding the proposal here would break amendments because
+        # coverage state is local to a run, while skills survive in history.
+        # Likewise, build authority is enforced by the handler and broker;
+        # keeping the schema disclosed lets a stale call receive that precise
+        # rejection instead of consuming unknown-tool validation retries.
         # Standard allowed-tools metadata binds a skill to its Core tools.
         # Loading that skill reveals their schemas via the public preparation
         # API; it does not widen authority or bypass the broker. Framework

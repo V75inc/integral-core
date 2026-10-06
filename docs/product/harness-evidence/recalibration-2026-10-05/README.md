@@ -200,3 +200,72 @@ The reproducible wheel SHA-256 is
 ![Completed proposal with the increased GLM budget](glm-increased-budget-proposal.jpg)
 
 ![Rejected amendment without a completed build](glm-amendment-preflight-rejected.jpg)
+
+## Fourth round: proposal disclosure, amendment authority and recovery
+
+Candidate based on pushed checkpoint `977a9706`; the complete `make verify`
+gate passed, including guards, lint/types, reproducible wheel, CI-faithful
+smoke, 1,306 frontend tests across 220 files, and the full backend suite.
+PostgreSQL-only skips are not PostgreSQL suite qualification. Wheel SHA-256:
+`174250f1bad85883a21296020ae10862b624e31c9e867685db2a2b68dc4c8fa1`.
+
+- Removed the run-local coverage prerequisite from proposal disclosure and
+  invocation. Core still validates the typed blueprint and live coverage before
+  saving it. Removed the unused coverage-valid flag rather than retaining a
+  competing prerequisite state machine.
+- Build schemas remain disclosed after their skill is loaded. The handler and
+  live broker still reject execution without approval; a stale call receives
+  `design_approval_required` instead of an unknown-tool validation retry.
+- Native typed amendments can replace an unbuilt saved design, including an
+  approved old shape, and clear the old approval. An unchanged approved blueprint
+  cannot be re-proposed. Partial build receipts retain their existing fence.
+  Native proposal recording no longer invokes the JV reply judge. Legacy
+  provider behavior remains covered separately.
+- The saved proposal's final presentation now includes explicit unbuilt status
+  and one confirmation/amendment invitation. The scaffold skill now starts
+  empty unless records or sample records were requested; conflicting instructions
+  that defaulted to demo rows were corrected.
+- Invariants preserved: I-GRAPH-01/02 (no new persistence types or attachments),
+  I-CRUD-01 (proposal writes stay in the canonical service), and I-EXT-01 (no
+  domain-specific Core branch). Principal ownership, scoped capability dispatch,
+  exact-blueprint approval and uncertain-effect protections remain authoritative.
+- The first retry saved revision 2 but tried the now-unapproved build tool and
+  exhausted unknown-tool retries. After build disclosure was corrected, ordinary
+  `Please show me the revised setup without sample records.` recovered the same
+  conversation and showed the empty revised proposal (33.0k tokens, 6.2s).
+- The first `Yes, create it.` still returned another proposal after an approval
+  rejection; this is failed one-approval evidence, not a passing journey.
+  Repeating it then produced an actual build and readback: 163.5k tokens, 14.0s,
+  five physical model calls. Native verdict logging reported `approve` for
+  run `99785981-4f87-4d56-ae76-7ece4429ae6c`, design revision 3.
+- `integral_verify_build` returned `verified` for execution receipt
+  `xr.a424fba18f9b2624a6f290236d8168ff`. Navigation to the returned canonical
+  track URL showed the three vehicle fields, selected Service Register view,
+  and zero entries. No sample row was built.
+- Fresh request on the final candidate: `I need a simple visitor register with
+  visitor name, arrival date and purpose. Show me the setup before creating it.`
+  Saved an explicitly unbuilt, empty proposal (120.5k tokens, 17.3s). No build.
+  `Keep just the table view. I don’t need a calendar.` produced a revision with
+  one proposal-tool step (59.2k tokens, 19.3s; native verdict `amend`). No build.
+  One `Yes, create it.` then built and verified revision 2 (142.9k tokens, 13.9s,
+  five physical calls), with receipt `xr.e28cd76ba28707cd84d390fa6b48ea85`, run
+  `d55463a0-74d3-42d0-8b0a-8c5bd2d22436`.
+- The actual Visitors track showed all three fields, selected Visitor Log table,
+  zero entries, and no calendar tab. This readback verifies the requested amendment,
+  rather than relying only on the assistant's success statement.
+- OpenAI delivery qualification remains open. Passing a fresh GLM journey does
+  not qualify the earlier extra-approval cycle or the other retained V1 routes.
+
+![Recovered empty proposal](glm-amendment-recovered.jpg)
+
+![Amended register built and verified](glm-amended-empty-build.jpg)
+
+![Actual empty register with its requested fields](glm-empty-register-readback.jpg)
+
+![Fresh unbuilt visitor proposal without demo records](glm-fresh-empty-visitor-proposal.jpg)
+
+![Fresh table-only amendment](glm-fresh-amended-proposal.jpg)
+
+![Fresh build after one natural approval](glm-fresh-one-approval-build.jpg)
+
+![Actual visitor register after the single approval](glm-fresh-visitor-readback.jpg)

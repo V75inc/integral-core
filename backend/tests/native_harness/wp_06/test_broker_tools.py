@@ -182,7 +182,6 @@ async def test_design_only_policy_allows_saved_design_proposal(
         ],
         run_state={
             "capability_search_completed": True,
-            "scaffold_coverage_validated": True,
         },
         design_only=True,
     )[0]
@@ -200,10 +199,10 @@ async def test_design_only_policy_allows_saved_design_proposal(
 
 
 @pytest.mark.asyncio
-async def test_preparation_hides_tools_until_search_and_required_skill_load(
+async def test_proposal_is_disclosed_after_skill_load_without_run_local_coverage(
     tmp_path: Path,
 ) -> None:
-    """Pydantic AI sees lifecycle tools only when their prerequisites hold."""
+    """Core validates proposals, including amendments in a later model run."""
     run_state: dict[str, Any] = {}
     tools = build_brokered_tools(
         scope=_scope(),
@@ -225,8 +224,6 @@ async def test_preparation_hides_tools_until_search_and_required_skill_load(
     await by_name["search_capabilities"].function(query="design an app")
     assert await propose.prepare_tool_def(ctx_without_skill) is None
     ctx_with_skill = SimpleNamespace(active_capability_ids={"integral-scaffold"})
-    assert await propose.prepare_tool_def(ctx_with_skill) is None
-    run_state["scaffold_coverage_validated"] = True
     available = await propose.prepare_tool_def(ctx_with_skill)
 
     assert available is not None
@@ -669,7 +666,7 @@ async def test_scaffold_lifecycle_tools_require_loaded_skill(
         {"proposal": "design"},
         SimpleNamespace(tool_call_id="call-before-load", active_capability_ids=set()),
     )
-    coverage_required = await tool.function_schema.call(
+    without_precheck = await tool.function_schema.call(
         {"proposal": "design"},
         SimpleNamespace(
             tool_call_id="call-after-load",
@@ -692,12 +689,12 @@ async def test_scaffold_lifecycle_tools_require_loaded_skill(
     )
 
     assert blocked["error_code"] == "required_skill_not_loaded"
-    assert coverage_required["error_code"] == "design_coverage_required"
+    assert without_precheck["proposal_id"] == "proposal-1"
     assert checked["status"] == "buildable"
     assert allowed["proposal_id"] == "proposal-1"
     assert run_state["proposal_succeeded"] is True
     assert run_state["proposal_text"] == "recorded proposal"
-    assert len(invocations) == 2
+    assert len(invocations) == 3
 
 
 def test_broker_registers_search_capabilities_with_the_projected_skills(
@@ -1006,6 +1003,10 @@ async def test_approved_build_macro_runs_at_most_once_per_model_turn(
         run_state=run_state,
     )[0]
 
+    disclosed = await tool.prepare_tool_def(
+        SimpleNamespace(active_capability_ids={"integral-scaffold"})
+    )
+    assert disclosed is not None
     rejected = await tool.function_schema.call(
         {"operations": []},
         SimpleNamespace(

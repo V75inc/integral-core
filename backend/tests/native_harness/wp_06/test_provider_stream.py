@@ -612,7 +612,9 @@ async def test_search_recommendation_does_not_force_irrelevant_skill_or_workflow
     state["proposal_succeeded"] = True
     state["proposal_text"] = "Recorded proposal markdown."
     assert await validate(None, "Here is unrelated specialist advice.") == (
-        "Recorded proposal markdown."
+        "Proposed setup — nothing has been built yet.\n\n"
+        "Recorded proposal markdown.\n\n"
+        "Confirm this setup when you're ready, or tell me what to change."
     )
 
     state["proposal_succeeded"] = False

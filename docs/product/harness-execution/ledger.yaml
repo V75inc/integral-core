@@ -1,4 +1,4 @@
-plan_revision: 28
+plan_revision: 29
 goal_file: docs/product/harness-execution/GOAL.md
 goal_recalibrated_at: "2026-10-05"
 goal_amendment: thin_library_owned_runtime_remove_native_legacy_routing_and_qualify_complete_user_journeys
@@ -19,6 +19,22 @@ candidate:
   pydantic_ai: 2.54.0
   backend_lock_resolved: true
 verification:
+  native_amendment_2026_10_05:
+    previous_checkpoint_commit: 977a9706
+    previous_checkpoint_pushed: true
+    redundant_proposal_coverage_gate: removed_core_validates_blueprint_and_coverage
+    build_schema_disclosure: available_after_skill_load_handler_and_broker_enforce_approval
+    native_revised_blueprint: invalidates_old_approval_without_legacy_jv_judge
+    focused_regressions: passed
+    browser_glm_recovery: passed_updated_empty_proposal_readback
+    browser_glm_amended_build: passed_verified_receipt_and_actual_empty_track
+    browser_glm_fresh_amendment: passed_one_proposal_step_no_build
+    browser_glm_one_approval: passed_fresh_visitor_register_verified_receipt
+    browser_glm_fresh_track_readback: passed_three_fields_default_table_zero_entries_no_calendar
+    browser_openai_complete_journey: unqualified
+    repository_commit_gate: passed_full_make_verify
+    reproducible_wheel_sha256: 174250f1bad85883a21296020ae10862b624e31c9e867685db2a2b68dc4c8fa1
+    frontend_suite: passed_1306_tests_220_files
   native_routing_and_token_budget_2026_10_05:
     previous_checkpoint_commit: b85cf5ab
     previous_checkpoint_pushed: true

@@ -1051,6 +1051,9 @@ async def record_design_proposed(
     later verification readback must prove. Both text fields are required.
 
     Re-propose rules:
+    - Native typed amendments replace the saved blueprint and clear its old
+      approval; unchanged approved blueprints cannot be re-proposed. No legacy
+      semantic judge is consulted for the native provider.
     - Marker already **approved** → refuse (``already_proposed``). User confirmed
       the shape; the next step is ``begin_batch`` + build, not another propose.
     - Marker pending and user replied with a **pure affirm** ("yes", "build it")
@@ -1104,6 +1107,7 @@ async def record_design_proposed(
     ][:32]
 
     existing = getattr(thread, "design_proposed", None) or {}
+    native_turn = thread.provider_id == "integral_native"
     prior_turn = existing.get("proposed_at_user_turn")
     current_turns = await count_user_turns(thread)
     receipt = existing.get("build_receipt") if isinstance(existing, dict) else None
@@ -1118,6 +1122,7 @@ async def record_design_proposed(
         and existing.get("approved")
         and not completed_prior_design
         and not unbuildable
+        and (not native_turn or receipt)
     ):
         return {
             "error": "already_proposed",
@@ -1138,6 +1143,7 @@ async def record_design_proposed(
     # begin_batch → commit_batch.
     if (
         existing
+        and not native_turn
         and not existing.get("approved")
         and isinstance(prior_turn, int)
         and current_turns > prior_turn
@@ -1234,6 +1240,20 @@ async def record_design_proposed(
             "detail": (
                 "This design has a typed blueprint; an amendment must pass the "
                 "complete revised blueprint, keeping item ids of unchanged items."
+            ),
+        }
+
+    if (
+        native_turn
+        and existing.get("approved")
+        and existing.get("blueprint") == canonical_blueprint
+        and not unbuildable
+    ):
+        return {
+            "error": "already_proposed",
+            "detail": (
+                "This exact blueprint is already approved. Build the saved "
+                "shape; a changed blueprint must be proposed and approved anew."
             ),
         }
 

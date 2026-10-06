@@ -131,6 +131,7 @@ async def test_native_verdict_is_bound_to_current_proposal_and_message(
     assert stamped["approved"] is result
     assert stamped["affirm_for"] == utterance
     assert stamped["affirm_run_id"] == "run-a"
+    assert stamped["reply_kind"] == verdict
 
 
 @pytest.mark.asyncio

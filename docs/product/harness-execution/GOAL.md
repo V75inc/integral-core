@@ -111,6 +111,15 @@ count, scaffolding, or the amount of code written.
   proposal tool; remove redundant adapter prerequisites where Core already
   validates the operation. Keep failed build preflight distinct from applied
   effects, and qualify amendments before treating approval as complete.
+- The amendment candidate now leaves loaded workflow tools disclosed and lets
+  Core validate proposals and enforce build authority. Native revisions clear
+  approval of the old blueprint without invoking the legacy JV reply judge.
+  The failed GLM conversation recovered and built an empty vehicle register,
+  with a verified receipt and actual track readback. A fresh visitor-register
+  request then saved an empty proposal, handled an ordinary table-only amendment,
+  and built the exact revision after one natural approval with a verified receipt.
+  The earlier extra-approval cycle remains failed evidence; OpenAI and the other
+  retained V1 journeys require their own qualification.
 - Natural approval must apply to the exact pending action through existing
   Integral authority contracts. Remove repeated reviews and unnecessary
   dialogue requirements. Any added interpretation adapter must have a
