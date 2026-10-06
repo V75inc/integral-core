@@ -58,6 +58,50 @@ export function roundMoney(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+/** Tax on one line amount. ``ratePercent`` is 14 for 14% VAT. */
+export function computeLineTax(
+  gross: number,
+  ratePercent: number,
+  inclusive: boolean
+): number {
+  const amount = Number(gross) || 0;
+  const rate = (Number(ratePercent) || 0) / 100;
+  if (!(amount > 0) || !(rate > 0)) return 0;
+  if (inclusive) {
+    return roundMoney((amount * rate) / (1 + rate));
+  }
+  return roundMoney(amount * rate);
+}
+
+/** Sum of per-line tax for a draft grid. */
+export function computeTaxTotal(
+  lines: Array<{ fields: Record<string, unknown> }>,
+  opts: {
+    quantityField?: string;
+    rateField?: string;
+    amountField?: string;
+    taxColumn: string;
+    ratePercentByCodeId: Record<string, number>;
+    inclusive: boolean;
+  }
+): number {
+  const col = String(opts.taxColumn || '').trim();
+  if (!col) return 0;
+  return roundMoney(
+    lines.reduce((sum, line) => {
+      const gross = computeLineAmount(
+        line.fields,
+        opts.quantityField,
+        opts.rateField,
+        opts.amountField
+      );
+      const codeId = String(line.fields[col] || '').trim();
+      const ratePercent = Number(opts.ratePercentByCodeId[codeId]) || 0;
+      return sum + computeLineTax(gross, ratePercent, opts.inclusive);
+    }, 0)
+  );
+}
+
 /**
  * Keep payment applications intact when the document total changes.
  * applied = previousTotal − previousBalance; newBalance = max(0, newTotal − applied).
