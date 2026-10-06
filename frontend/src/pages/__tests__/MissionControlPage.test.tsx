@@ -148,4 +148,40 @@ describe('<MissionControlPage /> counters', () => {
     expect(metricValue('Unread')).toBe('9');
     expect(mockGetSnapshot).toHaveBeenCalledWith(50);
   });
+
+  it('hides nav_visible=false tracks from Tracks in motion', async () => {
+    mockGetSnapshot.mockResolvedValue({
+      workspaces: [],
+      apps: [],
+      tracks: [
+        {
+          id: 't-lines',
+          title: 'Expense lines',
+          workspace_id: 'ws-1',
+          nav_visible: false,
+          updated_at: '2026-10-06T16:50:00Z',
+          entry_count: 0,
+        },
+        {
+          id: 't-expenses',
+          title: 'Expenses',
+          workspace_id: 'ws-1',
+          nav_visible: true,
+          updated_at: '2026-10-05T12:00:00Z',
+          entry_count: 3,
+        },
+      ],
+      preview_entries: [],
+      entries_today: 0,
+      active_tracks: 1,
+    });
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText('Expenses')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Expense lines')).not.toBeInTheDocument();
+    expect(metricValue('Total tracks')).toBe('1');
+  });
 });
