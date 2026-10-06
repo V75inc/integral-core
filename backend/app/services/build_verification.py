@@ -114,12 +114,17 @@ def _take(
 
 
 def build_item_mapping(
-    blueprint: Dict[str, Any], execute_result: Any
+    blueprint: Dict[str, Any],
+    execute_result: Any,
+    *,
+    existing_app_id: str = "",
 ) -> Dict[str, Any]:
-    """Map blueprint item ids to the objects this apply created.
+    """Map blueprint items to created objects and an explicitly extended App.
 
     Fields, entry types, and tag groups point at their Track. Views, seeds,
-    skills, routines, and the dashboard point at their own ids.
+    skills, routines, and the dashboard point at their own ids. An App added to
+    by an approved extension is not created by this apply, so its verified id
+    is supplied separately from the apply result.
     """
     results = execute_result
     if isinstance(execute_result, dict):
@@ -136,7 +141,7 @@ def build_item_mapping(
     mapping: Dict[str, Any] = {}
     app = blueprint.get("app") or {}
     app_node = _take(pool, "app", str(app.get("name") or ""))
-    app_id = str((app_node or {}).get("id") or "")
+    app_id = str((app_node or {}).get("id") or existing_app_id or "")
     if app.get("id") and app_id:
         mapping[app["id"]] = {"kind": "app", "object_id": app_id}
 
@@ -271,6 +276,7 @@ def make_execution_receipt(
     execute_result: Any,
     applied_at: str,
     user_turn: int,
+    existing_app_id: str = "",
 ) -> Dict[str, Any]:
     """The receipt stored on the design: revision, batch, and item mapping."""
     return {
@@ -283,7 +289,9 @@ def make_execution_receipt(
         "design_id": design_id,
         "design_revision": design_revision,
         "blueprint_digest": blueprint_digest,
-        "mapping": build_item_mapping(blueprint or {}, execute_result),
+        "mapping": build_item_mapping(
+            blueprint or {}, execute_result, existing_app_id=existing_app_id
+        ),
         "applied_at": applied_at,
         "user_turn": user_turn,
     }
@@ -649,6 +657,21 @@ async def verify_build(
                 "the apply that just finished, or apply the current revision first."
             ),
         }
+    # Existing-App extension receipts predate (or may have been written by)
+    # versions that mapped only objects created by the batch. Resolve the
+    # approved target from the same design marker; never accept an App id from
+    # the model's verification request.
+    if str(marker.get("target_app_id") or "").strip():
+        receipt = dict(receipt)
+        mapping = dict(receipt.get("mapping") or {})
+        app_spec = blueprint.get("app") or {}
+        app_item_id = str(app_spec.get("id") or "")
+        if app_item_id and not mapping.get(app_item_id):
+            mapping[app_item_id] = {
+                "kind": "app",
+                "object_id": str(marker["target_app_id"]),
+            }
+        receipt["mapping"] = mapping
     return await verify_loaded(
         blueprint=blueprint,
         design_id=str(design_id),

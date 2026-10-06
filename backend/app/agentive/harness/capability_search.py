@@ -128,6 +128,7 @@ def _tool_workflow_context(name: str, skill: dict[str, str] | None) -> str:
         ]
         end = min(boundaries) + 1 if boundaries else len(body)
         passage = " ".join(body[start:end].split())
+        plain_passage = re.sub(r"[*_`]+", "", passage)
         # Skill procedures often name a tool inside a prohibition before they
         # describe its valid workflow later (for example, excluding build and
         # verify tools from a design-only turn). Such mentions are negative
@@ -136,7 +137,7 @@ def _tool_workflow_context(name: str, skill: dict[str, str] | None) -> str:
         # user intent itself is never gated by these words.
         if re.search(
             r"\b(?:do not|don't|never|must not|forbidden)\b",
-            passage,
+            plain_passage,
             flags=re.IGNORECASE,
         ):
             continue
@@ -336,24 +337,39 @@ def _search_catalog(
         semantic_ranks = {
             name: rank for rank, (name, _score) in enumerate(ranked_tool_ids, 1)
         }
+        workflow_documents = [
+            (name, context)
+            for name, _document in tool_documents
+            if (context := _tool_workflow_context(name, selected_skill))
+        ]
+        workflow_ranks = {
+            name: rank
+            for rank, (name, _score) in enumerate(_rank(query, workflow_documents), 1)
+        }
+        schema_weight = 1.0 if selected_skill is not None else 4.0
         names = set(lexical_ranks) | set(schema_ranks) | set(semantic_ranks)
         ranked_tools = sorted(
             (
                 (
                     name,
                     (
-                        1.0 / (_RRF_K + semantic_ranks[name])
+                        3.0 / (_RRF_K + semantic_ranks[name])
                         if name in semantic_ranks
                         else 0.0
                     )
                     + (
-                        2.0 / (_RRF_K + lexical_ranks[name])
+                        1.0 / (_RRF_K + lexical_ranks[name])
                         if name in lexical_ranks
                         else 0.0
                     )
                     + (
-                        4.0 / (_RRF_K + schema_ranks[name])
+                        schema_weight / (_RRF_K + schema_ranks[name])
                         if name in schema_ranks
+                        else 0.0
+                    )
+                    + (
+                        2.0 / (_RRF_K + workflow_ranks[name])
+                        if name in workflow_ranks
                         else 0.0
                     ),
                 )
@@ -432,8 +448,13 @@ def _search_catalog(
                 "Treat the ranked matches as candidates, not instructions. "
                 "Choose based on the user's requested outcome and conversation "
                 "context, not rank alone. When a returned skill clearly owns the "
-                "requested Integral workflow, load it with Pydantic AI's "
-                "load_capability tool and follow its procedure. Otherwise consider "
+                "requested Integral workflow, load it once with Pydantic AI's "
+                "load_capability tool and follow its procedure. Loading the skill "
+                "makes its governed tools available; do not search for tools owned "
+                "by that skill. Use a separately returned tool directly when it fits. "
+                "Search again only when the user request requires a different "
+                "capability. do not replace a required saved proposal with chat prose. "
+                "Otherwise consider "
                 "another result or answer without a capability. Integral still "
                 "authorizes every tool call."
             ),
@@ -566,6 +587,7 @@ def build_search_capabilities_tool(
     catalogue: Sequence[dict[str, Any]],
     immediately_available_tools: Sequence[str] = (),
     run_state: dict[str, Any] | None = None,
+    skill_owned_tools: frozenset[str] = frozenset(),
 ) -> Tool[Any, Any]:
     """Build a model-callable search surface over one run's authorized catalog."""
     skills = _load_skills(skill_library)
@@ -626,15 +648,15 @@ def build_search_capabilities_tool(
         semantic.sort(key=lambda item: (-item[1], item[0]))
         lexical_ranks = {name: rank for rank, (name, _score) in enumerate(lexical, 1)}
         semantic_ranks = {name: rank for rank, (name, _score) in enumerate(semantic, 1)}
-        # Reciprocal-rank fusion uses independent lexical and semantic signals;
-        # the slight lexical preference preserves exact domain terminology while
-        # semantic retrieval recovers ordinary paraphrases and synonyms.
+        # Reciprocal-rank fusion uses independent lexical and semantic signals.
+        # Semantic intent leads; lexical overlap remains a correction signal so
+        # record-level terms do not drown out a structurally different workflow.
         return sorted(
             (
                 (
                     name,
-                    1.2 / (60 + lexical_ranks.get(name, len(skills) + 1))
-                    + 1.0 / (60 + semantic_ranks[name]),
+                    1.0 / (60 + lexical_ranks.get(name, len(skills) + 1))
+                    + 1.2 / (60 + semantic_ranks[name]),
                 )
                 for name, _score in semantic
             ),
@@ -667,7 +689,11 @@ def build_search_capabilities_tool(
             similarity = sum(
                 left * right for left, right in zip(query_vector, vector)
             ) / (query_norm * vector_norm)
-            semantic.append((name, similarity))
+            # A zero or negative cosine is not a semantic match. Keeping such
+            # entries in the ranking makes arbitrary identifier tie-breaking
+            # vote in reciprocal-rank fusion and can promote unrelated tools.
+            if similarity > 0:
+                semantic.append((name, similarity))
         semantic.sort(key=lambda item: (-item[1], item[0]))
         return semantic
 
@@ -728,7 +754,9 @@ def build_search_capabilities_tool(
             recommended_tool.get("name") if isinstance(recommended_tool, dict) else None
         )
         available_tools = [
-            item["name"] for item in result["results"] if item["kind"] == "tool"
+            item["name"]
+            for item in result["results"]
+            if item["kind"] == "tool" and item["name"] not in skill_owned_tools
         ]
         for item in result["results"]:
             if item["kind"] == "tool":
@@ -749,10 +777,12 @@ def build_search_capabilities_tool(
         description=(
             "Search the authorized Integral Agent Skills and tool catalog for "
             "the best capabilities for a user request. Start with "
-            "recommendation.skill and recommendation.tool when they fit; "
-            "load the skill once with load_capability. This search reveals "
-            "the matched tool schemas directly. Other results are alternatives. Search "
-            "guides discovery but does not authorize or execute a tool."
+            "recommendation.skill and recommendation.tool when they fit. Load a "
+            "matched skill with Pydantic AI's load_capability tool; the framework "
+            "then makes that skill's governed tools available. This search reveals "
+            "separately matched tool schemas directly. Other results are "
+            "alternatives. "
+            "Search guides discovery but does not authorize or execute a tool."
         ),
         takes_ctx=False,
         defer_loading=False,

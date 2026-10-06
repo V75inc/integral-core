@@ -2,8 +2,8 @@
  * Approval card for an agent-staged write.
  *
  * Renders in place of the default raw-JSON tool-call disclosure when a
- * tool-call result matches the StagedChange shape. Four user actions:
- * Approve / Approve & auto-allow this kind / Show raw / Reject. On
+ * tool-call result matches the StagedChange shape. User actions:
+ * Approve this change / Show raw / Reject. On
  * Approve, then starts a host-side continuation so the agent re-enters the
  * loop with a now-blessed token without fabricating a user utterance.
  *
@@ -172,19 +172,11 @@ export function StagedChangeCard({ staged, onTerminal }: StagedChangeCardProps) 
       {status.state === 'pending' && (
         <div className="flex flex-wrap items-center gap-2">
           <button
-            onClick={() => bless('single')}
+            onClick={() => bless()}
             disabled={status.kind === 'loading'}
             className="inline-flex items-center gap-1 rounded-[var(--radius-pill)] bg-[var(--brand-accent)] px-3 py-1 text-xs font-medium text-[var(--brand-accent-fg)] hover:opacity-90 disabled:opacity-50"
           >
             <CheckIcon size={12} /> Approve
-          </button>
-          <button
-            onClick={() => bless('session')}
-            disabled={status.kind === 'loading'}
-            className="inline-flex items-center gap-1 rounded-[var(--radius-pill)] border border-[var(--border-subtle)] px-3 py-1 text-xs text-[var(--text-muted)] hover:text-[var(--text)]"
-            title="Approve and auto-allow this kind for the rest of this session"
-          >
-            <Sparkles size={12} /> Approve &amp; auto-allow
           </button>
           <button
             onClick={() => void revoke()}

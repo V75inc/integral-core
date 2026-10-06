@@ -333,7 +333,7 @@
         "integral-navigation",
         "integral-workspace"
       ],
-      "intent": "Manages a specific existing record or an explicitly requested record operation inside a Track: create, update, delete, tag, comment, or wire relation fields. Use integral-filing when the user supplies unstructured notes or other content to place; use integral-organize for one approved change across a selected set of records.",
+      "intent": "Handles one record at a time in an existing Track or list: find a record by exact name, ID, or serial number and answer questions about its status or fields; create, update, delete, tag, comment on, or link a specific entry. Use for requests such as finding a mower by serial number or changing one item. Use integral-scaffold for a new App or a multi-part app workflow; use integral-filing when the user supplies unstructured content to place, and integral-organize for one approved change across a selected set of records.",
       "name": "integral-entries",
       "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral-entries/SKILL.md",
       "unresolved_refs": []
@@ -406,16 +406,12 @@
         "integral_activity_digest",
         "integral_aggregate",
         "integral_count_entries",
-        "integral_describe_substrate",
         "integral_get_digest",
         "integral_get_feed",
         "integral_get_track_schema",
-        "integral_list_apps",
         "integral_list_notifications",
-        "integral_list_tags",
         "integral_list_tracks",
         "integral_mark_notification_read",
-        "integral_plan_query",
         "integral_query",
         "integral_query_entries",
         "integral_query_spec",
@@ -425,10 +421,9 @@
       "delegates_to": [
         "integral-entries",
         "integral-filing",
-        "integral-models",
-        "integral-workspace"
+        "integral-models"
       ],
-      "intent": "Answers ad hoc questions about current substrate state with governed queries, counts, rankings, comparisons, breakdowns, or activity digests; optionally save the query as a View. Use for one-time questions such as what's overdue or how two Tracks compare. For a periodic or recurring review deliverable, use integral-review.",
+      "intent": "Search existing Integral records and current workspace state to answer one-time questions. Find whether information is already filed, search entries by meaning, summarize, count, rank, compare, or break down current data; optionally save a query as a View. For a new operational app, use integral-scaffold. For periodic or recurring review deliverables, use integral-review.",
       "name": "integral-insights",
       "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral-insights/SKILL.md",
       "unresolved_refs": []
@@ -733,6 +728,7 @@
         "integral_describe_substrate",
         "integral_get_artifact",
         "integral_list_apps",
+        "integral_list_models",
         "integral_list_routines",
         "integral_list_tracks",
         "integral_propose_design",
@@ -747,7 +743,7 @@
         "integral-models",
         "integral-scheduling"
       ],
-      "intent": "Designs and delivers a new operational app for a business process or information need. Use for new registers, inventory and asset management, equipment and tool tracking, staff assignments and check-outs, service and maintenance schedules, inspections, reminders, and other business record systems. Turn the need into an approved design, build its schema, relations, views, skills, and requested routines as one staged plan, then verify the result. Retain delivery ownership while consulting integral-model for schema choices and integral-scheduling for routines. Use integral-onboard first only when the user needs workspace orientation before choosing what to build.",
+      "intent": "Designs and delivers a new operational App or an app-level schema extension: an equipment or tool tracker, inventory register, maintenance log, or multi-part team workflow. Use when the requested outcome needs new or changed structure; check whether an existing App fits, propose the smallest useful design, build it after approval, and verify it. General how-to advice about an existing workflow does not need a proposal when current structure supports the request. For adding, finding, or changing one record in an existing Track or list, use integral-entries. Keep delivery ownership while consulting integral-model for schema choices and integral-scheduling for requested routines. Use integral-onboard first only when the user needs workspace orientation before choosing what to build.",
       "name": "integral-scaffold",
       "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral-scaffold/SKILL.md",
       "unresolved_refs": []

@@ -1,6 +1,6 @@
 ---
 name: integral-scaffold
-description: 'Designs and delivers a new operational app for a business process or information need. Use for new registers, inventory and asset management, equipment and tool tracking, staff assignments and check-outs, service and maintenance schedules, inspections, reminders, and other business record systems. Turn the need into an approved design, build its schema, relations, views, skills, and requested routines as one staged plan, then verify the result. Retain delivery ownership while consulting integral-model for schema choices and integral-scheduling for routines. Use integral-onboard first only when the user needs workspace orientation before choosing what to build.'
+description: 'Designs and delivers a new operational App or an app-level schema extension: an equipment or tool tracker, inventory register, maintenance log, or multi-part team workflow. Use when the requested outcome needs new or changed structure; check whether an existing App fits, propose the smallest useful design, build it after approval, and verify it. General how-to advice about an existing workflow does not need a proposal when current structure supports the request. For adding, finding, or changing one record in an existing Track or list, use integral-entries. Keep delivery ownership while consulting integral-model for schema choices and integral-scheduling for requested routines. Use integral-onboard first only when the user needs workspace orientation before choosing what to build.'
 allowed-tools: integral_whoami integral_describe_substrate integral_list_models integral_list_apps integral_ask_user integral_check_design_coverage integral_verify_build integral_propose_design integral_get_artifact integral_list_artifacts integral_begin_batch integral_build_approved_design integral_create_app integral_create_app_track integral_apply_model_to_track integral_author_model integral_save_view integral_create_entry integral_create_dashboard integral_author_skill integral_create_tag integral_register_track_template integral_commit_batch integral_list_tracks integral_get_track_schema integral_query_entries integral_list_views integral_schedule_task integral_list_routines integral_cancel_batch
 ---
 
@@ -46,17 +46,42 @@ outline is greenfield approval; the scaffold batch applies on
 not a complete app — schema, views, relations, procedures, and acceptance
 evidence must land.
 
+General how-to advice about using an existing workflow is not, by itself, a
+request for new structure. When the current App and its schema cover the stated
+need, answer with the verified path and do not stage a proposal. Propose an
+extension only when existing structure is missing a capability the user asked
+for.
+
 Propose from the field and view types in this skill. Check the blueprint with
 `integral_check_design_coverage` right before proposing. Call
 `integral_describe_substrate` only when a tool rejects a type or config key.
 Do not spend a turn on whoami, model listing, or substrate introspection
 for a clear new-app or existing-app request.
 
+**Ground every design in the workspace.** Before proposing any app or app
+extension, call `integral_list_apps` once—even when the request sounds
+greenfield. This is required grounding, not optional discovery: a useful
+destination may already exist. If one clearly fits, inspect only that App's
+tracks and the schema of the one relevant track, then propose the smallest
+useful extension. If none fits, propose a new App. Do not call
+`integral_list_models` or read existing entries just to design an App; existing
+records matter only when the user asks to find, assess, or change those records.
+Do not repeat `integral_check_design_coverage` with the same blueprint. Apply
+every reported correction in one revision; once the result is `buildable`, call
+`integral_propose_design` next.
+
 **Do not narrate a shadow workflow.** For a request to create an app, or a
-description of something the user struggles to keep track of that no
-existing App covers, call the proposal tool before replying. Never ask
-whether to check the workspace or whether to draft a design; do both. A prose
-outline with no `integral_propose_design` record is not a design step. Once a
+description of a problem the user wants solved, first determine whether an
+existing App already supports the complete workflow. If it does, show the
+relevant destination and concise steps. If it covers only part of the need,
+propose the smallest useful extension to that App before replying; do not
+describe a possible improvement and leave the user to ask for it again. A
+current value such as next service due date does not record past service
+events. When the need is to keep a service history, propose a linked history
+Track in the matching equipment App. If no existing App fits, propose a new
+App. Never ask whether to check the workspace or whether to draft a design;
+do both. A prose outline with no `integral_propose_design` record is not a
+design step. Once a
 recorded proposal is affirmed with "go ahead", "build it", or equivalent,
 begin and commit the build in that same turn. Do not reproduce a long design,
 ask for the same confirmation again, or imply that a further approval is
@@ -201,9 +226,12 @@ not on the Feed: when a track has several, mark the most useful one
 6. **Procedures close the loop.** Multi-record consistency that users expect
    (“doing A also updates B”) is an `integral_author_skill` in the same batch —
    prose in the design is not acceptance. Skills guide; they are not locks.
-7. **Time → routines.** Expiry / due / service dates that must surface later
-   need `integral_schedule_task` (timezone + cadence). A date field alone does
-   not notify.
+7. **Time → routines only on request.** A due or service date can be tracked
+   with a date field and a useful sorted view. Add `integral_schedule_task`
+   only when the user asks for a reminder, notification, or recurring action;
+   do not infer one just because the App tracks dates. When a routine is
+   requested, use the known workspace timezone or ask for it if unavailable,
+   and state its cadence in the proposal. A date field alone does not notify.
 8. **Seeds prove the graph.** Demo entries (unless user wants empty) should
    exercise each track and each lookup edge with fictional labels — no real PII.
 9. **Honesty.** Say what the substrate cannot enforce (concurrency locks,
@@ -214,8 +242,8 @@ not on the Feed: when a track has several, mark the most useful one
 
 ## Grounding (read before write)
 
-1. `integral_list_apps` when the request may extend an existing App. Continue
-   a partial build via `integral_list_tracks` rather than duplicating.
+1. `integral_list_apps` before every app design. Continue a partial build via
+   `integral_list_tracks` rather than duplicating.
 2. `integral_describe_substrate` only after a type or config key is rejected.
 3. `integral_list_routines` when scheduling — avoid duplicates; establish IANA
    timezone (ask if unknown).
@@ -240,6 +268,29 @@ proposal and let the user trim it.
 the requested name even if similarly shaped apps already exist. Mention the
 nearby apps only when they create a concrete naming conflict; do not reopen
 the reuse-versus-create question after the user has affirmed the design.
+
+**Reuse discovered structure.** If a discovered App already covers the same
+real-world items, propose against it and pass its exact `target_app_id` from
+`integral_list_apps`; do not restate that App or one of its Tracks as new. Add
+only the missing capability. A current status or next-due date is not event
+history: when the user needs history over time, add a linked history Track to
+the fitting App rather than duplicating its register. Propose a new App only
+when none of the discovered Apps fits or the user explicitly asks for a
+distinct one.
+
+Before designing an extension, identify whether an existing Track already
+represents the real-world thing whose new events must be recorded. If it does,
+the event Track's relation must point to that existing Track's entry type.
+Never create a parallel register for the same things just to make the new
+history Track easier to model; preserve existing fields and views and do not
+copy their values into a second source of truth. Add only the event Track and
+its necessary relation and event fields. Add a view only when it directly
+serves the requested workflow (normally one table for a new history Track).
+Do not infer a board, calendar, current-status redesign, or extra tracking
+fields from a request for historical events. For example, when an existing
+Tools Track already stores each mower and its next service date, a request to
+keep service history calls for a Service Log linked to the existing Tool
+entries, not a second Mowers Track.
 
 Call `integral_propose_design` with a concise design in `proposal`. Include
 only the requested scope and necessary setup. This tool persists both the

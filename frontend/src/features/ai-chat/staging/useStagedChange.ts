@@ -31,7 +31,6 @@ import {
   getStagingTokenState,
   revokeStagingToken,
   rollbackStagingToken,
-  type StagingAutonomy,
 } from '../../../api/agentive';
 import { invalidateAfterAgentWrite } from '../../../services/graphMutationInvalidation';
 import type { StagedChange, StagedChangeState } from './types';
@@ -67,7 +66,7 @@ export interface UseStagedChangeResult {
   consumedNav: ConsumedNav;
   isTerminal: boolean;
   isBlessed: boolean;
-  bless: (autonomy?: StagingAutonomy) => Promise<void>;
+  bless: () => Promise<void>;
   revoke: () => Promise<void>;
   rollback: {
     available: boolean;
@@ -235,10 +234,10 @@ export function useStagedChange(
   }, [status.state, staged.token, onTerminal]);
 
   const bless = useCallback(
-    async (autonomy: StagingAutonomy = 'single') => {
+    async () => {
       setStatus((prev) => ({ kind: 'loading', state: prev.state }));
       try {
-        const res = await blessStagingToken(staged.token, autonomy);
+        const res = await blessStagingToken(staged.token);
         if (!res.ok) {
           setStatus((prev) => ({
             kind: 'error',

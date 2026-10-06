@@ -451,6 +451,88 @@ def test_verification_does_not_execute_a_build():
     assert first == second
 
 
+def test_existing_app_extension_maps_the_target_app_into_its_receipt():
+    """An extension receipt references its target App without recreating it."""
+    blueprint = _blueprint()
+    receipt = make_execution_receipt(
+        design_id="d1",
+        design_revision=1,
+        blueprint_digest="abc",
+        blueprint=blueprint,
+        batch_token="batch-extension",
+        execute_result={
+            "results": [
+                {
+                    "kind": "create_track",
+                    "result": {"track": {"id": "t1", "title": "Jobs"}},
+                },
+                {
+                    "kind": "save_view",
+                    "result": {"view_id": "v1", "name": "Jobs board"},
+                },
+            ]
+        },
+        applied_at="2026-10-06T00:00:00Z",
+        user_turn=3,
+        existing_app_id="existing-app-1",
+    )
+
+    assert receipt["mapping"]["app"] == {
+        "kind": "app",
+        "object_id": "existing-app-1",
+    }
+    assert receipt["mapping"]["track.jobs"] == {
+        "kind": "track",
+        "object_id": "t1",
+    }
+
+
+@pytest.mark.asyncio
+async def test_existing_app_extension_verifies_the_target_app_and_new_track():
+    """Verification reads both the existing target and newly applied objects."""
+    blueprint = _blueprint()
+    receipt = make_execution_receipt(
+        design_id="d1",
+        design_revision=1,
+        blueprint_digest="abc",
+        blueprint=blueprint,
+        batch_token="batch-extension",
+        execute_result={
+            "results": [
+                {
+                    "kind": "create_track",
+                    "result": {"track": {"id": "t1", "title": "Jobs"}},
+                },
+                {
+                    "kind": "save_view",
+                    "result": {"view_id": "v1", "name": "Jobs board"},
+                },
+            ]
+        },
+        applied_at="2026-10-06T00:00:00Z",
+        user_turn=3,
+        existing_app_id="a1",
+    )
+
+    result = await verify_loaded(
+        blueprint=blueprint,
+        design_id="d1",
+        design_revision=1,
+        receipt=receipt,
+        reader=_FakeReader(),
+    )
+
+    assert result["status"] == "verified"
+    assert {item["id"]: item["status"] for item in result["items"]} == {
+        "app": "present",
+        "track.jobs": "present",
+        "type.job": "present",
+        "f.customer": "present",
+        "f.vehicle": "present",
+        "view.board": "present",
+    }
+
+
 @pytest.mark.asyncio
 async def test_reader_denies_when_the_caller_has_no_role(monkeypatch):
     """An object the caller cannot access is denied, even if the node exists."""

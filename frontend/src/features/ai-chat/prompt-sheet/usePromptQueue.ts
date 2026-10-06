@@ -8,7 +8,6 @@ import {
   markPromptWrite,
   resolvePromptQuestion,
   revokeStagingToken,
-  type StagingAutonomy,
 } from '../../../api/agentive';
 import { useChatActivity } from '../AIChatSurface';
 import type { PromptItem, PromptQueue } from './types';
@@ -188,13 +187,13 @@ export function usePromptQueue() {
   }, [activeThreadId, applyQueueResult, busy, current]);
 
   const approveWrite = useCallback(
-    async (autonomy: StagingAutonomy = 'single') => {
+    async () => {
       if (!activeThreadId || !current || current.kind !== 'staged_write' || busy)
         return;
       setBusy(true);
       setError(null);
       try {
-        await blessStagingToken(current.token, autonomy);
+        await blessStagingToken(current.token);
         const res = await markPromptWrite({
           threadId: activeThreadId,
           token: current.token,

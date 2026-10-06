@@ -14,10 +14,12 @@ from pydantic_ai.messages import (
     ModelResponse,
     TextPart,
     ToolCallPart,
+    ToolReturn,
     ToolReturnPart,
     UserPromptPart,
 )
 from pydantic_ai.models.function import FunctionModel
+from pydantic_ai_harness import Skills
 
 from app.agentive.harness.pydantic_ai_compat import (
     IntegralToolDisclosure,
@@ -62,6 +64,154 @@ async def test_initial_discovery_uses_library_choice_then_allows_final_and_resum
     assert choices == [["search_capabilities"], "auto", ["search_capabilities"], "auto"]
 
 
+@pytest.mark.asyncio
+async def test_skill_loader_is_not_disclosed_until_current_turn_search_succeeds():
+    observed_tools = []
+
+    async def search_capabilities(query: str):
+        return ToolReturn(
+            {"query": query, "results": ["integral-entries"]},
+            tools=["integral_query_entries"],
+        )
+
+    async def load_capability(id: str):
+        return {"id": id, "instructions": "Manage a record in an existing track."}
+
+    async def integral_query_entries_fn(ctx: RunContext[Any], query: str):
+        return {"entries": []}
+
+    async def integral_delete_entry_fn(ctx: RunContext[Any], entry_id: str):
+        return {"deleted": entry_id}
+
+    integral_query_entries = build_integral_json_schema_tool(
+        function=integral_query_entries_fn,
+        name="integral_query_entries",
+        description="Search existing entries.",
+        json_schema={
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+        prepare=None,
+        defer_loading=True,
+    )
+    integral_delete_entry = build_integral_json_schema_tool(
+        function=integral_delete_entry_fn,
+        name="integral_delete_entry",
+        description="Delete one entry.",
+        json_schema={
+            "type": "object",
+            "properties": {"entry_id": {"type": "string"}},
+            "required": ["entry_id"],
+            "additionalProperties": False,
+        },
+        prepare=None,
+        defer_loading=True,
+    )
+
+    def respond(messages, info):
+        visible = {tool.name for tool in info.function_tools}
+        observed_tools.append(visible)
+        if len(observed_tools) == 1:
+            assert {"search_capabilities", "load_capability"}.issubset(visible)
+            return ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        "search_capabilities", {"query": "update an existing record"}
+                    )
+                ]
+            )
+        if len(observed_tools) == 2:
+            assert {"load_capability", "integral_query_entries"}.issubset(visible)
+            assert "integral_delete_entry" not in visible
+            return ModelResponse(
+                parts=[ToolCallPart("load_capability", {"id": "integral-entries"})]
+            )
+        return ModelResponse(parts=[TextPart("I found the right workflow.")])
+
+    agent = Agent(
+        FunctionModel(respond),
+        tools=[
+            search_capabilities,
+            load_capability,
+            integral_query_entries,
+            integral_delete_entry,
+        ],
+        capabilities=[IntegralToolDisclosure()],
+    )
+    result = await agent.run("Change the status of an existing item.")
+
+    assert result.output == "I found the right workflow."
+    assert len(observed_tools) == 3
+    assert {"search_capabilities", "load_capability"}.issubset(observed_tools[0])
+    assert {"load_capability", "integral_query_entries"}.issubset(observed_tools[1])
+
+
+@pytest.mark.asyncio
+async def test_native_skills_loader_remains_available_after_integral_catalog_search(
+    tmp_path: Path,
+):
+    """Use Pydantic AI's real Skills loader after Integral catalog discovery."""
+    skill_dir = tmp_path / "integral-workspace"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: integral-workspace\ndescription: Orient in the workspace.\n---\n"
+        "Use the workspace tools to answer orientation questions.\n",
+        encoding="utf-8",
+    )
+    observed_tools: list[set[str]] = []
+
+    async def search_capabilities(query: str):
+        return ToolReturn(
+            {
+                "query": query,
+                "results": [
+                    {
+                        "kind": "skill",
+                        "load_with": {
+                            "tool": "load_capability",
+                            "id": "integral-workspace",
+                        },
+                    }
+                ],
+            },
+            tools=[],
+        )
+
+    def respond(messages, info):
+        visible = {tool.name for tool in info.function_tools}
+        observed_tools.append(visible)
+        choice = (info.model_settings or {}).get("tool_choice", "auto")
+        if choice == ["search_capabilities"]:
+            return ModelResponse(
+                parts=[
+                    ToolCallPart("search_capabilities", {"query": "workspace tracks"})
+                ]
+            )
+        if choice == ["load_capability"]:
+            assert "load_capability" in visible
+            return ModelResponse(
+                parts=[ToolCallPart("load_capability", {"id": "integral-workspace"})]
+            )
+        return ModelResponse(parts=[TextPart("The current workspace is ready.")])
+
+    agent = Agent(
+        FunctionModel(respond),
+        tools=[search_capabilities],
+        capabilities=[
+            IntegralToolDisclosure(),
+            Skills(tmp_path, include={"integral-workspace"}),
+        ],
+    )
+    result = await agent.run("What workspace and tracks do I have?")
+
+    assert result.output == "The current workspace is ready."
+    assert len(observed_tools) == 3
+    assert all("load_capability" in names for names in observed_tools)
+    assert "Unknown tool name" not in str(result.all_messages())
+
+
 @pytest.mark.parametrize(
     "profile",
     [
@@ -77,19 +227,33 @@ def test_discovery_choice_respects_public_model_profile_restrictions(profile):
     )
 
 
-@pytest.mark.parametrize("tool_name", ["search_capabilities", "load_capability"])
 @pytest.mark.parametrize("failed", [False, True])
-def test_only_recorded_successful_discovery_or_skill_load_releases_choice(
-    tool_name, failed
-):
+def test_only_a_recorded_successful_search_releases_initial_choice(failed):
     settings = IntegralToolDisclosure().get_model_settings()
     ctx = SimpleNamespace(
         model=SimpleNamespace(profile={}),
         messages=[
-            ModelRequest(parts=[ToolReturnPart(tool_name, {"error": failed}, "call")])
+            ModelRequest(
+                parts=[ToolReturnPart("search_capabilities", {"error": failed}, "call")]
+            )
         ],
     )
     assert settings(ctx) == ({"tool_choice": ["search_capabilities"]} if failed else {})
+
+
+def test_loading_a_skill_without_search_does_not_release_initial_choice():
+    settings = IntegralToolDisclosure().get_model_settings()
+    ctx = SimpleNamespace(
+        model=SimpleNamespace(profile={}),
+        messages=[
+            ModelRequest(
+                parts=[
+                    ToolReturnPart("load_capability", {"instructions": "..."}, "call")
+                ]
+            )
+        ],
+    )
+    assert settings(ctx) == {"tool_choice": ["search_capabilities"]}
 
 
 def test_integral_json_schema_tool_adapter_preserves_catalogue_contract() -> None:
@@ -251,7 +415,7 @@ def test_integral_compaction_preserves_the_recent_working_set() -> None:
     assert compaction.max_tokens is None
     assert compaction.max_fraction == 0.7
     assert compaction.fallback_context_window == 32_768
-    assert compaction.keep_pairs == 8
+    assert compaction.keep_pairs == 5
     assert compaction.exclude_tools == frozenset({"load_capability"})
     assert compaction.clear_tool_inputs is True
 
@@ -283,9 +447,10 @@ async def test_compaction_keeps_skill_and_working_set_and_clears_old_payloads() 
         ModelRequest(parts=[ToolReturnPart("coverage", "covered", "coverage")]),
     ]
 
-    # Seven more pairs put the old search and skill-load outside the recent
-    # eight. The loaded skill is still retained by the supported exclusion.
-    for index in range(7):
+    # Three more pairs put the old search and coverage result outside the
+    # recent five. The loaded skill is still retained by the supported
+    # exclusion because Pydantic AI derives active state from that receipt.
+    for index in range(3):
         call_id = f"recent-{index}"
         messages.extend(
             [

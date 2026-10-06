@@ -116,7 +116,7 @@ class Settings(BaseSettings):
     )
     # Aggregate input and output tokens across the native agent's model calls
     # in one turn; independent from any provider's per-request output limit.
-    INTEGRAL_NATIVE_TURN_TOKEN_LIMIT: int = Field(default=300_000, ge=1)
+    INTEGRAL_NATIVE_TURN_TOKEN_LIMIT: int = Field(default=600_000, ge=1)
     # A document filing journey may span discovery, two skills, source/schema
     # reads and a combined record/attachment proposal. Keep it bounded without
     # cutting off productive work at the old ten-request ceiling.

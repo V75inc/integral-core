@@ -41,9 +41,14 @@ is the prelude to a structure or sharing mutation below.
    content work to `integral-entries`. For a "share X with <person>"
    request, first resolve the resource's id (via `integral_list_apps` /
    `integral_list_tracks`), then use `integral_share` (see Mutations).
-2. Default discovery flow when the user gives no specific id:
-   1. `integral_list_apps` — surface available apps.
-   2. `integral_list_tracks` — narrow by `app_id` if supplied.
+2. Read only what the requested outcome needs:
+   - “What workspace am I in?” — `integral_get_scope`.
+   - “What tracks do I have?” — `integral_list_tracks`.
+   - “What apps do I have?” — `integral_list_apps`.
+   - “What workspace am I in, and what tracks do I have?” — call
+     `integral_get_scope` and `integral_list_tracks`; do not list apps.
+   - Use `integral_list_apps` before a track operation only when the user
+     names an App or app-specific track scope that must be resolved.
    When you name apps or tracks in your reply, **link every one** using
    each row's `action_url` (or `/apps/{id}` / `/tracks/{id}`). Plain
    titles alone are forbidden — see `integral-navigation`.

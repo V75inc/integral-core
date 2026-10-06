@@ -64,7 +64,7 @@ vi.mock('../../../context/ToastContext', () => ({
 // Settings store — provide a minimal snapshot + no-op updater.
 vi.mock('../store', () => ({
   useSettings: () => [
-    { providers: { defaultProviderId: 'jvagent-embedded' } },
+    { providers: { defaultProviderId: 'pydantic-ai-native' } },
     vi.fn(),
   ],
 }));
@@ -109,6 +109,13 @@ beforeEach(() => {
 });
 
 describe('AgentsSection — existing provider listing', () => {
+  it('lists Integral AI first and selects it by default', async () => {
+    renderPanel();
+    const options = await screen.findAllByRole('radio');
+    expect(options[0]).toHaveAccessibleName('Activate Integral AI assistant');
+    expect(options[0]).toBeChecked();
+  });
+
   it('lists the native Integral Pydantic AI harness option when available', async () => {
     renderPanel();
     expect(
@@ -137,19 +144,18 @@ describe('AgentsSection — existing provider listing', () => {
     ).toBeInTheDocument();
   });
 
-  it('does not offer Integral AI when the backend reports it unavailable', async () => {
+  it('keeps the selected default visible and disabled when the backend reports it unavailable', async () => {
     mockedProviders.mockResolvedValue([
       { id: 'jvagent', available: true },
       { id: 'integral_native', available: false },
     ]);
     renderPanel();
-    await waitFor(() => {
-      expect(
-        screen.queryByRole('radio', {
-          name: 'Activate Integral AI assistant',
-        }),
-      ).not.toBeInTheDocument();
+    const nativeOption = await screen.findByRole('radio', {
+      name: 'Activate Integral AI assistant',
     });
+    await waitFor(() => expect(nativeOption).toBeDisabled());
+    expect(nativeOption).toBeChecked();
+    expect(screen.getByText('Unavailable')).toBeInTheDocument();
   });
 });
 

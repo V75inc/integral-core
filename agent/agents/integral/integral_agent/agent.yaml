@@ -123,52 +123,16 @@ actions:
       # refusal, which keeps unsupported routes usable as well.
       tool_protocol: native
 
-      # HEAVY profile — the reasoning model, used once a turn proves
-      # multi-step (e.g. file → confirm, ground → query → synthesize).
-      #
-      # This line went glm-5.3 → gpt-4.1 → glm-5.3. The round trip is worth
-      # recording, because the middle step was a workaround for a harness bug
-      # and not a judgement about the model.
-      #
-      # It looked like glm-5.3 could not drive our longer SOPs: the correction
-      # flow tripped the orchestrator's repeat guard six times, ~377s a turn,
-      # never staging a card, while gpt-4.1 did it in 11.3s. That comparison
-      # was not model-vs-model. `tool_protocol: auto` picks `native` unless
-      # capabilities say the model cannot tool-call, and LiteLLM reported
-      # supports_tools=False for ollama/glm-5.3:cloud — wrong; it tool-calls
-      # fine. So glm-5.3 silently ran the degraded JSON-text protocol, whose
-      # loop replays only `TOOL x(args) -> result` and drops the model's own
-      # `thought` and reasoning between ticks. A thinking model puts most of
-      # its decision into exactly what was being discarded, re-derived its plan
-      # every tick, re-issued a call it had already made, and got stopped.
-      #
-      # Filed as TrueSelph/jvagent#203; fixed upstream by ADR-0051 (trust
-      # inferred capabilities, try native first, demote at runtime) and
-      # ADR-0052 (replay the decision's `thought` / reasoning excerpt between
-      # ticks, `thought_replay_max_chars`, default 600).
-      #
-      # Re-measured on the fixed harness, same correction flow: each grounding
-      # tool called ONCE, both writes reached, zero tool errors, correct entry
-      # type and belief fields. Qualification stays on gpt-4.1 until scaffold
-      # tick count is capped. glm-5.3:cloud tool-calls, but each extra
-      # thinking tick re-bills the prompt and misses the latency gate.
-      #
-      # Latency was never the issue: ~4.5s median standalone, flat to 180k
-      # prompt tokens. The cost was the tick count a non-converging loop burns.
-      #
-      # LiteLLM resolves the OpenAI key for the `openai/` prefix, unless a
-      # per-user BYOK key overrides it for the turn. NOTE: a workspace owner's
-      # stored BYOK credential (Settings → AI Models) overrides this value
-      # entirely under the default `hybrid` key mode — changing this line does
-      # not change what those workspaces run.
-      model: openai/gpt-4.1
+      # Default to the user's preferred open model on Ollama Cloud. The
+      # ollama_chat adapter preserves typed reasoning/tool parts for the
+      # orchestrator. A workspace owner's saved model credential in Settings
+      # → AI Models continues to override this deployment default.
+      model: ollama_chat/deepseek-v4.1-flash:cloud
       model_action_type: LiteLLMLanguageModelAction
       model_temperature: 0.2
       # 0 = derive the completion ceiling from the model's own advertised
       # max_output_tokens, bounded by jvagent's model_max_tokens_ceiling
-      # (32768). For GPT-4.1 that resolves from the model card; a 16k
-      # model gets 16384, and a small model is never asked for more than it
-      # accepts. Available since jvagent 0.1.8rc9 (TrueSelph/jvagent#214).
+      # (32768). Available since jvagent 0.1.8rc9 (TrueSelph/jvagent#214).
       #
       # Why this is not a hardcoded number: a fixed 8192 is what made a
       # thinking model look broken. Long reasoning traces before a decision
@@ -482,7 +446,7 @@ actions:
     context:
       enabled: true
       model_action_type: LiteLLMLanguageModelAction
-      model: openai/gpt-4.1
+      model: ollama_chat/deepseek-v4.1-flash:cloud
       model_temperature: 0.3
 
   # ── VisionAction — omni / vision slot (ADR-0021) ──

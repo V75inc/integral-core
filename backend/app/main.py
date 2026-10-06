@@ -1529,17 +1529,17 @@ from app.services.chat_providers.jvagent_provider import (  # noqa: E402
     jvagent_provider,
 )
 
-get_registry().register(jvagent_provider, default=True)
+registry = get_registry()
 
-# The native binding is opt-in during V1 qualification. It is never selected
-# as the default until its independent PostgreSQL, isolation, and release
-# gates are complete.
 from app.services.chat_providers.pydantic_ai_provider import (  # noqa: E402
     pydantic_ai_provider,
 )
 
 if pydantic_ai_provider.is_available():
-    get_registry().register(pydantic_ai_provider)
+    registry.register(pydantic_ai_provider, default=True)
+    registry.register(jvagent_provider)
+else:
+    registry.register(jvagent_provider, default=True)
 
 
 # ---------------------------------------------------------------------------

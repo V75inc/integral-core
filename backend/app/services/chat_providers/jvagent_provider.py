@@ -172,7 +172,7 @@ async def _maybe_await(value: Any) -> Any:
 
 
 class JvagentProvider(ChatBackendProvider):
-    """Default chat provider — backed by jvagent."""
+    """Compatibility chat provider backed by the embedded jvagent harness."""
 
     id: str = "jvagent"
     label: str = "jvagent"
@@ -680,6 +680,6 @@ class JvagentProvider(ChatBackendProvider):
 
 
 # Single shared instance — adapter is stateless, no need to construct per
-# request. Registered in app/main.py at startup via
-# ``get_registry().register(jvagent_provider, default=True)``.
+# request. Registered in app/main.py as the fallback when Integral AI is
+# unavailable and as an explicitly selectable compatibility harness.
 jvagent_provider: ChatBackendProvider = JvagentProvider()

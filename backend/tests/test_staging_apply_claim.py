@@ -1,4 +1,4 @@
-"""``bless_and_execute``: one executor per token, grants only after a clean write.
+"""``bless_and_execute``: one executor per token, one-time approval only.
 
 B3-lite — ``bless_token`` returns an already-blessed token as a no-op and the
 executor runs before ``consume_token``, so two concurrent approves of the same
@@ -6,9 +6,8 @@ card (two tabs, a retry, a routine reconcile racing a manual click) both ran
 the write. An in-flight claim now makes the second caller fail with
 ``already_executing``.
 
-C2 — session autonomy was granted at bless time, before the executor ran, so
-a refused write left a standing grant that auto-blessed the next same-kind
-card. The grant now follows a clean execute.
+C2 — session-wide autonomy is disabled in V1. Only the exact staged proposal
+may be approved, and a legacy session-mode request must have no side effects.
 
 B5 — ``/text-approve`` carried its own copy of the apply sequence that dropped
 the card's workspace and never recorded a refusal. It now runs the shared
@@ -142,48 +141,53 @@ async def test_claim_execution_refuses_a_pending_token():
     assert exc.value.code == "not_blessed"
 
 
-# --- C2: session autonomy follows a clean execute ---------------------------
+# --- C2: reject session-wide approval before side effects -------------------
 
 
 @pytest.mark.smoke
 @pytest.mark.asyncio
-async def test_a_refused_write_grants_no_session_autonomy(monkeypatch):
-    """A refused write cannot create persistent session autonomy."""
+async def test_session_autonomy_request_is_rejected_before_execution(
+    monkeypatch,
+):
+    """A legacy session-mode request cannot decide or execute a write."""
     sc = await _mint()
-    _fake_executor(monkeypatch, result={"error": True, "message": "refused"})
-
-    await staging_apply.bless_and_execute(
-        user_id="u1", token=sc.token, autonomy="session"
-    )
-
+    calls = _fake_executor(monkeypatch)
+    with pytest.raises(StagingError, match="Session-wide auto-approval is not enabled"):
+        await staging_apply.bless_and_execute(
+            user_id="u1", token=sc.token, autonomy="session"
+        )
+    assert calls == []
+    assert (await get_token(sc.token)).state == "pending"
     assert staging.has_autonomy("u1", "s1", "create_entry") is False
 
 
 @pytest.mark.smoke
 @pytest.mark.asyncio
-async def test_a_clean_write_grants_session_autonomy(monkeypatch):
-    """A clean write may grant the requested session autonomy."""
+async def test_session_autonomy_request_does_not_consume_change(monkeypatch):
+    """A clean executor cannot be reached through a session request."""
     sc = await _mint()
-    _fake_executor(monkeypatch)
-
-    await staging_apply.bless_and_execute(
-        user_id="u1", token=sc.token, autonomy="session"
-    )
-
-    assert staging.has_autonomy("u1", "s1", "create_entry") is True
+    calls = _fake_executor(monkeypatch)
+    with pytest.raises(StagingError):
+        await staging_apply.bless_and_execute(
+            user_id="u1", token=sc.token, autonomy="session"
+        )
+    assert calls == []
+    assert (await get_token(sc.token)).state == "pending"
+    assert staging.has_autonomy("u1", "s1", "create_entry") is False
 
 
 @pytest.mark.smoke
 @pytest.mark.asyncio
-async def test_blocked_kinds_never_gain_session_autonomy(monkeypatch):
-    """Blocked write kinds never create session-level autonomy."""
+async def test_session_autonomy_is_rejected_for_every_kind(monkeypatch):
+    """Every kind follows the same one-time approval boundary."""
     sc = await _mint(kind="delete_entry")
-    _fake_executor(monkeypatch)
-
-    await staging_apply.bless_and_execute(
-        user_id="u1", token=sc.token, autonomy="session"
-    )
-
+    calls = _fake_executor(monkeypatch)
+    with pytest.raises(StagingError):
+        await staging_apply.bless_and_execute(
+            user_id="u1", token=sc.token, autonomy="session"
+        )
+    assert calls == []
+    assert (await get_token(sc.token)).state == "pending"
     assert staging.has_autonomy("u1", "s1", "delete_entry") is False
     assert "delete_entry" not in staging._autonomy.get(("u1", "s1"), set())
 

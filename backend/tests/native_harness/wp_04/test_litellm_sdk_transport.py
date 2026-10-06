@@ -15,6 +15,7 @@ from app.agentive.harness.contracts import HarnessExecutionScope, ResolvedModelR
 from app.agentive.harness.litellm_model import (
     LiteLLMSDKTransport,
     _LiteLLMStream,
+    _ModelStreamOutcome,
     _usage,
     build_litellm_sdk_model,
 )
@@ -722,9 +723,9 @@ async def test_stream_close_during_terminal_observation_does_not_overwrite_outco
     async def chunks():
         yield {"choices": [{"delta": {"content": "done"}}]}
 
-    async def finish(_last: Any | None, complete: bool) -> None:
-        outcomes.append("responded" if complete else "outcome_unknown")
-        if complete:
+    async def finish(_last: Any | None, outcome: _ModelStreamOutcome) -> None:
+        outcomes.append(outcome.value)
+        if outcome is _ModelStreamOutcome.RESPONDED:
             terminal_observation_started.set()
             await allow_terminal_observation.wait()
 
@@ -910,7 +911,7 @@ async def test_ambiguous_idless_delta_after_duplicate_provider_indexes_fails_clo
             ]
         }
 
-    async def finish(_last: Any | None, _complete: bool) -> None:
+    async def finish(_last: Any | None, _outcome: _ModelStreamOutcome) -> None:
         return None
 
     stream = _LiteLLMStream(chunks=chunks(), finish=finish)
@@ -932,8 +933,8 @@ async def test_closing_iterator_after_done_does_not_mark_response_unknown() -> N
     async def chunks():
         yield {"choices": [{"delta": {"content": "done"}}]}
 
-    async def finish(_last: Any | None, complete: bool) -> None:
-        outcomes.append("responded" if complete else "outcome_unknown")
+    async def finish(_last: Any | None, outcome: _ModelStreamOutcome) -> None:
+        outcomes.append(outcome.value)
 
     stream = _LiteLLMStream(chunks=chunks(), finish=finish)
     iterator = stream.__aiter__()
@@ -942,6 +943,29 @@ async def test_closing_iterator_after_done_does_not_mark_response_unknown() -> N
     await iterator.aclose()
 
     assert outcomes == ["responded"]
+
+
+@pytest.mark.asyncio
+async def test_locally_closed_provider_stream_records_cancelled() -> None:
+    """User cancellation settles transport state without inventing usage."""
+    outcomes = []
+    usage_payloads = []
+
+    async def chunks():
+        yield {"choices": [{"delta": {"content": "partial"}}]}
+        await asyncio.Event().wait()
+
+    async def finish(last: Any | None, outcome: _ModelStreamOutcome) -> None:
+        outcomes.append(outcome.value)
+        usage_payloads.append(last.model_dump() if last is not None else {})
+
+    stream = _LiteLLMStream(chunks=chunks(), finish=finish)
+    iterator = stream.__aiter__()
+    assert b"partial" in await iterator.__anext__()
+    await iterator.aclose()
+
+    assert outcomes == ["cancelled"]
+    assert usage_payloads[0]["usage"] == {}
 
 
 @pytest.mark.asyncio

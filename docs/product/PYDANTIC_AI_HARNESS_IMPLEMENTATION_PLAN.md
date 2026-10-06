@@ -22,7 +22,7 @@ The first production release includes graph-backed conversations and sessions; a
 
 Provider choice and model choice are distinct. `integral_native` selects the Integral harness. Its model policy selects models/providers through the gateway. A user's existing Claude/ChatGPT session connects externally through MCP and remains owned by that product. Connecting a consumer subscription is not equivalent to supplying API credentials or moving that assistant into Integral.
 
-The default provider remains jvagent during implementation and qualification. The default switch is a separate release decision supported by the acceptance evidence in §13.
+Integral AI via Pydantic AI is the default provider. jvagent remains explicitly selectable for compatibility; an unavailable selected provider must surface a clear error rather than silently routing the turn to another harness. Qualification evidence in §13 remains required for release readiness.
 
 **Strategic rule:** adopt supported upstream behavior, adapt it to Integral's contracts, and build custom behavior only for a demonstrated gap. Pydantic drives the reasoning/tool lifecycle. Integral supplies authenticated context, governance, graph continuity, work authority and durable usage facts. Neither an upstream model plan nor a framework effect record can grant authority or prove a substrate mutation occurred.
 

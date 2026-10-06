@@ -116,14 +116,6 @@ interface ProviderDef {
 
 const PROVIDERS: ProviderDef[] = [
   {
-    key: 'jvagent_embedded',
-    label: 'jvagent',
-    blurb: 'Helps you find information, organize work, and make updates.',
-    routingId: 'jvagent-embedded',
-    providerId: 'jvagent',
-    agent: BUILTIN_AGENT,
-  },
-  {
     key: 'pydantic_native',
     label: 'Integral AI',
     blurb: 'Integral Core’s Pydantic AI harness with scoped sessions and brokered tools.',
@@ -132,8 +124,16 @@ const PROVIDERS: ProviderDef[] = [
     agent: {
       id: 'integral-native',
       displayName: 'Integral AI',
-      subtitle: 'Requires native harness deployment enablement',
+      subtitle: 'Integral Core resident Pydantic AI harness',
     },
+  },
+  {
+    key: 'jvagent_embedded',
+    label: 'jvagent',
+    blurb: 'Helps you find information, organize work, and make updates.',
+    routingId: 'jvagent-embedded',
+    providerId: 'jvagent',
+    agent: BUILTIN_AGENT,
   },
   {
     key: 'echo',

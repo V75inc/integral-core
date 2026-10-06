@@ -444,6 +444,61 @@ def test_w12_anchors_are_part_of_the_build() -> None:
     assert "target_track_template" in build_desc
 
 
+def test_scaffold_only_adds_scheduled_routines_when_requested() -> None:
+    scaffold = _skill("integral-scaffold").lower()
+    assert "only when the user asks for a reminder" in scaffold
+    assert "do not infer one just because the app tracks dates" in scaffold
+
+
+def test_scaffold_uses_narrow_app_discovery_before_proposing() -> None:
+    scaffold = " ".join(_skill("integral-scaffold").lower().split())
+    assert (
+        "before proposing any app or app extension, call `integral_list_apps` once"
+        in scaffold
+    )
+    assert "even when the request sounds" in scaffold
+    assert "tracks and the schema of the one relevant track" in scaffold
+    assert "do not call `integral_list_models`" in scaffold
+    assert "or read existing entries just to design an app" in scaffold
+    assert (
+        "once the result is `buildable`, call `integral_propose_design` next"
+        in scaffold
+    )
+
+
+def test_scaffold_reuses_matching_app_and_models_history_as_events() -> None:
+    scaffold = " ".join(_skill("integral-scaffold").lower().split())
+    assert "pass its exact `target_app_id` from `integral_list_apps`" in scaffold
+    assert "do not restate that app or one of its tracks as new" in scaffold
+    assert "a current status or next-due date is not event history" in scaffold
+    assert "add a linked history track to the fitting app" in scaffold
+    assert "or the user explicitly asks for a distinct one" in scaffold
+    assert (
+        "if it covers only part of the need, propose the smallest useful extension"
+        in scaffold
+    )
+    assert (
+        "do not describe a possible improvement and leave the user to ask for it again"
+        in scaffold
+    )
+    assert "if it does, show the relevant destination and concise steps" in scaffold
+
+
+def test_scaffold_links_events_to_existing_entities_without_parallel_registers() -> (
+    None
+):
+    scaffold = " ".join(_skill("integral-scaffold").lower().split())
+    assert (
+        "the event track's relation must point to that existing track's entry type"
+        in scaffold
+    )
+    assert "never create a parallel register for the same things" in scaffold
+    assert "do not copy their values into a second source of truth" in scaffold
+    assert "normally one table for a new history track" in scaffold
+    assert "do not infer a board, calendar" in scaffold
+    assert "a service log linked to the existing tool entries" in scaffold
+
+
 def test_w01_d04_insights_reads_custom_fields_from_rows() -> None:
     """Behaviour: test_w01_rows_carry_custom_fields_and_tag_filters_match_ids."""
     insights = _skill("integral-insights").lower()

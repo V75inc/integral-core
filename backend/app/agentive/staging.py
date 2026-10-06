@@ -62,9 +62,9 @@ StagedChangeState = Literal[
 
 AutonomyMode = Literal["single", "session"]
 
-# Full Sweep S3: kinds that must never enter session autonomy auto-bless.
-# Destructive / sharing / invite mutations always require an explicit bless
-# card per token (session grant is refused at bless_token time).
+# Retained for legacy imports. V1 rejects every session-wide approval request,
+# so this set does not define policy and can be removed with the compatibility
+# API in a later migration.
 SESSION_AUTONOMY_BLOCKED_KINDS: frozenset[str] = frozenset(
     {
         "delete_entry",
@@ -239,22 +239,16 @@ _lock = asyncio.Lock()
 _tokens: Dict[str, StagedChange] = {}
 _autonomy: Dict[Tuple[str, str], Set[str]] = {}
 
-#: Kinds whose ``kind`` string is too coarse to be an autonomy grant on its
-#: own. ``mcp_tool_call`` is one string shared by every remote tool on every
-#: mounted connector, so granting it from a Google Drive ``search_files`` card
-#: also pre-blessed ``trash_thread`` on Gmail and ``create_invoice`` on
-#: QuickBooks for the rest of the session. For these, the grant is keyed by the
-#: specific target instead — see :func:`autonomy_key_for`.
+#: Compatibility helper for persisted callers. V1 does not consult or mint
+#: these keys; retain them only until legacy references are migrated away.
 _TARGET_SCOPED_AUTONOMY_KINDS: frozenset[str] = frozenset({"mcp_tool_call"})
 
 
 def autonomy_key_for(kind: str, payload: Optional[Dict[str, Any]] = None) -> str:
-    """The grant key a session autonomy decision is recorded under.
+    """Return the legacy key shape for callers migrating from session grants.
 
-    Defaults to ``kind`` — one grant covers that kind, which is the right
-    granularity for substrate writes where the kind names the operation
-    ("create_entry"). For kinds in ``_TARGET_SCOPED_AUTONOMY_KINDS`` the kind
-    names only the *mechanism*, so the key is narrowed to the concrete target:
+    Defaults to ``kind``. For legacy kinds in
+    ``_TARGET_SCOPED_AUTONOMY_KINDS`` the key is narrowed to the concrete target:
     ``mcp_tool_call:<connector_id>:<remote_name>``.
 
     A payload that cannot identify its target falls back to a key no bless can
@@ -764,18 +758,6 @@ async def create_staged_change(
         blocker = _find_unresolved_conflict_locked(sc)
         if blocker is not None:
             raise StagingBlockedError(blocker)
-        # Apply session autonomy grant if present (never for blocked kinds).
-        # Keyed by ``autonomy_key_for`` so a target-scoped kind matches only
-        # the grant made for that same target.
-        if (
-            session_id
-            and kind not in SESSION_AUTONOMY_BLOCKED_KINDS
-            and autonomy_key_for(kind, sc.payload)
-            in _autonomy.get((user_id, session_id), set())
-        ):
-            sc.state = "blessed"
-            sc.autonomy_grant_used = True
-            sc.blessed_at = _now()
         _tokens[sc.token] = sc
 
     # A stale blessed card this mint retired goes through the full terminal
@@ -1460,10 +1442,15 @@ async def bless_token(
 ) -> StagedChange:
     """Mark a pending token blessed.
 
-    If ``autonomy="session"``, also add the token's ``kind`` to the
-    user's session autonomy grants so future same-kind staged changes
-    auto-bless.
+    V1 supports approval of this specific proposal. Session-wide
+    auto-approval is disabled until its scope and policy contract are shipped.
     """
+    if autonomy != "single":
+        raise StagingError(
+            "autonomy_disabled",
+            "Integral V1 can approve only the specific proposed change. "
+            "Session-wide auto-approval is not enabled.",
+        )
     async with _lock:
         _sweep_expired_locked()
         sc = await _get_or_load_locked(token)
@@ -1481,24 +1468,6 @@ async def bless_token(
         sc.state = "blessed"
         sc.blessed_at = _now()
         sc.resolved_at = sc.blessed_at
-        if autonomy == "session" and sc.session_id:
-            if sc.kind in SESSION_AUTONOMY_BLOCKED_KINDS:
-                logger.info(
-                    "staging.autonomy_refused_destructive user=%s session=%s kind=%s",
-                    user_id,
-                    sc.session_id,
-                    sc.kind,
-                )
-            else:
-                grant_key = autonomy_key_for(sc.kind, sc.payload)
-                grants = _autonomy.setdefault((user_id, sc.session_id), set())
-                grants.add(grant_key)
-                logger.info(
-                    "staging.autonomy_granted user=%s session=%s key=%s",
-                    user_id,
-                    sc.session_id,
-                    grant_key,
-                )
     # An expiry the sweeper above just observed is recorded now that the lock
     # is released (ADR-007).
     await _flush_decision_ledger()
@@ -1835,7 +1804,7 @@ async def get_token(token: str) -> Optional[StagedChange]:
 
 
 # ---------------------------------------------------------------------------
-# Session-scoped autonomy
+# Legacy session-autonomy compatibility surface (disabled in V1)
 # ---------------------------------------------------------------------------
 
 
@@ -1846,39 +1815,13 @@ async def grant_autonomy(
     kind: str,
     payload: Optional[Dict[str, Any]] = None,
 ) -> None:
-    """Add ``kind`` to the session's autonomy grants.
-
-    Subsequent ``create_staged_change`` calls in this session for this
-    kind will return tokens already in the ``blessed`` state.
-
-    Destructive / sharing kinds in ``SESSION_AUTONOMY_BLOCKED_KINDS`` are
-    refused (no-op) so prompt-injection cannot widen blast radius.
-
-    For target-scoped kinds (``_TARGET_SCOPED_AUTONOMY_KINDS``) ``payload``
-    must identify the target; without it the grant is refused rather than
-    recorded under the bare kind, which would cover every target at once.
-    """
-    if not session_id:
-        return
-    if kind in SESSION_AUTONOMY_BLOCKED_KINDS:
-        logger.info(
-            "staging.autonomy_refused_destructive user=%s session=%s kind=%s",
-            user_id,
-            session_id,
-            kind,
-        )
-        return
-    key = autonomy_key_for(kind, payload)
-    if key.endswith(":<unidentified>"):
-        logger.info(
-            "staging.autonomy_refused_untargeted user=%s session=%s kind=%s",
-            user_id,
-            session_id,
-            kind,
-        )
-        return
-    async with _lock:
-        _autonomy.setdefault((user_id, session_id), set()).add(key)
+    """Compatibility no-op; V1 does not grant session-wide auto-approval."""
+    logger.info(
+        "staging.autonomy_disabled user=%s session=%s kind=%s",
+        user_id,
+        session_id,
+        kind,
+    )
 
 
 def has_autonomy(
@@ -1887,26 +1830,14 @@ def has_autonomy(
     kind: str,
     payload: Optional[Dict[str, Any]] = None,
 ) -> bool:
-    """Sync read of the autonomy grant set.
-
-    Used by skills that want to check before staging (e.g., to skip the
-    diff_human composition). ``payload`` is required to get a truthy answer
-    for a target-scoped kind — see :func:`autonomy_key_for`.
-    """
-    if not session_id:
-        return False
-    if kind in SESSION_AUTONOMY_BLOCKED_KINDS:
-        return False
-    return autonomy_key_for(kind, payload) in _autonomy.get(
-        (user_id, session_id), set()
-    )
+    """Compatibility predicate; always false while V1 autonomy is disabled."""
+    return False
 
 
 def clear_autonomy_for_session(user_id: str, session_id: str) -> None:
-    """Drop all autonomy grants for ``(user_id, session_id)``.
+    """Clear legacy grants for ``(user_id, session_id)``.
 
-    Called on explicit user request ("stop auto-approving") or on
-    session end.
+    V1 does not mint grants; this remains for persisted legacy callers.
     """
     _autonomy.pop((user_id, session_id), None)
 
@@ -1925,7 +1856,7 @@ def clear_autonomy_for_session(user_id: str, session_id: str) -> None:
 #
 # Keyed store (not a ContextVar): a batch must survive across several sequential
 # ``dispatch_tool`` calls within one turn and have an explicit open/commit/cancel
-# lifecycle. The same idiom as ``_autonomy`` above.
+# lifecycle. This intentionally remains independent of the legacy grant shim.
 # ---------------------------------------------------------------------------
 
 

@@ -568,6 +568,7 @@ async def record_design_build_receipt(
         execute_result=execute_result,
         applied_at=utc_now_iso(),
         user_turn=await count_user_turns(thread),
+        existing_app_id=str(marker.get("target_app_id") or ""),
     )
     thread.design_proposed = marker
     await thread.save()

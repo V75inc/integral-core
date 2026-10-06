@@ -106,15 +106,15 @@ class IntegralToolDisclosure(ToolSearch):
                 ),
                 0,
             )
-            discovered = any(
+            searched = any(
                 isinstance(part, ToolReturnPart)
-                and part.tool_name in {"search_capabilities", "load_capability"}
+                and part.tool_name == "search_capabilities"
                 and not (isinstance(part.content, dict) and part.content.get("error"))
                 for message in ctx.messages[turn_start:]
                 if isinstance(message, ModelRequest)
                 for part in message.parts
             )
-            if not discovered:
+            if not searched:
                 resolved["tool_choice"] = ["search_capabilities"]
             else:
                 candidates = {
@@ -145,13 +145,53 @@ class IntegralToolDisclosure(ToolSearch):
         return settings
 
     def get_wrapper_toolset(self, toolset):
-        return (
-            super()
-            .get_wrapper_toolset(toolset)
-            .filtered(
-                lambda _ctx, definition: definition.name != self.function_tool_name
+        def should_disclose(ctx: RunContext[Any], definition) -> bool:
+            if definition.name == self.function_tool_name:
+                return False
+            if definition.name == "search_capabilities":
+                return True
+            # Pydantic AI owns deferred skill activation through this tool.
+            # Keep it available; the model-settings policy still requires the
+            # catalog search first on providers that support forced choice.
+            # Hiding it based on serialized tool-result shapes can strand a
+            # skill recommendation and make the model retry discovery forever.
+            if definition.name == "load_capability":
+                return True
+            if not definition.name.startswith("integral_"):
+                return True
+            turn_start = next(
+                (
+                    index
+                    for index in range(len(ctx.messages) - 1, -1, -1)
+                    if isinstance(ctx.messages[index], ModelRequest)
+                    and any(
+                        isinstance(part, UserPromptPart)
+                        for part in ctx.messages[index].parts
+                    )
+                ),
+                0,
             )
-        )
+            searched = any(
+                isinstance(part, ToolReturnPart)
+                and part.tool_name == "search_capabilities"
+                and not (isinstance(part.content, dict) and part.content.get("error"))
+                for message in ctx.messages[turn_start:]
+                if isinstance(message, ModelRequest)
+                for part in message.parts
+            )
+            if not searched:
+                return False
+
+            # A successful catalog search is not permission to disclose the full
+            # Integral tool catalogue. Ask the framework whether this concrete
+            # definition is available: it accounts for both search discovery and
+            # deferred Skills ownership, including the required load-before-call
+            # boundary.
+            if definition.name.startswith("integral_"):
+                return ctx.is_tool_available(definition)
+            return True
+
+        return super().get_wrapper_toolset(toolset).filtered(should_disclose)
 
 
 def build_integral_json_schema_tool(
@@ -251,7 +291,10 @@ def build_integral_context_compaction() -> ClearToolResults:
     return ClearToolResults(
         max_fraction=0.7,
         fallback_context_window=32_768,
-        keep_pairs=8,
+        # Keep the active decision window while releasing old tool payloads early.
+        # Scaffold turns can carry large blueprint checks; eight retained pairs
+        # multiplied that payload across each subsequent model request.
+        keep_pairs=5,
         exclude_tools=frozenset({"load_capability"}),
         clear_tool_inputs=True,
     )

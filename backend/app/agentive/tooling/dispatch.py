@@ -372,8 +372,8 @@ async def dispatch_tool(
             scope source. No tool arg can widen it.
         session_id: Optional conversation/session id the propose dispatch minted
             its StagedChange in. Threaded into ``create_staged_change`` so the
-            frontend inbox scopes the card to the right conversation and the
-            resident's session autonomy-grant can short-circuit the bless. The
+            frontend inbox scopes the card to the right conversation. Approval
+            remains specific to each staged change. The
             external MCP / consent dispatch surfaces omit it (default ``None``).
         interaction_id: Optional jvagent Interaction id of the prepare-X turn
             that minted the token. Threaded through so the closure-recording path
@@ -1068,8 +1068,7 @@ async def _dispatch_propose(
     Session threading: ``session_id`` and ``interaction_id`` flow straight
     through to ``create_staged_change`` (NOT from the stager / args — they are
     dispatch context). ``session_id`` scopes the frontend inbox card to the
-    minting conversation and lets the resident's session autonomy-grant
-    short-circuit the bless; ``interaction_id`` lets the closure-recording path
+    minting conversation; ``interaction_id`` lets the closure-recording path
     update the prepare-X interaction's response with the
     ``[SYSTEM:STAGING-RESOLVED]`` marker. Both default ``None`` so the external
     MCP / consent dispatch surfaces (which omit them) stage exactly as before.
