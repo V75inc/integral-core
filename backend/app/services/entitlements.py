@@ -499,9 +499,8 @@ async def revoke_entitlement(
             )
 
         now = utc_now_iso()
-        target = await Entitlement.get(row.id)
-        if target is None:
-            target = row
+        # Preserve current storage fields; get() may return an older cached row.
+        target = row
         target.status = _REVOKED
         target.revoked_at = now
         target.updated_at = now

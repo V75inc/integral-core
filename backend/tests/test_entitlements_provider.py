@@ -5,11 +5,13 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from jvspatial.core.context import GraphContext, scoped_default_context
 
 from app.models.entitlement import Entitlement
 from app.services.entitlements import (
     find_entitlement,
     grant_entitlement,
+    revoke_entitlement,
     revoke_provider_entitlement,
 )
 from app.services.personal_workspace import ensure_personal_workspace
@@ -38,6 +40,64 @@ async def test_revoke_provider_skips_manual_row(test_user):
     assert fresh is not None
     assert fresh.status == "active"
     assert (fresh.source or "") == "manual"
+
+
+@pytest.mark.asyncio
+async def test_manual_revoke_preserves_storage_source_across_contexts(test_user):
+    """An older worker cache must not erase another worker's manual grant."""
+    workspace = await ensure_personal_workspace(test_user)
+    key = "manual-revoke-cache"
+    provider = await grant_entitlement(
+        workspace_id=workspace.id,
+        entitlement_key=key,
+        package_slug=key,
+        actor_id=test_user.id,
+        source="provider",
+        on_loss="disable",
+    )
+    context = await provider.get_context()
+    cached = await Entitlement.get(provider.id)
+    assert cached is not None and cached.source == "provider"
+
+    # Both contexts use real storage, but retain independent identity caches.
+    with scoped_default_context(GraphContext(database=context.database)):
+        await grant_entitlement(
+            workspace_id=workspace.id,
+            entitlement_key=key,
+            package_slug=key,
+            actor_id=test_user.id,
+            source="manual",
+            on_loss="pause",
+        )
+    assert cached.source == "provider"
+    before = await find_entitlement(workspace_id=workspace.id, entitlement_key=key)
+    assert before is not None and before.source == "manual"
+
+    result = await revoke_entitlement(
+        workspace_id=workspace.id,
+        entitlement_key=key,
+        actor_id=test_user.id,
+        pause_installed=False,
+    )
+    assert result["status"] == "revoked"
+    revoked = await find_entitlement(workspace_id=workspace.id, entitlement_key=key)
+    assert revoked is not None
+    assert revoked.source == "manual"
+    assert revoked.status == "revoked"
+    assert revoked.on_loss == "pause"
+
+    await grant_entitlement(
+        workspace_id=workspace.id,
+        entitlement_key=key,
+        package_slug=key,
+        actor_id="system:provider",
+        source="provider",
+        respect_manual=True,
+    )
+    reconciled = await find_entitlement(workspace_id=workspace.id, entitlement_key=key)
+    assert reconciled is not None
+    assert reconciled.source == "manual"
+    assert reconciled.status == "revoked"
 
 
 @pytest.mark.asyncio
