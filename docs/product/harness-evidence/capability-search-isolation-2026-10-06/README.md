@@ -96,3 +96,51 @@ because their required services or fixtures were unavailable.
 - The browser run exposes tool choices and receipts, but not the full ranked
   candidate list. Direct browser verification of every recommended candidate
   remains outstanding.
+
+## Follow-up: exact-identifier lookup — 2026-10-06
+
+This follow-up used the same ordinary request on the same authenticated,
+synthetic principal and branch runtime. The request remained:
+
+> Can you find serial QA-WRENCH-1011 in my workspace?
+
+### Failure reproduced
+
+Before the latest adapter guidance, the browser completed in 2m19s with
+`glm-5.3:cloud`, 236.3k tokens and 12 steps. It first called
+`integral_query`, which returned `internal_error` twice. A successful exact
+`integral_query_entries` read returned zero matches. The model then loaded
+`integral-scaffold`, called design coverage twice, and persisted a Tool
+Register proposal that included the searched serial as a new record. It did
+not build an App or create an Entry. This was the wrong workflow for a lookup.
+
+### Corrected retests
+
+After separating identifier search from semantic retrieval, treating a
+successful empty lookup as a read-only result, and limiting conversation
+history search to missing prior-discussion details, a fresh browser turn
+completed in 12 seconds with three exact/variant `integral_query_entries`
+calls. It returned no match and did not scaffold, but still issued two
+unsupported identifier variants.
+
+The final retest added guidance to rely on a successful zero-result search for
+a user-supplied identifier and not invent alternate spellings. A fresh browser
+turn completed in 7.9 seconds (`glm-5.3:cloud`, 9.6k tokens, one visible tool
+call / one step). `integral_query_entries` searched `QA-WRENCH-1011`, returned
+a successful receipt with `total: 0` and `entries: []`, and the assistant
+reported no match. It did not create a record, propose an App, make extra
+variant searches, or search conversation history. It invited the user to
+provide another identifier or detail if needed.
+
+These runs show improved behavior for this exact-identifier read. The earlier
+`integral_query` `internal_error` remains unresolved for semantic/conceptual
+queries; this change makes no claim to fix that route. Existing-workspace hits,
+cross-workspace lookup, and semantic-retrieval recovery remain separate
+qualification cases.
+
+The final source revision passed `make verify`: substrate guards,
+pre-commit/lint/type checks, reproducible wheel/import validation,
+CI-faithful backend smoke, 1,308 frontend tests, and the full backend suite.
+PostgreSQL, Atlas, and seeded-package integrations skipped where their required
+services or fixtures were unavailable. The normal frontend lint warning
+backlog remains non-blocking.

@@ -761,9 +761,11 @@ domains:
         op_class: read
         priority: P0
         summary: >-
-          Filter and list entries (records) — cross-track by default, or scoped to one
-          track. The workhorse for "show me the open items", "deals tagged enterprise
-          updated this month", and "recent Bug-type entries". For "the highest-value
+          Search, filter, and list records by exact identifier, name, or keyword —
+          cross-track by default, or scoped to one track. The workhorse for "find
+          the record named X", "look up serial number Y", "show me the open items",
+          "deals tagged enterprise updated this month", and "recent Bug-type entries".
+          For "the highest-value
           deal" or any superlative, do not page and rank: call integral_query_spec
           with sort on custom_fields.<key> and a small limit. The first row is the
           record, across the whole authorized set. integral_aggregate returns the
