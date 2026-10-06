@@ -38,6 +38,8 @@ export interface ComposerDictationActions {
   registerTextarea: (el: HTMLTextAreaElement | null) => void;
   /** The composer's real send (entity refs flushed); used for auto-send. */
   registerSubmit: (fn: (() => void) | null) => void;
+  /** Submit through the chat composer so an active dictation run can finish first. */
+  submit: () => void;
   isListening: () => boolean;
   stop: (cause?: StopCause) => Promise<void>;
 }
@@ -103,12 +105,13 @@ export function ComposerDictationProvider({ children }: { children: ReactNode })
   const registerSubmit = useCallback((fn: (() => void) | null) => {
     submitRef.current = fn;
   }, []);
+  const submit = useCallback(() => submitRef.current?.(), []);
 
   const hotkeyLabel = useMemo(() => formatHotkey(hotkey), [hotkey]);
   const value = useMemo(() => ({ ...controller, hotkeyLabel }), [controller, hotkeyLabel]);
   const actions = useMemo(
-    () => ({ registerTextarea, registerSubmit, isListening, stop }),
-    [registerTextarea, registerSubmit, isListening, stop],
+    () => ({ registerTextarea, registerSubmit, submit, isListening, stop }),
+    [registerTextarea, registerSubmit, submit, isListening, stop],
   );
 
   return (

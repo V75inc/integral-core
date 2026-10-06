@@ -22,7 +22,7 @@ vi.mock('../../AIChatSurface', () => ({
   useChatActivity: () => activity,
 }));
 
-import { ActivityStrip, SourceView, liveWorkSynopsis } from '../Thread';
+import { ActivityStrip, SourceView, liveWorkSynopsis, PromptSheetResumeNote } from '../Thread';
 import { hasAssistantDebugPayload } from '../assistantMessagePresentation';
 import { THREAD_ALREADY_RESPONDING } from '../../threadSessionRegistry';
 
@@ -31,6 +31,17 @@ afterEach(() => {
   activity.activityText = null;
   activity.isRunning = false;
   activity.streamError = null;
+});
+
+describe('PromptSheetResumeNote', () => {
+  it('shows an approval receipt without exposing its host marker', () => {
+    render(
+      <PromptSheetResumeNote text={'[PROMPT_SHEET]\nUpdates applied\n• Create entry "Cordless Drill" in Equipment'} />,
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('Updates applied');
+    expect(screen.getByText('Create entry "Cordless Drill" in Equipment')).toBeVisible();
+    expect(screen.queryByText(/PROMPT_SHEET/)).toBeNull();
+  });
 });
 
 describe('liveWorkSynopsis', () => {

@@ -692,6 +692,11 @@ async def _stage_create_entry(args: Dict[str, Any]) -> Dict[str, Any]:
     tags = src.get("tags")
     entry_type = src.get("entry_type") or src.get("type_hint")
     text = src.get("text")
+    # ``text`` is the manifest's required body argument. Preserve it when the
+    # caller also supplied a title; otherwise approved creates silently lose
+    # the content the founder asked us to save. An explicit body wins.
+    if body is None or body == "":
+        body = text
     view_id = src.get("view_id")
     view_hint = src.get("view_hint")
     focused_view_id = src.get("focused_view_id")
@@ -840,6 +845,7 @@ async def _stage_create_entry(args: Dict[str, Any]) -> Dict[str, Any]:
             view_warnings = resolution.warnings
             resolved_view_name = resolution.view_name
 
+    field_labels: Dict[str, str] = {}
     if fields:
         from app.models.nodes import Track
         from app.services.field_keys import (
@@ -860,12 +866,43 @@ async def _stage_create_entry(args: Dict[str, Any]) -> Dict[str, Any]:
             if named:
                 entry_types = named
         catalog = catalog_from_entry_types(entry_types)
+        field_labels = {
+            str(row.get("key")): str(row.get("label") or "").strip()
+            for row in catalog
+            if row.get("key")
+        }
         if catalog:
             try:
                 fields = resolve_field_map(fields, catalog)
             except ValueError as exc:
                 raise ValueError(f"create_entry: {exc}") from exc
 
+    # Use the Track's declared default entry type even when there is no active
+    # view. Falling through to the API's first EntryType is order-dependent
+    # and can persist a valid record with the wrong semantic type.
+    if not entry_type and not pending_track:
+        from app.models.nodes import Track
+        from app.services.view_create_resolution import (
+            _track_default_entry_type_key,
+            load_entry_types_for_track,
+        )
+
+        track_node = await Track.get(track_id)
+        if track_node:
+            default_key = await _track_default_entry_type_key(track_node)
+            if default_key:
+                for item in await load_entry_types_for_track(track_node):
+                    key = str(getattr(item, "key", "") or "").casefold()
+                    name = str(getattr(item, "name", "") or "")
+                    normalized_name = "_".join(
+                        name.casefold().replace("-", " ").split()
+                    )
+                    if (
+                        key == default_key.casefold()
+                        or normalized_name == default_key.casefold()
+                    ):
+                        entry_type = name or default_key
+                        break
     date_block = await date_left_in_title_block(
         track_id=track_id,
         title=title,
@@ -895,9 +932,23 @@ async def _stage_create_entry(args: Dict[str, Any]) -> Dict[str, Any]:
     if entry_type:
         lines.append(f"- **Type:** {entry_type}")
     if fields:
-        field_bits = ", ".join(f"`{k}`" for k in sorted(fields.keys()))
-        if field_bits:
-            lines.append(f"- **Fields:** {field_bits}")
+        from app.services.agent_scope import current_scope_workspace_id
+
+        tag_names, entry_names, track_names = await _sd.resolve_node_labels_for_diff(
+            fields,
+            user_id=_bound_propose_principal(),
+            workspace_id=current_scope_workspace_id.get(),
+        )
+        lines.append("- **Fields:**")
+        for key, value in fields.items():
+            label = field_labels.get(str(key)) or str(key)
+            rendered = _sd.format_scalar_for_diff(
+                value,
+                tag_names=tag_names,
+                entry_names=entry_names,
+                track_names=track_names,
+            )
+            lines.append(f"  - **{label}:** {rendered}")
     for w in view_warnings:
         lines.append(f"- **Note:** {w}")
     if body:
@@ -1067,8 +1118,14 @@ async def _stage_update_entry(args: Dict[str, Any]) -> Dict[str, Any]:
         label_sources["tags"] = payload["tags"]
     if "fields" in payload and isinstance(payload["fields"], dict):
         label_sources.update(payload["fields"])
+    from app.services.agent_scope import current_scope_workspace_id
+
     tag_names, entry_names, track_names = (
-        await _sd.resolve_node_labels_for_diff(label_sources)
+        await _sd.resolve_node_labels_for_diff(
+            label_sources,
+            user_id=_bound_propose_principal(),
+            workspace_id=current_scope_workspace_id.get(),
+        )
         if label_sources
         else ({}, {}, {})
     )
@@ -1088,7 +1145,13 @@ async def _stage_update_entry(args: Dict[str, Any]) -> Dict[str, Any]:
             )
         )
     if "fields" in payload and isinstance(payload["fields"], dict):
-        rendered = await _sd.format_fields_patch_for_diff(payload["fields"])
+        from app.services.agent_scope import current_scope_workspace_id
+
+        rendered = await _sd.format_fields_patch_for_diff(
+            payload["fields"],
+            user_id=_bound_propose_principal(),
+            workspace_id=current_scope_workspace_id.get(),
+        )
         lines.append(f"- **fields:** {rendered}")
 
     return {
@@ -2348,7 +2411,7 @@ async def _stage_author_skill(args: Dict[str, Any]) -> Dict[str, Any]:
     tools_required = list(args.get("tools_required") or [])
     if tools_required:
         # Validate NOW (stage time), not at bless time — an invalid name
-        # (e.g. a SKILL name like "integral_entries" passed where a TOOL
+        # (e.g. a SKILL name like "integral-entries" passed where a TOOL
         # name like "integral_create_entry" belongs) must fail as a clean,
         # recoverable tool-call error the agent can retry this same turn,
         # not a raw exception surfaced after the user already approved.

@@ -13,6 +13,7 @@ from app.agentive.tooling import scaffold_build
 from app.agentive.tooling.dispatch import ToolResult
 from app.models.edges import CONTAINS
 from app.models.nodes import ChatMessage, ChatThread
+from app.schemas.design_blueprint import DesignBlueprint
 from app.services import chat_threads
 from app.services.design_blueprint import (
     blueprint_diff,
@@ -125,6 +126,7 @@ def _plan() -> list:
 
 
 def test_schema_rejects_dangling_references_and_ambiguous_shapes() -> None:
+    """Reject malformed shapes and unresolved blueprint references."""
     cases = {
         "item ids must be unique": lambda b: b["views"][0].update(id="f.status"),
         "unknown track": lambda b: b["views"][0].update(track="track.nope"),
@@ -208,7 +210,41 @@ def test_observed_model_blueprint_derives_schema_ids_and_accepts_enum() -> None:
     assert blueprint["tracks"][0]["entry_types"][0]["id"] == "job"
 
 
+def test_repeated_field_ids_are_namespaced_before_global_uniqueness_check() -> None:
+    """Give duplicate natural field IDs stable, track-scoped identities."""
+    raw = _blueprint()
+    second_track = copy.deepcopy(raw["tracks"][0])
+    second_track.update(id="track.checkouts", name="Checkouts")
+    second_track["entry_types"][0].update(id="type.checkout", name="Checkout")
+    raw["tracks"].append(second_track)
+
+    blueprint, error = validate_blueprint(raw)
+
+    assert error is None, error
+    assert [
+        track["entry_types"][0]["fields"][1]["id"] for track in blueprint["tracks"]
+    ] == ["track.jobs.type.job.status", "track.checkouts.type.checkout.status"]
+
+
+def test_model_json_schema_explains_global_ids_and_entry_relation_constraints() -> None:
+    """Expose cross-item and conditional relation rules to the model."""
+    schema = DesignBlueprint.model_json_schema()
+    definitions = schema["$defs"]
+
+    assert (
+        "unique across every item in this whole blueprint"
+        in definitions["BlueprintApp"]["properties"]["id"]["description"]
+    )
+    assert (
+        "REQUIRED and non-empty"
+        in definitions["BlueprintRelation"]["properties"]["target_entry_types"][
+            "description"
+        ]
+    )
+
+
 def test_amendment_is_an_item_id_diff() -> None:
+    """Report only added, removed, and changed stable item IDs."""
     before = _canonical()
     raw = _blueprint()
     fields = raw["tracks"][0]["entry_types"][0]["fields"]
@@ -242,9 +278,121 @@ async def _thread(session_id: str) -> ChatThread:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("approved", [False, True])
+async def test_native_amendment_replaces_typed_design_and_invalidates_old_approval(
+    monkeypatch: pytest.MonkeyPatch, approved: bool
+):
+    """A real blueprint amendment invalidates approval for the previous draft."""
+    thread = await _thread(f"native-amend-{approved}")
+    thread.provider_id = "integral_native"
+    await thread.save()
+    first = await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id=thread.provider_session_id,
+        summary="Bike Repair",
+        proposal=_PROPOSAL,
+        blueprint=_blueprint(),
+    )
+    thread = await ChatThread.get(thread.id)
+    thread.design_proposed.update(approved=approved, affirm=approved)
+    await thread.save()
+    correction = await ChatMessage.create(
+        role="user",
+        thread_id=thread.id,
+        parts=[{"type": "text", "text": "Remove the due date; the rest looks good."}],
+    )
+    await thread.connect(correction, edge=CONTAINS)
+
+    async def legacy_judge(*args: object, **kwargs: object):
+        raise AssertionError("Native proposal amendments must not invoke JV approval")
+
+    monkeypatch.setattr(chat_threads, "looks_like_design_affirm", legacy_judge)
+    amended = _blueprint()
+    amended["tracks"][0]["entry_types"][0]["fields"].pop()
+    result = await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id=thread.provider_session_id,
+        summary="Bike Repair without a due date",
+        proposal=_PROPOSAL.replace(", due date", "") + "No due date will be stored.",
+        blueprint=amended,
+    )
+    assert result.get("ok") is True, result
+    assert result["blueprint_revision"] == 2
+    assert result["blueprint_digest"] != first["blueprint_digest"]
+    current = await ChatThread.get(thread.id)
+    assert current.design_proposed["approved"] is False
+    assert "affirm" not in current.design_proposed
+    assert current.design_proposed["proposed_at_user_turn"] == 2
+    assert current.design_proposed.get("build_receipt") is None
+
+
+@pytest.mark.asyncio
+async def test_native_same_approved_blueprint_cannot_be_reproposed():
+    """An identical approved blueprint cannot be reset to pending."""
+    thread = await _thread("native-same-approved")
+    thread.provider_id = "integral_native"
+    await thread.save()
+    await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id=thread.provider_session_id,
+        summary="Bike Repair",
+        proposal=_PROPOSAL,
+        blueprint=_blueprint(),
+    )
+    thread = await ChatThread.get(thread.id)
+    thread.design_proposed["approved"] = True
+    await thread.save()
+    result = await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id=thread.provider_session_id,
+        summary="Another heading",
+        proposal=_PROPOSAL,
+        blueprint=_blueprint(),
+    )
+    assert result["error"] == "already_proposed"
+    assert (await ChatThread.get(thread.id)).design_proposed["approved"] is True
+
+
+@pytest.mark.asyncio
+async def test_native_same_pending_blueprint_does_not_reset_approval_turn():
+    """Saving an identical blueprint preserves its original approval turn."""
+    thread = await _thread("native-same-pending")
+    thread.provider_id = "integral_native"
+    await thread.save()
+    await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id=thread.provider_session_id,
+        summary="Bike Repair",
+        proposal=_PROPOSAL,
+        blueprint=_blueprint(),
+    )
+    correction = await ChatMessage.create(
+        role="user",
+        thread_id=thread.id,
+        parts=[{"type": "text", "text": "Looks good, build it."}],
+    )
+    await thread.connect(correction, edge=CONTAINS)
+
+    result = await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id=thread.provider_session_id,
+        summary="Bike Repair",
+        proposal=_PROPOSAL,
+        blueprint=_blueprint(),
+    )
+
+    assert result["error"] == "unchanged_design"
+    marker = (await ChatThread.get(thread.id)).design_proposed
+    assert marker["proposed_at_user_turn"] == 1
+    assert marker["blueprint_revision"] == 1
+    assert marker["approved"] is False
+
+
+@pytest.mark.asyncio
 async def test_propose_design_records_revisions_and_requires_blueprint_on_amend() -> (
     None
 ):
+    """Persist proposal revisions and require a typed amendment blueprint."""
     thread = await _thread("bp-revisions")
     first = await chat_threads.record_design_proposed(
         user_id="u1",
@@ -305,6 +453,7 @@ async def test_propose_design_records_revisions_and_requires_blueprint_on_amend(
 
 
 def test_fidelity_names_every_drift_deterministically() -> None:
+    """Identify each mismatch between the approved design and build plan."""
     blueprint = _canonical()
     blueprint["dashboard"] = {
         "id": "dash",
@@ -348,6 +497,7 @@ def test_fidelity_names_every_drift_deterministically() -> None:
 
 
 def test_fidelity_rejects_invented_seed_field_values() -> None:
+    """Reject seed values that do not belong to the approved blueprint."""
     blueprint = _canonical()
     blueprint["seeds"] = [
         {"id": "seed.demo", "track": "track.jobs", "title": "Demo Job", "fields": {}}
@@ -369,6 +519,7 @@ def test_fidelity_rejects_invented_seed_field_values() -> None:
 
 
 def test_fidelity_refuses_open_decisions_and_unbuildable_constituents() -> None:
+    """Keep unresolved decisions and unsupported items out of build plans."""
     blueprint = _canonical()
     ops = [(i["tool"], i["args"]) for i in _plan()]
     assert (
@@ -415,6 +566,7 @@ def test_fidelity_refuses_open_decisions_and_unbuildable_constituents() -> None:
 
 @pytest.fixture
 def approved(monkeypatch):
+    """Provide an approved design and stub its chat affirmation boundary."""
     _reset_for_tests()
     thread = SimpleNamespace(
         user_id="user-1",
@@ -453,6 +605,7 @@ def _context() -> Dict[str, Any]:
 async def test_build_with_dropped_field_fails_before_staging(
     approved, monkeypatch
 ) -> None:
+    """Reject a plan that drops an approved field before staging writes."""
     from app.agentive.tooling import dispatch
 
     staged = []
@@ -478,6 +631,7 @@ async def test_build_with_dropped_field_fails_before_staging(
 async def test_exact_blueprint_plan_builds_without_prose_extras(
     approved, monkeypatch
 ) -> None:
+    """Build exactly the approved blueprint without prose-derived extras."""
     from app.agentive.tooling import dispatch
 
     staged, commits = [], []
@@ -516,6 +670,7 @@ async def test_exact_blueprint_plan_builds_without_prose_extras(
 
 
 def test_propose_design_tool_schema_embeds_the_blueprint_contract() -> None:
+    """Advertise the typed Integral blueprint schema on design tools."""
     from app.agentive.tooling.catalogue import _build_input_schema
     from app.agentive.tooling.manifest import load_manifest
 

@@ -4,7 +4,7 @@ title: Stand up a new app with tracks from one intent — staged as a single bat
 priority: P0
 tags: [integral, scaffold, batch-staging]
 traceability:
-  skills: [integral_scaffold]
+  skills: [integral-scaffold]
   docs:
     - docs/backend/conversation-use-cases.md
     - docs/backend/workspace-agent-profile.md

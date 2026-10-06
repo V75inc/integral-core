@@ -20,7 +20,7 @@ def test_empty_workspace_proposes_a_new_app():
     assert route["kind"] == "new_app"
     assert route["via"] == "scaffold"
     assert route["preserve"]["text"] == "a note"
-    assert route["stage"]["tool"] == "integral_scaffold"
+    assert route["stage"]["tool"] == "integral-scaffold"
 
 
 def test_unrelated_tracks_propose_a_new_track():
@@ -80,7 +80,7 @@ def test_a_winner_has_no_route():
 
 
 @pytest.mark.asyncio
-async def test_rank_empty_workspace_returns_new_app_route():
+async def test_rank_empty_workspace_returns_evidence_without_a_setup_route():
     from app.services.app_graph import catalog_user, catalog_workspace
 
     now = utc_now_iso()
@@ -108,8 +108,8 @@ async def test_rank_empty_workspace_returns_new_app_route():
         current_scope_workspace_id.reset(token)
     facet = ranked["facets"][0]
     assert facet["winner"] is None
-    assert facet["route"]["kind"] == "new_app"
-    assert facet["route"]["preserve"]["text"] == "keep this note"
+    assert "route" not in facet
+    assert facet["candidates"] == []
 
 
 async def _thread_for(user, workspace, session_id: str):
@@ -127,7 +127,7 @@ async def _thread_for(user, workspace, session_id: str):
 
 
 @pytest.mark.asyncio
-async def test_rank_with_session_stores_preserve():
+async def test_rank_with_session_does_not_write_a_preserve_artifact():
     from app.agentive.artifacts import get_artifact
     from app.services.app_graph import catalog_user, catalog_workspace
     from app.services.no_fit_route import PRESERVE_KEY
@@ -159,12 +159,9 @@ async def test_rank_with_session_stores_preserve():
         )
     finally:
         current_scope_workspace_id.reset(token)
-    route = ranked["facets"][0]["route"]
-    assert route["artifact"]["key"] == PRESERVE_KEY
+    assert "route" not in ranked["facets"][0]
     got = await get_artifact(user_id=user.id, session_id=session_id, key=PRESERVE_KEY)
-    assert got["ok"] is True
-    assert got["body"] == "keep this note"
-    assert got["metadata"]["status"] == "pending"
+    assert got["error"] == "not_found"
 
 
 @pytest.mark.asyncio

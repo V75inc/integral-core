@@ -150,7 +150,7 @@ describe('StagedChangeReviewModal — shares the caller state', () => {
     );
 
     await user.click(await screen.findByRole('button', { name: /^approve$/i }));
-    expect(controls.bless).toHaveBeenCalledWith('single');
+    expect(controls.bless).toHaveBeenCalledOnce();
   });
 
   it('surfaces the shared error', async () => {

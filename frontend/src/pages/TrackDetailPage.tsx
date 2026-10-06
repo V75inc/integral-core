@@ -859,6 +859,7 @@ export function TrackDetailPage() {
       pageKind: 'track_detail',
       focusedTrackId: id,
       focusedViewId: activeView?.id ?? null,
+      focusedAppId: track?.app?.id ?? null,
       visibleData: {
         entries: filteredEntries.map(e => ({
           id: e.id,
@@ -880,6 +881,7 @@ export function TrackDetailPage() {
     activeView?.id,
     activeView?.name,
     activeView?.type,
+    track?.app?.id,
     filteredEntries,
     filterType,
     track?.title,

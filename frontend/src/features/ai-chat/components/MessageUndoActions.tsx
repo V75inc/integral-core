@@ -23,6 +23,7 @@ import { useConfirm } from '../../../context/ConfirmContext';
 import { extractStagedChangesFromParts } from '../staging/extractStagedChanges';
 import { type StagedChange, type StagedChangeState } from '../staging/types';
 import { invalidateAfterAgentWrite } from '../../../services/graphMutationInvalidation';
+import { useChatActivity } from '../AIChatSurface';
 
 type UndoTarget =
   | { mode: 'revoke'; staged: StagedChange }
@@ -134,14 +135,37 @@ export function MessageUndoActions() {
     };
   }, [content, parts]);
 
+  const staged = applyStagingOverlay(
+    extractStagedChangesFromParts(
+      content as Parameters<typeof extractStagedChangesFromParts>[0],
+      parts as Parameters<typeof extractStagedChangesFromParts>[1],
+    ),
+    stagingOverlay,
+  );
+  const rolledBack = staged.find((change) => Boolean(change.rolled_back_at));
   const eligibilityKey = computeEligibilityKey(content, parts, stagingOverlay);
 
-  if (isRunning || !eligibilityKey) return null;
+  if (isRunning) return null;
+  if (rolledBack) {
+    return <RollbackNotice summary={rolledBack.summary} />;
+  }
+  if (!eligibilityKey) return null;
   return (
     <MessageUndoActionsInner
       eligibilityKey={eligibilityKey}
       stagingOverlay={stagingOverlay}
     />
+  );
+}
+
+function RollbackNotice({ summary }: { summary: string }) {
+  return (
+    <span
+      role="status"
+      className="text-xs text-[var(--text-subtle)]"
+    >
+      Undone: {summary}.
+    </span>
   );
 }
 
@@ -175,6 +199,7 @@ function MessageUndoActionsInner({
   stagingOverlay: Readonly<Record<string, StagedChangeState>>;
 }) {
   const confirm = useConfirm();
+  const { appendAssistantNote } = useChatActivity();
   const queryClient = useQueryClient();
   const content = useAuiState((s) => s.message.content);
   const parts = useAuiState((s) => s.message.parts);
@@ -188,6 +213,7 @@ function MessageUndoActionsInner({
   const [target, setTarget] = useState<UndoTarget | null>(initialTarget);
   const [loading, setLoading] = useState(false);
   const [statusHint, setStatusHint] = useState<string | null>(null);
+  const [completedSummary, setCompletedSummary] = useState<string | null>(null);
 
   useEffect(() => {
     const next = resolveTargetFromKey(
@@ -236,6 +262,9 @@ function MessageUndoActionsInner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eligibilityKey, stagingOverlay]);
 
+  if (completedSummary) {
+    return <RollbackNotice summary={completedSummary} />;
+  }
   if (!target) return null;
 
   const handleRevoke = async () => {
@@ -257,6 +286,9 @@ function MessageUndoActionsInner({
         new CustomEvent('integral:staging-state-changed', {
           detail: { token: target.staged.token, state: 'revoked' },
         }),
+      );
+      appendAssistantNote(
+        `Approval withdrawn: ${target.staged.summary} was not applied.`,
       );
     } catch (err) {
       setStatusHint(err instanceof Error ? err.message : 'Undo failed.');
@@ -285,7 +317,10 @@ function MessageUndoActionsInner({
         staged: target.staged,
         executeResult: target.staged.execute_result,
       });
-      setTarget(null);
+      setCompletedSummary(target.staged.summary);
+      appendAssistantNote(
+        `Undo complete: ${target.staged.summary} was reversed. The earlier completion and readback messages describe the state before this undo.`,
+      );
     } catch (err) {
       setStatusHint(err instanceof Error ? err.message : 'Rollback failed.');
     } finally {

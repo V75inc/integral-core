@@ -251,17 +251,13 @@ A declarative skill is fully defined in the manifest plus a prompt file:
       entry_type: content_piece
 ```
 
-The `SKILL.md` file (frontmatter + body; see §5.2.1 for `extends`):
+The `SKILL.md` file (standard frontmatter + Markdown body):
 
 ```markdown
 ---
-name: carousel_drafter
-extends: action:integral/embedded_integral_action
-requires-actions:
-  - EmbeddedIntegralAction
-allowed-tools:
-  - integral_retrieve
-  - integral_stage_entry
+name: carousel-drafter
+description: Drafts carousels from source material when requested.
+allowed-tools: integral_retrieve integral_stage_entry
 ---
 
 # Carousel Drafter
@@ -281,52 +277,18 @@ Constraints:
 - Reject any draft that turns prescriptive ("you should…", "try to…") — the brand voice is observational, not instructional.
 ```
 
-#### 5.2.1 Extending the embedded Integral base SOP (required for Integral tools)
+#### 5.2.1 Standard skill files and Integral tool bindings
 
-> **Canonical format reference:** [skill-format-standard.md](./skill-format-standard.md) — frontmatter, 7-section body bar, editor `domain_body` contract, and CI compliance rules.
+Use [skill-format-standard.md](./skill-format-standard.md). App skill files follow
+Agent Skills without `spec`, inheritance or Action-dependency extensions. Name
+and directory are hyphenated; description explains purpose and activation.
+`allowed-tools` is an optional space-separated string. The manifest's
+`tools_required` and the live broker control tool availability and authorization.
+Markdown bodies have no mandatory section structure.
 
-App-bundled skills that call Integral manifest tools (`integral_*`) are **action-backed** in the jvagent sense: they coordinate tools furnished by `EmbeddedIntegralAction`. For consistent propose/stage discipline, identity/scope rules, and error handling, **declare SOP inheritance** from the resident action's base procedure (ADR-0020):
+Runtime adapters read instructions without automatically prepending a vendor
+base SOP. Shared host instructions and backend policy remain runtime concerns.
 
-```yaml
-extends: action:integral/embedded_integral_action
-requires-actions:
-  - EmbeddedIntegralAction
-```
-
-| Key | Role |
-|-----|------|
-| `extends` | Prepends the base markdown from `agent/.../embedded_integral_action/SKILL.md` at overlay discovery time. Authors write **custom workflow only** in the skill body. |
-| `requires-actions` | Hard gate — skill is hidden when `EmbeddedIntegralAction` is not enabled on the resident agent (always true for the cockpit). |
-| `allowed-tools` | Tools this SOP may surface to the orchestrator for the skill's turn. Should ⊆ manifest `tools_required`. |
-| `tools_required` (manifest) | Authoritative tool list validated at install against [`build_tool_catalogue()`](../../backend/app/agentive/tooling/catalogue.py). |
-
-**Do not** duplicate base procedure text (identity/scope, propose/stage, `[SYSTEM:STAGING-RESOLVED]`, error surfacing) in each App skill — inherit it via `extends`.
-
-**Canonical `SKILL.md` shape** (JV skill frontmatter + custom body):
-
-```markdown
----
-name: carousel_drafter
-description: Drafts carousels from source material.
-extends: action:integral/embedded_integral_action
-requires-actions:
-  - EmbeddedIntegralAction
-allowed-tools:
-  - integral_query_entries
-  - integral_create_entry
-tags: [drafting, content]
----
-
-## Workflow
-
-1. …domain-specific steps only…
-```
-
-At runtime, [`workspace_agent_profile.py`](../../backend/app/agentive/workspace_agent_profile.py) composes `extends` when materializing the workspace overlay (same mechanism as resident `integral_*` skills).
-
-**When `extends` is optional:** skills that do not call Integral tools (pure orchestration prose, external MCP-only flows) may omit it. Any skill listing `integral_*` in `tools_required` or `allowed-tools` **should** extend the embedded action.
-
-Skills that use Integral tools can extend the resident base SOP at [`embedded_integral_action/SKILL.md`](../../agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/SKILL.md).
 
 ### 5.3 Three mechanisms — pick one
 
@@ -432,7 +394,7 @@ Full reference: [workspace-agent-profile.md](./workspace-agent-profile.md).
 Summary:
 
 - **Base tier (global):** six `integral_*` action-overlay SOP skills + full tool manifest — always present.
-- **Overlay composition:** App `SKILL.md` bodies with `extends: action:integral/embedded_integral_action` inherit the embedded action base SOP automatically.
+- **Overlay loading:** App `SKILL.md` bodies load as portable instructions without vendor inheritance.
 - **Workspace overlay:** namespaced skills (`{app_slug}__{skill_key}`) derived from installed Apps; recomposed when `X-Integral-Scope` changes.
 - **Discovery:** Orchestrator `find_skill` / `use_skill`; lean surfacing (ADR-0018) applies — overlay skills are not all listed turn-1.
 - **Invalidation:** overlay cache clears on App install/uninstall; next chat turn sees updated skills without restart.

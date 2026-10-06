@@ -21,6 +21,10 @@ Agent/GSD phase artifacts are **gitignored** and are not part of published repo 
 | [product/PRD.md](product/PRD.md) | Requirements, personas, epics |
 | [product/ARCHITECTURE.md](product/ARCHITECTURE.md) | System design, data model, access model (§9) |
 | [product/RESIDENT_HARNESS.md](product/RESIDENT_HARNESS.md) | Singular resident harness spec ([ADR-003](backend/adr/003-singular-resident-harness.md)) |
+| [product/PYDANTIC_AI_HARNESS_IMPLEMENTATION_PLAN.md](product/PYDANTIC_AI_HARNESS_IMPLEMENTATION_PLAN.md) | Proposed composed native harness: adoption matrix, bounded delivery packages, recovery and qualification gates |
+| [product/PYDANTIC_AI_HARNESS_INTELLIGENCE_PLANE_SPEC.md](product/PYDANTIC_AI_HARNESS_INTELLIGENCE_PLANE_SPEC.md) | Native harness tenancy, graph continuity, governance, observability and usage contracts |
+| [product/PYDANTIC_AI_HARNESS_BLUEPRINT_REVIEW.md](product/PYDANTIC_AI_HARNESS_BLUEPRINT_REVIEW.md) | Revision 2 adversarial review, resolved findings and next implementation gate |
+| [product/NATIVE_HARNESS_RESEARCH_AND_BLUEPRINT.md](product/NATIVE_HARNESS_RESEARCH_AND_BLUEPRINT.md) | Comparative harness research and updated Pydantic AI Harness recommendation |
 | [product/ROADMAP.md](product/ROADMAP.md) | Milestone sequencing |
 | [product/CORE_FINISH_STATUS.md](product/CORE_FINISH_STATUS.md) | Current finish-state status: implemented work, unproven gates, and ordered remaining program |
 | [product/CORE_SUBSTRATE_USE_CASES.md](product/CORE_SUBSTRATE_USE_CASES.md) | Complete user-intent inventory for the Core substrate, resident App delivery, filing, query, and dashboards |

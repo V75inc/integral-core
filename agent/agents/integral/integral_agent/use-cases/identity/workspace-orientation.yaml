@@ -4,7 +4,7 @@ title: Member asks which workspace they are in; the agent answers in names, neve
 priority: P1
 tags: [integral, identity, id-resolution]
 traceability:
-  skills: [integral_identity, integral_workspace]
+  skills: [integral-identity, integral-workspace]
   docs:
     - docs/backend/conversation-use-cases.md
     - docs/INVARIANTS.md

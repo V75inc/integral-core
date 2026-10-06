@@ -59,7 +59,7 @@ async def test_open_append_commit_groups_ops():
         op={
             "kind": "create_track",
             "summary": "Create Deals track",
-            "diff_human": "…",
+            "diff_human": "**Create entry** *Lead source*\n\n- **Type:** source",
             "diff_machine": {},
             "payload": {"title": "Deals"},
         },
@@ -73,7 +73,9 @@ async def test_open_append_commit_groups_ops():
     assert len(sc.payload["operations"]) == 2
     # Combined diff lists each step.
     assert "Create Contacts track" in sc.diff_human
-    assert "Create Deals track" in sc.diff_human
+    assert "Create entry" in sc.diff_human
+    assert "Lead source" in sc.diff_human
+    assert "**Type:** source" in sc.diff_human
     # Title already carries the batch summary — body must not repeat it.
     assert not (sc.summary and sc.diff_human.startswith(sc.summary))
     # Batch is cleared after commit.
@@ -150,6 +152,13 @@ async def test_open_batch_marker_exposes_staged_refs_for_recovery():
     assert 'app_id="{{app.id}}"' in marker
     assert "Cars={{track.id:Cars}}" in marker
     assert "Do not list persisted apps or tracks" in marker
+    assert (
+        "Do not append operations or commit it unless the user's latest message"
+        in marker
+    )
+    assert "cancel the open proposal" in marker
+    assert "A commit only creates a review card" in marker
+    assert "commit the batch NOW" not in marker
     assert "integral_" not in marker
 
 
@@ -254,6 +263,83 @@ async def test_batch_resolves_intra_batch_refs(monkeypatch):
     assert result["batched"] is True
     # The track op's placeholder was replaced with the real created app id.
     assert seen[1]["payload"]["app_id"] == "n.App.REAL123"
+
+
+@pytest.mark.asyncio
+async def test_batch_resolves_provider_lowered_entry_reference(monkeypatch):
+    """Provider-lowered ``$batch.0.id`` links the second create to the first."""
+    from app.agentive import staging_executors
+
+    seen: List[Dict[str, Any]] = []
+
+    async def _fake_dispatch(*, user_id: str, kind: str, payload: Dict[str, Any]):
+        seen.append({"kind": kind, "payload": payload})
+        if len(seen) == 1:
+            return {"entry": {"id": "n.Entry.VENTURE", "title": "QA Venture"}}
+        return {"entry": {"id": "n.Entry.OPPORTUNITY", "title": "QA Opportunity"}}
+
+    monkeypatch.setattr(staging_executors, "dispatch", _fake_dispatch)
+
+    result = await staging_executors._x_batch(
+        "u1",
+        {
+            "operations": [
+                {
+                    "kind": "create_entry",
+                    "payload": {"track_id": "t1", "title": "QA Venture"},
+                },
+                {
+                    "kind": "create_entry",
+                    "payload": {
+                        "track_id": "t2",
+                        "title": "QA Opportunity",
+                        "fields": {"venture": "$batch.0.id"},
+                    },
+                },
+            ]
+        },
+    )
+
+    assert result["batched"] is True
+    assert seen[1]["payload"]["fields"]["venture"] == "n.Entry.VENTURE"
+
+
+def test_batch_validation_accepts_prior_provider_lowered_entry_reference():
+    """The validation and execution layers accept the same lowered token."""
+    from app.agentive.batch_validation import validate_batch_references
+
+    validate_batch_references(
+        [
+            {"kind": "create_entry", "payload": {"title": "QA Venture"}},
+            {
+                "kind": "create_entry",
+                "payload": {
+                    "title": "QA Opportunity",
+                    "fields": {"venture": "$batch.0.id"},
+                },
+            },
+        ]
+    )
+
+
+def test_batch_validation_rejects_forward_provider_lowered_reference():
+    """A lowered reference cannot point at this or a future operation."""
+    from app.agentive.batch_validation import validate_batch_references
+    from app.agentive.staging import StagingError
+
+    with pytest.raises(StagingError, match=r"\$batch\.1\.id"):
+        validate_batch_references(
+            [
+                {
+                    "kind": "create_entry",
+                    "payload": {
+                        "title": "QA Opportunity",
+                        "fields": {"venture": "$batch.1.id"},
+                    },
+                },
+                {"kind": "create_entry", "payload": {"title": "QA Venture"}},
+            ]
+        )
 
 
 def test_resolve_refs_leaves_unknown_token():

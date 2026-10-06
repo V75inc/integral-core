@@ -278,3 +278,42 @@ async def test_validate_relation_values_target_entry_default_when_absent():
         field_key="related",
     )
     assert sibling.id in out
+
+
+@pytest.mark.asyncio
+async def test_validate_relation_values_accepts_manifest_entry_type_key(monkeypatch):
+    """Relation targets may name the stable type key rather than its label."""
+    from types import SimpleNamespace
+
+    import app.services.operational_model_entry_fields as entry_fields
+
+    source = SimpleNamespace(id="equipment-track", workspace_id="ws-anc-a")
+    target = SimpleNamespace(
+        id="equipment-entry", track_id="equipment-track", type_id="equipment-type"
+    )
+    target_type = SimpleNamespace(
+        name="Equipment Item",
+        form_schema={"_manifest_entry_type_key": "equipment_item"},
+    )
+    monkeypatch.setattr(
+        Entry, "get", classmethod(lambda cls, _id: _async_value(target))
+    )
+    monkeypatch.setattr(
+        entry_fields.EntryType,
+        "get",
+        classmethod(lambda cls, _id: _async_value(target_type)),
+    )
+    out = await _validate_relation_values(
+        value=target.id,
+        relation={
+            "target": "entry",
+            "target_entry_types": ["equipment_item"],
+        },
+        source_track=source,
+        field_key="equipment",
+    )
+    assert out == [target.id]
+
+
+async def _async_value(value):
+    return value

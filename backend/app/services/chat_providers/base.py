@@ -87,8 +87,11 @@ class ChatTurnContext:
     out-of-process jvagent integration)."""
 
     text: str
-    """User utterance for this turn. Already validated non-empty by the
-    request layer."""
+    """User-authored utterance for this turn.
+
+    It may be empty for an attachment-only user message or a signed
+    host-initiated turn; adapters must not replace it with host instructions.
+    """
 
     thread_id: str
     """ChatThread node id. Adapters may forward this to their native
@@ -100,6 +103,13 @@ class ChatTurnContext:
     first-turn-of-thread; adapters are responsible for capturing the
     session id their harness assigns and surfacing it back via the
     ``_meta`` event so the router can persist it on the ChatThread."""
+
+    system_context: Optional[str] = None
+    """Trusted, request-scoped host context for the harness system prompt.
+
+    Never concatenate this field into ``text`` or persist it as a user message.
+    Adapters must use an authenticated host-context transport when supported.
+    """
 
     focused_track_id: Optional[str] = None
     focused_space_id: Optional[str] = None
@@ -175,6 +185,27 @@ class ChatBackendProvider(Protocol):
         Pre-yield raises (e.g. validation) are fine and propagate naturally.
         """
         ...
+
+
+def register_provider_cancel_hook(
+    turn_handle: Any, *, thread_id: str, provider: ChatBackendProvider
+) -> None:
+    """Bind an in-flight host turn to the selected provider's cancel method.
+
+    The provider owns transport cancellation; Integral's turn registry owns
+    the decision to cancel. The jvagent fallback keeps older provider doubles
+    compatible while production adapters adopt ``cancel_turn``.
+    """
+    cancel_turn = getattr(provider, "cancel_turn", None)
+    if callable(cancel_turn):
+        turn_handle.register_cancel_hook(lambda: cancel_turn(thread_id=thread_id))
+        return
+    if provider.id == "jvagent":
+        from app.providers import jvagent_embed
+
+        turn_handle.register_cancel_hook(
+            lambda: jvagent_embed.cancel_interact(thread_id=thread_id)
+        )
 
     # ------------------------------------------------------------------
     # Identity & conversation lifecycle

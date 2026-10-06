@@ -18,9 +18,21 @@ def test_focused_dashboard_id_reads_page_metadata() -> None:
     assert _focused_dashboard_id(SimpleNamespace(metadata=None)) is None
 
 
-def test_dashboard_note_is_shown_for_any_message_and_the_model_decides() -> None:
+def test_dashboard_note_is_limited_to_dashboard_actions_or_focused_dashboard() -> None:
     assert _is_dashboard_skill_request("agrega un gráfico", None) is True
-    assert _is_dashboard_skill_request("hello", None) is True
+    assert (
+        _is_dashboard_skill_request("Please add a chart showing monthly revenue", None)
+        is True
+    )
+    assert _is_dashboard_skill_request("hello", None) is False
+    assert _is_dashboard_skill_request("What is a dashboard?", None) is False
+    assert (
+        _is_dashboard_skill_request(
+            "Please summarize this page",
+            SimpleNamespace(metadata={"focused_dashboard_id": "n.Dashboard.abc"}),
+        )
+        is True
+    )
     assert _is_dashboard_skill_request("   ", None) is False
     assert "Ignore this note unless" in _DASHBOARD_SKILL_DIRECTIVE
     assert "whatever language" in _DASHBOARD_SKILL_DIRECTIVE

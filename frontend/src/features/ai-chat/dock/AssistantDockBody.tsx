@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Maximize2, Menu, X } from "lucide-react";
+import { Maximize2, Menu, Sparkles, X } from "lucide-react";
 import { AIChatRuntimeBoundary } from "../AIChatSurface";
 import { AIChatThread } from "../components/Thread";
 import { AIChatThreadList } from "../components/ThreadList";
@@ -9,7 +9,6 @@ import { useAssistantDock } from "../../../context/AssistantDockContext";
 import { useFirstLoginOnboarding } from "../../../hooks/useFirstLoginOnboarding";
 import { useAuthOptional } from "../../../context/AuthContext";
 import { useQueryClient } from "@tanstack/react-query";
-import { Text } from "../../../ui";
 import { InboxView } from "../inbox/InboxView";
 import "../inbox/inbox.css";
 import { AssistantViewTabs } from "../inbox/AssistantViewTabs";
@@ -63,19 +62,32 @@ function OnboardingStrip() {
   return (
     <div
       data-testid="onboarding-seed-hint"
-      className="flex shrink-0 items-start gap-2 border-b border-[var(--panel-border)] px-3 py-2"
+      className="shrink-0 border-b border-[var(--panel-border)] bg-[var(--panel)] px-3 py-3"
     >
-      <Text variant="meta" tone="muted" as="p" className="min-w-0 flex-1 leading-normal">
-        Say hi to begin — I&rsquo;ll walk you through your Apps, Tracks, theme and
-        retrieval mode.
-      </Text>
-      <button
-        type="button"
-        onClick={handleSkip}
-        className="shrink-0 rounded-[var(--radius-input)] px-2 py-0.5 hover:bg-[var(--panel-2)]"
-      >
-        <Text variant="meta" tone="subtle">Skip</Text>
-      </button>
+      <div className="flex items-start gap-3 rounded-[var(--radius-card)] border border-[var(--panel-border)] bg-[var(--panel-2)] p-3 shadow-sm">
+        <span
+          aria-hidden="true"
+          className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--badge-muted-bg)] text-[var(--brand-accent)]"
+        >
+          <Sparkles size={15} strokeWidth={1.8} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium leading-snug text-[var(--text)] [text-wrap:balance]">
+            Get started with your workspace
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-[var(--text-muted)] [text-wrap:pretty]">
+            Say hello and I&rsquo;ll help you set up your Apps and Tracks.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={handleSkip}
+          aria-label="Skip workspace introduction"
+          className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-[var(--radius-input)] px-2 text-xs font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--surface)] hover:text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring-color)]"
+        >
+          Skip
+        </button>
+      </div>
     </div>
   );
 }

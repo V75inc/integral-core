@@ -131,8 +131,8 @@ async def test_invoice_text_leads_and_a_decoy_does_not_file():
     assert "invoice" in facet["why"][0].casefold()
     assert decoy["facets"][0]["winner"] is None
     assert decoy["facets"][0]["no_fit"] >= 0.8
-    assert decoy["facets"][0]["route"]["kind"] in {"new_track", "new_entry_type"}
-    assert decoy["facets"][0]["route"]["preserve"]["text"]
+    assert "route" not in decoy["facets"][0]
+    assert "does not prove missing structure" in decoy["note"]
     blob = _blob(invoice) + _blob(decoy)
     assert "Payroll secrets" not in blob
     assert "Hidden assets" not in blob

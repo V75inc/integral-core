@@ -22,6 +22,8 @@ need (and should not have) jvagent-specific knowledge.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import inspect
 import json
 import logging
@@ -43,6 +45,21 @@ logger = logging.getLogger(__name__)
 
 _JVAGENT_CHANNEL = "integral-ai-chat"
 
+
+def _signed_system_context(context: str, *, run_id: str) -> Dict[str, str]:
+    """Authenticate per-turn host context before it enters jvagent visitor data."""
+    body = json.dumps(
+        {"version": 1, "run_id": run_id, "context": context},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    signature = hmac.new(
+        settings.SECRET_KEY.encode("utf-8"), body.encode("utf-8"), hashlib.sha256
+    ).hexdigest()
+    return {"body": body, "signature": signature}
+
+
 # Egress, discovery and planning; running only these means nothing was done.
 _NON_ACTING_TOOLS = frozenset(
     {
@@ -59,18 +76,11 @@ _NON_ACTING_TOOLS = frozenset(
 # is never judged by matching words. A failed last step is read from the tool
 # result; whether a reply that changed nothing left work hanging is judged by
 # the model itself (``_reply_leaves_work_undone``).
-# Worded as the user's own nudge: a system-voiced instruction gets
-# acknowledged instead of acted on. It is never persisted as a user message,
-# so it cannot count as approving a design.
-# It quotes the user's own request, never the assistant's reply: the reply can
-# carry text read from tool results, which must not come back in the user's
-# voice. The quote keeps the nudge tied to real work (a bare "finish that" got
-# "nothing is pending") and anchors the reply language.
-FOLLOW_THROUGH_UTTERANCE = (
-    "I asked:\n\n> {request}\n\nYour reply did not finish it. Please do it "
-    "now. If something is really stopping you, tell me in one or two plain "
-    "sentences what you need from me, with no technical detail. Answer in the "
-    "same language as my request quoted above."
+FOLLOW_THROUGH_SYSTEM_CONTEXT = (
+    "The previous assistant attempt did not complete the user's request. "
+    "Continue working on that same request now. Do not ask the user to repeat "
+    "it. If a required user decision or input blocks completion, explain the "
+    "specific missing input briefly in the user's language."
 )
 _SELF_CHECK_SYSTEM = (
     "You review one reply an assistant just gave. Answer with JSON only: "
@@ -275,35 +285,6 @@ async def _maybe_stage_focused_track(ctx: ChatTurnContext) -> str:
     return f"The {title} track is waiting for approval."
 
 
-async def _open_focus_prefix(ctx: ChatTurnContext) -> str:
-    """Name the open app and entry on the text the model reads."""
-    from app.services.turn_binding import focus_turn_prefix
-
-    app_id = ctx.focused_space_id or ""
-    app_name = ""
-    if app_id.startswith("n."):
-        from app.models.nodes import App
-
-        app = await App.get(app_id)
-        app_name = (getattr(app, "name", "") or "") if app else ""
-    page = (ctx.extra_data or {}).get("page_context") or {}
-    entry_id = page.get("focused_entry_id") if isinstance(page, dict) else ""
-    entry_title = ""
-    if isinstance(entry_id, str) and entry_id.startswith("n."):
-        from app.models.nodes import Entry
-
-        entry = await Entry.get(entry_id)
-        entry_title = (getattr(entry, "title", "") or "") if entry else ""
-    else:
-        entry_id = ""
-    return focus_turn_prefix(
-        app_name=app_name,
-        app_id=app_id if app_id.startswith("n.") else "",
-        entry_title=entry_title,
-        entry_id=entry_id if isinstance(entry_id, str) else "",
-    )
-
-
 async def _connections_reply(
     user_id: str, workspace_id: str | None, entry_id: str
 ) -> str:
@@ -358,7 +339,7 @@ async def _maybe_await(value: Any) -> Any:
 
 
 class JvagentProvider(ChatBackendProvider):
-    """Default chat provider — backed by jvagent."""
+    """Compatibility chat provider backed by the embedded jvagent harness."""
 
     id: str = "jvagent"
     label: str = "jvagent"
@@ -369,6 +350,23 @@ class JvagentProvider(ChatBackendProvider):
         vision=True,
         voice=False,
     )
+
+    @staticmethod
+    def classify_exception(exc: BaseException) -> str | None:
+        """Keep legacy jvagent exception interpretation inside its adapter."""
+        if type(exc).__module__.startswith("jvagent"):
+            return "walker_failed"
+        return None
+
+    def cancel_turn(self, *, thread_id: str) -> None:
+        """Cancel an active embedded jvagent interaction for a thread.
+
+        The shared chat stream calls this optional provider hook so adding a
+        different harness does not route its cancellation through jvagent.
+        """
+        from app.providers import jvagent_embed
+
+        jvagent_embed.cancel_interact(thread_id=thread_id)
 
     # ------------------------------------------------------------------
     # Transport detection
@@ -423,6 +421,13 @@ class JvagentProvider(ChatBackendProvider):
         # context the router doesn't yet know about.
         if ctx.extra_data:
             extra_data.update(ctx.extra_data)
+        if ctx.system_context:
+            run_id = str(extra_data.get("run_id") or "").strip()
+            if not run_id:
+                raise ValueError("host system context requires a run_id")
+            extra_data["integral_system_context"] = _signed_system_context(
+                ctx.system_context, run_id=run_id
+            )
 
         # Agent the user picked for this thread. Carried in extra_data by
         # the dispatcher; populated from ChatThread.agent_id which holds
@@ -539,24 +544,25 @@ class JvagentProvider(ChatBackendProvider):
 
             if embed_configured:
                 utterance = ctx.text
-                if not (utterance or "").strip():
-                    trigger = (extra_data.get("trigger") or "").strip()
-                    if trigger == "agent_workstream":
-                        utterance = str(
-                            extra_data.get("system_utterance") or "[agent workstream]"
-                        )
-                prefix = await _open_focus_prefix(ctx)
-                if prefix:
-                    utterance = prefix + (utterance or "")
 
-                async def _embed_stream(text: str):
+                async def _embed_stream(
+                    text: str, *, system_context: str | None = None
+                ):
+                    stream_data = dict(extra_data)
+                    if system_context is not None:
+                        run_id = str(stream_data.get("run_id") or "").strip()
+                        if not run_id:
+                            raise ValueError("host system context requires a run_id")
+                        stream_data["integral_system_context"] = _signed_system_context(
+                            system_context, run_id=run_id
+                        )
                     async for ev in stream_jvagent_embed_turn(
                         agent_id=selected_agent_id,
                         user_id=ctx.user_id,
                         text=text,
                         session_id=ctx.session_id,
                         channel=_JVAGENT_CHANNEL,
-                        extra_data=extra_data,
+                        extra_data=stream_data,
                         start_time=ctx.start_time,
                         is_disconnected=ctx.is_disconnected,
                     ):
@@ -724,9 +730,15 @@ class JvagentProvider(ChatBackendProvider):
                 async for ev in stream_with_model_override(
                     ctx.workspace_id,
                     lambda: _embed_stream(
-                        FOLLOW_THROUGH_UTTERANCE.replace(
-                            "{request}", utterance.strip().replace("\n", "\n> ")
-                        )
+                        "",
+                        system_context="\n\n".join(
+                            block
+                            for block in (
+                                ctx.system_context,
+                                FOLLOW_THROUGH_SYSTEM_CONTEXT,
+                            )
+                            if block
+                        ),
                     ),
                 ):
                     if is_turn_end(ev):
@@ -940,6 +952,6 @@ class JvagentProvider(ChatBackendProvider):
 
 
 # Single shared instance — adapter is stateless, no need to construct per
-# request. Registered in app/main.py at startup via
-# ``get_registry().register(jvagent_provider, default=True)``.
+# request. Registered in app/main.py as the fallback when Integral AI is
+# unavailable and as an explicitly selectable compatibility harness.
 jvagent_provider: ChatBackendProvider = JvagentProvider()

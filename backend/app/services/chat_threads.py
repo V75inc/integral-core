@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 from contextvars import ContextVar
 from datetime import datetime, timezone
@@ -143,25 +144,157 @@ async def update_provider_session(thread: ChatThread, provider_session_id: str) 
     """Persist the provider-side session id captured on the first turn."""
     if thread.provider_session_id == provider_session_id:
         return
-    thread.provider_session_id = provider_session_id
-    thread.updated_at = _now()
-    await thread.save()
+    await _update_provider_session_field(
+        thread,
+        expected=thread.provider_session_id,
+        value=provider_session_id,
+    )
 
 
 async def clear_provider_session(thread: ChatThread) -> None:
     """Drop a stale/orphaned provider session so the next turn can rebind."""
     if not thread.provider_session_id:
         return
-    thread.provider_session_id = None
-    thread.updated_at = _now()
-    await thread.save()
+    await _update_provider_session_field(
+        thread,
+        expected=thread.provider_session_id,
+        value=None,
+    )
+
+
+async def _update_provider_session_field(
+    thread: ChatThread,
+    *,
+    expected: Optional[str],
+    value: Optional[str],
+) -> None:
+    """CAS one ChatThread field without saving a possibly stale whole Node.
+
+    Harness activation updates ``active_harness_session_id`` in the database
+    independently of the ChatThread instance held by the SSE route. Saving
+    that stale instance to persist ``provider_session_id`` would erase the
+    active-session pointer. A field-level CAS preserves unrelated concurrent
+    updates and prevents an older stream from replacing a newer provider id.
+    """
+    from app.services.app_operations.transaction_scope import (
+        graph_transaction_available,
+        postgres_graph_transaction,
+    )
+
+    if not graph_transaction_available():
+        # Harness activation itself fails closed without transaction support;
+        # keep legacy chat providers usable on simpler stores by reloading the
+        # full Node before its ordinary save.
+        current = await ChatThread.get(thread.id)
+        if current is None:
+            return
+        if current.provider_session_id not in (expected, value):
+            return
+        current.provider_session_id = value
+        current.updated_at = _now()
+        await current.save()
+        thread.provider_session_id = value
+        thread.updated_at = current.updated_at
+        return
+
+    async with postgres_graph_transaction() as transaction:
+        current = await ChatThread.get(thread.id)
+        if current is None:
+            return
+        if current.provider_session_id == value:
+            thread.provider_session_id = value
+            thread.updated_at = current.updated_at
+            return
+        if current.provider_session_id != expected:
+            # An intervening writer owns the newer value. Never overwrite it
+            # with a stale provider event.
+            return
+        updated_at = _now()
+        updated = await transaction.find_one_and_update(
+            "node",
+            {
+                "id": thread.id,
+                # Use the persisted row revision instead of matching a null
+                # provider_session_id: jvspatial's JSON/Postgres query layer
+                # distinguishes an absent field from an explicit null.
+                "context.updated_at": current.updated_at,
+            },
+            {
+                "$set": {
+                    "context.provider_session_id": value,
+                    "context.updated_at": updated_at,
+                }
+            },
+        )
+        if updated is None:
+            latest = await ChatThread.get(thread.id)
+            if latest is None or latest.provider_session_id != value:
+                return
+            updated_at = latest.updated_at
+        thread.provider_session_id = value
+        thread.updated_at = updated_at
 
 
 async def touch_last_message(thread: ChatThread) -> None:
-    """Bump ``last_message_at`` so the thread sorts to the top."""
-    thread.last_message_at = _now()
-    thread.updated_at = thread.last_message_at
-    await thread.save()
+    """Bump activity fields without overwriting concurrent Harness pointers."""
+    updated_at = _now()
+    from jvspatial.core.context import get_default_context
+
+    from app.services.app_operations.transaction_scope import (
+        graph_transaction_available,
+        postgres_graph_transaction,
+    )
+
+    # append_message is also called inside submission and WorkItem-fenced
+    # transactions. Opening a second transaction here checks out another
+    # connection and waits on the thread row already locked by the caller.
+    # Reuse jvspatial's task-local transaction handle when present.
+    bound_database = get_default_context().database
+    bound_transaction = (
+        bound_database
+        if getattr(bound_database, "is_active", False)
+        and callable(getattr(bound_database, "find_one_and_update", None))
+        else None
+    )
+    if bound_transaction is not None:
+        updated = await bound_transaction.find_one_and_update(
+            "node",
+            {"id": thread.id},
+            {
+                "$set": {
+                    "context.last_message_at": updated_at,
+                    "context.updated_at": updated_at,
+                }
+            },
+        )
+        if updated is None:
+            return
+    elif graph_transaction_available():
+        async with postgres_graph_transaction() as transaction:
+            updated = await transaction.find_one_and_update(
+                "node",
+                {"id": thread.id},
+                {
+                    "$set": {
+                        "context.last_message_at": updated_at,
+                        "context.updated_at": updated_at,
+                    }
+                },
+            )
+            if updated is None:
+                return
+    else:
+        # Legacy non-transactional chat stores still need ordinary Node saves;
+        # reload first so unrelated fields written since request admission are
+        # not lost.
+        current = await ChatThread.get(thread.id)
+        if current is None:
+            return
+        current.last_message_at = updated_at
+        current.updated_at = updated_at
+        await current.save()
+    thread.last_message_at = updated_at
+    thread.updated_at = updated_at
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +309,7 @@ async def append_message(
     parts: List[Dict[str, Any]],
     parent_id: Optional[str] = None,
     provider_metadata: Optional[Dict[str, Any]] = None,
+    message_id: Optional[str] = None,
 ) -> ChatMessage:
     """Create a ChatMessage on ``thread`` and bump its last-activity timestamp.
 
@@ -184,14 +318,17 @@ async def append_message(
     same write as a denormalized pointer cache (see ``ChatMessage`` docstring).
     """
     now = _now()
-    message = await ChatMessage.create(
-        thread_id=thread.id,
-        role=role,
-        parts=parts,
-        parent_id=parent_id,
-        provider_metadata=provider_metadata or {},
-        created_at=now,
-    )
+    message_fields: Dict[str, Any] = {
+        "thread_id": thread.id,
+        "role": role,
+        "parts": parts,
+        "parent_id": parent_id,
+        "provider_metadata": provider_metadata or {},
+        "created_at": now,
+    }
+    if message_id:
+        message_fields["id"] = message_id
+    message = await ChatMessage.create(**message_fields)
     # Refresh transient tool-written markers before any save below. A tool
     # (record_design_proposed, record_pending_question) may set its marker on
     # a *separate* ChatThread instance mid-turn; jvspatial's row cache is not
@@ -221,8 +358,8 @@ async def resolve_message_attachments(
     (a stale/foreign id shouldn't fail the whole message). Returns
     ``(file_parts, context_note)``: ``file_parts`` are persisted onto the
     user's ``ChatMessage.parts`` so the read contract + reload show the
-    file; ``context_note`` is prepended to the turn's utterance so the
-    agent knows the file exists and how to read it (``integral_get_attachment_text``).
+    file; ``context_note`` is passed separately as host context so the agent
+    knows the file exists and how to read it (``integral_get_attachment_text``).
     """
     if not attachment_ids:
         return [], ""
@@ -431,6 +568,7 @@ async def record_design_build_receipt(
         execute_result=execute_result,
         applied_at=utc_now_iso(),
         user_turn=await count_user_turns(thread),
+        existing_app_id=str(marker.get("target_app_id") or ""),
     )
     thread.design_proposed = marker
     await thread.save()
@@ -645,6 +783,29 @@ _AFFIRM_CACHE: ContextVar[Optional[Dict[tuple, bool]]] = ContextVar(
     "design_affirm_cache", default=None
 )
 
+_EXPLICIT_DESIGN_AFFIRM = re.compile(
+    r"^(?:(?:yes|yep|yeah|ok|okay|sure)[.!]?|"
+    r"(?:yes[\s,]+)?(?:i\s+)?(?:"
+    r"confirm(?:\s+(?:this|the|that)\s+design)?"
+    r"|approve(?:\s+(?:this|the|that)\s+design)?"
+    r"|go\s+ahead"
+    r"|build\s+it(?:\s+exactly\s+as\s+(?:proposed|shown|approved))?"
+    r"|proceed"
+    r"|do\s+it"
+    r")(?:[.!])?)$",
+    re.IGNORECASE,
+)
+
+
+def is_explicit_design_affirmation(text: str) -> bool:
+    """Recognize a small, unambiguous English build confirmation locally.
+
+    Natural-language and non-English replies still use the configured light
+    judge. This fast path makes direct confirmations independent of a second
+    model call, while rejecting questions and replies that add requirements.
+    """
+    return bool(_EXPLICIT_DESIGN_AFFIRM.fullmatch((text or "").strip()))
+
 
 def _affirm_cache_key(
     text: str, workspace_id: Optional[str], agent_id: Optional[str]
@@ -675,6 +836,8 @@ async def looks_like_design_affirm(
     t = (text or "").strip()
     if not t:
         return False
+    if is_explicit_design_affirmation(t):
+        return True
     key = _affirm_cache_key(t, workspace_id, agent_id)
     box = _affirm_box()
     if key in box:
@@ -722,6 +885,14 @@ async def design_amend_required(session_id: Optional[str]) -> bool:
     marker = getattr(thread, "design_proposed", None) or {}
     if not marker or marker.get("approved"):
         return False
+    # The native Pydantic run makes the semantic choice by selecting either
+    # the approved-build tool or a new proposal. Do not run a second lexical
+    # or model judge here; the broker fences all pending-design writes.
+    if getattr(thread, "provider_id", None) == "integral_native":
+        return bool(
+            marker.get("affirm_via") == "native_semantic"
+            and marker.get("reply_kind") == "amend"
+        )
     proposed_at = marker.get("proposed_at_user_turn")
     if not isinstance(proposed_at, int):
         return False
@@ -828,7 +999,7 @@ async def pending_design_context_for_utterance(
 ) -> str:
     """Pending design body when this turn is a correction (context data only).
 
-    Procedure lives in skill ``integral_scaffold`` and tool refuse messages.
+    Procedure lives in skill ``integral-scaffold`` and tool refuse messages.
     The host only supplies the prior proposal text so an amend can merge
     deltas without rewriting from scratch.
     """
@@ -889,6 +1060,9 @@ async def record_design_proposed(
     later verification readback must prove. Both text fields are required.
 
     Re-propose rules:
+    - Native typed amendments replace the saved blueprint and clear its old
+      approval; unchanged approved blueprints cannot be re-proposed. No legacy
+      semantic judge is consulted for the native provider.
     - Marker already **approved** → refuse (``already_proposed``). User confirmed
       the shape; the next step is ``begin_batch`` + build, not another propose.
     - Marker pending and user replied with a **pure affirm** ("yes", "build it")
@@ -942,6 +1116,7 @@ async def record_design_proposed(
     ][:32]
 
     existing = getattr(thread, "design_proposed", None) or {}
+    native_turn = thread.provider_id == "integral_native"
     prior_turn = existing.get("proposed_at_user_turn")
     current_turns = await count_user_turns(thread)
     receipt = existing.get("build_receipt") if isinstance(existing, dict) else None
@@ -956,6 +1131,7 @@ async def record_design_proposed(
         and existing.get("approved")
         and not completed_prior_design
         and not unbuildable
+        and (not native_turn or receipt)
     ):
         return {
             "error": "already_proposed",
@@ -976,6 +1152,7 @@ async def record_design_proposed(
     # begin_batch → commit_batch.
     if (
         existing
+        and not native_turn
         and not existing.get("approved")
         and isinstance(prior_turn, int)
         and current_turns > prior_turn
@@ -1072,6 +1249,39 @@ async def record_design_proposed(
             "detail": (
                 "This design has a typed blueprint; an amendment must pass the "
                 "complete revised blueprint, keeping item ids of unchanged items."
+            ),
+        }
+
+    if (
+        native_turn
+        and existing.get("blueprint")
+        and canonical_blueprint == existing.get("blueprint")
+        and isinstance(prior_turn, int)
+        and current_turns > prior_turn
+        and not existing.get("build_receipt")
+    ):
+        return {
+            "error": "unchanged_design",
+            "detail": (
+                "This exact design is already saved. Do not replace or present "
+                "it again. If the latest user reply authorizes building it, call "
+                "integral_build_approved_design; if it asks for a change, "
+                "propose the materially revised blueprint. For a question or "
+                "unclear reply, answer without writes."
+            ),
+        }
+
+    if (
+        native_turn
+        and existing.get("approved")
+        and existing.get("blueprint") == canonical_blueprint
+        and not unbuildable
+    ):
+        return {
+            "error": "already_proposed",
+            "detail": (
+                "This exact blueprint is already approved. Build the saved "
+                "shape; a changed blueprint must be proposed and approved anew."
             ),
         }
 
@@ -1378,7 +1588,19 @@ async def clear_pending_question_for_session(session_id: Optional[str]) -> None:
 
 
 async def delete_thread_messages(thread: ChatThread) -> int:
-    """Hard-delete all messages for a thread via CONTAINS traversal."""
+    """Hard-delete thread transcript and native Harness state."""
+    from app.models.nodes import HarnessSession
+
+    if await HarnessSession.find({"thread_id": thread.id}):
+        from app.services.harness_sessions import (
+            purge_harness_sessions_for_thread,
+        )
+
+        await purge_harness_sessions_for_thread(
+            thread_id=thread.id,
+            principal_id=thread.user_id,
+            workspace_id=thread.workspace_id,
+        )
     messages = await thread.nodes(
         edge=[CONTAINS],
         node=["ChatMessage"],

@@ -1,0 +1,33 @@
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+
+vi.mock('./client', () => ({
+  default: {
+    get: vi.fn(),
+    post: vi.fn(),
+    put: vi.fn(),
+    patch: vi.fn(),
+    delete: vi.fn(),
+  },
+}));
+
+import apiClient from './client';
+import { appsApi } from './apps';
+
+describe('appsApi.updateFromLibrary', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('queues an update from the App library package', async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({
+      data: { status: 'queued', work_item_id: 'work-123' },
+    });
+
+    await expect(appsApi.updateFromLibrary('app-123')).resolves.toEqual({
+      status: 'queued',
+      work_item_id: 'work-123',
+    });
+    expect(apiClient.post).toHaveBeenCalledWith(
+      '/apps/app-123/update-from-library',
+      {},
+    );
+  });
+});

@@ -98,6 +98,30 @@ class Settings(BaseSettings):
     # warning in main.py.
     MAX_CONCURRENT_TURNS_PER_USER: int = 5
 
+    # Private Pydantic Harness checkpoints, plans, and step receipts for
+    # terminal sessions are purged after this many days. Active/suspended
+    # sessions and ChatThread transcript history are retained independently.
+    # Core run/usage records use their own audit and commercial retention.
+    INTEGRAL_HARNESS_SESSION_RETENTION_DAYS: int = Field(default=90, ge=1, le=3650)
+
+    # Bound a native chat WorkItem from acceptance through completion. A
+    # persisted deadline lets workers stop a wedged provider stream and keeps
+    # recovery from extending the same turn indefinitely.
+    INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS: int = Field(default=900, ge=30, le=3600)
+    # Bound one provider request inside the longer multi-step chat-turn budget.
+    # A stalled stream must not hold a browser turn open until the full harness
+    # deadline expires.
+    INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS: int = Field(
+        default=180, ge=10, le=900
+    )
+    # Aggregate input and output tokens across the native agent's model calls
+    # in one turn; independent from any provider's per-request output limit.
+    INTEGRAL_NATIVE_TURN_TOKEN_LIMIT: int = Field(default=600_000, ge=1)
+    # A document filing journey may span discovery, two skills, source/schema
+    # reads and a combined record/attachment proposal. Keep it bounded without
+    # cutting off productive work at the old ten-request ceiling.
+    INTEGRAL_NATIVE_TURN_REQUEST_LIMIT: int = Field(default=20, ge=1, le=100)
+
     # JWT signing key consumed by integral app code (ws auth, service
     # auth, tests). Reads only the jvspatial canonical env var —
     # ``JVSPATIAL_JWT_SECRET_KEY`` is the single source of truth so
@@ -500,6 +524,11 @@ class Settings(BaseSettings):
     # (agent-scratch). Domain Apps (e.g. personal-context) must be installed
     # from an explicit package path or after disabling this flag.
     INTEGRAL_CORE_ONLY: bool = False
+
+    # ===== Optional host-extension module =====
+    # Module path imported after the Core API so a host process can register
+    # routes/hooks. Open-source Core leaves this empty.
+    INTEGRAL_HOST_EXTENSION_MODULE: str = ""
 
     # ===== Chunked / resumable uploads (Plan 03 — Phase 6) =====
     # When False (the default) the chunked upload endpoints reject with

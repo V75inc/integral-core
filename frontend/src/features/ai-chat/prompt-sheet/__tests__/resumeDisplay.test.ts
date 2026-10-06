@@ -8,21 +8,27 @@ import {
 import { resumeIfNeeded } from '../usePromptQueue';
 
 describe('prompt sheet resume display', () => {
-  it('renders the resolved review before sending its continuation prompt', () => {
+  it('renders the resolved review and starts a host continuation without a user message', () => {
     const appended: Array<{ role: string; content: Array<{ type: string; text: string }> }> = [];
+    const runs: unknown[] = [];
+    const notes: string[] = [];
     const runtime = {
-      append: (message: (typeof appended)[number]) => appended.push(message),
+      getState: () => ({ messages: [{ id: 'review-note' }] }),
+      startRun: (config: unknown) => runs.push(config),
     };
     const review = '[PROMPT_SHEET]\nUpdates applied\n• Draft diff (not published): added views: Table';
 
-    resumeIfNeeded(runtime as never, review);
+    resumeIfNeeded(runtime as never, review, (text) => notes.push(text));
 
-    expect(appended.map((message) => message.role)).toEqual([
-      'assistant',
-      'user',
+    expect(appended).toEqual([]);
+    expect(notes).toEqual([review]);
+    expect(runs).toEqual([
+      {
+        parentId: 'review-note',
+        sourceId: null,
+        runConfig: { custom: { hostAction: 'prompt_sheet_resume' } },
+      },
     ]);
-    expect(appended[0].content[0].text).toBe(review);
-    expect(appended[1].content[0].text).toBe(review);
   });
 
   it('parses a natural residual bullet list', () => {

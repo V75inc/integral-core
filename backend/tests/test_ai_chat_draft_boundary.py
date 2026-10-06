@@ -111,6 +111,52 @@ def test_timing_and_steps_land_on_last_bubble() -> None:
     assert drafts[1].timing == {"totalMs": 9.0}
 
 
+def test_model_call_observability_survives_transcript_persistence() -> None:
+    """Reload metadata retains provider, exact usage, cost, latency, and state."""
+    call = {
+        "type": "step",
+        "modelId": "ollama_chat/gemma4:26b",
+        "provider": "ollama_chat",
+        "requestId": "request-1",
+        "attempt": 1,
+        "outcome": "responded",
+        "costSource": "unavailable",
+        "durationMs": 1240.5,
+        "usage": {"inputTokens": 321, "outputTokens": 45},
+    }
+    draft = drafts_from_events(
+        [
+            {"type": "text-delta", "delta": "Answer."},
+            call,
+        ]
+    )[0]
+
+    assert draft.steps == [
+        {
+            "modelId": "ollama_chat/gemma4:26b",
+            "provider": "ollama_chat",
+            "requestId": "request-1",
+            "attempt": 1,
+            "outcome": "responded",
+            "costSource": "unavailable",
+            "durationMs": 1240.5,
+            "usage": {"inputTokens": 321, "outputTokens": 45},
+        }
+    ]
+
+
+def test_settled_text_replacement_is_the_persisted_transcript() -> None:
+    """Reloaded messages use final normalized output after stream correction."""
+    draft = drafts_from_events(
+        [
+            {"type": "text-delta", "delta": "AI answer."},
+            {"type": "text-replace", "content": "OpenAI answer."},
+        ]
+    )[0]
+
+    assert _texts(draft.to_parts()) == "OpenAI answer."
+
+
 def test_duplicate_text_drafts_collapse_to_one() -> None:
     """Twin bubbles with identical prose collapse before persistence."""
     events = [

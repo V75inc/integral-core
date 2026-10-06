@@ -32,6 +32,7 @@ mapped to a ChangeEventAction Literal member below:
     api/comments.py::(create/update/delete) -> comment.create / comment.update / comment.delete
     api/attachments.py::upload              -> attachment.create
     api/attachments.py::delete              -> attachment.delete
+    services/attachment_agent.py::attach_uploaded_file_to_entry -> attachment.attach
     api/users.py::(create/update/delete)    -> user.create / user.update / user.delete
     api/notifications.py::create_notification         -> notification.create
     api/notifications.py::mark_notification_as_read   -> notification.read           (Phase 9 Plan 09-02)
@@ -107,6 +108,7 @@ ChangeEventAction = Literal[
     "comment.update",
     "comment.delete",
     "attachment.create",
+    "attachment.attach",
     "attachment.delete",
     "entry_type.create",
     "entry_type.update",
@@ -129,6 +131,9 @@ ChangeEventAction = Literal[
     "prompt_queue.resolve_question",
     "prompt_queue.mark_write",
     "prompt_queue.cancel_all",
+    # Durable native chat turn cancellation; WorkItem state is outside the
+    # graph, but user cancellation still needs the canonical audit trail.
+    "chat_turn.cancel",
     # Phase-1-aware agentive mutations
     "agent_config.register",
     "agent_config.update",

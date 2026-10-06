@@ -141,7 +141,13 @@ async def delete_workspace_cascade(
             unlinked_tracks = len(tracks)
 
     if threads:
-        await asyncio.gather(*(t.delete() for t in threads))
+        from app.services.chat_threads import delete_thread_messages
+
+        async def delete_thread(thread: ChatThread) -> None:
+            await delete_thread_messages(thread)
+            await thread.delete()
+
+        await asyncio.gather(*(delete_thread(thread) for thread in threads))
 
     await _delete_branches(workspace)
 

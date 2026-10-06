@@ -402,6 +402,7 @@ def validate_batch_references(ops: List[Dict[str, Any]]) -> None:
     """Reject dangling/forward or ambiguous named references before any writes."""
     from app.agentive.staging import StagingError
     from app.agentive.staging_executors import (
+        _BATCH_POSITIONAL_REF_RE,
         _BATCH_REF_RE,
         _capture_batch_refs,
         _resolve_batch_refs,
@@ -432,7 +433,12 @@ def validate_batch_references(ops: List[Dict[str, Any]]) -> None:
         payload = op.get("payload") or {}
         resolved = _resolve_batch_refs(payload, refs)
         unresolved = sorted(
-            {m.group(0) for s in strings(resolved) for m in _BATCH_REF_RE.finditer(s)}
+            {
+                m.group(0)
+                for s in strings(resolved)
+                for pattern in (_BATCH_REF_RE, _BATCH_POSITIONAL_REF_RE)
+                for m in pattern.finditer(s)
+            }
         )
         if unresolved:
             raise StagingError(

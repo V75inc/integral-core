@@ -24,6 +24,7 @@ import { useStagedChange } from '../staging/useStagedChange';
 import type { StagedChange } from '../staging/types';
 import { rememberActiveChatThreadId } from '../chatHandoff';
 import { useAssistantDock } from '../../../context/AssistantDockContext';
+import { useConfirm } from '../../../context/ConfirmContext';
 import { useAgentInbox } from './useAgentInbox';
 import './inbox.css';
 
@@ -164,8 +165,16 @@ function StagedRow({
   onResolved: () => void;
 }) {
   const { setView } = useAssistantDock();
+  const confirm = useConfirm();
   const { busy, error, bless, revoke, isBlessed } = useStagedChange(staged, {
     onTerminal: onResolved,
+    onNeedsStrongConfirmation: (summary) =>
+      confirm({
+        title: 'Confirm high-impact change',
+        message: `This is a high-impact change. Review the affected records, access, or structure, then confirm this exact action: ${summary}`,
+        confirmLabel: 'Confirm change',
+        variant: 'danger',
+      }),
   });
 
   const reviewInChat = () => {

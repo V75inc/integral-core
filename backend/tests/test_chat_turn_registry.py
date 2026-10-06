@@ -55,6 +55,23 @@ async def test_cancel_sets_event_and_invokes_hook() -> None:
 
 
 @pytest.mark.asyncio
+async def test_repeated_cancel_invokes_provider_hook_once() -> None:
+    """Stream cleanup cannot cancel a later turn after the first stop."""
+    handle = await registry.acquire_turn(thread_id="t1", user_id="u1")
+    calls = 0
+
+    def hook() -> None:
+        nonlocal calls
+        calls += 1
+
+    handle.register_cancel_hook(hook)
+    handle.cancel()
+    handle.cancel()
+
+    assert calls == 1
+
+
+@pytest.mark.asyncio
 async def test_acquire_records_origin() -> None:
     handle = await registry.acquire_turn(
         thread_id="t1", user_id="u1", origin="routine_task"

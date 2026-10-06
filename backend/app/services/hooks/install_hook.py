@@ -235,13 +235,18 @@ async def rehydrate_all_installed_bundles() -> None:
             cp = await get_app_attached_operational_model(app_node)
             if cp is None:
                 continue
-            if await _heal_stripped_operational_layer(app_node, cp):
+            healed = await _heal_stripped_operational_layer(app_node, cp)
+            if healed:
                 count_healed += 1
             definition = await get_active_application_definition(app_node)
             canonical = (
-                dict(definition.canonical_manifest)
-                if definition is not None and definition.canonical_manifest
-                else compile_canonical_manifest(manifest=cp.manifest or {})
+                compile_canonical_manifest(manifest=cp.manifest or {})
+                if healed
+                else (
+                    dict(definition.canonical_manifest)
+                    if definition is not None and definition.canonical_manifest
+                    else compile_canonical_manifest(manifest=cp.manifest or {})
+                )
             )
             bundle_dir = (
                 str((getattr(cp, "metadata", None) or {}).get("bundle_dir_path") or "")

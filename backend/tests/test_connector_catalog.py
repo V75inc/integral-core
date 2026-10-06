@@ -30,6 +30,7 @@ def test_load_catalog_includes_native_seeds():
         "notion",
         "quickbooks",
         "quickbooks_mcp",
+        "serper_web_search",
     }
     gmail = loader.get_catalog_entry("gmail")
     assert gmail["auth"]["type"] == "oauth2"
@@ -83,6 +84,18 @@ def test_load_catalog_includes_native_seeds():
     assert qb_mcp["transport"] == "stdio"
     assert qb_mcp["command"] == "npx"
     assert "github:intuit/quickbooks-online-mcp-server" in qb_mcp["args"]
+    serper = loader.get_catalog_entry("serper_web_search")
+    assert serper["kind"] == "mcp"
+    assert serper["transport"] == "stdio"
+    assert serper["command"] == "python"
+    assert serper["args"] == ["-m", "app.connectors.serper_mcp_server"]
+    assert serper["auth"]["type"] == "api_key"
+    serper_key = next(
+        f for f in serper["auth"]["fields"] if f["name"] == "SERPER_API_KEY"
+    )
+    assert serper_key["secret"] is True
+    assert serper_key["required"] is False
+    assert serper["read_only_tools"] == ["search_web"]
     assert qb_mcp["auth"]["type"] == "oauth2"
     qb_mcp_fields = {f["name"] for f in qb_mcp["auth"]["fields"]}
     assert "client_id" in qb_mcp_fields

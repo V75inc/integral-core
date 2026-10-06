@@ -1740,7 +1740,7 @@ async def _validate_kind_scope(
 # ---------------------------------------------------------------------------
 
 
-# Intra-batch reference token. Two forms:
+# Intra-batch reference tokens. Two public forms and the provider's lowered form:
 #   * positional — ``{{app.id}}`` / ``{{app_id}}`` / ``{{step_1.id}}`` — the
 #     LAST entity of that type created so far in the batch.
 #   * named — ``{{track.id:Authors}}`` / ``{{entry.id:Jane Austen}}`` — the
@@ -1749,8 +1749,12 @@ async def _validate_kind_scope(
 #     ``{{track.id}}`` alone points only at the most-recent track, which
 #     silently mis-targets when several tracks are created before any is
 #     populated).
+#   * provider-lowered positional — ``$batch.0.id`` — the result id of the
+#     zero-based operation index. Some agent providers lower ``{{entry.id}}``
+#     to this representation before Core receives the staged operation.
 # The optional ``:name`` segment allows spaces and any char except ``}``.
 _BATCH_REF_RE = _re.compile(r"\{\{\s*([a-zA-Z_][\w.]*(?::[^}]*)?)\s*\}\}")
+_BATCH_POSITIONAL_REF_RE = _re.compile(r"\$batch\.(\d+)\.id\b")
 
 
 # Entity wrapper keys a create-handler may return its new node under. Order is
@@ -1792,6 +1796,14 @@ def _resolve_batch_refs(value: Any, ctx: Dict[str, str]) -> Any:
     silently writing a placeholder).
     """
     if isinstance(value, str):
+
+        def _sub_positional(m: "_re.Match[str]") -> str:
+            # Provider-lowered indices are zero-based operation positions.
+            key = f"step_{int(m.group(1)) + 1}.id"
+            hit = ctx.get(key)
+            return hit if hit is not None else m.group(0)
+
+        value = _BATCH_POSITIONAL_REF_RE.sub(_sub_positional, value)
 
         def _sub(m: "_re.Match[str]") -> str:
             key = m.group(1).strip()

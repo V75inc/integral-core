@@ -15,7 +15,8 @@ exclude =
     .pytest_cache,
     .vscode,
     build,
-    dist
+    dist,
+    app/resident_harness
 per-file-ignores =
     tests/*: E402
     app/main.py: E402, SIM102, SIM105

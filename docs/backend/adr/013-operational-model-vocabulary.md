@@ -25,7 +25,7 @@ declarative model of an App or Track.
 | Package manifest | `operational-model.yaml` with `integral_operational_model_version` |
 | Built-in package root | `backend/app/packages/` |
 | Signature configuration | `INTEGRAL_OPERATIONAL_MODEL_PUBKEY` |
-| Resident tools and skills | `integral_*_model*` and `integral_models` |
+| Resident tools and skills | `integral_*_model*` and `integral-models` |
 | User routes | `/models` and `/models/:id` |
 
 An **App Package** is an immutable distributable containing an App Model and

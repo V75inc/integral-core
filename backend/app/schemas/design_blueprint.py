@@ -10,6 +10,7 @@ platform defaults the build relies on are listed explicitly.
 from __future__ import annotations
 
 import re
+from collections import Counter
 from typing import Annotated, Any, Dict, Iterator, List, Literal, Optional, Tuple
 
 from pydantic import (
@@ -58,7 +59,13 @@ _RELATION_KEYS = (
 class _Item(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    id: ItemId
+    id: ItemId = Field(
+        description=(
+            "Stable ID unique across every item in this whole blueprint. "
+            "Use namespaced IDs such as track.tools.field.notes and "
+            "track.checkouts.field.notes; do not reuse an ID on another item."
+        )
+    )
 
 
 class BlueprintApp(_Item):
@@ -81,10 +88,22 @@ class BlueprintRelation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     target: Literal["entry", "track"]
-    target_entry_types: List[Label] = Field(default_factory=list)
+    target_entry_types: List[Label] = Field(
+        default_factory=list,
+        description=(
+            "For target='entry', REQUIRED and non-empty: names of the entry "
+            "types this lookup can reference."
+        ),
+    )
     target_track: Optional[ItemId] = None
     target_track_template: Optional[ItemId] = None
-    target_track_types: List[Label] = Field(default_factory=list)
+    target_track_types: List[Label] = Field(
+        default_factory=list,
+        description=(
+            "For target='entry', names Tracks that may contain the target entry "
+            "types."
+        ),
+    )
     allow_cross_track: Optional[bool] = None
     many: bool = False
 
@@ -327,6 +346,48 @@ class DesignBlueprint(BaseModel):
                     {**track, "entry_types": entry_types, "tag_groups": tag_groups}
                 )
             data[section] = filled_tracks
+
+        # Field IDs are blueprint-global, while natural field keys such as
+        # ``notes`` commonly recur on separate Tracks. If a model reuses a
+        # field ID, namespace all colliding fields by their stable Track/key
+        # identity. This mirrors the canonical IDs already derived for fields
+        # that omit ``id`` and leaves all non-colliding explicit IDs intact.
+        all_tracks = [
+            track
+            for section in ("tracks", "track_templates")
+            for track in data.get(section, [])
+            if isinstance(track, dict)
+        ]
+        field_ids = [
+            field.get("id")
+            for track in all_tracks
+            for entry_type in track.get("entry_types") or []
+            if isinstance(entry_type, dict)
+            for field in entry_type.get("fields") or []
+            if isinstance(field, dict) and isinstance(field.get("id"), str)
+        ]
+        repeated_field_ids = {
+            item_id for item_id, count in Counter(field_ids).items() if count > 1
+        }
+        if repeated_field_ids:
+            for track in all_tracks:
+                track_id = track.get("id")
+                if not isinstance(track_id, str):
+                    continue
+                for entry_type in track.get("entry_types") or []:
+                    if not isinstance(entry_type, dict):
+                        continue
+                    for field in entry_type.get("fields") or []:
+                        if (
+                            isinstance(field, dict)
+                            and field.get("id") in repeated_field_ids
+                            and isinstance(field.get("key"), str)
+                        ):
+                            entry_type_id = entry_type.get("id")
+                            if isinstance(entry_type_id, str):
+                                field["id"] = (
+                                    f"{track_id}.{entry_type_id}.{field['key']}"
+                                )
         return data
 
     def items(self) -> Iterator[Tuple[str, BaseModel]]:
