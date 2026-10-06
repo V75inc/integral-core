@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import re
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import quote
 
 from jvspatial.api.exceptions import InsufficientPermissionsError
 
@@ -455,6 +456,7 @@ async def verify_loaded(
     """Judge one already-loaded design. ``reader.read`` is the only I/O."""
     mapping = receipt.get("mapping") if isinstance(receipt.get("mapping"), dict) else {}
     items: List[Dict[str, Any]] = []
+    resources: List[Dict[str, str]] = []
     track_ids = [
         spec["object_id"]
         for spec in mapping.values()
@@ -529,6 +531,22 @@ async def verify_loaded(
             snap = {**snap, "authorized_app_id": app_id}
         if _matches(kind, expected, snap):
             items.append({"id": item_id, "status": "present"})
+            # Navigation comes from the receipt's actual object, after its
+            # permission-checked readback. Blueprint item ids are references,
+            # never routes. Reuse this read instead of making the agent discover
+            # the just-created objects again merely to obtain their links.
+            route = {"app": "apps", "track": "tracks", "seed": "entries"}.get(kind)
+            object_id = locator.get("object_id")
+            if route and isinstance(object_id, str) and object_id:
+                resources.append(
+                    {
+                        "blueprint_item_id": item_id,
+                        "kind": "entry" if kind == "seed" else kind,
+                        "id": object_id,
+                        "name": _label(snap),
+                        "url": f"/{route}/{quote(object_id, safe='')}",
+                    }
+                )
         elif kind == "platform_default":
             items.append(
                 {
@@ -547,6 +565,7 @@ async def verify_loaded(
         "execution_receipt_id": receipt.get("id"),
         "status": _overall(statuses),
         "items": items,
+        "resources": resources,
     }
 
 
@@ -576,6 +595,7 @@ async def verify_build(
     design_id: str,
     design_revision: Any,
     execution_receipt_id: str,
+    workspace_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Read tool. Rejects a different revision or a receipt from another apply.
 
@@ -588,10 +608,16 @@ async def verify_build(
             "detail": "design_id and design_revision are required.",
         }
     _thread, marker = await _find_design(user_id, str(design_id).strip())
-    if not marker:
+    # Tool dispatch injects workspace_id from its authenticated scope. Being
+    # the same principal in another workspace does not admit that workspace's
+    # design or navigation targets into this conversation.
+    if not marker or (
+        workspace_id is not None
+        and getattr(_thread, "workspace_id", None) != workspace_id
+    ):
         return {
             "error": "design_not_found",
-            "detail": "No design with that id is on a conversation you own.",
+            "detail": "No design with that id is on a conversation you own in this scope.",
         }
     blueprint = marker.get("blueprint")
     if not isinstance(blueprint, dict):

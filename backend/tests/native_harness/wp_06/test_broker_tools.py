@@ -53,6 +53,60 @@ def test_resource_urls_preserve_opaque_ids_and_the_original_receipt():
 
 
 @pytest.mark.asyncio
+async def test_protected_write_uses_declared_skill_relationship_before_live_broker(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """Discovery alone must not skip the applicable skill's filing procedure."""
+    skill = tmp_path / "receipt-filing"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        "---\nname: receipt-filing\ndescription: File receipts.\n"
+        "allowed-tools: integral_create_entry\n---\nVerify document identity first.\n"
+    )
+    invocations = []
+
+    async def invoke(**kwargs):
+        invocations.append(kwargs)
+        return CapabilityResult(ok=True, data={"_kind": "staged_change"})
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda _name: ("core", "propose"),
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    tools = build_brokered_tools(
+        scope=_scope(),
+        skill_library=tmp_path,
+        catalogue=[
+            {
+                "name": "integral_create_entry",
+                "description": "Create an entry.",
+                "input_schema": {"type": "object", "properties": {}},
+            }
+        ],
+    )
+    tool = next(t for t in tools if t.name == "integral_create_entry")
+    assert tool.sequential is True
+    denied = await tool.function_schema.call(
+        {}, SimpleNamespace(tool_call_id="before", active_capability_ids=set())
+    )
+    assert denied["error_code"] == "required_skill_not_loaded"
+    assert "receipt-filing" in denied["message"]
+    assert invocations == []
+
+    result = await tool.function_schema.call(
+        {},
+        SimpleNamespace(tool_call_id="after", active_capability_ids={"receipt-filing"}),
+    )
+    assert result["_kind"] == "staged_change"
+    assert len(invocations) == 1
+    assert invocations[0]["principal_id"] == "user-1"
+    assert invocations[0]["workspace_id"] == "workspace-1"
+
+
+@pytest.mark.asyncio
 async def test_known_integral_tools_still_cross_live_broker_without_search(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

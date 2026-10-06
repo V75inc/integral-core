@@ -7,7 +7,7 @@ export const IntegralNativeProvider = createServerChatProvider({
   capabilities: {
     reasoning: false,
     tools: true,
-    attachments: false,
+    attachments: true,
     vision: false,
     voice: false,
   },

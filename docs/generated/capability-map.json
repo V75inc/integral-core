@@ -214,10 +214,13 @@
         "integral_commit_batch",
         "integral_create_entry",
         "integral_get_attachment_text",
+        "integral_get_track_schema",
         "integral_list_attachments",
         "integral_list_track_attachments",
+        "integral_list_tracks",
         "integral_list_workspace_attachments",
         "integral_query_entries",
+        "integral_rank_destinations",
         "integral_resolve_entry",
         "integral_transcribe_audio"
       ],
@@ -228,10 +231,13 @@
         "integral_commit_batch",
         "integral_create_entry",
         "integral_get_attachment_text",
+        "integral_get_track_schema",
         "integral_list_attachments",
         "integral_list_track_attachments",
+        "integral_list_tracks",
         "integral_list_workspace_attachments",
         "integral_query_entries",
+        "integral_rank_destinations",
         "integral_resolve_entry",
         "integral_transcribe_audio"
       ],
@@ -241,7 +247,7 @@
         "integral-insights",
         "integral-scaffold"
       ],
-      "intent": "Lists, reads, files, and delivers files attached to Integral entries \u2014 including across a whole track or workspace, and files the user just dropped in this chat. Use when the user asks what is attached, wants file contents summarized, or asks to attach/file/post a chat-uploaded file into an entry.",
+      "intent": "Reads and interprets uploaded documents, PDFs and receipts, then files the source attachment with the matching authorized App, Track and record. Use first for a file dropped in chat, including \u201cfile this where it belongs\u201d. Also lists, summarizes and delivers existing entry attachments across a track or workspace. Clarify ambiguous destinations before writing.",
       "name": "integral-attachments",
       "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral-attachments/SKILL.md",
       "unresolved_refs": []
@@ -354,7 +360,7 @@
         "integral-models",
         "integral-workspace"
       ],
-      "intent": "Files user-supplied unstructured facts\u2014notes, observations, pasted email, or meeting summaries\u2014into the best authorized Track and Entry shape after grounding on its Operational Model. Use when content needs interpretation and placement; use integral-entries for a named record or an explicit structured CRUD request. Stage the filing for approval.",
+      "intent": "Files user-typed unstructured facts\u2014notes, observations, pasted email, or meeting summaries\u2014into the best authorized Track and Entry shape. For uploaded files or receipts, use integral-attachments first to read the source. Use integral-entries for a named record or explicit structured CRUD request. Clarify ambiguous destinations and stage filing for approval.",
       "name": "integral-filing",
       "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral-filing/SKILL.md",
       "unresolved_refs": []
@@ -1029,6 +1035,7 @@
       "op_class": "read",
       "policy_action": "track.read",
       "skills": [
+        "integral-attachments",
         "integral-dashboards",
         "integral-entries",
         "integral-filing",
@@ -1057,6 +1064,7 @@
       "op_class": "read",
       "policy_action": "track.read",
       "skills": [
+        "integral-attachments",
         "integral-entries",
         "integral-filing",
         "integral-insights",
@@ -1495,6 +1503,7 @@
       "op_class": "read",
       "policy_action": null,
       "skills": [
+        "integral-attachments",
         "integral-filing"
       ],
       "status": "existing"
