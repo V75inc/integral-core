@@ -68,6 +68,8 @@
 
 .doc-template-workspace__editor {
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .doc-template-workspace__sidebar {
@@ -92,40 +94,19 @@
 
 .doc-template-editor {
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto;
   border: 1px solid var(--panel-border);
   border-radius: 8px;
   background: var(--panel);
-  min-height: 420px;
+  min-height: 0;
   min-width: 0;
 }
 
 .doc-template-workspace__editor .doc-template-editor:not(.doc-template-editor--loading) {
-  --doc-editor-page-chrome: 14rem;
-  height: calc(
-    100dvh - var(--app-topbar-height, 0px) - var(--system-bar-h, 0px) -
-      var(--doc-editor-page-chrome)
-  );
-  max-height: calc(
-    100dvh - var(--app-topbar-height, 0px) - var(--system-bar-h, 0px) -
-      var(--doc-editor-page-chrome)
-  );
-  min-height: clamp(28rem, 72vh, 56rem);
-  overflow: hidden;
-}
-
-@media (min-width: 768px) and (max-width: 1023px) {
-  .doc-template-workspace__editor .doc-template-editor:not(.doc-template-editor--loading) {
-    --doc-editor-page-chrome: 16rem;
-    min-height: clamp(24rem, 58dvh, 44rem);
-  }
-}
-
-@media (min-width: 1024px) {
-  .doc-template-workspace__editor .doc-template-editor:not(.doc-template-editor--loading) {
-    --doc-editor-page-chrome: 10rem;
-    min-height: clamp(32rem, 76dvh, 60rem);
-  }
+  height: auto;
+  max-height: none;
+  min-height: 0;
+  overflow: visible;
 }
 
 .doc-template-editor--loading {
@@ -778,15 +759,12 @@
 }
 
 .doc-editor-scroll {
-  background: #e8eaed;
-  padding: 24px 16px;
-  overflow-x: hidden;
-  overflow-y: auto;
+  background: var(--bg);
+  padding: 24px 16px 48px;
+  overflow: visible;
   min-height: 0;
   min-width: 0;
-  height: 100%;
-  overscroll-behavior: contain;
-  overflow-anchor: none;
+  height: auto;
 }
 
 .doc-page {
@@ -879,6 +857,7 @@
   padding: 6px 8px;
   vertical-align: top;
   position: relative;
+  overflow-wrap: anywhere;
 }
 
 .doc-template-prose .column-resize-handle {
@@ -1139,11 +1118,11 @@ s .doc-field-token {
 .doc-preview-frame {
   display: block;
   width: 100%;
-  min-height: 420px;
+  min-height: 960px;
   border: 1px solid var(--panel-border);
   border-radius: 8px;
-  background: #fff;
-  color: #111;
+  background: var(--bg);
+  color: var(--text);
 }
 
 .doc-preview-frame--empty {

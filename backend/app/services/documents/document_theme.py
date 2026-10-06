@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from typing import Any, Dict, Literal, Optional, Tuple
 
-PageSizeKey = Literal["letter", "legal", "a4"]
+PageSizeKey = Literal["letter", "legal", "a4", "letter_landscape"]
 
 PAGE_SIZE_INCHES: Dict[PageSizeKey, Tuple[float, float]] = {
     "letter": (8.5, 11.0),
     "legal": (8.5, 14.0),
     "a4": (8.27, 11.69),
+    "letter_landscape": (11.0, 8.5),
 }
 
 DEFAULT_PAGE_SIZE: PageSizeKey = "letter"
@@ -38,6 +39,8 @@ def normalize_page_size(raw: Optional[str]) -> PageSizeKey:
     key = (raw or DEFAULT_PAGE_SIZE).strip().lower()
     if key == "us_legal":
         key = "legal"
+    if key in ("landscape", "letter-landscape"):
+        key = "letter_landscape"
     if key in PAGE_SIZE_INCHES:
         return key  # type: ignore[return-value]
     return DEFAULT_PAGE_SIZE

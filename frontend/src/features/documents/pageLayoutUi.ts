@@ -9,6 +9,7 @@ export const PAGE_SIZE_OPTIONS: {
   detail: string;
 }[] = [
   { key: 'letter', label: 'US Letter', detail: '8.5 × 11 in' },
+  { key: 'letter_landscape', label: 'Letter landscape', detail: '11 × 8.5 in' },
   { key: 'legal', label: 'US Legal', detail: '8.5 × 14 in' },
   { key: 'a4', label: 'A4', detail: '210 × 297 mm' },
 ];
