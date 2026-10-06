@@ -1,4 +1,6 @@
-plan_revision: 23
+plan_revision: 25
+goal_file: docs/product/harness-execution/GOAL.md
+goal_recalibrated_at: "2026-10-05"
 branch: feat/pydantic-ai-harness-v1
 baseline:
   commit: b0934bd5d39e7b07d714cb9c8d68ff26835c61b8
@@ -12,10 +14,21 @@ baseline:
   pydantic_ai_harness: absent_from_backend_environment
   pydantic_ai: absent_from_backend_environment
 candidate:
-  pydantic_ai_harness: 0.30.0
+  pydantic_ai_harness: 0.36.0
   pydantic_ai: 2.54.0
   backend_lock_resolved: true
 verification:
+  recalibration_2026_10_05:
+    evidence: docs/product/harness-evidence/recalibration-2026-10-05/README.md
+    native_and_proposal_suite: passed_241_skipped_28_before_final_status_assertion
+    native_design_approval_postgres: passed_2_cases
+    browser_glm_saved_proposal_natural_approval_build_readback: passed
+    browser_glm_record_discovery_staging_card_approval_readback: passed_after_disclosure_fix
+    browser_glm_unpriced_cost_display: passed_unknown_cost_no_false_zero
+    browser_openai_final_revision: lookup_and_cost_passed_navigation_link_failed
+    browser_natural_record_approval: pending_card_still_required
+    browser_failed_turn_recovery: unresolved
+    repository_commit_gate: passed_full_make_verify
   native_harness_and_skill_regressions: passed
   frontend_provider_and_chat_regressions: passed_25_tests
   core_only: passed

@@ -189,6 +189,38 @@ def test_usage_preserves_explicit_provider_zero_cost(
     assert usage.cost_source == "provider_response"
 
 
+def test_usage_keeps_sdk_zero_without_claiming_an_unpriced_route_is_free(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import litellm
+
+    class Response:
+        _hidden_params = {"response_cost": 0.0}
+
+        def model_dump(self, **_kwargs):
+            return {"usage": {"prompt_tokens": 100, "completion_tokens": 10}}
+
+    monkeypatch.setattr(
+        litellm,
+        "get_model_info",
+        lambda **_kwargs: {
+            "input_cost_per_token": 0.0,
+            "output_cost_per_token": 0.0,
+        },
+    )
+    usage = _usage(
+        Response(),
+        complete=True,
+        model="ollama_chat/glm-5.3:cloud",
+        provider="ollama_chat",
+    )
+    assert usage.input_tokens == 100
+    assert usage.output_tokens == 10
+    assert usage.litellm_response_cost_usd == Decimal("0.0")
+    assert usage.provider_cost_usd is None
+    assert usage.cost_source == "unavailable"
+
+
 def test_usage_prefers_direct_provider_cost_over_litellm_hidden_cost() -> None:
     """Provider response amounts outrank LiteLLM's wrapper accounting field."""
 

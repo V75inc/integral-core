@@ -123,6 +123,8 @@ async def load_claimed_chat_turn_input(item: WorkItem) -> ChatTurnWorkerInput:
     ):
         raise WorkError("work.policy_denied", "accepted chat message is detached")
 
+    from app.services.chat_page_context import sanitize_user_text
+
     return ChatTurnWorkerInput(
         thread=thread,
         message=message,
@@ -131,7 +133,12 @@ async def load_claimed_chat_turn_input(item: WorkItem) -> ChatTurnWorkerInput:
         # to resume a native turn.
         user_email="",
         execution_context=capsule.execution_context,
-        text=parts[0]["text"],
+        # Keep the transcript faithful to the user's authored text, but apply
+        # the same host-marker neutralization as the live /messages path
+        # before the model sees it. Durable recovery must not let a user forge
+        # a host-generated [SYSTEM:...] directive by sending raw transcript
+        # content straight to the provider.
+        text=sanitize_user_text(parts[0]["text"]),
     )
 
 

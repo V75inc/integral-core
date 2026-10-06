@@ -2093,19 +2093,31 @@ async def send_message(
     # Pending design body as context data on correction turns (procedure is in
     # skill integral-scaffold). Affirm only stamps approved — no tutoring.
     design_marker = getattr(thread, "design_proposed", None) or {}
-    prior_design_body = await chat_store.pending_design_context_for_utterance(
-        marker=design_marker if isinstance(design_marker, dict) else None,
-        user_turns_before_this_message=await chat_store.count_user_turns(thread),
-        utterance=text or "",
-        workspace_id=active_workspace_id,
-        agent_id=getattr(thread, "agent_id", None) or None,
-    )
+    native_design_approval = thread.provider_id == "integral_native"
+    if native_design_approval:
+        # Native approval is interpreted inside the claimed, metered run.
+        # No lexical gate or JVAgent light-model inference before admission.
+        prior_design_body = (
+            str(design_marker.get("proposal") or "")
+            if isinstance(design_marker, dict)
+            else ""
+        )
+    else:
+        prior_design_body = await chat_store.pending_design_context_for_utterance(
+            marker=design_marker if isinstance(design_marker, dict) else None,
+            user_turns_before_this_message=await chat_store.count_user_turns(thread),
+            utterance=text or "",
+            workspace_id=active_workspace_id,
+            agent_id=getattr(thread, "agent_id", None) or None,
+        )
     prior_design_preamble = wrap_injected_context(
         "pending_design_proposal", prior_design_body
     )
     if prior_design_preamble:
         system_context_blocks.append(prior_design_preamble)
-    if await chat_store.stamp_design_approved(thread=thread, utterance=text or ""):
+    if not native_design_approval and await chat_store.stamp_design_approved(
+        thread=thread, utterance=text or ""
+    ):
         thread = await chat_store.get_thread(thread.id) or thread
         # Chat affirm *is* the design approval — drop the inbox "Confirm in
         # chat" design_proposal card so the model (and user) do not treat it

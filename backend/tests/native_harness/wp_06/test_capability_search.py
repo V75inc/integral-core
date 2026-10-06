@@ -60,7 +60,9 @@ async def test_search_finds_skill_and_tool_for_a_plain_user_goal(
         catalogue=catalogue,
     )
 
-    result = await tool.function(query="equipment register app", limit=6)
+    returned = await tool.function(query="equipment register app", limit=6)
+    result = returned.return_value
+    assert "integral_propose_design" in returned.tools
 
     assert result.get("error") is not True
     found = {(item["kind"], item["name"]) for item in result["results"]}
@@ -204,17 +206,16 @@ def test_real_scaffold_skill_search_finds_the_proposal_tool_first() -> None:
 
 
 @pytest.mark.asyncio
-async def test_identical_search_is_suppressed_with_a_stop_instruction() -> None:
-    """Repeated catalog queries cannot become another model/tool loop."""
+async def test_identical_search_reuses_the_same_disclosure() -> None:
+    """Retries reuse a cached result rather than turning discovery into an error."""
     tool = build_search_capabilities_tool(skill_library=None, catalogue=[])
-    await tool.function(query="find an app skill")
+    first = await tool.function(query="find an app skill")
 
     repeated = await tool.function(query="  FIND an APP skill  ")
 
-    assert repeated["error"] is True
-    assert repeated["error_code"] == "repeated_capability_search_suppressed"
-    assert repeated["retryable"] is False
-    assert "Use the results" in repeated["message"]
+    assert repeated.return_value == first.return_value
+    assert repeated.tools == first.tools
+    assert "error" not in repeated.return_value
 
 
 @pytest.mark.asyncio
@@ -235,11 +236,15 @@ async def test_search_marks_discovery_complete_once_for_the_run() -> None:
     )
 
     assert run_state["capability_search_completed"] is False
-    result = await tool.function(query="which tracks are in my workspace")
+    returned = await tool.function(query="which tracks are in my workspace")
+    result = returned.return_value
 
     assert run_state["capability_search_completed"] is True
     assert result["results"][0]["name"] == "integral_list_tracks"
     assert "discover_with" not in result["results"][0]
+    # Observations can change the needed workflow; discovery is not a one-shot gate.
+    other = await tool.function(query="set up a place to store messages")
+    assert other.return_value.get("error") is not True
 
 
 @pytest.mark.asyncio
@@ -285,7 +290,8 @@ async def test_runtime_search_uses_local_semantic_skill_ranking(
         catalogue=[],
     )
 
-    result = await tool.function(query="lay user request")
+    returned = await tool.function(query="lay user request")
+    result = returned.return_value
 
     assert result["recommendation"]["skill"]["name"] == "integral-scaffold"
     assert result["ranking_method"] == "hybrid_semantic_lexical"

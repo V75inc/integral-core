@@ -19,8 +19,10 @@ WorkItem producer admission and `chat_turn` worker dispatch remain disabled.
   `chat_turn`, authenticates the capsule against the WorkItem scope and digest,
   verifies the active native thread and accepted user message, rechecks current
   workspace access and graph containment, and currently admits text-only
-  messages. Legacy email is not copied into the WorkItem or required by the
-  native provider.
+  messages. Agent-facing worker text applies the same host-marker
+  sanitization as the live chat path while the canonical user transcript keeps
+  the exact authored text. Legacy email is not copied into the WorkItem or
+  required by the native provider.
 - Added a terminalization service that commits the leased WorkItem transition,
   transition outbox fact, active thread pointer release, principal admission
   slot release, and matching AgentRun terminal state in one PostgreSQL
@@ -43,6 +45,8 @@ WorkItem producer admission and `chat_turn` worker dispatch remain disabled.
 - The worker-input boundary passed its isolated PostgreSQL acceptance test:
   `INTEGRAL_TEST_DB=postgres uv run --frozen pytest
   tests/contract/test_chat_turn_submission_postgres.py::test_claimed_chat_turn_rebuilds_only_its_scoped_text_input -q`.
+  This test also proves a user-authored `[SYSTEM:...]` marker is neutralized
+  before model dispatch without changing the persisted user message.
 - Worker-input and terminalization checks passed against PostgreSQL:
   `INTEGRAL_TEST_DB=postgres uv run --frozen pytest
   tests/contract/test_chat_turn_submission_postgres.py::test_terminal_chat_turn_releases_admission_atomically_and_idempotently

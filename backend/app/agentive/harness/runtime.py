@@ -13,12 +13,11 @@ from typing import Any, Collection, Sequence
 from app.agentive.harness.capability_search import pydantic_tool_search_strategy
 from app.agentive.harness.contracts import HarnessExecutionScope
 from app.agentive.harness.jvspatial_store import JvSpatialStepStore
-from app.agentive.harness.plan_store import JvSpatialPlanStore
 from app.agentive.harness.pydantic_ai_compat import (
     Agent,
     ConversationSearch,
     Instrumentation,
-    Planning,
+    IntegralToolDisclosure,
     Skills,
     SnapshotHistorySource,
     StepPersistence,
@@ -111,8 +110,13 @@ def build_native_runtime(
         # strategy uses Integral's tenant-authorized semantic catalog rather
         # than the built-in keyword-only fallback. The matching score affects
         # discovery order only; the broker remains the authorization boundary.
-        ToolSearch(strategy=pydantic_tool_search_strategy, max_results=8),
-        Planning(store=JvSpatialPlanStore(scope=scope)),
+        (
+            IntegralToolDisclosure(
+                strategy=pydantic_tool_search_strategy, max_results=8
+            )
+            if any(tool.name == "search_capabilities" for tool in tools)
+            else ToolSearch(strategy=pydantic_tool_search_strategy, max_results=8)
+        ),
         StepPersistence(
             store=scoped_store,
             agent_name=agent_name,

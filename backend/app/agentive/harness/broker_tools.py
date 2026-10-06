@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Collection, Sequence
 
@@ -21,7 +22,7 @@ from app.schemas.agentive.work import WorkExecutionContext
 
 # Keep workspace orientation and the small set of resident workflow lifecycle
 # capabilities directly callable. The broader catalogue is deferred and
-# exposed through Harness ToolSearch. In particular, skills can name the
+# exposed through unified capability search. In particular, skills can name the
 # proposal/approval/verification APIs without depending on a second model
 # discovery round to reveal those APIs. This controls visible schemas only;
 # every invocation still crosses the same live Integral capability broker.
@@ -39,6 +40,17 @@ _ALWAYS_AVAILABLE_TOOLS = frozenset(
     }
 )
 _MAX_BROKERED_CALLS_PER_RUN = 24
+# App setup is one declared proposal/build contract. Its implementation still
+# invokes these authorized primitives through Core, but exposing them as
+# separate model tools bypasses the saved blueprint and opens redundant
+# staging dialogues. This is API composition, not user-text intent routing.
+_BUILD_IMPLEMENTATION_TOOLS = frozenset(
+    {
+        "integral_create_app",
+        "integral_create_app_track",
+        "integral_register_track_template",
+    }
+)
 _MAX_TOOL_CALLS_PER_RUN = {
     "integral_check_design_coverage": 3,
     "integral_propose_design": 2,
@@ -119,17 +131,6 @@ def _make_handler(
                 ),
                 "retryable": False,
             }
-        if not call_state["capability_search_completed"]:
-            return {
-                "error": True,
-                "error_code": "capability_discovery_required",
-                "message": (
-                    "Search authorized skills and tools with search_capabilities "
-                    "before calling Integral capabilities. Use its results to "
-                    "select the appropriate skill and tool."
-                ),
-                "retryable": False,
-            }
         if capability_name == "integral_propose_design":
             call_state["proposal_attempted"] = True
         if capability_name == "integral_check_design_coverage":
@@ -195,6 +196,16 @@ def _make_handler(
                 }
             seen_reads.add(signature)
         if capability_name == "integral_build_approved_design":
+            if not call_state.get("approved_design_ready"):
+                return {
+                    "error": True,
+                    "error_code": "design_approval_required",
+                    "message": (
+                        "There is no approved design ready to build. Record the "
+                        "proposal and obtain approval for that exact design first."
+                    ),
+                    "retryable": False,
+                }
             if build_attempted:
                 return {
                     "error": True,
@@ -238,6 +249,13 @@ def _make_handler(
             async with authorized_work_item_effect(work_execution_context):
                 result = await dispatch()
         model_result = result.for_model()
+        if capability_name == "integral_build_approved_design":
+            call_state["build_succeeded"] = bool(result.ok)
+        if capability_name == "integral_verify_build":
+            call_state["verification_status"] = model_result.get("status")
+            call_state["verification_succeeded"] = bool(
+                result.ok and model_result.get("status") == "verified"
+            )
         if capability_name == "integral_check_design_coverage" and result.ok:
             if model_result.get("status") in {
                 "buildable",
@@ -246,6 +264,7 @@ def _make_handler(
                 call_state["scaffold_coverage_validated"] = True
         if capability_name == "integral_propose_design" and result.ok:
             call_state["proposal_succeeded"] = True
+            call_state["approved_design_ready"] = bool(model_result.get("approved"))
             proposal_text = model_result.get("proposal")
             if isinstance(proposal_text, str) and proposal_text.strip():
                 call_state["proposal_text"] = proposal_text
@@ -301,18 +320,29 @@ def build_brokered_tools(
     call_state.setdefault("scaffold_coverage_attempted", False)
     call_state.setdefault("proposal_attempted", False)
     call_state.setdefault("proposal_succeeded", False)
+    call_state.setdefault("approved_design_ready", False)
+    call_state.setdefault("build_succeeded", False)
+    call_state.setdefault("verification_succeeded", False)
     call_state.setdefault("capability_search_completed", False)
     immediately_available = (
         _ALWAYS_AVAILABLE_TOOLS
         if always_available_tools is None
         else frozenset(always_available_tools)
     )
+    skill_owners: dict[str, set[str]] = {}
+    if skill_library is not None:
+        from app.agentive.workspace_agent_profile import allowed_tools_from_skill_path
+
+        for path in skill_library.glob("*/SKILL.md"):
+            for tool_name in allowed_tools_from_skill_path(path):
+                skill_owners.setdefault(tool_name, set()).add(path.parent.name)
     for item in catalogue:
         name = str(item.get("name") or "").strip()
         schema = item.get("input_schema")
         if (
             not name
             or name == "search_capabilities"
+            or name in _BUILD_IMPLEMENTATION_TOOLS
             or name in seen_names
             or not isinstance(schema, dict)
         ):
@@ -349,7 +379,10 @@ def build_brokered_tools(
                 description=description,
                 json_schema=schema,
                 prepare=_prepare_capability_tool(
-                    call_state, name, _REQUIRED_SKILLS_BY_TOOL.get(name)
+                    call_state,
+                    name,
+                    _REQUIRED_SKILLS_BY_TOOL.get(name),
+                    frozenset(skill_owners.get(name, ())),
                 ),
                 defer_loading=name not in immediately_available,
             )
@@ -358,7 +391,9 @@ def build_brokered_tools(
         tools.append(
             build_search_capabilities_tool(
                 skill_library=skill_library,
-                catalogue=catalogue,
+                catalogue=[
+                    item for item in catalogue if item.get("name") in seen_names
+                ],
                 immediately_available_tools=tuple(
                     name for name in immediately_available if name in seen_names
                 ),
@@ -369,19 +404,30 @@ def build_brokered_tools(
 
 
 def _prepare_capability_tool(
-    call_state: dict[str, Any], name: str, required_skill: str | None
+    call_state: dict[str, Any],
+    name: str,
+    required_skill: str | None,
+    skill_owners: frozenset[str] = frozenset(),
 ):
-    """Expose tools only after discovery, skill loading, and prior workflow steps."""
+    """Expose scaffold tools after their skill and prerequisite validation."""
 
     def prepare(ctx: RunContext[Any], tool_def):
-        if not call_state.get("capability_search_completed"):
-            return None
         if required_skill and required_skill not in ctx.active_capability_ids:
+            return None
+        if name == "integral_build_approved_design" and not call_state.get(
+            "approved_design_ready"
+        ):
             return None
         if name == "integral_propose_design" and not call_state.get(
             "scaffold_coverage_validated"
         ):
             return None
+        # Standard allowed-tools metadata binds a skill to its Core tools.
+        # Loading that skill reveals their schemas via the public preparation
+        # API; it does not widen authority or bypass the broker. Framework
+        # capability state is restored from its own conversation history.
+        if skill_owners.intersection(ctx.active_capability_ids):
+            return replace(tool_def, defer_loading=False)
         return tool_def
 
     return prepare

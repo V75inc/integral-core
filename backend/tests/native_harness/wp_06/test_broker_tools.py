@@ -15,6 +15,7 @@ from pydantic_ai.models.test import TestModel
 
 from app.agentive.harness.broker_tools import build_brokered_tools
 from app.agentive.harness.contracts import HarnessExecutionScope
+from app.agentive.harness.runtime import build_native_runtime
 from app.agentive.tooling.catalogue import build_tool_catalogue
 from app.schemas.capability_broker import CapabilityResult
 
@@ -33,11 +34,11 @@ def _scope() -> HarnessExecutionScope:
 
 
 @pytest.mark.asyncio
-async def test_integral_tools_require_search_capabilities_first(
+async def test_known_integral_tools_still_cross_live_broker_without_search(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Every operational tool invocation has a same-run discovery receipt."""
+    """Discovery is not authority; known tools still use the live broker."""
     invocations = []
     run_state: dict[str, Any] = {}
     catalogue = [
@@ -70,16 +71,11 @@ async def test_integral_tools_require_search_capabilities_first(
     by_name = {tool.name: tool for tool in tools}
     ctx = SimpleNamespace(tool_call_id="list-before-discovery")
 
-    blocked = await by_name["integral_list_tracks"].function_schema.call({}, ctx)
+    listed = await by_name["integral_list_tracks"].function_schema.call({}, ctx)
     found = await by_name["search_capabilities"].function(
         query="which tracks are in my workspace"
     )
-    listed = await by_name["integral_list_tracks"].function_schema.call(
-        {}, SimpleNamespace(tool_call_id="list-after-discovery")
-    )
-
-    assert blocked["error_code"] == "capability_discovery_required"
-    assert found["results"][0]["name"] == "integral_list_tracks"
+    assert found.return_value["results"][0]["name"] == "integral_list_tracks"
     assert listed["tracks"] == []
     assert run_state["capability_search_completed"] is True
     assert len(invocations) == 1
@@ -330,6 +326,29 @@ def test_scaffold_lifecycle_tools_are_directly_callable_after_skill_load() -> No
     assert by_name["integral_build_approved_design"].defer_loading is False
     assert by_name["integral_verify_build"].defer_loading is False
     assert by_name["integral_get_scope"].defer_loading is False
+
+
+@pytest.mark.asyncio
+async def test_setup_is_exposed_as_one_build_contract_not_staging_primitives(tmp_path):
+    """Native search cannot disclose implementation-only app creation APIs."""
+    tools = build_brokered_tools(
+        scope=_scope(), catalogue=build_tool_catalogue(), skill_library=tmp_path
+    )
+    by_name = {tool.name: tool for tool in tools}
+    primitives = {
+        "integral_create_app",
+        "integral_create_app_track",
+        "integral_register_track_template",
+    }
+    assert not primitives.intersection(by_name)
+    assert "integral_build_approved_design" in by_name
+    result = await by_name["search_capabilities"].function(
+        query="create an app with a track"
+    )
+    assert not primitives.intersection(result.tools)
+    assert not primitives.intersection(
+        item["name"] for item in result.return_value["results"]
+    )
 
 
 @pytest.mark.asyncio
@@ -778,6 +797,161 @@ async def test_harness_tool_search_discovers_a_deferred_tool_from_plain_wording(
 
 
 @pytest.mark.asyncio
+async def test_unified_search_discloses_tools_and_replays_native_availability(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """One catalog call reveals a deferred schema, with no second search needed."""
+    from pydantic_ai_harness.step_persistence import InMemoryStepStore
+
+    invocations = []
+    requests = []
+    catalogue = [
+        {
+            "name": "integral_list_entries",
+            "description": "List entry records in the current workspace.",
+            "input_schema": {"type": "object", "properties": {}},
+        }
+    ]
+
+    async def invoke(**kwargs: Any) -> CapabilityResult:
+        invocations.append(kwargs)
+        return CapabilityResult(ok=True, data={"entries": []})
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda _name: ("core", "read"),
+    )
+
+    def respond(_messages: list[Any], info: Any) -> ModelResponse:
+        visible = {tool.name for tool in info.function_tools}
+        requests.append(visible)
+        assert "search_tools" not in visible
+        if len(requests) == 1:
+            assert "integral_list_entries" not in visible
+            return ModelResponse(
+                parts=[
+                    ToolCallPart("search_capabilities", {"query": "list entry records"})
+                ]
+            )
+        assert "integral_list_entries" in visible
+        if len(requests) == 2:
+            return ModelResponse(parts=[ToolCallPart("integral_list_entries", {})])
+        return ModelResponse(parts=[TextPart("No entries yet.")])
+
+    store = InMemoryStepStore()
+
+    def runtime(scope):
+        return build_native_runtime(
+            model=FunctionModel(respond),
+            instructions="Use the authorized catalog when needed.",
+            tools=build_brokered_tools(
+                scope=scope, catalogue=catalogue, skill_library=tmp_path
+            ),
+            step_store_backend=store,
+            scope=scope,
+            agent_name="integral-test",
+        )[0]
+
+    scope = _scope()
+    first = await runtime(scope).run(
+        "What records do I have?",
+        conversation_id=scope.framework_conversation_id,
+        run_id=scope.framework_run_id,
+    )
+    assert first.output == "No entries yet."
+    # Fresh factory: visibility is restored from framework history, not a
+    # process-local selected-tool list or a duplicated discovery receipt.
+    next_scope = scope.model_copy(update={"run_id": "run-2"})
+    second = await runtime(next_scope).run(
+        "Thanks.",
+        message_history=first.all_messages(),
+        conversation_id=next_scope.framework_conversation_id,
+        run_id=next_scope.framework_run_id,
+    )
+    assert second.output == "No entries yet."
+    assert len(invocations) == 1
+    assert invocations[0]["workspace_id"] == _scope().workspace_id
+    assert invocations[0]["principal_id"] == _scope().principal_id
+
+
+@pytest.mark.asyncio
+async def test_loading_a_standard_skill_reveals_its_declared_brokered_tools(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from pydantic_ai_harness.step_persistence import InMemoryStepStore
+
+    from app.agentive.harness.skill_sources import materialize_standard_skill_library
+
+    names = materialize_standard_skill_library(
+        [
+            (
+                "integral-entries",
+                "Create records in an existing track.",
+                "Use integral_create_entry for the requested record.",
+            )
+        ],
+        root=tmp_path,
+        allowed_tools={"integral-entries": ["integral_create_entry"]},
+    )
+    calls = []
+
+    async def invoke(**kwargs):
+        calls.append(kwargs)
+        return CapabilityResult(ok=True, data={"staged": True})
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    requests = []
+
+    def respond(_messages, info):
+        visible = {tool.name for tool in info.function_tools}
+        requests.append(visible)
+        assert "search_tools" not in visible
+        if len(requests) == 1:
+            assert "integral_create_entry" not in visible
+            return ModelResponse(
+                parts=[ToolCallPart("load_capability", {"id": "integral-entries"})]
+            )
+        assert "integral_create_entry" in visible
+        if len(requests) == 2:
+            return ModelResponse(parts=[ToolCallPart("integral_create_entry", {})])
+        return ModelResponse(parts=[TextPart("The requested record is staged.")])
+
+    scope = _scope()
+    catalogue = [
+        {
+            "name": "integral_create_entry",
+            "description": "Create a record.",
+            "input_schema": {"type": "object", "properties": {}},
+        }
+    ]
+    agent, _ = build_native_runtime(
+        model=FunctionModel(respond),
+        instructions="Use the record workflow.",
+        tools=build_brokered_tools(
+            scope=scope, catalogue=catalogue, skill_library=tmp_path
+        ),
+        step_store_backend=InMemoryStepStore(),
+        scope=scope,
+        agent_name="integral-test",
+        skill_directories=[tmp_path],
+        allowed_skill_names=names,
+    )
+    result = await agent.run(
+        "Add a drill.",
+        conversation_id=scope.framework_conversation_id,
+        run_id=scope.framework_run_id,
+    )
+    assert result.output == "The requested record is staged."
+    assert len(calls) == 1
+    assert calls[0]["principal_id"] == scope.principal_id
+
+
+@pytest.mark.asyncio
 async def test_approved_build_macro_runs_at_most_once_per_model_turn(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -797,6 +971,7 @@ async def test_approved_build_macro_runs_at_most_once_per_model_turn(
     monkeypatch.setattr(
         "app.agentive.services.capability_broker.invoke_declared_capability", invoke
     )
+    run_state = {"capability_search_completed": True, "approved_design_ready": False}
     tool = build_brokered_tools(
         scope=_scope(),
         catalogue=[
@@ -809,9 +984,18 @@ async def test_approved_build_macro_runs_at_most_once_per_model_turn(
                 },
             }
         ],
-        run_state={"capability_search_completed": True},
+        run_state=run_state,
     )[0]
 
+    rejected = await tool.function_schema.call(
+        {"operations": []},
+        SimpleNamespace(
+            tool_call_id="premature-build", active_capability_ids={"integral-scaffold"}
+        ),
+    )
+    assert rejected["error_code"] == "design_approval_required"
+    assert invocations == []
+    run_state["approved_design_ready"] = True
     first = await tool.function_schema.call(
         {"operations": [{"tool": "integral_create_app"}]},
         SimpleNamespace(
