@@ -23,10 +23,15 @@ export function scrollDocEditorSelectionIntoView(view: EditorView): boolean {
   }
 
   const box = root.getBoundingClientRect();
+  const scroller =
+    root.scrollHeight > root.clientHeight + 1
+      ? root
+      : document.scrollingElement;
+  if (!scroller) return true;
   if (coords.top < box.top + EDGE_MARGIN_PX) {
-    root.scrollTop -= box.top + EDGE_MARGIN_PX - coords.top;
+    scroller.scrollTop -= box.top + EDGE_MARGIN_PX - coords.top;
   } else if (coords.bottom > box.bottom - EDGE_MARGIN_PX) {
-    root.scrollTop += coords.bottom - box.bottom + EDGE_MARGIN_PX;
+    scroller.scrollTop += coords.bottom - box.bottom + EDGE_MARGIN_PX;
   }
   return true;
 }

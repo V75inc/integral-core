@@ -172,6 +172,11 @@ function mapVersion(row: Record<string, unknown> | null | undefined): DocumentTe
       tokens: [],
     },
     required_inputs: (r.required_inputs as Array<Record<string, unknown>>) || [],
+    layout_id: String(r.layout_id || ''),
+    header_footer:
+      r.header_footer && typeof r.header_footer === 'object'
+        ? (r.header_footer as Record<string, unknown>)
+        : {},
     checksum: String(r.checksum || ''),
     render_html: String(r.render_html || ''),
   };

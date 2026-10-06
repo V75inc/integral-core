@@ -118,7 +118,7 @@ export function PageLayoutFormFields({
               Choose the paper size your PDF will use when printed.
             </Text>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {PAGE_SIZE_OPTIONS.map((opt, index) => (
               <button
                 key={opt.key}
