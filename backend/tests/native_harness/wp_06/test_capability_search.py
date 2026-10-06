@@ -298,6 +298,241 @@ async def test_runtime_search_uses_local_semantic_skill_ranking(
 
 
 @pytest.mark.asyncio
+async def test_negative_skill_routing_text_does_not_create_positive_match(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A skill's explicit exclusions must not outrank its positive workflow."""
+    from app.agentive.harness import capability_search
+
+    skill_library = tmp_path / "authorized-skills"
+    materialize_standard_skill_library(
+        [
+            (
+                "integral-onboard",
+                "Guides workspace orientation and discovery when the user's goal is unclear; "
+                "do not use for a specific existing-record lookup.",
+                "",
+            ),
+            (
+                "integral-entries",
+                "Manages a specific existing record or an explicitly requested record operation.",
+                "",
+            ),
+        ],
+        root=skill_library,
+    )
+    vectors = {
+        "find a specific record by serial number in the workspace": [1.0, 0.0],
+        "integral-onboard Guides workspace orientation and discovery when the user's goal is unclear;": [
+            1.0,
+            0.0,
+        ],
+        "integral-entries Manages a specific existing record or an explicitly requested record operation.": [
+            0.99,
+            0.1,
+        ],
+    }
+
+    async def fake_embedding(text: str) -> list[float]:
+        return vectors[text]
+
+    monkeypatch.setattr(
+        capability_search, "_embed_text_for_capability_search", fake_embedding
+    )
+    tool = build_search_capabilities_tool(skill_library=skill_library, catalogue=[])
+
+    result = (
+        await tool.function(
+            query="find a specific record by serial number in the workspace"
+        )
+    ).return_value
+
+    assert result["recommendation"]["skill"]["name"] == "integral-entries"
+
+
+@pytest.mark.asyncio
+async def test_capability_search_semantically_matches_tool_argument_descriptions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Plain-language field lookups surface the matching record search tool."""
+
+    async def fake_embedding(text: str) -> list[float]:
+        if text == "Can you find serial QA-WRENCH-1011 in my workspace?":
+            return [1.0, 0.0]
+        if "serial number and asset identifiers" in text:
+            return [0.99, 0.01]
+        if "active Integral user's profile" in text:
+            return [0.05, 0.95]
+        if "current workspace" in text:
+            return [0.7, 0.3]
+        return [0.0, 1.0]
+
+    monkeypatch.setattr(
+        "app.agentive.harness.capability_search._embed_text_for_capability_search",
+        fake_embedding,
+    )
+    catalogue = [
+        {
+            "name": "integral_whoami",
+            "description": "Return the active Integral user's profile.",
+            "input_schema": {"type": "object", "properties": {}},
+        },
+        {
+            "name": "integral_get_scope",
+            "description": "Return the active user's current workspace and role.",
+            "input_schema": {"type": "object", "properties": {}},
+        },
+        {
+            "name": "integral_query_entries",
+            "description": "Filter and list entries (records) across tracks.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "Search keyword text in record titles and bodies, "
+                            "including serial number and asset identifiers."
+                        ),
+                    }
+                },
+            },
+        },
+    ]
+    tool = build_search_capabilities_tool(
+        skill_library=None,
+        catalogue=catalogue,
+        immediately_available_tools=(
+            "integral_whoami",
+            "integral_get_scope",
+            "integral_query_entries",
+        ),
+    )
+
+    returned = await tool.function(
+        query="Can you find serial QA-WRENCH-1011 in my workspace?"
+    )
+
+    result = returned.return_value
+    assert result["recommendation"]["tool"]["name"] == "integral_query_entries"
+    assert "integral_query_entries" in returned.tools
+    assert result["ranking_method"] == "hybrid_semantic_lexical"
+
+
+@pytest.mark.asyncio
+async def test_exact_parameter_match_can_correct_a_weak_semantic_tool_rank(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A generic workspace embedding must not outrank an exact query contract."""
+
+    async def imperfect_embedding(text: str) -> list[float]:
+        if text == "find a specific record by serial number in the workspace":
+            return [1.0, 0.0]
+        if text.startswith("integral_list_workspace_attachments"):
+            return [0.99, 0.01]
+        if text.startswith("integral_query_entries"):
+            return [0.8, 0.6]
+        return [0.0, 1.0]
+
+    monkeypatch.setattr(
+        "app.agentive.harness.capability_search._embed_text_for_capability_search",
+        imperfect_embedding,
+    )
+    catalogue = [
+        {
+            "name": "integral_list_workspace_attachments",
+            "description": "List every attachment across accessible tracks in a workspace.",
+            "input_schema": {"type": "object", "properties": {}},
+        },
+        {
+            "name": "integral_query_entries",
+            "description": "Filter and list entries (records) across tracks.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "Search record titles and bodies by keyword, including "
+                            "serial number and asset identifiers."
+                        ),
+                    }
+                },
+            },
+        },
+    ]
+    tool = build_search_capabilities_tool(
+        skill_library=None,
+        catalogue=catalogue,
+        immediately_available_tools=tuple(item["name"] for item in catalogue),
+    )
+
+    returned = await tool.function(
+        query="find a specific record by serial number in the workspace"
+    )
+
+    assert returned.return_value["recommendation"]["tool"]["name"] == (
+        "integral_query_entries"
+    )
+    assert "integral_query_entries" in returned.tools
+
+
+def test_tool_search_document_includes_argument_descriptions() -> None:
+    """Argument descriptions carry retrieval meaning beyond field names."""
+    from app.agentive.harness.capability_search import _tool_text
+
+    document = _tool_text(
+        {
+            "name": "integral_query_entries",
+            "description": "Filter and list records.",
+            "input_schema": {
+                "properties": {
+                    "query": {
+                        "description": "Search by serial number or asset identifier."
+                    }
+                }
+            },
+        },
+        include_schema_details=True,
+    )
+
+    assert "serial number" in document
+    assert "asset identifier" in document
+
+
+@pytest.mark.asyncio
+async def test_capability_search_reports_lexical_fallback_when_embeddings_fail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unavailable local embeddings degrade to lexical retrieval honestly."""
+
+    async def unavailable_embedding(_text: str) -> list[float]:
+        raise RuntimeError("embedding model unavailable")
+
+    monkeypatch.setattr(
+        "app.agentive.harness.capability_search._embed_text_for_capability_search",
+        unavailable_embedding,
+    )
+    tool = build_search_capabilities_tool(
+        skill_library=None,
+        catalogue=[
+            {
+                "name": "integral_list_tracks",
+                "description": "List tracks in the current workspace.",
+                "input_schema": {"type": "object", "properties": {}},
+            }
+        ],
+    )
+
+    returned = await tool.function(query="list tracks in my workspace")
+
+    assert returned.return_value["ranking_method"] == "lexical"
+    assert returned.return_value["recommendation"]["tool"]["name"] == (
+        "integral_list_tracks"
+    )
+
+
+@pytest.mark.asyncio
 async def test_pydantic_tool_search_uses_semantic_rank_without_keyword_gate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
