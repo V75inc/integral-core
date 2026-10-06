@@ -487,7 +487,7 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
           if (catalogRelationField && fields[catalogRelationField] && !fields.catalog_id) {
             fields.catalog_id = fields[catalogRelationField];
           }
-          return {
+          const raw: Record<string, unknown> = {
             ...fields,
             quantity: quantityField ? Number(fields[quantityField]) || 0 : undefined,
             unit_price: rateField ? Number(fields[rateField]) || 0 : undefined,
@@ -495,6 +495,17 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
             line_number: idx + 1,
             description: String(fields.description || ''),
           };
+          // Tool input schemas often type optional ids as string (not null).
+          // Drop null/undefined so validation does not reject empty tax/account.
+          if (raw.sales_item && !raw.sales_item_id) {
+            raw.sales_item_id = raw.sales_item;
+          }
+          const cleaned: Record<string, unknown> = {};
+          for (const [k, v] of Object.entries(raw)) {
+            if (v === null || v === undefined) continue;
+            cleaned[k] = v;
+          }
+          return cleaned;
         });
 
         try {
