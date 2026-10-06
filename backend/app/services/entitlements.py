@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple, TypeVar
 
 from jvspatial.db.database import Database
 
@@ -24,7 +24,36 @@ _ACTIVE = "active"
 _REVOKED = "revoked"
 _EXPIRED = "expired"
 
-_ENTITLEMENT_CAS_LOCKS: Dict[Tuple[int, int, str], asyncio.Lock] = {}
+_ENTITLEMENT_CAS_LOCKS: Dict[Tuple[int, int, str], "_TaskRLock"] = {}
+
+T = TypeVar("T")
+
+
+class _TaskRLock:
+    """Per-task re-entrant asyncio lock for single-process entitlement writers."""
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._owner: Optional[asyncio.Task] = None
+        self._depth = 0
+
+    async def __aenter__(self) -> "_TaskRLock":
+        task = asyncio.current_task()
+        if self._owner is task:
+            self._depth += 1
+            return self
+        await self._lock.acquire()
+        self._owner = task
+        self._depth = 1
+        return self
+
+    async def __aexit__(self, *_exc: Any) -> None:
+        if self._depth > 1:
+            self._depth -= 1
+            return
+        self._depth = 0
+        self._owner = None
+        self._lock.release()
 
 
 def entitlement_key_for_package(
@@ -80,11 +109,17 @@ def _source_is_manual(source: Optional[str]) -> bool:
     return (source or "").strip().lower() in {"", "manual"}
 
 
-async def _entitlement_cas_context(
-    row: Entitlement,
-) -> Tuple[Any, bool, Optional[asyncio.Lock], Any, str]:
-    """Return (database, native_atomic, optional_lock, graph_context, collection)."""
-    graph_context = await row.get_context()
+async def _probe_store(
+    row: Optional[Entitlement] = None,
+) -> Tuple[Any, bool, Any]:
+    """Return (database, native_atomic, concrete_db) for entitlement storage."""
+    probe = row
+    if probe is None:
+        probe = Entitlement(
+            workspace_id="__lock_probe__",
+            entitlement_key="__lock_probe__",
+        )
+    graph_context = await probe.get_context()
     database = graph_context.database
     concrete = database
     seen = set()
@@ -94,18 +129,62 @@ async def _entitlement_cas_context(
     native_atomic = (
         type(concrete).find_one_and_update is not Database.find_one_and_update
     )
+    return database, native_atomic, concrete
+
+
+def _fallback_lock(concrete: Any, lock_key: str) -> _TaskRLock:
+    if type(concrete).__module__ not in {"jvspatial.db.jsondb", "jvspatial.memory"}:
+        raise RuntimeError(
+            "entitlement conditional update unavailable on this database"
+        )
+    return _ENTITLEMENT_CAS_LOCKS.setdefault(
+        (id(concrete), id(asyncio.get_running_loop()), lock_key),
+        _TaskRLock(),
+    )
+
+
+async def _with_entitlement_writer_lock(
+    *,
+    lock_key: str,
+    row: Optional[Entitlement] = None,
+    body: Callable[[], Awaitable[T]],
+) -> T:
+    """Run ``body`` under the shared fallback writer lock when needed."""
+    _database, native_atomic, concrete = await _probe_store(row)
+    if native_atomic:
+        return await body()
+    lock = _fallback_lock(concrete, lock_key)
+    async with lock:
+        return await body()
+
+
+async def _entitlement_cas_context(
+    row: Entitlement,
+) -> Tuple[Any, bool, Optional[_TaskRLock], Any, str]:
+    """Return (database, native_atomic, optional_lock, graph_context, collection)."""
+    graph_context = await row.get_context()
+    database, native_atomic, concrete = await _probe_store(row)
     lock = None
     if not native_atomic:
-        if type(concrete).__module__ not in {"jvspatial.db.jsondb", "jvspatial.memory"}:
-            raise RuntimeError(
-                "entitlement conditional update unavailable on this database"
-            )
-        lock = _ENTITLEMENT_CAS_LOCKS.setdefault(
-            (id(concrete), id(asyncio.get_running_loop()), str(row.id)),
-            asyncio.Lock(),
+        lock_key = (
+            f"{(row.workspace_id or '').strip()}::{(row.entitlement_key or '').strip()}"
         )
+        lock = _fallback_lock(concrete, lock_key)
     collection = graph_context._get_collection_name("o")
     return database, native_atomic, lock, graph_context, collection
+
+
+async def _storage_source(
+    database: Any, collection: str, entitlement_id: str
+) -> Optional[str]:
+    """Read ``source`` from storage, bypassing Object identity-cache staleness."""
+    doc = await database.find_one(collection, {"id": entitlement_id})
+    if doc is None:
+        return None
+    context = doc.get("context") if isinstance(doc, dict) else None
+    if not isinstance(context, dict):
+        return ""
+    return context.get("source") or ""
 
 
 async def _cas_update_entitlement_if_source(
@@ -117,7 +196,9 @@ async def _cas_update_entitlement_if_source(
     """Update ``row`` only while ``context.source`` still equals ``expected_source``.
 
     Native stores use ``find_one_and_update``. Single-process stores serialize
-    with a per-row lock and re-check source on the Object before ``save``.
+    all entitlement writers on a shared per-row lock and re-check source from
+    storage before ``save`` so identity-cache reads cannot clobber a concurrent
+    manual grant.
     """
     database, native_atomic, lock, _ctx, collection = await _entitlement_cas_context(
         row
@@ -144,6 +225,14 @@ async def _cas_update_entitlement_if_source(
             return None
         if (fresh.source or "") != (expected_source or ""):
             return None
+        # Re-check storage after get (nested/concurrent writers may have saved).
+        stored_source = await _storage_source(database, collection, str(row.id))
+        if stored_source is None:
+            return None
+        if (stored_source or "") != (expected_source or ""):
+            return None
+        # Prefer the identity object but refresh fields from storage truth first.
+        fresh.source = stored_source
         for key, value in set_fields.items():
             setattr(fresh, key, value)
         await fresh.save()
@@ -234,6 +323,35 @@ async def _pause_apps_for_entitlement(
     return paused
 
 
+async def _create_entitlement_row(
+    *,
+    workspace_id: str,
+    entitlement_key: str,
+    package_slug: str,
+    actor_id: str,
+    expires_at: Optional[str],
+    on_loss: str,
+    data_access: str,
+    retention: str,
+    source: str,
+    now: str,
+) -> Entitlement:
+    return await Entitlement.create(
+        workspace_id=workspace_id,
+        entitlement_key=entitlement_key,
+        package_slug=package_slug,
+        status=_ACTIVE,
+        source=source,
+        on_loss=on_loss or "pause",
+        data_access=data_access or "core_generic_read",
+        retention=retention or "retain_until_uninstall",
+        expires_at=expires_at,
+        created_at=now,
+        updated_at=now,
+        created_by=actor_id or "",
+    )
+
+
 async def grant_entitlement(
     *,
     workspace_id: str,
@@ -261,96 +379,103 @@ async def grant_entitlement(
         raise BadRequestError(message="workspace_id and entitlement_key are required")
 
     now = utc_now_iso()
-    existing = await find_entitlement(workspace_id=ws, entitlement_key=key)
-    if existing is None:
-        return await Entitlement.create(
-            workspace_id=ws,
-            entitlement_key=key,
-            package_slug=slug,
-            status=_ACTIVE,
-            source=origin,
-            on_loss=on_loss or "pause",
-            data_access=data_access or "core_generic_read",
-            retention=retention or "retain_until_uninstall",
-            expires_at=expires_at,
-            created_at=now,
-            updated_at=now,
-            created_by=actor_id or "",
-        )
+    lock_key = f"{ws}::{key}"
 
-    if respect_manual and _source_is_manual(existing.source):
-        return existing
-
-    if respect_manual:
-        # Source-filtered CAS: only overwrite while the row remains non-manual.
-        expected_source = existing.source or ""
-        claimed = await _cas_update_entitlement_if_source(
-            existing,
-            expected_source=expected_source,
-            set_fields={
-                "status": _ACTIVE,
-                "package_slug": slug,
-                "source": origin,
-                "on_loss": on_loss or "pause",
-                "data_access": data_access or "core_generic_read",
-                "retention": retention or "retain_until_uninstall",
-                "expires_at": expires_at,
-                "revoked_at": None,
-                "updated_at": now,
-            },
-        )
-        if claimed is not None:
-            return claimed
-        fresh = await find_entitlement(workspace_id=ws, entitlement_key=key)
-        if fresh is None:
-            return await Entitlement.create(
+    async def _body() -> Entitlement:
+        existing = await find_entitlement(workspace_id=ws, entitlement_key=key)
+        if existing is None:
+            return await _create_entitlement_row(
                 workspace_id=ws,
                 entitlement_key=key,
                 package_slug=slug,
-                status=_ACTIVE,
-                source=origin,
-                on_loss=on_loss or "pause",
-                data_access=data_access or "core_generic_read",
-                retention=retention or "retain_until_uninstall",
+                actor_id=actor_id,
                 expires_at=expires_at,
-                created_at=now,
-                updated_at=now,
-                created_by=actor_id or "",
+                on_loss=on_loss,
+                data_access=data_access,
+                retention=retention,
+                source=origin,
+                now=now,
             )
-        if _source_is_manual(fresh.source):
-            return fresh
-        # Concurrent provider update — apply once more against the observed source.
-        claimed2 = await _cas_update_entitlement_if_source(
-            fresh,
-            expected_source=fresh.source or "",
-            set_fields={
-                "status": _ACTIVE,
-                "package_slug": slug,
-                "source": origin,
-                "on_loss": on_loss or "pause",
-                "data_access": data_access or "core_generic_read",
-                "retention": retention or "retain_until_uninstall",
-                "expires_at": expires_at,
-                "revoked_at": None,
-                "updated_at": now,
-            },
-        )
-        if claimed2 is not None:
-            return claimed2
-        final = await find_entitlement(workspace_id=ws, entitlement_key=key)
-        return final if final is not None else fresh
 
-    existing.status = _ACTIVE
-    existing.package_slug = slug
-    existing.source = origin
-    existing.on_loss = on_loss or "pause"
-    existing.data_access = data_access or "core_generic_read"
-    existing.retention = retention or "retain_until_uninstall"
-    existing.expires_at = expires_at
-    existing.revoked_at = None
-    existing.updated_at = now
-    await existing.save()
-    return existing
+        if respect_manual and _source_is_manual(existing.source):
+            return existing
+
+        if respect_manual:
+            expected_source = existing.source or ""
+            claimed = await _cas_update_entitlement_if_source(
+                existing,
+                expected_source=expected_source,
+                set_fields={
+                    "status": _ACTIVE,
+                    "package_slug": slug,
+                    "source": origin,
+                    "on_loss": on_loss or "pause",
+                    "data_access": data_access or "core_generic_read",
+                    "retention": retention or "retain_until_uninstall",
+                    "expires_at": expires_at,
+                    "revoked_at": None,
+                    "updated_at": now,
+                },
+            )
+            if claimed is not None:
+                return claimed
+            fresh = await find_entitlement(workspace_id=ws, entitlement_key=key)
+            if fresh is None:
+                return await _create_entitlement_row(
+                    workspace_id=ws,
+                    entitlement_key=key,
+                    package_slug=slug,
+                    actor_id=actor_id,
+                    expires_at=expires_at,
+                    on_loss=on_loss,
+                    data_access=data_access,
+                    retention=retention,
+                    source=origin,
+                    now=now,
+                )
+            if _source_is_manual(fresh.source):
+                return fresh
+            claimed2 = await _cas_update_entitlement_if_source(
+                fresh,
+                expected_source=fresh.source or "",
+                set_fields={
+                    "status": _ACTIVE,
+                    "package_slug": slug,
+                    "source": origin,
+                    "on_loss": on_loss or "pause",
+                    "data_access": data_access or "core_generic_read",
+                    "retention": retention or "retain_until_uninstall",
+                    "expires_at": expires_at,
+                    "revoked_at": None,
+                    "updated_at": now,
+                },
+            )
+            if claimed2 is not None:
+                return claimed2
+            final = await find_entitlement(workspace_id=ws, entitlement_key=key)
+            return final if final is not None else fresh
+
+        # Unconditional update — still under the shared writer lock on fallback.
+        target = await Entitlement.get(existing.id)
+        if target is None:
+            target = existing
+        target.status = _ACTIVE
+        target.package_slug = slug
+        target.source = origin
+        target.on_loss = on_loss or "pause"
+        target.data_access = data_access or "core_generic_read"
+        target.retention = retention or "retain_until_uninstall"
+        target.expires_at = expires_at
+        target.revoked_at = None
+        target.updated_at = now
+        await target.save()
+        return target
+
+    return await _with_entitlement_writer_lock(
+        lock_key=lock_key,
+        row=None,
+        body=_body,
+    )
 
 
 async def revoke_entitlement(
@@ -363,37 +488,45 @@ async def revoke_entitlement(
     """Mark entitlement revoked and pause matching installed Apps (Phase One)."""
     ws = (workspace_id or "").strip()
     key = (entitlement_key or "").strip()
-    row = await find_entitlement(workspace_id=ws, entitlement_key=key)
-    if row is None:
-        raise BadRequestError(
-            message=f"Entitlement {key!r} not found for workspace {ws!r}",
-            details={"workspace_id": ws, "entitlement_key": key},
-        )
+    lock_key = f"{ws}::{key}"
 
-    now = utc_now_iso()
-    row.status = _REVOKED
-    row.revoked_at = now
-    row.updated_at = now
-    await row.save()
+    async def _body() -> Dict[str, Any]:
+        row = await find_entitlement(workspace_id=ws, entitlement_key=key)
+        if row is None:
+            raise BadRequestError(
+                message=f"Entitlement {key!r} not found for workspace {ws!r}",
+                details={"workspace_id": ws, "entitlement_key": key},
+            )
 
-    paused: List[str] = []
-    if pause_installed:
-        paused = await _pause_apps_for_entitlement(
-            workspace_id=ws,
-            entitlement_key=key,
-            package_slug=row.package_slug or key,
-            on_loss=row.on_loss or "pause",
-            actor_id=actor_id,
-        )
+        now = utc_now_iso()
+        target = await Entitlement.get(row.id)
+        if target is None:
+            target = row
+        target.status = _REVOKED
+        target.revoked_at = now
+        target.updated_at = now
+        await target.save()
 
-    return {
-        "entitlement_key": key,
-        "workspace_id": ws,
-        "status": _REVOKED,
-        "paused_app_ids": paused,
-        "data_access": row.data_access,
-        "retention": row.retention,
-    }
+        paused: List[str] = []
+        if pause_installed:
+            paused = await _pause_apps_for_entitlement(
+                workspace_id=ws,
+                entitlement_key=key,
+                package_slug=target.package_slug or key,
+                on_loss=target.on_loss or "pause",
+                actor_id=actor_id,
+            )
+
+        return {
+            "entitlement_key": key,
+            "workspace_id": ws,
+            "status": _REVOKED,
+            "paused_app_ids": paused,
+            "data_access": target.data_access,
+            "retention": target.retention,
+        }
+
+    return await _with_entitlement_writer_lock(lock_key=lock_key, row=None, body=_body)
 
 
 async def revoke_provider_entitlement(
