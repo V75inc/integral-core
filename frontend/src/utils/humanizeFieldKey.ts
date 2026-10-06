@@ -37,6 +37,7 @@ export function humanizeFieldKey(key: string | null | undefined): string {
  *                                    acronym/currency code, not a casing
  *                                    accident — title-casing it would turn
  *                                    a recognizable "GYD" into "Gyd")
+ *   "Needs Repair" → "Needs Repair" (an authored label, not a machine key)
  */
 export function humanizeEnumValue(value: string | null | undefined): string {
   if (value === null || value === undefined) return '';
@@ -47,6 +48,9 @@ export function humanizeEnumValue(value: string | null | undefined): string {
   // unchanged rather than mangling it via Title Case. A multi-word value
   // like "IN_PROGRESS" still gets humanized normally.
   if (/^[A-Z0-9]+$/u.test(s)) return s;
+  // Preserve explicitly cased human labels such as "Needs Repair". Only
+  // normalize multi-word strings whose casing looks like a machine value.
+  if (/\s/u.test(s) && /[A-Z]/u.test(s) && !/[_-]/u.test(s)) return s;
   return titleCaseSnake(s);
 }
 

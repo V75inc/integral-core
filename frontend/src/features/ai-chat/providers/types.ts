@@ -13,6 +13,7 @@ import type { ChatPageContextPayload } from "../../../types/chatPageContext";
 
 export type NormalizedEvent =
   | { type: "text-delta"; delta: string }
+  | { type: "text-replace"; content: string }
   | { type: "reasoning-delta"; delta: string; segmentId?: string }
   | {
       type: "tool-call";
@@ -29,6 +30,17 @@ export type NormalizedEvent =
       type: "step";
       usage?: { inputTokens?: number; outputTokens?: number };
       modelId?: string;
+      provider?: string;
+      providerCostUsd?: number;
+      costSource?:
+        | "litellm_response"
+        | "provider_response"
+        | "litellm_calculated"
+        | "unavailable";
+      durationMs?: number;
+      outcome?: "responded" | "failed" | "cancelled" | "outcome_unknown";
+      attempt?: number;
+      requestId?: string;
       finishReason?: string;
     }
   | {
@@ -94,6 +106,8 @@ export interface TurnContext {
   focusedAppId?: string;
   /** Snapshotted page context (URL, breadcrumbs, visible data) at send time. */
   pageContext?: ChatPageContextPayload;
+  /** Host initiated continuation; never represented as a user utterance. */
+  hostAction?: "prompt_sheet_resume" | "staging_follow_through";
 }
 
 export interface ChatProvider {

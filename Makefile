@@ -229,8 +229,8 @@ precommit:
 
 format-check:
 	@echo "==> Format + lint at pinned versions (black $(BLACK_VER), isort $(ISORT_VER), flake8 $(FLAKE8_VER))"
-	@uvx black@$(BLACK_VER) --check backend/app backend/tests
-	@uvx isort@$(ISORT_VER) --profile black --check-only backend/app backend/tests
+	@uvx black@$(BLACK_VER) --check --extend-exclude='resident_harness' backend/app backend/tests
+	@uvx isort@$(ISORT_VER) --profile black --check-only --skip-glob='**/resident_harness/**' backend/app backend/tests
 	@uvx $(FLAKE8_PLUGINS) flake8@$(FLAKE8_VER) --config=backend/.flake8 backend/app
 
 audit:

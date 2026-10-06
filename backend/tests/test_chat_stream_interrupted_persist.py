@@ -180,17 +180,69 @@ async def test_terminal_callback_receives_one_success(monkeypatch):
             yield {"type": "text-delta", "delta": "Done."}
             yield {"type": "message-finish"}
 
-    terminals: List[tuple[str, Any]] = []
+    order: List[str] = []
 
     async def on_terminal(status: str, error: Any) -> None:
-        terminals.append((status, error))
+        order.append("terminal")
+        assert (status, error) == ("succeeded", None)
+
+    async def release_turn(_thread_id: str) -> None:
+        order.append("release")
+
+    monkeypatch.setattr(chat_streaming.chat_turn_registry, "release_turn", release_turn)
 
     kwargs = _make_kwargs(_FakeThread(), _QuickProvider(), [])
     kwargs["on_terminal"] = on_terminal
     async for _chunk in chat_streaming.generate_chat_turn_sse(**kwargs):
         pass
 
-    assert terminals == [("succeeded", None)]
+    assert order == ["terminal", "release"]
+
+
+@pytest.mark.asyncio
+async def test_cancelled_stream_waits_for_terminal_callback_then_releases(
+    monkeypatch,
+):
+    """Cancellation cannot strand the thread while durable finalization runs."""
+    monkeypatch.setattr(chat_streaming, "_register_cancel_hook", lambda *a, **k: None)
+
+    async def _noop_notify(*_a: Any, **_k: Any) -> None:
+        return None
+
+    monkeypatch.setattr(chat_streaming, "notify_thread_stream_update", _noop_notify)
+    started = asyncio.Event()
+    order: List[str] = []
+
+    class _BlockingProvider:
+        async def stream_turn(self, _ctx: Any):
+            started.set()
+            await asyncio.Event().wait()
+            yield {"type": "message-finish"}
+
+    async def on_terminal(status: str, error: Any) -> None:
+        await asyncio.sleep(0.01)
+        assert status == "cancelled"
+        assert error is None
+        order.append("terminal")
+
+    async def release_turn(_thread_id: str) -> None:
+        order.append("release")
+
+    monkeypatch.setattr(chat_streaming.chat_turn_registry, "release_turn", release_turn)
+    kwargs = _make_kwargs(_FakeThread(), _BlockingProvider(), [])
+    kwargs["on_terminal"] = on_terminal
+
+    async def consume() -> None:
+        async for _chunk in chat_streaming.generate_chat_turn_sse(**kwargs):
+            pass
+
+    task = asyncio.create_task(consume())
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert order == ["terminal", "release"]
 
 
 @pytest.mark.asyncio

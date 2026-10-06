@@ -92,6 +92,7 @@ class StagedChangeRecord(Object):
     # When the user decided / the token went terminal (decision ledger).
     resolved_at: Optional[str] = None
     idempotency_key: Optional[str] = None
+    decision_source: Optional[str] = None
 
 
 class OpenBatchRecord(Object):
@@ -249,6 +250,7 @@ def _sc_to_fields(sc: "StagedChange") -> Dict[str, Any]:
         "blessed_at": sc.blessed_at.isoformat() if sc.blessed_at else None,
         "resolved_at": sc.resolved_at.isoformat() if sc.resolved_at else None,
         "idempotency_key": sc.idempotency_key,
+        "decision_source": sc.decision_source,
     }
 
 
@@ -284,6 +286,7 @@ def _record_to_sc(rec: StagedChangeRecord) -> Optional["StagedChange"]:
         blessed_at=_parse_iso(rec.blessed_at) if rec.blessed_at else None,
         resolved_at=_parse_iso(rec.resolved_at) if rec.resolved_at else None,
         idempotency_key=getattr(rec, "idempotency_key", None),
+        decision_source=getattr(rec, "decision_source", None),
     )
 
 

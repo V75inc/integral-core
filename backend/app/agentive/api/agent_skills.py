@@ -151,6 +151,7 @@ async def effective_skill_context(
         workspace_id,
         user_id=user_id,
         private_app_id=authorized_focus,
+        include_private=False,
     )
     for row in visible_rows:
         key = (

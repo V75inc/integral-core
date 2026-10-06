@@ -14,7 +14,7 @@ EMBEDDED_INTEGRAL_SKILLS_GLOB = os.path.join(
     "integral",
     "embedded_integral_action",
     "skills",
-    "integral_*",
+    "integral-*",
     "SKILL.md",
 )
 

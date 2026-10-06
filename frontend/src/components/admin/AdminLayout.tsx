@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { LINE_ICON_STROKE } from '../ui';
 import { getRegisteredAdminNav } from '../../host/registry';
+import { Text } from '../../ui';
 
 const NAV = [
   { to: '/admin', label: 'Overview', icon: Shield, end: true },
@@ -40,15 +41,25 @@ export function AdminLayout() {
                 className={({ isActive }) =>
                   [
                     'inline-flex items-center gap-2 rounded-[var(--radius-input)] px-3 py-1.5',
-                    'text-xs transition-colors duration-fast',
+                    'transition-colors duration-fast',
                     isActive
-                      ? 'bg-[var(--nav-active-bg)] text-[var(--text)] font-medium'
-                      : 'text-[var(--text-subtle)] hover:text-[var(--text-muted)] hover:bg-[var(--panel)]',
+                      ? 'bg-[var(--nav-active-bg)]'
+                      : 'hover:bg-[var(--nav-active-bg)]',
                   ].join(' ')
                 }
               >
-                <Icon size={13} strokeWidth={LINE_ICON_STROKE} />
-                {label}
+                {({ isActive }) => (
+                  <Text
+                    as="span"
+                    variant="body-sm"
+                    tone={isActive ? 'default' : 'subtle'}
+                    weight={isActive ? 'medium' : 'normal'}
+                    className="inline-flex items-center gap-2"
+                  >
+                    <Icon size={13} strokeWidth={LINE_ICON_STROKE} />
+                    {label}
+                  </Text>
+                )}
               </NavLink>
             ))}
           </nav>

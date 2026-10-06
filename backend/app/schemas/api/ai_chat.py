@@ -140,6 +140,16 @@ class SendMessageRequest(BaseModel):
     focused_view_id: Optional[str] = None
     entity_refs: Optional[List[EntityRef]] = None
     page_context: Optional[PageContext] = None
+    host_action: Optional[str] = Field(
+        default=None,
+        pattern="^(prompt_sheet_resume|staging_follow_through)$",
+    )
+    client_request_id: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
     model_config = {"extra": "forbid"}
 
     @model_validator(mode="after")
@@ -148,6 +158,11 @@ class SendMessageRequest(BaseModel):
             not (self.text and self.text.strip())
             and not self.images
             and not self.attachment_ids
+            and self.host_action
+            not in {
+                "prompt_sheet_resume",
+                "staging_follow_through",
+            }
         ):
             raise ValueError("a message must have text, an image, or an attachment")
         return self
@@ -209,4 +224,25 @@ class QualificationRunExport(BaseModel):
     models: List[QualificationModelUse]
     redacted_trace_ref: str
     steps: List[QualificationRunStep]
+    model_config = {"extra": "forbid"}
+
+
+class HarnessSessionRunExport(BaseModel):
+    """One owner's private, decrypted Harness execution history bundle."""
+
+    run: Dict[str, Any]
+    events: List[Dict[str, Any]] = Field(default_factory=list)
+    snapshots: List[Dict[str, Any]] = Field(default_factory=list)
+    checkpoint_manifests: List[Dict[str, Any]] = Field(default_factory=list)
+    tool_effects: List[Dict[str, Any]] = Field(default_factory=list)
+    model_requests: List[Dict[str, Any]] = Field(default_factory=list)
+    model_config = {"extra": "forbid"}
+
+
+class HarnessSessionExport(BaseModel):
+    """Complete private Harness state export for one authorized chat owner."""
+
+    session: Dict[str, Any]
+    plans: List[Dict[str, Any]] = Field(default_factory=list)
+    runs: List[HarnessSessionRunExport] = Field(default_factory=list)
     model_config = {"extra": "forbid"}

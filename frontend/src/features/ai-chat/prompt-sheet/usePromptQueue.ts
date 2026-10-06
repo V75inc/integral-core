@@ -5,30 +5,31 @@ import {
   blessStagingToken,
   cancelPromptQueueAll,
   getPromptQueue,
+  getStagingTokenState,
   markPromptWrite,
   resolvePromptQuestion,
   revokeStagingToken,
-  type StagingAutonomy,
 } from '../../../api/agentive';
+import { useConfirm } from '../../../context/ConfirmContext';
 import { useChatActivity } from '../AIChatSurface';
 import type { PromptItem, PromptQueue } from './types';
 
 export function resumeIfNeeded(
   threadRuntime: ReturnType<typeof useThreadRuntime> | null,
   resumeText: string | null | undefined,
+  appendAssistantNote: (text: string) => void,
 ) {
   if (!resumeText || !threadRuntime) return;
   try {
-    // Keep the review boundary visible in the transcript. The continuation
-    // prompt below is consumed by the model runtime and may not be rendered
-    // as a user-facing message by every runtime implementation.
-    threadRuntime.append({
-      role: 'assistant',
-      content: [{ type: 'text', text: resumeText }],
-    });
-    threadRuntime.append({
-      role: 'user',
-      content: [{ type: 'text', text: resumeText }],
+    // Keep the resolved review visible as an assistant note. The runtime
+    // continuation starts separately and never appends a user utterance.
+    appendAssistantNote(resumeText);
+    const messages = threadRuntime.getState().messages;
+    const parentId = messages[messages.length - 1]?.id ?? null;
+    threadRuntime.startRun({
+      parentId,
+      sourceId: null,
+      runConfig: { custom: { hostAction: 'prompt_sheet_resume' } },
     });
   } catch {
     /* non-fatal */
@@ -36,8 +37,10 @@ export function resumeIfNeeded(
 }
 
 export function usePromptQueue() {
-  const { activeThreadId } = useChatActivity();
+  const { activeThreadId, appendAssistantNote, isThreadStreaming } =
+    useChatActivity();
   const threadRuntime = useThreadRuntime();
+  const confirm = useConfirm();
   const [queue, setQueue] = useState<PromptQueue | null>(null);
   const [open, setOpen] = useState(false);
   // Read inside the poll interval without making it a dependency (which would
@@ -60,7 +63,12 @@ export function usePromptQueue() {
       const resumeKey = `${activeThreadId}:${res?.resume_text ?? ''}`;
       if (res?.resume_text && !resumedRefreshes.current.has(resumeKey)) {
         resumedRefreshes.current.add(resumeKey);
-        resumeIfNeeded(threadRuntime, res.resume_text);
+        // A clear chat approval is applied before its ordinary native turn
+        // continues. The continuation belongs to that run; do not launch a
+        // second Prompt Sheet resume while its stream is active.
+        if (!isThreadStreaming(activeThreadId)) {
+          resumeIfNeeded(threadRuntime, res.resume_text, appendAssistantNote);
+        }
       }
       setQueue(null);
       setOpen(false);
@@ -81,7 +89,7 @@ export function usePromptQueue() {
       if (pendingIdx >= 0) return pendingIdx;
       return Math.min(i, Math.max(0, (items.length || 1) - 1));
     });
-  }, [activeThreadId]);
+  }, [activeThreadId, appendAssistantNote, isThreadStreaming, threadRuntime]);
 
   useEffect(() => {
     void refresh();
@@ -128,7 +136,7 @@ export function usePromptQueue() {
       if (res.closed) {
         setOpen(false);
         setQueue(null);
-        resumeIfNeeded(threadRuntime, res.resume_text);
+        resumeIfNeeded(threadRuntime, res.resume_text, appendAssistantNote);
         return;
       }
       if (res.queue) {
@@ -182,13 +190,35 @@ export function usePromptQueue() {
   }, [activeThreadId, applyQueueResult, busy, current]);
 
   const approveWrite = useCallback(
-    async (autonomy: StagingAutonomy = 'single') => {
+    async () => {
       if (!activeThreadId || !current || current.kind !== 'staged_write' || busy)
         return;
       setBusy(true);
       setError(null);
       try {
-        await blessStagingToken(current.token, autonomy);
+        const staged = await getStagingTokenState(current.token);
+        if (!staged) {
+          throw new Error(
+            'Could not verify the impact of this change. Refresh and try again.',
+          );
+        }
+        const requiresStrongConfirmation =
+          staged.requires_strong_confirmation;
+        const strongConfirmation = requiresStrongConfirmation
+          ? await confirm({
+              title: 'Confirm high-impact change',
+              message:
+                'Review the affected records, access, or structure, then confirm this exact action: ' +
+                (current.summary || 'Staged change'),
+              confirmLabel: 'Confirm change',
+              variant: 'danger',
+            })
+          : false;
+        if (requiresStrongConfirmation && !strongConfirmation) return;
+        const result = await blessStagingToken(current.token, {
+          strongConfirmation,
+        });
+        if (!result.ok) throw new Error(result.message || 'Approval failed.');
         const res = await markPromptWrite({
           threadId: activeThreadId,
           token: current.token,
@@ -196,13 +226,17 @@ export function usePromptQueue() {
         });
         applyQueueResult(res as never);
         window.dispatchEvent(new Event('staging-state-changed'));
-      } catch {
-        setError('Could not approve that write.');
+      } catch (error) {
+        setError(
+          error instanceof Error
+            ? error.message
+            : 'Could not approve that write.',
+        );
       } finally {
         setBusy(false);
       }
     },
-    [activeThreadId, applyQueueResult, busy, current],
+    [activeThreadId, applyQueueResult, busy, confirm, current],
   );
 
   const rejectWrite = useCallback(async () => {

@@ -875,7 +875,7 @@ AI services are decoupled and can scale independently. They use async job queues
 
 ## 10.6 Resident Harness Architecture (§10.6)
 
-> **Direction note ([ADR-003](../backend/adr/003-singular-resident-harness.md); Full Sweep 2026-09):** Integral is an **ops layer** on a pluggable harness. Default provider = embedded jvagent. A first-class **Harness Switcher** selects the active binding; “singular resident” applies **per binding**, not as a ban on provider pick. Facets (`personal` / `org_facing` / `system`) only narrow permissions (I-AUTH-02). A2A is retired. Canonical spec: [RESIDENT_HARNESS.md](RESIDENT_HARNESS.md).
+> **Direction note ([ADR-003](../backend/adr/003-singular-resident-harness.md); Full Sweep 2026-09):** Integral is an **ops layer** on a pluggable harness. Default provider = Integral AI via Pydantic AI; jvagent remains selectable for compatibility. A first-class **Harness Switcher** selects the active binding; “singular resident” applies **per binding**, not as a ban on provider pick. Facets (`personal` / `org_facing` / `system`) only narrow permissions (I-AUTH-02). A2A is retired. Canonical spec: [RESIDENT_HARNESS.md](RESIDENT_HARNESS.md).
 
 The agentive ops layer is **always-on** in current code (`main.py` registers agentive nodes + routes unconditionally). Historical docs referred to `AGENTIVE_ENABLED` as an operational substrate-only kill-switch; that env flag is **not** present in `app/config.py` and does **not** gate boot today. Restoring a true kill-switch is a deliberate future change — do not document conditional load as live behavior.
 
@@ -981,11 +981,12 @@ The resident MUST be **Operational Model-aware** — it understands and operates
 
 ### BYOA (Bring Your Own Agent)
 
-Integral’s ops layer exposes **MCP only** as the external-agent surface ([BYOA.md](BYOA.md); [ADR-003](../backend/adr/003-singular-resident-harness.md)). The default in-app harness is embedded jvagent (selectable via Harness Switcher — Echo for smoke/dev). Users are not locked to one provider; Claude Code / Cursor / etc. connect through `/api/mcp` under the same permission model, staging, and audit trail.
+Integral’s ops layer exposes **MCP only** as the external-agent surface ([BYOA.md](BYOA.md); [ADR-003](../backend/adr/003-singular-resident-harness.md)). The default in-app harness is Integral AI via Pydantic AI (jvagent remains selectable through the Harness Switcher; Echo is for smoke/dev). Users are not locked to one provider; Claude Code / Cursor / etc. connect through `/api/mcp` under the same permission model, staging, and audit trail.
 
 | Agent | Primary uplink | SOP carrier |
 |-------|----------------|-------------|
-| Embedded jvagent (default in-app) | in-process embed + tool_manifest | base `integral_*` skills + per-workspace App overlay |
+| Integral AI / Pydantic AI (default in-app) | native provider + Integral capability broker | base `integral_*` skills + per-workspace App overlay |
+| Embedded jvagent (compatibility) | in-process embed + tool_manifest | base `integral_*` skills + per-workspace App overlay |
 | Echo (dev/smoke) | MockEchoProvider | synthetic — not a peer coworker mind |
 | Claude Code / Desktop / Cursor / … | MCP (`/api/mcp` + OAuth) | client-side rules / skills; Integral tools via catalogue |
 | ~~ChatGPT GPT / REST PAT~~ | ~~OpenAI Actions / PAT REST~~ | **Descoped** — see BYOA.md historical notes |

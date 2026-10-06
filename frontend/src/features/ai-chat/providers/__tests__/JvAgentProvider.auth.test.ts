@@ -77,6 +77,10 @@ describe('JvAgentProvider.streamTurn auth handling', () => {
     expect(refreshAccessToken).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls[1][1].headers.Authorization).toBe('Bearer fresh');
+    const firstRequest = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    const replayedRequest = JSON.parse(fetchMock.mock.calls[1][1].body as string);
+    expect(firstRequest.client_request_id).toMatch(/^[\da-f-]{36}$/i);
+    expect(replayedRequest.client_request_id).toBe(firstRequest.client_request_id);
     // The retry succeeded, so the user sees no error event.
     expect(events.filter((e) => (e as { type?: string })?.type === 'error')).toEqual(
       [],

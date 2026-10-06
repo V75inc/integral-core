@@ -45,8 +45,8 @@ Recognised patterns (case-insensitive, whitespace-tolerant):
     Resolves to the indexed pending token (1-based).
   * Verb + "all": "approve all" / "reject all". Resolves to every
     pending token of compatible kind.
-  * Verb + autonomy: "always approve" / "approve and remember" /
-    "auto-allow" → bless with ``autonomy=session``.
+  * Requests to approve future changes are not approval of the current
+    proposal and are not treated as a standing authorization.
 
 Anything not matching these patterns returns ``None``. The caller
 should forward the message to the agent as a normal turn.
@@ -70,7 +70,7 @@ logger = logging.getLogger(__name__)
 
 
 ApprovalVerb = Literal["bless", "revoke"]
-AutonomyMode = Literal["single", "session"]
+AutonomyMode = Literal["single"]
 
 
 @dataclass(frozen=True)
@@ -140,21 +140,6 @@ _REVOKE_TOKENS = {
     "abort",
     "n",
     "skip",
-}
-
-# Phrases that escalate a bless to ``autonomy=session``.
-_AUTONOMY_PHRASES = {
-    "always",
-    "auto",
-    "auto allow",
-    "auto-allow",
-    "auto approve",
-    "auto-approve",
-    "always approve",
-    "always allow",
-    "remember",
-    "from now on",
-    "every time",
 }
 
 # Words that indicate "act on every pending item" rather than a
@@ -319,8 +304,6 @@ def parse_approval_intent(
         return None
 
     autonomy: AutonomyMode = "single"
-    if verb == "bless" and _has_any(norm, _AUTONOMY_PHRASES):
-        autonomy = "session"
 
     targets_all = _has_any(norm, _ALL_WORDS)
     ordinal = _extract_ordinal(norm)

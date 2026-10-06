@@ -140,7 +140,7 @@ Run the Task 1 command. Expected: provenance and privacy tests pass.
 - Modify: `backend/app/api/__init__.py`
 - Modify: `backend/app/services/operational_model_compile.py`
 - Modify: `backend/app/agentive/services/execution_runs.py`
-- Modify: `agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_insights/SKILL.md`
+- Modify: `agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral-insights/SKILL.md`
 - Modify: `backend/tests/test_query_spec.py`
 - Modify: `backend/tests/test_mcp_server_dispatch.py`
 - Modify: `backend/tests/test_mcp_server_oauth.py`

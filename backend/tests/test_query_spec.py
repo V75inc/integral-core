@@ -78,6 +78,96 @@ async def test_query_spec_reports_an_authorized_source_failure(monkeypatch) -> N
         )
 
 
+@pytest.mark.asyncio
+async def test_declared_app_query_scopes_entry_scan_to_active_visible_app(
+    monkeypatch,
+) -> None:
+    """Declared App reads use the permission service's exact App boundary."""
+    app = type(
+        "_App",
+        (),
+        {
+            "id": "app-scoped",
+            "workspace_id": "workspace-scoped",
+            "lifecycle_state": "active",
+            "installed_package_slug": "venture-journey",
+        },
+    )()
+    received = {}
+
+    async def get_app(_app_id):
+        return app
+
+    async def can_view_app(_principal_id, _app_id):
+        return True
+
+    async def accessible_entries(principal_id, **kwargs):
+        received.update(principal_id=principal_id, **kwargs)
+        return []
+
+    async def empty_catalog(*_args, **_kwargs):
+        return []
+
+    async def must_not_use_generic_boundary(_entries):
+        raise AssertionError("declared App query was sent through generic boundary")
+
+    monkeypatch.setattr(App, "get", classmethod(lambda _cls, app_id: get_app(app_id)))
+    monkeypatch.setattr(
+        "app.agentive.services.query_spec.permissions.can_view_app", can_view_app
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.query_spec.get_user_accessible_entries",
+        accessible_entries,
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.query_spec._entry_field_catalog", empty_catalog
+    )
+    monkeypatch.setattr(
+        "app.services.query_boundary.keep_open_entries", must_not_use_generic_boundary
+    )
+
+    result = await execute_query_spec(
+        principal_id="principal-scoped",
+        workspace_id="workspace-scoped",
+        declared_app_id="app-scoped",
+        spec=QuerySpec(resource="entry", select=["id"], limit=1),
+    )
+
+    assert received == {
+        "principal_id": "principal-scoped",
+        "workspace_id": "workspace-scoped",
+        "strict": True,
+        "app_id": "app-scoped",
+    }
+    assert result.items == []
+
+
+@pytest.mark.asyncio
+async def test_declared_app_query_rejects_unavailable_app(monkeypatch) -> None:
+    app = type(
+        "_App",
+        (),
+        {
+            "id": "app-paused",
+            "workspace_id": "workspace-scoped",
+            "lifecycle_state": "paused",
+            "installed_package_slug": "venture-journey",
+        },
+    )()
+
+    async def get_app(_app_id):
+        return app
+
+    monkeypatch.setattr(App, "get", classmethod(lambda _cls, app_id: get_app(app_id)))
+    with pytest.raises(QuerySpecError, match="declared App query is unavailable"):
+        await execute_query_spec(
+            principal_id="principal-scoped",
+            workspace_id="workspace-scoped",
+            declared_app_id="app-paused",
+            spec=QuerySpec(resource="entry", select=["id"], limit=1),
+        )
+
+
 @pytest.mark.unit
 def test_query_spec_accepts_explicit_business_field_paths_without_status_fallback() -> (
     None
@@ -2311,6 +2401,7 @@ async def test_app_query_adapter_uses_only_fixed_snapshot_template(
         limit=10,
         cursor="opaque",
     )
+    assert received["declared_app_id"] == "app-query"
 
     with pytest.raises(AdapterError, match="query.invalid"):
         await dispatch_capability(
@@ -2554,6 +2645,86 @@ def test_app_declared_query_dashboard_requires_typed_complete_output() -> None:
                         "rows_path": "assets",
                         "total_path": "total",
                     },
+                }
+            ],
+            where="app.queries",
+        )
+
+
+@pytest.mark.unit
+def test_queryspec_declared_dashboard_contract_compiles_and_is_preserved() -> None:
+    from app.services.operational_model_compile import _parse_manifest_queries
+
+    queries = _parse_manifest_queries(
+        [
+            {
+                "key": "active_ventures",
+                "handler_key": "venture_journey__current_status",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": False,
+                },
+                "query_template": {
+                    "resource": "entry",
+                    "select": ["id", "title"],
+                    "limit": 100,
+                    "cost_ceiling": 250,
+                },
+                "output_schema": {
+                    "type": "object",
+                    "properties": {
+                        "items": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {"id": {"type": "string"}},
+                            },
+                        },
+                        "total_estimate": {"type": "integer"},
+                    },
+                },
+                "dashboard": {
+                    "rows_path": "items",
+                    "total_path": "total_estimate",
+                    "params": {},
+                    "title": "Current ventures",
+                },
+            }
+        ],
+        where="app.queries",
+    )
+
+    assert queries[0]["dashboard"] == {
+        "rows_path": "items",
+        "total_path": "total_estimate",
+        "params": {},
+        "title": "Current ventures",
+    }
+
+
+@pytest.mark.unit
+def test_queryspec_declared_dashboard_requires_typed_complete_output() -> None:
+    from app.services.operational_model_compile import _parse_manifest_queries
+
+    with pytest.raises(OperationalModelValidationError, match="object-row array"):
+        _parse_manifest_queries(
+            [
+                {
+                    "key": "broken_dashboard",
+                    "handler_key": "read_records",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": False,
+                    },
+                    "query_template": {
+                        "resource": "entry",
+                        "select": ["id"],
+                        "limit": 25,
+                    },
+                    "output_schema": {"type": "object"},
+                    "dashboard": {"rows_path": "items", "total_path": "total"},
                 }
             ],
             where="app.queries",

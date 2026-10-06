@@ -381,7 +381,7 @@ def _refs_from_output(
     output: Dict[str, Any], *, workspace_id: str, app_id: str
 ) -> List[ObjectRef]:
     refs: List[ObjectRef] = []
-    for key in ("expiring_assets", "assets"):
+    for key in ("items", "expiring_assets", "assets"):
         for item in output.get(key) or []:
             if not isinstance(item, dict):
                 continue
@@ -455,7 +455,9 @@ async def _run_declared(
     output = dict(invoked.get("output") or {})
     refs = _refs_from_output(output, workspace_id=workspace_id, app_id=app_id)
     rows = []
-    if "expiring_assets" in output:
+    if "items" in output:
+        rows = list(output.get("items") or [])
+    elif "expiring_assets" in output:
         rows = list(output.get("expiring_assets") or [])
     elif "assets" in output:
         rows = list(output.get("assets") or [])
@@ -470,13 +472,14 @@ async def _run_declared(
         evidence=Evidence(
             object_refs=refs,
             freshness=utc_now_iso(),
-            applied_scope=f"ws:{workspace_id}",
+            applied_scope=f"app:{app_id}",
             catalogue_generation=catalogue_generation or snap.generation_id,
             policy_decision_id=invoked.get("policy_decision_id"),
             package_slug=None,
             warnings=[],
         ),
-        total_estimate=len(rows),
+        cursor=output.get("next_cursor"),
+        total_estimate=output.get("total_estimate") or len(rows),
         explain={"capability_key": bare, "app_id": app_id},
     )
 

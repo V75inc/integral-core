@@ -46,4 +46,4 @@ def test_attachments_list_and_deliver_harness_phrasing():
         for d in list_turn["harness"]["decisions"]
         if d.get("action") == "tool"
     ]
-    assert "integral_attachments" in doc["traceability"]["skills"]
+    assert "integral-attachments" in doc["traceability"]["skills"]

@@ -32,7 +32,7 @@ MAP_JSON_PATH = REPO_ROOT / "docs" / "generated" / "capability-map.json"
 MAP_MD_PATH = REPO_ROOT / "docs" / "generated" / "capability-map.md"
 
 _MCP_SCOPES = ("integral:read", "integral:propose", "integral:execute")
-_BACKTICK_RE = re.compile(r"`([a-z][a-z0-9_]*)`")
+_BACKTICK_RE = re.compile(r"`([a-z][a-z0-9_-]*)`")
 _CALL_RE = re.compile(r"\b([a-z][a-z0-9_]*)\(")
 
 
@@ -99,7 +99,7 @@ def _core_skills(tool_names: set[str]) -> List[Dict[str, Any]]:
     for path in iter_core_skill_paths():
         meta, body = _frontmatter(path)
         refs = set(_BACKTICK_RE.findall(body)) | set(_CALL_RE.findall(body))
-        integral_refs = {r for r in refs if r.startswith("integral_")}
+        integral_refs = {r for r in refs if r.startswith(("integral_", "integral-"))}
         skills.append(
             {
                 "name": path.parent.name,
@@ -171,17 +171,24 @@ def _app_report(
     for path in sorted((bundle_dir / "skills").glob("*/SKILL.md")):
         key = path.parent.name
         meta, body = _frontmatter(path)
-        declared = skill_meta.get(key) or {}
+        declared = next(
+            (
+                row
+                for row in skill_meta.values()
+                if row.get("prompt_template") == f"skills/{key}/SKILL.md"
+            ),
+            skill_meta.get(key) or {},
+        )
         backticks = set(_BACKTICK_RE.findall(body))
         calls = set(_CALL_RE.findall(body))
         named = (backticks | calls | set(declared.get("tools_required") or [])) | set(
-            meta.get("allowed-tools") or []
+            (meta.get("allowed-tools") or "").split()
         )
         core_used = sorted(n for n in named if n in catalogue)
         lowered = body.lower()
         skills.append(
             {
-                "key": key,
+                "key": str(declared.get("key") or key),
                 "source": _rel(path),
                 "private": bool(declared.get("private", False)),
                 "same_app_focus": (

@@ -19,7 +19,7 @@ describe("buildChatPageContextSnapshot", () => {
         pageKind: "track_detail",
         focusedTrackId: "n.Track.abc",
         focusedViewId: "n.View.1",
-        focusedAppId: null,
+        focusedAppId: "n.WorkspaceApp.venture-journey",
         focusedEntryId: "n.Entry.1",
         visibleData: {
           entries: [
@@ -47,6 +47,7 @@ describe("buildChatPageContextSnapshot", () => {
       ],
       focused_track_id: "n.Track.abc",
       focused_view_id: "n.View.1",
+      focused_app_id: "n.WorkspaceApp.venture-journey",
       focused_entry_id: "n.Entry.1",
       visible_data: {
         entries: [

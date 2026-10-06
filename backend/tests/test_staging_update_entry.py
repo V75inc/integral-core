@@ -48,6 +48,7 @@ async def test_stage_update_entry_uses_entry_title(monkeypatch):
 async def test_stage_update_entry_prefers_existing_profile_status(monkeypatch):
     """A business Status field must not silently mutate platform lifecycle."""
     entry_id = "n.Entry.abc123def456"
+    token = bindings._propose_principal.set("u1")
     monkeypatch.setattr(
         bindings._sd,
         "load_entry_record",
@@ -61,9 +62,12 @@ async def test_stage_update_entry_prefers_existing_profile_status(monkeypatch):
         ),
     )
 
-    staged = await bindings._stage_update_entry(
-        {"entry_id": entry_id, "updates": {"status": "Maintenance"}}
-    )
+    try:
+        staged = await bindings._stage_update_entry(
+            {"entry_id": entry_id, "updates": {"status": "Maintenance"}}
+        )
+    finally:
+        bindings._propose_principal.reset(token)
 
     assert "status" not in staged["payload"]
     assert staged["payload"]["fields"] == {"status": "Maintenance"}

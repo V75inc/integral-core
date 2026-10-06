@@ -29,7 +29,7 @@ _CAROUSEL_DRAFTER_TOOLS = [
 ]
 
 
-def test_bundle_always_active_is_preserved_in_overlay(tmp_path: Path):
+def test_vendor_always_active_frontmatter_does_not_activate_overlay(tmp_path: Path):
     from app.agentive.workspace_agent_profile import _skill_to_overlay_doc
 
     skill_dir = tmp_path / "skills" / "founder_journey_guide"
@@ -59,7 +59,7 @@ def test_bundle_always_active_is_preserved_in_overlay(tmp_path: Path):
     doc = _skill_to_overlay_doc(skill, app_slug="venture-journey", bundle_dir=tmp_path)
 
     assert doc is not None
-    assert doc.always_active is True
+    assert doc.always_active is False
 
 
 def test_bundle_without_always_active_remains_conditional(tmp_path: Path):
@@ -99,9 +99,7 @@ def test_overlay_always_active_reaches_jvagent_skill_doc():
         description="Foundational founder routing.",
         body="Orient the founder and pick one next action.",
         requires_tools=("integral_list_tracks",),
-        requires_actions=("EmbeddedIntegralAction",),
         source="workspace",
-        spec="jv",
         always_active=True,
         metadata={"skill_key": "founder_journey_guide"},
     )
@@ -166,7 +164,7 @@ async def test_workspace_profile_after_install_public_skill():
     assert "integral_query_entries" in doc.requires_tools
     assert "Draft" in doc.body or "carousel" in doc.body.lower()
     assert "Standard Integral Tool Procedure" in doc.body
-    assert "EmbeddedIntegralAction" in doc.requires_actions
+    assert not hasattr(doc, "requires_actions")
 
 
 @pytest.mark.asyncio
@@ -334,8 +332,8 @@ async def test_host_provider_reads_turn_profile():
 
 
 @pytest.mark.asyncio
-async def test_body_override_reapplies_extends():
-    """Domain-only body_override must still merge embedded action base SOP."""
+async def test_body_override_has_no_vendor_inheritance():
+    """Body overrides remain plain instructions without vendor inheritance."""
     from app.agentive.workspace_agent_profile import _resolve_prompt_body
     from app.models.edges import CONTAINS
 
@@ -368,7 +366,7 @@ async def test_body_override_reapplies_extends():
         tools_required=[],
     )
     assert body is not None
-    assert "Standard Integral Tool Procedure" in body
+    assert "Standard Integral Tool Procedure" not in body
     assert "Custom domain" in body
 
 

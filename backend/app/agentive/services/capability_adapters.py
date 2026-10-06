@@ -76,6 +76,7 @@ async def dispatch_capability(inv: CapabilityInvocation, cap: Dict[str, Any]) ->
                     run_id=inv.run_id,
                     idempotency_key=inv.idempotency_key,
                     spec=spec,
+                    declared_app_id=str(inv.app_id or ""),
                 )
             except (JVSpatialAPIException, QuerySpecError, ValidationError) as exc:
                 raise AdapterError("query.invalid", str(exc)) from exc

@@ -9,6 +9,7 @@ import {
   Trash2,
   Link2,
   BookPlus,
+  RefreshCw,
   Search,
   ClipboardList,
   GripVertical,
@@ -76,7 +77,7 @@ import { useWorkspaceCrumbPrefix } from '../hooks/useWorkspaceCrumbPrefix';
 import { useRecents } from '../hooks/useRecents';
 import { useWorkspaceCreationRights } from '../hooks/useWorkspaceCreationRights';
 import { WorkspaceCreationRightsNotice } from '../components/collab/WorkspaceCreationRightsNotice';
-import type { App, Track, User } from '../types';
+import type { App, OperationalModelNode, Track, User } from '../types';
 import { Text } from '../ui';
 import {
   readAppDetailSection,
@@ -107,6 +108,8 @@ export function AppDetailPage() {
   const confirm = useConfirm();
   const { showToast } = useToast();
   const [app, setApp] = useState<App | null>(null);
+  const [appOperationalModel, setAppOperationalModel] =
+    useState<OperationalModelNode | null>(null);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [collabs, setCollabs] = useState<CollabRow[]>([]);
   const [allTracks, setAllTracks] = useState<Track[]>([]);
@@ -190,14 +193,16 @@ export function AppDetailPage() {
     setLoading(true);
     setError(null);
     try {
-      const [sp, tr, c, at, tpls] = await Promise.all([
+      const [sp, tr, c, at, tpls, profile] = await Promise.all([
         appsApi.get(appId),
         appsApi.listTracks(appId),
         appsApi.listCollaborators(appId) as Promise<CollabRow[]>,
         tracksApi.list(),
         appsApi.listTrackTemplates(appId).catch(() => []),
+        operationalModelsApi.getAttachedForApp(appId).catch(() => null),
       ]);
       setApp(sp);
+      setAppOperationalModel(profile);
       setTracks(tr);
       setCollabs(Array.isArray(c) ? c : []);
       setAllTracks(at as Track[]);
@@ -205,6 +210,7 @@ export function AppDetailPage() {
     } catch (e: unknown) {
       setError(errorMessageFromAxios(e, 'Failed to load app'));
       setApp(null);
+      setAppOperationalModel(null);
     } finally {
       setLoading(false);
     }
@@ -215,6 +221,15 @@ export function AppDetailPage() {
   }, [load]);
 
   const trackIdsInApp = useMemo(() => new Set(tracks.map(t => t.id)), [tracks]);
+
+  const defaultTrack = useMemo(() => {
+    const manifest = appOperationalModel?.manifest;
+    const appDefinition = manifest?.app as Record<string, unknown> | undefined;
+    const defaults = appDefinition?.defaults as Record<string, unknown> | undefined;
+    const defaultTrackKey = String(defaults?.default_track || '').trim();
+    if (!defaultTrackKey) return null;
+    return tracks.find(track => track.template_id === defaultTrackKey) || null;
+  }, [appOperationalModel, tracks]);
 
   const tracksAvailableToLink = useMemo(
     () => allTracks.filter(t => !trackIdsInApp.has(t.id)),
@@ -431,6 +446,28 @@ export function AppDetailPage() {
     }
   };
 
+  const updateFromLibrary = async () => {
+    if (!appId || !app || !isAppOwner || !app.installed_from_library_id) return;
+    const ok = await confirm({
+      title: 'Update this App from its library package?',
+      message: `Queue the latest library package update for “${app.name}”? The update will reconcile this App's structure and private skills with the package. Review the lifecycle result in Background Tasks after it runs.`,
+      confirmLabel: 'Queue update',
+      variant: 'default'
+    });
+    if (!ok) return;
+    try {
+      const work = await appsApi.updateFromLibrary(appId);
+      showToast(
+        work.status === 'queued'
+          ? `App update queued (${work.work_item_id})`
+          : `App update submitted (${work.work_item_id})`,
+        'success'
+      );
+    } catch (e: unknown) {
+      showToast(errorMessageFromAxios(e, 'Failed to queue App update'), 'error');
+    }
+  };
+
   const deleteApp = async () => {
     if (!appId || !app || !isAppOwner) return;
     const ok = await confirm({
@@ -607,6 +644,16 @@ export function AppDetailPage() {
                       },
                     ]
                   : []),
+                ...(isAppOwner && app.installed_from_library_id
+                  ? [
+                      {
+                        key: 'update-from-library',
+                        label: 'Update from library',
+                        icon: <RefreshCw size={13} strokeWidth={LINE_ICON_STROKE} />,
+                        onClick: updateFromLibrary
+                      },
+                    ]
+                  : []),
                 ...(isAppOwner
                   ? [
                       {
@@ -646,6 +693,31 @@ export function AppDetailPage() {
           <p className="mt-3 max-w-2xl text-sm text-[var(--text-muted)] leading-relaxed">
             {app.description}
           </p>
+        ) : null}
+        {defaultTrack ? (
+          <div className="mt-5 flex flex-col gap-3 rounded-[var(--radius-card)] border border-[var(--border-subtle)] bg-[var(--surface-raised)] p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+            <div className="min-w-0">
+              <p className="text-xs font-medium uppercase tracking-wide text-[var(--text-subtle)]">
+                Start here
+              </p>
+              <p className="mt-1 text-sm font-medium text-[var(--text)]">
+                {defaultTrack.title}
+              </p>
+              {defaultTrack.description?.trim() ? (
+                <p className="mt-1 max-w-2xl text-sm leading-relaxed text-[var(--text-muted)]">
+                  {defaultTrack.description}
+                </p>
+              ) : null}
+            </div>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => navigate(`/tracks/${defaultTrack.id}`)}
+              className="shrink-0"
+            >
+              Open {defaultTrack.title}
+            </Button>
+          </div>
         ) : null}
         {Array.isArray(app.operations) && app.operations.length > 0 ? (
           <div className="mt-4 max-w-2xl rounded-[var(--radius-card)] border border-[var(--border-subtle)] bg-[var(--panel)] px-3 py-2.5">

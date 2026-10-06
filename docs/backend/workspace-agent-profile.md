@@ -10,7 +10,7 @@
 
 | Tier | Scope | Contents | When active |
 |------|-------|----------|-------------|
-| **Base profile** | Global — every user, every workspace | Thirteen `integral_*` action-overlay SOP skills under `agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/` (`integral_identity`, `integral_filing`, `integral_entries`, `integral_attachments`, `integral_workspace`, `integral_models`, `integral_insights`, `integral_scaffold`, `integral_model`, `integral_organize`, `integral_review`, `integral_onboard`, `integral_scheduling`) plus the full Integral tool manifest ([`tool_manifest.yaml`](../../backend/app/agentive/tool_manifest.yaml)) via `EmbeddedIntegralAction` | Always — never filtered by workspace |
+| **Base profile** | Global — every user, every workspace | Thirteen `integral_*` action-overlay SOP skills under `agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/` (`integral-identity`, `integral-filing`, `integral-entries`, `integral-attachments`, `integral-workspace`, `integral-models`, `integral-insights`, `integral-scaffold`, `integral-model`, `integral-organize`, `integral-review`, `integral-onboard`, `integral-scheduling`) plus the full Integral tool manifest ([`tool_manifest.yaml`](../../backend/app/agentive/tool_manifest.yaml)) via `EmbeddedIntegralAction` | Always — never filtered by workspace |
 | **Workspace overlay** | Per active workspace (`X-Integral-Scope`) + acting user App access | Public declarative skills from installed Apps the user can access (`lifecycle_state=active`); app metadata and settings for future grounding | Merged when the user chats in that workspace |
 
 The overlay does **not** replace base capabilities. Filesystem/base skills win on name collision with overlay skills (jvagent host-provider merge rule).
@@ -40,11 +40,9 @@ not a stylistic choice — it determines what the skill is allowed to know and d
   tenant. A domain skill in the base tier pollutes every workspace's prompt with
   irrelevant SOP and leaks one customer's domain into another's agent. Domain
   behavior belongs in an **App bundle**, surfaced only where that App is installed.
-- **App skills extend, never replace, the base SOP** via
-  `extends: action:integral/embedded_integral_action` — write **domain workflow
-  only** in the bundle body; identity/scope, propose/stage, and error handling come
-  from the base. Filesystem base skills win on name collision (host-provider merge
-  rule above).
+- **App skills use portable Agent Skills instructions.** No vendor inheritance or
+  Action-dependency frontmatter is interpreted. Shared instructions and tool policy
+  belong to the host; App-private scope is enforced by the profile and broker.
 
 **Architectural invariants every skill + tool preserves:**
 
@@ -131,14 +129,8 @@ Settings updates and library re-merge should call `invalidate_workspace_profile(
 ## Authoring App-bundled skills for the overlay
 
 1. Declare skills in `app.skills[]` in the bundle manifest ([app-bundles-v1.md §5](./app-bundles-v1.md#5-skills-layer)).
-2. Author `skills/<key>/SKILL.md` under the bundle directory (JV skill frontmatter + markdown body).
-3. **Extend the embedded Integral base SOP** when the skill uses Integral tools — add to frontmatter:
-   ```yaml
-   extends: action:integral/embedded_integral_action
-   requires-actions:
-     - EmbeddedIntegralAction
-   ```
-   The base procedure (identity/scope, propose/stage, staging-resolved signals, error handling) lives at [`embedded_integral_action/SKILL.md`](../../agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/SKILL.md). Write **domain workflow only** in the skill body. See [app-bundles-v1.md §5.2.1](./app-bundles-v1.md#521-extending-the-embedded-integral-base-sop-required-for-integral-tools).
+2. Author `skills/<key>/SKILL.md` under the bundle directory (standard Agent Skills frontmatter + Markdown body).
+3. Follow [Agent Skills](./skill-format-standard.md): hyphenated name matching the directory, description, and standard optional fields only. Do not declare vendor inheritance or Action dependencies.
 4. Set `allowed-tools` in `SKILL.md` to the subset of manifest `tools_required` the SOP should surface per turn.
 5. Set `private: false` (default) for skills the resident should discover workspace-wide.
 6. List `tools_required` in the manifest using live catalogue names (`integral_query_entries`). Validated at registration against [`build_tool_catalogue()`](../../backend/app/agentive/tooling/catalogue.py).
@@ -155,13 +147,13 @@ After install, the resident agent exposes overlay skills via Orchestrator `find_
 
 > **Canonical format reference:** [skill-format-standard.md](./skill-format-standard.md).
 
-A skill is only as good as its SOP. The bar is [`integral_filing/SKILL.md`](../../agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_filing/SKILL.md)
+A skill is only as good as its SOP. The bar is [`integral-filing/SKILL.md`](../../agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral-filing/SKILL.md)
 (~220 lines) — a one-line "draft N carousels" skill is not a skill, it is a tool
 alias. Every base **and** app skill body MUST contain these sections:
 
 1. **Purpose / when to use** — the user intents that should route here, in their words.
 2. **When NOT to use → delegate** — the adjacent skills that own neighboring intents
-   (e.g. filing delegates entity-vs-track decisions to `integral_model`). Prevents
+   (e.g. filing delegates entity-vs-track decisions to `integral-model`). Prevents
    overlap and keeps each skill a distinct coordination pattern.
 3. **Grounding (read before write)** — which read tools to call first to orient
    (`integral_whoami`, `integral_list_apps`, `integral_describe_model`, `integral_get_track_schema`).

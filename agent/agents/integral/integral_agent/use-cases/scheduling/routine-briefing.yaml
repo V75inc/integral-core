@@ -4,7 +4,7 @@ title: Member asks for a recurring morning briefing; the agent computes the cade
 priority: P2
 tags: [integral, scheduling, routines, proactive]
 traceability:
-  skills: [integral_scheduling, integral_insights]
+  skills: [integral-scheduling, integral-insights]
   docs:
     - docs/INVARIANTS.md
 given:

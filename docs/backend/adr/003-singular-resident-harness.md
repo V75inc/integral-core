@@ -30,7 +30,7 @@ divergence taxes every substrate-touching plan review.
    core skill/tool collection (tier 0, `integral_*`) plus App-configured
    skill/tool overlays per workspace. The harness is the platform kernel;
    Integral is the ops layer (staging, skills, MCP, permissions) on top.
-   A **Harness Switcher** that picks the provider (jvagent / Echo / future)
+   A **Harness Switcher** that picks the provider (Integral AI / jvagent / Echo)
    is intentional and is **not** A2A revival — it selects which mind the ops
    layer binds, not a fleet of peer agents.
 

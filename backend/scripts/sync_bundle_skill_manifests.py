@@ -40,10 +40,10 @@ def _parse_skill(skill_md: Path) -> Dict[str, Any]:
     key = skill_md.parent.name
     tools = fm.get("allowed-tools") or []
     if isinstance(tools, str):
-        tools = [tools]
+        tools = tools.split()
     return {
         "key": key,
-        "name": str(fm.get("name") or key).replace("_", " ").title(),
+        "name": str(fm.get("name") or key).replace("-", " ").title(),
         "kind": "declarative",
         "description": str(fm.get("description") or "").strip(),
         "prompt_template": f"skills/{key}/SKILL.md",
@@ -102,6 +102,7 @@ def _validate_declared(
 
 
 def sync_profile(bundle_dir: Path, *, write: bool = False) -> Tuple[List[str], bool]:
+    """Reconcile skill files with their manifest bindings."""
     model_path = bundle_dir / "operational-model.yaml"
     if not model_path.is_file():
         return [], False
@@ -113,8 +114,20 @@ def sync_profile(bundle_dir: Path, *, write: bool = False) -> Tuple[List[str], b
     expected = _skill_dicts_for_bundle(bundle_dir)
     if not expected:
         return [], False
-    expected_by_key = {s["key"]: s for s in expected}
     declared = tier.get("skills") or []
+    for skill in expected:
+        existing = next(
+            (
+                row
+                for row in declared
+                if isinstance(row, dict)
+                and row.get("prompt_template") == skill["prompt_template"]
+            ),
+            None,
+        )
+        if existing and existing.get("key"):
+            skill["key"] = existing["key"]
+    expected_by_key = {s["key"]: s for s in expected}
     issues = _validate_declared(bundle_dir.name, declared, expected_by_key)
     changed = bool(issues)
     if write and issues:
@@ -130,6 +143,7 @@ def sync_profile(bundle_dir: Path, *, write: bool = False) -> Tuple[List[str], b
 
 
 def main() -> int:
+    """Run the command and report its result."""
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--write", action="store_true", help="Rewrite operational-model.yaml skills"

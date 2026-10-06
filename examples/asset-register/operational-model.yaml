@@ -609,23 +609,23 @@ app:
     name: Register asset
     kind: declarative
     description: Register a new asset through the app operation after collecting required fields.
-    prompt_template: skills/register_asset/SKILL.md
+    prompt_template: skills/register-asset/SKILL.md
     tools_required: [integral_invoke_app_operation]
   - key: find_available_asset
     name: Find available asset
     kind: declarative
     description: Find an available asset by tag, category, or location filters.
-    prompt_template: skills/find_available_asset/SKILL.md
+    prompt_template: skills/find-available-asset/SKILL.md
   - key: prepare_asset_checkout
     name: Prepare asset checkout
     kind: declarative
     description: Prepare a checkout proposal for an available asset and custodian.
-    prompt_template: skills/prepare_asset_checkout/SKILL.md
+    prompt_template: skills/prepare-asset-checkout/SKILL.md
   - key: review_warranties
     name: Review warranties
     kind: declarative
     description: Summarize assets with warranties expiring within the configured horizon.
-    prompt_template: skills/review_warranties/SKILL.md
+    prompt_template: skills/review-warranties/SKILL.md
   agents:
   - key: asset_admin
     name: Asset administrator

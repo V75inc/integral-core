@@ -42,6 +42,8 @@ services:
       JVSPATIAL_HOST: 0.0.0.0
       JVSPATIAL_PORT: "4000"
       JVSPATIAL_DEBUG: "false"
+      INTEGRAL_NATIVE_HARNESS_ENABLED: "true"
+      INTEGRAL_NATIVE_MODEL: ${INTEGRAL_NATIVE_MODEL:-ollama/deepseek-v4.1-flash:cloud}
       JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY: ${JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY:?run scripts/bootstrap_env.sh to generate the OAuth encryption key}
       JVSPATIAL_DB_TYPE: postgres
       # main.py rebuilds the DSN from POSTGRES_* when POSTGRES_PASSWORD is set —

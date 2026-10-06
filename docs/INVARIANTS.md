@@ -2219,34 +2219,25 @@ Bundle `tools[]` / `hooks[]` remain registered per workspace at install; hook di
 
 **Verification:** `backend/tests/test_skill_access_scope.py`, `backend/tests/test_workspace_agent_profile.py`.
 
-### I-SKILL-01 — JV skill frontmatter (discovery contract)
+### I-SKILL-01 — Agent Skills standard frontmatter
 
-**Scope:** All on-disk `SKILL.md` under core `integral_*` paths and `backend/app/packages/*/skills/*/`.
+**Scope:** All Integral Core and example/App disk `SKILL.md` files.
 
-**Rule:** Every public disk skill MUST declare:
+**Rule:** Follow [Agent Skills](https://agentskills.io/specification) without vendor extensions. Required: `name` (1–64 lowercase letters/numbers/hyphens, matching the parent directory, no leading/trailing/consecutive hyphens) and non-empty `description` (at most 1,024 characters). Optional: `license`, `compatibility` (1–500 characters), string-valued `metadata`, and space-separated string `allowed-tools`.
 
-- `name` matching the parent directory
-- non-empty `description` (third-person discovery: what + when)
-- explicit `spec: jv` (or `spec: claude` for future Claude-skill bundles)
-- `requires-actions: [EmbeddedIntegralAction]` when coordinating `integral_*` MCP tools
-- `extends: action:integral/embedded_integral_action` for bundle overlays and core `integral_*` skills
-- `allowed-tools` listing every catalogue tool backtick-referenced in the body
-
-**Forbidden:** `plan-steps`, top-level `version`.
+`spec`, `extends`, `requires-actions`, list-form `allowed-tools`, top-level `tags`, vendor activation fields and underscore disk names are not permitted. App operation/graph keys and tool IDs are separate identifiers. Skill files do not grant authority or inherit vendor SOPs.
 
 **Verification:** `backend/tests/test_skill_compliance.py`, `.ci/skill_compliance_check.sh`.
 
-**Reference:** [skill-format-standard.md](./backend/skill-format-standard.md), jvagent's own `jvagent/skills/README.md` (upstream repo — https://github.com/TrueSelph/jvagent, not vendored here).
+**Reference:** [skill-format-standard.md](./backend/skill-format-standard.md).
 
-### I-SKILL-02 — Discovery vs body `When to use`
+### I-SKILL-02 — Progressive discovery
 
-**Rule:** Frontmatter `description` is the orchestrator discovery string (editor: *When should the agent use this?*). Body `## When to use` MUST elaborate routing intents — MUST NOT duplicate `description` verbatim.
+**Rule:** `description` states the skill's purpose and when to use it. Instructions load on demand; resources use authorized runtime access. No particular prose voice is a format requirement.
 
-### I-SKILL-03 — Seven-section SOP bar
+### I-SKILL-03 — Standard Markdown body
 
-**Rule:** Core and public bundle skill bodies MUST pass the 7-section compliance bar (`when_not`, `grounding`, `procedure`, `staging`, `when_to_use`, `forbidden`, `example`). Missing sections are **errors** in CI.
-
-**Verification:** `skill_compliance.py`, `audit_skills.py`.
+**Rule:** Markdown bodies have no required headings. Grounding, staging, procedures and examples remain useful authoring guidance; their absence is not a format-compliance failure. Runtime policy enforces authorization and approvals independently of prose.
 
 ### I-SKILL-04 — Manifest description parity
 
@@ -2391,3 +2382,24 @@ data and the lookup primitive that binds entries to workspace members.
 **Rule:** Production boots fail closed for Mongo, missing work indexes, or missing public transaction CAS. JSON/SQLite are single-worker development stores with reconciliation only.
 
 **Verification:** `tests/test_work_kernel_lifecycle.py`.
+
+### I-HARNESS-01 — Resident sessions are rooted and tenant-bound
+
+**Scope:** `backend/app/models/nodes.py` (`HarnessSession`),
+`backend/app/models/edges.py` (`HAS_HARNESS_SESSION`), and native Harness
+session/store services.
+
+**Rule:** Every persisted `HarnessSession` is attached directly to its owning
+`ChatThread` through `HAS_HARNESS_SESSION` in the same transaction as session
+creation. The session's principal, workspace, thread, binding, and generation
+must agree with the authenticated ChatThread and authorized execution scope;
+client and model output cannot select or widen those values. Historical
+sessions remain attached when a binding changes. A ChatThread pointer to its
+active session is a cache only; it never replaces the edge or session record.
+Detailed model history, step events, and tool-effect receipts are encrypted
+`Object` records scoped to the same execution namespace, not detached graph
+Nodes. Production session activation and checkpoint advancement require
+shared-store compare-and-set/fencing; process-local locks are insufficient.
+
+**Verification:** `backend/tests/native_harness/wp_02/` and WP-03 PostgreSQL
+concurrency tests.
