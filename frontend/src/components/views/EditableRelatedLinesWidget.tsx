@@ -6,6 +6,7 @@
  * Config (all keys caller-supplied — no domain tokens in Core):
  *   relation, child_entry_type, child_track_type, columns[]
  *   quantity_field?, rate_field?, amount_field?, parent_total_field?,
+ *   parent_tax_field?, tax_column?, tax_inclusive_field?,
  *   parent_balance_field?, balance_label?, currency_field?, title?, add_label?, total_label?
  *   show_discount?, discount_*_field?
  *   catalog_relation_field?, catalog_autofill?, list_catalog_tool?
@@ -35,6 +36,7 @@ import {
   computeLineAmount,
   computeOpenBalance,
   computeSubtotal,
+  computeTaxTotal,
 } from './editableRelatedLinesMath';
 import type { ViewWidgetProps } from './types';
 
@@ -75,6 +77,8 @@ interface ColumnOptionSpec {
 interface ColumnChoice {
   id: string;
   label: string;
+  /** Percent rate when the option row is a tax code (e.g. 14 for VAT 14%). */
+  ratePercent?: number;
 }
 
 function toColumnChoices(rows: unknown, labelFields: string[]): ColumnChoice[] {
@@ -89,7 +93,12 @@ function toColumnChoices(rows: unknown, labelFields: string[]): ColumnChoice[] {
         .join(' ');
       const label =
         composed || String(row.label || row.name || row.title || '').trim() || id;
-      return { id, label };
+      const rateRaw = row.rate_percent ?? row.ratePercent;
+      const ratePercent =
+        rateRaw != null && rateRaw !== '' && Number.isFinite(Number(rateRaw))
+          ? Number(rateRaw)
+          : undefined;
+      return { id, label, ...(ratePercent != null ? { ratePercent } : {}) };
     })
     .filter(choice => choice.id);
 }
@@ -185,6 +194,14 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
     typeof config.amount_field === 'string' ? config.amount_field : undefined;
   const parentTotalField =
     typeof config.parent_total_field === 'string' ? config.parent_total_field : undefined;
+  const parentTaxField =
+    typeof config.parent_tax_field === 'string' ? config.parent_tax_field.trim() : '';
+  const taxColumn =
+    typeof config.tax_column === 'string' ? config.tax_column.trim() : 'tax_code';
+  const taxInclusiveField =
+    typeof config.tax_inclusive_field === 'string'
+      ? config.tax_inclusive_field.trim()
+      : 'tax_inclusive';
   const parentBalanceField =
     typeof config.parent_balance_field === 'string'
       ? config.parent_balance_field
@@ -260,11 +277,27 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
   linesRef.current = lines;
   const seqRef = useRef(1);
 
+  const ratePercentByCodeId = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const choice of columnOptions[taxColumn] || []) {
+      if (choice.ratePercent != null) map[choice.id] = choice.ratePercent;
+    }
+    return map;
+  }, [columnOptions, taxColumn]);
+
+  const taxInclusive = (() => {
+    const raw = entryValues[taxInclusiveField];
+    if (raw === false || raw === 0 || raw === 'false' || raw === '0') return false;
+    if (raw === true || raw === 1 || raw === 'true' || raw === '1') return true;
+    // Default inclusive when the host field is unset (matches Finance expenses).
+    return true;
+  })();
+
   const patchParentTotals = useCallback(
     (next: DraftLine[]) => {
-      if (!lifecycle?.onDraftPatch || !parentTotalField) return;
+      if (!lifecycle?.onDraftPatch || (!parentTotalField && !parentTaxField)) return;
       const sub = computeSubtotal(next, quantityField, rateField, amountField);
-      let total = sub;
+      let netOfDiscount = sub;
       const custom_fields: Record<string, unknown> = {};
       if (showDiscount) {
         const mode = String(entryValues[discountModeField] || 'percent');
@@ -273,13 +306,26 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
           percent: Number(entryValues[discountPercentField]) || 0,
           amount: Number(entryValues[discountAmountField]) || 0,
         });
-        total = discounted;
+        netOfDiscount = discounted;
         if (mode === 'amount') {
           custom_fields[discountAmountField] = discount;
         }
       }
-      custom_fields[parentTotalField] = total;
-      if (parentBalanceField) {
+      const tax = parentTaxField
+        ? computeTaxTotal(next, {
+            quantityField,
+            rateField,
+            amountField,
+            taxColumn,
+            ratePercentByCodeId,
+            inclusive: taxInclusive,
+          })
+        : 0;
+      // Inclusive: line amounts already contain tax. Exclusive: add tax on top.
+      const total = taxInclusive ? netOfDiscount : netOfDiscount + tax;
+      if (parentTotalField) custom_fields[parentTotalField] = total;
+      if (parentTaxField) custom_fields[parentTaxField] = tax;
+      if (parentBalanceField && parentTotalField) {
         custom_fields[parentBalanceField] = computeOpenBalance(total, {
           previousTotal: Number(entryValues[parentTotalField]),
           previousBalance: Number(entryValues[parentBalanceField]),
@@ -310,6 +356,7 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
     [
       lifecycle,
       parentTotalField,
+      parentTaxField,
       parentBalanceField,
       quantityField,
       rateField,
@@ -320,6 +367,9 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
       discountModeField,
       discountPercentField,
       discountAmountField,
+      taxColumn,
+      ratePercentByCodeId,
+      taxInclusive,
     ]
   );
 
@@ -333,6 +383,12 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
     },
     [patchParentTotals]
   );
+
+  // Tax rates arrive asynchronously with column_options — re-roll parent totals.
+  useEffect(() => {
+    if (!parentTaxField || !Object.keys(ratePercentByCodeId).length) return;
+    patchParentTotals(linesRef.current);
+  }, [parentTaxField, ratePercentByCodeId, patchParentTotals, taxInclusive]);
 
   // Load existing related rows when host entry exists.
   useEffect(() => {
@@ -694,6 +750,29 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
     () => computeSubtotal(lines, quantityField, rateField, amountField),
     [lines, quantityField, rateField, amountField]
   );
+  const taxTotal = useMemo(
+    () =>
+      parentTaxField
+        ? computeTaxTotal(lines, {
+            quantityField,
+            rateField,
+            amountField,
+            taxColumn,
+            ratePercentByCodeId,
+            inclusive: taxInclusive,
+          })
+        : 0,
+    [
+      parentTaxField,
+      lines,
+      quantityField,
+      rateField,
+      amountField,
+      taxColumn,
+      ratePercentByCodeId,
+      taxInclusive,
+    ]
+  );
   const discountMode = String(entryValues[discountModeField] || 'percent') as
     | 'percent'
     | 'amount';
@@ -715,6 +794,20 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
       discountAmountField,
     ]
   );
+  // Detail / pre-options: prefer persisted parent tax/total so the footer
+  // still shows Tax + Total when rate maps have not loaded yet.
+  const ratesReady = Object.keys(ratePercentByCodeId).length > 0;
+  const storedTax = parentTaxField ? Number(entryValues[parentTaxField]) : NaN;
+  const storedTotal = parentTotalField ? Number(entryValues[parentTotalField]) : NaN;
+  const displayTax =
+    parentTaxField && !ratesReady && Number.isFinite(storedTax) ? storedTax : taxTotal;
+  const displayGrandTotal = parentTaxField
+    ? readOnly && Number.isFinite(storedTotal)
+      ? storedTotal
+      : taxInclusive
+        ? discountedTotal
+        : discountedTotal + displayTax
+    : discountedTotal;
 
   const patchDiscount = (patch: Record<string, unknown>) => {
     lifecycle?.onDraftPatch?.({ custom_fields: patch });
@@ -1031,12 +1124,42 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
               </div>
             </div>
           ) : null}
-          <div className="flex justify-between gap-6 border-t border-[var(--panel-border)] pt-2">
-            <Text variant="body" weight="semibold">{totalLabel}</Text>
-            <Text variant="body" weight="semibold" className="tabular-nums">
+          <div
+            className={`flex justify-between gap-6 ${
+              parentTaxField ? '' : 'border-t border-[var(--panel-border)] pt-2'
+            }`}
+          >
+            <Text
+              variant="body"
+              weight={parentTaxField ? undefined : 'semibold'}
+              tone={parentTaxField ? 'muted' : undefined}
+            >
+              {totalLabel}
+            </Text>
+            <Text
+              variant="body"
+              weight={parentTaxField ? undefined : 'semibold'}
+              className="tabular-nums"
+            >
               {money(discountedTotal, currency)}
             </Text>
           </div>
+          {parentTaxField ? (
+            <>
+              <div className="flex justify-between gap-6">
+                <Text variant="body" tone="muted">Tax</Text>
+                <Text variant="body" className="tabular-nums">
+                  {money(displayTax, currency)}
+                </Text>
+              </div>
+              <div className="flex justify-between gap-6 border-t border-[var(--panel-border)] pt-2">
+                <Text variant="body" weight="semibold">Total</Text>
+                <Text variant="body" weight="semibold" className="tabular-nums">
+                  {money(displayGrandTotal, currency)}
+                </Text>
+              </div>
+            </>
+          ) : null}
           {parentBalanceField ? (
             <div className="flex justify-between gap-6">
               <Text variant="body" weight="semibold">{balanceLabel}</Text>
@@ -1044,7 +1167,7 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
                 {money(
                   Number.isFinite(Number(entryValues[parentBalanceField]))
                     ? Number(entryValues[parentBalanceField])
-                    : discountedTotal,
+                    : displayGrandTotal,
                   currency,
                 )}
               </Text>

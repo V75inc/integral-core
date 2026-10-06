@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   computeDiscountedTotal,
   computeLineAmount,
+  computeLineTax,
   computeOpenBalance,
   computeSubtotal,
+  computeTaxTotal,
 } from '../editableRelatedLinesMath';
 
 describe('editableRelatedLinesMath', () => {
@@ -41,6 +43,31 @@ describe('editableRelatedLinesMath', () => {
       discount: 25,
       total: 75,
     });
+  });
+
+  it('computes inclusive and exclusive line tax', () => {
+    expect(computeLineTax(100, 14, true)).toBe(12.28);
+    expect(computeLineTax(100, 14, false)).toBe(14);
+    expect(computeLineTax(0, 14, true)).toBe(0);
+  });
+
+  it('sums tax across lines from tax code rates', () => {
+    expect(
+      computeTaxTotal(
+        [
+          { fields: { quantity: 1, unit_price: 100, tax_code: 'vat' } },
+          { fields: { quantity: 2, unit_price: 50, tax_code: 'zr' } },
+        ],
+        {
+          quantityField: 'quantity',
+          rateField: 'unit_price',
+          amountField: 'line_amount',
+          taxColumn: 'tax_code',
+          ratePercentByCodeId: { vat: 14, zr: 0 },
+          inclusive: true,
+        }
+      )
+    ).toBe(12.28);
   });
 
   it('preserves applied payments when document total changes', () => {
