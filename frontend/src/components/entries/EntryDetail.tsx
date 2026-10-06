@@ -772,6 +772,8 @@ export function EntryDetail({
       relatedRelatedViewsSchema: { ...entryTypeFormSchema, related_views: related },
     };
   }, [entryTypeFormSchema]);
+  const relatedViewAppId =
+    trackContext?.app?.id || entry.track?.app?.id || '';
 
   useEffect(() => {
     setIsEditing(Boolean(initialEditMode && canEdit));
@@ -911,6 +913,7 @@ export function EntryDetail({
         onEntryPersist={canEdit ? handleEmbeddedEntryPersist : undefined}
         onEntryCreate={canEdit ? handleEmbeddedEntryCreate : undefined}
         isEditor={canEdit}
+        appId={relatedViewAppId}
         heading={null}
         testId="primary-related-views-section"
       />
@@ -932,6 +935,7 @@ export function EntryDetail({
           onEntryPersist={canEdit ? handleEmbeddedEntryPersist : undefined}
           onEntryCreate={canEdit ? handleEmbeddedEntryCreate : undefined}
           isEditor={canEdit}
+          appId={relatedViewAppId}
           heading={null}
           testId="primary-related-views-section"
         />
@@ -1943,6 +1947,7 @@ export function EntryDetail({
                   onEntryPersist={canEdit ? handleEmbeddedEntryPersist : undefined}
                   onEntryCreate={canEdit ? handleEmbeddedEntryCreate : undefined}
                   isEditor={canEdit}
+                  appId={relatedViewAppId}
                 />
               ) : null}
 

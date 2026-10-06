@@ -1185,9 +1185,14 @@ async def finalize_install(
     try:
         from app.services.hooks.install_hook import register_bundle_on_install
 
+        # Settings-gated installs register here, not in install_app. Omitting
+        # bundle_dir rewrites handler_refs to app.packages.<slug>, which does
+        # not exist for external Business apps (hyphenated slugs included).
+        bundle_dir = await _resolve_app_bundle_dir(app_node)
         await register_bundle_on_install(
             workspace_id=app_node.workspace_id,
             canonical=canonical,
+            bundle_dir=bundle_dir,
             app_id=app_node.id,
         )
     except Exception:
@@ -1574,6 +1579,15 @@ async def update_app_from_library(
                 await register_bundle_on_install(
                     app_node.workspace_id,
                     compile_canonical_manifest(manifest=manifest_snapshot),
+                    bundle_dir=(
+                        str(
+                            (getattr(library_cp, "metadata", None) or {}).get(
+                                "bundle_dir_path"
+                            )
+                            or ""
+                        )
+                        or None
+                    ),
                     app_id=app_id,
                 )
         except Exception as rollback_exc:  # noqa: BLE001

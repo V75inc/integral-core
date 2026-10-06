@@ -22,6 +22,8 @@ export interface User {
   /** True when the account was provisioned with a temporary password. */
   must_change_password?: boolean;
   /** HR hire flow — public onboarding form the member must complete. */
+  pending_assigned_form?: { url: string } | null;
+  /** @deprecated use pending_assigned_form */
   pending_onboarding_form?: { url: string } | null;
   /** False until the user completes email verification. Non-blocking — the
    *  app shows a banner but doesn't gate login on this flag. */

@@ -189,6 +189,21 @@ describe('RelatedViewsSection — Phase 3.1 ANC-06', () => {
     });
   });
 
+  it('forwards appId so embedded extension views can load their package', () => {
+    render(
+      <RelatedViewsSection
+        entry={{ id: 'e-42' }}
+        entryTypeSpec={{
+          related_views: [{ view: 'opening_apply_link', bind: {} }],
+        }}
+        user={{ id: 'u-99' }}
+        currentTrackId="t-current"
+        appId="app-recruitment"
+      />
+    );
+    expect(slotCalls[0].bindings?.appId).toBe('app-recruitment');
+  });
+
   it('mixed declarations: one resolves, one skipped → only the resolved one renders', () => {
     render(
       <RelatedViewsSection

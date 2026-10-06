@@ -875,8 +875,7 @@ class ToolContext:
                     t
                     for t in tracks
                     if str(getattr(t, "template_id", "") or "") == key
-                    and str(getattr(t, "workspace_id", "") or "")
-                    == self.workspace_id
+                    and str(getattr(t, "workspace_id", "") or "") == self.workspace_id
                 ),
                 None,
             )
@@ -961,12 +960,16 @@ class ToolContext:
 
         caller = (self.bundle_slug or "").strip()
         if not caller:
-            raise PermissionError("call_app_tool: only a running app tool may call another app")
+            raise PermissionError(
+                "call_app_tool: only a running app tool may call another app"
+            )
         key = str(tool_key or "").strip()
         spec = get_workspace_tools(self.workspace_id).get(key)
         if spec is None or not spec.get("exported"):
             # One message for both, so a caller cannot probe which tools exist.
-            raise PermissionError(f"call_app_tool: no exported tool {key!r} in this workspace")
+            raise PermissionError(
+                f"call_app_tool: no exported tool {key!r} in this workspace"
+            )
         depth = int(getattr(self, "_app_call_depth", 0) or 0)
         if depth >= self._MAX_APP_CALL_DEPTH:
             raise PermissionError("call_app_tool: nested app calls exceed the limit")
@@ -1026,10 +1029,14 @@ class ToolContext:
         spec = get_workspace_tools(self.workspace_id).get(key)
         if spec is None or not spec.get("_mcp_connector_slug"):
             # Same message whether unmounted or unknown: no probing which exist.
-            raise PermissionError(f"call_connector_tool: no mounted connector tool {key!r}")
+            raise PermissionError(
+                f"call_connector_tool: no mounted connector tool {key!r}"
+            )
         # Classify by the vetted catalog entry, exactly as Core does for approval cards. The remote
         # server's own annotations are a claim by the party this gate constrains: never used here.
-        from app.agentive.connectors.mcp_tool_class import is_write_tool as _is_write_connector_tool
+        from app.agentive.connectors.mcp_tool_class import (
+            is_write_tool as _is_write_connector_tool,
+        )
 
         connector_slug = str(spec.get("_mcp_connector_slug") or "")
         connector_tool_is_write = _is_write_connector_tool(
@@ -1092,8 +1099,16 @@ class ToolContext:
         heading = str(title or "").strip()
         if not heading or not self.user_id:
             return None
-        text = heading if not str(body or "").strip() else f"{heading}: {str(body).strip()}"
-        payload: Dict[str, Any] = {"content": text, "title": heading, "body": str(body or "")}
+        text = (
+            heading
+            if not str(body or "").strip()
+            else f"{heading}: {str(body).strip()}"
+        )
+        payload: Dict[str, Any] = {
+            "content": text,
+            "title": heading,
+            "body": str(body or ""),
+        }
         if link:
             payload["action_url"] = str(link)
         if entry_id:
@@ -1257,9 +1272,7 @@ class ToolContext:
 
         return await roll_up_plan(plan_id)
 
-    async def clear_pending_onboarding_form_for_user(
-        self, member_user_id: str
-    ) -> bool:
+    async def clear_pending_onboarding_form_for_user(self, member_user_id: str) -> bool:
         """Clear hire onboarding prompt on a workspace member (HR bundle hook)."""
         from app.models.nodes import User
         from app.services.onboarding_prompt import clear_pending_onboarding_form
@@ -1322,7 +1335,9 @@ class ToolContext:
         valid, msg = await validate_delivery_provider(provider, api_key)
         return {"ok": valid, "message": msg}
 
-    async def send_workspace_test_email(self, to: Optional[str] = None) -> Dict[str, Any]:
+    async def send_workspace_test_email(
+        self, to: Optional[str] = None
+    ) -> Dict[str, Any]:
         if not await self.is_workspace_administrator():
             return {"ok": False, "error": "workspace admin required"}
         from app.models.nodes import User
@@ -1381,3 +1396,110 @@ class ToolContext:
             )
         )
         return {"ok": bool(ok)}
+
+    async def esign_vault_list(self) -> Dict[str, Any]:
+        from app.services.user_signatures import list_user_signatures
+
+        user_id = str(self.user_id or "").strip()
+        if not user_id:
+            return {"signatures": [], "total": 0}
+        items = await list_user_signatures(user_id)
+        return {"signatures": items, "total": len(items)}
+
+    async def esign_vault_save(
+        self, signature_png: str, label: str = "Default"
+    ) -> Dict[str, Any]:
+        from app.services.user_signatures import (
+            decode_signature_upload,
+            save_user_signature,
+        )
+
+        user_id = str(self.user_id or "").strip()
+        if not user_id:
+            raise ValueError("Authentication required")
+        png = decode_signature_upload(signature_png)
+        return await save_user_signature(user_id, png_bytes=png, label=label)
+
+    async def esign_vault_delete(self, attachment_id: str) -> Dict[str, Any]:
+        from app.services.user_signatures import delete_user_signature
+
+        user_id = str(self.user_id or "").strip()
+        if not user_id:
+            raise ValueError("Authentication required")
+        ok = await delete_user_signature(user_id, attachment_id)
+        return {"deleted": ok, "id": attachment_id}
+
+    async def esign_vault_preview_b64(
+        self, *, attachment_id: str = ""
+    ) -> Dict[str, str]:
+        import base64
+
+        from app.services.user_signatures import (
+            list_user_signatures,
+            read_user_signature_png,
+        )
+
+        user_id = str(self.user_id or "").strip()
+        if not user_id:
+            return {"signature_png_b64": ""}
+        items = await list_user_signatures(user_id)
+        if not items:
+            return {"signature_png_b64": ""}
+        wanted = str(attachment_id or items[0].get("id") or "").strip()
+        if wanted and not any(str(i.get("id") or "") == wanted for i in items):
+            return {"signature_png_b64": ""}
+        png = await read_user_signature_png(user_id)
+        if not png:
+            return {"signature_png_b64": ""}
+        return {"signature_png_b64": base64.b64encode(png).decode("ascii")}
+
+    async def esign_contract_decision(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Accept or reject a contract on a form entry (canvas sign + artifacts)."""
+        from app.models.nodes import Entry
+        from app.services.esign.contract_decision import (
+            accept_contract_canvas,
+            reject_contract,
+            resolve_places_for_form,
+            try_docusign_accept,
+        )
+
+        action = str(payload.get("action") or "").strip().lower()
+        form_entry_id = str(payload.get("form_entry_id") or "").strip()
+        if not form_entry_id:
+            raise ValueError("form_entry_id is required")
+        form_entry = await Entry.get(form_entry_id)
+        if form_entry is None:
+            raise ValueError("Form entry not found")
+
+        if action == "reject":
+            return await reject_contract(
+                form_entry=form_entry,
+                reason=str(payload.get("reason") or ""),
+            )
+
+        if action != "accept":
+            raise ValueError("action must be accept or reject")
+
+        actor_id = str(payload.get("actor_id") or "public").strip() or "public"
+        return_url = str(payload.get("return_url") or "")
+        use_docusign = bool(payload.get("use_docusign"))
+
+        pdf_bytes, places = await resolve_places_for_form(form_entry)
+        if use_docusign:
+            docusign_out = await try_docusign_accept(
+                pdf_bytes=pdf_bytes,
+                form_entry=form_entry,
+                places=places,
+                return_url=return_url,
+            )
+            if docusign_out is not None:
+                return docusign_out
+
+        signature_png = str(payload.get("signature_png") or "")
+        return await accept_contract_canvas(
+            form_entry=form_entry,
+            signature_png=signature_png,
+            actor_id=actor_id,
+            places=places,
+            pdf_bytes=pdf_bytes,
+        )
