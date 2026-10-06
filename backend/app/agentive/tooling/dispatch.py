@@ -738,6 +738,14 @@ async def dispatch_tool(
         )
         return result
     except Exception as exc:  # JVSpatialAPIException etc. -> fail-closed envelope
+        # Keep the model-facing envelope generic, but retain a scoped exception
+        # trace for operators. Tool arguments and user content are deliberately
+        # excluded: they can contain tenant data and credentials.
+        logger.exception(
+            "Agent tool dispatch failed tool=%s workspace=%s",
+            name,
+            _scope_fingerprint(scope),
+        )
         result = _tool_error_from_exception(exc)
         return result
     finally:

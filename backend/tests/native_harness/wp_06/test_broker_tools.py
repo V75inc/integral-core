@@ -1111,20 +1111,106 @@ async def test_approved_build_macro_runs_at_most_once_per_model_turn(
     assert rejected["error_code"] == "design_approval_required"
     assert invocations == []
     run_state["approved_design_ready"] = True
+    resumed_disclosure = await tool.prepare_tool_def(
+        SimpleNamespace(active_capability_ids=set())
+    )
+    assert resumed_disclosure is not None
     first = await tool.function_schema.call(
         {"operations": [{"tool": "integral_create_app"}]},
-        SimpleNamespace(
-            tool_call_id="call-1", active_capability_ids={"integral-scaffold"}
-        ),
+        SimpleNamespace(tool_call_id="call-1", active_capability_ids=set()),
     )
     second = await tool.function_schema.call(
         {"operations": [{"tool": "integral_create_app"}]},
-        SimpleNamespace(
-            tool_call_id="call-2", active_capability_ids={"integral-scaffold"}
-        ),
+        SimpleNamespace(tool_call_id="call-2", active_capability_ids=set()),
     )
 
     assert first["applied"] is True
     assert second["error_code"] == "build_already_attempted"
     assert second["retryable"] is False
     assert len(invocations) == 1
+
+
+def test_approved_saved_build_is_a_known_tool_in_its_resume_turn(
+    tmp_path: Path,
+) -> None:
+    """A verified approval discloses only the build continuation in a new turn."""
+    tools = build_brokered_tools(
+        scope=_scope(),
+        catalogue=[
+            {
+                "name": "integral_build_approved_design",
+                "description": "Build the saved approved design.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"operations": {"type": "array"}},
+                },
+            },
+            {
+                "name": "integral_list_apps",
+                "description": "List apps.",
+                "input_schema": {"type": "object", "properties": {}},
+            },
+        ],
+        skill_library=tmp_path,
+        run_state={
+            "approved_design_ready": True,
+            "capability_search_completed": True,
+        },
+    )
+    build = next(
+        tool for tool in tools if tool.name == "integral_build_approved_design"
+    )
+    unrelated = next(tool for tool in tools if tool.name == "integral_list_apps")
+
+    assert build.defer_loading is False
+    assert unrelated.defer_loading is True
+
+
+@pytest.mark.asyncio
+async def test_pending_design_build_is_disclosed_after_fresh_turn_search(
+    tmp_path: Path,
+) -> None:
+    """A fresh user reply can select the saved-design build without skill rediscovery."""
+    run_state = {
+        "pending_design": True,
+        "approved_design_ready": False,
+        "capability_search_completed": False,
+    }
+    tools = build_brokered_tools(
+        scope=_scope(),
+        catalogue=[
+            {
+                "name": "integral_build_approved_design",
+                "description": "Build the saved design after user approval.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"operations": {"type": "array"}},
+                },
+            },
+            {
+                "name": "integral_list_apps",
+                "description": "List apps.",
+                "input_schema": {"type": "object", "properties": {}},
+            },
+        ],
+        skill_library=tmp_path,
+        run_state=run_state,
+    )
+    build = next(
+        tool for tool in tools if tool.name == "integral_build_approved_design"
+    )
+    unrelated = next(tool for tool in tools if tool.name == "integral_list_apps")
+
+    assert build.defer_loading is False
+    assert unrelated.defer_loading is True
+    assert (
+        await build.prepare_tool_def(SimpleNamespace(active_capability_ids=set()))
+        is None
+    )
+
+    run_state["capability_search_completed"] = True
+    disclosed = await build.prepare_tool_def(
+        SimpleNamespace(active_capability_ids=set())
+    )
+    assert disclosed is not None
+    assert disclosed.name == "integral_build_approved_design"

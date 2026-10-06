@@ -42,6 +42,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Literal, Optional, Set, Tuple
 
 from app.agentive import staging_store
+from app.agentive.services.approval_policy import effect_class
 
 logger = logging.getLogger(__name__)
 
@@ -174,6 +175,9 @@ class StagedChange:
     # Caller-supplied key so a retry of the same proposed write returns the
     # existing card instead of minting a second decision.
     idempotency_key: Optional[str] = None
+    # Decision channel is persisted with the pending record so terminal audit
+    # events can distinguish explicit UI approval from conversation approval.
+    decision_source: Optional[str] = None
 
     def is_expired(self, *, now: Optional[datetime] = None) -> bool:
         """Return True when ``expires_at`` is at or before ``now``."""
@@ -207,6 +211,11 @@ class StagedChange:
             # can say WHY rather than just "approved, not yet applied".
             "last_error": self.last_error,
             "idempotency_key": self.idempotency_key,
+            "effect_class": effect_class(self.kind, self.payload).value,
+            "requires_strong_confirmation": (
+                effect_class(self.kind, self.payload).value == "destructive_security"
+            ),
+            "decision_source": self.decision_source,
             # Sentinel the frontend type guard checks for. Letting the
             # whole shape stand on its own (token + kind + state etc.)
             # would also work; this is belt-and-suspenders so a future
@@ -1439,6 +1448,7 @@ async def bless_token(
     user_id: str,
     token: str,
     autonomy: AutonomyMode = "single",
+    decision_source: Optional[str] = None,
 ) -> StagedChange:
     """Mark a pending token blessed.
 
@@ -1466,6 +1476,7 @@ async def bless_token(
                 f"Token is in terminal state {sc.state!r}",
             )
         sc.state = "blessed"
+        sc.decision_source = decision_source
         sc.blessed_at = _now()
         sc.resolved_at = sc.blessed_at
     # An expiry the sweeper above just observed is recorded now that the lock
@@ -1580,7 +1591,9 @@ async def record_execute_progress(
     return sc
 
 
-async def revoke_token(*, user_id: str, token: str) -> StagedChange:
+async def revoke_token(
+    *, user_id: str, token: str, decision_source: Optional[str] = None
+) -> StagedChange:
     """Reject a staged change.
 
     Tokens in any non-terminal state can be revoked — including blessed
@@ -1612,6 +1625,7 @@ async def revoke_token(*, user_id: str, token: str) -> StagedChange:
                 f"Token is in terminal state {sc.state!r}",
             )
         sc.state = "revoked"
+        sc.decision_source = decision_source
         sc.resolved_at = _now()
     await _flush_decision_ledger()
     await _flush_expiry_closures()

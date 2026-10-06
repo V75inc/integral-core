@@ -5,10 +5,12 @@ import {
   blessStagingToken,
   cancelPromptQueueAll,
   getPromptQueue,
+  getStagingTokenState,
   markPromptWrite,
   resolvePromptQuestion,
   revokeStagingToken,
 } from '../../../api/agentive';
+import { useConfirm } from '../../../context/ConfirmContext';
 import { useChatActivity } from '../AIChatSurface';
 import type { PromptItem, PromptQueue } from './types';
 
@@ -38,6 +40,7 @@ export function usePromptQueue() {
   const { activeThreadId, appendAssistantNote, isThreadStreaming } =
     useChatActivity();
   const threadRuntime = useThreadRuntime();
+  const confirm = useConfirm();
   const [queue, setQueue] = useState<PromptQueue | null>(null);
   const [open, setOpen] = useState(false);
   // Read inside the poll interval without making it a dependency (which would
@@ -193,7 +196,29 @@ export function usePromptQueue() {
       setBusy(true);
       setError(null);
       try {
-        await blessStagingToken(current.token);
+        const staged = await getStagingTokenState(current.token);
+        if (!staged) {
+          throw new Error(
+            'Could not verify the impact of this change. Refresh and try again.',
+          );
+        }
+        const requiresStrongConfirmation =
+          staged.requires_strong_confirmation;
+        const strongConfirmation = requiresStrongConfirmation
+          ? await confirm({
+              title: 'Confirm high-impact change',
+              message:
+                'Review the affected records, access, or structure, then confirm this exact action: ' +
+                (current.summary || 'Staged change'),
+              confirmLabel: 'Confirm change',
+              variant: 'danger',
+            })
+          : false;
+        if (requiresStrongConfirmation && !strongConfirmation) return;
+        const result = await blessStagingToken(current.token, {
+          strongConfirmation,
+        });
+        if (!result.ok) throw new Error(result.message || 'Approval failed.');
         const res = await markPromptWrite({
           threadId: activeThreadId,
           token: current.token,
@@ -201,13 +226,17 @@ export function usePromptQueue() {
         });
         applyQueueResult(res as never);
         window.dispatchEvent(new Event('staging-state-changed'));
-      } catch {
-        setError('Could not approve that write.');
+      } catch (error) {
+        setError(
+          error instanceof Error
+            ? error.message
+            : 'Could not approve that write.',
+        );
       } finally {
         setBusy(false);
       }
     },
-    [activeThreadId, applyQueueResult, busy, current],
+    [activeThreadId, applyQueueResult, busy, confirm, current],
   );
 
   const rejectWrite = useCallback(async () => {

@@ -72,19 +72,24 @@ _SCAFFOLD_CONFIRMATION_INVITATION = (
     "Confirm this setup when you're ready, or tell me what to change."
 )
 _SCAFFOLD_CONFIRMATION_SUFFIX = re.compile(
-    r"\s*Confirm this (?:design|setup)(?:, or tell me what to change| when you're ready, or tell me what to change)\.\s*$",
+    r"\s*Confirm this (?:design|setup)(?:, or tell me what to change| when you're ready, or tell me what to change)\.",
     re.IGNORECASE,
 )
 
 
 def _single_scaffold_confirmation(proposal: str) -> str:
-    """Normalize known proposal-ending invitations to one canonical CTA."""
+    """Normalize repeated scaffold invitations to one canonical CTA.
+
+    Some providers put their own confirmation sentence before a closing
+    explanation. A suffix-only cleanup leaves that sentence beside Core's
+    canonical invitation, so remove known invitation copies wherever they
+    occur in the saved proposal.
+    """
     normalized = proposal.strip()
-    while True:
-        without_invitation = _SCAFFOLD_CONFIRMATION_SUFFIX.sub("", normalized).rstrip()
-        if without_invitation == normalized:
-            break
-        normalized = without_invitation
+    normalized = _SCAFFOLD_CONFIRMATION_SUFFIX.sub("", normalized)
+    normalized = re.sub(r"\n{3,}", "\n\n", normalized).strip()
+    if not normalized:
+        return _SCAFFOLD_CONFIRMATION_INVITATION
     return f"{normalized}\n\n{_SCAFFOLD_CONFIRMATION_INVITATION}"
 
 
@@ -1175,7 +1180,12 @@ class PydanticAIProvider:
                             "blueprint. If the user's reply changes it, save the "
                             "revision instead: that clears the old approval, so "
                             "present the revised proposal and wait for approval. "
-                            "Do not re-propose an unchanged approved design."
+                            "The approved-build capability is available for this "
+                            "turn. This harness requires its initial capability "
+                            "search on each new turn: satisfy that requirement once, "
+                            "then call the approved-build capability exactly once "
+                            "with the saved design. Do not search again, reload skills, "
+                            "re-propose the design, or call separate create tools."
                         )
                     elif prepared[7].get("pending_design"):
                         approval_instructions = (

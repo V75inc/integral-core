@@ -66,6 +66,7 @@ async def bless_and_execute(
     user_id: str,
     token: str,
     autonomy: Literal["single", "session"] = "single",
+    decision_source: Optional[str] = None,
     request: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Bless ``token``, dispatch its kind's executor, consume on success.
@@ -105,7 +106,12 @@ async def bless_and_execute(
     await _maybe_decide_linked_work_approval(
         token=token, user_id=user_id, decision="approved"
     )
-    sc = await bless_token(user_id=user_id, token=token, autonomy="single")
+    sc = await bless_token(
+        user_id=user_id,
+        token=token,
+        autonomy="single",
+        decision_source=decision_source,
+    )
 
     response: Dict[str, Any] = {
         "ok": True,

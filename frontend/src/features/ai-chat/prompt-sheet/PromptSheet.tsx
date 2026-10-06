@@ -254,7 +254,7 @@ function WritePage({
 }: {
   item: PromptStagedWriteItem;
   busy: boolean;
-  onApprove: (autonomy?: 'single' | 'session') => Promise<void>;
+  onApprove: () => Promise<void>;
   onReject: () => Promise<void>;
 }) {
   const pending = item.status === 'pending';
@@ -290,18 +290,9 @@ function WritePage({
             type="button"
             size="sm"
             disabled={busy}
-            onClick={() => void onApprove('single')}
+            onClick={() => void onApprove()}
           >
             Approve
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            disabled={busy}
-            onClick={() => void onApprove('session')}
-          >
-            Auto-allow kind
           </Button>
           <Button
             type="button"
