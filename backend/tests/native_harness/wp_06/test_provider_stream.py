@@ -42,8 +42,9 @@ def _scope(run_id: str) -> HarnessExecutionScope:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("state", ["consumed", "revoked", "expired"])
+@pytest.mark.parametrize("conversation_id", [None, "thread-a"])
 async def test_restored_staging_results_use_current_scoped_core_state(
-    monkeypatch, state
+    monkeypatch, state, conversation_id
 ):
     """Refresh serialized staging outcomes from the current scoped token."""
     from pydantic_ai.messages import ModelRequest, ToolReturnPart
@@ -54,7 +55,7 @@ async def test_restored_staging_results_use_current_scoped_core_state(
     ]
     current = SimpleNamespace(
         user_id="user-a",
-        session_id="session-a",
+        session_id=conversation_id or "session-a",
         workspace_id="workspace-a",
         to_dict=lambda: {**original, "state": state},
     )
@@ -64,7 +65,9 @@ async def test_restored_staging_results_use_current_scoped_core_state(
         return current
 
     monkeypatch.setattr("app.agentive.staging.get_token", get_token)
-    refreshed = await _refresh_staged_history(history, _scope("next-run"))
+    refreshed = await _refresh_staged_history(
+        history, _scope("next-run"), conversation_id=conversation_id
+    )
     assert refreshed[0].parts[0].content["state"] == state
     assert refreshed[0].parts[0].content["state_source"] == "current_core_staging"
     assert history[0].parts[0].content["state"] == "pending"

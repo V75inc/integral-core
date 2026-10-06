@@ -5,14 +5,15 @@
  * and emits an assistant-ui image message part. The runtime
  * (``useAIChatRuntime``) extracts these parts and forwards them to the backend
  * as ``images[]`` on the turn, where they become the vision reflex's
- * ``image_urls``. No server upload here — image bytes ride inline on the turn.
- * Non-image files use a separate persisted-attachment adapter (later slice).
+ * ``image_urls``. The runtime uses createImageAttachmentAdapter to also
+ * upload the original and retain a real attachment identity for filing.
  */
 import type {
   AttachmentAdapter,
   CompleteAttachment,
   PendingAttachment,
 } from "@assistant-ui/react";
+import { createFileAttachmentAdapter } from "./fileAttachmentAdapter";
 
 export const ACCEPTED_IMAGE_TYPES = [
   "image/png",
@@ -76,3 +77,23 @@ export const imageAttachmentAdapter: AttachmentAdapter = {
     // Nothing to clean up — no server-side upload in this slice.
   },
 };
+
+/** Keep vision input and filing identity on the same persisted chat upload. */
+export function createImageAttachmentAdapter(
+  ensureThreadId: () => Promise<string>,
+): AttachmentAdapter {
+  const files = createFileAttachmentAdapter(ensureThreadId);
+  return {
+    ...imageAttachmentAdapter,
+    async send(attachment: PendingAttachment): Promise<CompleteAttachment> {
+      const [vision, stored] = await Promise.all([
+        imageAttachmentAdapter.send(attachment),
+        files.send(attachment),
+      ]);
+      return {
+        ...vision,
+        content: [...vision.content, ...stored.content],
+      };
+    },
+  };
+}

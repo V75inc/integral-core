@@ -71,7 +71,7 @@ import {
   CollapsibleTrigger,
 } from "../../../components/ui/collapsible";
 import { ToolFallback } from "./ToolFallback";
-import { ThreadScrollToEndOnSwitch } from "./ThreadScrollToEndOnSwitch";
+import { LogoMark } from "../../../components/ui/Logo";
 import { MessageUndoActions } from "./MessageUndoActions";
 import { ComposerAttachmentErrorToast } from "./ComposerAttachmentErrorToast";
 import { ComposerMicButton } from "./ComposerMicButton";
@@ -151,22 +151,13 @@ export function AIChatThread({ providerLabel, showHeader = true }: AIChatThreadP
       )}
 
       <ThreadPrimitive.Viewport
-        turnAnchor="top"
-        /* assistant-ui defaults clamp tall user bubbles to ~6em visible from
-           the *bottom*, which scrolls the start of the prompt under the
-           Conversations chrome (reads as a clipped bubble). Never clamp —
-           pin the full user message at the top; the assistant streams below. */
-        topAnchorMessageClamp={{
-          tallerThan: "10000px",
-          visibleHeight: "10000px",
-        }}
+        turnAnchor="bottom"
         scrollToBottomOnThreadSwitch
         className="
           relative flex flex-1 flex-col overflow-x-hidden overflow-y-auto scroll-smooth bg-[var(--section-bg)]
           [scrollbar-color:var(--scrollbar-thumb)_transparent]
         "
       >
-        <ThreadScrollToEndOnSwitch />
         {/* `pt-10` (not pt-6): the first bubble sat tight under the header,
             which reads as clipped when the transcript is scrolled to top. */}
         <div className="mx-auto flex w-full max-w-[var(--thread-max-width)] flex-1 flex-col px-4 pt-10">
@@ -373,17 +364,11 @@ function prettyTool(name: string): string {
 export function liveWorkSynopsis(
   activity: string | undefined,
   latestTool: string | undefined,
-  reasoning: string | undefined,
 ): string {
   const activityLine = activity?.replace(/\s+/g, " ").trim();
   if (activityLine) return clipStatus(activityLine);
   if (latestTool?.trim()) return clipStatus(prettyTool(latestTool));
-  const thought = (reasoning ?? "").replace(/\s+/g, " ").trim();
-  if (thought) {
-    const sentences = thought.split(/(?<=[.!?])\s+/);
-    return clipStatus(sentences[sentences.length - 1] || thought);
-  }
-  return "Thinking";
+  return "Working";
 }
 
 /**
@@ -391,9 +376,9 @@ export function liveWorkSynopsis(
  *
  * Stays collapsed. While the turn runs the label is a one-line status.
  * When the reply lands it becomes "Worked for …". Expanding retraces the
- * thought and the steps. Closed at rest (B-AGENT-01).
+ * activity and the steps. A manual expansion survives completion.
  */
-function WorkTrail({ children }: { children: ReactNode }) {
+export function WorkTrail({ children }: { children: ReactNode }) {
   const running = useAuiState((s) => s.message.status?.type === "running");
   const { activityText } = useChatActivity();
   const statusLabel = useAuiState(
@@ -412,14 +397,6 @@ function WorkTrail({ children }: { children: ReactNode }) {
     const last = tools[tools.length - 1] as { toolName?: string } | undefined;
     return last?.toolName ?? "";
   });
-  const reasoningTail = useAuiState((s) => {
-    const text = (s.message.parts ?? [])
-      .filter((p) => p.type === "reasoning")
-      .map((p) => (p as { text?: string }).text ?? "")
-      .join(" ");
-    const flat = text.replace(/\s+/g, " ").trim();
-    return flat.length > 160 ? flat.slice(-160) : flat;
-  });
   const toolFailed = useAuiState((s) =>
     (s.message.parts ?? []).some((p) => {
       if (p.type !== "tool-call") return false;
@@ -428,16 +405,10 @@ function WorkTrail({ children }: { children: ReactNode }) {
     }),
   );
   const [open, setOpen] = useState(false);
-  const wasRunning = useRef(running);
-  useEffect(() => {
-    if (!running && wasRunning.current) setOpen(false);
-    wasRunning.current = running;
-  }, [running]);
 
   const live = liveWorkSynopsis(
     activityText ?? statusLabel,
     latestTool,
-    reasoningTail,
   );
   const done = [
     workedForLabel(totalStreamTime),
@@ -463,11 +434,16 @@ function WorkTrail({ children }: { children: ReactNode }) {
       >
         <ChevronDownIcon
           size={13}
-          className={`shrink-0 transition-transform duration-200 ${open ? "rotate-0" : "-rotate-90"}`}
+          className={`shrink-0 transition-transform duration-200 motion-reduce:transition-none ${open ? "rotate-0" : "-rotate-90"}`}
         />
-        <span className={running ? "italic" : undefined}>{label}</span>
+        {/* Optical alignment with the font's visible letters, above its descender space. */}
+        <span aria-hidden="true" className="relative -top-px inline-flex h-4 w-4 shrink-0 items-center justify-center leading-none">
+          <span className={`inline-flex items-center justify-center ${running ? "animate-agent-working motion-reduce:animate-none" : ""}`}><LogoMark size="xs" /></span>
+        </span>
+        <span role="status" aria-live="polite" className="inline-flex min-h-4 items-center leading-4"><span key={label} className="animate-status-reveal motion-reduce:animate-none">{label}</span></span>
       </CollapsibleTrigger>
-      <CollapsibleContent className="mt-2 flex flex-col gap-3 pl-5">
+      <CollapsibleContent className="mt-2 flex max-h-80 flex-col gap-3 overflow-y-auto pl-5 text-xs">
+        <p className="text-xs text-[var(--text-muted)]">Activity and tool results are shown here. Private model reasoning is not displayed.</p>
         {children}
       </CollapsibleContent>
     </Collapsible>
@@ -565,10 +541,11 @@ function AssistantMessage() {
         {isRunning && !hasParts && (
           <span
             data-slot="aui_assistant-message-indicator"
-            className="animate-pulse font-sans text-[var(--text-muted)]"
+            className="inline-flex min-h-4 items-center gap-2 text-xs leading-4 text-[var(--text-muted)]"
             aria-label="Assistant is working"
           >
-            {"●"}
+            <span aria-hidden="true" className="relative -top-px inline-flex h-4 w-4 shrink-0 items-center justify-center leading-none"><span className="inline-flex items-center justify-center animate-agent-working motion-reduce:animate-none"><LogoMark size="xs" /></span></span>
+            Working
           </span>
         )}
         <MessagePrimitive.GroupedParts groupBy={assistantMessageGroupBy}>
@@ -579,7 +556,7 @@ function AssistantMessage() {
                   return <WorkTrail>{children}</WorkTrail>;
                 case "group-reasoning":
                   return (
-                    <div className="flex flex-col gap-1 text-sm text-[var(--text-muted)]">
+                    <div className="flex max-h-64 flex-col gap-1 overflow-y-auto text-xs text-[var(--text-muted)]">
                       <div className="text-[11px] font-medium text-[var(--text-subtle)]">
                         Thinking
                       </div>
@@ -1125,25 +1102,8 @@ function UserMessage() {
   return (
     <MessagePrimitive.Root
       data-role="user"
-      /* `pt-8` is the breathing room under the header, and it has to live HERE
-         rather than on the viewport.
-         The viewport is `turnAnchor="top"`: on each new turn assistant-ui
-         scrolls the user message's box flush to the top of the viewport, so
-         the bubble sat hard against the header with nothing above it. That
-         anchoring is manual scrollTop math, so the CSS hints you would reach
-         for first are ignored — measured in the browser, `scroll-padding-top:
-         24px` on the viewport and `scroll-margin-top: 24px` on this row both
-         left the gap at exactly 0.
-         Padding inside the anchored element is what survives, because the
-         anchor aligns this box's top edge and the bubble then starts 32px
-         below it.
-         Pair with a disabled `topAnchorMessageClamp` on the Viewport
-         (I-CHAT-UI-03) — the library default otherwise over-scrolls tall
-         prompts and clips their start under the Conversations chrome.
-         Note this also widens turn separation: the container's `gap-y-8` still
-         spaces parts WITHIN a turn, and this adds to it between turns. That
-         reads as intended — a turn boundary should be louder than the seam
-         between a question and its answer. */
+      /* Keep the turn boundary spacious; viewport following is owned by
+         assistant-ui's bottom anchor and respects manual scroll-up. */
       className="
         grid auto-rows-auto grid-cols-[minmax(72px,1fr)_auto]
         content-start gap-y-2 px-2 pt-8

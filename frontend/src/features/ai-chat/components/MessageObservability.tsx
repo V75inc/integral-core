@@ -160,7 +160,10 @@ export function MessageObservability() {
   if (hasModel) summaryParts.push(primaryModel);
   if (totalTokens > 0) summaryParts.push(`${formatTokens(totalTokens)} tokens`);
   if (providerCostTotal != null) {
-    summaryParts.push(`$${providerCostTotal.toFixed(4)}`);
+    const estimated = steps.some(step => step.costSource === "litellm_calculated");
+    summaryParts.push(`${estimated ? "est. " : ""}$${providerCostTotal.toFixed(4)}`);
+  } else if (steps.length > 0) {
+    summaryParts.push("cost unavailable");
   }
   const timeStr = formatTime(totalStreamMs);
   if (timeStr) summaryParts.push(timeStr);
@@ -307,7 +310,7 @@ export function MessageObservability() {
                 <span>{totalTokens.toLocaleString()} tokens</span>
               )}
               {providerCostTotal != null && (
-                <span>Provider cost ${providerCostTotal.toFixed(4)}</span>
+                <span>{steps.some(step => step.costSource === "litellm_calculated") ? "Estimated cost" : "Provider cost"} ${providerCostTotal.toFixed(4)}</span>
               )}
               {hasNativeCallDetails && providerCostTotal == null && (
                 <span>Provider cost unavailable for some calls</span>

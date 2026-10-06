@@ -1,5 +1,6 @@
 import type { ComponentType, ReactNode } from 'react';
 import { useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Bar,
   BarChart,
@@ -429,6 +430,7 @@ export function RecentEntriesWidget({
       id: string;
       title?: string;
       updated_at?: string;
+      track_id?: string;
     }[]) ?? [];
   return (
     <WidgetShell title={title}>
@@ -443,7 +445,9 @@ export function RecentEntriesWidget({
           entries.map(e => (
             <li key={e.id} className="dashboard-list-row py-2.5">
               <Text variant="body-sm" as="span" truncate>
-                {e.title || e.id}
+                {e.track_id ? (
+                  <Link to={`/tracks/${encodeURIComponent(e.track_id)}?entry=${encodeURIComponent(e.id)}`} className="underline underline-offset-2">{e.title || e.id}</Link>
+                ) : (e.title || e.id)}
               </Text>
             </li>
           ))
@@ -463,6 +467,7 @@ export function TableWidget({
     id: string;
     title?: string;
     status?: string;
+    track_id?: string;
     updated_at?: string;
   }[]) ?? [];
   return (
@@ -478,7 +483,9 @@ export function TableWidget({
             <tbody>
               {entries.map(entry => (
                 <tr key={entry.id}>
-                  <td>{entry.title || entry.id}</td>
+                  <td>{entry.track_id ? (
+                    <Link to={`/tracks/${encodeURIComponent(entry.track_id)}?entry=${encodeURIComponent(entry.id)}`} className="underline underline-offset-2">{entry.title || entry.id}</Link>
+                  ) : (entry.title || entry.id)}</td>
                   <td>{entry.status || '—'}</td>
                   <td>{entry.updated_at ? String(entry.updated_at).slice(0, 10) : '—'}</td>
                 </tr>

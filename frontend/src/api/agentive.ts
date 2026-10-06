@@ -405,6 +405,8 @@ export async function getPendingUserQuestion(
 // ── Prompt Sheet queue ────────────────────────────────────
 
 export interface PromptQueueResponse {
+  error?: string;
+  detail?: string;
   ok: boolean;
   open: boolean;
   queue: {

@@ -1869,6 +1869,17 @@ domains:
         policy_action: app.read
         params: { app_id: {type: string, required: true} }
         returns: { dashboards: list, total: int }
+      - name: integral_read_dashboard_data
+        status: existing
+        op_class: read
+        priority: P2
+        summary: "Read the live, permission-filtered values rendered by every dashboard widget. Use after creating or changing a dashboard or its records before claiming counts, totals, or groups. Configuration alone is not evidence of widget values."
+        http: "GET /api/apps/{app_id}/dashboards/{dashboard_id}/data"
+        policy_action: app.read
+        params:
+          app_id: {type: string, required: true}
+          dashboard_id: {type: string, required: true}
+        returns: { widget_data: object }
       - name: integral_suggest_dashboard
         status: existing
         op_class: read
@@ -2539,11 +2550,11 @@ domains:
 # SUMMARY COUNTS (for review convenience; keep in sync)
 # =============================================================================
 summary:
-  total_tools: 124
-  existing_tools: 122    # status: existing
+  total_tools: 125
+  existing_tools: 123    # status: existing
   gap_tools_proposed: 2  # status: gap (workspace_setup, onboard_user deferred)
-  by_op_class: { read: 50, propose: 72, execute: 2 }
-  by_priority: { P0: 15, P1: 41, P2: 68 }
+  by_op_class: { read: 51, propose: 72, execute: 2 }
+  by_priority: { P0: 15, P1: 41, P2: 69 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
   policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)

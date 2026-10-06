@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Optional
@@ -13,6 +14,24 @@ from app.exceptions import AppDependencyError, AppUninstallBlockedError
 from app.schemas.agentive.work import WorkError, WorkFailure
 
 log = logging.getLogger(__name__)
+
+
+async def _pending_write_references(
+    *, principal_id: str, workspace_id: str, session_id: Optional[str]
+) -> dict[str, str]:
+    """Rebind approval authority from live server state, never serialized input."""
+    from app.agentive.staging import get_pending_for_user
+
+    staged = await get_pending_for_user(principal_id)
+    return {
+        hashlib.sha256(change.token.encode()).hexdigest()[:16]: change.token
+        for change in staged
+        if change.kind != "design_proposal"
+        and change.user_id == principal_id
+        and change.session_id == session_id
+        and change.workspace_id == workspace_id
+    }
+
 
 DEFAULT_LEASE_SECONDS = work_items.DEFAULT_LEASE_SECONDS
 HANDLED_KINDS = frozenset(
@@ -668,6 +687,13 @@ async def _handle_chat_turn(
 
         execution = worker_input.execution_context
         extra_data = dict(execution.extra_data)
+        # Durable input intentionally excludes bearer-like staging tokens.
+        # Reconstruct the decision tool's scoped authority after claiming work.
+        extra_data["pending_approval_tokens"] = await _pending_write_references(
+            principal_id=ctx.principal_id,
+            workspace_id=ctx.workspace_id,
+            session_id=ctx.thread_id,
+        )
         extra_data.update(
             {
                 "run_id": ctx.run_id,

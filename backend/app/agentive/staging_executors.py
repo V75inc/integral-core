@@ -1364,9 +1364,16 @@ async def _x_publish_profile_draft(
         publish_draft_for_agent as _impl,
     )
 
+    if not payload.get("expected_review_fingerprint"):
+        return {
+            "error": "review_required",
+            "detail": "Review the current profile changes before publishing.",
+        }
+
     return await _impl(
         user_id=user_id,
         draft_id=payload["draft_id"],
+        expected_review_fingerprint=payload["expected_review_fingerprint"],
         run_migrations=bool(payload.get("run_migrations", True)),
         abort_on_migration_failure=bool(
             payload.get("abort_on_migration_failure", True)

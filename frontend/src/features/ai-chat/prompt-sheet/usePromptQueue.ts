@@ -219,11 +219,23 @@ export function usePromptQueue() {
           strongConfirmation,
         });
         if (!result.ok) throw new Error(result.message || 'Approval failed.');
+        const execution = result.execute_result;
+        if (execution?.error || execution?.filed === false || execution?.skipped === true) {
+          throw new Error(
+            typeof execution.message === 'string' ? execution.message :
+            typeof execution.detail === 'string' ? execution.detail :
+            'Your approval was recorded, but the change could not be applied. Review the error before retrying.',
+          );
+        }
+        if (!execution) {
+          throw new Error('Your approval was recorded. Application is still pending; refresh to check its result.');
+        }
         const res = await markPromptWrite({
           threadId: activeThreadId,
           token: current.token,
           status: 'approved',
         });
+        if (res.error) throw new Error(res.detail || 'The change has not finished applying.');
         applyQueueResult(res as never);
         window.dispatchEvent(new Event('staging-state-changed'));
       } catch (error) {

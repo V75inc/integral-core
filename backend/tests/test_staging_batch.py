@@ -76,6 +76,7 @@ async def test_open_append_commit_groups_ops():
     assert "Create entry" in sc.diff_human
     assert "Lead source" in sc.diff_human
     assert "**Type:** source" in sc.diff_human
+    assert "Create Contacts track\n\n**Create entry**" in sc.diff_human
     # Title already carries the batch summary — body must not repeat it.
     assert not (sc.summary and sc.diff_human.startswith(sc.summary))
     # Batch is cleared after commit.

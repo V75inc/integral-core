@@ -14,6 +14,7 @@ from app.agentive.harness.capability_search import (
 )
 from app.agentive.harness.contracts import HarnessExecutionScope
 from app.agentive.harness.pydantic_ai_compat import (
+    ModelRetry,
     RunContext,
     Tool,
     build_integral_json_schema_tool,
@@ -113,6 +114,7 @@ def _make_handler(
     no_workspace_writes: bool,
     design_only: bool,
     workflow_skills: frozenset[str] = frozenset(),
+    conversation_id: str | None = None,
 ):
     """Freeze capability identity and host scope into one function tool."""
 
@@ -333,7 +335,7 @@ def _make_handler(
                 idempotency_key=_idempotency_key(
                     scope.run_id, ctx.tool_call_id, capability_name
                 ),
-                session_id=scope.session_id,
+                session_id=conversation_id or scope.session_id,
                 skill_tools_required=(
                     list(skill_allowlist) if skill_allowlist else None
                 ),
@@ -349,6 +351,16 @@ def _make_handler(
         model_result = _resource_links_for_model(result.for_model())
         if capability_name == "integral_build_approved_design":
             call_state["build_succeeded"] = bool(result.ok)
+            if not result.ok and result.error_code in {
+                "invalid_scaffold_plan",
+                "scaffold_plan_validation_failed",
+            }:
+                # These Core errors are returned only before any substrate
+                # effect (including cancellation of the staging-only batch).
+                # Let Pydantic AI own bounded argument correction. Applied,
+                # partial, authorization and unknown outcomes stay one-shot.
+                build_attempted = False
+                raise ModelRetry(result.message)
         if capability_name == "integral_verify_build":
             call_state["verification_status"] = model_result.get("status")
             call_state["verification_succeeded"] = bool(
@@ -375,6 +387,7 @@ def build_brokered_tools(
     skill_library: Path | None = None,
     run_state: dict[str, Any] | None = None,
     pending_approval_tokens: dict[str, str] | None = None,
+    conversation_id: str | None = None,
     no_workspace_writes: bool = False,
     design_only: bool = False,
 ) -> list[Tool[Any, Any]]:
@@ -442,8 +455,17 @@ def build_brokered_tools(
             async def resolve_pending_write(
                 ctx: RunContext[Any], item_reference: str, decision: str
             ) -> dict[str, Any]:
+                if decision == "no_decision":
+                    return {
+                        "ok": True,
+                        "decision": decision,
+                        "applied": False,
+                        "message": "No proposal changed. Answer the user's question or clarify the intended decision; do not restage this proposal.",
+                    }
                 if decision not in {"approve", "reject"}:
                     return {"ok": False, "error_code": "invalid_decision"}
+                if decision == "approve" and no_workspace_writes:
+                    return {"ok": False, "error_code": "user_no_workspace_writes"}
                 token = call_state["pending_staged_tokens"].get(item_reference)
                 if token is None:
                     return {"ok": False, "error_code": "pending_item_not_found"}
@@ -457,7 +479,7 @@ def build_brokered_tools(
                         decision=decision,
                         source="chat",
                         workspace_id=scope.workspace_id,
-                        conversation_id=scope.session_id,
+                        conversation_id=conversation_id or scope.session_id,
                         thread_id=scope.thread_id,
                     )
                     return {
@@ -476,7 +498,10 @@ def build_brokered_tools(
                     description=(
                         "Resolve one staged write in this conversation after the "
                         "user clearly approves or rejects it. Use its item_reference "
-                        "from pending approval context. A consumed state confirms "
+                        "from pending approval context. Interpret the latest user reply: "
+                        "approve only clear consent to that exact proposal, reject clear "
+                        "refusal, and no_decision for questions, ambiguity, or unrelated "
+                        "requests. no_decision performs no write. A consumed state confirms "
                         "application; blessed means approved but not yet applied."
                     ),
                     json_schema={
@@ -485,7 +510,7 @@ def build_brokered_tools(
                             "item_reference": {"type": "string"},
                             "decision": {
                                 "type": "string",
-                                "enum": ["approve", "reject"],
+                                "enum": ["approve", "reject", "no_decision"],
                             },
                         },
                         "required": ["item_reference", "decision"],
@@ -523,6 +548,7 @@ def build_brokered_tools(
         invoke_tool = _make_handler(
             scope=scope,
             capability_name=name,
+            conversation_id=conversation_id,
             capability_source=source,
             capability_op_class=op_class,
             input_schema=schema,
@@ -563,6 +589,7 @@ def build_brokered_tools(
                 # stateful Core writes, including batch start/append/commit.
                 # Independent reads remain eligible for parallel execution.
                 sequential=op_class != "read",
+                max_retries=2 if name == "integral_build_approved_design" else None,
             )
         )
     if skill_library is not None:
@@ -591,14 +618,16 @@ def _prepare_capability_tool(
     """Disclose skill tools while preserving the build authority boundary."""
 
     def prepare(ctx: RunContext[Any], tool_def):
-        if (call_state or {}).get("capability_search_required") and not (
-            call_state or {}
-        ).get("capability_search_completed"):
-            return None
         saved_design_build = name == "integral_build_approved_design" and bool(
             (call_state or {}).get("approved_design_ready")
             or (call_state or {}).get("pending_design")
         )
+        if (
+            not saved_design_build
+            and (call_state or {}).get("capability_search_required")
+            and not (call_state or {}).get("capability_search_completed")
+        ):
+            return None
         if (
             required_skill
             and required_skill not in ctx.active_capability_ids

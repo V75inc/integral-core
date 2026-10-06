@@ -1679,9 +1679,13 @@ async def build_approved_design(
             # permission, and policy refusals need the user.
             return _invalid(
                 (
-                    "scaffold_plan_refused"
-                    if result.is_error and not result.next_tool
-                    else "scaffold_plan_stage_failed"
+                    "scaffold_plan_validation_failed"
+                    if result.error_code == "invalid_arguments"
+                    else (
+                        "scaffold_plan_refused"
+                        if result.is_error and not result.next_tool
+                        else "scaffold_plan_stage_failed"
+                    )
                 ),
                 f"Operation {index + 1} ({tool}) was refused: "
                 + (
