@@ -329,3 +329,6 @@ batch tools to present one itemized review. A batch may partially apply: report
 applied, failed and unattempted outcomes from its receipt, and read back the
 result before claiming success. Retry only unresolved effects, using the
 existing identities. Do not restage a completed record.
+
+
+When a same-type title already exists, clarify whether the user wants to update it or create a separate record. Different verified entry types and shared body prose are not duplicate identity. For a requested separate record, use `allow_duplicate_title=true` on the create or filing tool; its approval preview retains the existing record unchanged. Do not convert an existing record's type merely to satisfy a duplicate warning.

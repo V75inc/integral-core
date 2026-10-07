@@ -419,15 +419,12 @@ export interface PromptQueueResponse {
 
 export async function getPromptQueue(
   threadId: string,
-): Promise<PromptQueueResponse | null> {
-  try {
-    const res = await api.get('/agentive/prompt-queue', {
-      params: { thread_id: threadId },
-    });
-    return res.data?.ok ? res.data : null;
-  } catch {
-    return null;
-  }
+): Promise<PromptQueueResponse> {
+  const res = await api.get('/agentive/prompt-queue', {
+    params: { thread_id: threadId },
+  });
+  if (!res.data?.ok) throw new Error('Approval state could not be verified.');
+  return res.data;
 }
 
 export async function resolvePromptQuestion(params: {

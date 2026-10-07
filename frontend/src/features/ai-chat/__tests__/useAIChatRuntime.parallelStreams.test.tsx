@@ -212,13 +212,15 @@ describe("useAIChatRuntime parallel streams", () => {
         role: "user", content: [{ type: "text", text: "first" }],
       });
     });
+    // assistant-ui publishes its external-store snapshot asynchronously;
+    // cancelRun is ignored before that snapshot reports a running turn.
+    await waitFor(() => expect(result.current.runtime.thread.getState().isRunning).toBe(true));
     await act(async () => {
       await result.current.runtime.thread.cancelRun();
-      await delay(20);
     });
-    expect(result.current.runtime.thread.getState().messages.find(
+    await waitFor(() => expect(result.current.runtime.thread.getState().messages.find(
       (message) => message.role === "assistant",
-    )?.status).toEqual({ type: "incomplete", reason: "cancelled" });
+    )?.status).toEqual({ type: "incomplete", reason: "cancelled" }));
     await act(async () => {
       await result.current.runtime.thread.append({
         role: "user", content: [{ type: "text", text: "follow up" }],

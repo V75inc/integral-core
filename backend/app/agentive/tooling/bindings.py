@@ -605,19 +605,72 @@ async def date_left_in_title_block(
     return date_field_refusal(missing, update=update)
 
 
+async def _duplicate_type_candidates(
+    entries: List[Any], *, track_id: str, entry_type: str
+) -> List[Any]:
+    """Exclude only types verified by the destination's current catalogue.
+
+    Opaque type IDs, exact keys and exact display names resolve here. Missing,
+    ambiguous and legacy identities are conservative; a caller-provided label
+    cannot establish that an existing row belongs to a different type.
+    """
+    if not entries or not entry_type:
+        return entries
+    from app.models.nodes import Track
+    from app.services.view_create_resolution import load_entry_types_for_track
+
+    track = await Track.get(track_id)
+    if track is None or not getattr(track, "id", None):
+        return entries
+    types = await load_entry_types_for_track(track)
+    wanted = entry_type.strip().casefold()
+    resolved = [
+        item
+        for item in types
+        if wanted
+        in {
+            str(item.id).casefold(),
+            str(item.name or "").casefold(),
+            str(getattr(item, "key", "") or "").casefold(),
+            str(
+                (item.form_schema or {}).get("_manifest_entry_type_key") or ""
+            ).casefold(),
+        }
+    ]
+    if len(resolved) != 1:
+        return entries
+    target_id = resolved[0].id
+    verified_ids = {item.id for item in types}
+    return [
+        entry
+        for entry in entries
+        if getattr(entry, "type_id", None) == target_id
+        or getattr(entry, "type_id", None) not in verified_ids
+    ]
+
+
 async def _find_visible_entry_with_title(
-    *, user_id: str, track_id: str, title: str
+    *, user_id: str, track_id: str, title: str, entry_type: str = ""
 ) -> Optional[Any]:
-    """Find an exact visible title match before an agent stages a create."""
+    """Find a same-type visible title identity before staging a create."""
     from app.services.permissions import get_user_accessible_entries
 
     target = title.strip().casefold()
     if not target:
         return None
-    for entry in await get_user_accessible_entries(user_id, track_id):
-        if str(getattr(entry, "title", "") or "").strip().casefold() == target:
-            return entry
-    return None
+    entries = await get_user_accessible_entries(user_id, track_id)
+    candidates = await _duplicate_type_candidates(
+        entries, track_id=track_id, entry_type=entry_type
+    )
+    return next(
+        (
+            entry
+            for entry in candidates
+            if getattr(entry, "status", None) != "deleted"
+            and str(getattr(entry, "title", "") or "").strip().casefold() == target
+        ),
+        None,
+    )
 
 
 async def duplicate_create_block(
@@ -627,53 +680,35 @@ async def duplicate_create_block(
     text: str = "",
     fields: Any = None,
     allow_duplicate_title: bool = False,
+    entry_type: str = "",
 ) -> Optional[str]:
-    """Refusal text when this create should be an update. None when it may stage.
+    """Guard title identity, never infer identity from shared descriptive prose.
 
-    Exact title still wins its own sentence. A different title that shares a
-    name is the same refusal: no card, and the existing id is in the text.
-    A second record is allowed only when the person's own sentence asks for
-    another one. The model's ``allow_duplicate_title`` flag does not.
+    A declared separate create is still a proposed write requiring approval,
+    and its preview explicitly retains the original. The primary model can
+    clarify that choice; Core does not parse the user's wording to authorize it.
+    Approximate name overlap is not proof that two records are the same entity.
     """
-    del allow_duplicate_title
-    from app.services.turn_binding import (
-        current_user_sentence,
-        user_asked_for_another_record,
-    )
-
-    if user_asked_for_another_record(current_user_sentence.get()):
+    if allow_duplicate_title:
         return None
     if not isinstance(track_id, str) or not track_id or track_id.startswith("{{"):
         return None
-    from app.services.permissions import get_user_accessible_entries
-
     exact = await _find_visible_entry_with_title(
-        user_id=_bound_propose_principal(), track_id=track_id, title=title or ""
+        user_id=_bound_propose_principal(),
+        track_id=track_id,
+        title=title or "",
+        entry_type=entry_type,
     )
-    if exact is not None and getattr(exact, "status", None) != "deleted":
-        return (
-            "create_entry: an entry named %r already exists in this track "
-            "(entry_id=%s). Use integral_update_entry with that entry_id, "
-            "then read it back; do not create a duplicate." % (title, exact.id)
-        )
-    entries = await get_user_accessible_entries(_bound_propose_principal(), track_id)
-    matches = find_likely_duplicates(
-        entries, _proposed_blob(title, text, fields), limit=3
-    )
-    if not matches:
+    if exact is None:
         return None
-    if len(matches) == 1:
-        match = matches[0]
-        return (
-            "create_entry: this matches an existing record %r (entry_id=%s). "
-            "Call integral_update_entry with that entry_id. Nothing was staged."
-            % (match.title, match.id)
-        )
-    listed = "; ".join("%r (entry_id=%s)" % (row.title, row.id) for row in matches)
     return (
-        "create_entry: this name matches more than one record: %s. "
-        "Update the one the person named with integral_update_entry. "
-        "Nothing was staged." % listed
+        "create_entry: an entry named %r already exists in this track "
+        "(entry_id=%s). Nothing was staged. Clarify whether to update that "
+        "record with integral_update_entry or create a separate record. "
+        "Only for a requested separate record, set allow_duplicate_title=true; "
+        "the new-record preview still requires approval. Never convert the "
+        "existing record's type merely to resolve a duplicate warning."
+        % (title, exact.id)
     )
 
 
@@ -781,18 +816,6 @@ async def _stage_create_entry(args: Dict[str, Any]) -> Dict[str, Any]:
         )
         if not decision.allowed:
             raise InsufficientPermissionsError(message="Access denied")
-
-    # A named record normally signals an update request when it already exists.
-    # Refuse before a card: exact title, or a different title that shares a name.
-    blocked = await duplicate_create_block(
-        track_id=track_id,
-        title=title,
-        text=str(text or ""),
-        fields=fields,
-        allow_duplicate_title=bool(src.get("allow_duplicate_title")),
-    )
-    if blocked:
-        raise ValueError(blocked)
 
     view_warnings: List[str] = []
     resolved_view_name = ""
@@ -903,6 +926,17 @@ async def _stage_create_entry(args: Dict[str, Any]) -> Dict[str, Any]:
                     ):
                         entry_type = name or default_key
                         break
+    blocked = await duplicate_create_block(
+        track_id=track_id,
+        title=title,
+        text=str(text or ""),
+        fields=fields,
+        allow_duplicate_title=bool(src.get("allow_duplicate_title")),
+        entry_type=str(entry_type or ""),
+    )
+    if blocked:
+        raise ValueError(blocked)
+
     date_block = await date_left_in_title_block(
         track_id=track_id,
         title=title,
@@ -927,6 +961,10 @@ async def _stage_create_entry(args: Dict[str, Any]) -> Dict[str, Any]:
 
     track_lbl = await _sd.resolve_track_label(track_id)
     lines = [f"**Create entry** *{title}*", "", f"- **Track:** {track_lbl}"]
+    if src.get("allow_duplicate_title"):
+        lines.append(
+            "- **Separate record:** Create a new record; retain all existing records unchanged."
+        )
     if resolved_view_name:
         lines.append(f"- **View:** {resolved_view_name}")
     if entry_type:

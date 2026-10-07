@@ -387,6 +387,7 @@ async def stage_file_content(a: Dict[str, Any]) -> Dict[str, Any]:
         text=text,
         fields=merged,
         allow_duplicate_title=bool(a.get("allow_duplicate_title")),
+        entry_type=entry_type.id,
     )
     if blocked:
         return _no_stage_candidates(
@@ -429,6 +430,8 @@ async def stage_file_content(a: Dict[str, Any]) -> Dict[str, Any]:
         fields=merged,
         tags=tags_for_diff,
     )
+    if a.get("allow_duplicate_title"):
+        diff_human += "\n- **Separate record:** Create a new record; retain all existing records unchanged."
     summary = f"File content as “{title}” in {track_title} ({entry_type_name})"
     diff_machine: Dict[str, Any] = {
         "op": "file_content",

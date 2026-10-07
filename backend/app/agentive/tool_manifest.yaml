@@ -1004,6 +1004,7 @@ domains:
           focused_view_id: {type: string, optional: true, desc: "Id of the view tab currently in focus in the UI, if any — biases view resolution."}
           kanban_stage_hint: {type: string, optional: true, desc: "Kanban column key or label when creating on a board view (maps to _kanban_stage or workflow field)."}
           focused_track_id: {type: string, optional: true, desc: "Id of the track currently in focus, if any — biases resolution toward it."}
+          allow_duplicate_title: {type: boolean, optional: true, default: false, desc: "Propose a separate new record even when a same-type title exists. Use only when the user requests a separate record. The approval preview discloses that existing records stay unchanged; this flag never approves or executes the create."}
         returns: { staged_token: str, preview: object }
       - name: integral_rank_destinations
         status: existing
@@ -1064,6 +1065,7 @@ domains:
           idempotency_key: {type: string, optional: true, desc: "Retries of the same payload and revisions return the first result and do not append again. A different payload with the same key conflicts."}
           entry_type_key: {type: string, optional: true, desc: "Entry type key used for protected-field checks on update and append when the entry has no type."}
           replace_body: {type: boolean, optional: true, desc: "On update, replace the body with text. Omit to leave the body unchanged."}
+          allow_duplicate_title: {type: boolean, optional: true, default: false, desc: "Propose a separate new record despite a same-type title match, only when requested. Still requires approval and retains the existing record unchanged."}
         returns: { staged_token: str, preview: object, filing_status: str }
       - name: integral_update_entry
         status: existing

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import tempfile
+from dataclasses import replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
@@ -139,9 +140,11 @@ class _Session:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("token_limit", [300_000, 450_000])
+@pytest.mark.parametrize("second_text", ["continue", ""])
 async def test_provider_persists_session_and_resumes_previous_run(
     monkeypatch: pytest.MonkeyPatch,
     token_limit: int,
+    second_text: str,
 ) -> None:
     """Two turns share a session while resuming separate durable runs."""
     from app.config import settings
@@ -152,6 +155,7 @@ async def test_provider_persists_session_and_resumes_previous_run(
     session = _Session()
     scopes = [_scope("run-a"), _scope("run-b")]
     observed_limits = []
+    observed_prompts = []
 
     async def prepare(_ctx: Any) -> Any:
         scope = scopes.pop(0)
@@ -167,6 +171,7 @@ async def test_provider_persists_session_and_resumes_previous_run(
         class AgentSpy:
             def run_stream_events(self, *args: Any, **kwargs: Any) -> Any:
                 observed_limits.append(kwargs.get("usage_limits"))
+                observed_prompts.append(args[0])
                 return agent.run_stream_events(*args, **kwargs)
 
         history = (
@@ -251,6 +256,7 @@ async def test_provider_persists_session_and_resumes_previous_run(
         {"type": "text-delta", "delta": "answer-run-a"}
     ]
 
+    ctx = replace(ctx, text=second_text)
     second = [event async for event in provider.stream_turn(ctx)]
     assert second[0]["type"] == "_meta"
     assert second[-1]["type"] == "message-finish"
@@ -258,6 +264,7 @@ async def test_provider_persists_session_and_resumes_previous_run(
     assert [event for event in second if event.get("type") == "text-delta"] == [
         {"type": "text-delta", "delta": "answer-run-b"}
     ]
+    assert observed_prompts == ["continue", second_text or None]
     assert len(observed_limits) == 2
     assert all(limit.request_limit == 20 for limit in observed_limits)
     assert all(limit.total_tokens_limit == token_limit for limit in observed_limits)
@@ -835,7 +842,8 @@ async def test_cancel_before_provider_generator_starts_prevents_dispatch(
 ) -> None:
     """A stop racing the first generator advance cannot start a late run."""
     provider = PydanticAIProvider()
-    provider.cancel_turn(thread_id="thread-a")
+    cancel = provider.bind_turn_cancel(thread_id="thread-a")
+    cancel()
 
     async def prepare(_ctx: Any) -> Any:
         raise AssertionError("cancelled provider must not prepare or dispatch")
@@ -845,7 +853,27 @@ async def test_cancel_before_provider_generator_starts_prevents_dispatch(
         async for _event in provider.stream_turn(SimpleNamespace(thread_id="thread-a")):
             pass
 
-    assert "thread-a" not in provider._cancelled_before_start
+    assert "thread-a" not in provider._active_tokens
+
+
+def test_late_host_cancel_cannot_cancel_a_newer_turn() -> None:
+    provider = PydanticAIProvider()
+    old_cancel = provider.bind_turn_cancel(thread_id="thread-a")
+    provider._active_tokens.pop("thread-a")  # completed generator cleanup
+    old_cancel()
+    new_cancel = provider.bind_turn_cancel(thread_id="thread-a")
+    new_token = provider._active_tokens["thread-a"]
+    old_cancel()
+    assert not new_token.cancelled
+    new_cancel()
+    assert new_token.cancelled
+
+
+def test_idle_cancel_leaves_no_state_for_the_next_turn() -> None:
+    provider = PydanticAIProvider()
+    provider.cancel_turn(thread_id="thread-a")
+    provider.bind_turn_cancel(thread_id="thread-a")
+    assert not provider._active_tokens["thread-a"].cancelled
 
 
 @pytest.mark.asyncio
@@ -911,12 +939,20 @@ def test_integral_contextvars_are_bound_and_restored() -> None:
         focused_view_id="view-a",
         extra_data={"page_context": {"url": "/tracks/track-a"}},
     )
+    from app.services.turn_binding import current_user_sentence
+
+    before_sentence = current_user_sentence.get()
     with _bind_integral_turn_context(ctx):
+        assert current_user_sentence.get() == "hello"
+        with _bind_integral_turn_context(replace(ctx, text="")):
+            assert current_user_sentence.get() == ""
+        assert current_user_sentence.get() == "hello"
         assert current_scope_workspace_id.get() == "workspace-a"
         assert current_focused_track_id.get() == "track-a"
         assert current_focused_view_id.get() == "view-a"
         assert current_page_context.get() == {"url": "/tracks/track-a"}
         assert current_chat_thread_id.get() == "thread-a"
+    assert current_user_sentence.get() == before_sentence
     assert current_scope_workspace_id.get() is None
     assert current_chat_thread_id.get() is None
 
@@ -924,3 +960,57 @@ def test_integral_contextvars_are_bound_and_restored() -> None:
 async def _return(value):
     """Tiny awaitable for monkeypatched async persistence lookups."""
     return value
+
+
+@pytest.mark.parametrize("state", ["consumed", "revoked", "expired"])
+def test_terminal_preview_compacts_without_losing_outcome_or_identity(state):
+    import json
+
+    from app.services.chat_providers.pydantic_ai_provider import (
+        _terminal_staging_context,
+    )
+
+    snapshot = {
+        "_kind": "staged_change",
+        "token": "token",
+        "state": state,
+        "state_source": "current_core_staging",
+        "summary": "Create a note",
+        "diff_human": "large preview " * 2000,
+        "diff_machine": {
+            "op": "batch",
+            "ops": [
+                {
+                    "kind": "create_entry",
+                    "track_id": "track-a",
+                    "title": "Note",
+                    "body": "content " * 1000,
+                }
+            ],
+        },
+        "execute_result": {"entry": {"id": "entry-a", "record_revision": 1}},
+        "last_error": None,
+    }
+    compact = _terminal_staging_context(snapshot)
+    assert compact["state"] == state
+    assert compact["state_source"] == "current_core_staging"
+    assert compact["execute_result"] == snapshot["execute_result"]
+    assert compact["affected_resources"]["ops"][0]["track_id"] == "track-a"
+    assert compact["affected_resources"]["ops"][0]["title"] == "Note"
+    assert len(json.dumps(compact)) < len(json.dumps(snapshot)) / 10
+    assert "body" not in compact["affected_resources"]["ops"][0]
+    assert snapshot["diff_human"]  # projection does not mutate UI/audit input
+
+
+@pytest.mark.parametrize("state", ["pending", "blessed"])
+def test_unapplied_preview_and_application_error_are_not_compacted(state):
+    from app.services.chat_providers.pydantic_ai_provider import (
+        _terminal_staging_context,
+    )
+
+    snapshot = {
+        "state": state,
+        "diff_human": "Exact pending preview",
+        "last_error": {"code": "revision_conflict"},
+    }
+    assert _terminal_staging_context(snapshot) is snapshot

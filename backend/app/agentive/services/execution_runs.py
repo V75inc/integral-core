@@ -507,6 +507,7 @@ async def export_qualification_run(
     observability = dict(metadata.get("model_observability") or {})
     from app.agentive.harness.model_observations import (
         list_run_model_request_observations,
+        summarize_model_context,
         summarize_model_usage,
     )
 
@@ -543,6 +544,7 @@ async def export_qualification_run(
                 }
             )
         observability.update(
+            context_requests=summarize_model_context(observations),
             models=observed_models,
             total_input_tokens=usage.reported_input_tokens,
             total_output_tokens=usage.reported_output_tokens,

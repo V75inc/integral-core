@@ -196,6 +196,10 @@ def register_provider_cancel_hook(
     the decision to cancel. The jvagent fallback keeps older provider doubles
     compatible while production adapters adopt ``cancel_turn``.
     """
+    bind_cancel = getattr(provider, "bind_turn_cancel", None)
+    if callable(bind_cancel):
+        turn_handle.register_cancel_hook(bind_cancel(thread_id=thread_id))
+        return
     cancel_turn = getattr(provider, "cancel_turn", None)
     if callable(cancel_turn):
         turn_handle.register_cancel_hook(lambda: cancel_turn(thread_id=thread_id))

@@ -131,6 +131,7 @@ dependencies = [
     "Pillow>=10.0.0",
     "mutagen>=1.47.0",
     "langdetect>=1.0.9",
+    "markdown-it-py>=4,<5",
 ]
 
 [project.scripts]

@@ -10,6 +10,7 @@ route and execution scope.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 from collections import defaultdict
@@ -166,6 +167,9 @@ def _request_context(body: dict[str, Any]) -> ModelRequestContextObservation:
             json.dumps(message, ensure_ascii=False, separators=(",", ":"))
         )
     tools = body.get("tools") or []
+    serialized_tools = json.dumps(
+        tools, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+    )
     return ModelRequestContextObservation(
         instruction_chars=sizes["instruction"],
         conversation_chars=sizes["conversation"],
@@ -173,6 +177,9 @@ def _request_context(body: dict[str, Any]) -> ModelRequestContextObservation:
         tool_schema_chars=len(
             json.dumps(tools, ensure_ascii=False, separators=(",", ":"))
         ),
+        tool_schema_fingerprint=hashlib.sha256(
+            serialized_tools.encode("utf-8")
+        ).hexdigest(),
         message_count=len(messages),
         visible_tool_count=len(tools),
     )

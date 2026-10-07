@@ -1743,8 +1743,21 @@ export function useAIChatRuntime(
   const setMessages = useCallback(
     (msgs: readonly ThreadMessageLike[]) => {
       if (!activeThreadId) return;
-      updateSession(activeThreadId, {
-        messages: msgs as ThreadMessageLike[],
+      updateSession(activeThreadId, (session) => {
+        const stored = new Map(session.messages.map((message) => [message.id, message]));
+        return {
+          ...session,
+          messages: msgs.map((message) => {
+            const previous = stored.get(message.id);
+            // assistant-ui can append using a snapshot from before Stop.
+            // A terminal row must not become running again under the same ID;
+            // a real retry creates a new draft with a new ID.
+            return message.status?.type === "running" && previous?.status &&
+              previous.status.type !== "running"
+              ? { ...message, status: previous.status }
+              : message;
+          }),
+        };
       });
     },
     [activeThreadId, updateSession],
