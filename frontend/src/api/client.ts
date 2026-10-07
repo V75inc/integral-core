@@ -35,6 +35,9 @@ interface RetryAwareConfig extends InternalAxiosRequestConfig {
 const apiClient = axios.create({
   baseURL: getApiBaseURL(),
   headers: { 'Content-Type': 'application/json' },
+  // A stalled API worker used to hold the browser's six HTTP/1.1 connections
+  // until a full reload. Chat streams use fetch, not this client.
+  timeout: 30_000,
 });
 
 // Active workspace scope is published into a module-level slot by the

@@ -27,6 +27,12 @@ class ReadDecision:
             "code": self.code,
             "declared_query_required": self.code == "app_domain",
         }
+        if self.code == "app_domain":
+            body["records_read"] = False
+            body["message"] = (
+                "This track was not read. It belongs to an installed app. "
+                "An empty list is not a count. Use the app's own tool."
+            )
         body.update(extra)
         return body
 

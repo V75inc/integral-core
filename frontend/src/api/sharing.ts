@@ -112,6 +112,18 @@ export interface PublicSharedEntry {
   [key: string]: unknown;
 }
 
+export interface PublicOnboardingPolicy {
+  id: string;
+  title: string;
+  description?: string;
+  required_for_onboarding?: boolean;
+  active?: boolean;
+  sort_order?: number;
+  document_attachment_id?: string | null;
+  document_filename?: string | null;
+  document_mime_type?: string | null;
+}
+
 export interface PublicTrackPayload {
   track: {
     id: string;
@@ -120,6 +132,7 @@ export interface PublicTrackPayload {
     icon: string;
     accent_color: string;
     operational_model_defaults?: { default_entry_type?: string };
+    content_profile_defaults?: { default_entry_type?: string };
   };
   workspace?: {
     id: string;
@@ -128,6 +141,7 @@ export interface PublicTrackPayload {
     avatar_url?: string;
   } | null;
   public_permissions: Record<string, boolean>;
+  public_share_extensions?: Record<string, string>;
   views: PublicViewConfig[];
   entry_types: PublicEntryType[];
 }
@@ -213,6 +227,17 @@ export const publicSharingApi = {
     return resp.json();
   },
 
+  async getPublicTrackEntry(
+    token: string,
+    entryId: string,
+  ): Promise<{ entry: PublicSharedEntry }> {
+    const resp = await fetch(
+      `${getApiBase()}/api/public-share/track/${encodeURIComponent(token)}/entries/${encodeURIComponent(entryId)}`,
+    );
+    if (resp.status !== 200) throw new Error('Failed to load onboarding form');
+    return resp.json();
+  },
+
   async getPublicTrackEntries(token: string, q?: string, cursor?: string): Promise<{
     entries: PublicSharedEntry[];
     next_cursor: string | null;
@@ -276,9 +301,167 @@ export const publicSharingApi = {
     });
     if (resp.status !== 200) {
       const errData = await resp.json().catch(() => ({}));
-      throw new Error(errData.message || errData.detail || 'Failed to update entry');
+      const detail = (errData as { detail?: unknown }).detail;
+      const message = (errData as { message?: unknown }).message;
+      const detailText =
+        typeof detail === 'string'
+          ? detail
+          : typeof message === 'string'
+            ? message
+            : '';
+      throw new Error(detailText || 'Failed to update entry');
     }
     return resp.json();
+  },
+
+  async listOnboardingPolicies(token: string): Promise<{
+    policies: PublicOnboardingPolicy[];
+    extensions?: Record<string, string>;
+  }> {
+    const resp = await fetch(
+      `${getApiBase()}/api/public-share/track/${encodeURIComponent(token)}/onboarding-policies`,
+    );
+    if (resp.status !== 200) {
+      const errData = await resp.json().catch(() => ({}));
+      throw new Error(
+        (errData as { message?: string }).message ||
+          (errData as { detail?: string }).detail ||
+          'Failed to load onboarding policies',
+      );
+    }
+    return resp.json();
+  },
+
+  getOnboardingContractUrl(token: string, entryId: string): string {
+    return `${getApiBase()}/api/public-share/track/${encodeURIComponent(token)}/entries/${encodeURIComponent(entryId)}/contract`;
+  },
+
+  async fetchOnboardingContractBlob(
+    token: string,
+    entryId: string,
+    cacheBust?: string | number,
+  ): Promise<Blob> {
+    const base = this.getOnboardingContractUrl(token, entryId);
+    const url =
+      cacheBust != null && cacheBust !== ''
+        ? `${base}?v=${encodeURIComponent(String(cacheBust))}`
+        : base;
+    const resp = await fetch(url, { cache: 'no-store' });
+    if (resp.status !== 200) {
+      const errData = await resp.json().catch(() => ({}));
+      const detail = (errData as { detail?: unknown }).detail;
+      const message = (errData as { message?: unknown }).message;
+      const detailText =
+        typeof detail === 'string'
+          ? detail
+          : typeof message === 'string'
+            ? message
+            : '';
+      throw new Error(detailText || 'Failed to load contract PDF');
+    }
+    return resp.blob();
+  },
+
+  async generateOnboardingContract(
+    token: string,
+    entryId: string,
+    options?: { force?: boolean },
+  ): Promise<{ contract_status?: string; reused?: boolean }> {
+    const forceQs = options?.force === true ? '?force=1' : '';
+    const resp = await fetch(
+      `${getApiBase()}/api/public-share/track/${encodeURIComponent(token)}/entries/${encodeURIComponent(entryId)}/contract/generate${forceQs}`,
+      { method: 'POST' },
+    );
+    if (resp.status !== 200) {
+      const errData = await resp.json().catch(() => ({}));
+      const detail = (errData as { detail?: unknown }).detail;
+      const message = (errData as { message?: unknown }).message;
+      const detailText =
+        typeof detail === 'string'
+          ? detail
+          : typeof message === 'string'
+            ? message
+            : '';
+      throw new Error(detailText || 'Failed to generate contract');
+    }
+    return resp.json();
+  },
+
+  async decideOnboardingContract(
+    token: string,
+    entryId: string,
+    body: { action: 'accept' | 'reject'; signature_png?: string; reason?: string },
+  ): Promise<{ contract_status?: string }> {
+    const resp = await fetch(
+      `${getApiBase()}/api/public-share/track/${encodeURIComponent(token)}/entries/${encodeURIComponent(entryId)}/contract/decision`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    );
+    if (resp.status !== 200) {
+      const errData = await resp.json().catch(() => ({}));
+      throw new Error(
+        (errData as { message?: string }).message ||
+          (errData as { detail?: string }).detail ||
+          'Failed to submit contract decision',
+      );
+    }
+    return resp.json();
+  },
+
+  getOnboardingPolicyDocumentUrl(token: string, policyEntryId: string): string {
+    return `${getApiBase()}/api/public-share/track/${encodeURIComponent(token)}/onboarding-policies/${encodeURIComponent(policyEntryId)}/document`;
+  },
+
+  async listPublicEntryAttachments(
+    token: string,
+    entryId: string,
+  ): Promise<{ attachments: Array<{ id: string; filename?: string }> }> {
+    const resp = await fetch(
+      `${getApiBase()}/api/public-share/track/${encodeURIComponent(token)}/entries/${encodeURIComponent(entryId)}/attachments`,
+    );
+    if (resp.status !== 200) {
+      const errData = await resp.json().catch(() => ({}));
+      throw new Error(
+        (errData as { message?: string }).message ||
+          (errData as { detail?: string }).detail ||
+          'Failed to list attachments',
+      );
+    }
+    return resp.json();
+  },
+
+  async uploadPublicEntryAttachment(
+    token: string,
+    entryId: string,
+    file: File,
+    options?: { fieldKey?: string },
+  ): Promise<{ id: string; filename?: string; mime_type?: string }> {
+    const form = new FormData();
+    form.append('file', file);
+    const fieldKey = options?.fieldKey?.trim();
+    const qs = fieldKey ? `?field_key=${encodeURIComponent(fieldKey)}` : '';
+    const resp = await fetch(
+      `${getApiBase()}/api/public-share/track/${encodeURIComponent(token)}/entries/${encodeURIComponent(entryId)}/attachments${qs}`,
+      { method: 'POST', body: form },
+    );
+    if (resp.status !== 200) {
+      const errData = await resp.json().catch(() => ({}));
+      throw new Error(
+        (errData as { message?: string }).message ||
+          (errData as { detail?: string }).detail ||
+          'Failed to upload file',
+      );
+    }
+    const data = await resp.json();
+    const attachment = (data as { attachment?: Record<string, unknown> }).attachment || data;
+    return {
+      id: String(attachment.id || ''),
+      filename: attachment.filename as string | undefined,
+      mime_type: attachment.mime_type as string | undefined,
+    };
   },
 
   async getPublicComments(token: string, entryId: string): Promise<{ comments: any[]; total: number }> {

@@ -24,3 +24,8 @@ backend/app/api/operational_models.py  # reason: retired profile names remain hi
 backend/app/services/core_seed_installer.py  # reason: CORE_SEED_SLUGS is the substrate-owned default set (I-EXT-02)
 backend/app/services/agent_scratch.py  # reason: agent-scratch core_package title/kind constants
 backend/app/services/package_paths.py  # reason: CORE_SEED_SLUGS taxonomy for core_only filtering
+
+# Document generation resolves hire-readiness field-registry modules; "hr_app"
+# is the default registry module key, overridable per call via field_module.
+backend/app/services/documents/hire_readiness.py  # reason: default field-registry module key, passed as a parameter (overridable)
+backend/app/services/documents/onboarding_contract.py  # reason: candidate field-registry module keys probed for contract prefill

@@ -23,6 +23,7 @@ export type {
   SurfaceRadius,
   SurfaceElevation,
   SurfacePadding,
+  SurfaceBackgroundOpacity,
 } from './Surface';
 
 export { Stack } from './Stack';

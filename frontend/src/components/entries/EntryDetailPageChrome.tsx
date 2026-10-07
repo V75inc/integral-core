@@ -1,5 +1,6 @@
 import { ArrowLeft } from 'lucide-react';
 import { IconWell, LINE_ICON_STROKE } from '../ui/IconWell';
+import { IconButton, Surface, Text } from '../../ui';
 
 /**
  * Full-page chrome for EntryDetail's `variant="page"` mode. Deliberately
@@ -18,6 +19,7 @@ export function EntryDetailPageChrome({
   headerActions,
   onClose,
   children,
+  canvas,
 }: {
   open?: boolean;
   onClose(): void;
@@ -26,47 +28,61 @@ export function EntryDetailPageChrome({
   headerActions?: React.ReactNode;
   children: React.ReactNode;
   width?: string;
+  tall?: boolean;
+  sidePanel?: React.ReactNode;
+  hasCompanionPanel?: boolean;
+  allowAssistantDock?: boolean;
   variant?: 'default' | 'compact';
   disableEscape?: boolean;
   initialFocusRef?: React.RefObject<HTMLElement | null>;
+  /** Opt-in (entry type ``canvas``): the entry's file, shown beside its fields. */
+  canvas?: React.ReactNode;
 }) {
   return (
     <div className="min-h-screen bg-[var(--bg)]">
-      <header
-        className="
-          sticky top-0 z-10 flex items-center justify-between gap-3
-          border-b border-[var(--panel-border)] bg-[var(--panel)]
-          px-4 sm:px-6 py-3
-        "
+      <Surface
+        as="header"
+        tone="panel"
+        border="none"
+        radius="none"
+        className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-[var(--panel-border)] px-4 py-3 sm:px-6"
       >
         <div className="flex min-w-0 items-center gap-3">
-          <button
-            type="button"
+          <IconButton
+            label="Back"
             onClick={onClose}
-            aria-label="Back"
-            className="
-              flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-input)]
-              text-[var(--text-muted)] hover:bg-[var(--panel-2)] hover:text-[var(--text)]
-              transition-colors duration-fast
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]
-            "
+            size="md"
+            tone="muted"
+            className="shrink-0"
           >
             <ArrowLeft size={16} strokeWidth={LINE_ICON_STROKE} />
-          </button>
+          </IconButton>
           {titleIcon ? (
             <IconWell size="sm">{titleIcon}</IconWell>
           ) : null}
-          <h1 className="min-w-0 truncate text-[15px] font-semibold text-[var(--text)]">
+          <Text as="h1" variant="heading-sm" weight="semibold" truncate>
             {title}
-          </h1>
+          </Text>
         </div>
         {headerActions ? (
           <div className="flex shrink-0 items-center gap-1">{headerActions}</div>
         ) : null}
-      </header>
-      <div className="mx-auto max-w-page px-4 sm:px-6 md:px-10 py-4 sm:py-5">
-        {children}
-      </div>
+      </Surface>
+      {canvas ? (
+        <div
+          data-testid="entry-canvas-layout"
+          className="mx-auto grid max-w-[1800px] gap-4 px-4 py-4 sm:px-6 lg:grid-cols-[minmax(0,1.8fr)_minmax(0,1fr)]"
+        >
+          <div className="min-w-0 lg:sticky lg:top-[64px] lg:h-[calc(100vh-5.5rem)] lg:self-start">
+            {canvas}
+          </div>
+          <div className="min-w-0">{children}</div>
+        </div>
+      ) : (
+        <div className="mx-auto max-w-page px-4 sm:px-6 md:px-10 py-4 sm:py-5">
+          {children}
+        </div>
+      )}
     </div>
   );
 }

@@ -81,6 +81,59 @@ async def test_sync_operational_layer_upserts_and_removes_stale_skills():
 
 
 @pytest.mark.asyncio
+async def test_sync_operational_layer_mirrors_settings_schema():
+    ws = await _make_workspace()
+    now = utc_now_iso()
+    app = await App.create(
+        name="Settings Sync App",
+        name_fold="settings sync app",
+        workspace_id=ws.id,
+        lifecycle_state="active",
+        settings={"default_currency": "USD"},
+        settings_schema={
+            "type": "object",
+            "required": ["default_currency"],
+            "properties": {
+                "default_currency": {"type": "string", "title": "Default currency"},
+            },
+        },
+        created_at=now,
+        updated_at=now,
+    )
+    manifest = _minimal_app_manifest(package_name="settings-sync", version="1.1.0")
+    manifest["app"]["settings_schema"] = {
+        "type": "object",
+        "required": ["default_currency", "invoice_number_pattern"],
+        "properties": {
+            "default_currency": {"type": "string", "title": "Default currency"},
+            "invoice_number_auto_generate": {
+                "type": "boolean",
+                "default": True,
+                "title": "Auto-generate invoice numbers",
+            },
+            "invoice_number_pattern": {
+                "type": "string",
+                "default": "INV-{####}",
+                "title": "Invoice number pattern",
+            },
+        },
+    }
+    canonical = compile_canonical_manifest(manifest=manifest)
+    result = await sync_operational_layer_from_manifest(
+        app, canonical, actor_id="u_settings"
+    )
+    assert result["settings_schema_synced"] is True
+    refreshed = await App.get(app.id)
+    assert refreshed is not None
+    props = (refreshed.settings_schema or {}).get("properties") or {}
+    assert "invoice_number_pattern" in props
+    assert "invoice_number_auto_generate" in props
+    assert refreshed.settings.get("invoice_number_pattern") == "INV-{####}"
+    assert refreshed.settings.get("invoice_number_auto_generate") is True
+    assert refreshed.settings.get("default_currency") == "USD"
+
+
+@pytest.mark.asyncio
 async def test_sync_operational_layer_registers_bundle_tools():
     ws = await _make_workspace()
     now = utc_now_iso()

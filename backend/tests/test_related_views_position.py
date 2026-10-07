@@ -238,3 +238,53 @@ def test_entry_scoped_type_declared_in_views_is_not_rejected():
         },
     }
     compile_canonical_manifest(manifest=manifest)  # must not raise
+
+
+# ``canvas`` / ``hidden`` — opt-in entry-page file pane and always-hidden fields.
+
+
+def test_entry_type_spec_canvas_defaults_off_and_normalizes():
+    from app.services.operational_model_compile import _normalize_canvas
+
+    assert _normalize_canvas(None, where="t") is None
+    assert _normalize_canvas({"file_field": " rendered_file "}, where="t") == {
+        "file_field": "rendered_file",
+        "editor": "",
+    }
+    assert _normalize_canvas({"editor": "body"}, where="t")["editor"] == "body"
+    assert _normalize_canvas(True, where="t") == {"file_field": "", "editor": ""}
+    with pytest.raises(BadRequestError):
+        _normalize_canvas({"editor": "title"}, where="t")
+
+
+def test_field_spec_carries_hidden_flag():
+    from app.services.operational_model_compile import _normalize_field_spec
+
+    base = {"key": "external_id", "name": "External id", "type": "text"}
+    assert _normalize_field_spec(dict(base))["hidden"] is False
+    assert _normalize_field_spec({**base, "hidden": True})["hidden"] is True
+
+
+def test_library_update_carries_page_behaviour():
+    from app.services.operational_model_compile import normalize_entry_type_form_schema
+    from app.services.operational_model_merge import merge_entry_type_schema_from_spec
+
+    cur = {"fields": [{"key": "a", "name": "A", "type": "text"}], "related_views": []}
+    # The desired schema reaches the merge already normalized, as in a real update.
+    des = normalize_entry_type_form_schema(
+        {
+            "fields": [{"key": "a", "name": "A", "type": "text"}],
+            "open_as_page": True,
+            "canvas": {"file_field": "f"},
+            "related_views": [{"view": "v", "position": "related", "bind": {}}],
+        }
+    )
+    out, changed = merge_entry_type_schema_from_spec(cur, des)
+    assert changed is True
+    assert out["canvas"]["file_field"] == "f"
+    assert out["open_as_page"] is True
+    assert [r["view"] for r in out["related_views"]] == ["v"]
+    # Idempotent, and a manifest that declares none leaves the stored ones alone.
+    assert merge_entry_type_schema_from_spec(out, des)[1] is False
+    kept, _ = merge_entry_type_schema_from_spec(out, {"fields": des["fields"]})
+    assert kept["canvas"]["file_field"] == "f"

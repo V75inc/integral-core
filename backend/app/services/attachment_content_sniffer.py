@@ -98,10 +98,93 @@ def _normalize(mime: str) -> str:
     return (mime or "").split(";", 1)[0].strip().lower()
 
 
+# Equivalent names for one format (browsers and libmagic disagree).
+_ALIASES = (
+    frozenset({"application/rtf", "text/rtf"}),
+    frozenset({"application/xml", "text/xml"}),
+    frozenset({"application/yaml", "application/x-yaml", "text/yaml", "text/x-yaml"}),
+)
+
+# Formats that are a zip container, an OLE container, or plain text underneath:
+# libmagic names the container (or just "text/plain"), not the document.
+_ZIP_BASED = frozenset(
+    {
+        "application/epub+zip",
+        "application/vnd.apple.pages",
+        "application/vnd.apple.numbers",
+        "application/vnd.apple.keynote",
+        "application/vnd.oasis.opendocument.text",
+        "application/vnd.oasis.opendocument.spreadsheet",
+        "application/vnd.oasis.opendocument.presentation",
+        "application/vnd.oasis.opendocument.graphics",
+        "application/vnd.ms-visio.drawing",
+        "application/vnd.ms-word.document.macroenabled.12",
+        "application/vnd.ms-excel.sheet.macroenabled.12",
+        "application/vnd.ms-powerpoint.presentation.macroenabled.12",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.template",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.template",
+        "application/vnd.openxmlformats-officedocument.presentationml.template",
+    }
+)
+_ZIP_SNIFFS = frozenset(
+    {
+        "application/zip",
+        "application/x-zip-compressed",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "application/epub+zip",
+    }
+)
+_OLE_BASED = frozenset(
+    {
+        "application/vnd.ms-outlook",
+        "application/vnd.ms-project",
+        "application/vnd.ms-publisher",
+        "application/vnd.visio",
+        "application/onenote",
+    }
+)
+_OLE_SNIFFS = frozenset(
+    {
+        "application/cdfv2",
+        "application/x-ole-storage",
+        "application/vnd.ms-office",
+        "application/x-cfb",
+        "application/vnd.ms-outlook",
+        "application/vnd.ms-project",
+        "application/vnd.ms-publisher",
+        "application/vnd.visio",
+    }
+)
+_TEXT_BASED = frozenset(
+    {
+        "application/yaml",
+        "text/tab-separated-values",
+        "text/calendar",
+        "text/vcard",
+        "message/rfc822",
+        "application/xml",
+        "text/csv",
+        "text/markdown",
+        "application/json",
+    }
+)
+_TEXT_SNIFFS = frozenset({"text/plain", "text/x-ascii", "application/x-empty"})
+
+
 def _are_compatible(claimed: str, sniffed: str) -> bool:
     if claimed == sniffed:
         return True
     if (claimed, sniffed) in _COMPATIBLE_PAIRS:
+        return True
+    if any(claimed in group and sniffed in group for group in _ALIASES):
+        return True
+    if claimed in _ZIP_BASED and sniffed in _ZIP_SNIFFS:
+        return True
+    if claimed in _OLE_BASED and sniffed in _OLE_SNIFFS:
+        return True
+    if claimed in _TEXT_BASED and sniffed in _TEXT_SNIFFS:
         return True
     # Generic family match: image/png ≈ image/* prefix when libmagic
     # returns a sub-form differing only in suffix-encoding.

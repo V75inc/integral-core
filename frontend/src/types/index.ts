@@ -19,6 +19,12 @@ export interface User {
    *  onboarding; Layout mounts OnboardingModal (A2) or
    *  OnboardingGetStartedBanner (A5) until this is populated. */
   onboarded_at?: string | null;
+  /** True when the account was provisioned with a temporary password. */
+  must_change_password?: boolean;
+  /** HR hire flow — public onboarding form the member must complete. */
+  pending_assigned_form?: { url: string } | null;
+  /** @deprecated use pending_assigned_form */
+  pending_onboarding_form?: { url: string } | null;
   /** False until the user completes email verification. Non-blocking — the
    *  app shows a banner but doesn't gate login on this flag. */
   email_verified?: boolean;
@@ -190,7 +196,16 @@ export interface OperationalModelFieldSpec {
    *  mode, detail page, related_views). For fields a server-side hook
    *  fills in right after creation. */
   hide_on_create?: boolean;
+  /** Never shown in forms or the entry field list; still stored and readable via the API. */
+  hidden?: boolean;
   default?: unknown;
+  /**
+   * Prefill from the parent App's settings at compose/create time.
+   * Key must exist on the App's ``settings_schema`` / ``settings`` bag
+   * (e.g. Finance ``currency`` ← ``default_currency``). Does not lock the
+   * field — the user may still override.
+   */
+  default_from_setting?: string;
   /** Enumerated allowed values. Element type depends on ``type`` — string for
    *  ``select``/``multi_select``, number for numeric enums, etc. */
   enum?: unknown[];
@@ -205,6 +220,20 @@ export interface OperationalModelFieldSpec {
   validation?: Record<string, unknown>;
   /** Whether this field is indexed for fast lookup / search. */
   index?: boolean;
+  /** Compiled same-entry expression for a computed field. The value is not stored. */
+  expression?: {
+    source: string;
+    ast: {
+      op: string;
+      value?: string;
+      key?: string;
+      arg?: unknown;
+      left?: unknown;
+      right?: unknown;
+      args?: unknown[];
+    };
+    result_type?: 'number' | 'text';
+  };
   relation?: {
     /**
      * Phase 3.1 (ANC-02). ``entry`` is the back-compat default — relations
@@ -308,6 +337,11 @@ export interface OperationalModelFormSchema {
   /** Opt-in: entries of this type open on a dedicated full page (EntryPage.tsx)
    *  instead of the default modal overlay. Defaults to false/undefined. */
   open_as_page?: boolean;
+  /** Opt-in (needs ``open_as_page``): the entry page shows the entry's file in a
+   *  pane beside its fields. ``file_field`` names the file field that holds the
+   *  file to show; when empty or unset, the newest attachment is shown. ``editor: 'body'``
+   *  adds a Document tab that edits the entry body in place. */
+  canvas?: { file_field?: string; editor?: string } | null;
   /** Opt-in: a multi-step create flow (region_system's create_wizard
    *  primitive) replaces the default single-form create dialog. See
    *  CreateWizardModal.tsx + operational_model_compile.py's
@@ -318,6 +352,17 @@ export interface OperationalModelFormSchema {
    *  `singleton` in operational_model_compile.py; TrackDetailPage reads this
    *  to suppress the "+ New" affordance once that one record exists. */
   singleton?: boolean;
+  /** Extension views / Core regions mounted at compose/detail surfaces. */
+  ui_contributions?: Array<{
+    placement: string;
+    extension_view_key?: string;
+    view?: string;
+    view_type?: string;
+    config?: Record<string, unknown>;
+    layout?: string;
+    owns_form?: boolean;
+    title_from_fields?: string[];
+  }>;
 }
 
 export interface CreateWizardStepColumnJoin {
@@ -426,6 +471,12 @@ export interface Track {
   template_id?: string;
   /** System-owned grouping discriminator; settings tracks can be surfaced through a settings hub. */
   kind?: string;
+  /**
+   * When false, omit from App track nav / Feed filters. Track remains
+   * addressable via direct URL, pins, and APIs with include_nav_hidden.
+   * Defaults true when omitted (legacy tracks).
+   */
+  nav_visible?: boolean;
   /** Workspace/app ordering position when one has been assigned. */
   position?: number | null;
   attached_operational_model_id?: string;

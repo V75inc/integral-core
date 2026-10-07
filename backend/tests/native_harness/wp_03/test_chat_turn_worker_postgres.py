@@ -8,6 +8,7 @@ import multiprocessing
 import secrets
 import uuid
 from typing import Any
+from urllib.parse import urlparse
 
 import pytest
 from jvspatial.core.context import GraphContext, set_default_context
@@ -56,6 +57,18 @@ def _claim_from_independent_process(
         token = set_default_context(GraphContext(database=database))
         try:
             barrier.wait(timeout=20)
+            raw = await database.get("object", f"o.WorkItem.{work_item_id}")
+            if raw is None:
+                results.put(
+                    {
+                        "worker_id": worker_id,
+                        "error": "work item missing",
+                        "host": urlparse(dsn).hostname,
+                        "port": urlparse(dsn).port,
+                        "database": urlparse(dsn).path.lstrip("/"),
+                    }
+                )
+                return
             claimed = await work_items.claim_due_candidate(
                 worker_id=worker_id,
                 lease_seconds=120,
@@ -76,6 +89,16 @@ def _claim_from_independent_process(
         asyncio.run(_claim())
     except BaseException as exc:  # report child errors to the owning pytest process
         results.put({"worker_id": worker_id, "error": f"{type(exc).__name__}: {exc}"})
+
+
+def _active_postgres_dsn() -> str:
+    """Use the exact database bound to this test's graph context."""
+    from jvspatial.core.context import get_default_context
+
+    dsn = getattr(get_default_context().database, "dsn", None)
+    if not dsn:
+        raise RuntimeError("active graph database has no PostgreSQL DSN")
+    return str(dsn)
 
 
 def _claim_and_exit_abruptly(
@@ -222,15 +245,20 @@ def _persist_model_dispatch_and_exit_abruptly(
 
 
 @pytest.fixture
-def postgres_graph_context(postgres_raw_db):
+async def postgres_graph_context(postgres_raw_db):
     """Bind graph operations to the isolated PostgreSQL contract database."""
     from jvspatial.core.context import _default_context_var
+    from jvspatial.db import get_database_manager
 
+    manager = get_database_manager()
+    previous_database = manager.get_prime_database()
+    manager.set_prime_database(postgres_raw_db)
     token = set_default_context(GraphContext(database=postgres_raw_db))
     try:
         yield
     finally:
         _default_context_var.reset(token)
+        manager.set_prime_database(previous_database)
 
 
 async def _submitted_claimed_turn() -> tuple[WorkItem, str]:
@@ -502,8 +530,6 @@ async def test_independent_worker_processes_claim_one_chat_turn_once(
     postgres_graph_context,
 ) -> None:
     """Separate OS processes cannot both acquire one durable chat lease."""
-    import os
-
     item = await work_items.enqueue_work_item(
         kind="chat_turn",
         origin="interactive_chat",
@@ -513,11 +539,23 @@ async def test_independent_worker_processes_claim_one_chat_turn_once(
         idempotency_key=f"multi-process-{uuid.uuid4().hex}",
         input_payload={"accepted_message_id": "n.ChatMessage.test"},
     )
+    from jvspatial.core.context import get_default_context
+
+    parent_record = await get_default_context().database.get("object", item.id)
+    assert parent_record is not None, "parent did not persist the queued work item"
+    from jvspatial.db.factory import create_database
+
+    independent_db = create_database(db_type="postgres", dsn=_active_postgres_dsn())
+    try:
+        independently_visible = await independent_db.get("object", item.id)
+    finally:
+        await independent_db.close()
+    assert independently_visible is not None, "enqueue must commit before returning"
 
     process_context = multiprocessing.get_context("spawn")
     barrier = process_context.Barrier(2)
     results = process_context.Queue()
-    dsn = os.environ["JVSPATIAL_POSTGRES_DSN"]
+    dsn = _active_postgres_dsn()
     processes = [
         process_context.Process(
             target=_claim_from_independent_process,
@@ -538,10 +576,8 @@ async def test_independent_worker_processes_claim_one_chat_turn_once(
     outcomes = [results.get(timeout=3) for _ in processes]
     assert not [outcome for outcome in outcomes if "error" in outcome]
     winners = [outcome for outcome in outcomes if outcome["claimed"]]
-    assert len(winners) == 1
+    assert len(winners) == 1, outcomes
     assert winners[0]["lease_fence"] == 1
-
-    from jvspatial.core.context import get_default_context
 
     context = get_default_context()
     await context._evict_from_cache(item.id)
@@ -560,8 +596,6 @@ async def test_chat_turn_claim_survives_process_death_and_reclaims_with_new_fenc
     postgres_graph_context,
 ) -> None:
     """A dead process leaves durable work reclaimable under a higher fence."""
-    import os
-
     item = await work_items.enqueue_work_item(
         kind="chat_turn",
         origin="interactive_chat",
@@ -577,7 +611,7 @@ async def test_chat_turn_claim_survives_process_death_and_reclaims_with_new_fenc
         args=(
             item.work_item_id,
             "crashed-chat-worker",
-            os.environ["JVSPATIAL_POSTGRES_DSN"],
+            _active_postgres_dsn(),
             120,
         ),
     )
@@ -704,7 +738,6 @@ async def test_process_crash_preserves_unsettled_dispatch_and_blocks_replay(
     tmp_path,
 ) -> None:
     """Transport-boundary process death blocks replay of an unsettled request."""
-    import os
     from types import SimpleNamespace
 
     from app.agentive.harness.contracts import HarnessExecutionScope
@@ -722,7 +755,7 @@ async def test_process_crash_preserves_unsettled_dispatch_and_blocks_replay(
         target=_persist_model_dispatch_and_exit_abruptly,
         args=(
             item.work_item_id,
-            os.environ["JVSPATIAL_POSTGRES_DSN"],
+            _active_postgres_dsn(),
             str(marker_path),
             crash_during_stream,
         ),

@@ -238,7 +238,12 @@ export function LayoutContainerWidget({ view, entries, isLoading, onEntryOpen }:
   // object via LiveValuesContext.Provider (wrapped around every mode's
   // render below) — so a field committed in one region is visible to a
   // visible_if check in another immediately, no reload.
-  const live = useLiveValuesProvider(entries[0]?.custom_fields as Record<string, unknown> | undefined);
+  // Compose shells pass ``entries={[]}``; seed from draft bindings instead so
+  // FormRegion / visible_if see host defaults ($today, etc.) immediately.
+  const draftEntryValues = bindings.entryValues as Record<string, unknown> | undefined;
+  const live = useLiveValuesProvider(
+    (entries[0]?.custom_fields as Record<string, unknown> | undefined) || draftEntryValues
+  );
   // Filtered once, up front — every mode below (stack/tabs/accordion/grid/
   // flex) maps over this same list, so a hidden region never gets a tab/
   // accordion header or a grid cell of its own either, not just an empty body.
@@ -279,14 +284,22 @@ export function LayoutContainerWidget({ view, entries, isLoading, onEntryOpen }:
         />
       );
     }
+    // Stack/grid/flex already render ``region.title`` as the section label.
+    // Do not also pass it into FormRegionWidget or every form region shows
+    // the heading twice (CONTACT + Contact) — that reads as unfinished chrome.
     const syntheticView: SavedView = {
       ...view,
       id: `${view.id}:${region.key}`,
       type: 'form_region',
       track_id: view.track_id,
+      // Prefer the container's default entry type so form regions on a
+      // multi-type track (e.g. Customers polluted with Invoice) still bind
+      // the contributed entry type's fields.
+      default_entry_type_key:
+        view.default_entry_type_key ||
+        (Array.isArray(view.entry_type_keys) ? view.entry_type_keys[0] : undefined),
       config: {
         fields: region.fields,
-        title: region.title,
         columns: region.columns,
         __bindings: bindings,
       },

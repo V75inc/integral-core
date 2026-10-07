@@ -91,8 +91,11 @@ async def _reserve_redemption(link: ShareLink) -> bool:
             "id": link.id,
             "context.redemptions": previous,
             "context.max_redemptions": maximum,
-            "context.revoked_at": getattr(link, "revoked_at", None),
-            "context.expires_at": getattr(link, "expires_at", None),
+            # PostgreSQL distinguishes JSONB `null` from SQL NULL. Use the
+            # JSON-value equality path so nullable fields match consistently
+            # across supported database adapters.
+            "context.revoked_at": {"$in": [getattr(link, "revoked_at", None)]},
+            "context.expires_at": {"$in": [getattr(link, "expires_at", None)]},
         }
         update: Dict[str, Any] = {"$inc": {"context.redemptions": 1}}
 

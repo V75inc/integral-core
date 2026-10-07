@@ -484,6 +484,7 @@ async def compute_entry_impact(
                 custom_fields=getattr(entry, "custom_fields", None) or {},
                 runtime_tier=runtime_tier,
                 entry=entry,
+                materialize=False,
             )
         except BadRequestError as exc:
             would_fail_validation += 1

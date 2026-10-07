@@ -22,6 +22,7 @@ def test_hook_point_catalog_frozen():
     assert "entry.update" in HOOK_POINTS
     assert "connector.dedup" in HOOK_POINTS
     assert "connector.auto_link" in HOOK_POINTS
+    assert "email.sent" in HOOK_POINTS
     # Frozen: must be a frozenset to enforce immutability.
     assert isinstance(HOOK_POINTS, frozenset)
 

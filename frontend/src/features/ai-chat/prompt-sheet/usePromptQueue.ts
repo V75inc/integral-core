@@ -215,20 +215,55 @@ export function usePromptQueue() {
             })
           : false;
         if (requiresStrongConfirmation && !strongConfirmation) return;
-        const result = await blessStagingToken(current.token, {
+        const blessRes = await blessStagingToken(current.token, {
           strongConfirmation,
         });
-        if (!result.ok) throw new Error(result.message || 'Approval failed.');
-        const execution = result.execute_result;
-        if (execution?.error || execution?.filed === false || execution?.skipped === true) {
-          throw new Error(
-            typeof execution.message === 'string' ? execution.message :
-            typeof execution.detail === 'string' ? execution.detail :
-            'Your approval was recorded, but the change could not be applied. Review the error before retrying.',
-          );
+        if (!blessRes.ok) {
+          throw new Error(blessRes.message || 'Approval failed.');
         }
-        if (!execution) {
-          throw new Error('Your approval was recorded. Application is still pending; refresh to check its result.');
+        const exec = blessRes.execute_result as
+          | (Record<string, unknown> & {
+              error?: unknown;
+              filed?: boolean;
+              skipped?: boolean;
+              message?: unknown;
+            })
+          | undefined;
+        const execFailed =
+          !!exec &&
+          (!!exec.error || exec.filed === false || exec.skipped === true);
+        if (execFailed) {
+          const msg =
+            typeof exec?.message === 'string' && exec.message.trim()
+              ? exec.message
+              : 'The change was approved but the write was refused.';
+          setError(msg);
+          window.dispatchEvent(new Event('staging-state-changed'));
+          return;
+        }
+        if (!exec) {
+          setError(
+            'Approval was recorded. Application is still pending; refresh to check its result.',
+          );
+          window.dispatchEvent(new Event('staging-state-changed'));
+          return;
+        }
+        // mark-write only when the executor consumed the token — a merely
+        // blessed card must stay in the sheet (state_mismatch → 422).
+        const stagedState = (blessRes.staged_change as { state?: string } | undefined)
+          ?.state;
+        if (stagedState && stagedState !== 'consumed') {
+          const lastErr = (
+            blessRes.staged_change as {
+              last_error?: { message?: string } | null;
+            }
+          )?.last_error;
+          setError(
+            lastErr?.message?.trim() ||
+              'Approved, but the write has not completed yet.',
+          );
+          window.dispatchEvent(new Event('staging-state-changed'));
+          return;
         }
         const res = await markPromptWrite({
           threadId: activeThreadId,
@@ -238,11 +273,17 @@ export function usePromptQueue() {
         if (res.error) throw new Error(res.detail || 'The change has not finished applying.');
         applyQueueResult(res as never);
         window.dispatchEvent(new Event('staging-state-changed'));
-      } catch (error) {
+      } catch (err: unknown) {
+        const detail =
+          err && typeof err === 'object' && 'response' in err
+            ? (err as { response?: { data?: { message?: string; detail?: string } } })
+                .response?.data
+            : undefined;
         setError(
-          error instanceof Error
-            ? error.message
-            : 'Could not approve that write.',
+          detail?.message ||
+            detail?.detail ||
+            (err instanceof Error ? err.message : '') ||
+            'Could not approve that write.',
         );
       } finally {
         setBusy(false);

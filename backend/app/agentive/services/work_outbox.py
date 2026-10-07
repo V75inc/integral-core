@@ -8,7 +8,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Dict, Optional
 
-from jvspatial.db import get_prime_database
+from jvspatial.core.context import get_default_context
 
 from app.agentive.work_models import WorkItem, WorkOutboxEntry
 from app.schemas.agentive.work import (
@@ -28,6 +28,18 @@ TOPIC_ENQUEUED = "work.enqueued"
 TOPIC_TRANSITIONED = "work.transitioned"
 
 _dev_lock = asyncio.Lock()
+
+
+def _active_database() -> Any:
+    """Use the database bound to the active graph context.
+
+    Worker processes and scoped/test contexts may bind a dedicated database.
+    Bypassing that binding for CAS operations can silently select a different
+    backend (and lose cross-process atomicity), so work/outbox writes must use
+    the same database as the WorkItem reads.
+    """
+    return get_default_context().database
+
 
 OutboxConsumer = Callable[[WorkOutboxEntry], Awaitable[None]]
 
@@ -363,7 +375,7 @@ async def enqueue_work_item_unit(
         causation_id=req.causation_id or "",
     )
 
-    db = get_prime_database()
+    db = _active_database()
     if transaction is not None or _is_postgres_txn_db(db):
         return await _enqueue_postgres(
             db=_txn_database(db) if transaction is None else db,
@@ -470,7 +482,7 @@ async def transition_work_item_unit(
     now = utc_now_iso()
     field_updates = dict(fields or {})
 
-    db = get_prime_database()
+    db = _active_database()
     if transaction is not None or _is_postgres_txn_db(db):
         return await _transition_postgres(
             db=_txn_database(db) if transaction is None else db,
@@ -732,7 +744,7 @@ async def cas_work_item_update(
     )
     bare_id = object_id.removeprefix("o.WorkItem.")
     now = utc_now_iso()
-    db = get_prime_database()
+    db = _active_database()
 
     if transaction is not None or _is_postgres_txn_db(db):
         return await _cas_postgres(

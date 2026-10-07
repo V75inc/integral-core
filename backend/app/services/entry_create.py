@@ -34,6 +34,72 @@ from app.utils.time import utc_now_iso
 logger = logging.getLogger(__name__)
 
 
+async def _seed_preview_default_fields(
+    *,
+    track: Track,
+    entry_type: EntryType,
+    runtime_tier: Dict[str, Any],
+    custom_fields: Dict[str, Any],
+    user_id: str,
+    workspace_id: str,
+) -> Dict[str, Any]:
+    """Fill empty fields that declare ``validation.preview_default_tool``.
+
+    Matches compose UX (FormRegion / EntryFormExpanded): when auto-generate
+    tools report a number, agent/API creates satisfy ``required`` without the
+    caller supplying the value. Best-effort — tool failures leave the field
+    empty so the normal required validator can still refuse.
+    """
+    if not workspace_id:
+        return custom_fields
+    spec = resolve_entry_type_spec(entry_type, runtime_tier)
+    fields = list(spec.get("fields") or [])
+    out = dict(custom_fields)
+    for raw in fields:
+        if not isinstance(raw, dict):
+            continue
+        key = str(raw.get("key") or "").strip()
+        validation = (
+            raw.get("validation") if isinstance(raw.get("validation"), dict) else {}
+        )
+        tool = str(validation.get("preview_default_tool") or "").strip()
+        if not key or not tool:
+            continue
+        if out.get(key) not in (None, ""):
+            continue
+        input_payload = validation.get("preview_default_input")
+        payload = (
+            dict(input_payload)
+            if isinstance(input_payload, dict) and not isinstance(input_payload, list)
+            else {}
+        )
+        try:
+            from app.services.workspace_tools import invoke_workspace_tool
+
+            result = await invoke_workspace_tool(
+                user_id=user_id,
+                workspace_id=workspace_id,
+                tool_key=tool,
+                payload=payload,
+                agent=False,
+            )
+        except Exception:  # noqa: BLE001 — preview is best-effort
+            logger.debug(
+                "preview_default_tool %r failed for field %r on track %s",
+                tool,
+                key,
+                track.id,
+                exc_info=True,
+            )
+            continue
+        if not isinstance(result, dict) or result.get("auto_generate") is not True:
+            continue
+        number = str(result.get("number") or "").strip()
+        if number:
+            out[key] = number
+    return out
+
+
 async def create_entry_in_track(
     *,
     track: Track,
@@ -114,13 +180,21 @@ async def create_entry_in_track(
     schema_revision = schema_revision_from_profile_version(
         getattr(operational_model, "version_number", None)
     )
+    seeded_custom_fields = await _seed_preview_default_fields(
+        track=track,
+        entry_type=resolved_type,
+        runtime_tier=runtime_tier,
+        custom_fields=dict(custom_fields or {}),
+        user_id=user_id,
+        workspace_id=str(getattr(track, "workspace_id", "") or workspace_id),
+    )
     (
         validated_custom_fields,
         relation_refs,
     ) = await validate_and_materialize_entry_custom_fields(
         track=track,
         entry_type=resolved_type,
-        custom_fields=custom_fields or {},
+        custom_fields=seeded_custom_fields,
         runtime_tier=runtime_tier,
         actor_user_id=user_id,
         actor_kind=actor_kind,

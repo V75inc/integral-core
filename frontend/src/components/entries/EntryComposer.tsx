@@ -1,12 +1,19 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import { Link } from 'react-router-dom';
-import { Plus, Send } from 'lucide-react';
+import { Maximize2, Minimize2, Plus, Send } from 'lucide-react';
 import { Button, LINE_ICON_STROKE } from '../ui';
 import { Modal } from '../ui/Modal';
+import { IconButton } from '../../ui';
 import { useToast } from '../../context/ToastContext';
+import { useSettings } from '../../features/settings/store';
 import type { Entry, Track } from '../../types';
 import { EntryFormExpandedView, useEntryExpandedForm } from './EntryFormExpanded';
+import {
+  EntryContributionSlot,
+  resolveEntryContribution,
+  type EntryContributionSlotHandle,
+} from './EntryContributionSlot';
 import { CreateWizardModal, findCreateWizardEntryType } from './CreateWizardModal';
 
 /** Stable empty list: default param ``tracks = []`` is a *new* array every render and breaks effect deps. */
@@ -63,7 +70,10 @@ export function EntryComposeModal({
   onCreated
 }: EntryComposeModalProps) {
   const { showToast } = useToast();
+  const [settings, updateSettings] = useSettings();
+  const entryDialogExpanded = Boolean(settings.appearance.entryDialogExpanded);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const contributionApiRef = useRef<EntryContributionSlotHandle | null>(null);
   const tracksList = tracks ?? EMPTY_TRACKS;
   const needsTrackPicker = !track;
   const form = useEntryExpandedForm({
@@ -81,6 +91,8 @@ export function EntryComposeModal({
     createCustomFieldFallback,
     workflowEnumLabels,
     showToast,
+    contributionApiRef,
+    contributionPlacement: 'entry_compose',
     onCreated: entry => {
       onCreated?.(entry);
       onClose();
@@ -88,6 +100,30 @@ export function EntryComposeModal({
   });
 
   const { composerInviteText: _invite, composerActionLabel: _action, ...formViewProps } = form;
+  const composeExtraSection = (
+    <EntryContributionSlot
+      ref={contributionApiRef}
+      placement="entry_compose"
+      appId={form.appId}
+      formSchema={form.entryTypeFormSchema}
+      trackId={track?.id || form.selectedTrackId || undefined}
+      entryTypeKey={form.type}
+      mode="create"
+      customFields={form.fieldValues}
+      onDraftPatch={patch => form.applyContributionPatch(patch)}
+    />
+  );
+  const useWideModal = Boolean(
+    resolveEntryContribution(form.entryTypeFormSchema, 'entry_compose') ||
+      (form.entryTypeFormSchema?.ui_contributions || []).some(
+        c => c.placement === 'entry_compose' || c.layout === 'wide'
+      )
+  );
+  const modalWidth = entryDialogExpanded
+    ? 'max-w-dialog-workspace-max'
+    : useWideModal
+      ? 'max-w-dialog-wide'
+      : undefined;
 
   return (
     <Modal
@@ -95,9 +131,36 @@ export function EntryComposeModal({
       onClose={onClose}
       title={modalTitle}
       initialFocusRef={titleInputRef}
+      width={modalWidth}
+      tall={entryDialogExpanded}
+      headerActions={
+        <IconButton
+          label={entryDialogExpanded ? 'Exit full size' : 'Expand dialog'}
+          title={entryDialogExpanded ? 'Exit full size' : 'Expand dialog'}
+          size="md"
+          onClick={() =>
+            updateSettings(prev => ({
+              ...prev,
+              appearance: {
+                ...prev.appearance,
+                entryDialogExpanded: !prev.appearance.entryDialogExpanded,
+              },
+            }))
+          }
+          aria-pressed={entryDialogExpanded}
+          data-testid="entry-compose-dialog-expand"
+        >
+          {entryDialogExpanded ? (
+            <Minimize2 size={16} strokeWidth={LINE_ICON_STROKE} aria-hidden />
+          ) : (
+            <Maximize2 size={16} strokeWidth={LINE_ICON_STROKE} aria-hidden />
+          )}
+        </IconButton>
+      }
     >
       <EntryFormExpandedView
         {...formViewProps}
+        composeExtraSection={composeExtraSection}
         titleInputRef={titleInputRef}
         focusTitleOnMount
         primaryLabel={primaryLabel}

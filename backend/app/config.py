@@ -453,6 +453,9 @@ class Settings(BaseSettings):
     # Files larger than this should land via chunked/resumable upload
     # (Phase 6 — not yet implemented).
     ATTACHMENT_MAX_UPLOAD_BYTES: int = 500 * 1024 * 1024
+    # Extra MIME types accepted on upload, comma separated, on top of the built-in
+    # document / image / audio / video list. Executables stay refused unless named.
+    ATTACHMENT_EXTRA_ALLOWED_MIME_TYPES: str = ""
     # Aggregate cap for a single batch request.
     ATTACHMENT_MAX_BATCH_BYTES: int = 1024 * 1024 * 1024
     # Maximum files per batch request.

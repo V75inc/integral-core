@@ -1,3 +1,4 @@
+/* patch:kanban-hire-host */
 import { Outlet, useLocation } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
 import { Sidebar } from './Sidebar';
@@ -13,10 +14,13 @@ import { useIsMdUp } from '../../hooks/useMediaQuery';
 import { useCrumbs } from '../../context/CrumbsContext';
 import { useScope } from '../../context/ScopeContext';
 import type { Crumb } from '../ui';
+import { KanbanHirePromptHost } from '../../features/kanbanHire/KanbanHirePromptHost';
 import { CommandPalette } from '../command/CommandPalette';
 import { useFirstLoginOnboarding } from '../../hooks/useFirstLoginOnboarding';
 import { OnboardingDockAutoOpen } from '../../features/ai-chat/dock/OnboardingDockAutoOpen';
 import { OnboardingGetStartedBanner } from '../onboarding/OnboardingGetStartedBanner';
+import { MustChangePasswordModal } from '../auth/MustChangePasswordModal';
+import { MemberAssignedFormPromptModal } from '../../features/memberAssignedForm/MemberAssignedFormPromptModal';
 import { EmailVerificationBanner } from './EmailVerificationBanner';
 import { getRegisteredLayoutBanners } from '../../host/registry';
 import { ChatPageFocusProvider } from '../../context/ChatPageFocusContext';
@@ -301,6 +305,8 @@ export function Layout() {
       {/* First login opens the dock seeded for onboarding instead of a
           full-screen takeover — see OnboardingDockAutoOpen. */}
       <OnboardingDockAutoOpen />
+      <MustChangePasswordModal />
+      <MemberAssignedFormPromptModal />
 
       {/* Resident assistant — right-anchored dock plus its floating toggle.
           The dock squeezes <main> rather than covering it, so the page stays
@@ -309,6 +315,7 @@ export function Layout() {
       <AssistantDockToggle />
 
       {/* ⌘K command palette — mounted at root so it overlays any page. */}
+      <KanbanHirePromptHost />
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}

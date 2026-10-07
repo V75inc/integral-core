@@ -19,6 +19,10 @@ from app.services.capability_catalogue.compile import (
     get_or_compile_catalogue,
     require_generation,
 )
+from app.services.computed_fields import (
+    assert_stored_query_field,
+    project_computed_values,
+)
 from app.services.permissions import resolve_role
 from app.services.query_boundary import generic_entry_read
 from app.services.query_filters import entry_field_value, filter_matches
@@ -52,8 +56,14 @@ def _entry_type_key(entry_type) -> str:
     return _slug(manifest_key or getattr(entry_type, "name", "") or "")
 
 
-def _serialize_entry(entry, projection: List[str]) -> Dict[str, Any]:
-    cf = getattr(entry, "custom_fields", None) or {}
+def _serialize_entry(
+    entry,
+    projection: List[str],
+    fields: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    cf = project_computed_values(
+        getattr(entry, "custom_fields", None) or {}, fields or []
+    )
     row: Dict[str, Any] = {
         "id": entry.id,
         "kind": "entry",
@@ -235,6 +245,23 @@ async def _run_core_open(
         except Exception as exc:  # noqa: BLE001
             raise QueryUnavailableError() from exc
         candidates: List[Any] = []
+        fields_by_type: Dict[str, List[Dict[str, Any]]] = {}
+
+        async def fields_for(entry: Any) -> List[Dict[str, Any]]:
+            type_id = str(entry.type_id or "")
+            if not type_id:
+                return []
+            if type_id not in fields_by_type:
+                from app.models.nodes import EntryType
+
+                entry_type = await EntryType.get(type_id)
+                schema = entry_type.form_schema if entry_type is not None else {}
+                raw_fields = schema.get("fields") if isinstance(schema, dict) else []
+                fields_by_type[type_id] = (
+                    list(raw_fields) if isinstance(raw_fields, list) else []
+                )
+            return fields_by_type[type_id]
+
         for track in tracks:
             if await resolve_role(user_id, "track", track.id) is None:
                 continue
@@ -248,6 +275,10 @@ async def _run_core_open(
             for e in entries:
                 if await resolve_role(user_id, "entry", e.id) is None:
                     continue
+                entry_fields = await fields_for(e)
+                for filt in spec.filters:
+                    assert_stored_query_field(filt.field, entry_fields)
+                assert_stored_query_field(spec.sort or "", entry_fields)
                 ok = True
                 for f in spec.filters:
                     try:
@@ -265,7 +296,13 @@ async def _run_core_open(
         if len(candidates) > offset + limit:
             warnings.append("result truncated by limit budget")
         for e in page:
-            rows.append(_serialize_entry(e, spec.projection))
+            rows.append(
+                _serialize_entry(
+                    e,
+                    spec.projection,
+                    fields_by_type.get(str(e.type_id or "")),
+                )
+            )
             refs.append(
                 ObjectRef(
                     kind="entry",

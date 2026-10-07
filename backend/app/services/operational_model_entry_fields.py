@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from app.exceptions import BadRequestError
 from app.models.nodes import Attachment, Entry, EntryType, Tag, Track
+from app.services.computed_fields import bind_computed_fields
 from app.services.operational_model_compile import (
     SYSTEM_CUSTOM_FIELD_KEYS,
     _as_dict,
@@ -29,6 +30,151 @@ _TYPE_FIELD_CACHE_KEY = "_type_field_cache"
 # Frontend sends this sentinel instead of a track id; the materializer creates
 # the anchor track. Omitted / null + auto_provision false leaves the field null.
 CREATE_ANCHOR_SENTINEL = "__create_anchor__"
+
+
+def _resolve_field_default(raw: Any) -> Any:
+    """Resolve declarative field ``default`` sentinels (parity with frontend)."""
+    if not isinstance(raw, str):
+        return raw
+    key = raw.strip().lower()
+    if key in {"$today", "today"}:
+        from datetime import date
+
+        return date.today().isoformat()
+    return raw
+
+
+async def _resolve_setting_default(track: Track, setting_key: str) -> Any:
+    """Read one key from the parent App's settings for ``default_from_setting``.
+
+    Returns ``None`` when the track has no App, the key is missing, or the
+    stored value is empty — caller falls through to the normal required check.
+    """
+    key = str(setting_key or "").strip()
+    if not key:
+        return None
+    from app.services.query_boundary import parent_app_for_track
+
+    app_node = await parent_app_for_track(track)
+    if app_node is None:
+        return None
+    settings = getattr(app_node, "settings", None) or {}
+    if not isinstance(settings, dict):
+        return None
+    value = settings.get(key)
+    if value is None:
+        return None
+    if isinstance(value, str) and value.strip() == "":
+        return None
+    return value
+
+
+async def _resolve_or_create_labeled_relation(
+    *,
+    source_track: Track,
+    relation: Dict[str, Any],
+    label: str,
+    actor_user_id: str,
+    actor_kind: str = "human",
+) -> Optional[str]:
+    """Find or create a target entry by display label for ``create_from_label``.
+
+    Used when a relation is empty on create but its ``write_label_to`` sibling
+    carries a name (agent ``create_entry`` with ``customer_name`` only). Looks
+    up by title / company_name on the matching target track in the same App;
+    creates a minimal entry when none match.
+    """
+    display = str(label or "").strip()
+    if not display:
+        return None
+    target_track_types = [
+        _slug(str(x))
+        for x in _as_list(
+            relation.get("target_track_types"), where="relation.target_track_types"
+        )
+        if str(x).strip()
+    ]
+    target_entry_types = [
+        _slug(str(x))
+        for x in _as_list(
+            relation.get("target_entry_types"), where="relation.target_entry_types"
+        )
+        if str(x).strip()
+    ]
+    if not target_track_types:
+        return None
+    workspace_id = str(getattr(source_track, "workspace_id", "") or "").strip()
+    if not workspace_id:
+        return None
+
+    # Prefer sibling tracks under the same App (template_id match only — never
+    # fall back to title, which can hit another App's similarly named track).
+    # Track.app_id is not a persisted node field — resolve parent via CONTAINS
+    # (entity name is WorkspaceApp, not App).
+    from app.models.edges import CONTAINS
+    from app.services.query_boundary import parent_app_for_track
+
+    candidates: List[Track] = []
+    app_node = await parent_app_for_track(source_track)
+    if app_node is not None:
+        candidates = await app_node.nodes(edge=[CONTAINS], node=["Track"], limit=200)
+    if not candidates:
+        candidates = await Track.find({"context.workspace_id": workspace_id})
+
+    target_track: Optional[Track] = None
+    for t in candidates:
+        tmpl = _slug(str(getattr(t, "template_id", "") or ""))
+        if tmpl and tmpl in target_track_types:
+            target_track = t
+            break
+    if target_track is None:
+        return None
+
+    wanted = display.casefold()
+    for existing in await Entry.find({"context.track_id": target_track.id}):
+        title = str(getattr(existing, "title", "") or "").strip()
+        company = str((existing.custom_fields or {}).get("company_name") or "").strip()
+        if title.casefold() == wanted or company.casefold() == wanted:
+            return str(existing.id)
+
+    # Create a minimal counterparty-style entry on the target track.
+    from app.services.entry_create import create_entry_in_track
+    from app.services.entry_type_service import materialize_entry_types_from_tier
+
+    entry_types = await EntryType.find({"context.track_id": target_track.id})
+    if not entry_types:
+        entry_types = await materialize_entry_types_from_tier(target_track)
+    resolved_type: Optional[EntryType] = None
+    if target_entry_types:
+        for et in entry_types:
+            key = _slug(
+                str(
+                    (et.form_schema or {}).get("_manifest_entry_type_key")
+                    or getattr(et, "name", "")
+                    or ""
+                )
+            )
+            if key in target_entry_types:
+                resolved_type = et
+                break
+    if resolved_type is None and entry_types:
+        resolved_type = entry_types[0]
+    if resolved_type is None:
+        return None
+
+    created = await create_entry_in_track(
+        track=target_track,
+        user_id=actor_user_id or "system",
+        title=display,
+        body="",
+        custom_fields={"company_name": display},
+        entry_type=resolved_type,
+        type_id=resolved_type.id,
+        workspace_id=workspace_id,
+        actor_kind=actor_kind or "agent",
+        skip_profanity=True,
+    )
+    return str(created.id) if created is not None else None
 
 
 def _normalize_workflow_field_alias(key: str) -> str:
@@ -160,7 +306,7 @@ def build_entry_index_document(
 
 
 def _entry_type_match_key(entry_type: EntryType) -> str:
-    return _slug(str(entry_type.name or ""))
+    return _slug(str(getattr(entry_type, "name", "") or ""))
 
 
 def resolve_entry_type_spec(
@@ -178,18 +324,51 @@ def resolve_entry_type_spec(
     }
     key = _entry_type_match_key(entry_type)
     spec = by_key.get(key) or by_name.get(key)
+    form_schema = _as_dict(
+        getattr(entry_type, "form_schema", None), where="entry_type.form_schema"
+    )
     if spec:
-        return _as_dict(spec, where="entry_type_spec")
+        # The attached runtime tier can lag the EntryType form_schema after a
+        # package update (invoice lines gained net_amount, tax_code, …).
+        # Prefer the tier, but keep form_schema fields it does not declare.
+        # Otherwise an operation write of those fields is rejected and the
+        # document header is saved with no lines.
+        merged = dict(_as_dict(spec, where="entry_type_spec"))
+        spec_fields = [
+            _as_dict(f, where="entry_type_spec field")
+            for f in _as_list(merged.get("fields"), where="entry_type_spec.fields")
+        ]
+        known = {str(f.get("key") or "") for f in spec_fields}
+        extras: List[Dict[str, Any]] = []
+        for raw in _as_list(
+            form_schema.get("fields"), where="entry_type.form_schema.fields"
+        ):
+            field = _normalize_field_spec(
+                _as_dict(raw, where="entry_type.form_schema field")
+            )
+            field_key = str(field.get("key") or "")
+            # Workflow status is normalized separately into the kanban stage
+            # field unless the runtime contract explicitly owns `status`.
+            if field_key == "status" and field_key not in known:
+                continue
+            if field_key and field_key not in known:
+                extras.append(field)
+                known.add(field_key)
+        if extras:
+            merged["fields"] = [*spec_fields, *extras]
+        return merged
 
-    form_schema = _as_dict(entry_type.form_schema, where="entry_type.form_schema")
-    fields = _as_list(form_schema.get("fields"), where="entry_type.form_schema.fields")
+    fields = [
+        _normalize_field_spec(_as_dict(f, where="entry_type.form_schema field"))
+        for f in _as_list(
+            form_schema.get("fields"), where="entry_type.form_schema.fields"
+        )
+    ]
+    bind_computed_fields(fields)
     return {
         "key": key,
         "name": entry_type.name,
-        "fields": [
-            _normalize_field_spec(_as_dict(f, where="entry_type.form_schema field"))
-            for f in fields
-        ],
+        "fields": fields,
         "base_fields": _normalize_entry_type_base_fields(
             form_schema.get("base_fields")
         ),
@@ -439,6 +618,7 @@ async def validate_and_materialize_entry_custom_fields(
     actor_user_id: str = "",
     actor_kind: str = "human",
     source_entry_title: str = "",
+    materialize: bool = True,
 ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     """Validate custom_fields against entry type spec and extract relation refs.
 
@@ -473,6 +653,8 @@ async def validate_and_materialize_entry_custom_fields(
         fd = _as_dict(f, where="field")
         key = str(fd.get("key") or "")
         ftype = str(fd.get("type") or "text")
+        if ftype == "computed":
+            continue
         # Composite field types (declared in manifest ``field_types[]``)
         # carry a ``composite.base`` pointer to the underlying primitive
         # so the validator can dispatch primitive-side rules without
@@ -481,7 +663,54 @@ async def validate_and_materialize_entry_custom_fields(
         if isinstance(composite, dict) and composite.get("base"):
             ftype = str(composite.get("base") or ftype)
         required = bool(fd.get("required", False))
-        value = incoming.get(key, fd.get("default"))
+        value = incoming.get(key, _resolve_field_default(fd.get("default")))
+        validation = _as_dict(
+            fd.get("validation") or {}, where=f"field '{key}' validation"
+        )
+
+        # Agent/API create often supplies the denormalized label
+        # (``write_label_to``) without the relation id. When the field opts
+        # in via ``create_from_label``, resolve or mint the related entry
+        # before the required check — mirrors Finance create_invoice.
+        if (
+            ftype == "relation"
+            and entry is None
+            and value in (None, "")
+            and bool(validation.get("create_from_label"))
+        ):
+            label_key = str(validation.get("write_label_to") or "").strip()
+            label = str(incoming.get(label_key) or "").strip() if label_key else ""
+            if label and isinstance(fd.get("relation"), dict):
+                try:
+                    resolved = await _resolve_or_create_labeled_relation(
+                        source_track=track,
+                        relation=_as_dict(
+                            fd.get("relation"), where=f"field '{key}' relation"
+                        ),
+                        label=label,
+                        actor_user_id=actor_user_id,
+                        actor_kind=actor_kind,
+                    )
+                except Exception:  # noqa: BLE001 — fall through to required check
+                    logger.exception(
+                        "create_from_label failed for field %r label %r",
+                        key,
+                        label,
+                    )
+                    resolved = None
+                if resolved:
+                    value = resolved
+
+        # Prefill from parent App settings when the OM declares
+        # ``default_from_setting`` (create only — updates keep explicit clears).
+        if entry is None and (
+            value is None or (isinstance(value, str) and value.strip() == "")
+        ):
+            setting_key = str(fd.get("default_from_setting") or "").strip()
+            if setting_key:
+                resolved_setting = await _resolve_setting_default(track, setting_key)
+                if resolved_setting is not None:
+                    value = resolved_setting
 
         # Auto-generate employee_id if left blank on employee creation
         if (
@@ -533,6 +762,7 @@ async def validate_and_materialize_entry_custom_fields(
             ftype == "relation"
             and isinstance(fd.get("relation"), dict)
             and str(fd["relation"].get("target") or "entry") == "track"
+            and materialize
             and (
                 _is_create_sentinel
                 or (value is None and bool(fd["relation"].get("auto_provision", False)))
@@ -590,7 +820,7 @@ async def validate_and_materialize_entry_custom_fields(
             )
             continue
 
-        if value is None:
+        if value is None or (isinstance(value, str) and value.strip() == ""):
             if required:
                 raise BadRequestError(message=f"Field '{key}' is required")
             out[key] = None

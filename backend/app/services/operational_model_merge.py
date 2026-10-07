@@ -96,8 +96,22 @@ def _form_schema_from_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
             merged["required_tag_groups"] = list(spec.get("required_tag_groups") or [])
         if "related_views" not in merged and spec.get("related_views") is not None:
             merged["related_views"] = list(spec.get("related_views") or [])
+        # Prefer non-empty top-level chrome over an empty nested form_schema
+        # list (normalize often materializes ``ui_contributions: []``).
+        top_ui = spec.get("ui_contributions")
+        if isinstance(top_ui, list) and top_ui:
+            cur_ui = merged.get("ui_contributions")
+            if not (isinstance(cur_ui, list) and cur_ui):
+                merged["ui_contributions"] = list(top_ui)
+        elif (
+            "ui_contributions" not in merged
+            and spec.get("ui_contributions") is not None
+        ):
+            merged["ui_contributions"] = list(spec.get("ui_contributions") or [])
         if "open_as_page" not in merged and spec.get("open_as_page") is not None:
             merged["open_as_page"] = bool(spec.get("open_as_page"))
+        if "canvas" not in merged and spec.get("canvas") is not None:
+            merged["canvas"] = spec.get("canvas")
         if "create_wizard" not in merged and spec.get("create_wizard") is not None:
             merged["create_wizard"] = spec.get("create_wizard")
         if spec.get("key") and "_manifest_entry_type_key" not in merged:
@@ -112,8 +126,12 @@ def _form_schema_from_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
         out["required_tag_groups"] = list(spec.get("required_tag_groups") or [])
     if spec.get("related_views") is not None:
         out["related_views"] = list(spec.get("related_views") or [])
+    if spec.get("ui_contributions") is not None:
+        out["ui_contributions"] = list(spec.get("ui_contributions") or [])
     if spec.get("open_as_page") is not None:
         out["open_as_page"] = bool(spec.get("open_as_page"))
+    if spec.get("canvas") is not None:
+        out["canvas"] = spec.get("canvas")
     if spec.get("create_wizard") is not None:
         out["create_wizard"] = spec.get("create_wizard")
     return normalize_entry_type_form_schema(out)
@@ -128,7 +146,8 @@ def merge_entry_type_schema_from_spec(
     """Merge manifest entry-type fields into an existing normalized form_schema.
 
     Backfills ``_manifest_entry_type_key``, ``base_fields``, and any missing
-    custom fields (by ``key``). Existing fields with the same key are shallow-
+    custom fields (by ``key``), and advances ``open_as_page``, ``canvas`` and
+    ``related_views`` when the manifest declares them. Existing fields with the same key are shallow-
     merged so enum/column metadata can advance on library update.
     """
     changed = False
@@ -141,6 +160,14 @@ def merge_entry_type_schema_from_spec(
     if desired_schema.get("base_fields") is not None and cur_bf != des_bf:
         out["base_fields"] = des_bf
         changed = True
+    # Page-level behaviour the manifest owns and a library update must carry:
+    # whether the entry opens as a page, its file canvas, and the views mounted
+    # on it (e.g. an action bar). Only keys the manifest declares are advanced.
+    for page_key in ("open_as_page", "canvas", "related_views"):
+        if page_key in desired_schema and desired_schema[page_key] is not None:
+            if out.get(page_key) != desired_schema[page_key]:
+                out[page_key] = desired_schema[page_key]
+                changed = True
     cur_fields = [f for f in list(out.get("fields") or []) if isinstance(f, dict)]
     des_fields = [
         f for f in list(desired_schema.get("fields") or []) if isinstance(f, dict)
@@ -168,6 +195,31 @@ def merge_entry_type_schema_from_spec(
             changed = True
     if changed:
         out["fields"] = [by_key[k] for k in order if k in by_key]
+    # Library UI chrome (document shells, owns_form) must advance on merge —
+    # otherwise stale extension_view contribs block the region-system shell.
+    # Never clobber non-empty chrome with an empty desired list: attached
+    # manifests / normalize often omit contribs and compile them to ``[]``,
+    # which previously wiped owns_form shells back to the flat field form.
+    _list_chrome = ("ui_contributions", "related_views", "required_tag_groups")
+    for key in (
+        "ui_contributions",
+        "related_views",
+        "required_tag_groups",
+        "open_as_page",
+        "create_wizard",
+    ):
+        if key not in desired_schema:
+            continue
+        des_val = desired_schema.get(key)
+        cur_val = out.get(key)
+        if key in _list_chrome:
+            des_empty = des_val is None or des_val == []
+            cur_nonempty = isinstance(cur_val, list) and len(cur_val) > 0
+            if des_empty and cur_nonempty:
+                continue
+        if cur_val != des_val:
+            out[key] = des_val
+            changed = True
     return normalize_entry_type_form_schema(out), changed
 
 
@@ -596,12 +648,48 @@ async def materialize_app_relations(
         source_entry_types: List[EntryType] = await source_tcp.nodes(
             edge=[CONTAINS], node=["EntryType"]
         )
-        field_key = rel_key or slug_manifest_key(f"rel_{source_key}_to_{target_key}")
+        # Prefer source_field (the EntryType field key apps declare inline) over
+        # the relation declaration key — same contract as
+        # ``_materialize_cross_app_relations`` (``source.field``). Using
+        # ``rel.key`` (e.g. invoice_customer) injected a duplicate field that
+        # form_schema exposed but runtime-tier validation rejected.
+        source_field = str(rel.get("source_field") or "").strip()
+        field_key = (
+            source_field
+            or rel_key
+            or slug_manifest_key(f"rel_{source_key}_to_{target_key}")
+        )
         field_name = str(rel.get("name") or field_key)
+        source_et_filter = slug_manifest_key(
+            str(rel.get("source_entry_type") or "").strip()
+        )
 
         for src_et in source_entry_types:
+            if source_et_filter:
+                et_key = slug_manifest_key(str(getattr(src_et, "name", "") or ""))
+                manifest_key = ""
+                schema_probe = src_et.form_schema or {}
+                if isinstance(schema_probe, dict):
+                    manifest_key = slug_manifest_key(
+                        str(schema_probe.get("_manifest_entry_type_key") or "")
+                    )
+                if et_key != source_et_filter and manifest_key != source_et_filter:
+                    continue
+
             schema = src_et.form_schema or {}
             fields = list(schema.get("fields") or [])
+            # Drop stale duplicates previously injected under the relation
+            # declaration key when source_field is the canonical field key.
+            if source_field and rel_key and rel_key != source_field:
+                fields = [
+                    f
+                    for f in fields
+                    if not (
+                        isinstance(f, dict)
+                        and str(f.get("key") or "") == rel_key
+                        and str(f.get("type") or "") == "relation"
+                    )
+                ]
             # Skip if a relation field for this key already exists
             if any(
                 str(f.get("key") or "") == field_key
@@ -609,6 +697,12 @@ async def materialize_app_relations(
                 for f in fields
                 if isinstance(f, dict)
             ):
+                # Still persist cleanup of stale rel_key duplicates.
+                if fields != list(schema.get("fields") or []):
+                    schema["fields"] = fields
+                    src_et.form_schema = normalize_entry_type_form_schema(schema)
+                    src_et.updated_at = now
+                    await src_et.save()
                 continue
 
             relation_field: Dict[str, Any] = {
@@ -1202,7 +1296,7 @@ def _track_spec_to_library_manifest_dict(
     tier = {
         k: v
         for k, v in track_spec.items()
-        if k not in ("provision_on_create", "key", "name", "description")
+        if k not in ("provision_on_create", "nav_visible", "key", "name", "description")
     }
     # App-owned view composites (F2) compile to ``view_type: <composite_key>``
     # plus ``composite.base``. Track-scope recompile has no ``view_types[]``,
@@ -1358,8 +1452,15 @@ async def provision_prescribed_tracks_from_app_manifest(
                 # same class of gap as the App-node name/description sync
                 # fix in update_app_from_library.
                 new_name = str(spec.get("name") or "").strip()
+                desired_nav = bool(spec.get("nav_visible", True))
+                dirty = False
                 if new_name and existing_track.title != new_name:
                     existing_track.title = new_name
+                    dirty = True
+                if bool(getattr(existing_track, "nav_visible", True)) != desired_nav:
+                    existing_track.nav_visible = desired_nav
+                    dirty = True
+                if dirty:
                     await existing_track.save()
                 await apply_space_track_spec_to_track(existing_track, spec)
             continue
@@ -1388,6 +1489,7 @@ async def provision_prescribed_tracks_from_app_manifest(
             visibility=resolved_vis,
             template_id=key,
             workspace_id=track_workspace_id,
+            nav_visible=bool(spec.get("nav_visible", True)),
             created_at=now,
             updated_at=now,
         )

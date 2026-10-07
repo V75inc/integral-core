@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 from collections import Counter
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Set
 
 from app.services.notification_paths import entry_path, resolve_resource_action_url
 
@@ -228,6 +228,117 @@ async def query_all_entries(
     return result
 
 
+def _entry_type_name_matches(et_name: str, et_filter: str) -> bool:
+    """Case-insensitive name match, tolerant of a trailing plural ``s``."""
+    name_fold = et_filter.casefold().rstrip("s")
+    folded = (et_name or "").casefold().rstrip("s")
+    return bool(folded) and (folded == name_fold or name_fold in folded)
+
+
+def _entry_type_key(entry_type: Any) -> str:
+    """Manifest key, or the display name folded the same way."""
+    from app.services.operational_model_runtime import slug_manifest_key
+
+    form_schema = getattr(entry_type, "form_schema", None) or {}
+    manifest_key = slug_manifest_key(
+        str(form_schema.get("_manifest_entry_type_key") or "")
+    )
+    return manifest_key or slug_manifest_key(str(getattr(entry_type, "name", "") or ""))
+
+
+def _entry_type_matches_filter(entry_type: Any, et_filter: str) -> bool:
+    """True when ``et_filter`` is this type's name or its schema key."""
+    from app.services.operational_model_runtime import slug_manifest_key
+
+    if _entry_type_name_matches(str(getattr(entry_type, "name", "") or ""), et_filter):
+        return True
+    wanted = slug_manifest_key(et_filter)
+    if not wanted:
+        return False
+    if wanted == _entry_type_key(entry_type):
+        return True
+    return wanted == slug_manifest_key(str(getattr(entry_type, "name", "") or ""))
+
+
+def _declared_field_keys(entry_type: Any) -> set:
+    form_schema = getattr(entry_type, "form_schema", None) or {}
+    fields = form_schema.get("fields") or []
+    keys: Set[str] = set()
+    if not isinstance(fields, list):
+        return keys
+    for field in fields:
+        if not isinstance(field, dict):
+            continue
+        key = str(field.get("key") or "").strip()
+        if key:
+            keys.add(key)
+    return keys
+
+
+def _custom_field_filter_keys(normalized_filters: List[Any]) -> List[str]:
+    keys: List[str] = []
+    seen = set()
+    for expr in normalized_filters:
+        field = str(getattr(expr, "field", "") or "")
+        if not field.startswith("custom_fields."):
+            continue
+        key = field.split(".", 2)[1]
+        if key and key not in seen:
+            seen.add(key)
+            keys.append(key)
+    return keys
+
+
+async def _load_entry_types(entries: List[Any]) -> Dict[str, Any]:
+    from app.models.nodes import EntryType
+
+    loaded: Dict[str, Any] = {}
+    for entry in entries:
+        type_id = str(getattr(entry, "type_id", "") or "")
+        if not type_id or type_id in loaded:
+            continue
+        try:
+            entry_type = await EntryType.get(type_id)
+        except Exception:  # noqa: BLE001 — a missing type is not an unknown field
+            entry_type = None
+        if entry_type is not None:
+            loaded[type_id] = entry_type
+    return loaded
+
+
+def _unknown_custom_filter_fields(
+    types_by_id: Dict[str, Any], filter_keys: List[str]
+) -> Optional[Dict[str, Any]]:
+    """Fields named in a filter that no loaded entry type declares.
+
+    A declared field that simply has no matching row stays a normal empty
+    result. When no type could be loaded, stay quiet — absence of schema is
+    not evidence the field is unknown.
+    """
+    if not filter_keys or not types_by_id:
+        return None
+    declared = set()
+    declared_fold = set()
+    type_keys = []
+    seen_type_keys = set()
+    for entry_type in types_by_id.values():
+        for key in _declared_field_keys(entry_type):
+            declared.add(key)
+            declared_fold.add(key.casefold())
+        type_key = _entry_type_key(entry_type)
+        if type_key and type_key not in seen_type_keys:
+            seen_type_keys.add(type_key)
+            type_keys.append(type_key)
+    unknown = [
+        key
+        for key in filter_keys
+        if key not in declared and key.casefold() not in declared_fold
+    ]
+    if not unknown:
+        return None
+    return {"fields": unknown, "entry_type_keys": type_keys}
+
+
 async def query_entries(
     *,
     user_id: str,
@@ -340,7 +451,8 @@ async def query_entries(
     if named_block is not None:
         return {
             "entries": [],
-            "total": 0,
+            "total": None,
+            "records_read": False,
             "limit": limit,
             "offset": offset,
             "refused": named_block.public(track_id=track_id),
@@ -736,42 +848,32 @@ async def query_entries(
     # produced the "feel free to share" punt the persona prompt
     # forbids.
     #
-    # Now we accept EITHER an exact type_id (legacy) OR a name
-    # (case- and singular/plural-insensitive). Names resolve once
-    # per call by loading EntryType nodes referenced on the
-    # candidate entries — cheap because there are few EntryTypes
-    # per workspace.
+    # Accept an exact type id, a display name (case- and
+    # singular/plural-insensitive), or the manifest key. ``pay_calendar``
+    # matches the type named "Pay Calendar" because spaces, underscores,
+    # and hyphens fold to the same slug. Types load once per call.
+    filter_field_keys = _custom_field_filter_keys(normalized_filters)
+    types_by_id = (
+        await _load_entry_types(entries)
+        if (entry_type and entry_type.strip()) or filter_field_keys
+        else {}
+    )
     accept_type_ids: Optional[set] = None
     if entry_type:
         et_filter = entry_type.strip()
         if et_filter:
-            # If it's already an id (matches at least one entry's
-            # type_id verbatim), use the literal-id path.
             candidate_type_ids = {
                 getattr(e, "type_id", "") for e in entries if getattr(e, "type_id", "")
             }
             if et_filter in candidate_type_ids:
                 accept_type_ids = {et_filter}
             else:
-                # Resolve names. Build a type_id → name map and
-                # accept any whose name matches the filter
-                # case-insensitively. Tolerant of trailing 's' so
-                # "opportunity" matches an "Opportunity" type.
-                from app.models.nodes import EntryType
-
-                name_fold = et_filter.casefold().rstrip("s")
-                accept_type_ids = set()
-                # Dedup load per type_id.
-                for tid in candidate_type_ids:
-                    try:
-                        et = await EntryType.get(tid)
-                    except Exception:
-                        et = None
-                    if not et:
-                        continue
-                    et_name = (getattr(et, "name", "") or "").casefold().rstrip("s")
-                    if et_name and (et_name == name_fold or name_fold in et_name):
-                        accept_type_ids.add(tid)
+                accept_type_ids = {
+                    tid
+                    for tid, et in types_by_id.items()
+                    if _entry_type_matches_filter(et, et_filter)
+                }
+    unknown_filters = _unknown_custom_filter_fields(types_by_id, filter_field_keys)
 
     filtered: List[Any] = []
     for e in entries:
@@ -847,6 +949,11 @@ async def query_entries(
             "sort_dir": sort_dir,
             "result_set_id": result_set_id,
         },
+        **(
+            {"unknown_filter_fields": unknown_filters}
+            if unknown_filters is not None
+            else {}
+        ),
     }
     if scope_meta is not None:
         result["scope"] = scope_meta
@@ -1079,6 +1186,24 @@ async def activity_digest(
 
 
 GroupBy = Literal["track", "status", "tag", "entry_type", "date"]
+
+
+async def _tag_labels(tag_ids: List[str]) -> Dict[str, str]:
+    """Map tag node ids to their names. An unknown id keeps no label."""
+    from app.models.nodes import Tag
+
+    labels: Dict[str, str] = {}
+    for tag_id in tag_ids:
+        if not tag_id or tag_id.startswith("("):
+            continue
+        try:
+            tag = await Tag.get(tag_id)
+        except Exception:  # noqa: BLE001
+            tag = None
+        name = (getattr(tag, "name", "") or "").strip() if tag else ""
+        if name:
+            labels[tag_id] = name
+    return labels
 
 
 async def count_entries_grouped(
@@ -1449,6 +1574,7 @@ async def count_entries_grouped(
             "filters_applied": queried.get("filters_applied", {}),
         }
     entries = queried.get("entries", [])
+    result_set_id = ""
 
     counter: Counter[str] = Counter()
     if group_by == "track":
@@ -1480,8 +1606,32 @@ async def count_entries_grouped(
     elif group_by == "tag":
         for e in entries:
             for tag in e.get("tags", []) or []:
-                counter[tag] += 1
-        groups = [{"key": t, "label": t, "count": n} for t, n in counter.most_common()]
+                counter[str(tag)] += 1
+        labels = await _tag_labels(list(counter.keys()))
+        if track_id:
+            from app.models.nodes import Tag
+
+            for tag in await Tag.find({"context.track_id": track_id}):
+                tag_id = str(getattr(tag, "id", "") or "")
+                if not tag_id:
+                    continue
+                counter.setdefault(tag_id, 0)
+                name = (getattr(tag, "name", "") or "").strip()
+                if name:
+                    labels[tag_id] = name
+        groups = [
+            {"key": tag_id, "label": labels.get(tag_id, tag_id), "count": count}
+            for tag_id, count in counter.items()
+        ]
+        groups.sort(key=lambda row: (str(row["label"]).casefold(), row["key"]))
+        from app.services.focused_additions import store_tag_result_set
+
+        result_set_id = await store_tag_result_set(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            entries=entries,
+            labels=labels,
+        )
     elif group_by == "entry_type":
         for e in entries:
             counter[e.get("type_id") or "(none)"] += 1
@@ -1508,6 +1658,12 @@ async def count_entries_grouped(
         "groups": groups,
         "filters_applied": queried.get("filters_applied", {}),
     }
+    if group_by == "tag" and result_set_id:
+        grouped["result_set_id"] = result_set_id
+    if group_by == "tag":
+        from app.services.turn_binding import tag_count_reply
+
+        grouped["reply"] = tag_count_reply(groups)
     if queried.get("boundary"):
         grouped["boundary"] = queried["boundary"]
     return grouped
