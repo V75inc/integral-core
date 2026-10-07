@@ -88,6 +88,8 @@ export interface WorkspaceProvisioningSummary {
   /** Hard app dependencies auto-pulled into the install set (not explicitly
    *  selected by the user). Included in ``installed`` when they activate. */
   auto_dependencies: number;
+  /** Safe per-App denial identity; raw install exceptions are not returned. */
+  failures?: { library_cp_id: string; name: string; error_code: string }[];
 }
 
 export interface WorkspaceMember {

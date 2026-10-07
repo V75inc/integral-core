@@ -37,6 +37,7 @@ from app.schemas.avatar import (
     AvatarValidationError,
     AvatarVariant,
 )
+from app.schemas.workspace_provisioning import WorkspaceProvisioningSummary
 from app.services.app_graph import catalog_workspace
 from app.services.attachment_storage import get_attachment_storage_service
 from app.services.avatar_resize import resize_avatar
@@ -391,7 +392,7 @@ async def create_workspace(
         if cp_id and cp_id not in cp_ids:
             cp_ids.append(cp_id)
 
-    provisioning: Optional[Dict[str, int]] = None
+    provisioning: Optional[Dict[str, Any]] = None
     if cp_ids:
         from app.services.app_batch_install import batch_install
 
@@ -421,19 +422,29 @@ async def create_workspace(
         # installed-but-paused; ``failed`` are e.g. a required setting with no
         # default.
         installed_rows = result.get("installed") or []
-        provisioning = {
-            "installed": sum(
-                1 for r in installed_rows if (r.get("status") or "") == "active"
-            ),
-            "awaiting_settings": sum(
-                1
-                for r in installed_rows
-                if (r.get("status") or "") == "awaiting_settings"
-            ),
-            "skipped": len(result.get("skipped") or []),
-            "failed": len(result.get("failed") or []),
-            "auto_dependencies": int(result.get("auto_dependencies") or 0),
-        }
+        provisioning = WorkspaceProvisioningSummary.model_validate(
+            {
+                "installed": sum(
+                    1 for r in installed_rows if (r.get("status") or "") == "active"
+                ),
+                "awaiting_settings": sum(
+                    1
+                    for r in installed_rows
+                    if (r.get("status") or "") == "awaiting_settings"
+                ),
+                "skipped": len(result.get("skipped") or []),
+                "failed": len(result.get("failed") or []),
+                "auto_dependencies": int(result.get("auto_dependencies") or 0),
+                "failures": [
+                    {
+                        "library_cp_id": str(row.get("library_cp_id") or ""),
+                        "name": str(row.get("name") or "App"),
+                        "error_code": str(row.get("error_code") or "install_failed"),
+                    }
+                    for row in result.get("failed") or []
+                ],
+            }
+        ).model_dump()
 
     await emit_change_event(
         actor_kind="human",
