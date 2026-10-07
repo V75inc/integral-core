@@ -991,7 +991,7 @@ async def _stage_create_entry(args: Dict[str, Any]) -> Dict[str, Any]:
         lines.append(f"- **Note:** {w}")
     if body:
         lines.append("")
-        lines.append(f"> {_truncate(body, 160)}")
+        lines.append(f"**Body:**\n\n{_sd.format_review_text(str(body))}")
     return {
         "kind": "create_entry",
         "summary": f"Create entry “{title}” in {track_lbl}",
