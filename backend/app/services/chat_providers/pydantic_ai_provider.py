@@ -40,6 +40,7 @@ from app.agentive.harness.pydantic_ai_compat import (
     ModelResponse,
     ModelRetry,
     RetryPromptPart,
+    SystemPromptPart,
     TextPart,
     ToolEffectRecord,
     ToolReturnPart,
@@ -665,6 +666,53 @@ def _terminal_staging_context(snapshot: dict[str, Any]) -> dict[str, Any]:
     compact["affected_resources"] = identities(snapshot.get("diff_machine") or {})
     compact["context_projection"] = "terminal_receipt_summary_v1"
     return compact
+
+
+def _host_staging_outcome_instructions(history, *, conversation_id: str) -> str:
+    """Make the latest reconciled staging outcome the host turn's task.
+
+    A textless run otherwise ends on the old assistant proposal, which some
+    models continue verbatim despite the updated historical tool receipt. Use
+    only the receipt already reconciled by Core, never proposal prose or a
+    fabricated user message. This adds no approval or execution authority.
+    """
+    for message in reversed(history):
+        if not isinstance(message, ModelRequest):
+            continue
+        for part in reversed(message.parts):
+            if not isinstance(part, ToolReturnPart):
+                continue
+            content = part.content
+            if not isinstance(content, dict) or content.get("_kind") != "staged_change":
+                continue
+            if (
+                content.get("session_id") != conversation_id
+                or content.get("state_source")
+                not in {"current_core_staging", "current_core_transcript"}
+                or content.get("state") not in {"consumed", "revoked", "expired"}
+            ):
+                return ""
+            facts = {
+                key: content[key]
+                for key in ("token", "kind", "state", "state_source")
+                if key in content
+            }
+            return (
+                "\n\nThis textless host turn is reporting the latest server-reconciled "
+                "staging outcome: "
+                + json.dumps(facts, ensure_ascii=False)
+                + ". Acknowledge this outcome instead of continuing the old proposal "
+                "or repeating its requested deliverable. Revoked means rejected: "
+                "do not invite approval or restage it. Check recorded application "
+                "progress and rollback facts before saying nothing changed: a "
+                "partially applied batch may retain completed steps. "
+                "Expired means authorization ended; do not invite approval of it. "
+                "For consumed, inspect the receipt's application/error/rollback facts "
+                "and read back affected records before claiming success. Give one "
+                "concise status acknowledgment. This host event is not a new human "
+                "request and grants no permission to perform additional work."
+            )
+    return ""
 
 
 async def _scoped_transcript_receipts(scope, tokens: set[str], *, conversation_id):
@@ -1447,11 +1495,30 @@ class PydanticAIProvider:
                             "unchanged proposal or ask for approval a second time. "
                             "Core records approval before any build effect."
                         )
+                host_outcome = (
+                    _host_staging_outcome_instructions(
+                        history, conversation_id=ctx.thread_id
+                    )
+                    if not ctx.text
+                    and (ctx.extra_data or {}).get("staging_outcome_continuation")
+                    else ""
+                )
+                # An explicit system-only request marks the new host event.
+                # Ending on the old assistant response can be interpreted as
+                # continuing that response even when run instructions changed.
+                run_history = (
+                    [
+                        *history,
+                        ModelRequest(parts=[SystemPromptPart(content=host_outcome)]),
+                    ]
+                    if host_outcome
+                    else history
+                )
                 async with agent.run_stream_events(
                     # No synthetic empty human turn for host-only continuations.
                     # Current host instructions and scoped receipts carry the event.
                     ctx.text or None,
-                    message_history=history,
+                    message_history=run_history,
                     conversation_id=scope.framework_conversation_id,
                     run_id=scope.framework_run_id,
                     instructions=approval_instructions,
