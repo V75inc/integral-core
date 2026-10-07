@@ -1,0 +1,254 @@
+{
+  "schema_version": "ecc.agent-architecture-audit.report.v1",
+  "executive_verdict": {
+    "overall_health": "high_risk",
+    "primary_failure_mode": "Connector writes bypass tenant and typed-entry contracts; chat recovery and context processing remain wasteful.",
+    "most_urgent_fix": "Scope connector identity and writes, use canonical commands and fence sync ownership."
+  },
+  "scope": {
+    "target_name": "Integral Core working tree based on da059fbf, codex/pr-113-staging",
+    "model_stack": [
+      "pydantic_ai.Agent with pydantic-ai-harness 0.36.0 public capabilities",
+      "LiteLLM adapter",
+      "ollama_chat/deepseek-v4.1-flash:cloud browser lookup"
+    ],
+    "layers_to_audit": [
+      "system prompt",
+      "session history",
+      "long-term memory",
+      "distillation",
+      "active recall",
+      "tool selection",
+      "tool execution",
+      "tool interpretation",
+      "answer shaping",
+      "platform rendering",
+      "hidden repair loops",
+      "persistence"
+    ]
+  },
+  "findings": [
+    {
+      "id": "R1",
+      "priority": "P1",
+      "severity": "high",
+      "title": "Connector upserts can select another workspace's record",
+      "mechanism": "The default key is a hash of connector **type** and upstream record ID, not connector instance or Integral workspace. Gmail's override likewise uses its upstream thread ID; QuickBooks includes the upstream realm but still not the Integral binding. The runtime searches all `Entry` records by that key, chooses `existing[0]`, and updates it without checking that it belongs to the current bound track/workspace and connector provenance. Two customers legitimately connecting the same upstream source can collide. The second workspace may receive no independent record while the first workspace's record is updated by the second sync.",
+      "source_layer": "tool execution",
+      "root_cause": "The upstream identity namespace excludes Integral workspace and connector instance.",
+      "evidence_refs": [
+        "backend/app/services/connectors/base.py:96",
+        "backend/app/services/connectors/sync_runtime.py:398",
+        "backend/app/agentive/connectors/gmail.py:156",
+        "backend/app/agentive/connectors/quickbooks.py:152"
+      ],
+      "confidence": 0.96,
+      "recommended_fix": "Make the runtime own a canonical namespace of workspace + connector instance + upstream key. Bound lookup and mutation to the resolved destination and matching provenance. Use an atomic unique upsert. Plan migration carefully: quarantine ambiguous existing collisions rather than blindly re-keying records or assigning ownership from whichever connector happens to sync next."
+    },
+    {
+      "id": "R2",
+      "priority": "P1",
+      "severity": "high",
+      "title": "Connector writes bypass the canonical typed-entry contract",
+      "mechanism": "Updates directly assign fields and save. Creates construct `Entry`, save it, then wire `CONTAINS`. Routing uses `entry_type_key`, but this create path does not resolve/set `type_id` or wire `IS_OF_TYPE`. It also bypasses the canonical field validation, relation/tag graph reconciliation, protected-field handling and revision checks. Calling connector materialization hooks afterwards does not supply these missing contracts. Saving before attachment without a shared transaction also creates a failure window for an unrooted node.",
+      "source_layer": "tool execution",
+      "root_cause": "Connector materialization bypasses the canonical typed entry command.",
+      "evidence_refs": [
+        "backend/app/services/connectors/sync_runtime.py:80",
+        "backend/app/services/entry_create.py:223"
+      ],
+      "confidence": 0.96,
+      "recommended_fix": "Route connector creates and updates through the same generic entry command service used by other substrate clients. Supply a connector actor, immutable scope, policy and provenance explicitly. Validate the schema, reconcile typed graph relationships, fence concurrent updates, and commit the entry, structural edges and durable event/receipt together. Vendor adapters should continue to map payloads; they should not own another persistence implementation."
+    },
+    {
+      "id": "R3",
+      "priority": "P1",
+      "severity": "high",
+      "title": "Scheduled and manual connector syncs can overlap",
+      "mechanism": "Scheduling eligibility depends on `last_synced_at`, updated after the pull. Dispatch is an untracked `asyncio.create_task`. An unfinished slow pull can be dispatched again on later ticks; separate API workers and manual sync create further overlap. The record path is a find-then-create sequence, so overlap can also create duplicates. There is no durable exclusive lease or fencing at this entry point.",
+      "source_layer": "persistence",
+      "root_cause": "Last completion timestamps substitute for durable execution ownership.",
+      "evidence_refs": [
+        "backend/app/services/connectors/sync_scheduler.py:56\u201374",
+        "backend/app/services/connectors/sync_runtime.py:530",
+        "backend/app/api/connectors.py:82"
+      ],
+      "confidence": 0.94,
+      "recommended_fix": "Reuse Core's durable work-item lease/fencing pattern for connector work, including manual triggers. Make record upserts atomic. Supervise tasks and shutdown rather than leaving detached work as the execution contract."
+    },
+    {
+      "id": "R4",
+      "priority": "P1",
+      "severity": "high",
+      "title": "Interrupted request totals discard known token and cost facts",
+      "mechanism": "The transport captures provider usage/cost observations on cancellation and close. The aggregator, however, considers only transitions with outcome `responded`. If none exists, it increments unresolved count and skips all usage. A cancelled request with known usage is therefore persisted but omitted from aggregate spend.",
+      "source_layer": "persistence",
+      "root_cause": "The aggregator equates successful response settlement with available accounting facts.",
+      "evidence_refs": [
+        "backend/app/agentive/harness/litellm_model.py:333",
+        "backend/app/agentive/harness/model_observations.py:181\u2013192"
+      ],
+      "confidence": 0.99,
+      "recommended_fix": "Separate execution outcome from accounting completeness. Reconcile authoritative known facts once per physical request across all terminal transitions. Preserve partial totals with explicit incomplete status. Keep unknown cost null and distinguish provider-reported, estimated and billable amounts. BYOK spend attribution must remain separate from Business invoicing."
+    },
+    {
+      "id": "R5",
+      "priority": "P2",
+      "severity": "medium",
+      "title": "Repeated-read suppression breaks legitimate recovery and read-after-write",
+      "mechanism": "The broker records a read signature before execution. The same arguments subsequently return `repeated_read_suppressed`, regardless of whether the first call failed or whether a write changed the result. The guard is not a cache: it returns an error instead of data. This blocks a normal \u201cread, add, verify\u201d sequence and transient-error recovery, and can add another model repair round.",
+      "source_layer": "tool execution",
+      "root_cause": "Attempt signatures suppress reads without result, revision or mutation awareness.",
+      "evidence_refs": [
+        "backend/app/agentive/harness/broker_tools.py:253\u2013271"
+      ],
+      "confidence": 0.98,
+      "recommended_fix": "Use framework usage limits for bounded execution. If read deduplication is needed, cache only successful safe reads under immutable scope plus relevant resource/schema revision, return the cached data, and invalidate after mutations. Failed attempts must remain retryable according to the tool's error contract. No lexical intent gates are needed."
+    },
+    {
+      "id": "R6",
+      "priority": "P2",
+      "severity": "medium",
+      "title": "Restored history and fresh tool disclosure still waste model requests and context",
+      "mechanism": "| Metric | Observed |\n|---|---:|\n| Input tokens | 114,031 |\n| Output tokens | 362 |\n| Model requests | 4 |\n| Tool steps | 3 |\n| Tool retries | 1 |\n| Peak input tokens/request | 30,406 |\n| Backend run latency | 10.731 seconds |",
+      "source_layer": "session history / tool selection",
+      "root_cause": "Fresh deferred tool availability differs from remembered tool names; repeated context is insufficiently measured.",
+      "evidence_refs": [
+        "backend/app/agentive/harness/pydantic_ai_compat.py:80\u2013160",
+        "backend/app/agentive/harness/runtime.py:108",
+        "backend/app/services/chat_providers/pydantic_ai_provider.py:1239",
+        "backend/app/config.py:119",
+        "qualification_run:df8de984-3617-45e6-a92c-dd4f9f372777"
+      ],
+      "confidence": 0.98,
+      "recommended_fix": "Measure per-request context components, including instructions, catalogue metadata, active skills, history and tool payloads. Reconcile framework-recorded discovery/skill state with restored messages and current authorized tools; reuse it only while permissions, schema and capability revision remain valid. Keep fresh discovery when the task actually needs it without making stale tool names provoke avoidable errors. Bound tool payloads and review active skill retention through supported public library APIs. Preserve history rather than improving benchmarks by deleting it."
+    },
+    {
+      "id": "R7",
+      "priority": "P2",
+      "severity": "medium",
+      "title": "Compound record creation has a fragmented approval experience",
+      "mechanism": "The user asked for a coherent related set. The interaction backed down to staging Ana alone, then required another proposal for the bicycle before the job. Ana was saved after approval; the bicycle was subsequently rejected, so the current workspace has no bicycle/job from this request. The substrate already has backward batch references; this should not be described as a missing batch primitive without further tracing.",
+      "source_layer": "tool selection / tool interpretation",
+      "root_cause": "Existing dependency-aware batches are not reliably used by compound-record planning and staging.",
+      "evidence_refs": [
+        "backend/app/agentive/staging.py:431",
+        "qualification_run:04b92a81-eb97-48cd-82e5-936aeffb5f27"
+      ],
+      "confidence": 0.7,
+      "recommended_fix": "Make existing dependency-aware batches usable through one concrete proposal, one approval and one receipt for a compound request. Validate symbolic references before effects and resolve actual IDs during execution. Preserve tenant checks, exact approved snapshots and partial/unknown-write reconciliation. Do not introduce a second LLM planner or global \u201cyes\u201d parser."
+    },
+    {
+      "id": "R8",
+      "priority": "P2",
+      "severity": "medium",
+      "title": "Filing normalization silently drops unrecognized optional fields",
+      "mechanism": "The normalizer uses canonical schema keys, names and a global English alias list. Keys that still do not match are omitted without reporting them. Required-field validation can catch some omissions, but optional supplied data disappears before proposal/execution. Multiple source keys mapping to one canonical key can also overwrite each other. A schema-grounded operation should not silently decide that supplied information is expendable.",
+      "source_layer": "tool interpretation",
+      "root_cause": "Unknown schema keys are silently discarded and alias collisions are not surfaced.",
+      "evidence_refs": [
+        "backend/app/agentive/tooling/stagers_filing.py:41\u201391"
+      ],
+      "confidence": 0.96,
+      "recommended_fix": "Use stable schema field keys/IDs and explicitly declared aliases. Return structured unknown/collision errors before staging, allowing the primary model to correct against the current schema or clarify an ambiguity. Avoid domain-word dictionaries in a domain-neutral substrate. Preserve the distinction between omission and an explicit clear where updates support it."
+    },
+    {
+      "id": "R9",
+      "priority": "P2",
+      "severity": "medium",
+      "title": "Extension-view failure state survives a change of view identity",
+      "mechanism": "The query key changes with app, view and workspace. The local `failed` flag only changes to true; it is not reset for a new identity or successful retry. React can reuse this widget for another extension view, leaving a healthy destination stuck on the prior fallback.",
+      "source_layer": "platform rendering",
+      "root_cause": "The local failure flag is not keyed or reset when view identity changes.",
+      "evidence_refs": [
+        "frontend/src/components/views/ExtensionViewWidget.tsx:69",
+        "frontend/src/views/registry.tsx"
+      ],
+      "confidence": 0.96,
+      "recommended_fix": "Scope failure state to app/view/workspace identity and add an explicit retry/renew lifecycle. Keep iframe origin, sandbox, handshake and operation authorization intact."
+    },
+    {
+      "id": "R10",
+      "priority": "P2",
+      "severity": "medium",
+      "title": "An empty extension declaration set disables reference validation",
+      "mechanism": "The compiler rejects an unknown extension key only when the known-key set is truthy. An authoritative empty declaration set therefore accepts a view key that cannot resolve at runtime. The helper also collapses \u201ccontext unavailable\u201d and \u201cknown empty\u201d into the same set.",
+      "source_layer": "tool execution",
+      "root_cause": "An empty authoritative allowlist is conflated with unavailable compile context.",
+      "evidence_refs": [
+        "backend/app/services/operational_model_compile.py:116\u2013135"
+      ],
+      "confidence": 0.97,
+      "recommended_fix": "Distinguish unknown compile context from an authoritative allowlist, including an empty one. Full App compilation must reject undeclared references; standalone compilation must receive or explicitly declare its external registry context."
+    },
+    {
+      "id": "R11",
+      "priority": "P2",
+      "severity": "medium",
+      "title": "Public SDK typing omits a supported optimistic-concurrency argument",
+      "mechanism": "The runtime's `update_entry_fields` supports `expected_record_revision`; the public protocol omits it. External Apps cannot use that guard through the advertised typed SDK surface without bypassing typing. Tests asserting exported type names are insufficient to prove signature parity.",
+      "source_layer": "tool execution",
+      "root_cause": "The public SDK protocol has drifted from the runtime concurrency signature.",
+      "evidence_refs": [
+        "sdk/python/integral_sdk/context.py:39\u201341",
+        "backend/app/services/app_operations/context.py:203\u2013209"
+      ],
+      "confidence": 0.99,
+      "recommended_fix": "Align the public protocol with the supported keyword and conflict result contract. Add signature/behavior conformance tests and compile a minimal external App using only `integral_sdk`, without Core imports."
+    },
+    {
+      "id": "R12",
+      "priority": "P3",
+      "severity": "low",
+      "title": "Legacy documentation and guard accumulation obscure the intended architecture",
+      "mechanism": "Some architecture instructions still describe jvagent as the default or an absent agentive kill switch. Scope documentation describes bare headers falling back, whereas current resolution rejects invalid supplied headers. Scaffolding retains prose-based compatibility checks, although structured blueprints bypass important legacy checks. Tool-specific broker quotas coexist with framework limits. Frontend ESLint reports 453 warnings, including hook and stability concerns. These are maintenance signals, not proof that every warning or large file is a defect.",
+      "source_layer": "system prompt / persistence",
+      "root_cause": "Legacy behavior and documentation lack an explicit current contract and retirement inventory.",
+      "evidence_refs": [
+        "backend/app/services/request_scope.py:21",
+        "backend/app/agentive/tooling/scaffold_build.py",
+        "backend/app/agentive/harness/broker_tools.py"
+      ],
+      "confidence": 0.9,
+      "recommended_fix": "Update documentation from the current binding/configuration; inventory actual legacy callers before removal; consolidate loop limits around framework semantics and typed tool errors. Prioritize warnings that alter closure/lifecycle behavior, then prevent new warnings in touched areas. Avoid a sweeping abstraction layer or cosmetic rewrite."
+    }
+  ],
+  "ordered_fix_plan": [
+    {
+      "order": 1,
+      "goal": "Connector isolation, canonical writes and durable sync ownership",
+      "why_now": "Tenant and graph integrity precede connector production qualification.",
+      "expected_effect": "Isolated typed records with atomic upserts and fenced worker ownership."
+    },
+    {
+      "order": 2,
+      "goal": "Interrupted request accounting reconciliation",
+      "why_now": "Known provider spend must survive cancellation.",
+      "expected_effect": "Accurate partial totals, explicit incompleteness and idempotent reconciliation."
+    },
+    {
+      "order": 3,
+      "goal": "Read recovery, restored availability and context efficiency",
+      "why_now": "A simple established-chat lookup consumed 114031 input tokens.",
+      "expected_effect": "Valid read-after-write, no unavailable remembered-tool attempt and measured context budgets."
+    },
+    {
+      "order": 4,
+      "goal": "Compound CRUD and transparent schema normalization",
+      "why_now": "Related-record requests currently fragment into several approvals.",
+      "expected_effect": "One concrete compound proposal with preserved supplied fields and verified relations."
+    },
+    {
+      "order": 5,
+      "goal": "View compile/lifecycle and SDK parity",
+      "why_now": "Extension authors need predictable recovery and concurrency contracts.",
+      "expected_effect": "Early declaration errors, recoverable views and typed revision-safe SDK calls."
+    },
+    {
+      "order": 6,
+      "goal": "Documentation and measured legacy retirement",
+      "why_now": "Stale instructions and overlapping guards obscure the architecture.",
+      "expected_effect": "One accurate current narrative and explicit tested compatibility boundaries."
+    }
+  ]
+}

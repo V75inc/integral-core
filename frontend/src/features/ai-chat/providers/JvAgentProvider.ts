@@ -38,11 +38,15 @@ async function* readSseEvents(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let streamEnded = false;
   try {
     while (true) {
       if (signal.aborted) break;
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        streamEnded = true;
+        break;
+      }
       buffer += decoder.decode(value, { stream: true });
 
       let sepIdx: number;
@@ -58,6 +62,12 @@ async function* readSseEvents(
       if (parsed) yield parsed;
     }
   } finally {
+    // A turn-settled frame ends the application protocol before the transport
+    // necessarily closes. Cancel the reader on early completion/abort so the
+    // browser releases the response body and its connection resources.
+    if (!streamEnded) {
+      await reader.cancel().catch(() => undefined);
+    }
     reader.releaseLock();
   }
 }
@@ -231,6 +241,7 @@ export function createServerChatProvider({
     try {
       for await (const ev of readSseEvents(response, ctx.abortSignal)) {
         if (ctx.abortSignal.aborted) break;
+        if (ev.event === "turn-settled") return;
         const payload = ev.data;
         if (payload && typeof payload === "object") {
           yield payload as NormalizedEvent;

@@ -613,3 +613,13 @@ async def generate_chat_turn_sse(
                 turn_id=turn_handle.turn_id,
                 extra=notify_extra,
             )
+
+    # EOF is not a reliable application-level completion signal: proxies and
+    # browser stream readers may keep a response body alive briefly after the
+    # server has finished the turn. Send an explicit acknowledgement only
+    # after terminal cleanup and any request-owned turn-fence release have run.
+    # Clients can then settle immediately without guessing from transport EOF.
+    yield sse_bytes(
+        "turn-settled",
+        {"type": "turn-settled", "status": terminal_status},
+    )

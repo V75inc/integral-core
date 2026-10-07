@@ -114,6 +114,38 @@ describe('JvAgentProvider.streamTurn auth handling', () => {
     expect(refreshAccessToken).not.toHaveBeenCalled();
   });
 
+  it('settles on the terminal frame even while the HTTP body remains open', async () => {
+    vi.mocked(getAccessToken).mockReturnValue('good');
+    const cancel = vi.fn();
+    const encoder = new TextEncoder();
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode('event: text-delta\ndata: {"type":"text-delta","delta":"Done."}\n\n'),
+            );
+            controller.enqueue(
+              encoder.encode('event: turn-settled\ndata: {"type":"turn-settled","status":"succeeded"}\n\n'),
+            );
+          },
+          cancel,
+        }),
+        { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const events = (await drain(JvAgentProvider.streamTurn(ctx()))) as Array<{
+      type?: string;
+      delta?: string;
+    }>;
+
+    expect(events).toEqual([{ type: 'text-delta', delta: 'Done.' }]);
+    expect(events.some((event) => event.type === 'turn-settled')).toBe(false);
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
   it('refuses a turn with no thread id', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);

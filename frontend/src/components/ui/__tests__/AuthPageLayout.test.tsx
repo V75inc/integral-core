@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { AuthPageLayout } from '../AuthPageLayout';
 
 describe('AuthPageLayout', () => {
-  it('restarts the square ripple when navigating between auth routes', async () => {
+  it('restarts the split-square ripple when navigating between auth routes', async () => {
     render(
       <MemoryRouter initialEntries={['/login']}>
         <Routes>
@@ -43,16 +43,14 @@ describe('AuthPageLayout', () => {
       .closest('main')
       ?.querySelector('svg[data-animation-cycle]');
     expect(nextRipple).not.toBe(initialRipple);
-    expect(nextRipple?.querySelectorAll('.auth-ripple-square:not(.auth-ripple-square--frame)'))
+    expect(nextRipple?.querySelectorAll('.auth-ripple-mark:not(.auth-ripple-mark--base)'))
       .toHaveLength(3);
-    expect(nextRipple?.querySelectorAll('.auth-ripple-square--frame')).toHaveLength(1);
-    expect(nextRipple?.querySelector('.auth-ripple-square--frame')).toHaveAttribute(
-      'x',
-      '12',
-    );
+    expect(nextRipple?.querySelectorAll('.auth-ripple-mark--base')).toHaveLength(1);
+    expect(nextRipple?.querySelector('.auth-ripple-mark--base')?.querySelectorAll('path')).toHaveLength(2);
+    expect(nextRipple?.querySelector('rect')).toBeNull();
   });
 
-  it('restarts the square ripple after a back-forward cache restore', () => {
+  it('restarts the split-square ripple after a back-forward cache restore', () => {
     render(
       <MemoryRouter>
         <AuthPageLayout title="Welcome" description="Your space is ready.">
@@ -65,9 +63,9 @@ describe('AuthPageLayout', () => {
       .closest('main')
       ?.querySelector('svg[data-animation-cycle]');
     expect(ripple).toHaveAttribute('data-animation-cycle', '1');
-    expect(ripple?.querySelectorAll('.auth-ripple-square:not(.auth-ripple-square--frame)'))
+    expect(ripple?.querySelectorAll('.auth-ripple-mark:not(.auth-ripple-mark--base)'))
       .toHaveLength(3);
-    expect(ripple?.querySelectorAll('.auth-ripple-square--frame')).toHaveLength(1);
+    expect(ripple?.querySelectorAll('.auth-ripple-mark--base')).toHaveLength(1);
 
     const restoredEvent = new Event('pageshow');
     Object.defineProperty(restoredEvent, 'persisted', { value: true });
