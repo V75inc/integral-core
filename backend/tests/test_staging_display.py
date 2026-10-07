@@ -91,6 +91,14 @@ class TestFormatScalarForDiff:
         assert rendered == "Projects"
         assert "n.Track." not in rendered
 
+    def test_long_url_and_qualifying_text_are_not_truncated(self):
+        url = "https://example.com/research/" + "full-source-path/" * 8
+        claim = "Vendor claims only; " * 8 + "customer demand remains unvalidated."
+        for value in (url, claim):
+            assert (
+                sd.format_scalar_for_diff(value, tag_names={}, entry_names={}) == value
+            )
+
     def test_unresolved_id_truncated(self):
         rendered = sd.format_scalar_for_diff(
             "n.Tag.unknown",

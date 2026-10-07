@@ -68,3 +68,17 @@ Fresh research repeat `75c6b661-7cfc-431c-9294-d3cea5ad9978` after the explicit 
 
 
 Final semantic-fidelity gate: `LITELLM_MODE=PRODUCTION make verify` completed with exit 0 and `verify: all checks passed` (`/tmp/integral-text-fidelity-final-verify.log`). It includes 256 frontend files / 1,475 tests, CI-faithful smoke, wheel/import and the full backend suite; standard optional infrastructure skips remain. Nine focused distro/config tests pass. Fresh browser fidelity evidence above applies to the explicitly configured disposable API; the new configuration/init defaults are source-tested and are not a published distribution.
+
+
+## Follow-up: field preview fidelity
+
+Browser source staging showed `format_scalar_for_diff` ellipsizing ordinary strings at forty characters. Markdown autolinking then used the shortened URL as the target (`.../how-we-hel%E2%80%A6`), and claim qualifiers were unavailable in the card. Generic ordinary string fields now retain their full contents; the existing scrollable approval region handles length. Graph-label resolution remains unchanged. Sixteen focused staging-display tests pass, including a long URL and demand qualifier regression. First full gate stopped after Black reformatted the new test; correction staged and final gate `/tmp/integral-full-approval-fields-final-verify.log` is running. No commit/pass claim yet. Other abbreviated body/scalar change summaries remain a separate review-completeness gap.
+
+
+Browser overlay repeat: after a supported smoke API recreation with the staging-display file mounted read-only, a natural source-interpretation clarification produced a single field-update card. It exposes the entire demand/actual-use qualifier and the full Better Impact source URL with the correct href. No diagnostic argument inspection was required for this card. Screenshot `/tmp/integral-venture-smoke-20261007/evidence/core-full-source-field-approval.jpg`. The twenty-plus-line original source notes were not rewritten for this bounded request. This qualifies ordinary string-field review, not all body/change summaries.
+
+
+The same full-field approval applied, and independent browser Entry readback retains the complete clarification/URL with unchanged source metadata and relation. Host continuation took 3.3 seconds with one readback. Screenshot `venture-source-clarification-readback.jpg`; full local gate remains running.
+
+
+Final field-preview gate completed with exit 0 and `verify: all checks passed` (`/tmp/integral-full-approval-fields-final-verify.log`). It includes 1,475 frontend tests, CI-faithful smoke, wheel/import and full backend suite with standard optional infrastructure skips. Ordinary string fields/URL preview browser evidence above passes; other abbreviated scalar/body summaries remain explicitly unqualified.

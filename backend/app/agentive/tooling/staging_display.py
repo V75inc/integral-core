@@ -266,7 +266,10 @@ def format_scalar_for_diff(
             or s.startswith("n.Track.")
         ):
             return truncate(s, 40)
-        return truncate(s, 40)
+        # Approval must expose the actual proposed text. Ellipsizing here
+        # destroys URL targets and hides qualifiers the reviewer must assess.
+        # The approval sheet already provides a scrollable review region.
+        return s
 
     if isinstance(value, list):
         parts = [fmt_one(v) for v in value]
