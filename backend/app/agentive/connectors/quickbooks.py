@@ -48,6 +48,7 @@ from app.services.connectors import (
     register_sync_connector,
 )
 from app.services.connectors.quickbooks_oauth import refresh_tokens
+from app.services.connectors.sync_lease import save_connector_changes
 
 logger = logging.getLogger(__name__)
 
@@ -198,7 +199,7 @@ class QuickBooksConnector(SyncConnector):
             )
             auth_state[_REAUTH_REQUIRED_KEY] = True
             connector.auth_state = auth_state
-            await connector.save()
+            await save_connector_changes(connector, fields=("auth_state",))
             return False
 
         try:
@@ -220,7 +221,7 @@ class QuickBooksConnector(SyncConnector):
             if reauth:
                 auth_state[_REAUTH_REQUIRED_KEY] = True
                 connector.auth_state = auth_state
-                await connector.save()
+                await save_connector_changes(connector, fields=("auth_state",))
             return False
 
         # Persist the rotated tokens BEFORE any downstream API call.
@@ -237,7 +238,7 @@ class QuickBooksConnector(SyncConnector):
             auth_state["refresh_token_expires_at"] = rt_exp.isoformat()
         auth_state.pop(_REAUTH_REQUIRED_KEY, None)
         connector.auth_state = auth_state
-        await connector.save()
+        await save_connector_changes(connector, fields=("auth_state",))
         logger.info(
             "quickbooks _ensure_fresh_token: rotated tokens for connector %s",
             getattr(connector, "id", "<unknown>"),
@@ -386,7 +387,7 @@ class QuickBooksConnector(SyncConnector):
             # Advance the CDC high-water mark. The subclass owns sync_cursor;
             # the runtime owns last_synced_at.
             connector.sync_cursor = _now_iso()
-            await connector.save()
+            await save_connector_changes(connector, fields=("sync_cursor",))
         finally:
             if owns_client:
                 await client.aclose()

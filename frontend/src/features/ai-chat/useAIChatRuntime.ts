@@ -1416,7 +1416,9 @@ export function useAIChatRuntime(
         }
 
         if (draftHasVisibleParts(draft) || !closedDraft) {
-          if (!draft.status || draft.status.type === "running") {
+          if (controller.signal.aborted) {
+            draft.status = { type: "incomplete", reason: "cancelled" };
+          } else if (!draft.status || draft.status.type === "running") {
             draft.status = { type: "complete", reason: "stop" };
           }
           flush();
@@ -1429,11 +1431,9 @@ export function useAIChatRuntime(
         void refreshThreads();
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        draft.status = {
-          type: "incomplete",
-          reason: "error",
-          error: errMsg,
-        };
+        draft.status = controller.signal.aborted
+          ? { type: "incomplete", reason: "cancelled" }
+          : { type: "incomplete", reason: "error", error: errMsg };
         // MessageError on the flushed draft — do not also set streamError.
         flush();
       } finally {
@@ -1655,11 +1655,22 @@ export function useAIChatRuntime(
     const threadId = activeThreadId;
     if (!threadId) return;
     const controller = peekSessions()[threadId]?.abortController;
+    // Settle the visible draft before the transport unwinds. A follow-up
+    // can otherwise capture the old running row in its priorMessages and
+    // preserve a permanent "Working" indicator in the next turn.
+    updateSession(threadId, (session) => ({
+      ...session,
+      messages: session.messages.map((message) =>
+        message.role === "assistant" && message.status?.type === "running"
+          ? { ...message, status: { type: "incomplete", reason: "cancelled" } }
+          : message,
+      ),
+    }));
     controller?.abort();
     if (provider.serverPersisted) {
       aiChatApi.cancelThread(threadId).catch(() => {});
     }
-  }, [activeThreadId, provider.serverPersisted]);
+  }, [activeThreadId, provider.serverPersisted, updateSession]);
 
   const threadListAdapter = useMemo<ExternalStoreThreadListAdapter>(() => {
     const regular = threads.filter((t) => !t.archived);

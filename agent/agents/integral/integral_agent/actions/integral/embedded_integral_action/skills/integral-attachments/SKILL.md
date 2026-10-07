@@ -1,7 +1,7 @@
 ---
 name: integral-attachments
 description: Reads and interprets uploaded documents, PDFs and receipts, then files the source attachment with the matching authorized App, Track and record. Use first for a file dropped in chat, including “file this where it belongs”. Also lists, summarizes and delivers existing entry attachments across a track or workspace. Clarify ambiguous destinations before writing.
-allowed-tools: integral_list_attachments integral_list_track_attachments integral_list_workspace_attachments integral_get_attachment_text integral_transcribe_audio integral_attach_file integral_attach_uploaded_file_to_entry integral_attach_uploaded_image_to_entry integral_resolve_entry integral_query_entries integral_rank_destinations integral_list_tracks integral_get_track_schema integral_begin_batch integral_commit_batch integral_create_entry
+allowed-tools: integral_list_attachments integral_list_track_attachments integral_list_workspace_attachments integral_get_attachment_text integral_transcribe_audio integral_attach_file integral_attach_uploaded_file_to_entry integral_attach_uploaded_image_to_entry integral_resolve_entry integral_query_entries integral_rank_destinations integral_list_tracks integral_get_track_schema integral_begin_batch integral_commit_batch integral_cancel_batch integral_create_entry
 ---
 
 # Integral attachments — SOP
@@ -127,8 +127,8 @@ and can render an empty "No attachments on this entry" card.
       result is a **staged_token**, NOT the entry's real id (the entry
       doesn't exist until the card is approved). **Never** pass a
       `staged_token`, or any id you invented, as `entry_id` — either use the
-      real id of an entry that already exists, or the `{{entry.id}}` /
-      `{{entry.id:<title>}}` batch token.
+      real id of an entry that already exists, or the creation's returned
+      `result_ref` in the same batch.
    c. Only confirm the file is attached AFTER the tool call(s) succeed (and,
       for a batch, after the user approves the combined card). If it errors
       (`not_chat_owned` — already filed elsewhere; `permission_denied` — not
@@ -149,15 +149,19 @@ refer to an operation that has not been staged yet:
 1. `integral_begin_batch(label="File <filename> into <post title>")`.
 2. `integral_create_entry(track_id=<id>, title=<post title>, body=<post
    text>, fields=<mapped schema fields>)` — the **first** op after `begin_batch`.
-3. `integral_attach_uploaded_file_to_entry(entry_id="{{entry.id}}",
-   attachment_id=<real chat attachment id>)` — the literal string
-   `{{entry.id}}` (or, with several entries in one batch, the named
-   `{{entry.id:<exact title>}}`) resolves to the entry created in step 2
-   **once the batch is approved**. This is a token you type verbatim, not a
-   value you compute.
+3. `integral_attach_uploaded_file_to_entry(entry_id=<result_ref returned by
+   step 2>, attachment_id=<real chat attachment id>)`. Preserve the reference
+   verbatim, for example `{{step_1.id}}`; it resolves to the saved entry
+   **once the batch is approved**. The unique named `{{entry.id:<exact title>}}`
+   and single-entry `{{entry.id}}` references are also supported. Do not query
+   the graph for a pending record or split its file into another approval.
 4. `integral_commit_batch(summary=...)` — presents ONE combined card. On
    approval both steps apply in order; only then does the file end up
    attached.
+   If preparing either step fails, call `integral_cancel_batch` and explain
+   the unresolved problem. Do not commit a create-only proposal for a request
+   that also asks to file its source. Execution can partially apply; use its
+   receipt to reconcile progress rather than replaying completed steps.
 4. **Deliver** — the chat renders the `integral_list_attachments` result as a
    download card **below your reply**. Point the user at it without claiming a
    position — say "Here are the 2 files — click any to download." **Never** say

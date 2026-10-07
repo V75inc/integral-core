@@ -693,3 +693,41 @@ def test_suppress_feed_fallback_survives_a_second_compile_pass():
         "Feed view re-appeared on the second compile pass — "
         "suppress_feed_fallback did not survive the round-trip"
     )
+
+
+@pytest.mark.parametrize("catalogue", [None, []])
+def test_app_empty_extension_catalogue_rejects_unknown_view(catalogue):
+    app = {
+        "tracks": [
+            {
+                "key": "notes",
+                "name": "Notes",
+                "views": [
+                    {
+                        "key": "panel",
+                        "view_type": "extension_view",
+                        "extension_view_key": "undeclared",
+                    }
+                ],
+            }
+        ]
+    }
+    if catalogue is not None:
+        app["extension_views"] = catalogue
+    with pytest.raises(
+        OperationalModelValidationError, match="unknown extension_view_key"
+    ):
+        compile_canonical_manifest(manifest=_merge(V2_MANIFEST_BASE, {"app": app}))
+
+
+def test_standalone_track_extension_reference_defers_app_catalogue_check():
+    manifest = _merge(V2_TRACK_MANIFEST_BASE, {})
+    manifest["track"]["views"] = [
+        {
+            "key": "panel",
+            "view_type": "extension_view",
+            "extension_view_key": "external_panel",
+        }
+    ]
+    canonical = compile_canonical_manifest(manifest=manifest)
+    assert canonical["track"]["views"][0]["extension_view_key"] == "external_panel"

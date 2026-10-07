@@ -195,8 +195,12 @@ def _model_observability_events(
     observations: list[PhysicalModelRequest],
 ) -> list[dict[str, Any]]:
     """Project stored physical requests to the public, source-backed UI shape."""
+    from app.agentive.harness.model_observations import summarize_model_usage
+
+    transitions: dict[str, list[PhysicalModelRequest]] = {}
     latest_by_request: dict[str, PhysicalModelRequest] = {}
     for observation in observations:
+        transitions.setdefault(observation.request_id, []).append(observation)
         if observation.outcome == "dispatch_intent":
             continue
         previous = latest_by_request.get(observation.request_id)
@@ -240,19 +244,35 @@ def _model_observability_events(
                 else "unavailable"
             ),
         }
-        if observation.usage is not None:
+        summary = summarize_model_usage(transitions[observation.request_id])
+        known_usage = any(
+            item.usage is not None for item in transitions[observation.request_id]
+        )
+        if known_usage:
             call_event["usage"] = {
-                key: value
-                for key, value in (
-                    ("inputTokens", observation.usage.input_tokens),
-                    ("outputTokens", observation.usage.output_tokens),
-                )
-                if value is not None
+                "inputTokens": summary.reported_input_tokens,
+                "outputTokens": summary.reported_output_tokens,
             }
-            if observation.usage.provider_cost_usd is not None:
-                call_event["providerCostUsd"] = float(
-                    observation.usage.provider_cost_usd
+            call_event["usageComplete"] = summary.token_usage_complete
+            call_event["costComplete"] = summary.provider_cost_complete
+            if summary.provider_cost_usd is not None:
+                call_event["providerCostUsd"] = float(summary.provider_cost_usd)
+                cost_evidence = max(
+                    (
+                        item
+                        for item in transitions[observation.request_id]
+                        if item.usage is not None
+                        and item.usage.provider_cost_usd is not None
+                    ),
+                    key=lambda item: (
+                        item.outcome == "responded" and item.usage.complete,
+                        item.observed_at or item.dispatched_at,
+                        item.outcome == "responded",
+                    ),
                 )
+                call_event["costSource"] = cost_evidence.usage.cost_source
+        if observation.request_context is not None:
+            call_event["requestContext"] = observation.request_context.model_dump()
         if elapsed_ms is not None:
             call_event["durationMs"] = elapsed_ms
         events.append(call_event)
@@ -285,7 +305,8 @@ async def _resume_history(
     """Restore a committed checkpoint or rebuild one interrupted text turn.
 
     Library snapshots retain settled tool results, including failed runs. Core
-    admits them only after physical requests and effect receipts are settled.
+    checks physical requests and effect receipts independently. A cancelled
+    run may retain unknown model billing without replaying its request.
     Unknown effects remain blocked; continuation never dispatches the old run.
     """
     if not session.last_run_id:
@@ -299,7 +320,12 @@ async def _resume_history(
     previous_scope = scope.model_copy(update={"run_id": session.last_run_id})
     observations = await list_model_request_observations(scope=previous_scope)
     unsettled_requests = unsettled_model_request_ids(observations)
-    if unsettled_requests:
+    cancelled_run = (
+        _terminal_run_matches(scope, previous_run)
+        and previous_run.status == "cancelled"
+        and previous_run.run_id == session.last_run_id
+    )
+    if unsettled_requests and not cancelled_run:
         raise ResourceConflictError(
             message="The prior Harness run has an unsettled model request",
             details={
@@ -369,6 +395,7 @@ async def _resume_history(
             safe_pointer_valid = True
             if (
                 checkpoint_run_id == session.last_run_id
+                and not unsettled_requests
                 and not effect_records
                 and not pending_approvals
             ):
@@ -384,6 +411,31 @@ async def _resume_history(
     # A safe completed snapshot may have been persisted immediately before a
     # process died, while the following session-pointer CAS did not run.
     latest = await store.latest_snapshot(run_id=session.last_run_id)
+    if unsettled_requests:
+        # Stop has revoked the old run's dispatch/effect authority. A model
+        # response cannot independently mutate Integral. Reuse only history
+        # whose tool effects reconcile against the original Core receipts;
+        # leave the physical request and its unknown cost untouched. This is
+        # continuation with a new user request, never a paid request retry.
+        history = (
+            await _settled_terminal_history(
+                scope,
+                previous_run,
+                store,
+                latest,
+                effect_records,
+                recovery_message=recovery_message,
+                checkpoint_run_id=checkpoint_run_id,
+            )
+            if not pending_approvals
+            else None
+        )
+        if history is not None:
+            return history
+        raise ResourceConflictError(
+            message="The cancelled Harness run needs effect reconciliation",
+            details={"reason": "harness_recovery_reconciliation_required"},
+        )
     if latest is not None and latest.idempotency_key:
         manifest = await load_checkpoint_manifest(
             scope=previous_scope, snapshot_id=latest.idempotency_key
@@ -943,7 +995,13 @@ class PydanticAIProvider:
             "If this list is empty, older pending cards in history are not current authority."
         )
         instructions = (
-            "You are Integral's resident intelligence. For Integral work, use "
+            "You are Integral's resident intelligence. Fulfil the latest user "
+            "request. Earlier user commands are conversation history, not a "
+            "backlog of work. A question about current state requires reading "
+            "and answering, not completing an earlier requested change. Never "
+            "revive rejected, expired, stopped, or otherwise unfinished changes "
+            "unless the latest user explicitly asks to proceed with them. "
+            "For Integral work, use "
             "search_capabilities for operational requests to set up, inspect "
             "or change Integral resources when the relevant capability is not "
             "already loaded, "
@@ -1011,8 +1069,9 @@ class PydanticAIProvider:
             "that url exactly. IDs are opaque: preserve the full n.Track., "
             "n.WorkspaceApp. or n.Entry. prefix and never shorten them. "
             "Never invent a deployment hostname. "
-            "Load a skill once. Do not repeat an identical successful "
-            "read call; use its result, and stop with a concise limitation if "
+            "Load a skill once. Reuse a current read result when appropriate; "
+            "read again after a change or to recover a failed read. Stop with a "
+            "concise limitation if "
             "discovery does not find the required capability.\n\n"
             + (ctx.system_context or "")
             + receipt_instructions

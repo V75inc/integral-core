@@ -1085,3 +1085,25 @@ async def test_interrupted_stream_records_one_unknown_outcome() -> None:
         "dispatch_intent",
         "outcome_unknown",
     ]
+
+
+def test_request_context_dimensions_are_content_free() -> None:
+    from app.agentive.harness.litellm_model import _request_context
+
+    body = {
+        "messages": [
+            {"role": "system", "content": "catalogue and loaded instructions"},
+            {"role": "user", "content": "private user content"},
+            {"role": "tool", "content": "private record content"},
+        ],
+        "tools": [{"type": "function", "function": {"name": "read_record"}}],
+    }
+    dimensions = _request_context(body)
+    assert dimensions.message_count == 3
+    assert dimensions.visible_tool_count == 1
+    assert dimensions.instruction_chars > 0
+    assert dimensions.conversation_chars > 0
+    assert dimensions.tool_result_chars > 0
+    assert dimensions.tool_schema_chars > 0
+    assert "private" not in dimensions.model_dump_json()
+    assert "read_record" not in dimensions.model_dump_json()

@@ -10,7 +10,6 @@ from jvspatial.api import endpoint
 from app.api.errors import (
     InsufficientPermissionsError,
     MissingAuthenticationError,
-    ResourceConflictError,
     ResourceNotFoundError,
 )
 from app.api.utils import (
@@ -19,10 +18,8 @@ from app.api.utils import (
     public_user_view,
     resolve_principal_id,
 )
-from app.contracts.information import schema_revision_from_profile_version
 from app.models.edges import (
     CONTAINS,
-    IS_OF_TYPE,
     MENTIONS,
     TAGGED_WITH,
     WATCHES,
@@ -33,7 +30,6 @@ from app.services import notification_router
 from app.services.app_graph import ensure_track_attached_operational_model
 from app.services.change_event import emit_change_event
 from app.services.computed_fields import project_computed_values
-from app.services.content_moderation import validate_no_profanity
 from app.services.entry_comment_stats import (
     apply_prefetched_comment_count,
     attach_comment_count,
@@ -47,9 +43,6 @@ from app.services.entry_context import (
     prefetch_tracks_and_spaces_for_entries,
 )
 from app.services.entry_listing import fetch_accessible_entries_page
-from app.services.hooks.entry_save_runtime import (
-    run_entry_save_hooks,
-)
 from app.services.mentions import resolve_mentions
 from app.services.notification_paths import entry_path
 from app.services.operational_model_derived_fields import (
@@ -58,9 +51,6 @@ from app.services.operational_model_derived_fields import (
 from app.services.operational_model_runtime import (
     resolve_entry_type_spec,
     resolve_track_runtime_profile,
-    sync_relation_edges,
-    transition_custom_fields_on_type_change,
-    validate_and_materialize_entry_custom_fields,
     validate_tags_apply_to_entry_type,
     validate_taxonomy_constraints,
 )
@@ -435,11 +425,11 @@ async def create_entry(
         )
 
     entry_body = body if body is not None else (description or "")
-    workspace_id = await resolve_workspace_id_from_request(request, user_id)
-    if request.headers.get("x-integral-scope") is not None:
-        from app.services.request_scope import resolve_create_workspace_id
+    from app.services.request_scope import resolve_create_workspace_id
 
-        await resolve_create_workspace_id(request, user_id, track.workspace_id)
+    workspace_id = await resolve_create_workspace_id(
+        request, user_id, track.workspace_id
+    )
     from app.services.entry_create import create_entry_in_track
 
     entry = await create_entry_in_track(
@@ -456,6 +446,10 @@ async def create_entry(
         actor_kind=getattr(request.state, "actor_kind", "human") or "human",
     )
 
+    # Command-owned transactions are closed before response projections run.
+    entry = await Entry.get(entry.id)
+    if entry is None:
+        raise ResourceNotFoundError(message="Created entry is no longer available")
     entry_data = await export_node(entry)
     await _project_entry_computed(entry, entry_data)
     await attach_author_exports([entry_data])
@@ -574,20 +568,6 @@ async def update_entry(
     from app.services.request_scope import require_effect_parent_scope
 
     await require_effect_parent_scope(request, user_id, Track, entry.track_id)
-    current_revision = int(getattr(entry, "record_revision", 1) or 1)
-    if (
-        expected_record_revision is not None
-        and expected_record_revision != current_revision
-    ):
-        raise ResourceConflictError(
-            message="Entry has changed since it was read",
-            details={
-                "error_code": "record_revision_conflict",
-                "expected_record_revision": expected_record_revision,
-                "current_record_revision": current_revision,
-            },
-        )
-
     # Phase 5 Plan 05-03 — mirror_only read-only gate (locked decision §Q10).
     # Refuse direct writes to connector-sourced entries when the bound
     # Connector's ``conflict_policy == "mirror_only"`` — the source system is
@@ -644,161 +624,28 @@ async def update_entry(
     track = await Track.get(entry.track_id) if entry.track_id else None
     if not track:
         raise ResourceNotFoundError(message="Track not found for entry")
-    from app.services.migration_write_guard import assert_track_schema_writable
+    from app.services.entry_update import update_entry_in_track
 
-    await assert_track_schema_writable(track)
-    operational_model, _, _ = await resolve_track_runtime_profile(track)
-    current_schema_revision = schema_revision_from_profile_version(
-        getattr(operational_model, "version_number", None)
+    updated = await update_entry_in_track(
+        entry_id=entry_id,
+        user_id=user_id,
+        workspace_id=track.workspace_id,
+        actor_kind=getattr(request.state, "actor_kind", "human"),
+        title=title,
+        body=body,
+        description=description,
+        attachment_ids=attachment_ids,
+        custom_fields=custom_fields,
+        status=status,
+        type_id=type_id,
+        tags=tags,
+        expected_record_revision=expected_record_revision,
+        expected_schema_revision=expected_schema_revision,
     )
-    if (
-        expected_schema_revision is not None
-        and expected_schema_revision != current_schema_revision
-    ):
-        raise ResourceConflictError(
-            message="Entry schema has changed since it was read",
-            details={
-                "error_code": "schema_revision_conflict",
-                "expected_schema_revision": expected_schema_revision,
-                "current_schema_revision": current_schema_revision,
-            },
-        )
-    entry_type = await EntryType.get(entry.type_id) if entry.type_id else None
-    if not entry_type:
-        raise ResourceNotFoundError(message="Entry type not found for entry")
-
-    if custom_fields is not None:
-        from app.services.app_invariant_guards import enforce_protected_field_write
-
-        et_key = _slugify_entry_type_key(
-            str(
-                (entry_type.form_schema or {}).get("_manifest_entry_type_key")
-                or entry_type.name
-                or ""
-            )
-        )
-        ws_id = str(getattr(track, "workspace_id", "") or "")
-        await enforce_protected_field_write(
-            workspace_id=ws_id,
-            entry_type_key=et_key,
-            proposed_custom_fields=custom_fields,
-        )
-
-    prior_snapshot = await export_node(entry)  # D-03 before-snapshot
-    ctx = await entry.get_context()
-
-    type_changed = False
-    old_entry_type = entry_type
-    if type_id is not None and type_id != entry.type_id:
-        new_entry_type = await EntryType.get(type_id)
-        if not new_entry_type:
-            raise ResourceNotFoundError(message="Entry type not found")
-        if new_entry_type.track_id != track.id:
-            raise InsufficientPermissionsError(
-                message="Entry type does not belong to this track"
-            )
-        edges = await ctx.find_edges_between(
-            entry.id, entry_type.id, edge_class=IS_OF_TYPE
-        )
-        for edge in edges:
-            await edge.delete()
-        entry.type_id = type_id
-        await entry.connect(
-            new_entry_type,
-            edge=IS_OF_TYPE,
-            assigned_at=utc_now_iso(),
-        )
-        entry_type = new_entry_type
-        type_changed = True
-
-    if title is not None:
-        validate_no_profanity(title, "title")
-        entry.title = title
-    if body is not None:
-        validate_no_profanity(body, "body")
-        entry.body = body
-    if description is not None:
-        validate_no_profanity(description, "body")
-        entry.body = description
-    if attachment_ids is not None:
-        entry.attachment_ids = attachment_ids
-    if custom_fields is not None or type_changed:
-        _, runtime_tier, _ = await resolve_track_runtime_profile(track)
-        merged_custom_fields = (
-            {**(entry.custom_fields or {}), **custom_fields}
-            if custom_fields is not None
-            else dict(entry.custom_fields or {})
-        )
-        if type_changed:
-            merged_custom_fields = transition_custom_fields_on_type_change(
-                merged_custom_fields,
-                old_entry_type=old_entry_type,
-                new_entry_type=entry_type,
-                runtime_tier=runtime_tier,
-            )
-        (
-            validated_custom_fields,
-            relation_refs,
-        ) = await validate_and_materialize_entry_custom_fields(
-            track=track,
-            entry_type=entry_type,
-            custom_fields=merged_custom_fields,
-            runtime_tier=runtime_tier,
-            entry=entry,
-            actor_user_id=user_id,
-            actor_kind=getattr(request.state, "actor_kind", "human"),
-            source_entry_title=getattr(entry, "title", "") or "",
-        )
-        entry.custom_fields = validated_custom_fields
-        await sync_relation_edges(source_entry=entry, relation_refs=relation_refs)
-        workspace_id = await resolve_workspace_id_from_request(request, user_id)
-        await run_entry_save_hooks(
-            entry=entry,
-            workspace_id=workspace_id or "",
-            actor_id=user_id,
-            hook_point="entry.update",
-        )
-    if tags is not None:
-        new_tag_set = list(dict.fromkeys(tags))
-        _, runtime_tier, _ = await resolve_track_runtime_profile(track)
-        entry_type_spec = resolve_entry_type_spec(entry_type, runtime_tier)
-        await validate_taxonomy_constraints(
-            track_id=track.id,
-            tag_ids=new_tag_set,
-            entry_type_spec=entry_type_spec,
-            runtime_tier=runtime_tier,
-        )
-        await validate_tags_apply_to_entry_type(
-            track_id=track.id,
-            tag_ids=new_tag_set,
-            entry_type=entry_type,
-        )
-        prev = list(entry.tags)
-        to_remove = [t for t in prev if t not in new_tag_set]
-        to_add = [t for t in new_tag_set if t not in prev]
-        for tid in to_remove:
-            tag = await Tag.get(tid)
-            if tag:
-                rm_edges = await ctx.find_edges_between(
-                    entry.id, tag.id, edge_class=TAGGED_WITH
-                )
-                for e in rm_edges:
-                    await e.delete()
-        entry.tags = new_tag_set
-        now = utc_now_iso()
-        for tid in to_add:
-            tag = await Tag.get(tid)
-            if tag:
-                await entry.connect(
-                    tag, edge=TAGGED_WITH, tagged_at=now, tagged_by=user_id
-                )
-    if status is not None:
-        entry.status = status
-
-    entry.record_revision = current_revision + 1
-    entry.schema_revision = current_schema_revision
-    entry.updated_at = utc_now_iso()
-    await entry.save()
+    # The command's PG transaction has closed; presentation uses a fresh node.
+    entry = await Entry.get(updated.id)
+    if entry is None:
+        raise ResourceNotFoundError(message="Entry not found after update")
 
     # Gated entry.transform auto-dispatch (e.g. opportunity stage=won → project).
     # Best-effort: never rolls back the parent update. Only when custom_fields
@@ -844,18 +691,6 @@ async def update_entry(
     await attach_author_exports([entry_data])
     await attach_track_and_space(entry_data, entry)
     await attach_comment_count(entry_data, entry)
-
-    # D-05 single emission path. Sync inline emit before HTTP response (D-06).
-    await emit_change_event(
-        actor_kind="human",
-        actor_id=user_id,
-        action="entry.update",
-        resource_type="Entry",
-        resource_id=entry.id,
-        before=prior_snapshot,
-        after=await export_node(entry),
-        scope=f"track:{track.id}",
-    )
 
     # Phase 9 NOTIF-02 — fan out @mention notifications on update too.
     # New mentions introduced by an edit are dispatched; previous-state

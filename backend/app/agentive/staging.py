@@ -31,6 +31,7 @@ Scope notes
 from __future__ import annotations
 
 import asyncio
+import copy
 import hashlib
 import json
 import logging
@@ -1883,6 +1884,42 @@ def is_batch_open(user_id: str, session_id: Optional[str]) -> bool:
     return (user_id, session_id) in _open_batches
 
 
+async def pending_entry_creation(
+    *, user_id: str, session_id: Optional[str], reference: str
+) -> Optional[Dict[str, Any]]:
+    """Resolve a backward entry reference without claiming the entry exists.
+
+    Use the same reference compiler as commit/execution, scoped to this
+    principal's open conversation batch. No forward, foreign or ambiguous
+    references acquire deferred target validation.
+    """
+    from app.agentive.batch_validation import validate_batch_references
+    from app.agentive.staging_executors import _capture_batch_refs, _resolve_batch_refs
+
+    async with _lock:
+        batch = _open_batches.get((user_id, session_id))
+        if batch is None:
+            return None
+        ops = copy.deepcopy(batch.get("ops") or [])
+    validate_batch_references(
+        [*ops, {"kind": "attach_uploaded_file", "payload": {"entry_id": reference}}]
+    )
+    refs: Dict[str, str] = {}
+    entries: Dict[str, Dict[str, Any]] = {}
+    for index, op in enumerate(ops):
+        if op.get("kind") != "create_entry":
+            continue
+        identity = f"pending-entry:{index}"
+        payload = op.get("payload") or {}
+        entries[identity] = payload
+        _capture_batch_refs(
+            refs,
+            index,
+            {"entry": {"id": identity, "title": payload.get("title")}},
+        )
+    return entries.get(_resolve_batch_refs(reference, refs))
+
+
 def peek_open_batch(
     user_id: str, session_id: Optional[str]
 ) -> Optional[Dict[str, Any]]:
@@ -2097,7 +2134,7 @@ async def open_batch(
 async def append_to_batch(
     *, user_id: str, session_id: Optional[str], op: Dict[str, Any]
 ) -> int:
-    """Append a staged op to the open batch; return the new op count.
+    """Append a staged op; return its one-based result-reference position.
 
     ``op`` is the stager's ``{kind, summary, diff_human, diff_machine, payload}``
     dict. Raises ``StagingError('no_open_batch')`` if no batch is open.
@@ -2106,6 +2143,22 @@ async def append_to_batch(
         batch = _open_batches.get((user_id, session_id))
         if batch is None:
             raise StagingError("no_open_batch", "No batch is open for this session")
+        payload = op.get("payload") or {}
+        # A retry of the same revision-bound assignment is one proposed effect.
+        # Do not collapse creates/appends, changed predicates, or A→B→A edits.
+        if (
+            op.get("kind") == "update_entry"
+            and payload.get("entry_id")
+            and payload.get("expected_record_revision") is not None
+        ):
+            for index in range(len(batch["ops"]) - 1, -1, -1):
+                previous = batch["ops"][index]
+                prior_payload = previous.get("payload") or {}
+                if prior_payload.get("entry_id") != payload["entry_id"]:
+                    continue
+                if previous.get("kind") == op["kind"] and prior_payload == payload:
+                    return index + 1
+                break
         batch["ops"].append(dict(op))
         if _durable_batches_enabled() and not await staging_store.persist_open_batch(
             user_id=user_id, session_id=session_id, batch=batch

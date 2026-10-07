@@ -175,6 +175,24 @@ class ModelUsageObservation(BaseModel):
     complete: bool
 
 
+class ModelRequestContextObservation(BaseModel):
+    """Content-free dimensions of the actual outbound request, in characters.
+
+    These are diagnostic sizes, not billed token estimates. Instructions include
+    the framework-rendered catalogue and active skills; conversation includes
+    user/assistant messages and tool arguments; tool results/schemas are separate.
+    No prompt, record data, credentials or model reasoning is stored here.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+    instruction_chars: int = Field(ge=0)
+    conversation_chars: int = Field(ge=0)
+    tool_result_chars: int = Field(ge=0)
+    tool_schema_chars: int = Field(ge=0)
+    message_count: int = Field(ge=0)
+    visible_tool_count: int = Field(ge=0)
+
+
 class PhysicalModelRequest(BaseModel):
     """Immutable identity and outcome for exactly one outbound SDK attempt."""
 
@@ -199,6 +217,7 @@ class PhysicalModelRequest(BaseModel):
     ]
     provider_request_id: str | None = None
     usage: ModelUsageObservation | None = None
+    request_context: ModelRequestContextObservation | None = None
 
     @field_validator("request_id", "provider", "model")
     @classmethod

@@ -505,6 +505,9 @@ function RoutineRunBadge() {
 
 function AssistantMessage() {
   const isRunning = useAuiState((s) => s.message.status?.type === "running");
+  const isCancelled = useAuiState(
+    (s) => s.message.status?.type === "incomplete" && s.message.status.reason === "cancelled",
+  );
   const hasParts = useAuiState((s) => s.message.parts.length > 0);
   // Empty boundary artifacts stay action-free. Metadata-only final payloads
   // retain a debug-only action so diagnostics remain reachable without
@@ -551,6 +554,9 @@ function AssistantMessage() {
     >
       <div className="[overflow-wrap:anywhere] px-2 leading-relaxed text-[var(--text)]">
         <RoutineRunBadge />
+        {isCancelled && !hasParts && (
+          <span role="status" className="text-xs text-[var(--text-muted)]">Stopped</span>
+        )}
         {isRunning && !hasParts && (
           <span
             data-slot="aui_assistant-message-indicator"

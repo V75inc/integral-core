@@ -19,12 +19,9 @@ actor_id=ap.actor_id`` (the original agent — NEVER the approving human;
 the human's identity surfaces only in the ``approval.approve`` PolicyAction
 evaluation, which is gate-only).
 
-Helpers are intentionally minimal — they implement the substrate-level
-write only. Full handler-level validation (entry-type lookup, tag
-materialization, runtime tier resolution, cross-track guard) is delegated
-to the persistence boundary; any logic that would fail in the helper but
-succeed in the REST handler is documented inline as a v1 limitation
-(future hardening expands the helper surface to full handler parity).
+Create and update converge on the canonical typed entry commands used by
+HTTP and connector sync. Their field validation, revisions and graph writes
+are shared; this module owns approval policy and original actor attribution.
 
 This module's surface is INTERNAL-ONLY — every helper accepts an
 ``_internal_actor`` kwarg that the executor sets. The kwarg MUST NOT be
@@ -43,7 +40,6 @@ from app.schemas.policy import Resource, Subject
 from app.services.change_event import emit_change_event
 from app.services.entry_deletion import delete_entry_fast
 from app.services.policy_engine import evaluate as policy_evaluate
-from app.utils.time import utc_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -97,45 +93,27 @@ async def create_entry_internal(
     track = await Track.get(track_id)
     if not track:
         raise ValueError(f"create_entry_internal: track {track_id!r} not found")
-    from app.services.migration_write_guard import assert_track_schema_writable
+    from app.schemas.provenance import Provenance
+    from app.services.entry_create import create_entry_in_track
 
-    await assert_track_schema_writable(track)
-
-    now = utc_now_iso()
-    entry = await Entry.create(
-        type_id=payload.get("type_id", ""),
+    entry = await create_entry_in_track(
+        track=track,
+        user_id=actor_id,
+        actor_kind=actor_kind,
+        actor_id=actor_id,
         title=payload.get("title", ""),
-        author_id=actor_id,
-        track_id=track_id,
+        body=payload.get("body", "") or "",
+        type_id=payload.get("type_id", ""),
         tags=payload.get("tags") or [],
         custom_fields=payload.get("custom_fields") or {},
-        status="active",
-        body=payload.get("body", "") or "",
         attachment_ids=payload.get("attachment_ids") or [],
-        created_at=now,
-        updated_at=now,
-        **({"provenance": payload["provenance"]} if payload.get("provenance") else {}),
+        workspace_id=track.workspace_id,
+        provenance=(
+            Provenance.model_validate(payload["provenance"])
+            if payload.get("provenance")
+            else None
+        ),
     )
-
-    # Link to parent track via CONTAINS — mirrors api/entries.py:402.
-    from app.models.edges import CONTAINS
-
-    await track.connect(entry, edge=CONTAINS, added_at=now)
-
-    # Emit the ORIGINAL action (entry.create) with the ORIGINAL agent as
-    # actor — I-APPROVAL-02. The approving human's identity surfaces ONLY
-    # in the separate approval.approve PolicyAction gate evaluation.
-    await emit_change_event(
-        actor_kind=actor_kind,  # type: ignore[arg-type]
-        actor_id=actor_id,
-        action="entry.create",
-        resource_type="Entry",
-        resource_id=entry.id,
-        before=None,
-        after=await entry.export(flat=True),
-        scope=f"track:{track_id}",
-    )
-
     return await entry.export(flat=True)
 
 
@@ -186,33 +164,32 @@ async def update_entry_internal(
             f"update_entry_internal: policy denied (reason={decision.reason!r})"
         )
 
-    before = await entry.export(flat=True)
+    from app.services.entry_update import update_entry_in_track
 
-    # Apply mutation — substrate-level only (full custom-field validation
-    # deferred to v2 helper surface; v1 trusts payload semantically).
-    if "title" in payload:
-        entry.title = payload["title"]
-    if "body" in payload:
-        entry.body = payload["body"] or ""
-    if "custom_fields" in payload and isinstance(payload["custom_fields"], dict):
-        entry.custom_fields = payload["custom_fields"]
-    if "tags" in payload and isinstance(payload["tags"], list):
-        entry.tags = payload["tags"]
-    entry.updated_at = utc_now_iso()
-    await entry.save()
-
-    after = await entry.export(flat=True)
-    await emit_change_event(
-        actor_kind=actor_kind,  # type: ignore[arg-type]
+    entry = await update_entry_in_track(
+        entry_id=entry_id,
+        user_id=actor_id,
         actor_id=actor_id,
-        action="entry.update",
-        resource_type="Entry",
-        resource_id=entry.id,
-        before=before,
-        after=after,
-        scope=f"track:{entry.track_id or ''}",
+        actor_kind=actor_kind,
+        workspace_id=track.workspace_id,
+        **{
+            key: payload[key]
+            for key in (
+                "title",
+                "body",
+                "description",
+                "custom_fields",
+                "tags",
+                "type_id",
+                "attachment_ids",
+                "status",
+                "expected_record_revision",
+                "expected_schema_revision",
+            )
+            if key in payload
+        },
     )
-    return after
+    return await entry.export(flat=True)
 
 
 async def delete_entry_internal(

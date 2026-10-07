@@ -1,9 +1,11 @@
 import {
+  LayoutTemplate,
   PanelRightClose,
   PanelRightOpen,
   Settings,
 } from 'lucide-react';
 import {
+  Button,
   LINE_ICON_STROKE,
   PageSection,
   ViewTabs,
@@ -44,6 +46,8 @@ export interface TrackDetailViewChromeProps {
   trackActivityOpen: boolean;
   onToggleConfig: () => void;
   onToggleActivity: () => void;
+  /** Present only when the active view can be edited. */
+  onEditLayout?: () => void;
 }
 
 /** View tabs + right-rail toggles (or plain divider when no tabs). */
@@ -58,6 +62,7 @@ export function TrackDetailViewChrome({
   trackActivityOpen,
   onToggleConfig,
   onToggleActivity,
+  onEditLayout,
 }: TrackDetailViewChromeProps) {
   if (!trackId) {
     return <PageSection.Separator />;
@@ -120,14 +125,22 @@ export function TrackDetailViewChrome({
             noBorder
             actions={
               <div className="flex items-center gap-1">
-                {canViewTrackConfig ? (
-                  <ImproveThisButton
-                    target="view"
-                    subjectName={activeView.name}
-                    subjectId={activeView.id}
-                    trackId={trackId}
-                  />
-                ) : null}
+                <div role="group" aria-label="View actions" className="flex items-center gap-1">
+                  {onEditLayout ? (
+                    <Button size="sm" variant="ghost" onClick={onEditLayout} aria-label="Edit view layout">
+                      <LayoutTemplate size={13} strokeWidth={LINE_ICON_STROKE} aria-hidden />
+                      Edit layout
+                    </Button>
+                  ) : null}
+                  {canViewTrackConfig ? (
+                    <ImproveThisButton
+                      target="view"
+                      subjectName={activeView.name}
+                      subjectId={activeView.id}
+                      trackId={trackId}
+                    />
+                  ) : null}
+                </div>
                 {configToggle}
                 {activityToggle}
               </div>

@@ -130,9 +130,9 @@ def _current_view_composites() -> Dict[str, ViewTypeSpec]:
     return val if val is not None else {}
 
 
-def _current_extension_view_keys() -> Set[str]:
-    val = _active_extension_view_keys.get()
-    return val if val is not None else set()
+def _current_extension_view_keys() -> Optional[Set[str]]:
+    """None is a standalone compile; an empty set is authoritative App scope."""
+    return _active_extension_view_keys.get()
 
 
 def _field_type_known(type_: str) -> bool:
@@ -1361,7 +1361,7 @@ def _normalize_view_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
         if not evk:
             raise BadRequestError(message="extension_view requires extension_view_key")
         known = _current_extension_view_keys()
-        if known and evk not in known:
+        if known is not None and evk not in known:
             raise OperationalModelValidationError(
                 message=(
                     f"view references unknown extension_view_key {evk!r}; "
@@ -3702,7 +3702,7 @@ def compile_canonical_manifest(
 
     field_token = _active_field_composites.set(field_composites)
     view_token = _active_view_composites.set(view_composites)
-    extension_view_keys: Set[str] = set()
+    extension_view_keys: Optional[Set[str]] = None
     if scope == "app":
         app_node_early = _as_dict(base.get("app"), where="app")
         extension_view_keys = {

@@ -171,3 +171,109 @@ async def test_qualification_export_endpoint_is_scope_bound(
 
     assert response.status_code == 200, response.text
     assert response.json()["redacted_trace_ref"] == "agent-run:run-1"
+
+
+@pytest.mark.asyncio
+async def test_cancelled_qualification_reads_known_usage_and_cost_from_ledger(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from datetime import datetime, timezone
+    from decimal import Decimal
+
+    from app.agentive.harness import model_observations
+    from app.agentive.harness.contracts import (
+        HarnessExecutionScope,
+        ModelUsageObservation,
+        PhysicalModelRequest,
+    )
+
+    run = _Record(
+        run_id="run-1",
+        user_id="user-1",
+        workspace_id="workspace-1",
+        thread_id="thread-1",
+        provider_id="integral_native",
+        status="cancelled",
+        metadata={"model_observability": {"total_input_tokens": 0}},
+    )
+    scope = HarnessExecutionScope(
+        tenant_id="workspace-1",
+        principal_id="user-1",
+        workspace_id="workspace-1",
+        thread_id="thread-1",
+        session_id="original-session",
+        run_id="run-1",
+        permission_revision="p1",
+        capability_version="v1",
+    )
+    intent = PhysicalModelRequest(
+        request_id="request-1",
+        scope=scope,
+        provider="openai",
+        model="gpt-4.1",
+        attempt=1,
+        dispatched_at=datetime.now(timezone.utc),
+        outcome="dispatch_intent",
+    )
+    cancelled = intent.model_copy(
+        update={
+            "outcome": "cancelled",
+            "observed_at": datetime.now(timezone.utc),
+            "usage": ModelUsageObservation(
+                input_tokens=11,
+                output_tokens=2,
+                provider_cost_usd=Decimal("0.00001234"),
+                cost_source="litellm_response",
+                complete=False,
+            ),
+        }
+    )
+    transitions = [intent, cancelled]
+
+    async def find_run(query):
+        return run
+
+    async def find_steps(query):
+        return []
+
+    async def load(**identity):
+        assert identity == dict(
+            run_id="run-1",
+            principal_id="user-1",
+            workspace_id="workspace-1",
+            thread_id="thread-1",
+        )
+        return transitions
+
+    monkeypatch.setattr(execution_runs.AgentRun, "find_one", find_run)
+    monkeypatch.setattr(execution_runs.RunStep, "find", find_steps)
+    monkeypatch.setattr(model_observations, "list_run_model_request_observations", load)
+    receipt = await execution_runs.export_qualification_run(
+        "run-1",
+        user_id="user-1",
+        workspace_id="workspace-1",
+    )
+    assert receipt["metrics"]["input_tokens"] == 11
+    assert receipt["metrics"]["model_call_count"] == 1
+    assert receipt["observed_usage"]["provider_cost_usd"] == "0.00001234"
+    assert receipt["observed_usage"]["token_usage_complete"] is False
+    assert receipt["observed_usage"]["unresolved_request_count"] == 1
+    # A later terminal observation enriches the read without adding another billable call.
+    transitions.append(
+        cancelled.model_copy(
+            update={
+                "outcome": "responded",
+                "observed_at": datetime.now(timezone.utc),
+                "usage": cancelled.usage.model_copy(update={"complete": True}),
+            }
+        )
+    )
+    receipt = await execution_runs.export_qualification_run(
+        "run-1",
+        user_id="user-1",
+        workspace_id="workspace-1",
+    )
+    assert receipt["metrics"]["model_call_count"] == 1
+    assert receipt["observed_usage"]["token_usage_complete"] is True
+    assert receipt["observed_usage"]["provider_cost_complete"] is True
+    assert receipt["observed_usage"]["provider_cost_usd"] == "0.00001234"

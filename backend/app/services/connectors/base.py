@@ -8,11 +8,10 @@ followed by a colon — that fails the Pydantic ActorKind boundary because
 ``ActorKind = Literal["human", "agent", "connector", "system"]`` and the free
 form is not a Literal member. See I-CON-01 grep gate.
 
-Locked decision #6 (idempotency-key namespace): the default
-``idempotency_key_for`` hashes ``(slug, external_id)`` together. Per-Connector
-``connector_id`` is the per-instance namespace; ``slug`` is the per-CLASS
-namespace. Both together prevent the collision pattern in RESEARCH Pitfall 4
-where two connectors against the same external service produce the same key.
+Record identity has two boundaries: ``idempotency_key_for`` returns a stable
+vendor source key; the runtime namespaces it with the Integral workspace and
+installed connector instance. Two instances deliberately own distinct records.
+Legacy ambiguous or mismatched provenance requires reconciliation before sync.
 
 Locked decision #12 (core, not AGENTIVE_ENABLED-gated): only the BASE class +
 registry live here. Subclasses live in ``app/agentive/connectors/<slug>.py``
@@ -82,9 +81,8 @@ class SyncConnector:
     async def sync_pull(self, *, connector: Any) -> AsyncIterator[ExternalRecord]:  # type: ignore[empty-body]
         """Yield external records to materialize.
 
-        Connector subclass calls the external API and yields records. Cursor
-        advance is the core's responsibility (sync_runtime in Plan 05-03
-        updates ``connector.sync_cursor``).
+        Connector subclass calls the external API and yields records. Adapters advance their vendor cursors through the runtime's fenced save
+        adapter only after successful consumption. Core stamps sync completion.
 
         Note: ``connector`` parameter is typed ``Any`` to avoid an import cycle
         on the agentive-resident Connector Node; sync_runtime types it
@@ -98,8 +96,8 @@ class SyncConnector:
 
         Pitfall 4 (RESEARCH §"Common Pitfalls"): external systems do not
         coordinate ID namespaces — two connectors might both produce
-        ``external_id="123"``. The slug prefix prevents cross-connector key
-        collisions. Subclasses MAY override for systems where ``external_id``
+        ``external_id="123"``. The slug prefix separates vendor source keys; the runtime adds workspace
+        and installed-instance isolation before any persisted lookup. Subclasses MAY override for systems where ``external_id``
         alone isn't deterministic per logical record (e.g. RSS feeds that
         change item GUIDs across regenerations).
         """

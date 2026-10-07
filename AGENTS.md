@@ -348,7 +348,7 @@ Full spec in [docs/product/ARCHITECTURE.md §9](docs/product/ARCHITECTURE.md). S
 2. **Cascade chain:** Workspace (`visibility=organization` opt-in) → App `COLLABORATES_ON` → Track `COLLABORATES_ON` → Entry inherits track's effective role. Each layer adds to role pool; strongest wins.
 3. **Explicit deny** via `EXCLUDED_FROM` (App / Track / Entry). Overrides INHERITED paths only — `OWNS` and direct `COLLABORATES_ON` always beat it.
 4. **Roles:** `owner | editor | commenter | viewer`. `commenter` = read + post comments, no entry edits.
-5. **Backend-authoritative workspace scope.** List endpoints require the `X-Integral-Scope: ws:<workspace_id>` request header (note the `ws:` prefix — `parse_scope_header` returns `None` for a bare id, which silently falls back to the caller's Personal Workspace instead of erroring); backend validates caller has access to that workspace and refuses cross-workspace reads. Enforcement in `services/request_scope.py` + `services/workspace_resolver.py`. Frontend `WorkspaceSwitcher` and `ScopeContext` keep this in sync (incl. auto-switch when opening resource in another workspace user has access to).
+5. **Backend-authoritative workspace scope.** List endpoints require the `X-Integral-Scope: ws:<workspace_id>` request header (note the `ws:` prefix — an explicitly supplied bare or malformed header is rejected with 400; only an omitted header uses the default Personal Workspace); backend validates caller has access to that workspace and refuses cross-workspace reads. Enforcement in `services/request_scope.py` + `services/workspace_resolver.py`. Frontend `WorkspaceSwitcher` and `ScopeContext` keep this in sync (incl. auto-switch when opening resource in another workspace user has access to).
 
 Canonical resolver = `resolve_role(user_id, resource_type, resource_id)` in `backend/app/services/permissions.py`. Workspace-level checks in `services/workspace_permissions.py`.
 
@@ -366,7 +366,7 @@ Sharing surface (Phases 2–5):
 - Test mode (`TESTING=1`): `TestAuthBypassMiddleware` pre-sets `request.state.user`
 - Exempt paths: `/api/auth/*`, `/health`, `/docs`, `/openapi.json`
 - All other `/api/*` routes require authentication
-- Workspace scope header `X-Integral-Scope: ws:<workspace_id>` required on list endpoints (validated by `services/request_scope.py`; the `ws:` prefix is mandatory — a bare id parses to `None` and falls back to Personal Workspace)
+- Workspace scope header `X-Integral-Scope: ws:<workspace_id>` required on list endpoints (validated by `services/request_scope.py`; the `ws:` prefix is mandatory — a supplied bare or malformed header is rejected with 400; omission uses the default Personal Workspace)
 
 **Email verification (non-blocking).** New signups receive a 6-digit OTP via email. Login is **never** gated on `email_verified` — verification is surfaced through the system notification bar (see "System Notification Bar" below). OTP storage and validation in `services/email_verification.py` mirrors the `password_reset.py` pattern: SHA-256 hash on `User.preferences["email_verification"]` (slot = `{hash, expires_at, attempts}`), plaintext lives only in the outgoing email, `secrets.compare_digest` for constant-time validation, expiry checked before hash comparison. Endpoints (both auth-required so the caller owns the account):
 
