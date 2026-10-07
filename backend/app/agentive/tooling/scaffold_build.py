@@ -1585,9 +1585,10 @@ async def build_approved_design(
             return _invalid(
                 "plan_differs_from_design",
                 " ".join(fidelity)
-                + " Copy the approved view type and the approved seed title. "
-                "Do not invent either. If this difference remains, tell the user "
-                "and stop.",
+                + " Correct the generated operation plan to match the saved "
+                "approved blueprint; remove unapproved additions and restore "
+                "omitted approved items. This is plan repair, not a request to "
+                "re-approve the unchanged design.",
             )
     # Each Track this plan creates opens on its most useful specific view, not
     # the substrate Feed: the design's choice, else the plan's, else the first

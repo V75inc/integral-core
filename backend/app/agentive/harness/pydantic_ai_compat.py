@@ -316,18 +316,19 @@ def build_integral_context_compaction() -> ClearToolResults:
     Preserve the recent working set: filing needs the source, destination,
     schema and duplicate check together before proposing its writes. A fixed
     12k trigger retaining one result discarded those inputs during ordinary
-    receipt filing. Let the library resolve the model's context window and
-    compact older work only when the request approaches that window. Use a
-    conservative fallback for routes absent from the library's model registry.
-    Keep capability-load parts intact because the Harness derives active skill
-    state from them.
+    receipt filing. The observed DeepSeek turn spent nearly 596k input tokens
+    across nine requests, with a 79k peak input, while generating only 12.6k
+    output tokens. A large provider context window delayed fractional
+    compaction until beyond a useful working set. Trigger at 32k estimated
+    conversation tokens while retaining the five most recent tool pairs and
+    keeping capability-load parts intact because the Harness derives active
+    skill state from them.
     """
     return ClearToolResults(
-        max_fraction=0.7,
-        fallback_context_window=32_768,
+        max_tokens=32_768,
         # Keep the active decision window while releasing old tool payloads early.
-        # Scaffold turns can carry large blueprint checks; eight retained pairs
-        # multiplied that payload across each subsequent model request.
+        # Five pairs preserve the full filing context and recent scaffold
+        # receipts without replaying every older payload into each model request.
         keep_pairs=5,
         exclude_tools=frozenset({"load_capability"}),
         clear_tool_inputs=True,

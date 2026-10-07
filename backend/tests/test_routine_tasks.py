@@ -191,6 +191,39 @@ async def test_schedule_task_requires_active_session():
     assert result.is_error
 
 
+@pytest.mark.asyncio
+async def test_schedule_task_resolves_integral_native_thread_id():
+    """Native harness conversations bind reminders by durable ChatThread ID."""
+    user_id, workspace_id, _track_id, thread = (
+        await _bootstrap_user_workspace_track_thread("routine-native@example.com")
+    )
+    thread.provider_id = "integral_native"
+    await thread.save()
+
+    result = await dispatch_tool(
+        "integral_schedule_task",
+        {
+            "instruction": "Prepare a Monday reminder.",
+            "cron": "0 9 * * 1",
+            "timezone": "America/Guyana",
+        },
+        principal_id=user_id,
+        scope=workspace_id,
+        session_id=thread.id,
+    )
+    assert not result.is_error, result
+
+    from app.agentive.nodes import RoutineTask
+    from app.agentive.services.staging_apply import bless_and_execute
+
+    applied = await bless_and_execute(user_id=user_id, token=result.data["token"])
+    assert not applied["execute_result"].get("error"), applied
+    routines = await RoutineTask.find({"user_id": user_id})
+    assert len(routines) == 1
+    assert routines[0].thread_id == thread.id
+    assert routines[0].timezone == "America/Guyana"
+
+
 # ---------------------------------------------------------------------------
 # Integration — CRUD service functions
 # ---------------------------------------------------------------------------
