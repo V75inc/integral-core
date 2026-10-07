@@ -90,8 +90,12 @@ describe('useStagedChange — bless', () => {
       ok: true,
       execute_result: { skipped: true },
     } as never);
+    const onNeedsAgentNudge = vi.fn();
 
-    const { result } = renderHook(() => useStagedChange(staged), { wrapper });
+    const { result } = renderHook(
+      () => useStagedChange(staged, { onNeedsAgentNudge }),
+      { wrapper },
+    );
     await act(async () => {
       await result.current.bless();
     });
@@ -99,6 +103,7 @@ describe('useStagedChange — bless', () => {
     await waitFor(() => expect(result.current.state).toBe('blessed'));
     expect(result.current.error).toBe('The server skipped this write.');
     expect(invalidation.invalidateAfterAgentWrite).not.toHaveBeenCalled();
+    expect(onNeedsAgentNudge).not.toHaveBeenCalled();
   });
 
   it('invalidates caches after a write lands', async () => {
@@ -117,9 +122,9 @@ describe('useStagedChange — bless', () => {
     await waitFor(() => expect(result.current.state).toBe('consumed'));
   });
 
-  it('nudges the agent only when no write ran', async () => {
-    // The agent must call execute_X on its next turn — the surface has to
-    // say so.
+  it('nudges staging_follow_through when no write ran', async () => {
+    // The host must apply the blessed token — empty follow-through is the
+    // signal, not a free-form user utterance.
     vi.mocked(api.blessStagingToken).mockResolvedValue({ ok: true } as never);
     const onNeedsAgentNudge = vi.fn();
 
@@ -132,6 +137,7 @@ describe('useStagedChange — bless', () => {
     });
 
     expect(onNeedsAgentNudge).toHaveBeenCalledTimes(1);
+    expect(onNeedsAgentNudge).toHaveBeenCalledWith('staging_follow_through');
     await waitFor(() => expect(result.current.state).toBe('blessed'));
   });
 
@@ -153,19 +159,48 @@ describe('useStagedChange — bless', () => {
     expect(onNeedsAgentNudge).not.toHaveBeenCalled();
   });
 
+  it('nudges staging_follow_through when design affirm needs an agent build', async () => {
+    vi.mocked(api.blessStagingToken).mockResolvedValue({
+      ok: true,
+      execute_result: { needs_agent_build: true, approved: true },
+    } as never);
+    const onNeedsAgentNudge = vi.fn();
+    const events: string[] = [];
+    const onEvent = () => events.push('staging-state-changed');
+    window.addEventListener('integral:staging-state-changed', onEvent);
+
+    const { result } = renderHook(
+      () => useStagedChange(staged, { onNeedsAgentNudge }),
+      { wrapper },
+    );
+    await act(async () => {
+      await result.current.bless();
+    });
+
+    window.removeEventListener('integral:staging-state-changed', onEvent);
+    expect(onNeedsAgentNudge).toHaveBeenCalledWith('staging_follow_through');
+    expect(events).toEqual(['staging-state-changed']);
+    await waitFor(() => expect(result.current.state).toBe('consumed'));
+  });
+
   it('surfaces a server-side write failure instead of claiming success', async () => {
     vi.mocked(api.blessStagingToken).mockResolvedValue({
       ok: true,
       execute_result: { error: true, message: 'Track is read-only' },
     } as never);
+    const onNeedsAgentNudge = vi.fn();
 
-    const { result } = renderHook(() => useStagedChange(staged), { wrapper });
+    const { result } = renderHook(
+      () => useStagedChange(staged, { onNeedsAgentNudge }),
+      { wrapper },
+    );
     await act(async () => {
       await result.current.bless();
     });
 
     await waitFor(() => expect(result.current.error).toBe('Track is read-only'));
     expect(result.current.state).toBe('blessed');
+    expect(onNeedsAgentNudge).not.toHaveBeenCalled();
   });
 });
 

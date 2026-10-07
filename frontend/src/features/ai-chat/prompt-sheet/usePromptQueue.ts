@@ -49,6 +49,12 @@ export function usePromptQueue() {
   openRef.current = open;
   const [index, setIndex] = useState(0);
   const resumedRefreshes = useRef(new Set<string>());
+  // Resume keys we saw while a stream was active — retry once it settles.
+  const pendingResumeRef = useRef<{
+    threadId: string;
+    resumeText: string;
+    key: string;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,11 +68,20 @@ export function usePromptQueue() {
     if (!res?.open) {
       const resumeKey = `${activeThreadId}:${res?.resume_text ?? ''}`;
       if (res?.resume_text && !resumedRefreshes.current.has(resumeKey)) {
-        resumedRefreshes.current.add(resumeKey);
         // A clear chat approval is applied before its ordinary native turn
         // continues. The continuation belongs to that run; do not launch a
-        // second Prompt Sheet resume while its stream is active.
-        if (!isThreadStreaming(activeThreadId)) {
+        // second Prompt Sheet resume while its stream is active — and do not
+        // mark the key consumed until we actually resume, or a mid-stream
+        // poll permanently drops the continuation.
+        if (isThreadStreaming(activeThreadId)) {
+          pendingResumeRef.current = {
+            threadId: activeThreadId,
+            resumeText: res.resume_text,
+            key: resumeKey,
+          };
+        } else {
+          resumedRefreshes.current.add(resumeKey);
+          pendingResumeRef.current = null;
           resumeIfNeeded(threadRuntime, res.resume_text, appendAssistantNote);
         }
       }
@@ -123,6 +138,24 @@ export function usePromptQueue() {
       window.clearInterval(t);
     };
   }, [refresh]);
+
+  // Flush a resume that was deferred because a stream was already active.
+  // getPromptQueue only returns resume_text on the reconcile that closes the
+  // sheet, so a mid-stream miss cannot be recovered from a later poll alone.
+  useEffect(() => {
+    const pending = pendingResumeRef.current;
+    if (!pending || !activeThreadId || pending.threadId !== activeThreadId) {
+      return;
+    }
+    if (isThreadStreaming(pending.threadId)) return;
+    if (resumedRefreshes.current.has(pending.key)) {
+      pendingResumeRef.current = null;
+      return;
+    }
+    resumedRefreshes.current.add(pending.key);
+    pendingResumeRef.current = null;
+    resumeIfNeeded(threadRuntime, pending.resumeText, appendAssistantNote);
+  }, [activeThreadId, appendAssistantNote, isThreadStreaming, threadRuntime]);
 
   const items = queue?.items ?? [];
   const current: PromptItem | null = items[index] ?? null;

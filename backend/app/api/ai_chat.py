@@ -1936,10 +1936,21 @@ async def send_message(
 
         queue = get_queue(thread)
         if queue.get("status") != QUEUE_STATUS_CLOSED:
-            raise BadRequestError(message="Prompt Sheet is not ready to resume")
-        text = build_resume_summary(queue)
-        if not text:
-            raise BadRequestError(message="Prompt Sheet has no continuation")
+            # Design affirm may nudge resume before remaining sheet items
+            # drain. An affirmed design still owes a build turn (AGENT-17).
+            affirmed = bool(
+                getattr(thread, "provider_session_id", None)
+                and await chat_store.design_chat_affirmed_for_build(
+                    thread.provider_session_id
+                )
+            )
+            if not affirmed:
+                raise BadRequestError(message="Prompt Sheet is not ready to resume")
+            text = "[PROMPT_SHEET]\nDesign confirmed — continue the approved App build."
+        else:
+            text = build_resume_summary(queue)
+            if not text:
+                raise BadRequestError(message="Prompt Sheet has no continuation")
 
     # The turn runs in the THREAD's workspace. The chat provider forwards
     # this into the agent's tool-execution path so read/list tools
@@ -2344,12 +2355,59 @@ async def _start_user_turn(
     pending_writes = [
         sc for sc in pending_staged if getattr(sc, "kind", None) != "design_proposal"
     ]
+    host_applied_summaries: List[str] = []
     if host_action == "staging_follow_through":
-        pending_writes = [sc for sc in pending_writes if sc.state == "blessed"]
-        if not pending_writes:
+        blessed_writes = [sc for sc in pending_writes if sc.state == "blessed"]
+        if blessed_writes:
+            from app.agentive.services.staging_apply import execute_blessed_change
+            from app.agentive.staging import StagingError
+
+            still_blessed: List[Any] = []
+            for sc in blessed_writes:
+                try:
+                    applied = await execute_blessed_change(
+                        user_id=user_id,
+                        token=sc.token,
+                        request=request,
+                        staged=sc,
+                    )
+                except StagingError:
+                    still_blessed.append(sc)
+                    continue
+                if applied.get("consumed"):
+                    summary = sc.summary or sc.kind
+                    host_applied_summaries.append(str(summary))
+                else:
+                    # Skipped / refused — leave for model context as blessed.
+                    still_blessed.append(sc)
+            pending_writes = still_blessed
+            if host_applied_summaries:
+                applied_lines = "\n".join(
+                    f"- {line}" for line in host_applied_summaries
+                )
+                system_context_blocks.append(
+                    wrap_system_context(
+                        "host_applied_staging",
+                        "[SYSTEM:HOST-APPLIED-STAGING]\n"
+                        "The host already applied these approved changes:\n"
+                        f"{applied_lines}\n"
+                        "Do not re-stage or re-approve them. Read back only "
+                        "what still needs confirmation, then continue any "
+                        "still-unfulfilled part of the user's request.",
+                    )
+                )
+        elif not (
+            getattr(thread, "provider_session_id", None)
+            and await chat_store.design_chat_affirmed_for_build(
+                thread.provider_session_id
+            )
+        ):
             raise BadRequestError(
                 message="No approved staged change is waiting for follow-through"
             )
+        else:
+            # Design affirmed, token already consumed — build turn (AGENT-17).
+            pending_writes = []
     if pending_writes:
         import hashlib
 
@@ -2462,7 +2520,7 @@ async def _start_user_turn(
             "A text-only reply produces no approval card.",
         )
         system_context_blocks.append(confirm_block)
-    if host_action == "staging_follow_through":
+    if host_action == "staging_follow_through" and pending_writes:
         system_context_blocks.append(
             wrap_system_context(
                 "approved_staging_follow_through",
