@@ -109,12 +109,13 @@ function buildComponents(compact: boolean, mutedBody: boolean): Components {
     em: ({ children, ...props }) => <em className="italic" {...props}>{children as ReactNode}</em>,
     code: ({ className, children, ...props }) => {
       const isFenced = Boolean(className && className.includes('language-'));
+      const isPlainText = className?.split(/\s+/).includes('language-text');
       const raw = String(children).replace(/\n$/, '');
       const isMultilineBlock = !isFenced && raw.includes('\n');
       if (isFenced || isMultilineBlock) {
         return (
           <code
-            className={`${className || ''} block w-full bg-transparent p-0 text-[var(--text)] text-xs font-mono whitespace-pre`}
+            className={`${className || ''} block w-full bg-transparent p-0 text-[var(--text)] text-xs font-mono ${isPlainText ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}`}
             {...props}
           >
             {children as ReactNode}
