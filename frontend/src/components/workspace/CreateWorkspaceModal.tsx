@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Check, Package, Plus } from 'lucide-react';
 import {
   workspacesApi,
   SUGGESTED_WORKSPACE_TYPES,
   type Workspace,
+  type WorkspaceProvisioningSummary,
 } from '../../api/workspaces';
 import { operationalModelsApi } from '../../api/operationalModels';
 import {
@@ -22,7 +23,7 @@ import { parseTrackAccentHex } from '../../utils';
 export interface CreateWorkspaceModalProps {
   open: boolean;
   onClose: () => void;
-  /** Called after a successful create. The modal closes and resets first. */
+  /** Called after creation feedback is dismissed. The modal closes first. */
   onCreated?: (workspace: Workspace) => void | Promise<void>;
 }
 
@@ -121,6 +122,8 @@ export function CreateWorkspaceModal({
   const [desc, setDesc] = useState('');
   const [accentColor, setAccentColor] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState('');
+  const [createdResult, setCreatedResult] = useState<(Workspace & { provisioning?: WorkspaceProvisioningSummary }) | null>(null);
+  const completedId = useRef<string | null>(null);
 
   const createMut = useMutation({
     mutationFn: workspacesApi.create,
@@ -156,6 +159,7 @@ export function CreateWorkspaceModal({
   }, [open]);
 
   const resetForm = () => {
+    setCreatedResult(null);
     setStep(1);
     setSelectedIds([]);
     setWorkspaceType(SUGGESTED_WORKSPACE_TYPES[0].value);
@@ -172,7 +176,19 @@ export function CreateWorkspaceModal({
 
   const handleClose = () => {
     if (createMut.isPending) return;
+    if (createdResult) {
+      void finishCreated(createdResult);
+      return;
+    }
     onClose();
+  };
+
+  const finishCreated = async (created: Workspace) => {
+    if (completedId.current === created.id) return;
+    completedId.current = created.id;
+    resetForm();
+    onClose();
+    await onCreated?.(created);
   };
 
   const toggleId = (id: string) => {
@@ -213,18 +229,7 @@ export function CreateWorkspaceModal({
           ? { library_operational_model_ids: selectedIds }
           : {}),
       });
-      resetForm();
-      onClose();
-      const prov = (
-        created as {
-          provisioning?: {
-            installed: number;
-            awaiting_settings: number;
-            failed: number;
-            auto_dependencies?: number;
-          };
-        }
-      ).provisioning;
+      const prov = created.provisioning;
       if (prov) {
         const parts: string[] = [];
         if (prov.installed) {
@@ -246,7 +251,11 @@ export function CreateWorkspaceModal({
       } else {
         showToast('Workspace created', 'success');
       }
-      await onCreated?.(created);
+      if (prov && (prov.failed || prov.awaiting_settings)) {
+        setCreatedResult(created);
+      } else {
+        await finishCreated(created);
+      }
     } catch (e: unknown) {
       showToast(
         (e as { response?: { data?: { detail?: string } } })?.response?.data
@@ -262,10 +271,22 @@ export function CreateWorkspaceModal({
     <Modal
       open={open}
       onClose={handleClose}
-      title="New workspace"
+      title={createdResult ? 'Workspace created' : 'New workspace'}
       titleIcon={<Plus size={14} strokeWidth={LINE_ICON_STROKE} />}
     >
       <Modal.Body>
+        {createdResult ? <div className="space-y-3">
+          <Text as="p">{createdResult.name} is ready. Some Apps still need attention.</Text>
+          <Text as="p" tone="subtle">{createdResult.provisioning?.installed || 0} Apps installed · {createdResult.provisioning?.failed || 0} failed · {createdResult.provisioning?.awaiting_settings || 0} need settings</Text>
+          {createdResult.provisioning?.failures?.map((failure, index) => <Surface key={`${failure.library_cp_id}-${index}`} tone="panel" border="subtle" radius="card" padding="md">
+            <Text as="h3" weight="medium">{failure.name} was not installed</Text>
+            <Text as="p" className="mt-2">{failure.error_code === 'entitlement.required'
+              ? 'Access to this App is not active for this workspace. Ask your administrator to activate it, then retry in Manage apps.'
+              : 'Review this App’s requirements in Manage apps before retrying. Your workspace and any successfully installed Apps are kept.'}</Text>
+            <Text as="p" variant="meta" tone="subtle" className="mt-2">Reason: {failure.error_code}</Text>
+          </Surface>)}
+          <Text as="p" tone="subtle">Open Apps → Manage apps in this workspace to finish settings or retry an installation. Creating another workspace is not required.</Text>
+        </div> : <>
         <p className="text-xs text-[var(--text-subtle)] -mt-1 mb-1">{stepLabel}</p>
 
         {step === 1 ? (
@@ -447,9 +468,10 @@ export function CreateWorkspaceModal({
             </Text>
           </div>
         )}
+        </>}
       </Modal.Body>
       <Modal.Footer>
-        {step === 1 ? (
+        {createdResult ? <Button variant="primary" onClick={() => void finishCreated(createdResult)}>Continue to workspace</Button> : step === 1 ? (
           <>
             <Button
               variant="ghost"
