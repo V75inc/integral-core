@@ -8,7 +8,12 @@ import {
   Trash2,
 } from 'lucide-react';
 import { workspacesApi, appsApi, tracksApi } from '../api';
-import { isOwnedPersonalWorkspace, type Workspace, workspaceAccessLabel } from '../api/workspaces';
+import {
+  isOwnedPersonalWorkspace,
+  type Workspace,
+  workspaceAccessLabel,
+  workspaceMembershipRoleLabel,
+} from '../api/workspaces';
 import {
   Avatar,
   Button,
@@ -299,9 +304,7 @@ export function WorkspaceDetailPage() {
                   ? 'Personal workspace'
                   : isPersonal
                     ? `${workspaceAccessLabel(workspace)} workspace`
-                  : isOwner
-                    ? 'You are the workspace admin'
-                    : 'Member'}
+                    : `Your role · ${workspaceMembershipRoleLabel(workspace)}`}
               </span>
             </div>
             {isPersonal && !isOwner ? (
