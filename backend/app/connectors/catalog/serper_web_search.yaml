@@ -19,3 +19,4 @@ auth:
       hint: Leave blank to use the system-level SERPER_API_KEY configured by your Integral administrator.
 read_only_tools:
   - search_web
+  - fetch_web_page

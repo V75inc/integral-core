@@ -794,7 +794,17 @@ async def _maybe_stage_mcp_write(
     from app.agentive.services.connector_registry_node import decrypt_auth_state
 
     connector_id = str(spec.get("_mcp_connector_id") or "")
-    connector = await Connector.get(connector_id)
+    if not connector_id and spec.get("_mcp_connector_slug"):
+        from app.agentive.connectors.connector_resolution import resolve_connector_row
+
+        connector = await resolve_connector_row(
+            workspace_id=scope or "",
+            slug=str(spec["_mcp_connector_slug"]),
+            principal_id=principal_id,
+        )
+        connector_id = str(connector.id)
+    else:
+        connector = await Connector.get(connector_id)
     auth_state = decrypt_auth_state(getattr(connector, "auth_state", None) or {})
     if not is_write_tool(spec, auth_state=auth_state):
         return None
@@ -932,7 +942,9 @@ async def _dispatch_bundle_tool(
     #
     # Only the resident path stages. A human calling the tool directly IS the
     # approver, and has no session to hang a card on.
-    if session_id and spec.get("_mcp_connector_id"):
+    if session_id and (
+        spec.get("_mcp_connector_id") or spec.get("_mcp_connector_slug")
+    ):
         staged = await _maybe_stage_mcp_write(
             name,
             spec,

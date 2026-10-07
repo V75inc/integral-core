@@ -1609,3 +1609,49 @@ async def test_identical_read_recovers_and_observes_new_state(
     second = await tool.function_schema.call({}, SimpleNamespace(tool_call_id="second"))
     assert second["entries"][0]["id"] == "n.Entry.created"
     assert attempts == 2
+
+
+@pytest.mark.asyncio
+async def test_vetted_connector_read_crosses_broker_on_no_save_turn(monkeypatch):
+    invocations = []
+
+    async def invoke(**kwargs):
+        invocations.append(kwargs)
+        return CapabilityResult(ok=True, data={"results": []})
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    tools = build_brokered_tools(
+        scope=_scope(),
+        no_workspace_writes=True,
+        catalogue=[
+            {
+                "name": "mcp__serper_web_search__search_web",
+                "description": "Search public sources.",
+                "op_class": "read",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                },
+            },
+            {
+                "name": "mcp__custom__delete",
+                "description": "Unknown remote side effects.",
+                "input_schema": {"type": "object", "properties": {}},
+            },
+        ],
+    )
+    context = SimpleNamespace(tool_call_id="read", active_capability_ids=set())
+    read = next(tool for tool in tools if tool.name.endswith("search_web"))
+    assert read.sequential is False
+    result = await read.function_schema.call({"query": "public documentation"}, context)
+    assert result["results"] == []
+    assert invocations[0]["source"] == "connector"
+    assert invocations[0]["op_class"] == "read"
+    assert invocations[0]["workspace_id"] == "workspace-1"
+    write = next(tool for tool in tools if tool.name.endswith("delete"))
+    assert write.sequential is True
+    denied = await write.function_schema.call({}, context)
+    assert denied["error_code"] == "user_no_workspace_writes"
+    assert len(invocations) == 1

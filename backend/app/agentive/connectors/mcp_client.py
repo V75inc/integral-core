@@ -339,6 +339,12 @@ async def call_remote_tool(
     """Connect, ``call_tool``, return structured content or text payload."""
     async with open_mcp_session(auth_state) as session:
         result = await session.call_tool(tool_name, arguments=dict(arguments or {}))
+        if bool(getattr(result, "isError", False)):
+            # Protocol failure is authoritative even when the server supplies
+            # structured content or text. Never receipt it as a successful read
+            # or mark connector health OK. Do not echo arbitrary remote error
+            # bodies (which may contain credentials) into logs or model context.
+            raise RuntimeError("Remote MCP tool reported an error")
         # Prefer structuredContent when present; else flatten text blocks.
         structured = getattr(result, "structuredContent", None)
         if structured is not None:
@@ -351,8 +357,7 @@ async def call_remote_tool(
                 texts.append(str(text))
         if texts:
             return {"text": "\n".join(texts)} if len(texts) > 1 else {"text": texts[0]}
-        is_error = bool(getattr(result, "isError", False))
-        return {"ok": not is_error, "raw": str(result)}
+        return {"ok": True, "raw": str(result)}
 
 
 _TASKGROUP_NOISE = (

@@ -161,6 +161,19 @@ def _load_core_skill_names() -> Set[str]:
             "SKILL.md",
         )
     )
+    paths.extend(
+        glob.glob(
+            os.path.join(
+                str(resident_agent_root()),
+                "agents",
+                "integral",
+                "integral_agent",
+                "skills",
+                "*",
+                "SKILL.md",
+            )
+        )
+    )
     names = {os.path.basename(os.path.dirname(p)) for p in paths}
     _RESERVED_CORE_NAMES = names
     return names
@@ -169,7 +182,7 @@ def _load_core_skill_names() -> Set[str]:
 def _core_skill_dir(skill_name: str) -> str:
     from app.agentive.resident_root import resident_agent_root
 
-    return os.path.join(
+    embedded = os.path.join(
         str(resident_agent_root()),
         "agents",
         "integral",
@@ -177,6 +190,16 @@ def _core_skill_dir(skill_name: str) -> str:
         "actions",
         "integral",
         "embedded_integral_action",
+        "skills",
+        skill_name,
+    )
+    if os.path.isfile(os.path.join(embedded, "SKILL.md")):
+        return embedded
+    return os.path.join(
+        str(resident_agent_root()),
+        "agents",
+        "integral",
+        "integral_agent",
         "skills",
         skill_name,
     )

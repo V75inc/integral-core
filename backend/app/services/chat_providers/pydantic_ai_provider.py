@@ -1018,6 +1018,14 @@ class PydanticAIProvider:
         from app.agentive.tooling.catalogue import build_tool_catalogue
 
         catalogue = build_tool_catalogue()
+        from app.agentive.harness.connector_tools import build_connector_tool_catalogue
+
+        catalogue = [
+            *catalogue,
+            *await build_connector_tool_catalogue(
+                workspace_id=ctx.workspace_id, principal_id=ctx.user_id
+            ),
+        ]
         from app.agentive.workspace_agent_profile import (
             compose_workspace_agent_profile,
         )
