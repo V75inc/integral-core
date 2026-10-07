@@ -79,6 +79,18 @@ allowed-tools: integral_query_entries integral_resolve_entry integral_create_ent
    Until commit, records are only accumulated, not created. If preparation
    fails, cancel the open batch. Never claim a queued operation exists without
    a durable staged result. For a single record, use the mutation directly.
+   For related new records, stage their dependencies first. Each queued
+   creation returns `result_ref`, such as `{{step_1.id}}`; use that exact
+   reference in the later record's schema-declared relation field. You can
+   also use `{{entry.id:Exact staged title}}` when that title is unique in
+   the batch. These references are resolved to saved IDs during execution;
+   do not ask the user to approve or save each dependency separately, invent
+   IDs, or query the graph for records that are still only proposed. Read
+   each destination's schema, present the complete related set together,
+   and wait for one decision. After execution, verify the saved relations
+   from the receipt and read back only the information needed to confirm
+   the requested result. If a step fails, follow the receipt's progress;
+   do not replay completed steps.
    Mutations are **propose** tools: you call a single tool, it
    **stages** a change the user approves in Integral. There is **no
    separate execute step** — when the user blesses the staged change in

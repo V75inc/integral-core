@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Collection, Sequence
@@ -39,7 +38,6 @@ _ALWAYS_AVAILABLE_TOOLS = frozenset(
         "integral_verify_build",
     }
 )
-_MAX_BROKERED_CALLS_PER_RUN = 24
 # App setup is one declared proposal/build contract. Its implementation still
 # invokes these authorized primitives through Core, but exposing them as
 # separate model tools bypasses the saved blueprint and opens redundant
@@ -51,11 +49,6 @@ _BUILD_IMPLEMENTATION_TOOLS = frozenset(
         "integral_register_track_template",
     }
 )
-_MAX_TOOL_CALLS_PER_RUN = {
-    "integral_check_design_coverage": 3,
-    "integral_propose_design": 2,
-    "integral_verify_build": 1,
-}
 _REQUIRED_SKILLS_BY_TOOL = {
     "integral_check_design_coverage": "integral-scaffold",
     "integral_propose_design": "integral-scaffold",
@@ -126,17 +119,6 @@ def _make_handler(
         nonlocal build_attempted
         call_state["attempted"] += 1
         arguments = normalize_tool_arguments(arguments, input_schema)
-        if call_state["attempted"] > _MAX_BROKERED_CALLS_PER_RUN:
-            return {
-                "error": True,
-                "error_code": "harness_tool_call_limit",
-                "message": (
-                    "This turn reached Integral's brokered tool-call limit. "
-                    "Stop calling tools and respond with the information already "
-                    "verified, or explain what remains unknown."
-                ),
-                "retryable": False,
-            }
         if no_workspace_writes and capability_op_class != "read":
             return {
                 "error": True,
@@ -234,41 +216,9 @@ def _make_handler(
                 ),
                 "retryable": False,
             }
-        capability_calls = call_state["capability_calls"]
-        capability_calls[capability_name] = capability_calls.get(capability_name, 0) + 1
-        max_calls = _MAX_TOOL_CALLS_PER_RUN.get(capability_name)
-        if max_calls is not None and capability_calls[capability_name] > max_calls:
-            return {
-                "error": True,
-                "error_code": "capability_call_limit",
-                "message": (
-                    f"{capability_name} reached Integral's per-turn limit of "
-                    f"{max_calls} calls. Use the results already returned and "
-                    "finish the turn without repeating this capability."
-                ),
-                "retryable": False,
-            }
-        if capability_op_class == "read":
-            signature = json.dumps(
-                [capability_name, arguments],
-                sort_keys=True,
-                separators=(",", ":"),
-                default=str,
-            )
-            seen_reads = call_state["read_signatures"]
-            if signature in seen_reads:
-                return {
-                    "error": True,
-                    "error_code": "repeated_read_suppressed",
-                    "message": (
-                        "This exact read was already performed in this turn. "
-                        "Use the earlier result; do not repeat this call. If it "
-                        "did not answer the request, search for a more relevant "
-                        "capability once, then stop and explain the limitation."
-                    ),
-                    "retryable": False,
-                }
-            seen_reads.add(signature)
+        # Pydantic AI UsageLimits owns bounded execution. Reads must remain
+        # retryable after a failed attempt and fresh after a mutation; attempt
+        # signatures and per-tool quotas are not a correctness-preserving cache.
         if capability_name == "integral_build_approved_design":
             if not call_state.get("approved_design_ready"):
                 if call_state.get("pending_design"):
@@ -431,8 +381,6 @@ def build_brokered_tools(
     seen_names: set[str] = set()
     call_state = run_state if run_state is not None else {}
     call_state.setdefault("attempted", 0)
-    call_state.setdefault("capability_calls", {})
-    call_state.setdefault("read_signatures", set())
     call_state.setdefault("scaffold_coverage_attempted", False)
     call_state.setdefault("proposal_attempted", False)
     call_state.setdefault("proposal_succeeded", False)
@@ -633,12 +581,6 @@ def _prepare_capability_tool(
             (call_state or {}).get("approved_design_ready")
             or (call_state or {}).get("pending_design")
         )
-        if (
-            not saved_design_build
-            and (call_state or {}).get("capability_search_required")
-            and not (call_state or {}).get("capability_search_completed")
-        ):
-            return None
         if (
             required_skill
             and required_skill not in ctx.active_capability_ids

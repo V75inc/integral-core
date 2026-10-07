@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Surface } from '../../ui';
 import { useQuery } from '@tanstack/react-query';
 import { extensionsApi } from '../../api/extensions';
 import { useScope } from '../../context/ScopeContext';
 import { useNavigate } from 'react-router-dom';
 import { useContributionLifecycle } from '../entries/contributionLifecycle';
+import { Button } from '../ui';
 import { AppExtensionViewHost } from '../extensions/AppExtensionViewHost';
 import { ExtensionViewFallback } from '../extensions/ExtensionViewFallback';
 import {
@@ -45,16 +46,23 @@ function resolveAppId(
   return String(track?.app?.id || bindings.appId || '').trim();
 }
 
-export function ExtensionViewWidget({
-  view,
-  entries,
-  track,
-}: ViewWidgetProps) {
-  const viewKey = resolveExtensionViewKey(view);
-  const bindings = ((view.config || {}) as { __bindings?: ContributionBindings })
-    .__bindings || {};
+export function ExtensionViewWidget(props: ViewWidgetProps) {
+  const bindings = ((props.view.config || {}) as { __bindings?: ContributionBindings }).__bindings || {};
+  const appId = resolveAppId(props.track, bindings);
+  const viewKey = resolveExtensionViewKey(props.view);
+  const { scope } = useScope();
+  const workspaceId = scope?.workspaceId ?? '';
+  // A host failure belongs to one authorized mount. A different App, view or
+  // workspace starts a new session, including iframe state and error handling.
+  const identity = JSON.stringify([appId, viewKey, workspaceId]);
+  return <ExtensionViewSession key={identity} {...props} appId={appId} viewKey={viewKey} workspaceId={workspaceId} />;
+}
+
+function ExtensionViewSession({
+  view, entries, track, appId, viewKey, workspaceId,
+}: ViewWidgetProps & { appId: string; viewKey: string; workspaceId: string }) {
+  const bindings = ((view.config || {}) as { __bindings?: ContributionBindings }).__bindings || {};
   const lifecycle = useContributionLifecycle();
-  const appId = resolveAppId(track, bindings);
   const trackId = String(
     track?.id || bindings.trackId || lifecycle?.trackId || view.track_id || '',
   ).trim();
@@ -64,9 +72,8 @@ export function ExtensionViewWidget({
       (entries[0] && entries[0].id) ||
       '',
   ).trim();
-  const { scope } = useScope();
-  const workspaceId = scope?.workspaceId ?? '';
   const [failed, setFailed] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const navigate = useNavigate();
   // Prefer live lifecycle values (updated by sibling form regions) over the
   // snapshot frozen into __bindings when the host first mounted.
@@ -114,12 +121,6 @@ export function ExtensionViewWidget({
     retry: false,
   });
 
-  useEffect(() => {
-    if (handshakeQuery.isError) {
-      setFailed(true);
-    }
-  }, [handshakeQuery.isError]);
-
   if (!appId || !viewKey) {
     return (
       <ExtensionViewFallback
@@ -128,11 +129,21 @@ export function ExtensionViewWidget({
     );
   }
 
-  if (failed || handshakeQuery.isError) {
-    return <ExtensionViewFallback />;
+  if ((failed || handshakeQuery.isError) && !retrying) {
+    return <ExtensionViewFallback action={
+      <Button size="sm" variant="outline" onClick={async () => {
+        setRetrying(true);
+        try {
+          const result = await handshakeQuery.refetch();
+          if (!result.isError) setFailed(false);
+        } finally {
+          setRetrying(false);
+        }
+      }}>Retry view</Button>
+    } />;
   }
 
-  if (handshakeQuery.isLoading || !handshakeQuery.data) {
+  if (retrying || handshakeQuery.isLoading || !handshakeQuery.data) {
     return (
       <Surface tone="panel-2" border="none" radius="card" className="min-h-[240px] animate-pulse" />
     );
@@ -142,6 +153,7 @@ export function ExtensionViewWidget({
   const isTemplateEditor = viewKey === 'template_editor';
   return (
     <AppExtensionViewHost
+      key={hs.handshake_token}
       appId={appId}
       viewKey={viewKey}
       workspaceId={workspaceId}

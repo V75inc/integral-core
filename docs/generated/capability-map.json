@@ -211,6 +211,7 @@
         "integral_attach_uploaded_file_to_entry",
         "integral_attach_uploaded_image_to_entry",
         "integral_begin_batch",
+        "integral_cancel_batch",
         "integral_commit_batch",
         "integral_create_entry",
         "integral_get_attachment_text",
@@ -228,6 +229,7 @@
         "integral_attach_file",
         "integral_attach_uploaded_file_to_entry",
         "integral_begin_batch",
+        "integral_cancel_batch",
         "integral_commit_batch",
         "integral_create_entry",
         "integral_get_attachment_text",
@@ -1765,6 +1767,7 @@
       "op_class": "propose",
       "policy_action": null,
       "skills": [
+        "integral-attachments",
         "integral-entries",
         "integral-onboard",
         "integral-organize",

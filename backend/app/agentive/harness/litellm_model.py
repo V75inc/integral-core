@@ -25,6 +25,7 @@ import httpx
 
 from app.agentive.harness.contracts import (
     HarnessExecutionScope,
+    ModelRequestContextObservation,
     ModelUsageObservation,
     PhysicalModelRequest,
     ResolvedModelRoute,
@@ -148,6 +149,33 @@ def _plain(value: Any) -> Any:
     if isinstance(value, dict):
         return value
     raise TypeError("LiteLLM returned an unsupported response object")
+
+
+def _request_context(body: dict[str, Any]) -> ModelRequestContextObservation:
+    """Measure serialized request components without retaining their contents."""
+    sizes = {"instruction": 0, "conversation": 0, "tool_result": 0}
+    messages = body.get("messages") or []
+    for message in messages:
+        role = message.get("role") if isinstance(message, dict) else None
+        component = (
+            "instruction"
+            if role in {"system", "developer"}
+            else "tool_result" if role == "tool" else "conversation"
+        )
+        sizes[component] += len(
+            json.dumps(message, ensure_ascii=False, separators=(",", ":"))
+        )
+    tools = body.get("tools") or []
+    return ModelRequestContextObservation(
+        instruction_chars=sizes["instruction"],
+        conversation_chars=sizes["conversation"],
+        tool_result_chars=sizes["tool_result"],
+        tool_schema_chars=len(
+            json.dumps(tools, ensure_ascii=False, separators=(",", ":"))
+        ),
+        message_count=len(messages),
+        visible_tool_count=len(tools),
+    )
 
 
 def _cost_value(value: Any) -> Decimal | None:
@@ -472,6 +500,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         response: Any | None = None,
         complete: bool = False,
         required: bool = False,
+        request_context: ModelRequestContextObservation | None = None,
     ) -> None:
         if self._observer is None:
             if required:
@@ -502,6 +531,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
                 _provider_request_id(response) if response is not None else None
             ),
             usage=usage,
+            request_context=request_context,
         )
         try:
             await self._observer(observation)
@@ -539,6 +569,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
                 request=request,
             )
 
+        request_context = _request_context(body)
         request_id = str(uuid4())
         started_at = datetime.now(timezone.utc)
         kwargs = dict(body)
@@ -593,6 +624,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
 
         await self._observe(
             request_id=request_id,
+            request_context=request_context,
             started_at=started_at,
             outcome="dispatch_intent",
             required=True,
@@ -603,6 +635,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         except asyncio.CancelledError:
             await self._observe(
                 request_id=request_id,
+                request_context=request_context,
                 started_at=started_at,
                 outcome="cancelled",
             )
@@ -610,6 +643,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         except BaseException:
             await self._observe(
                 request_id=request_id,
+                request_context=request_context,
                 started_at=started_at,
                 outcome="outcome_unknown",
             )
@@ -619,6 +653,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
             if not hasattr(response, "__aiter__"):
                 await self._observe(
                     request_id=request_id,
+                    request_context=request_context,
                     started_at=started_at,
                     outcome="failed",
                 )
@@ -631,6 +666,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
             async def finish(last: Any | None, outcome: _ModelStreamOutcome) -> None:
                 await self._observe(
                     request_id=request_id,
+                    request_context=request_context,
                     started_at=started_at,
                     outcome=outcome.value,
                     response=last,
@@ -652,6 +688,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         except Exception:
             await self._observe(
                 request_id=request_id,
+                request_context=request_context,
                 started_at=started_at,
                 outcome="failed",
             )
@@ -663,6 +700,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
 
         await self._observe(
             request_id=request_id,
+            request_context=request_context,
             started_at=started_at,
             outcome="responded",
             response=response,

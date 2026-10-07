@@ -33,17 +33,24 @@ from pydantic_ai import (
 )
 from pydantic_ai.capabilities import Instrumentation, ToolSearch
 from pydantic_ai.messages import (
+    LoadCapabilityCallPart,
+    LoadCapabilityReturnPart,
     ModelMessagesTypeAdapter,
     ModelRequest,
     ModelResponse,
+    ToolAvailabilityDeltaPart,
     ToolReturn,
     ToolReturnPart,
     UserPromptPart,
+    post_compaction_window,
 )
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.litellm import LiteLLMProvider
 from pydantic_ai_harness import Planning, Skills, StepPersistence
-from pydantic_ai_harness.compaction import ClearToolResults
+from pydantic_ai_harness.compaction import (
+    ClearToolResults,
+    SummarizingCompaction,
+)
 from pydantic_ai_harness.conversation_search import (
     ConversationSearch,
     SnapshotHistorySource,
@@ -80,9 +87,9 @@ class IntegralToolDisclosure(ToolSearch):
     def get_model_settings(self):
         """Require initial discovery through the library's dynamic tool choice.
 
-        Framework-recorded discovery in the current user turn permits normal
-        choice thereafter. An old search cannot select a new workflow. No user-text intent
-        classifier or second planning loop participates in this decision.
+        Reuse framework-restored availability under the current Core catalogue
+        and session revision. Fresh runs discover first; warm runs can use their
+        loaded workflow or search for another. No user-text classifier participates.
         """
         inherited = super().get_model_settings()
 
@@ -140,7 +147,11 @@ class IntegralToolDisclosure(ToolSearch):
                 for part in message.parts
             )
             if not searched:
-                resolved["tool_choice"] = ["search_capabilities"]
+                available: frozenset[str] = getattr(
+                    ctx, "available_tool_names", frozenset()
+                )
+                if not any(name.startswith("integral_") for name in available):
+                    resolved["tool_choice"] = ["search_capabilities"]
             else:
                 candidates = {
                     item.get("load_with", {}).get("id")
@@ -191,30 +202,7 @@ class IntegralToolDisclosure(ToolSearch):
                 return True
             if not definition.name.startswith("integral_"):
                 return True
-            turn_start = next(
-                (
-                    index
-                    for index in range(len(ctx.messages) - 1, -1, -1)
-                    if isinstance(ctx.messages[index], ModelRequest)
-                    and any(
-                        isinstance(part, UserPromptPart)
-                        for part in ctx.messages[index].parts
-                    )
-                ),
-                0,
-            )
-            searched = any(
-                isinstance(part, ToolReturnPart)
-                and part.tool_name == "search_capabilities"
-                and not (isinstance(part.content, dict) and part.content.get("error"))
-                for message in ctx.messages[turn_start:]
-                if isinstance(message, ModelRequest)
-                for part in message.parts
-            )
-            if not searched:
-                return False
-
-            # A successful catalog search is not permission to disclose the full
+            # Restored discovery is not permission to disclose the full
             # Integral tool catalogue. Ask the framework whether this concrete
             # definition is available: it accounts for both search discovery and
             # deferred Skills ownership, including the required load-before-call
@@ -335,6 +323,112 @@ def build_integral_context_compaction() -> ClearToolResults:
     )
 
 
+@dataclass
+class IntegralHistorySummary(SummarizingCompaction):
+    """Keep typed disclosure evidence when the library summarizes prose.
+
+    Capability activation is derived from completed typed load pairs, not from
+    a summary saying a skill was loaded. Preserve one pair per current skill
+    and a bounded tool-availability delta using public message types. The
+    library still owns summarization, pairing, execution and checkpointing;
+    current registration and the broker remain the authorization boundary.
+    """
+
+    max_history_bytes: int = 96_000
+
+    async def before_model_request(self, ctx, request_context):
+        # Pydantic AI 2.10 makes request_context.messages request-only.
+        # Persist compaction through the documented RunContext.messages seam
+        # so StepPersistence and later turns receive the same working history.
+        before = list(request_context.messages)
+        processed = await super().before_model_request(ctx, request_context)
+        if processed.messages != before:
+            ctx.messages[:] = processed.messages
+        return processed
+
+    async def compact(self, messages, ctx):
+        # Keep the active user request and its tool sequence exact. Summarizing
+        # it mid-batch can erase a queued effect receipt and provoke restaging.
+        # ClearToolResults still bounds older payloads; the library usage limits
+        # bound a long active turn. Summarization owns completed-turn history.
+        turn_start = next(
+            (
+                index
+                for index in range(len(messages) - 1, -1, -1)
+                if isinstance(messages[index], ModelRequest)
+                and any(
+                    isinstance(part, UserPromptPart) for part in messages[index].parts
+                )
+            ),
+            0,
+        )
+        history, active_turn = messages[:turn_start], messages[turn_start:]
+        if (
+            len(history) <= self.keep_messages
+            and len(ModelMessagesTypeAdapter.dump_json(history))
+            <= self.max_history_bytes
+        ):
+            return messages
+        compacted = await super().compact(history, ctx)
+        if compacted == history:
+            return messages
+        calls = {}
+        pairs = {}
+        names = set()
+        for message in post_compaction_window(messages):
+            for part in message.parts:
+                if isinstance(part, LoadCapabilityCallPart):
+                    calls[part.tool_call_id] = part
+                elif isinstance(part, LoadCapabilityReturnPart):
+                    call = calls.get(part.tool_call_id)
+                    if call and call.capability_id in ctx.active_capability_ids:
+                        pairs[call.capability_id] = (call, part)
+                elif isinstance(part, ToolAvailabilityDeltaPart):
+                    names.update(name for name in part.tools_added if name in ctx.tools)
+        retained = {
+            part.tool_call_id
+            for message in compacted
+            for part in message.parts
+            if isinstance(part, LoadCapabilityReturnPart)
+        }
+        evidence = []
+        for call, result in pairs.values():
+            if result.tool_call_id not in retained:
+                evidence.extend(
+                    [ModelResponse(parts=[call]), ModelRequest(parts=[result])]
+                )
+        if names:
+            evidence.append(
+                ModelRequest(
+                    parts=[ToolAvailabilityDeltaPart(tools_added=sorted(names))]
+                )
+            )
+        # A summary is a leading system request; attach state after it and
+        # before the retained current task. No execution is replayed.
+        return [compacted[0], *evidence, *compacted[1:], *active_turn]
+
+
+def build_integral_history_compaction() -> IntegralHistorySummary:
+    """Summarize old prose after the separate cheap result-clearing pass.
+
+    The populated browser chat retained 112k conversation characters after
+    clearing. Provider usage anchors and heuristic reclaim can understate the
+    remaining context when reasoning was not sent back to the provider. A
+    library message-count trigger supplies an independent bound, alongside
+    the token trigger. Preserve recent user constraints and task data; scoped
+    checkpoints remain searchable. Summary requests share model accounting.
+    """
+    return IntegralHistorySummary(
+        max_messages=40,
+        max_tokens=24_576,
+        keep_messages=20,
+        keep_tokens=8_192,
+        keep_user_messages=True,
+        receipts=True,
+        model_settings={"max_tokens": 2048},
+    )
+
+
 def classify_integral_harness_exception(exc: BaseException) -> str | None:
     """Translate Pydantic AI failures to Integral's stable error categories."""
     if isinstance(exc, UsageLimitExceeded):
@@ -350,6 +444,7 @@ __all__ = [
     "AgentRunResultEvent",
     "CancellationToken",
     "ClearToolResults",
+    "build_integral_history_compaction",
     "ContinuableSnapshot",
     "ConversationSearch",
     "FunctionToolCallEvent",

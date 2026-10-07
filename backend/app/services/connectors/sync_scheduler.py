@@ -7,12 +7,8 @@ function-scope ``PYTEST_CURRENT_TEST`` / ``TESTING`` guard at the top of
 ``_startup`` short-circuits BEFORE the spawn site is reached, so test runs
 never accidentally hit external APIs (Pitfall 6 — T-05-03-05 mitigation).
 
-Locked decision §Q9 — AGENTIVE_ENABLED independence: the scheduler spawns
-unconditionally. Connector subclasses live under ``app/agentive/connectors/``
-and only register their slugs when AGENTIVE_ENABLED=1. In a non-agentive
-boot the SyncConnector registry is empty AND `Connector.find()` returns
-zero rows (the Connector Node is itself AGENTIVE_ENABLED-gated), so each
-tick is a cheap no-op.
+Connectors use the always-on agentive layer. An empty connector registry or
+an unknown subclass is a no-op; there is no AGENTIVE_ENABLED boot switch.
 """
 
 from __future__ import annotations
@@ -24,6 +20,19 @@ from datetime import datetime, timezone
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+_running: dict[str, asyncio.Task] = {}
+
+
+def _observe_sync(connector_id: str, task: asyncio.Task) -> None:
+    if _running.get(connector_id) is task:
+        _running.pop(connector_id, None)
+    exc = None if task.cancelled() else task.exception()
+    if exc is not None:
+        logger.warning(
+            "connector scheduled sync failed: %s",
+            connector_id,
+            exc_info=(type(exc), exc, exc.__traceback__),
+        )
 
 
 def _tick_interval_seconds() -> float:
@@ -44,7 +53,8 @@ def _parse_iso(value: Optional[str]) -> Optional[datetime]:
     if not value:
         return None
     try:
-        return datetime.fromisoformat(value)
+        parsed = datetime.fromisoformat(value)
+        return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
     except (ValueError, TypeError):
         return None
 
@@ -59,10 +69,13 @@ async def _maybe_dispatch_one(connector) -> bool:
     A connector is eligible when EITHER (a) it has never been synced
     (``last_synced_at is None``) OR (b) the elapsed seconds since the last
     sync >= its configured ``sync_interval_seconds``. Dispatch is
-    fire-and-forget — each connector's pull is its own asyncio task so a
+    supervised — each connector's pull is its own asyncio task so a
     slow external API doesn't block the loop tick.
     """
     last = _parse_iso(getattr(connector, "last_synced_at", None))
+    previous = _running.get(str(connector.id))
+    if previous is not None and not previous.done():
+        return False
     interval = float(getattr(connector, "sync_interval_seconds", 300) or 300)
     now = _utc_now()
     if last is not None and (now - last).total_seconds() < interval:
@@ -71,7 +84,11 @@ async def _maybe_dispatch_one(connector) -> bool:
     # change-event / provenance machinery that only matters at dispatch time.
     from app.services.connectors.sync_runtime import sync_one_connector
 
-    asyncio.create_task(sync_one_connector(connector))
+    task = asyncio.create_task(
+        sync_one_connector(connector), name=f"connector-scheduled:{connector.id}"
+    )
+    _running[str(connector.id)] = task
+    task.add_done_callback(lambda done: _observe_sync(str(connector.id), done))
     return True
 
 
@@ -80,16 +97,13 @@ async def _tick_once() -> int:
 
     Returns the number of dispatches fired this tick (useful for tests).
     Failures during enumeration are logged + swallowed; the next tick will
-    re-attempt. Failures during a per-connector dispatch are swallowed by
-    the asyncio task wrapper — each ``sync_one_connector`` call manages its
+    re-attempt. Failures during a per-connector dispatch are observed and logged by
+    its completion callback — each ``sync_one_connector`` call manages its
     own ``connector.sync.failed`` emit.
     """
     dispatched = 0
     try:
-        # Lazy import — the Connector Node is AGENTIVE_ENABLED-gated; in
-        # a non-agentive boot this import works (the class is always
-        # available) but ``Connector.find()`` returns zero (no rows
-        # persisted) so the tick is a clean no-op.
+        # Connector types are available through the always-on agentive layer.
         from app.agentive.nodes import Connector
 
         connectors = await Connector.find()
@@ -111,9 +125,15 @@ async def sync_loop() -> None:
     """
     interval = _tick_interval_seconds()
     logger.info("connector sync_loop started (tick=%.1fs)", interval)
-    while True:
-        try:
-            await _tick_once()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("connector sync_loop: outer guard caught: %s", exc)
-        await asyncio.sleep(interval)
+    try:
+        while True:
+            try:
+                await _tick_once()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("connector sync_loop: outer guard caught: %s", exc)
+            await asyncio.sleep(interval)
+    finally:
+        tasks = list(_running.values())
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)

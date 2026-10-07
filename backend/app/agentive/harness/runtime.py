@@ -24,6 +24,7 @@ from app.agentive.harness.pydantic_ai_compat import (
     StepStore,
     ToolSearch,
     build_integral_context_compaction,
+    build_integral_history_compaction,
     build_integral_run_instructions,
 )
 from app.agentive.harness.scoped_store import ScopedStepStore
@@ -148,6 +149,7 @@ def build_native_runtime(
         # Adapter-owned policy bounds repeated tool-call arguments and results
         # without discarding the newest outcome or active skill state.
         build_integral_context_compaction(),
+        build_integral_history_compaction(),
         # Search only this server-assigned Pydantic conversation. The source
         # is the exact tenant/principal/thread/session-scoped StepStore used by
         # StepPersistence; never use the library's store-wide search scope.

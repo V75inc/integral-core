@@ -37,8 +37,14 @@ class OperationContext(Protocol):
     ) -> Optional[Any]: ...
 
     async def update_entry_fields(
-        self, entry_id: str, custom_fields: Dict[str, Any]
-    ) -> bool: ...
+        self,
+        entry_id: str,
+        custom_fields: Dict[str, Any],
+        *,
+        expected_record_revision: Optional[int] = None,
+    ) -> bool:
+        """Apply a validated update; False includes a stale record revision."""
+        ...
 
     async def conditional_update_entry_fields(
         self,

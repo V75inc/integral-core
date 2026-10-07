@@ -53,6 +53,7 @@ import {
   filterBar,
 } from '../components/ui';
 import type { ViewTabOption } from '../components/ui';
+import { savedViewTabs } from '../utils/savedViewTabs';
 import {
   mergeDedupedTrackEntryPages,
   useTrackDetailRightRail,
@@ -103,6 +104,7 @@ import type {
 } from '../types';
 import { slugTagProfileKey } from '../utils/tagProfile';
 import { Text } from '../ui';
+import { isViewDesignerEnabled, ViewDesignerShell } from '../features/view-designer';
 
 export function TrackDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -134,6 +136,7 @@ export function TrackDetailPage() {
 
   const [track, setTrack] = useState<Track | null>(null);
   const [activeView, setActiveView] = useState<SavedView | null>(null);
+  const [layoutTarget, setLayoutTarget] = useState<{ trackId: string; viewId: string } | null>(null);
   const [entryModal, setEntryModal] = useState<{
     entry: Entry;
     focusComments?: boolean;
@@ -590,35 +593,11 @@ export function TrackDetailPage() {
     return Array.from(seen.values());
   }, [entryTypesQuery.data]);
 
-  // De-dupe saved views by (type + entry_type_keys) so the tab strip
-  // never shows two literally-identical "Kanban" tabs, BUT entry-type
-  // slice views ("Accounts" / "Leads" / "Partners" tables that share
-  // `type: table` but constrain on different `entry_type_keys`) each
-  // keep their own tab. Default views win when there's a tie. The
-  // canonical-per-(type+slice) result drives the horizontal tab strip
-  // (Feed / Kanban / Gallery / Calendar / each Table slice).
-  const dedupedTabViews = useMemo<SavedView[]>(() => {
-    const byKey = new Map<string, SavedView>();
-    for (const v of savedViews) {
-      const keys = Array.isArray(v.entry_type_keys)
-        ? [...v.entry_type_keys].map(s => String(s).toLowerCase().trim()).sort()
-        : [];
-      const dedupeKey = `${v.type}::${keys.join(',')}`;
-      const existing = byKey.get(dedupeKey);
-      if (!existing) {
-        byKey.set(dedupeKey, v);
-      } else if (v.is_default && !existing.is_default) {
-        byKey.set(dedupeKey, v);
-      } else if (
-        v.is_default === existing.is_default &&
-        v.name &&
-        !existing.name
-      ) {
-        byKey.set(dedupeKey, v);
-      }
-    }
-    return Array.from(byKey.values());
-  }, [savedViews]);
+  // Different names/configurations represent different user-defined views,
+  // including extensions sharing one renderer and entry-type slice.
+  const dedupedTabViews = useMemo(
+    () => savedViewTabs(savedViews), [savedViews],
+  );
 
   const viewTabOptions = useMemo<ViewTabOption[]>(
     () =>
@@ -1425,6 +1404,8 @@ export function TrackDetailPage() {
     canManageCollaborators,
     canComment
   } = useTrackPermissions(track);
+  const canEditViewLayout = isViewDesignerEnabled() && !isPagesView &&
+    Boolean(activeView) && (canAdminTrack || canCreateEntryByRole);
   const canManageCollabRows = canManageCollaborators;
 
   // A singleton entry type (e.g. Company Profile — "one record per
@@ -1806,7 +1787,13 @@ export function TrackDetailPage() {
         viewTabOptions={viewTabOptions}
         activeView={activeView}
         dedupedTabViews={dedupedTabViews}
-        onChangeView={setActiveView}
+        onChangeView={next => {
+          setLayoutTarget(null);
+          setActiveView(next);
+        }}
+        onEditLayout={canEditViewLayout && id && activeView
+          ? () => setLayoutTarget({ trackId: id, viewId: activeView.id })
+          : undefined}
         canViewTrackConfig={canViewTrackConfig}
         trackConfigOpen={trackConfigOpen}
         trackActivityOpen={trackActivityOpen}
@@ -1870,7 +1857,6 @@ export function TrackDetailPage() {
           }}
           emptyStateContent={emptyStateContent}
           trackEntriesSentinelRef={trackEntriesSentinelRef}
-          canEditLayout={canAdminTrack || canCreateEntryByRole}
         />
 
         {id && rightRailOpen ? (
@@ -1887,6 +1873,19 @@ export function TrackDetailPage() {
           />
         ) : null}
       </PageSection>
+
+      {canEditViewLayout && activeView && layoutTarget?.trackId === id &&
+        layoutTarget?.viewId === activeView.id ? (
+        <ViewDesignerShell
+          key={`${id}:${activeView.id}`}
+          open
+          onClose={() => setLayoutTarget(null)}
+          trackId={track.id}
+          view={activeView}
+          previewEntries={filteredEntries}
+          onSaved={handleViewUpdate}
+        />
+      ) : null}
 
       {entryModal && (
         <EntryDetail

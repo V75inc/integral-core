@@ -1092,8 +1092,10 @@ domains:
         priority: P1
         summary: >-
           Delete an entry. Use when the user explicitly asks to remove or discard a
-          specific entry (resolve its id first). The delete is soft (status=deleted),
-          so it is reversible by an admin, but treat it as a real removal. This STAGES
+          specific entry (resolve its id first). The entry is permanently removed;
+          associated comments and sharing links are removed, and its attached files
+          are no longer accessible through it. Policy may also delete linked child
+          tracks. This cannot be undone. This STAGES
           the deletion the user approves in Integral — there is no separate execute
           step. To merely change status or move an entry, use integral_update_entry
           instead of deleting.
@@ -2297,7 +2299,7 @@ domains:
         status: existing
         op_class: propose
         priority: P2
-        summary: "File a chat-uploaded file (Slice B — general file persistence) into an entry. The file must already be uploaded via the chat composer in THIS conversation and not yet filed elsewhere; use integral_list_attachments / conversation context to find its attachment_id."
+        summary: "File an existing chat upload into an entry. The upload must belong to THIS conversation and not yet be filed elsewhere. Use conversation context to find its attachment_id. For a new record, begin a batch, stage integral_create_entry first, pass its returned result_ref as entry_id here, then commit one combined approval. Destination permissions are checked when the saved entry is resolved during execution."
         http: "(attachment_agent.attach_uploaded_file_to_entry)"
         policy_action: attachment.create
         staging_kind: attach_uploaded_file

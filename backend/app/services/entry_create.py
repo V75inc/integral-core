@@ -7,13 +7,16 @@ without importing the HTTP layer (I-CRUD-01).
 
 from __future__ import annotations
 
+import hashlib
 import logging
+from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
 from app.api.errors import ResourceNotFoundError
 from app.contracts.information import schema_revision_from_profile_version
 from app.models.edges import AUTHORED_BY, CONTAINS, IS_OF_TYPE, TAGGED_WITH
 from app.models.nodes import Entry, EntryType, Tag, Track
+from app.schemas.provenance import Provenance
 from app.services.app_graph import ensure_track_attached_operational_model
 from app.services.change_event import emit_change_event
 from app.services.content_moderation import validate_no_profanity
@@ -100,7 +103,7 @@ async def _seed_preview_default_fields(
     return out
 
 
-async def create_entry_in_track(
+async def _create_entry_in_track(
     *,
     track: Track,
     user_id: str,
@@ -113,6 +116,9 @@ async def create_entry_in_track(
     attachment_ids: Optional[List[str]] = None,
     workspace_id: str = "",
     actor_kind: str = "human",
+    actor_id: Optional[str] = None,
+    provenance: Optional[Provenance] = None,
+    idempotency_key: str = "",
     skip_profanity: bool = False,
     change_event_sink: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Entry:
@@ -219,7 +225,11 @@ async def create_entry_in_track(
         validate_no_profanity(body, "body")
 
     now = utc_now_iso()
-    entry = await Entry.create(
+    if provenance is not None and provenance.source == "connector":
+        provenance = provenance.model_copy(
+            update={"synced_at": datetime.fromisoformat(now)}
+        )
+    attributes = dict(
         type_id=resolved_type_id,
         title=title,
         author_id=user_id,
@@ -232,7 +242,24 @@ async def create_entry_in_track(
         created_at=now,
         updated_at=now,
         schema_revision=schema_revision,
+        idempotency_key=idempotency_key,
+        **({"provenance": provenance} if provenance is not None else {}),
     )
+    if idempotency_key:
+        # The runtime supplies a fully scoped key. The unique Node id is the
+        # final insertion fence, including destination-rebinding races.
+        from app.api.errors import ResourceConflictError
+
+        entry, inserted = await Entry.create_if_absent(
+            id="n.Entry." + hashlib.sha256(idempotency_key.encode()).hexdigest(),
+            **attributes,
+        )
+        if not inserted:
+            raise ResourceConflictError(
+                message="Connector record identity already exists; reconcile its destination"
+            )
+    else:
+        entry = await Entry.create(**attributes)
 
     try:
         await track.connect(entry, edge=CONTAINS, added_at=now)
@@ -274,7 +301,7 @@ async def create_entry_in_track(
 
     event = {
         "actor_kind": actor_kind,
-        "actor_id": user_id,
+        "actor_id": actor_id or user_id,
         "action": "entry.create",
         "resource_type": "Entry",
         "resource_id": entry.id,
@@ -287,7 +314,7 @@ async def create_entry_in_track(
     else:
         await emit_change_event(
             actor_kind=actor_kind,  # type: ignore[arg-type]
-            actor_id=user_id,
+            actor_id=actor_id or user_id,
             action="entry.create",
             resource_type="Entry",
             resource_id=entry.id,
@@ -295,4 +322,80 @@ async def create_entry_in_track(
             after=event["after"],
             scope=f"track:{track.id}",
         )
+    return entry
+
+
+async def create_entry_in_track(
+    *,
+    track: Track,
+    user_id: str,
+    title: str = "",
+    body: str = "",
+    custom_fields: Optional[Dict[str, Any]] = None,
+    tags: Optional[List[str]] = None,
+    entry_type: Optional[EntryType] = None,
+    type_id: str = "",
+    attachment_ids: Optional[List[str]] = None,
+    workspace_id: str = "",
+    actor_kind: str = "human",
+    actor_id: Optional[str] = None,
+    provenance: Optional[Provenance] = None,
+    idempotency_key: str = "",
+    skip_profanity: bool = False,
+    change_event_sink: Optional[Callable[[Dict[str, Any]], None]] = None,
+) -> Entry:
+    """Canonical create; graph edges and its event fact share the PG commit."""
+    from jvspatial.db.postgres import PostgresTransaction
+
+    from app.services.entry_write_scope import entry_write_scope
+
+    events: List[Dict[str, Any]] = []
+    outbox_id = None
+    async with entry_write_scope(f"track:{track.id}") as graph:
+        fresh_track = await Track.get(track.id)
+        if fresh_track is None:
+            raise ResourceNotFoundError(message="Track not found")
+        if workspace_id and fresh_track.workspace_id != workspace_id:
+            from app.api.errors import InsufficientPermissionsError
+
+            raise InsufficientPermissionsError(
+                message="Track is outside the bound workspace"
+            )
+        # Rehydrate the type under the command's context as well.
+        fresh_type = await EntryType.get(entry_type.id) if entry_type else None
+        entry = await _create_entry_in_track(
+            track=fresh_track,
+            user_id=user_id,
+            title=title,
+            body=body,
+            custom_fields=custom_fields,
+            tags=tags,
+            entry_type=fresh_type,
+            type_id=type_id or (entry_type.id if entry_type else ""),
+            attachment_ids=attachment_ids,
+            workspace_id=workspace_id,
+            actor_kind=actor_kind,
+            actor_id=actor_id,
+            provenance=provenance,
+            idempotency_key=idempotency_key,
+            skip_profanity=skip_profanity,
+            change_event_sink=change_event_sink or events.append,
+        )
+        if events and isinstance(graph.database, PostgresTransaction):
+            from app.services.app_operations.event_outbox import insert_entry_event
+
+            outbox_id = await insert_entry_event(
+                transaction=graph.database,
+                workspace_id=fresh_track.workspace_id,
+                event=events[0],
+            )
+    if outbox_id:
+        from app.services.app_operations.event_outbox import deliver_operation_event
+
+        try:
+            await deliver_operation_event(outbox_id=outbox_id)
+        except Exception:
+            logger.exception("Entry change event awaits recovery")
+    elif events:
+        await emit_change_event(**events[0])
     return entry

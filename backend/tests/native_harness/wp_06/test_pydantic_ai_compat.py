@@ -580,3 +580,132 @@ async def test_pending_decision_schema_is_visible_before_catalog_search():
     )
     result = await agent.run("What would this change?")
     assert result.output == "Nothing changed; here is the answer."
+
+
+@pytest.mark.asyncio
+async def test_history_compaction_preserves_loaded_skills_and_user_constraints(
+    tmp_path,
+):
+    """Use the real library across a resumed long chat, including summary usage."""
+    from pydantic_ai.usage import RequestUsage
+
+    from app.agentive.harness.pydantic_ai_compat import (
+        build_integral_history_compaction,
+    )
+
+    skill = tmp_path / "record-work"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        "---\nname: record-work\ndescription: Manage records.\n---\n"
+        "Always respect the current record schema.\n"
+    )
+    observations = []
+
+    def respond(messages, info):
+        text = str(messages)
+        if "You are a context summarization assistant" in text:
+            observations.append("summary")
+            return ModelResponse(
+                parts=[
+                    TextPart(
+                        "## Intent\nMaintain the bike shop; no sample data.\n"
+                        "## Key decisions\nCustomer Ana exists; rejected bikes were not saved."
+                    )
+                ],
+                usage=RequestUsage(input_tokens=100, output_tokens=30),
+            )
+        if not observations:
+            observations.append("load")
+            return ModelResponse(
+                parts=[ToolCallPart("load_capability", {"id": "record-work"})]
+            )
+        if observations == ["load"]:
+            observations.append("first")
+            return ModelResponse(
+                parts=[TextPart("Older explanation. " * 12000)],
+                usage=RequestUsage(input_tokens=1000, output_tokens=60000),
+            )
+        observations.append("resumed")
+        assert "current record schema" in str(info.instructions) + text
+        assert len(text) < 100000
+        assert "no sample data" in text
+        return ModelResponse(parts=[TextPart("Ana remains the only customer.")])
+
+    agent = Agent(
+        FunctionModel(respond),
+        capabilities=[
+            Skills(tmp_path, include={"record-work"}),
+            build_integral_history_compaction(),
+        ],
+    )
+    first = await agent.run("Maintain my bike shop with no sample data.")
+    second = await agent.run(
+        "Who is in my customer list?", message_history=first.all_messages()
+    )
+    assert second.output == "Ana remains the only customer."
+    assert observations == ["load", "first", "summary", "resumed"]
+    assert second.usage.requests == 2
+    fresh_agent = Agent(
+        FunctionModel(respond),
+        capabilities=[
+            Skills(tmp_path, include={"record-work"}),
+            build_integral_history_compaction(),
+        ],
+    )
+    third = await fresh_agent.run("And now?", message_history=second.all_messages())
+    assert third.output == second.output
+    assert observations[-1] == "resumed"
+
+
+@pytest.mark.asyncio
+async def test_history_summary_never_distills_active_batch_receipts(monkeypatch):
+    from pydantic_ai_harness.compaction import SummarizingCompaction
+
+    from app.agentive.harness.pydantic_ai_compat import IntegralHistorySummary
+
+    older = [
+        ModelRequest(parts=[UserPromptPart(f"Earlier request {i}")]) for i in range(30)
+    ]
+    current = [
+        ModelRequest(
+            parts=[UserPromptPart("Save the contact and change the job date.")]
+        ),
+        ModelResponse(
+            parts=[
+                ToolCallPart(
+                    "integral_update_entry",
+                    {"entry_id": "contact"},
+                    tool_call_id="queued",
+                )
+            ]
+        ),
+        ModelRequest(
+            parts=[
+                ToolReturnPart(
+                    "integral_update_entry",
+                    {"batched": True, "result_ref": "{{step_1.id}}"},
+                    tool_call_id="queued",
+                )
+            ]
+        ),
+    ]
+    seen = []
+
+    async def summarize(self, messages, ctx):
+        seen.extend(messages)
+        return [ModelRequest(parts=[UserPromptPart("Earlier work summarized.")])]
+
+    monkeypatch.setattr(SummarizingCompaction, "compact", summarize)
+    ctx = SimpleNamespace(active_capability_ids=set(), tools={})
+    compacted = await IntegralHistorySummary(max_messages=20).compact(
+        older + current, ctx
+    )
+    assert seen == older
+    assert compacted[-3:] == current
+    # Reconsidering a growing active turn does not buy another summary or
+    # remove the already-queued effect receipt.
+    assert (
+        await IntegralHistorySummary(max_messages=20).compact(compacted, ctx)
+        == compacted
+    )
+    assert seen == older

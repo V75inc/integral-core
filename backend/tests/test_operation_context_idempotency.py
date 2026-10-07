@@ -120,3 +120,60 @@ async def test_create_notification_once_persists_one_rooted_notice(test_user):
         test_user.id, first.id, edge_class=HAS_NOTIFICATION
     )
     assert len(edges) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stale", [False, True])
+async def test_sdk_update_routes_revision_and_deferred_events_to_shared_command(stale):
+    from types import SimpleNamespace
+
+    from app.api.errors import ResourceConflictError
+    from app.schemas.policy import Decision
+    from app.services.app_invariant_guards import operation_write_active
+
+    context = OperationContext(
+        user_id="u-operation",
+        workspace_id="ws-operation",
+        scope="operation:app:edit",
+        app_id="app-one",
+        deferred_change_events=[],
+    )
+    entry = SimpleNamespace(id="entry-one", track_id="track-one", record_revision=2)
+    track = SimpleNamespace(id="track-one", workspace_id="ws-operation")
+    app = SimpleNamespace(
+        workspace_id="ws-operation",
+        lifecycle_state="active",
+        nodes=AsyncMock(return_value=[track]),
+    )
+
+    async def shared_update(**kwargs):
+        assert operation_write_active()
+        assert kwargs["expected_record_revision"] == 1
+        assert kwargs["workspace_id"] == context.workspace_id
+        assert kwargs["change_event_sink"] == context.deferred_change_events.append
+        if stale:
+            raise ResourceConflictError(message="stale revision")
+        return entry
+
+    with (
+        patch("app.models.nodes.Entry.get", new=AsyncMock(return_value=entry)),
+        patch("app.models.nodes.Track.get", new=AsyncMock(return_value=track)),
+        patch("app.models.nodes.App.get", new=AsyncMock(return_value=app)),
+        patch(
+            "app.services.permissions.resolve_role", new=AsyncMock(return_value="owner")
+        ),
+        patch(
+            "app.services.policy_engine.evaluate",
+            new=AsyncMock(return_value=Decision(allowed=True, reason="test")),
+        ),
+        patch(
+            "app.services.entry_update.update_entry_in_track",
+            new=AsyncMock(side_effect=shared_update),
+        ) as update,
+    ):
+        saved = await context.update_entry_fields(
+            "entry-one", {"phone": "600-0123"}, expected_record_revision=1
+        )
+    assert saved is not stale
+    assert update.await_count == 1
+    assert not operation_write_active()

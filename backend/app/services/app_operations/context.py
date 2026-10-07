@@ -210,20 +210,11 @@ class OperationContext(ToolContext):
         """Update an Entry through the same schema and scope rules as HTTP."""
         if self.read_only:
             return False
-        from app.contracts.information import schema_revision_from_profile_version
+        from app.api.errors import ResourceConflictError
         from app.models.edges import CONTAINS
-        from app.models.nodes import App, Entry, EntryType, Track
+        from app.models.nodes import App, Entry, Track
         from app.schemas.policy import Resource, Subject
-        from app.services.app_invariant_guards import enforce_protected_field_write
-        from app.services.entry_conditional_update import (
-            update_entry_custom_fields_if_revision,
-        )
-        from app.services.migration_write_guard import assert_track_schema_writable
-        from app.services.operational_model_entry_fields import (
-            validate_and_materialize_entry_custom_fields,
-        )
-        from app.services.operational_model_graph import sync_relation_edges
-        from app.services.operational_model_runtime import resolve_track_runtime_profile
+        from app.services.entry_update import update_entry_in_track
         from app.services.permissions import resolve_role
         from app.services.policy_engine import evaluate as policy_evaluate
 
@@ -261,70 +252,38 @@ class OperationContext(ToolContext):
         )
         if not decision.allowed:
             return False
-        await assert_track_schema_writable(track)
-        operational_model, runtime_tier, _ = await resolve_track_runtime_profile(track)
-        schema_revision = schema_revision_from_profile_version(
-            getattr(operational_model, "version_number", None)
-        )
-        entry_type = await EntryType.get(entry.type_id) if entry.type_id else None
-        if entry_type is None:
-            return False
-        from app.services.operational_model_compile import _slug
-
-        entry_type_key = _slug(
-            str(
-                (entry_type.form_schema or {}).get("_manifest_entry_type_key")
-                or entry_type.name
-            )
-        )
         from app.services.app_invariant_guards import (
             reset_operation_write_active,
             set_operation_write_active,
         )
 
+        # The shared command checks revisions before relation materialization,
+        # then commits fields, edges, hooks and event facts in one write scope.
+        # A stale SDK caller cannot provision a related record before failing.
         write_token = set_operation_write_active(True)
         try:
-            await enforce_protected_field_write(
+            await update_entry_in_track(
+                entry_id=entry_id,
+                user_id=self.user_id,
                 workspace_id=self.workspace_id,
-                entry_type_key=entry_type_key,
-                proposed_custom_fields=custom_fields,
+                custom_fields=custom_fields,
+                expected_record_revision=(
+                    expected_record_revision
+                    if expected_record_revision is not None
+                    else int(getattr(entry, "record_revision", 1) or 1)
+                ),
+                actor_kind="agent",
+                change_event_sink=(
+                    self.deferred_change_events.append
+                    if self.deferred_change_events is not None
+                    else None
+                ),
             )
+            return True
+        except ResourceConflictError:
+            return False
         finally:
             reset_operation_write_active(write_token)
-        merged = {**(entry.custom_fields or {}), **custom_fields}
-        validated, relation_refs = await validate_and_materialize_entry_custom_fields(
-            track=track,
-            entry_type=entry_type,
-            custom_fields=merged,
-            runtime_tier=runtime_tier,
-            entry=entry,
-            actor_user_id=self.user_id,
-            actor_kind="agent",
-            source_entry_title=str(getattr(entry, "title", "") or ""),
-        )
-        observed_revision = int(getattr(entry, "record_revision", 1) or 1)
-        if (
-            expected_record_revision is not None
-            and int(expected_record_revision) != observed_revision
-        ):
-            return False
-        saved, _error = await update_entry_custom_fields_if_revision(
-            entry=entry,
-            expected_revision=observed_revision,
-            updates=validated,
-            schema_revision=schema_revision,
-            user_id=self.user_id,
-            scope=f"tool:{self.scope}",
-            event_sink=(
-                self.deferred_change_events.append
-                if self.deferred_change_events is not None
-                else None
-            ),
-        )
-        if not saved:
-            return False
-        await sync_relation_edges(source_entry=entry, relation_refs=relation_refs)
-        return True
 
     async def conditional_update_entry_fields(
         self,

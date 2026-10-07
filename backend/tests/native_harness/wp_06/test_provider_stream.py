@@ -645,6 +645,10 @@ async def test_prepare_uses_host_run_and_snapshot_as_broker_authority(
         "lookup remains read-only even when no matching record exists"
         in runtime_args["instructions"]
     )
+    assert (
+        "Earlier user commands are conversation history" in runtime_args["instructions"]
+    )
+    assert "Never revive rejected, expired, stopped" in runtime_args["instructions"]
     assert "do not invent alternate spellings" in runtime_args["instructions"]
     assert (
         "do not repeat the same call with unchanged inputs"

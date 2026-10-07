@@ -505,6 +505,48 @@ async def export_qualification_run(
     metadata = dict(getattr(run, "metadata", None) or {})
     harness = dict(metadata.get("harness") or {})
     observability = dict(metadata.get("model_observability") or {})
+    from app.agentive.harness.model_observations import (
+        list_run_model_request_observations,
+        summarize_model_usage,
+    )
+
+    observations = await list_run_model_request_observations(
+        run_id=run_id,
+        principal_id=user_id,
+        workspace_id=workspace_id,
+        thread_id=str(getattr(run, "thread_id", "") or ""),
+    )
+    observed_usage = None
+    if observations:
+        # Stream events are a UI projection, not accounting authority. Stop
+        # fences them, and later reconciliation may enrich the physical ledger.
+        # Read that ledger on every authorized export instead of reporting zero
+        # usage for a cancelled run or freezing its cost at stream termination.
+        usage = summarize_model_usage(observations)
+        observed_usage = usage.model_dump(mode="json")
+        routes: Dict[str, list[Any]] = {}
+        for observation in observations:
+            model_id = observation.model
+            if not model_id.startswith(f"{observation.provider}/"):
+                model_id = f"{observation.provider}/{model_id}"
+            routes.setdefault(model_id, []).append(observation)
+        observed_models = []
+        for model_id, transitions in sorted(routes.items()):
+            route_usage = summarize_model_usage(transitions)
+            observed_models.append(
+                {
+                    "model_id": model_id,
+                    "calls": route_usage.request_count,
+                    "input_tokens": route_usage.reported_input_tokens,
+                    "output_tokens": route_usage.reported_output_tokens,
+                    "finish_reasons": [],
+                }
+            )
+        observability.update(
+            models=observed_models,
+            total_input_tokens=usage.reported_input_tokens,
+            total_output_tokens=usage.reported_output_tokens,
+        )
     models = [
         {
             "model_id": str(item.get("model_id") or "unknown"),
@@ -541,6 +583,8 @@ async def export_qualification_run(
             tool_names=tool_names,
         ),
         "models": models,
+        "context_requests": list(observability.get("context_requests") or []),
+        "observed_usage": observed_usage,
         "redacted_trace_ref": f"agent-run:{getattr(run, 'run_id', '')}",
         "steps": safe_steps,
     }
@@ -712,6 +756,18 @@ async def _record_model_observability(
             ),
         }
     )
+    context = event.get("requestContext")
+    if isinstance(context, dict):
+        from app.agentive.harness.contracts import ModelRequestContextObservation
+
+        # Validate content-free dimensions before adding them to the public
+        # qualification report. Provider token usage remains the billing source.
+        dimensions = ModelRequestContextObservation.model_validate(context)
+        requests = list(summary.get("context_requests") or [])
+        requests.append(
+            {"request_id": str(event.get("requestId") or ""), **dimensions.model_dump()}
+        )
+        summary["context_requests"] = requests
     metadata["model_observability"] = summary
     run.metadata = metadata
     await run.save()

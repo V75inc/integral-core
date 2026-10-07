@@ -999,10 +999,18 @@ async def validate_tags_apply_to_entry_type(
     if not entry_type:
         return
     want = _slug(str(entry_type.name or ""))
+    track = await Track.get(track_id)
+    from app.services.query_boundary import parent_app_for_track
+
+    app_node = await parent_app_for_track(track)
     for tid in tag_ids or []:
         tag = await Tag.get(str(tid))
-        if not tag or tag.track_id != track_id:
-            continue
+        if tag is None:
+            raise BadRequestError(message="Tag not found in this destination")
+        track_tag = tag.track_id == track_id
+        app_tag = bool(app_node and tag.app_id == app_node.id and not tag.track_id)
+        if not track_tag and not app_tag:
+            raise BadRequestError(message="Tag is outside this destination's taxonomy")
         raw_apply = getattr(tag, "applies_to_entry_types", None) or []
         restrict = [str(x) for x in raw_apply] if isinstance(raw_apply, list) else []
         if not restrict:

@@ -1166,9 +1166,9 @@ async def _stage_update_entry(args: Dict[str, Any]) -> Dict[str, Any]:
 async def _stage_delete_entry(args: Dict[str, Any]) -> Dict[str, Any]:
     """Stage a ``delete_entry`` — ``_x_delete_entry`` splats ``{entry_id}``.
 
-    Soft-delete semantics (status=deleted; I-RET-03) — the executor routes
-    through the ``delete_entry`` handler on bless. Data only (PC-1): no identity
-    key reaches the payload.
+    The executor permanently removes the Entry through ``delete_entry`` on
+    approval. I-RET-03 soft-deletes only its retrieval projection, not the
+    graph record. Data only (PC-1): no identity key reaches the payload.
     """
     src = args or {}
     entry_id = src.get("entry_id")
@@ -1190,7 +1190,10 @@ async def _stage_delete_entry(args: Dict[str, Any]) -> Dict[str, Any]:
         "summary": f"Delete entry “{title_lbl}”",
         "diff_human": (
             f"**Delete entry** *{title_lbl}*\n\n"
-            f"Soft-deletes the entry (status=deleted). Reversible by an admin."
+            "Permanently deletes this entry and its associated comments and "
+            "sharing links. Linked child tracks may also be deleted where policy "
+            "allows. Attached files will no longer be accessible through "
+            "this entry. This action cannot be undone."
         ),
         "diff_machine": {"op": "delete_entry", **payload},
         "payload": payload,
@@ -2335,14 +2338,38 @@ async def _stage_attach_uploaded_file(args: Dict[str, Any]) -> Dict[str, Any]:
     _require(args, "entry_id", "attachment_id")
     principal = _propose_principal.get()
     if principal:
+        from app.agentive.staging import pending_entry_creation
         from app.api.errors import BadRequestError
-        from app.services.attachment_agent import validate_chat_attachment_for_entry
-
-        _, _, error = await validate_chat_attachment_for_entry(
-            user_id=principal,
-            attachment_id=args["attachment_id"],
-            entry_id=args["entry_id"],
+        from app.services.agent_scope import active_workspace_id
+        from app.services.attachment_agent import (
+            validate_chat_attachment_for_entry,
+            validate_chat_attachment_source,
         )
+        from app.services.chat_threads import get_thread_by_session
+
+        session_id = _bound_propose_session_id()
+        pending = await pending_entry_creation(
+            user_id=principal, session_id=session_id, reference=args["entry_id"]
+        )
+        if pending is not None:
+            thread = await get_thread_by_session(session_id) if session_id else None
+            if thread is None:
+                raise BadRequestError(message="A current conversation is required")
+            _, _, error = await validate_chat_attachment_source(
+                user_id=principal,
+                attachment_id=args["attachment_id"],
+                thread_id=thread.id,
+                workspace_id=active_workspace_id(),
+            )
+            # No target exists yet. Commit resolves the validated backward
+            # reference and repeats destination policy/workspace checks on
+            # that real entry, inside the governed batch effect boundary.
+        else:
+            _, _, error = await validate_chat_attachment_for_entry(
+                user_id=principal,
+                attachment_id=args["attachment_id"],
+                entry_id=args["entry_id"],
+            )
         if error:
             raise BadRequestError(message=error["message"])
     payload = {

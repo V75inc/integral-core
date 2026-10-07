@@ -1359,6 +1359,7 @@ async def _dispatch_propose(
         create_staged_change,
         is_batch_open,
         open_batch,
+        peek_open_batch,
     )
     from app.services.chat_threads import design_proposed_pending
 
@@ -1416,14 +1417,17 @@ async def _dispatch_propose(
             "batched": True,
             "kind": staged["kind"],
             "summary": staged["summary"],
-            "batch_size": count,
+            "batch_size": (peek_open_batch(principal_id, session_id) or {}).get(
+                "op_count", count
+            ),
+            "result_ref": f"{{{{step_{count}.id}}}}",
             "batch_auto_opened": batch_auto_opened,
             "next": (
-                "Batch is open. Stage remaining scaffold ops "
-                '(create_app_track with app_id="{{app.id}}", views, demo '
-                "entries as needed), then call integral_commit_batch. Do not "
-                "tell the user the app exists until commit returns "
-                "batch_applied / applied=true."
+                "This operation is queued, not applied. Stage the remaining "
+                "requested operations, using result_ref for links to this "
+                "operation's new record, then call integral_commit_batch once. "
+                "References may only point to earlier creation steps. Wait "
+                "for the approved batch receipt before claiming records exist."
             ),
         }
         if batch_auto_opened:

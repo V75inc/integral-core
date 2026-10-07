@@ -444,10 +444,10 @@ async def test_setup_is_exposed_as_one_build_contract_not_staging_primitives(tmp
 
 
 @pytest.mark.asyncio
-async def test_repeated_identical_read_is_suppressed_with_a_stop_instruction(
+async def test_repeated_identical_read_remains_available(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A repeated read cannot become an unbounded model/tool loop."""
+    """Framework limits bound execution without suppressing legitimate reads."""
     invocations = []
 
     def infer(_name: str):
@@ -479,10 +479,8 @@ async def test_repeated_identical_read_is_suppressed_with_a_stop_instruction(
     second = await tool.function_schema.call({}, SimpleNamespace(tool_call_id="call-2"))
 
     assert first["items"] == []
-    assert second["error_code"] == "repeated_read_suppressed"
-    assert second["retryable"] is False
-    assert "do not repeat" in second["message"]
-    assert len(invocations) == 1
+    assert second["items"] == []
+    assert len(invocations) == 2
 
 
 @pytest.mark.asyncio
@@ -535,10 +533,10 @@ async def test_provider_stringified_object_is_normalized_before_broker_validatio
 
 
 @pytest.mark.asyncio
-async def test_scaffold_phase_calls_have_bounded_retry_budgets(
+async def test_scaffold_phase_corrections_are_not_blocked_by_broker_quotas(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Validation and proposal retries stop after two useful attempts."""
+    """Framework usage limits govern proposal corrections, not per-tool quotas."""
     invocations = []
 
     def infer(_name: str):
@@ -610,16 +608,15 @@ async def test_scaffold_phase_calls_have_bounded_retry_budgets(
 
     assert first["proposal_id"] == 2
     assert second["proposal_id"] == 3
-    assert third["error_code"] == "capability_call_limit"
-    assert third["retryable"] is False
-    assert len(invocations) == 3
+    assert third["proposal_id"] == 4
+    assert len(invocations) == 4
 
 
 @pytest.mark.asyncio
-async def test_coverage_allows_one_schema_correction_before_stopping(
+async def test_coverage_remains_retryable_after_failed_attempts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Coverage affords one correction and records only a successful check."""
+    """Failed validation can be corrected within the framework execution budget."""
     attempts = 0
 
     def infer(_name: str):
@@ -681,8 +678,8 @@ async def test_coverage_allows_one_schema_correction_before_stopping(
     assert failed["error_code"] == "invalid_blueprint"
     assert corrected["error_code"] == "invalid_blueprint"
     assert valid["status"] == "buildable"
-    assert limited["error_code"] == "capability_call_limit"
-    assert attempts == 3
+    assert limited["status"] == "buildable"
+    assert attempts == 4
 
 
 @pytest.mark.asyncio
@@ -925,14 +922,14 @@ async def test_unified_search_discloses_tools_and_replays_native_availability(
         visible = {tool.name for tool in info.function_tools}
         requests.append(visible)
         assert "search_tools" not in visible
-        if len(requests) in {1, 4}:
+        if len(requests) == 1:
             assert visible - {"search_conversation_history"} == {"search_capabilities"}
             return ModelResponse(
                 parts=[
                     ToolCallPart("search_capabilities", {"query": "list entry records"})
                 ]
             )
-        if len(requests) in {2, 5}:
+        if len(requests) in {2, 4}:
             assert "integral_list_entries" in visible
             return ModelResponse(parts=[ToolCallPart("integral_list_entries", {})])
         return ModelResponse(parts=[TextPart("No entries yet.")])
@@ -968,7 +965,7 @@ async def test_unified_search_discloses_tools_and_replays_native_availability(
         run_id=next_scope.framework_run_id,
     )
     assert second.output == "No entries yet."
-    assert len(requests) == 6
+    assert len(requests) == 5
     assert len(invocations) == 2
     assert invocations[0]["workspace_id"] == _scope().workspace_id
     assert invocations[0]["principal_id"] == _scope().principal_id
@@ -1503,10 +1500,12 @@ async def test_pending_design_build_is_disclosed_without_fresh_turn_search(
         is not None
     )
 
-    assert (
-        await unrelated.prepare_tool_def(SimpleNamespace(active_capability_ids=set()))
-        is None
+    # The schema remains deferred. Pydantic AI owns whether it is revealed;
+    # absence of a current-turn search is not a second authorization boundary.
+    deferred = await unrelated.prepare_tool_def(
+        SimpleNamespace(active_capability_ids=set())
     )
+    assert deferred is not None and deferred.defer_loading
 
     run_state["capability_search_completed"] = True
     disclosed = await build.prepare_tool_def(
@@ -1563,3 +1562,50 @@ async def test_verbal_decisions_use_conversation_identity_not_checkpoint_session
     )
     assert denied["error_code"] == "user_no_workspace_writes"
     assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("transient_failure", [False, True])
+async def test_identical_read_recovers_and_observes_new_state(
+    monkeypatch, transient_failure
+):
+    records = []
+    attempts = 0
+
+    async def invoke(**kwargs):
+        nonlocal attempts
+        attempts += 1
+        if transient_failure and attempts == 1:
+            return CapabilityResult(
+                ok=False,
+                error_code="temporarily_unavailable",
+                message="Retry this read.",
+            )
+        return CapabilityResult(ok=True, data={"entries": list(records)})
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda _name: ("core", "read"),
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    tool = build_brokered_tools(
+        scope=_scope(),
+        catalogue=[
+            {
+                "name": "integral_query_entries",
+                "description": "Query entries.",
+                "input_schema": {"type": "object", "properties": {}},
+            }
+        ],
+    )[0]
+    first = await tool.function_schema.call({}, SimpleNamespace(tool_call_id="first"))
+    if transient_failure:
+        assert first["error_code"] == "temporarily_unavailable"
+    else:
+        assert first["entries"] == []
+    records.append({"id": "n.Entry.created"})
+    second = await tool.function_schema.call({}, SimpleNamespace(tool_call_id="second"))
+    assert second["entries"][0]["id"] == "n.Entry.created"
+    assert attempts == 2

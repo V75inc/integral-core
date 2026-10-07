@@ -61,7 +61,7 @@ rejected. The lone documented exception is the WebSocket carve-out in
 
 The resident harnesses use a **two-tier** skill model:
 
-1. **Base (global)** — filesystem `integral_*` skills + full `tool_manifest.yaml` surface.
+1. **Base (global)** — filesystem `integral-*` skills + full `tool_manifest.yaml` surface.
 2. **Workspace overlay** — public declarative skills from installed Apps in the active workspace.
 
 Implementation:
@@ -70,7 +70,7 @@ Implementation:
 - [`skill_bundle_provider.py`](skill_bundle_provider.py) — jvagent host provider registration
 - [`services/skill_registry.py`](services/skill_registry.py) — graph persistence + private gate
 
-Full reference: [`docs/backend/workspace-agent-profile.md`](../../docs/backend/workspace-agent-profile.md).
+Full reference: [`docs/backend/workspace-agent-profile.md`](../../../docs/backend/workspace-agent-profile.md).
 
 **When touching install/uninstall/settings paths** that affect App skills, call `invalidate_workspace_profile(workspace_id)` from `workspace_agent_profile.py`.
 

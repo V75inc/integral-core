@@ -265,6 +265,10 @@ async def test_stage_delete_entry_uses_entry_title(monkeypatch):
     assert staged["summary"] == "Delete entry “Old draft”"
     assert "**Delete entry** *Old draft*" in staged["diff_human"]
     assert entry_id not in staged["summary"]
+    assert "Permanently deletes" in staged["diff_human"]
+    assert "cannot be undone" in staged["diff_human"]
+    assert "Reversible" not in staged["diff_human"]
+    assert "Soft-deletes" not in staged["diff_human"]
 
 
 @pytest.mark.asyncio

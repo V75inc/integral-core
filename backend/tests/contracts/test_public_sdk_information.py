@@ -14,3 +14,22 @@ def test_sdk_exports_information_contract_types() -> None:
     assert FieldDefinition.__name__ == "FieldDefinition"
     assert RecordRevision.__name__ == "RecordRevision"
     assert RelationDefinition.__name__ == "RelationDefinition"
+
+
+def test_sdk_optimistic_update_signature_matches_runtime() -> None:
+    import inspect
+
+    from integral_sdk.context import OperationContext as PublicContext
+
+    from app.services.app_operations.context import OperationContext as CoreContext
+
+    public = inspect.signature(PublicContext.update_entry_fields)
+    runtime = inspect.signature(CoreContext.update_entry_fields)
+    assert list(public.parameters) == list(runtime.parameters)
+    for name, parameter in public.parameters.items():
+        assert parameter.kind == runtime.parameters[name].kind
+        assert parameter.default == runtime.parameters[name].default
+    assert (
+        public.parameters["expected_record_revision"].kind
+        is inspect.Parameter.KEYWORD_ONLY
+    )

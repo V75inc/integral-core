@@ -13,6 +13,8 @@
 // `memo`'d leaf with no inputs (matches jvchat's `markdown-text.tsx`).
 import "@assistant-ui/react-markdown/styles/dot.css";
 
+import { useAuiState } from "@assistant-ui/react";
+
 import {
   MarkdownTextPrimitive,
   unstable_memoizeMarkdownComponents as memoizeMarkdownComponents,
@@ -24,9 +26,13 @@ import { memo } from "react";
 import { IntegralMarkdownLink } from "../../../components/ui/IntegralMarkdownLink";
 
 const MarkdownTextImpl = () => {
+  const running = useAuiState((s) => s.message.status?.type === "running");
   return (
     <MarkdownTextPrimitive
-      smooth
+      // A settled response may arrive as one authoritative replacement.
+      // Smooth only live output; an inactive/background tab must not retain
+      // an interpolation prefix after the model and transport have finished.
+      smooth={running}
       remarkPlugins={[remarkGfm, remarkBreaks]}
       className="aui-md min-w-0 [overflow-wrap:anywhere]"
       components={defaultComponents}

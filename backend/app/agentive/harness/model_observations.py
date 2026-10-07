@@ -96,7 +96,32 @@ async def persist_model_request_observation(
                 "Model request transition ID is already bound to different evidence"
             )
 
-    if work_execution_context is None:
+    if work_execution_context is not None and observation.outcome != "dispatch_intent":
+        # Accounting evidence describes an already-authorized dispatch. It must
+        # remain appendable after Stop/lease loss; this grants no tool, output,
+        # checkpoint, or additional model-dispatch authority. Bind it to the
+        # encrypted original intent, rather than accepting a new scoped fact.
+        intent_id = _record_id(
+            _scope_key(observation.scope), observation.request_id, "dispatch_intent"
+        )
+        intent_record = await HarnessModelRequestRecord.get(intent_id)
+        intent = _decode(intent_record) if intent_record is not None else None
+        if intent is None or (
+            intent.scope != observation.scope
+            or intent.provider != observation.provider
+            or intent.model != observation.model
+            or intent.attempt != observation.attempt
+            or intent.dispatched_at != observation.dispatched_at
+            or observation.scope.principal_id != work_execution_context.principal_id
+            or observation.scope.workspace_id != work_execution_context.workspace_id
+            or observation.scope.thread_id != work_execution_context.thread_id
+            or observation.scope.run_id != work_execution_context.run_id
+        ):
+            raise HarnessPersistenceError(
+                "Model outcome does not match an authorized dispatch intent"
+            )
+        await persist()
+    elif work_execution_context is None:
         await persist()
     else:
         from app.agentive.services.work_items import authorized_work_item_effect
@@ -121,6 +146,28 @@ async def list_model_request_observations(
             item.outcome,
         ),
     )
+
+
+async def list_run_model_request_observations(
+    *, run_id: str, principal_id: str, workspace_id: str, thread_id: str
+) -> list[PhysicalModelRequest]:
+    """Load accounting for an already-authorized Core run, including late facts.
+
+    The caller must authorize the owning run first. Validate its immutable
+    identity against every encrypted observation before projecting any data;
+    never resolve through the thread's possibly newer active session.
+    """
+    records = await HarnessModelRequestRecord.find({"run_key": run_id})
+    observations = [_decode(record) for record in records]
+    for item in observations:
+        if (
+            item.scope.run_id != run_id
+            or item.scope.principal_id != principal_id
+            or item.scope.workspace_id != workspace_id
+            or item.scope.thread_id != thread_id
+        ):
+            raise HarnessPersistenceError("Model accounting does not match its run")
+    return observations
 
 
 def unsettled_model_request_ids(
@@ -188,28 +235,59 @@ def summarize_model_usage(
             unresolved += 1
             token_complete = False
             cost_complete = False
-            continue
+        else:
+            completed += 1
 
-        completed += 1
-        usage = response.usage
-        if usage is None:
+        # Observations are cumulative facts about ONE physical request, not
+        # independently billable calls. Prefer a complete response, otherwise
+        # the latest known value for each field. A close/cancel observation
+        # without usage must not erase earlier provider facts.
+        usage_observations = sorted(
+            (item for item in transitions if item.usage is not None),
+            key=lambda item: (
+                item.outcome == "responded" and bool(item.usage.complete),
+                item.observed_at or item.dispatched_at,
+                item.outcome == "responded",
+            ),
+            reverse=True,
+        )
+
+        def known(field, observations=usage_observations):
+            return next(
+                (
+                    getattr(item.usage, field)
+                    for item in observations
+                    if getattr(item.usage, field) is not None
+                ),
+                None,
+            )
+
+        known_input = known("input_tokens")
+        known_output = known("output_tokens")
+        known_cost = known("provider_cost_usd")
+        if known_input is not None:
+            input_tokens += known_input
+        if known_output is not None:
+            output_tokens += known_output
+        if (
+            response is None
+            or response.usage is None
+            or not response.usage.complete
+            or known_input is None
+            or known_output is None
+        ):
             token_complete = False
+        if known_cost is None:
             cost_complete = False
-            continue
-        if usage.input_tokens is not None:
-            input_tokens += usage.input_tokens
         else:
-            token_complete = False
-        if usage.output_tokens is not None:
-            output_tokens += usage.output_tokens
-        else:
-            token_complete = False
-        if not usage.complete:
-            token_complete = False
-        if usage.provider_cost_usd is None:
-            cost_complete = False
-        else:
-            known_costs.append(usage.provider_cost_usd)
+            known_costs.append(known_cost)
+            cost_evidence = next(
+                item
+                for item in usage_observations
+                if item.usage.provider_cost_usd is not None
+            )
+            if cost_evidence.outcome != "responded" or not cost_evidence.usage.complete:
+                cost_complete = False
 
     if unresolved:
         token_complete = False
