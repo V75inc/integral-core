@@ -345,20 +345,6 @@ export function WorkspaceDetailPage() {
               Settings
             </Button>
           )}
-          {canDelete && (
-            <Button
-              variant="danger"
-              size="sm"
-              icon={<Trash2 size={14} strokeWidth={LINE_ICON_STROKE} />}
-              onClick={() => {
-                setDeleteConfirmText('');
-                setDeleteError(null);
-                setShowDeleteConfirm(true);
-              }}
-            >
-              Delete
-            </Button>
-          )}
           {!isOwner && (
             <LeaveWorkspaceButton workspace={workspace} redirectTo="/" />
           )}

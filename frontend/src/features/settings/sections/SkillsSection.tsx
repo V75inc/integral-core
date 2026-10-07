@@ -280,6 +280,7 @@ export function SkillsSection() {
             loading={effectiveQuery.isLoading}
             focusedAppId={focusedAppId}
             onFocusChange={setFocusedAppId}
+            query={q}
           />
 
           {(data?.total || 0) === 0 && (toolData?.total || 0) === 0 ? (
@@ -405,16 +406,39 @@ export function SkillsSection() {
   );
 }
 
+function matchesEffectiveSkill(skill: EffectiveSkillEntry, q: string): boolean {
+  if (!q) return true;
+  const hay = [skill.name, skill.description, skill.key, skill.app_name, skill.reason]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return hay.includes(q);
+}
+
+function matchesEffectiveTool(
+  tool: { name: string; description: string },
+  q: string,
+): boolean {
+  if (!q) return true;
+  return [tool.name, tool.description]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+    .includes(q);
+}
+
 function EffectiveSkillsPanel({
   data,
   loading,
   focusedAppId,
   onFocusChange,
+  query,
 }: {
   data?: Awaited<ReturnType<typeof skillsApi.effective>>;
   loading: boolean;
   focusedAppId: string;
   onFocusChange: (id: string) => void;
+  query: string;
 }) {
   const stateLabel: Record<EffectiveSkillEntry['state'], string> = {
     available: 'Available',
@@ -422,6 +446,16 @@ function EffectiveSkillsPanel({
     paused: 'Paused',
     unavailable: 'Not loaded',
   };
+  const skills = useMemo(
+    () => (data?.skills || []).filter(s => matchesEffectiveSkill(s, query)),
+    [data?.skills, query],
+  );
+  const tools = useMemo(
+    () => (data?.tools || []).filter(t => matchesEffectiveTool(t, query)),
+    [data?.tools, query],
+  );
+  const noMatch = Boolean(query) && skills.length === 0 && tools.length === 0;
+
   return (
     <Surface tone="panel-2" border="subtle" radius="card" className="p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -448,41 +482,47 @@ function EffectiveSkillsPanel({
       {loading ? (
         <Skeleton className="mt-4 h-16 w-full" />
       ) : data ? (
-        <div className="mt-4 grid gap-5 lg:grid-cols-2">
-          <div>
-            <Text as="h4" variant="meta" weight="semibold" tone="subtle" className="mb-2 block uppercase tracking-[0.08em]">
-              Skills ({data.skills.length})
-            </Text>
-            <ul className="space-y-2">
-              {data.skills.map(skill => (
-                <li key={skill.id} className="flex items-start justify-between gap-3 text-sm">
-                  <span className="min-w-0">
-                    <Text variant="body" weight="medium">{skill.name}</Text>
-                    {skill.app_name ? <Text className="ml-2" variant="body" tone="subtle">· {skill.app_name}</Text> : null}
-                    {skill.reason ? <Text as="span" className="mt-0.5 block" variant="body-sm" tone="muted">{skill.reason}</Text> : null}
-                  </span>
-                  <Text className="shrink-0" variant="body-sm" tone="muted">{stateLabel[skill.state]}</Text>
-                </li>
-              ))}
-              {data.skills.length === 0 ? <li><Text variant="body" tone="muted">No skills available.</Text></li> : null}
-            </ul>
+        noMatch ? (
+          <Text as="p" variant="body-sm" tone="muted" className="mt-4">
+            No available skills or tools match “{query}”.
+          </Text>
+        ) : (
+          <div className="mt-4 grid gap-5 lg:grid-cols-2">
+            <div>
+              <Text as="h4" variant="meta" weight="semibold" tone="subtle" className="mb-2 block uppercase tracking-[0.08em]">
+                Skills ({skills.length})
+              </Text>
+              <ul className="space-y-2">
+                {skills.map(skill => (
+                  <li key={skill.id} className="flex items-start justify-between gap-3 text-sm">
+                    <span className="min-w-0">
+                      <Text variant="body" weight="medium">{skill.name}</Text>
+                      {skill.app_name ? <Text className="ml-2" variant="body" tone="subtle">· {skill.app_name}</Text> : null}
+                      {skill.reason ? <Text as="span" className="mt-0.5 block" variant="body-sm" tone="muted">{skill.reason}</Text> : null}
+                    </span>
+                    <Text className="shrink-0" variant="body-sm" tone="muted">{stateLabel[skill.state]}</Text>
+                  </li>
+                ))}
+                {skills.length === 0 ? <li><Text variant="body" tone="muted">No skills available.</Text></li> : null}
+              </ul>
+            </div>
+            <Surface as="details" tone="panel" border="default" radius="card" padding="md" className="min-w-0 self-start">
+              <Text as="summary" variant="body-sm" weight="medium" className="cursor-pointer">
+                Tools Integral can use ({tools.length})
+              </Text>
+              <Text as="p" variant="body-sm" tone="muted" className="mt-2">
+                For advanced setup and troubleshooting.
+              </Text>
+              <ul className="mt-3 grid gap-x-3 gap-y-1 border-t border-[var(--panel-border)] pt-3 sm:grid-cols-2">
+                {tools.map(tool => (
+                  <li key={`${tool.source}:${tool.name}`} className="truncate" title={tool.description}>
+                    <Text variant="body-sm" tone="muted">{tool.name}</Text>
+                  </li>
+                ))}
+              </ul>
+            </Surface>
           </div>
-          <Surface as="details" tone="panel" border="default" radius="card" padding="md" className="min-w-0 self-start">
-            <Text as="summary" variant="body-sm" weight="medium" className="cursor-pointer">
-              Tools Integral can use ({data.tools.length})
-            </Text>
-            <Text as="p" variant="body-sm" tone="muted" className="mt-2">
-              For advanced setup and troubleshooting.
-            </Text>
-            <ul className="mt-3 grid gap-x-3 gap-y-1 border-t border-[var(--panel-border)] pt-3 sm:grid-cols-2">
-              {data.tools.map(tool => (
-                <li key={`${tool.source}:${tool.name}`} className="truncate" title={tool.description}>
-                  <Text variant="body-sm" tone="muted">{tool.name}</Text>
-                </li>
-              ))}
-            </ul>
-          </Surface>
-        </div>
+        )
       ) : (
         <Text as="p" variant="body-sm" tone="muted" className="mt-4">Could not load the effective turn catalogue.</Text>
       )}

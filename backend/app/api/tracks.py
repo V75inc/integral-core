@@ -239,7 +239,9 @@ async def create_track(
         # Pitfall 6: direct service call, NOT an MCP-wrapped re-dispatch.
         from app.api.operational_models import resolve_type_hint
 
-        matches = await resolve_type_hint(type_hint)
+        matches = await resolve_type_hint(
+            type_hint, workspace_id=workspace_id
+        )
         if not matches:
             type_hint_warning = (
                 "type_hint did not resolve to any library package; "

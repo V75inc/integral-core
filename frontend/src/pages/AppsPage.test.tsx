@@ -5,8 +5,19 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AppsPage } from './AppsPage';
 import { CHANGE_EVENT_APPLIED } from '../hooks/useChangeEventInvalidation';
 
+const blankAppSavedRef = vi.hoisted(() => ({ current: null as null | ((app: unknown) => void) }));
+
 vi.mock('../components/apps/AppModal', () => ({
-  AppModal: () => null,
+  AppModal: ({
+    open,
+    onSaved,
+  }: {
+    open: boolean;
+    onSaved: (app: unknown) => void;
+  }) => {
+    blankAppSavedRef.current = onSaved;
+    return open ? <div data-testid="blank-app-modal" /> : null;
+  },
 }));
 
 vi.mock('../components/apps/AppManagerDialog', () => ({
@@ -130,6 +141,39 @@ describe('AppsPage creation rights gating', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Car Rental Management')).toBeInTheDocument();
+    });
+  });
+
+  it('keeps a blank-created app visible when a stale change-event list omits it', async () => {
+    const { appsApi } = await import('../api');
+    vi.mocked(appsApi.list).mockResolvedValue([]);
+    mockUseWorkspaceCreationRights.mockReturnValue({
+      canCreateApps: true,
+      canCreateTracks: true,
+      lacksAppCreationInOrg: false,
+      lacksTrackCreationInOrg: false,
+    });
+
+    renderPage();
+    expect(await screen.findByText('No apps yet')).toBeInTheDocument();
+
+    blankAppSavedRef.current?.({
+      id: 'app-blank',
+      name: 'Blank App',
+      workspace_id: 'ws-org',
+    });
+
+    expect(await screen.findByText('Blank App')).toBeInTheDocument();
+
+    // Stale refetch still returns [] — optimistic row must survive.
+    window.dispatchEvent(
+      new CustomEvent(CHANGE_EVENT_APPLIED, {
+        detail: { id: 'evt-2', action: 'app.create' },
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Blank App')).toBeInTheDocument();
     });
   });
 });
