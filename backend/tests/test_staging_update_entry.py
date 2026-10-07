@@ -387,3 +387,46 @@ async def test_unverified_type_hint_cannot_bypass_duplicate_identity(monkeypatch
         )
     finally:
         bindings._propose_principal.reset(principal)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "title,text,sentence,keys,blocked",
+    [
+        ("Draft plan", "Process note appended 2026-10-07", "", ["date"], False),
+        ("Draft plan", "", "Append a note dated 2026-10-07", ["date"], False),
+        ("Appointment 2026-10-07", "", "", ["date"], True),
+        ("Plan 2026-10-07", "", "", ["start_date", "end_date"], False),
+    ],
+)
+async def test_date_guard_does_not_infer_dates_from_note_provenance(
+    monkeypatch, title, text, sentence, keys, blocked
+):
+    from app.models.nodes import Track
+    from app.services.turn_binding import current_user_sentence
+
+    monkeypatch.setattr(
+        Track, "get", AsyncMock(return_value=SimpleNamespace(id="track-a"))
+    )
+    monkeypatch.setattr(
+        "app.services.view_create_resolution.load_entry_types_for_track",
+        AsyncMock(
+            return_value=[
+                SimpleNamespace(
+                    id="type-a",
+                    name="Plan",
+                    form_schema={
+                        "fields": [{"key": key, "type": "date"} for key in keys]
+                    },
+                )
+            ]
+        ),
+    )
+    token = current_user_sentence.set(sentence)
+    try:
+        result = await bindings.date_left_in_title_block(
+            track_id="track-a", title=title, text=text, fields={}, update=True
+        )
+    finally:
+        current_user_sentence.reset(token)
+    assert bool(result) is blocked
