@@ -2869,7 +2869,14 @@ async def _stage_create_dashboard(args: Dict[str, Any]) -> Dict[str, Any]:
     )
     payload.update(validated.model_dump(mode="json", exclude_none=True))
     principal = _propose_principal.get()
-    if principal:
+    # A newly scaffolded App does not exist yet: its id is an intra-batch
+    # reference resolved only when the approved change executes. The executor
+    # calls the dashboard service with that real id, where permissions and
+    # published field bindings are validated again against the created graph.
+    # Keep the early check for existing Apps; defer only for a batch that
+    # actually contains the App creation this reference depends on.
+    planned_app = principal and _batch_creates_app() and not _is_node_id(app_id)
+    if principal and not planned_app:
         from app.services.dashboard_service import validate_dashboard_field_bindings
 
         await validate_dashboard_field_bindings(
