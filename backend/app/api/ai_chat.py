@@ -2308,6 +2308,7 @@ async def _start_user_turn(
 
     extra_data: Dict[str, Any] = {}
     if native_turn and host_action == "prompt_sheet_resume":
+        extra_data["staging_outcome_continuation"] = True
         from app.services.prompt_queue import get_queue
 
         # A negative host receipt contains no new user authority. Readback and

@@ -164,14 +164,9 @@ async def _x_create_entry(user_id: str, payload: Dict[str, Any]) -> Dict[str, An
     and ``custom_fields`` (not ``fields``). Skill payloads use the
     user-friendlier ``entry_type`` (a NAME) and ``fields``; we
     translate them here. ``entry_type`` resolves to ``type_id`` via a
-    lookup against the track's operational model; if the lookup fails
-    (or the agent didn't provide a name), we drop it and let the
-    handler pick the track's default entry type.
-
-    Resilience: if custom_fields validation fails (e.g. entry type has
-    an empty field schema so any key is rejected), we retry without
-    custom_fields. Better to create the entry without structured fields
-    than to fail entirely — the body text still carries the content.
+    lookup against the track's operational model. An explicit unresolved
+    type fails closed; only an omitted type uses the track's default.
+    Rejected structured fields fail the approved write without a retry.
     """
     from app.api.entries import create_entry as handler
 
@@ -210,8 +205,13 @@ async def _x_create_entry(user_id: str, payload: Dict[str, Any]) -> Dict[str, An
         type_id = await _resolve_entry_type_id(payload["track_id"], entry_type_name)
         if type_id:
             body["type_id"] = type_id
-        # If we can't resolve, omit type_id — the handler picks the
-        # track's default entry type rather than erroring.
+        else:
+            return {
+                "error": True,
+                "status_code": 400,
+                "error_code": "entry_type_unresolved",
+                "message": "The requested entry type could not be resolved on the destination Track. Nothing was created.",
+            }
     result = await _call_endpoint(handler, user_id, **body)
 
     # A rejected field is not applied. Do not create the entry without it and
@@ -259,13 +259,16 @@ async def _resolve_entry_type_id(
             return None
         types = await cp.nodes(edge=["CONTAINS"], node=["EntryType"])
         target = entry_type_name.casefold()
-        # Agents most often pass the entry-type KEY (e.g. "time_off_request")
-        # as surfaced by describe_operational_model, but EntryType nodes only store the
-        # display NAME (e.g. "Time-off request"). Normalize both to a slug-key
-        # so a key matches its type — without this the create silently fell
-        # back to the track's default ("Post"), making every typed field
-        # invalid and dropped.
         target_key = _entry_type_key(entry_type_name)
+        # Manifest keys need not resemble display names. Resolve the stored
+        # canonical key before legacy name matching, within this Track only.
+        for et in types:
+            schema = getattr(et, "form_schema", None) or {}
+            manifest_key = schema.get("_manifest_entry_type_key")
+            if et.id == entry_type_name or (
+                manifest_key and _entry_type_key(str(manifest_key)) == target_key
+            ):
+                return et.id
         for et in types:
             name = (getattr(et, "name", "") or "").casefold()
             if name == target or _entry_type_key(name) == target_key:

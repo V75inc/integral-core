@@ -141,10 +141,12 @@ class _Session:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("token_limit", [300_000, 450_000])
 @pytest.mark.parametrize("second_text", ["continue", ""])
+@pytest.mark.parametrize("staging_continuation", [False, True])
 async def test_provider_persists_session_and_resumes_previous_run(
     monkeypatch: pytest.MonkeyPatch,
     token_limit: int,
     second_text: str,
+    staging_continuation: bool,
 ) -> None:
     """Two turns share a session while resuming separate durable runs."""
     from app.config import settings
@@ -156,6 +158,18 @@ async def test_provider_persists_session_and_resumes_previous_run(
     scopes = [_scope("run-a"), _scope("run-b")]
     observed_limits = []
     observed_prompts = []
+    observed_instructions = []
+    observed_histories = []
+    host_outcome_calls = []
+
+    def host_outcome(history, *, conversation_id):
+        host_outcome_calls.append(conversation_id)
+        return "Trusted host outcome"
+
+    monkeypatch.setattr(
+        "app.services.chat_providers.pydantic_ai_provider._host_staging_outcome_instructions",
+        host_outcome,
+    )
 
     async def prepare(_ctx: Any) -> Any:
         scope = scopes.pop(0)
@@ -172,6 +186,8 @@ async def test_provider_persists_session_and_resumes_previous_run(
             def run_stream_events(self, *args: Any, **kwargs: Any) -> Any:
                 observed_limits.append(kwargs.get("usage_limits"))
                 observed_prompts.append(args[0])
+                observed_instructions.append(kwargs.get("instructions"))
+                observed_histories.append(kwargs.get("message_history"))
                 return agent.run_stream_events(*args, **kwargs)
 
         history = (
@@ -256,11 +272,25 @@ async def test_provider_persists_session_and_resumes_previous_run(
         {"type": "text-delta", "delta": "answer-run-a"}
     ]
 
-    ctx = replace(ctx, text=second_text)
+    ctx = replace(
+        ctx,
+        text=second_text,
+        extra_data={"staging_outcome_continuation": staging_continuation},
+    )
     second = [event async for event in provider.stream_turn(ctx)]
     assert second[0]["type"] == "_meta"
     assert second[-1]["type"] == "message-finish"
     assert session.last_run_id == "run-b"
+    assert host_outcome_calls == (
+        ["thread-a"] if staging_continuation and not second_text else []
+    )
+    assert observed_instructions[-1] is None
+    if staging_continuation and not second_text:
+        from pydantic_ai.messages import SystemPromptPart
+
+        part = observed_histories[-1][-1].parts[0]
+        assert isinstance(part, SystemPromptPart)
+        assert part.content == "Trusted host outcome"
     assert [event for event in second if event.get("type") == "text-delta"] == [
         {"type": "text-delta", "delta": "answer-run-b"}
     ]
