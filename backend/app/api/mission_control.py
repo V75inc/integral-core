@@ -43,6 +43,13 @@ async def get_mission_control_snapshot(
         get_user_accessible_apps(user_id),
         get_user_accessible_tracks(user_id),
     )
+    # Nav lists omit line-item / settings tracks; keep the full set for entry
+    # reachability and workspace_id attachment below.
+    nav_tracks = [
+        t
+        for t in tracks
+        if getattr(t, "nav_visible", True) and getattr(t, "kind", None) != "settings"
+    ]
     # Reuse the tracks we just resolved to gather entries, instead of calling
     # get_user_accessible_entries(workspace_id=None) — which re-runs the single
     # most expensive step (get_user_accessible_tracks) a second time. Every track
@@ -80,7 +87,7 @@ async def get_mission_control_snapshot(
             asyncio.gather(*(export_node(e) for e in preview_entries)),
             asyncio.gather(*(export_node(w) for w in workspaces)),
             asyncio.gather(*(export_node(a) for a in apps)),
-            asyncio.gather(*(export_node(t) for t in tracks)),
+            asyncio.gather(*(export_node(t) for t in nav_tracks)),
         )
     )
     exported_entries = list(exported_entries)

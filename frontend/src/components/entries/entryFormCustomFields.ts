@@ -1,5 +1,6 @@
 import type { OperationalModelFieldSpec, EntryTypeNode } from '../../types';
 import { BASE_ENTRY_TYPE_SLUGS } from '../../utils';
+import { resolveFieldDefault } from '../../utils/fieldDefaults';
 
 export const TYPE_FIELD_CACHE_KEY = '_type_field_cache';
 
@@ -32,7 +33,7 @@ export function resolveFieldValuesForEntryType(
   for (const field of fields) {
     const key = field.key;
     if (!key || key.startsWith('_')) continue;
-    if (field.default !== undefined) out[key] = field.default;
+    if (field.default !== undefined) out[key] = resolveFieldDefault(field.default);
     const v =
       customFields[key] !== undefined ? customFields[key] : cached[key];
     if (v !== undefined) out[key] = v;

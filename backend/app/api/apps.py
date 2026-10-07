@@ -609,8 +609,14 @@ async def delete_app(request: Request, app_id: str) -> Dict[str, Any]:
 async def list_app_tracks(
     request: Request,
     app_id: str,
+    include_nav_hidden: bool = False,
 ) -> Dict[str, Any]:
-    """List all Tracks in an App."""
+    """List Tracks in an App.
+
+    By default omits tracks with ``nav_visible=False`` (internal / line-item
+    tracks). Pass ``include_nav_hidden=true`` for admin/config/agent surfaces
+    that need the full set.
+    """
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
@@ -631,6 +637,8 @@ async def list_app_tracks(
         node=["Track"],
         limit=500,
     )
+    if not include_nav_hidden:
+        tracks = [t for t in tracks if getattr(t, "nav_visible", True)]
     track_ids = [t.id for t in tracks if getattr(t, "id", None)]
     entry_counts: Dict[str, int] = {}
     track_positions: Dict[str, int] = {}
@@ -1209,6 +1217,7 @@ async def _preview_app_library_apply(
             "key": key,
             "name": str(td.get("name") or key),
             "provision_on_create": bool(td.get("provision_on_create", True)),
+            "nav_visible": bool(td.get("nav_visible", True)),
             "entry_type_count": len(entry_types),
             "view_count": len(views),
             "tag_count": tag_count,

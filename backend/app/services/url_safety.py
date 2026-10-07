@@ -24,6 +24,40 @@ _BLOCKED_HOSTNAMES = frozenset(
 )
 
 
+def outbound_trusted_hosts() -> frozenset:
+    """Exact hostnames an operator has marked as trusted internal services.
+
+    ``INTEGRAL_OUTBOUND_TRUSTED_HOSTS`` (comma-separated) is for a self-hosted
+    deployment that runs its own MCP server beside Integral (for example a
+    Docker service named ``drive-mcp``). Such a host resolves to a private
+    address, which this module otherwise refuses. Only an exact hostname match
+    is trusted: no wildcards, no suffixes, and never a literal IP address, so
+    the list cannot be used to reach metadata services or arbitrary internal
+    addresses. Unset (the default) trusts nothing.
+    """
+    import os
+
+    raw = (os.environ.get("INTEGRAL_OUTBOUND_TRUSTED_HOSTS") or "").strip()
+    hosts = set()
+    for chunk in raw.split(","):
+        host = chunk.strip().lower()
+        if not host:
+            continue
+        try:
+            ipaddress.ip_address(host)
+            continue  # a literal IP is never trusted by name
+        except ValueError:
+            pass
+        if host in _BLOCKED_HOSTNAMES or host.endswith((".local", ".localhost")):
+            continue
+        hosts.add(host)
+    return frozenset(hosts)
+
+
+def _is_trusted_host(host: str) -> bool:
+    return (host or "").strip().lower() in outbound_trusted_hosts()
+
+
 def _ip_from_sockaddr(sockaddr: object) -> Optional[str]:
     if not isinstance(sockaddr, tuple) or not sockaddr:
         return None
@@ -81,6 +115,9 @@ def validate_public_http_url_sync(url: str) -> None:
     host = (parsed.hostname or "").strip().lower()
     if not host:
         raise BadRequestError(message="Attachment URL must include a valid host")
+
+    if _is_trusted_host(host):
+        return
 
     if host in _BLOCKED_HOSTNAMES:
         raise BadRequestError(message="This host is not allowed for URL attachments")
@@ -281,6 +318,8 @@ def _resolve_pinned_records(host: str) -> Optional[List[Tuple]]:
         records = _real_getaddrinfo(host, None, type=socket.SOCK_STREAM)
     except OSError:
         return None
+    if _is_trusted_host(host):
+        return records
     for record in records:
         sockaddr = record[4]
         ip = _ip_from_sockaddr(sockaddr)

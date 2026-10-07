@@ -7,11 +7,10 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Literal, Optional, Tuple
 
-from jvspatial.db import get_prime_database
-
 from app.agentive.services.work_outbox import (
     OBJECT_COLLECTION,
     TOPIC_TRANSITIONED,
+    _active_database,
     _dev_lock,
     _is_postgres_txn_db,
     _txn_database,
@@ -266,7 +265,7 @@ async def propose_work_approval_unit(
         created_at=now,
     )
 
-    db = get_prime_database()
+    db = _active_database()
     if transaction is not None or _is_postgres_txn_db(db):
         approval, item = await _propose_postgres(
             db=_txn_database(db) if transaction is None else db,
@@ -499,7 +498,7 @@ async def decide_work_approval_unit(
         )
         next_attempt_at = ""
 
-    db = get_prime_database()
+    db = _active_database()
     if transaction is not None or _is_postgres_txn_db(db):
         return await _decide_postgres(
             db=_txn_database(db) if transaction is None else db,

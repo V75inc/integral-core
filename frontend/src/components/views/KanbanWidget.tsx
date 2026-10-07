@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   DndContext,
   DragOverlay,
@@ -40,6 +41,8 @@ import { MarkdownContent } from '../ui';
 import type { ViewWidgetProps } from './types';
 import type { Entry, SavedView, OperationalModelFieldSpec } from '../../types';
 import { entriesApi } from '../../api/entries';
+import { extensionsApi } from '../../api/extensions';
+import { toToastMessage } from '../../api/helpers';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useToast } from '../../context/ToastContext';
 import { humanizeFieldKey } from '../../utils/humanizeFieldKey';
@@ -61,8 +64,20 @@ import {
   resolveKanbanWriteFieldKey,
   resolveViewCreateEntryTypeKey,
   shouldSyncKanbanColumnEnumForView,
-  generateKanbanColumnKey
+  generateKanbanColumnKey,
+  type KanbanColumnDrop,
+  type KanbanColumnSpec,
 } from './kanbanColumnUtils';
+import {
+  buildDropPayload,
+  columnDropBlockReason,
+  dropOperationError,
+  readKanbanColumn,
+  resolveKanbanDrop,
+  validateDropInput,
+  type ResolvedKanbanDrop,
+} from './kanbanDropActions';
+import { KanbanDropDialog } from './KanbanDropDialog';
 
 /** Map from custom-field key (no `custom_fields.` prefix) to resolved relation
  *  labels. Pre-computed per entry so `interpolateTemplate` stays synchronous. */
@@ -72,6 +87,20 @@ interface KanbanColumn {
   key: string;
   label: string;
   color?: string;
+  drop_target?: boolean;
+  accepts_from?: string[];
+  on_drop?: KanbanColumnDrop;
+}
+
+function toBoardColumn(column: KanbanColumnSpec): KanbanColumn {
+  return {
+    key: column.key,
+    label: column.label || column.key,
+    color: column.color,
+    drop_target: column.drop_target,
+    accepts_from: column.accepts_from,
+    on_drop: column.on_drop,
+  };
 }
 
 interface KanbanCardTemplate {
@@ -1152,10 +1181,12 @@ function KanbanWidgetInner({
   isEditor,
   publicPermissions,
   fields,
-  entryTypes
+  entryTypes,
+  track,
 }: ViewWidgetProps) {
   const confirm = useConfirm();
-  const { showPendingToast, resolveToast } = useToast();
+  const queryClient = useQueryClient();
+  const { showToast, showPendingToast, resolveToast } = useToast();
   const { resolveMemberLabel } = useWorkspaceMemberLabelMap();
   // Prefer the explicit persist hook (writes to backend + syncs cache);
   // fall back to cache-only update when the host page didn't wire one.
@@ -1302,13 +1333,13 @@ function KanbanWidgetInner({
   );
 
   const columns: KanbanColumn[] = useMemo(() => {
-    const raw = config.kanban_columns as Array<{ key: string; label?: string; color?: string }> | undefined;
+    const raw = Array.isArray(config.kanban_columns)
+      ? (config.kanban_columns as Array<Record<string, unknown>>)
+      : undefined;
     const configured = raw?.length
-      ? raw.map(c => ({
-          key: c.key,
-          label: c.label || c.key,
-          color: c.color,
-        }))
+      ? raw
+          .map(column => readKanbanColumn(column))
+          .filter(column => column.key)
       : undefined;
     const built = buildKanbanColumnsForGroupField(
       groupBy,
@@ -1319,11 +1350,7 @@ function KanbanWidgetInner({
       resolveRelationLabel
     );
     if (built.length > 0) {
-      return built.map(c => ({
-        key: c.key,
-        label: c.label || c.key,
-        color: c.color
-      }));
+      return built.map(column => toBoardColumn(column));
     }
     return DEFAULT_COLUMNS;
   }, [config.kanban_columns, groupBy, schemaFields, entries, resolveMemberLabel, resolveRelationLabel]);
@@ -1378,6 +1405,12 @@ function KanbanWidgetInner({
   const [addingColumn, setAddingColumn] = useState(false);
   const [newColumnName, setNewColumnName] = useState('');
   const [columnError, setColumnError] = useState('');
+  const [dropPrompt, setDropPrompt] = useState<{
+    entry: Entry;
+    action: ResolvedKanbanDrop;
+  } | null>(null);
+  const [dropBusy, setDropBusy] = useState(false);
+  const [dropError, setDropError] = useState('');
   useEffect(() => {
     if (isColumnId(activeId)) return;
     setLocalColumns(columns);
@@ -1555,9 +1588,24 @@ function KanbanWidgetInner({
       // Same-column: leave to the sortable strategy + drag-end commit.
       if (sourceCol === targetCol) return prev;
 
-      // Cross-column: splice active into target at the projected slot.
       const activeEntryLocal = prev[sourceCol].find(e => e.id === activeIdStr);
       if (!activeEntryLocal) return prev;
+
+      // Action columns (Paid → receive payment) and display-only columns
+      // must not preview a status write. The card stays put until drop.
+      const targetColumn = columns.find(c => c.key === targetCol);
+      if (targetColumn) {
+        const sourceKey = resolveEntryColumnKey(activeEntryLocal, columns, groupBy);
+        const blocked = columnDropBlockReason(
+          targetColumn,
+          sourceKey,
+          columns.find(c => c.key === sourceKey)?.label || sourceKey,
+          key => columns.find(c => c.key === key)?.label || key
+        );
+        if (blocked || targetColumn.on_drop) return prev;
+      }
+
+      // Cross-column: splice active into target at the projected slot.
       const newSource = prev[sourceCol].filter(e => e.id !== activeIdStr);
       const targetList = [...prev[targetCol]];
       const overIdx = targetList.findIndex(e => e.id === overId);
@@ -1566,6 +1614,85 @@ function KanbanWidgetInner({
       return { ...prev, [sourceCol]: newSource, [targetCol]: targetList };
     });
   };
+
+  const invokeColumnDrop = useCallback(
+    async (
+      appId: string,
+      action: ResolvedKanbanDrop,
+      card: Entry,
+      input: Record<string, string>
+    ) => {
+      const invalid = validateDropInput(action, card, input);
+      if (invalid) {
+        setDropError(invalid);
+        showToast(invalid, 'error');
+        return;
+      }
+      setDropBusy(true);
+      setDropError('');
+      const pendingId = showPendingToast(`${action.title}…`);
+      try {
+        const payload = buildDropPayload(action.payload, card, input, action.fields);
+        if (action.bindDocument) {
+          payload.document_id = payload.document_id || card.id;
+          payload.entry_id = payload.entry_id || card.id;
+        }
+        const result = await extensionsApi.invokeOperation(
+          appId,
+          action.operation,
+          payload
+        );
+        const failed = dropOperationError(result.output);
+        if (failed) throw new Error(failed);
+        resolveToast(pendingId, action.successMessage, 'success');
+        setDropPrompt(null);
+        if (track?.id) {
+          await queryClient.invalidateQueries({
+            queryKey: ['track', track.id, 'entries'],
+          });
+        }
+      } catch (err) {
+        const message = toToastMessage(err, 'The action failed');
+        setDropError(message);
+        resolveToast(pendingId, message, 'error');
+      } finally {
+        setDropBusy(false);
+      }
+    },
+    [queryClient, resolveToast, showPendingToast, showToast, track?.id]
+  );
+
+  const runColumnDrop = useCallback(
+    async (card: Entry, column: KanbanColumn) => {
+      const action = resolveKanbanDrop(column.on_drop);
+      if (!action) {
+        showToast('This column has no drop action.', 'error');
+        return;
+      }
+      const appId = track?.app?.id;
+      if (!appId) {
+        showToast('This board action needs the app that owns the track.', 'error');
+        return;
+      }
+      if (action.mode === 'form') {
+        setDropError('');
+        setDropPrompt({ entry: card, action });
+        return;
+      }
+      const ok = await confirm({
+        title: action.title,
+        message:
+          action.confirm ||
+          action.message ||
+          `Update “${card.title || 'this card'}”?`,
+        confirmLabel: action.confirmLabel,
+        cancelLabel: 'Cancel',
+      });
+      if (!ok) return;
+      await invokeColumnDrop(appId, action, card, {});
+    },
+    [confirm, invokeColumnDrop, showToast, track?.app?.id]
+  );
 
   const handleDragEnd = (event: DragEndEvent) => {
     const aId = activeId;
@@ -1631,7 +1758,40 @@ function KanbanWidgetInner({
       return;
     }
 
-    if (!isEditor || !commitEntry) return;
+    if (!canUpdate) return;
+
+    const overColumnKey = isBoardColumnKey(overId, columns, localCols)
+      ? overId
+      : findColumnOf(localCols, overId);
+    const draggedEntry = (() => {
+      const sourceKey = findColumnOf(localCols, activeIdStr);
+      return (
+        (sourceKey ? localCols[sourceKey]?.find(e => e.id === activeIdStr) : undefined) ||
+        entries.find(e => e.id === activeIdStr)
+      );
+    })();
+    if (draggedEntry && overColumnKey) {
+      const sourceKey = resolveEntryColumnKey(draggedEntry, columns, groupBy);
+      const targetColumn = columns.find(c => c.key === overColumnKey);
+      if (targetColumn && sourceKey !== overColumnKey) {
+        const blocked = columnDropBlockReason(
+          targetColumn,
+          sourceKey,
+          columns.find(c => c.key === sourceKey)?.label || sourceKey,
+          key => columns.find(c => c.key === key)?.label || key
+        );
+        if (blocked) {
+          showToast(blocked, 'info');
+          return;
+        }
+        if (targetColumn.on_drop) {
+          void runColumnDrop(draggedEntry, targetColumn);
+          return;
+        }
+      }
+    }
+
+    if (!commitEntry) return;
 
     // Locate the active card in optimistic state (onDragOver already
     // settled cross-column moves; same-column moves haven't yet).
@@ -2050,6 +2210,22 @@ function KanbanWidgetInner({
           ) : null}
         </DragOverlay>
       </DndContext>
+      <KanbanDropDialog
+        entry={dropPrompt?.entry ?? null}
+        action={dropPrompt?.action ?? null}
+        busy={dropBusy}
+        error={dropError}
+        onClose={() => {
+          if (dropBusy) return;
+          setDropPrompt(null);
+          setDropError('');
+        }}
+        onSubmit={input => {
+          const appId = track?.app?.id;
+          if (!dropPrompt || !appId) return;
+          void invokeColumnDrop(appId, dropPrompt.action, dropPrompt.entry, input);
+        }}
+      />
     </div>
   );
 }

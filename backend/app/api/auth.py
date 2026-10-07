@@ -61,6 +61,14 @@ from app.utils.time import utc_now_iso
 logger = logging.getLogger(__name__)
 
 _SENSITIVE_PREFERENCE_KEYS = frozenset({"reset_token", "email_verification"})
+_PROTECTED_PREFERENCE_KEYS = frozenset(
+    {
+        "reset_token",
+        "email_verification",
+        "must_change_password",
+        "pending_onboarding_form",
+    }
+)
 
 
 def _scrub_sensitive_preferences(prefs: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -107,10 +115,29 @@ def _merge_user_preferences(
 ) -> Dict[str, Any]:
     merged = dict(existing or {})
     for key, value in patch.items():
-        if key in _SENSITIVE_PREFERENCE_KEYS:
+        if key in _PROTECTED_PREFERENCE_KEYS:
             continue
         merged[key] = value
     return merged
+
+
+def _attach_must_change_password(user: User, user_data: Dict[str, Any]) -> None:
+    from app.services.member_provision import must_change_password
+
+    user_data["must_change_password"] = must_change_password(user)
+
+
+def _attach_pending_assigned_form(user: User, user_data: Dict[str, Any]) -> None:
+    from app.services.onboarding_prompt import pending_onboarding_form_view
+
+    view = pending_onboarding_form_view(user)
+    if view:
+        user_data["pending_assigned_form"] = view
+        user_data["pending_onboarding_form"] = view
+
+
+def _attach_pending_onboarding_form(user: User, user_data: Dict[str, Any]) -> None:
+    _attach_pending_assigned_form(user, user_data)
 
 
 def _get_auth_service() -> AuthenticationService:
@@ -230,6 +257,8 @@ async def get_current_user(request: Request) -> Dict[str, Any]:
     user_data = await _self_user_view(user)
 
     await _enrich_from_auth_user(user, user_data)
+    _attach_must_change_password(user, user_data)
+    _attach_pending_onboarding_form(user, user_data)
     return {"user": user_data, "message": "User retrieved successfully"}
 
 
@@ -282,6 +311,8 @@ async def update_profile(
     user_data = await _self_user_view(user)
 
     await _enrich_from_auth_user(user, user_data)
+    _attach_must_change_password(user, user_data)
+    _attach_pending_onboarding_form(user, user_data)
 
     # D-05 single emission path. Sync inline emit before HTTP response (D-06).
     await emit_change_event(
@@ -438,6 +469,8 @@ async def register_user(request: Request) -> Dict[str, Any]:
     # wrote the OTP slot, so a raw export publishes the code's hash.
     user_data = await _self_user_view(user_node)
     await _enrich_from_auth_user(user_node, user_data)
+    _attach_must_change_password(user_node, user_data)
+    _attach_pending_onboarding_form(user_node, user_data)
     user_data["name"] = body.name
     user_data["email"] = body.email
 
@@ -537,6 +570,128 @@ async def resend_verification(request: Request) -> Dict[str, Any]:
         await create_verification_request(user, email)
 
     return {"ok": True, "message": "Verification code sent"}
+
+
+@endpoint("/auth/update-password", methods=["POST"], auth=True, tags=["Auth"])
+async def update_password(request: Request) -> Dict[str, Any]:
+    """Verify the current password, set a new one, clear first-login flag."""
+    from app.schemas.api.auth import ChangePasswordRequest
+
+    uid = resolve_principal_id(request)
+    if not uid:
+        raise MissingAuthenticationError(message="Authentication required")
+
+    try:
+        body = ChangePasswordRequest(**(await request.json()))
+    except ValidationError as exc:
+        raise BadRequestError(
+            message="Validation failed",
+            details={"errors": exc.errors()},
+        ) from exc
+
+    if not body.new_password or len(body.new_password) < settings.PASSWORD_MIN_LENGTH:
+        raise BadRequestError(
+            message=f"Password must be at least {settings.PASSWORD_MIN_LENGTH} characters",
+            details={"error_code": "auth.change_password.too_short"},
+        )
+    if body.new_password == body.current_password:
+        raise BadRequestError(
+            message="New password must be different from the current password",
+            details={"error_code": "auth.change_password.unchanged"},
+        )
+
+    user = await get_user_node(uid)
+    if not user or not user.user_id:
+        raise ResourceNotFoundError(message="User not found")
+
+    auth_service = _get_auth_service()
+    auth_user = await auth_service._get_user_by_id(user.user_id)
+    if not auth_user:
+        raise ResourceNotFoundError(message="Auth user not found")
+
+    if not auth_service._verify_password(
+        body.current_password, auth_user.password_hash
+    ):
+        raise BadRequestError(
+            message="Current password is incorrect",
+            details={"error_code": "auth.change_password.current_invalid"},
+        )
+
+    from app.bootstrap_admin import _hash_password
+
+    auth_user.password_hash = _hash_password(body.new_password)
+    await auth_user.save()
+
+    from app.services.member_provision import set_must_change_password
+
+    set_must_change_password(user, False)
+    user.updated_at = utc_now_iso()
+    await user.save()
+    await emit_change_event(
+        actor_kind="human",
+        actor_id=uid,
+        action="user.update",
+        resource_type="User",
+        resource_id=user.id,
+        before=None,
+        after={"password_updated": True},
+        scope=f"user:{uid}",
+    )
+
+    return {"ok": True, "message": "Password updated", "must_change_password": False}
+
+
+async def _complete_pending_assigned_form(uid: str) -> Dict[str, Any]:
+    user = await get_user_node(uid)
+    if not user:
+        raise ResourceNotFoundError(message="User not found")
+
+    from app.services.onboarding_prompt import clear_pending_onboarding_form
+
+    cleared = await clear_pending_onboarding_form(user)
+    if cleared:
+        user.updated_at = utc_now_iso()
+        await user.save()
+        await emit_change_event(
+            actor_kind="human",
+            actor_id=uid,
+            action="user.update",
+            resource_type="User",
+            resource_id=user.id,
+            before={"pending_assigned_form": True},
+            after={"pending_assigned_form": False},
+            scope=f"user:{uid}",
+        )
+
+    return {"ok": True, "cleared": cleared}
+
+
+@endpoint(
+    "/auth/complete-assigned-form",
+    methods=["POST"],
+    auth=True,
+    tags=["Auth"],
+)
+async def complete_assigned_form(request: Request) -> Dict[str, Any]:
+    """Clear a pending assigned-form prompt for the signed-in user."""
+    uid = resolve_principal_id(request)
+    if not uid:
+        raise MissingAuthenticationError(message="Authentication required")
+    return await _complete_pending_assigned_form(uid)
+
+
+@endpoint(
+    "/auth/complete-onboarding-form",
+    methods=["POST"],
+    auth=True,
+    tags=["Auth"],
+)
+async def complete_onboarding_form(request: Request) -> Dict[str, Any]:
+    """Legacy shim — use ``/auth/complete-assigned-form``."""
+    uid = resolve_principal_id(request)
+    if not uid:
+        raise MissingAuthenticationError(message="Authentication required")
+    return await _complete_pending_assigned_form(uid)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

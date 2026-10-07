@@ -21,9 +21,12 @@ export function isVisible(cond: VisibleIf | undefined, values: Record<string, un
 
 /** A field/column entry in a widget's config list — either a bare key
  *  (always visible, the original shape every existing config already
- *  uses) or `{key, visible_if?}` for conditional visibility. Shared by
- *  FormRegionWidget's `fields` and EditableTableWidget's `columns`. */
-export type ConditionalFieldEntry = string | { key: string; visible_if?: VisibleIf };
+ *  uses) or `{key, visible_if?, editable_in_detail?}` for conditional
+ *  visibility / detail-mode edit exceptions. Shared by FormRegionWidget's
+ *  `fields` and EditableTableWidget's `columns`. */
+export type ConditionalFieldEntry =
+  | string
+  | { key: string; visible_if?: VisibleIf; editable_in_detail?: boolean };
 
 export function fieldEntryKey(entry: ConditionalFieldEntry): string {
   return typeof entry === 'string' ? entry : entry.key;
@@ -31,6 +34,12 @@ export function fieldEntryKey(entry: ConditionalFieldEntry): string {
 
 export function fieldEntryVisibleIf(entry: ConditionalFieldEntry): VisibleIf | undefined {
   return typeof entry === 'string' ? undefined : entry.visible_if;
+}
+
+/** True when the field may be edited while EntryDetail is in view
+ *  (mode=detail) — e.g. invoice Status without opening full edit. */
+export function fieldEntryEditableInDetail(entry: ConditionalFieldEntry): boolean {
+  return typeof entry === 'object' && entry.editable_in_detail === true;
 }
 
 // ── Cross-region live values ────────────────────────────────────────────
@@ -49,7 +58,7 @@ export function fieldEntryVisibleIf(entry: ConditionalFieldEntry): VisibleIf | u
 // is also used standalone (not nested in a container), where this context
 // is simply absent and every widget falls back to its own local entry
 // state exactly as before.
-import { createContext, useContext, useRef, useState, useCallback } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 type LiveValuesContextShape = {
   values: Record<string, unknown>;
@@ -65,12 +74,24 @@ const LiveValuesContext = createContext<LiveValuesContextShape | null>(null);
 export function useLiveValuesProvider(initial: Record<string, unknown> | undefined) {
   const [values, setValues] = useState<Record<string, unknown>>(() => ({ ...(initial || {}) }));
   const initialRef = useRef(initial);
-  // Re-seed if the container mounts against a different entry (rare — a
-  // container instance is normally scoped to one entry for its lifetime).
-  if (initial && initial !== initialRef.current) {
+  const committedRef = useRef<Set<string>>(new Set());
+  // Re-seed when the host draft/entry snapshot identity changes (compose
+  // often mounts against ``{}`` then receives defaults / entryValues).
+  // Committed keys keep their value; every other key takes the newer seed,
+  // so a blank from the first snapshot cannot hide a later default.
+  useEffect(() => {
+    if (!initial || initial === initialRef.current) return;
     initialRef.current = initial;
-  }
+    setValues(prev => {
+      const next = { ...prev, ...initial };
+      committedRef.current.forEach(key => {
+        if (key in prev) next[key] = prev[key];
+      });
+      return next;
+    });
+  }, [initial]);
   const commit = useCallback((key: string, value: unknown) => {
+    committedRef.current.add(key);
     setValues(prev => ({ ...prev, [key]: value }));
   }, []);
   return { values, commit };

@@ -13,7 +13,8 @@ import {
   Search,
   ClipboardList,
   GripVertical,
-  LayoutDashboard
+  LayoutDashboard,
+  Settings2
 } from 'lucide-react';
 import {
   DndContext,
@@ -46,6 +47,7 @@ import {
 } from '../components/collab/CollaboratorRow';
 import { TrackModal } from '../components/tracks/TrackModal';
 import { AppModal } from '../components/apps/AppModal';
+import { AppSettingsModal } from '../components/apps/AppSettingsModal';
 import {
   Avatar,
   Button,
@@ -65,6 +67,7 @@ import {
 } from '../components/ui';
 import { Modal } from '../components/ui/Modal';
 import { dedupeCollaborators, isSamePrincipal, resolveIdentityColor } from '../utils';
+import { isTrackNavVisible } from '../utils/trackNav';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm, type ConfirmOptions } from '../context/ConfirmContext';
 import { useToast } from '../context/ToastContext';
@@ -78,6 +81,7 @@ import { useRecents } from '../hooks/useRecents';
 import { useWorkspaceCreationRights } from '../hooks/useWorkspaceCreationRights';
 import { WorkspaceCreationRightsNotice } from '../components/collab/WorkspaceCreationRightsNotice';
 import type { App, OperationalModelNode, Track, User } from '../types';
+import { resolveDocumentTemplatesTrackHref } from '../features/documents/documentTemplatesRouting';
 import { Text } from '../ui';
 import {
   readAppDetailSection,
@@ -117,6 +121,7 @@ export function AppDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [showTrackModal, setShowTrackModal] = useState(false);
   const [showEditAppModal, setShowEditAppModal] = useState(false);
+  const [showAppSettingsModal, setShowAppSettingsModal] = useState(false);
   const [linkModal, setLinkModal] = useState(false);
   const [linkModalSearch, setLinkModalSearch] = useState('');
   const [anchorExpanded, setAnchorExpanded] = useState(false);
@@ -249,11 +254,10 @@ export function AppDetailPage() {
 
   const filteredTracks = useMemo(() => {
     const q = trackSearch.trim().toLowerCase();
-    // Settings are surfaced through the app's Settings Hub, not as duplicate
-    // top-level tracks. Other internal track kinds remain visible unless an
-    // app explicitly gives them their own landing surface.
+    // Settings + nav_visible=false (e.g. document line tracks) stay out of
+    // App track nav; they remain addressable via direct URL / pins.
     const visibleTracks = tracks
-      .filter(t => t.kind !== 'settings')
+      .filter(isTrackNavVisible)
       .sort((a, b) => {
         const ap = typeof a.position === 'number' ? a.position : Number.MAX_SAFE_INTEGER;
         const bp = typeof b.position === 'number' ? b.position : Number.MAX_SAFE_INTEGER;
@@ -614,6 +618,18 @@ export function AppDetailPage() {
                 Edit
               </Button>
             ) : null}
+            {canAdmin ? (
+              <Button
+                variant="outline"
+                size="sm"
+                icon={<Settings2 size={14} strokeWidth={LINE_ICON_STROKE} />}
+                onClick={() => setShowAppSettingsModal(true)}
+                aria-label="App settings"
+                data-testid="app-settings-button"
+              >
+                Settings
+              </Button>
+            ) : null}
             {canCreateTracks ? (
               <Button
                 variant="primary"
@@ -847,6 +863,7 @@ export function AppDetailPage() {
                   tracks={primaryTracks}
                   canAdmin={canAdmin}
                   appId={appId || ''}
+                  app={app}
                   confirm={confirm}
                   showToast={showToast}
                   onReordered={(next) => {
@@ -906,6 +923,7 @@ export function AppDetailPage() {
                           isAnchor
                           canAdmin={canAdmin}
                           appId={appId || ''}
+                          app={app}
                           confirm={confirm}
                           showToast={showToast}
                           onChanged={load}
@@ -950,6 +968,18 @@ export function AppDetailPage() {
           setApp(updated);
         }}
       />
+
+      {appId && app ? (
+        <AppSettingsModal
+          open={showAppSettingsModal}
+          appId={appId}
+          appName={app.name}
+          onClose={() => setShowAppSettingsModal(false)}
+          onSaved={() => {
+            showToast('Settings saved', 'success');
+          }}
+        />
+      ) : null}
 
       {/* Plan 08-04 — Derive library package from this App (SET-05). */}
       <DeriveLibraryPackageModal
@@ -1143,6 +1173,7 @@ function AppTrackRow({
   isAnchor,
   canAdmin,
   appId,
+  app,
   confirm,
   showToast,
   onChanged,
@@ -1152,6 +1183,7 @@ function AppTrackRow({
   isAnchor: boolean;
   canAdmin: boolean;
   appId: string;
+  app?: App | null;
   confirm: (opts: ConfirmOptions) => Promise<boolean>;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   onChanged: () => void;
@@ -1160,6 +1192,7 @@ function AppTrackRow({
   const { activeWorkspace } = useScope();
   const canDrag = !!sortable && canAdmin;
   const workspaceAccentColor = activeWorkspace?.accent_color;
+  const trackHref = resolveDocumentTemplatesTrackHref(track, app ?? track.app ?? null);
   return (
     <li
       ref={sortable?.setNodeRef}
@@ -1167,7 +1200,7 @@ function AppTrackRow({
       className={`group/row relative ${sortable?.isDragging ? 'opacity-60' : ''}`}
     >
       <Link
-        to={`/tracks/${track.id}`}
+        to={trackHref}
         className="
           grid grid-cols-[auto_minmax(0,1fr)_auto] gap-x-[18px] py-4 px-4
           border-b border-[var(--border-subtle)]
@@ -1284,6 +1317,7 @@ function SortableTrackList({
   tracks,
   canAdmin,
   appId,
+  app,
   confirm,
   showToast,
   onReordered,
@@ -1292,6 +1326,7 @@ function SortableTrackList({
   tracks: Track[];
   canAdmin: boolean;
   appId: string;
+  app?: App | null;
   confirm: (opts: ConfirmOptions) => Promise<boolean>;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   onReordered: (next: Track[]) => void;
@@ -1322,6 +1357,7 @@ function SortableTrackList({
             isAnchor={false}
             canAdmin={canAdmin}
             appId={appId}
+            app={app}
             confirm={confirm}
             showToast={showToast}
             onChanged={onChanged}
@@ -1345,6 +1381,7 @@ function SortableTrackList({
               track={t}
               canAdmin={canAdmin}
               appId={appId}
+              app={app}
               confirm={confirm}
               showToast={showToast}
               onChanged={onChanged}
@@ -1360,6 +1397,7 @@ function SortableAppTrackRow({
   track,
   canAdmin,
   appId,
+  app,
   confirm,
   showToast,
   onChanged
@@ -1367,6 +1405,7 @@ function SortableAppTrackRow({
   track: Track;
   canAdmin: boolean;
   appId: string;
+  app?: App | null;
   confirm: (opts: ConfirmOptions) => Promise<boolean>;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   onChanged: () => void;
@@ -1384,6 +1423,7 @@ function SortableAppTrackRow({
       isAnchor={false}
       canAdmin={canAdmin}
       appId={appId}
+      app={app}
       confirm={confirm}
       showToast={showToast}
       onChanged={onChanged}

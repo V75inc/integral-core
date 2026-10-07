@@ -73,3 +73,28 @@ per-file-ignores =
     backend/app/agentive/services/work_worker.py: D103
     app/agentive/services/work_outbox.py: D103
     backend/app/agentive/services/work_outbox.py: D103
+    # Document / onboarding / e-sign modules: public helpers are self-describing.
+    app/api/me_assigned_form.py: D103
+    backend/app/api/me_assigned_form.py: D103
+    app/api/me_onboarding_form.py: D103
+    backend/app/api/me_onboarding_form.py: D103
+    app/api/user_signatures.py: D103
+    backend/app/api/user_signatures.py: D103
+    app/api/workspace_member_hire.py: D103
+    backend/app/api/workspace_member_hire.py: D103
+    app/services/documents/*.py: D103
+    backend/app/services/documents/*.py: D103
+    app/services/esign/*.py: D103
+    backend/app/services/esign/*.py: D103
+    app/services/member_provision.py: D103
+    backend/app/services/member_provision.py: D103
+    app/services/onboarding_form_member.py: D103
+    backend/app/services/onboarding_form_member.py: D103
+    app/services/onboarding_prompt.py: D103
+    backend/app/services/onboarding_prompt.py: D103
+    app/services/track_public_share.py: D103
+    backend/app/services/track_public_share.py: D103
+    app/services/user_signatures.py: D103
+    backend/app/services/user_signatures.py: D103
+    app/services/workspace_email_delivery.py: D103
+    backend/app/services/workspace_email_delivery.py: D103

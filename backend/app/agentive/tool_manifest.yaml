@@ -319,18 +319,20 @@ domains:
           its entries are the records). Use this to find where content lives — when the
           user asks "what tracks do I have", "list my projects/contacts/tasks tracks",
           or before filing/querying so you can resolve a track id. Pass app_id to
-          restrict to one app's tracks. Returns track metadata (id, title, visibility,
-          workspace, role), NOT the entries inside — use integral_query_entries to pull
-          a track's entries, or integral_get_track_schema to see its structure. Each
-          track row includes action_url — link track names in chat with
-          [title](action_url).
+          restrict to one app's tracks. By default omits tracks with nav_visible=false
+          (internal line-item tracks); pass include_nav_hidden=true when you need those.
+          Returns track metadata (id, title, visibility, workspace, role), NOT the
+          entries inside — use integral_query_entries to pull a track's entries, or
+          integral_get_track_schema to see its structure. Each track row includes
+          action_url — link track names in chat with [title](action_url).
         http: "GET /api/tracks"
         policy_action: track.read
         params:
           app_id: {type: string, optional: true, desc: "Restrict to tracks under this app (from integral_list_apps)."}
           cursor: {type: string, optional: true, desc: "Opaque pagination cursor from a prior call's next_cursor; omit for the first page."}
           limit: {type: integer, default: 100, desc: "Page size (max 100). Omit cursor+limit to auto-fetch ALL accessible tracks in the active workspace (agent dispatch expands pages). Pass cursor to paginate manually."}
-        returns: { tracks: [{id: str, title: str, visibility: str, workspace_id: str, role: str}], total: integer, has_more: bool, next_cursor: str }
+          include_nav_hidden: {type: boolean, optional: true, default: false, desc: "When true, include tracks with nav_visible=false (e.g. document line-item tracks). Default false keeps human-facing nav lists clean."}
+        returns: { tracks: [{id: str, title: str, visibility: str, workspace_id: str, role: str, nav_visible: bool}], total: integer, has_more: bool, next_cursor: str }
         privacy: "Permission-filtered per track. PC-3, PC-4."
       - name: integral_get_track_schema
         status: existing

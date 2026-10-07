@@ -46,6 +46,7 @@ async def test_purge_removes_orphan_and_edges_keeps_live_node():
     live_id = "n.EmbeddedIntegralAction.purgetest0002"
     orphan_edge_id = "e.Edge.purgetestedge0001"
     agent_id = "n.Agent.purgetestagent"
+    live_agent_id = "n.Agent.purgetestagent-live"
 
     # Seed: an orphan (dead class) + its registry edge + a live (current class)
     # node, all carrying the resident-action label.
@@ -65,7 +66,7 @@ async def test_purge_removes_orphan_and_edges_keeps_live_node():
         {
             "id": live_id,
             "context": {
-                "agent_id": agent_id,
+                "agent_id": live_agent_id,
                 "namespace": "integral",
                 "label": _RESIDENT_ACTION_LABEL,
             },

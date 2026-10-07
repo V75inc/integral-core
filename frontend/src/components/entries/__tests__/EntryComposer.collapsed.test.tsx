@@ -82,6 +82,16 @@ describe('<EntryComposer /> create button', () => {
     expect(createFormCall?.[0].initialTitle).toBeUndefined();
   });
 
+  it('compose dialog exposes a maximize control', () => {
+    renderHarness();
+    fireEvent.click(screen.getByRole('button', { name: 'New Post' }));
+    const expand = screen.getByTestId('entry-compose-dialog-expand');
+    expect(expand).toBeInTheDocument();
+    expect(expand).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(expand);
+    expect(expand).toHaveAttribute('aria-pressed', 'true');
+  });
+
   it('keyboard shortcut N opens the create dialog', () => {
     renderHarness();
     fireEvent.keyDown(window, { key: 'n' });

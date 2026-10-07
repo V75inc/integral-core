@@ -271,4 +271,9 @@ export const appsApi = {
     apiClient
       .get<AppSettingsResponse>(`/apps/${appId}/settings`)
       .then(r => r.data),
+
+  updateAppSettings: (appId: string, settings: Record<string, unknown>) =>
+    apiClient
+      .patch<AppSettingsResponse>(`/apps/${appId}/settings`, { settings })
+      .then(r => r.data),
 };

@@ -143,6 +143,173 @@ async def _reply_leaves_work_undone(
         return False
 
 
+async def _server_authored_turn(ctx: ChatTurnContext) -> str:
+    """Answer the turns that must not open a new-app design."""
+    from app.services.focused_additions import (
+        correct_stored_design,
+        of_those_reply,
+        resolve_move,
+        stage_anchor_card,
+        stage_move_card,
+        stage_rename_card,
+        store_return_spec,
+    )
+    from app.services.restructure import stage_tag_rename
+    from app.services.turn_binding import (
+        anchor_template_name,
+        is_design_correction,
+        is_improve_this,
+        is_of_those_followup,
+        is_protected_return,
+        is_rate_dashboard,
+        rename_field_pair,
+        rename_tag_pair,
+        user_sentence,
+    )
+
+    text = user_sentence(ctx.text or "")
+    if is_of_those_followup(text):
+        reply = await of_those_reply(ctx.thread_id or "")
+        if reply:
+            return reply
+    if is_design_correction(text):
+        return await correct_stored_design(ctx.thread_id or "")
+    app_id = ctx.focused_space_id or ""
+    if is_improve_this(text) and (
+        app_id.startswith("n.") or (ctx.focused_track_id or "").startswith("n.")
+    ):
+        from app.services.improve_this import focus_track, stage_one_improvement
+
+        extra = ctx.extra_data if isinstance(ctx.extra_data, dict) else {}
+        track = await focus_track(
+            track_id=ctx.focused_track_id or "",
+            view_id=ctx.focused_view_id or "",
+            entry_id=str(extra.get("focused_entry_id") or ""),
+        )
+        if track is not None:
+            return await stage_one_improvement(
+                user_id=ctx.user_id,
+                session_id=ctx.session_id,
+                app_id=app_id or "",
+                track=track,
+            )
+    if is_rate_dashboard(text) and app_id.startswith("n."):
+        from app.services.restructure import stage_rate_dashboard
+
+        return await stage_rate_dashboard(
+            user_id=ctx.user_id,
+            session_id=ctx.session_id,
+            app_id=app_id,
+        )
+    tag_pair = rename_tag_pair(text)
+    if tag_pair and app_id.startswith("n."):
+        return await stage_tag_rename(
+            user_id=ctx.user_id,
+            session_id=ctx.session_id,
+            app_id=app_id,
+            current_name=tag_pair[0],
+            new_name=tag_pair[1],
+        )
+    pair = rename_field_pair(text)
+    if pair and (
+        (ctx.focused_track_id or "").startswith("n.") or app_id.startswith("n.")
+    ):
+        return await stage_rename_card(
+            user_id=ctx.user_id,
+            session_id=ctx.session_id,
+            track_id=ctx.focused_track_id or "",
+            app_id=app_id,
+            source_key=pair[0],
+            target_key=pair[1],
+        )
+    if app_id.startswith("n."):
+        found = await resolve_move(app_id, text)
+        if found:
+            return await stage_move_card(
+                user_id=ctx.user_id,
+                session_id=ctx.session_id,
+                app_id=app_id,
+                entry_id=found[0],
+                destination_track_id=found[1],
+            )
+    if not app_id.startswith("n."):
+        return ""
+    if is_protected_return(text):
+        return await store_return_spec(ctx.thread_id or "")
+    template_name = anchor_template_name(text)
+    if not template_name:
+        return ""
+    return await stage_anchor_card(
+        user_id=ctx.user_id,
+        session_id=ctx.session_id,
+        thread_id=ctx.thread_id or "",
+        app_id=app_id,
+        template_name=template_name,
+        user_text=text,
+    )
+
+
+async def _maybe_stage_focused_track(ctx: ChatTurnContext) -> str:
+    """Stage one track on the open app and skip the design proposal.
+
+    A new app still proposes first. This path is only an addition to an
+    app the turn is already focused on, so ``integral_propose_design``
+    never runs and the design sequester never opens.
+    """
+    from app.services.turn_binding import add_track_title, user_sentence
+
+    title = add_track_title(user_sentence(ctx.text or ""))
+    app_id = ctx.focused_space_id or ""
+    if not title or not app_id.startswith("n."):
+        return ""
+    from app.agentive.staging import create_staged_change
+    from app.agentive.tooling.bindings import _stage_create_app_track_async
+
+    try:
+        staged = await _stage_create_app_track_async({"name": title, "app_id": app_id})
+    except ValueError:
+        logger.debug("focused add-track was not staged", exc_info=True)
+        return ""
+    payload = staged.get("payload") or {}
+    if payload.get("app_id") != app_id:
+        return ""
+    await create_staged_change(
+        user_id=ctx.user_id,
+        session_id=ctx.session_id,
+        kind=staged["kind"],
+        summary=staged["summary"],
+        diff_human=staged["diff_human"],
+        diff_machine=staged["diff_machine"],
+        payload=payload,
+    )
+    return f"The {title} track is waiting for approval."
+
+
+async def _connections_reply(
+    user_id: str, workspace_id: str | None, entry_id: str
+) -> str:
+    """Read what the open entry is connected to, both directions."""
+    from app.agentive.tooling.invoke import invoke_route_in_process
+    from app.api.entry_relations import list_entry_relations
+
+    try:
+        data = await invoke_route_in_process(
+            list_entry_relations,
+            principal_id=user_id,
+            scope=workspace_id,
+            query={"direction": "both"},
+            entry_id=entry_id,
+        )
+    except Exception:  # noqa: BLE001 — a failed lookup must not kill the turn
+        logger.debug("open-entry relations failed", exc_info=True)
+        return ""
+    if isinstance(data, dict):
+        reply = data.get("reply")
+        if isinstance(reply, str) and reply.strip():
+            return reply.strip()
+    return ""
+
+
 class _NullCache(dict):
     """A dict that refuses to retain entries — reads always miss.
 
@@ -285,13 +452,34 @@ class JvagentProvider(ChatBackendProvider):
         _scope_token = None
         _track_focus_token = None
         _view_focus_token = None
+        _app_focus_token = None
         _page_context_token = None
         _thread_id_token = None
+        _sentence_token = None
         overlay_failed = False
         try:
+            from app.services.turn_binding import (
+                current_user_sentence,
+                texting_turn_reply,
+                user_sentence,
+            )
+
+            _sentence_token = current_user_sentence.set(user_sentence(ctx.text or ""))
+            canned = texting_turn_reply(ctx.text or "")
+            if canned:
+                yield {"type": "text-delta", "delta": canned}
+                yield {
+                    "type": "final-content",
+                    "content": canned,
+                    "authoritative": True,
+                }
+                yield {"type": "message-finish", "timing": {}}
+                return
+
             if embed_configured:
                 from app.services.agent_scope import (
                     current_chat_thread_id,
+                    current_focused_app_id,
                     current_focused_track_id,
                     current_focused_view_id,
                     current_page_context,
@@ -300,6 +488,7 @@ class JvagentProvider(ChatBackendProvider):
 
                 _track_focus_token = current_focused_track_id.set(ctx.focused_track_id)
                 _view_focus_token = current_focused_view_id.set(ctx.focused_view_id)
+                _app_focus_token = current_focused_app_id.set(ctx.focused_space_id)
                 if ctx.thread_id:
                     _thread_id_token = current_chat_thread_id.set(ctx.thread_id)
                 page_ctx = (ctx.extra_data or {}).get("page_context")
@@ -330,6 +519,28 @@ class JvagentProvider(ChatBackendProvider):
                         overlay_failed = True
 
                 self._reset_jvagent_turn_caches(selected_agent_id)
+
+                authored = await _server_authored_turn(ctx)
+                if authored:
+                    yield {"type": "text-delta", "delta": authored}
+                    yield {
+                        "type": "final-content",
+                        "content": authored,
+                        "authoritative": True,
+                    }
+                    yield {"type": "message-finish", "timing": {}}
+                    return
+
+                track_reply = await _maybe_stage_focused_track(ctx)
+                if track_reply:
+                    yield {"type": "text-delta", "delta": track_reply}
+                    yield {
+                        "type": "final-content",
+                        "content": track_reply,
+                        "authoritative": True,
+                    }
+                    yield {"type": "message-finish", "timing": {}}
+                    return
 
             if embed_configured:
                 utterance = ctx.text
@@ -393,12 +604,39 @@ class JvagentProvider(ChatBackendProvider):
             from app.agentive.services.capability_broker import (
                 infer_source_and_op_class,
             )
+            from app.services.focused_additions import remember_result_set
+            from app.services.turn_binding import (
+                asks_what_this_is_connected_to,
+                is_tag_count_question,
+                result_set_from_result,
+                tool_reply_from_result,
+            )
 
+            user_text = ctx.text or ""
+            hold_text = is_tag_count_question(
+                user_text
+            ) or asks_what_this_is_connected_to(user_text)
+            held_text: List[Dict[str, Any]] = []
+            bound_count = ""
             last_failure = ""
             changed_something = False
             explicit_reply = False
             reply = ""
             async for ev in stream:
+                if ev.get("type") == "tool-call" and ev.get("status") != "running":
+                    found = tool_reply_from_result(
+                        str(ev.get("name") or ""), ev.get("result")
+                    )
+                    if found:
+                        bound_count = found
+                    stored_set = result_set_from_result(
+                        str(ev.get("name") or ""), ev.get("result")
+                    )
+                    if stored_set:
+                        await remember_result_set(ctx.thread_id or "", stored_set)
+                if hold_text and ev.get("type") in {"text-delta", "final-content"}:
+                    held_text.append(ev)
+                    continue
                 if ev.get("type") == "tool-call" and ev.get("name") in {
                     "reply",
                     "respond",
@@ -435,6 +673,32 @@ class JvagentProvider(ChatBackendProvider):
                 # observations into the reply; ours are JSON. See
                 # loop_salvage for why this is rewritten rather than trimmed.
                 yield sanitize_loop_salvage(ev)
+
+            bound_visible = bound_count
+            if asks_what_this_is_connected_to(user_text):
+                page = (ctx.extra_data or {}).get("page_context") or {}
+                entry_id = (
+                    page.get("focused_entry_id") if isinstance(page, dict) else ""
+                )
+                if isinstance(entry_id, str) and entry_id.startswith("n."):
+                    connected = await _connections_reply(
+                        ctx.user_id, ctx.workspace_id, entry_id
+                    )
+                    if connected:
+                        bound_visible = connected
+            if hold_text:
+                if bound_visible:
+                    yield {"type": "text-delta", "delta": bound_visible}
+                    yield {
+                        "type": "final-content",
+                        "content": bound_visible,
+                        "authoritative": True,
+                    }
+                    reply = bound_visible
+                    explicit_reply = True
+                else:
+                    for held in held_text:
+                        yield held
 
             # One follow-up pass at most, so a model that cannot do the work
             # never loops; its second answer stands.
@@ -499,6 +763,10 @@ class JvagentProvider(ChatBackendProvider):
                 from app.services.agent_scope import current_focused_view_id
 
                 current_focused_view_id.reset(_view_focus_token)
+            if _app_focus_token is not None:
+                from app.services.agent_scope import current_focused_app_id
+
+                current_focused_app_id.reset(_app_focus_token)
             if _page_context_token is not None:
                 from app.services.agent_scope import current_page_context
 
@@ -507,6 +775,10 @@ class JvagentProvider(ChatBackendProvider):
                 from app.services.agent_scope import current_chat_thread_id
 
                 current_chat_thread_id.reset(_thread_id_token)
+            if _sentence_token is not None:
+                from app.services.turn_binding import current_user_sentence
+
+                current_user_sentence.reset(_sentence_token)
 
     @staticmethod
     def _disable_jvagent_overlay_caches() -> bool:

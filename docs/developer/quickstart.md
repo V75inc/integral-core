@@ -31,6 +31,11 @@ rules of the operation.
 | Guidance for the resident | A declarative skill | “Find equipment available for a shoot” |
 | A specialised visual panel | An optional extension view | A compact equipment-detail panel |
 
+For commercial App UI (compose/detail contributions, bridge draft sync, AI
+authoring checklist), see the business-repo guide
+`integral-business/docs/AI_APP_UI_AUTHORING.md` — domain UI stays in
+`integral-apps/<slug>/views/`, never in Core.
+
 Start declaratively. Many useful Apps need only a manifest: tracks, fields,
 views, and skills. Add Python only when the operation has a rule that cannot be
 expressed as ordinary data entry, such as “only equipment in the available
@@ -557,6 +562,9 @@ lifecycle behaviour.
 | A highly tailored detail panel | An `extension_view` with a sandboxed package asset |
 | Several related lists | More tracks and relation fields |
 | A distributable package | Build, checksum, and sign the archive as described in [bundle signing](../ops/OPERATIONAL_MODEL_SIGNING.md) |
+
+App-owned compose/detail slots and the draft bridge are documented in
+`integral-business/docs/AI_APP_UI_AUTHORING.md`.
 
 Avoid creating a custom view or Python handler merely because a conventional
 screen or endpoint exists elsewhere. First use the graph schema and Core view

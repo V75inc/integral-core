@@ -928,16 +928,34 @@ async def sync_attached_manifest(operational_model: OperationalModel) -> None:
             fields = list(fs.get("fields", []))
             base_fields = fs.get("base_fields", {})
             rtg = list(fs.get("required_tag_groups", []))
-            et_list.append(
-                {
-                    "key": _entry_type_manifest_key(et),
-                    "name": str(et.name or ""),
-                    "icon": str(et.icon or "document"),
-                    "fields": fields,
-                    "base_fields": base_fields,
-                    "required_tag_groups": rtg,
-                }
-            )
+            # Preserve entry chrome that lives on form_schema — omitting these
+            # made every View save (sync_attached_manifest) strip owns_form
+            # document shells, so materialize_entry_types_from_tier later
+            # rebuilt EntryTypes without ui_contributions.
+            row: Dict[str, Any] = {
+                "key": _entry_type_manifest_key(et),
+                "name": str(et.name or ""),
+                "icon": str(et.icon or "document"),
+                "fields": fields,
+                "base_fields": base_fields,
+                "required_tag_groups": rtg,
+            }
+            for chrome_key in (
+                "ui_contributions",
+                "related_views",
+                "open_as_page",
+                "create_wizard",
+                "singleton",
+            ):
+                if chrome_key not in fs:
+                    continue
+                val = fs.get(chrome_key)
+                if val is None:
+                    continue
+                if isinstance(val, list) and not val:
+                    continue
+                row[chrome_key] = list(val) if isinstance(val, list) else val
+            et_list.append(row)
         et_list = _dedupe_specs_by_key(et_list, key_field="key", slug_keys=True)
 
         # Build views list — dedupe template vs per-track materializations.
@@ -1074,34 +1092,46 @@ async def sync_attached_manifest(operational_model: OperationalModel) -> None:
             edge=["DEFINES_TRACK_PROFILE"], node=["OperationalModel"]
         )
 
-        tracks_list = []
-        for tcp in template_cps:
-            tcp_manifest = tcp.manifest or {}
-            tcp_tier = tcp_manifest.get("track", {})
-            tracks_list.append(
-                {
-                    "key": str(
-                        tcp_manifest.get("package", {}).get("name")
-                        or _slug(str(tcp.name or ""))
-                    ),
-                    "name": str(tcp.name or ""),
-                    "provision_on_create": bool(
-                        (tcp_manifest.get("package") or {}).get(
-                            "provision_on_create", False
-                        )
-                    ),
-                    "entry_types": list(tcp_tier.get("entry_types", [])),
-                    "views": list(tcp_tier.get("views", [])),
-                    "taxonomy": dict(tcp_tier.get("taxonomy", {})),
-                }
-            )
-
         old_defaults = (existing.get("app") or {}).get("defaults", {})
         old_relations = (existing.get("app") or {}).get("relations", [])
         # Operational / ADR-012 layers are not reconstructed from graph nodes —
         # preserve them from the existing attached manifest so sync does not
         # silently strip hooks/tools/operations/queries after install.
         old_app = existing.get("app") or {}
+        old_tracks_by_key = {
+            str(t.get("key") or ""): t
+            for t in list(old_app.get("tracks") or [])
+            if isinstance(t, dict) and str(t.get("key") or "").strip()
+        }
+
+        tracks_list = []
+        for tcp in template_cps:
+            tcp_manifest = tcp.manifest or {}
+            tcp_tier = tcp_manifest.get("track", {})
+            key = str(
+                tcp_manifest.get("package", {}).get("name")
+                or _slug(str(tcp.name or ""))
+            )
+            prior = old_tracks_by_key.get(key) or {}
+            tracks_list.append(
+                {
+                    "key": key,
+                    "name": str(tcp.name or ""),
+                    "provision_on_create": bool(
+                        prior.get(
+                            "provision_on_create",
+                            (tcp_manifest.get("package") or {}).get(
+                                "provision_on_create", False
+                            ),
+                        )
+                    ),
+                    # Track node flag is not on template CPs — keep prior OM value.
+                    "nav_visible": bool(prior.get("nav_visible", True)),
+                    "entry_types": list(tcp_tier.get("entry_types", [])),
+                    "views": list(tcp_tier.get("views", [])),
+                    "taxonomy": dict(tcp_tier.get("taxonomy", {})),
+                }
+            )
 
         manifest = {
             "operational_model_schema_version": 2,

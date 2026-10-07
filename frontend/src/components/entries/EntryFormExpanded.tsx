@@ -6,6 +6,7 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useCallback,
   type Dispatch,
   type ReactNode,
   type SetStateAction
@@ -23,6 +24,7 @@ import { MentionableTextarea } from '../mentions/MentionableTextarea';
 import { AddToEntryControl } from './AddToEntryControl';
 import { useQuery } from '@tanstack/react-query';
 import {
+  appsApi,
   attachmentsApi,
   entriesApi,
   entryTypesApi,
@@ -30,6 +32,9 @@ import {
   tagsApi,
   tracksApi
 } from '../../api';
+import { extensionsApi } from '../../api/extensions';
+import { toolsApi } from '../../api/tools';
+import { patchFromAppSettings } from '../../utils/fieldSettingDefaults';
 import {
   entryTypesForTrackQueryKey,
   tagsForTrackQueryKey
@@ -37,6 +42,12 @@ import {
 import { errorMessageFromAxios } from '../../api/helpers';
 import { sortFieldsByOrder } from '../../utils/entryMetaFields';
 import { TagLookupControl } from './TagLookupControl';
+import {
+  contributionOwnsForm,
+  contributionTitleFromFields,
+  deriveTitleFromFields,
+  type EntryContributionSlotHandle,
+} from './EntryContributionSlot';
 import { SeamlessField } from './SeamlessField';
 import {
   detailsTrackIdsForProjects,
@@ -49,6 +60,7 @@ import {
 } from './sprintTaskSync';
 import type {
   OperationalModelFieldSpec,
+  OperationalModelFormSchema,
   Entry,
   EntryTypeBaseFields,
   EntryTypeNode,
@@ -63,6 +75,9 @@ import {
   tagsForEntryTypeAndProfile
 } from '../../utils/tagProfile';
 import { buildBaseSlotPlaceholder } from '../../utils/fieldPlaceholders';
+import { resolveFieldDefault } from '../../utils/fieldDefaults';
+import { deriveAutoOffsetPatch } from '../../utils/fieldDateOffset';
+import { deriveRelationLabelPatch } from '../../utils/relationFieldSync';
 import {
   buildCustomFieldsForEntryType,
   resolveFieldValuesForEntryType,
@@ -73,7 +88,6 @@ import {
 } from './entryFormCustomFields';
 import { entryPath } from '../../utils/resourcePaths';
 import type { ToastAction } from '../../context/ToastContext';
-
 const EMPTY_FIELDS: OperationalModelFieldSpec[] = [];
 
 /** Inline ``[]`` from parents must not be used as a hook dependency; reuse this for empty lists. */
@@ -150,6 +164,12 @@ export interface UseEntryExpandedFormOptions {
     action?: ToastAction,
   ) => void;
   onCreated?: (entry: Entry) => void;
+  /** Optional block after dynamic fields (e.g. entry_compose contribution). */
+  composeExtraSection?: ReactNode;
+  /** App-owned UI contribution slot API (validate / commit via extension bridge). */
+  contributionApiRef?: React.MutableRefObject<EntryContributionSlotHandle | null>;
+  /** Which contribution placement owns this form (compose vs detail edit). */
+  contributionPlacement?: 'entry_compose' | 'entry_detail';
 }
 
 export interface EntryExpandedFormModel {
@@ -215,6 +235,17 @@ export interface EntryExpandedFormModel {
   /** Primary action label for the collapsed create button (e.g. “New Post”). */
   composerActionLabel: string;
   fieldValues: Record<string, unknown>;
+  setFieldValues: Dispatch<SetStateAction<Record<string, unknown>>>;
+  applyContributionPatch: (patch: {
+    custom_fields?: Record<string, unknown>;
+  }) => void;
+  composeExtraSection?: ReactNode;
+  /** Hide default field grid when a ui_contribution has owns_form. */
+  ownsForm: boolean;
+  dynamicFields: OperationalModelFieldSpec[];
+  entryTypeFormSchema: OperationalModelFormSchema | null;
+  appId?: string;
+  initialEntry?: Entry | null;
 }
 
 export function useEntryExpandedForm(
@@ -236,7 +267,10 @@ export function useEntryExpandedForm(
     createCustomFieldFallback,
     workflowEnumLabels,
     showToast,
-    onCreated
+    onCreated,
+    composeExtraSection = null,
+    contributionApiRef,
+    contributionPlacement = 'entry_compose',
   } = options;
 
   const tracksListNorm =
@@ -255,6 +289,10 @@ export function useEntryExpandedForm(
   ]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [fieldValues, setFieldValues] = useState<Record<string, unknown>>({});
+  /** Keys locked when preview_default_tool reports auto_generate (e.g. invoice no.). */
+  const [autoLockedFieldKeys, setAutoLockedFieldKeys] = useState<Set<string>>(
+    () => new Set()
+  );
   const [relationChoices, setRelationChoices] = useState<Record<string, RelationChoice[]>>(
     {}
   );
@@ -271,6 +309,7 @@ export function useEntryExpandedForm(
   // accepts finished File[] / link tuples via `addPendingFiles` and
   // `addLinkAttachment` below.
   const baselineEntryRef = useRef<Entry | null | undefined>(initialEntry);
+  const relationEntriesByIdRef = useRef<Map<string, Entry>>(new Map());
   const pendingCustomFieldSeedRef = useRef<Record<string, unknown> | undefined>(
     initialCustomFields
   );
@@ -308,6 +347,13 @@ export function useEntryExpandedForm(
     // on the whole object would wipe in-progress edits on every parent render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, mode, initialEntry?.id]);
+
+  // Create composer stays mounted while the modal is closed; clear hydrate
+  // marker on close so the next open re-applies field defaults ($today, …).
+  useEffect(() => {
+    if (mode !== 'create') return;
+    if (!enabled) hydratedFieldsRef.current = null;
+  }, [enabled, mode]);
 
   const titleSeededRef = useRef(false);
   // Two seeding paths cover the two distinct timing cases. Do NOT delete
@@ -462,15 +508,38 @@ export function useEntryExpandedForm(
       return;
     }
 
+    // Create hydration must run once per selected type. ``entryTypes`` is a
+    // React Query result with staleTime 0, so refetches would otherwise
+    // ``setFieldValues(defaultsOnly)`` and wipe owns_form document-shell
+    // patches (customer / txn_date) that FormRegion already committed via
+    // ``applyContributionPatch`` — toasting required fields that look filled.
+    const already =
+      hydratedFieldsRef.current?.entryId === '' &&
+      hydratedFieldsRef.current?.typeSlug === typeSlug;
+    if (already && !pendingSeed) return;
+
     const nextValues: Record<string, unknown> = {};
     for (const field of fields) {
-      if (field.default !== undefined) nextValues[field.key] = field.default;
+      if (field.default !== undefined) {
+        nextValues[field.key] = resolveFieldDefault(field.default);
+      }
     }
+    let seedApplied: Record<string, unknown> | undefined;
     if (pendingSeed && mode === 'create') {
+      seedApplied = pendingSeed;
       Object.assign(nextValues, pendingSeed);
       pendingCustomFieldSeedRef.current = undefined;
     }
-    setFieldValues(nextValues);
+    // Apply term-based date offsets once defaults are seeded (e.g. due = txn + net).
+    for (const field of fields) {
+      const offset = deriveAutoOffsetPatch(fields, nextValues, field.key);
+      if (offset) Object.assign(nextValues, offset);
+    }
+    // Preserve in-progress edits on late seed; seed keys still win.
+    setFieldValues(prev =>
+      already ? { ...nextValues, ...prev, ...(seedApplied || {}) } : nextValues
+    );
+    hydratedFieldsRef.current = { entryId: '', typeSlug };
   }, [
     entryTypes,
     entryTypesQuery.isPending,
@@ -583,11 +652,122 @@ export function useEntryExpandedForm(
     return label ? `New ${label}` : 'New entry';
   }, [selectedType?.name, type, viewDefaultEntryTypeKey]);
 
+  const entryTypeFormSchema = selectedType?.form_schema ?? null;
+  const appId = track?.app?.id;
+  const ownsForm = contributionOwnsForm(entryTypeFormSchema, contributionPlacement);
+  const titleFromFields = contributionTitleFromFields(
+    entryTypeFormSchema,
+    contributionPlacement
+  );
+
   const dynamicFields = useMemo((): OperationalModelFieldSpec[] => {
     const f = selectedType?.form_schema?.fields;
     if (!Array.isArray(f)) return EMPTY_FIELDS;
-    return sortFieldsByOrder(f as OperationalModelFieldSpec[]);
-  }, [selectedType?.form_schema?.fields]);
+    // ``hidden`` fields never show; ``hide_on_create`` ones only skip the
+    // create form. Their defaults still apply (seeded from the full list).
+    const visible = (f as OperationalModelFieldSpec[]).filter(
+      field => !field.hidden && !(mode === 'create' && field.hide_on_create)
+    );
+    return sortFieldsByOrder(visible);
+  }, [selectedType?.form_schema?.fields, mode]);
+
+  // Seed + lock fields that declare ``validation.preview_default_tool``
+  // (e.g. Finance invoice_number via ``preview_document_number`` when
+  // auto-generate is on). When auto-generate is on the field is read-only.
+  useEffect(() => {
+    if (!enabled || (mode !== 'create' && mode !== 'edit')) {
+      setAutoLockedFieldKeys(new Set());
+      return;
+    }
+    const seedFields = dynamicFields.filter(field => {
+      const tool = field.validation?.preview_default_tool;
+      return typeof tool === 'string' && tool.trim().length > 0;
+    });
+    if (!seedFields.length) {
+      setAutoLockedFieldKeys(new Set());
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const locked = new Set<string>();
+      for (const field of seedFields) {
+        const tool = String(field.validation?.preview_default_tool || '').trim();
+        const input =
+          field.validation?.preview_default_input &&
+          typeof field.validation.preview_default_input === 'object' &&
+          !Array.isArray(field.validation.preview_default_input)
+            ? (field.validation.preview_default_input as Record<string, unknown>)
+            : {};
+        try {
+          const output = appId
+            ? (await extensionsApi.invokeOperation(appId, tool, input)).output
+            : (await toolsApi.call(tool, input)).output;
+          if (cancelled) return;
+          if (output?.auto_generate !== true) continue;
+          locked.add(field.key);
+          if (mode !== 'create') continue;
+          const number = String(output?.number || '').trim();
+          if (!number) continue;
+          setFieldValues(prev => {
+            const current = prev[field.key];
+            if (current !== undefined && current !== null && String(current).trim() !== '') {
+              return prev;
+            }
+            return { ...prev, [field.key]: number };
+          });
+        } catch {
+          /* preview is best-effort; create hook can still assign */
+        }
+      }
+      if (!cancelled) setAutoLockedFieldKeys(locked);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, mode, appId, dynamicFields, type]);
+
+  // Prefill fields that declare ``default_from_setting`` from the parent
+  // App's settings (e.g. Finance currency ← default_currency). Editable —
+  // never locks the control.
+  useEffect(() => {
+    if (!enabled || mode !== 'create' || !appId) return;
+    const settingFields = dynamicFields.filter(
+      field => typeof field.default_from_setting === 'string' && field.default_from_setting.trim(),
+    );
+    if (!settingFields.length) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { settings } = await appsApi.getAppSettings(appId);
+        if (cancelled) return;
+        setFieldValues(prev => {
+          const patch = patchFromAppSettings(settingFields, settings, prev);
+          if (!Object.keys(patch).length) return prev;
+          return { ...prev, ...patch };
+        });
+      } catch {
+        /* settings seed is best-effort; backend still resolves on create */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, mode, appId, dynamicFields, type]);
+
+  const applyContributionPatch = useCallback(
+    (patch: { custom_fields?: Record<string, unknown> }) => {
+      if (!patch.custom_fields) return;
+      setFieldValues(prev => {
+        const next = { ...prev, ...patch.custom_fields };
+        for (const key of Object.keys(patch.custom_fields || {})) {
+          const offset = deriveAutoOffsetPatch(dynamicFields, next, key);
+          if (offset) Object.assign(next, offset);
+        }
+        return next;
+      });
+    },
+    [dynamicFields]
+  );
 
   // ── Seed-from: cross-track entry seeding ────────────────────────────────
   // When the employee entry type has a `seed_from` relation field and the
@@ -644,6 +824,7 @@ export function useEntryExpandedForm(
       });
     }
     dynamicFields.forEach((field, idx) => {
+      if (mode === 'create' && field.hide_on_create) return;
       rows.push({
         kind: 'field',
         field,
@@ -675,6 +856,7 @@ export function useEntryExpandedForm(
     return rows;
   }, [
     dynamicFields,
+    mode,
     titleEnabled,
     bodyEnabled,
     attachmentsEnabled,
@@ -683,18 +865,30 @@ export function useEntryExpandedForm(
     attachmentsBase.order,
   ]);
 
-  const setDynamicField = (key: string, value: unknown) => {
-    setFieldValues(prev => {
-      const next = { ...prev, [key]: value };
-      if (key === 'project') {
-        const nextProjects = projectIdsFromRelationValue(value);
-        if (nextProjects.length === 0) {
-          next.tasks = [];
+  const setDynamicField = useCallback(
+    (key: string, value: unknown) => {
+      setFieldValues(prev => {
+        const next = { ...prev, [key]: value };
+        if (key === 'project') {
+          const nextProjects = projectIdsFromRelationValue(value);
+          if (nextProjects.length === 0) {
+            next.tasks = [];
+          }
         }
-      }
-      return next;
-    });
-  };
+        const offset = deriveAutoOffsetPatch(dynamicFields, next, key);
+        if (offset) Object.assign(next, offset);
+        const field = dynamicFields.find(f => f.key === key);
+        const labelPatch = deriveRelationLabelPatch(
+          field,
+          value,
+          relationChoices[key] || []
+        );
+        if (labelPatch) Object.assign(next, labelPatch);
+        return next;
+      });
+    },
+    [dynamicFields, relationChoices]
+  );
 
   useEffect(() => {
     if (slug(String(type || selectedType?.name || '')) !== 'sprint') return;
@@ -737,6 +931,7 @@ export function useEntryExpandedForm(
           tracksListNorm.length > 0 ? tracksListNorm : await tracksApi.list();
         const trackById = new Map(allTracks.map(t => [t.id, t]));
         const choicesByField: Record<string, RelationChoice[]> = {};
+        relationEntriesByIdRef.current = new Map();
 
         await Promise.all(
           relationFields.map(async field => {
@@ -792,6 +987,7 @@ export function useEntryExpandedForm(
                     `Entry ${item.id.slice(-6)}`;
                   const label = `${primary} (${group.trackTitle})`;
                   deduped.set(item.id, { value: item.id, label });
+                  relationEntriesByIdRef.current.set(item.id, item);
                 }
               }
               choicesByField[field.key] = Array.from(deduped.values());
@@ -851,6 +1047,7 @@ export function useEntryExpandedForm(
                   `Entry ${item.id.slice(-6)}`;
                 const label = `${primary} (${group.track.title})`;
                 deduped.set(item.id, { value: item.id, label });
+                relationEntriesByIdRef.current.set(item.id, item);
               }
             }
             choicesByField[field.key] = Array.from(deduped.values());
@@ -940,16 +1137,23 @@ export function useEntryExpandedForm(
       navContext?: import('./relations/routeForRelationTarget').RelationNavContext | null;
     }
   ): ReactNode {
+    const locked =
+      Boolean(field.readonly) || autoLockedFieldKeys.has(field.key);
     return (
       <SeamlessField
-        field={field}
+        field={locked ? { ...field, readonly: true } : field}
         value={fieldValues[field.key]}
-        onChange={v => setDynamicField(field.key, v)}
+        onChange={v => {
+          if (autoLockedFieldKeys.has(field.key)) return;
+          setDynamicField(field.key, v);
+        }}
         relationChoices={relationChoices[field.key]}
         relationLoading={relationLoading}
         enumLabels={workflowEnumLabels?.[field.key]}
         onNavigate={extras?.onNavigate}
         navContext={extras?.navContext}
+        siblingFields={dynamicFields}
+        siblingValues={fieldValues}
       />
     );
   }
@@ -994,7 +1198,7 @@ export function useEntryExpandedForm(
     }
     const hasPrimaryContent =
       Boolean(titleEnabled && title.trim()) || Boolean(bodyEnabled && body.trim());
-    if ((titleEnabled || bodyEnabled) && !hasPrimaryContent) {
+    if (!ownsForm && (titleEnabled || bodyEnabled) && !hasPrimaryContent) {
       showToast('Add some content', 'error');
       return;
     }
@@ -1002,7 +1206,9 @@ export function useEntryExpandedForm(
     // submitting — prevents a 400 from the backend when required fields are empty.
     const missingRequiredFields = dynamicFields.filter(field => {
       if (!field.required) return false;
+      if (field.hide_on_create) return false;
       const val = fieldValues[field.key];
+      if (Array.isArray(val)) return val.length === 0;
       return val === undefined || val === null || val === '';
     });
     if (missingRequiredFields.length > 0) {
@@ -1020,6 +1226,18 @@ export function useEntryExpandedForm(
     // Email and Phone number validation
     if (!validateEmailAndPhone(dynamicFields, fieldValues, null)) {
       return;
+    }
+
+    const contributionApi = contributionApiRef?.current;
+    if (contributionApi?.hasContribution) {
+      const contributionCheck = await contributionApi.requestValidate();
+      if (!contributionCheck.ok) {
+        showToast(
+          contributionCheck.error || 'Fix contribution errors before saving',
+          'error',
+        );
+        return;
+      }
     }
 
     setLoading(true);
@@ -1080,11 +1298,14 @@ export function useEntryExpandedForm(
         }
       }
 
+      const derivedTitle =
+        title.trim() ||
+        (ownsForm ? deriveTitleFromFields(cleanedFieldValues, titleFromFields) : '');
       const created = await entriesApi.create({
         track_id: tid,
         type,
         type_id: selectedTypeId || undefined,
-        title: title.trim() || undefined,
+        title: derivedTitle || undefined,
         description: bodyEnabled ? body.trim() || undefined : undefined,
         tags: selectedTagIds.length ? selectedTagIds : undefined,
         custom_fields: (() => {
@@ -1132,7 +1353,7 @@ export function useEntryExpandedForm(
         const many = field?.type === 'files';
         const uploadedIds: string[] = [];
         for (const file of files) {
-          const record = await attachmentsApi.uploadForEntry(created.id, file);
+          const record = await attachmentsApi.smartUploadForEntry(created.id, file);
           if (record.id) {
             uploadedIds.push(record.id);
           }
@@ -1157,7 +1378,7 @@ export function useEntryExpandedForm(
 
       if (pendingFiles.length) {
         for (const file of pendingFiles) {
-          await attachmentsApi.uploadForEntry(created.id, file);
+          await attachmentsApi.smartUploadForEntry(created.id, file);
         }
       }
       const urlItems = pendingUrlAttachments.filter(
@@ -1172,6 +1393,39 @@ export function useEntryExpandedForm(
           item.label?.trim() || undefined
         );
       }
+
+      let contributionFailed = false;
+      if (contributionApi?.hasContribution) {
+        contributionApi.notifyCommitted(created.id, 'create');
+        try {
+          const submitResult = await contributionApi.requestSubmit(created.id);
+          if (!submitResult.ok) {
+            contributionFailed = true;
+            showToast(
+              submitResult.error ||
+                'Entry created but related data could not be saved. Open it to finish the missing rows.',
+              'error',
+              {
+                label: 'View entry',
+                href: entryPath(created.id, tid),
+              },
+            );
+          }
+        } catch (contribErr) {
+          contributionFailed = true;
+          showToast(
+            contribErr instanceof Error
+              ? contribErr.message
+              : 'Entry created but related data could not be saved. Open it to finish the missing rows.',
+            'error',
+            {
+              label: 'View entry',
+              href: entryPath(created.id, tid),
+            },
+          );
+        }
+      }
+
       setTitle('');
       setBody('');
       // B-ENT-05: do NOT reset type to 'post' — the next entry on the
@@ -1186,10 +1440,12 @@ export function useEntryExpandedForm(
       setLinkPreview(null);
       setDismissedPreviewUrl('');
       onCreated?.(created);
-      showToast('Entry created!', 'success', {
-        label: 'View entry',
-        href: entryPath(created.id, tid)
-      });
+      if (!contributionFailed) {
+        showToast('Entry created!', 'success', {
+          label: 'View entry',
+          href: entryPath(created.id, tid)
+        });
+      }
     } catch (e: unknown) {
       showToast(errorMessageFromAxios(e, 'Failed to create entry'), 'error');
     } finally {
@@ -1205,7 +1461,7 @@ export function useEntryExpandedForm(
     }
     const hasPrimaryContent =
       Boolean(titleEnabled && title.trim()) || Boolean(bodyEnabled && body.trim());
-    if ((titleEnabled || bodyEnabled) && !hasPrimaryContent) {
+    if (!ownsForm && (titleEnabled || bodyEnabled) && !hasPrimaryContent) {
       showToast('Add some content', 'error');
       throw new Error('validation');
     }
@@ -1218,6 +1474,7 @@ export function useEntryExpandedForm(
         fieldValues[field.key] !== undefined
           ? fieldValues[field.key]
           : (baseline.custom_fields || {})[field.key];
+      if (Array.isArray(mergedValue)) return mergedValue.length === 0;
       return (
         mergedValue === undefined ||
         mergedValue === null ||
@@ -1240,6 +1497,19 @@ export function useEntryExpandedForm(
     if (!validateEmailAndPhone(dynamicFields, fieldValues, baseline.custom_fields)) {
       throw new Error('validation');
     }
+
+    const contributionApi = contributionApiRef?.current;
+    if (contributionApi?.hasContribution) {
+      const contributionCheck = await contributionApi.requestValidate();
+      if (!contributionCheck.ok) {
+        showToast(
+          contributionCheck.error || 'Fix contribution errors before saving',
+          'error',
+        );
+        throw new Error('validation');
+      }
+    }
+
     setLoading(true);
     try {
       const firstUrl = bodyEnabled ? extractFirstUrl(body) : '';
@@ -1273,7 +1543,10 @@ export function useEntryExpandedForm(
       }
 
       const updated = await entriesApi.update(entryId, {
-        title: title.trim(),
+        title:
+          title.trim() ||
+          (ownsForm ? deriveTitleFromFields(fieldValues, titleFromFields) : '') ||
+          undefined,
         body: bodyEnabled ? body : undefined,
         description: bodyEnabled ? body : undefined,
         custom_fields,
@@ -1322,7 +1595,7 @@ export function useEntryExpandedForm(
       }
       if (pendingFiles.length) {
         for (const file of pendingFiles) {
-          await attachmentsApi.uploadForEntry(entryId, file);
+          await attachmentsApi.smartUploadForEntry(entryId, file);
         }
       }
       const urlItems = pendingUrlAttachments.filter(
@@ -1336,6 +1609,21 @@ export function useEntryExpandedForm(
           item.url.trim(),
           item.label?.trim() || undefined
         );
+      }
+      if (contributionApi?.hasContribution) {
+        contributionApi.notifyCommitted(entryId, 'edit');
+        try {
+          const submitResult = await contributionApi.requestSubmit(entryId);
+          if (!submitResult.ok) {
+            showToast(
+              submitResult.error ||
+                'Entry updated but contribution data could not be saved',
+              'error',
+            );
+          }
+        } catch {
+          /* toast already covers create path; keep edit resilient */
+        }
       }
       setPendingFiles([]);
       setPendingUrlAttachments([]);
@@ -1414,7 +1702,15 @@ export function useEntryExpandedForm(
     cancelCreate,
     composerInviteText,
     composerActionLabel,
-    fieldValues
+    fieldValues,
+    setFieldValues,
+    applyContributionPatch,
+    composeExtraSection,
+    ownsForm,
+    dynamicFields,
+    entryTypeFormSchema,
+    appId,
+    initialEntry,
   };
 }
 
@@ -1454,6 +1750,8 @@ export interface EntryFormExpandedViewProps
   /** Dismiss host dialog before following relation / anchor-track links. */
   onNavigate?: () => void;
   navContext?: import('./relations/routeForRelationTarget').RelationNavContext | null;
+  mode?: 'create' | 'edit';
+  workflowEnumLabels?: Record<string, Record<string, string>>;
 }
 
 export function EntryFormExpandedView({
@@ -1510,6 +1808,11 @@ export function EntryFormExpandedView({
   focusTitleOnMount = false,
   onNavigate,
   navContext,
+  composeExtraSection,
+  ownsForm = false,
+  dynamicFields: _dynamicFields,
+  mode: _mode = 'create',
+  workflowEnumLabels: _workflowEnumLabels,
 }: EntryFormExpandedViewProps) {
   const dynamicFieldsCount = composerRows.filter(r => r.kind === 'field').length;
   const isWiki = layout === 'wiki';
@@ -1626,7 +1929,9 @@ export function EntryFormExpandedView({
       </div>
       )}
 
-      {composerRows.map(row => {
+      {ownsForm
+        ? null
+        : composerRows.map(row => {
         if (row.kind === 'title') {
           const titleSlotLabel = String(titleBase.label || '').trim() || CANONICAL_TITLE_LABEL;
           return (
@@ -1803,6 +2108,7 @@ export function EntryFormExpandedView({
         }
         return null;
       })}
+      {composeExtraSection}
       {!hideActions ? (
         <div
           className={

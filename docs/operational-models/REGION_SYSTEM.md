@@ -20,6 +20,25 @@ see [UI_COMPLEMENTS.md](UI_COMPLEMENTS.md). Those recipes sit above this
 system and compile into its ordinary configuration; they do not replace or
 fork the Region System or `create_wizard`.
 
+### `related_views` placement: `primary` vs `related`
+
+Entry-type `related_views[]` accept `position: primary | related`
+(default `related`):
+
+- **`primary`** — modal / detail **main column**, after the field form (and
+  body) and **before** Comments / social actions. Use for the record's
+  primary interactive surface (line editor, filing grid, layout_container
+  of summary + actions). Complements that emit `position: primary` now
+  actually render here.
+- **`related`** — secondary column below social actions (today's historical
+  placement). Use for boards, feeds, and other "extension of the record"
+  collections that are not the main edit surface.
+
+Create-time interactive editors that need draft staging before the parent
+entry exists use `ui_contributions` (native Core region or iframe
+`extension_view`), not `related_views` alone — child rows cannot be
+persisted until the parent id exists.
+
 ---
 
 ## Why this exists
@@ -42,16 +61,76 @@ for what that label is supposed to mean and why it matters to keep honest).
 
 | `view_type` | Role | Key config |
 |---|---|---|
-| `form_region` | Subset-of-fields form bound to the current entry, a related entry (via a workspace tool), or an anchored track's entry | `fields` (ordered keys), `title?`, `columns?` |
+| `form_region` | Subset-of-fields form bound to the current entry, a related entry (via a workspace tool), an anchored track's entry, **or the host EntryForm draft** when mounted under `ContributionLifecycleContext` (`mode: create\|edit`) | `fields` (ordered keys), `title?`, `columns?` |
 | `layout_container` | Stack/tabs/accordion/grid/flex wrapper composing an ordered list of child regions (nested views or inline sub-forms) in one `related_views` slot — `kind:'view'` may resolve to another `layout_container`, so nesting depth is only limited by good sense | `regions` (ordered `RegionSpec[]`), `mode?` (may itself be responsive — switch composition strategy per breakpoint), `title?`, `layout?` |
 | `static_content` | Read-only markdown block — section instructions, headers, notes between regions | `body?` or `body_field?` |
 | `tree_region` | Hierarchical tree over a track's entries via a self-relational parent field (e.g. an HR org chart via `manager`) | `source_track`, `parent_field`, `label_field?`, `sort_siblings?` |
 | `chart_region` | Bar/line/area/scatter/pie/donut/gauge chart bound to the current entry's own numeric fields, or aggregated over a track's entries | `chart_type`, `x_field`, `y_field?`, `aggregate?`, `group_by?`, `source?`, `fields?`, `title?`, `gauge_max?` |
 | `summary_tiles` | Read-only KPI strip bound to the current entry's own fields, each tile optionally carrying an icon and a trend/delta indicator | `tiles` (`[{label, field, format?, icon?, trend?}]`), `title?` |
 | `reverse_relation_list` | Read-only list of entries elsewhere that reference the current entry via a `relation` field — no anchor-track prerequisite, works across independent tracks | `relation` (the field_key on the OTHER track pointing back), `title?` |
+| `editable_related_lines` (`region-system/editable-related-lines`) | Editable reverse-relation child grid with compose draft staging, optional qty×rate rollup, row chrome, clear-all, and optional host discount totals | `relation`, `child_entry_type`, `child_track_type`, `columns[]`, priced + persist keys, `title?`, `add_label?`, `total_label?`, `show_discount?`, `discount_*_field?`, `catalog_relation_field?` (stages `catalog_id`) |
 | `modal_region` | A button that opens an Apex-style "modal page" of nested regions in the platform's own dialog | `trigger_label`, `trigger_variant?`, `title?`, `width?`, `regions` |
 | `popover_region` | A button that opens a small floating panel anchored to it — lighter than `modal_region`, no backdrop | `trigger_label`, `trigger_variant?`, `placement?`, `regions` |
 | `drawer_region` | A button that opens a side panel instead of a centered dialog | `trigger_label`, `trigger_variant?`, `title?`, `side?`, `width_px?`, `regions` |
+
+### Document shells (`ui_contributions.owns_form`)
+
+When an entry type's `ui_contributions[]` entry sets `owns_form: true`, the
+compose/detail host **hides the default EntryForm field grid** (title, body,
+and dynamic custom fields) and lets the contributed view own the body.
+Cancel / primary Save stay on the host; validation still reads `fieldValues`
+patched by nested `form_region` widgets. Optional `title_from_fields: [key, …]`
+on the contribution derives the entry title from those custom fields (ordered;
+first non-empty wins) — apps supply the keys; Core does not hardcode domain
+field names.
+
+On create/edit, `form_region` (including `layout_container` `kind: form`
+children) binds to `ContributionLifecycleContext`: it reads
+`lifecycle.customFields` and writes via `lifecycle.onDraftPatch` — no
+`entriesApi.get` / `update` until the parent entry exists. Detail
+(`mode: detail`) keeps the fetch/display path.
+
+Apps compose document shells entirely in their OM (layout_container +
+form_region + editable_related_lines). Further look-and-feel belongs in the
+app package, not Core.
+
+### Core UI freeze
+
+Region System Core code is **frozen for domain UI**. Add or change a Core
+region only when a generic knob is missing (config schema + neutral defaults,
+no app field keys or copy in Core source). Invoice / quote / payroll chrome,
+labels, and field lists live in the respective app OM. Prefer requesting an
+app-side config change over a Core PR.
+
+The track **Create a view** picker (`CreateViewPickerModal`) is an allowed
+generic host: it only exposes registered palette `view_type`s (not app
+slugs) and persists via the views API — see [VIEW_PALETTE.md](VIEW_PALETTE.md).
+
+### Universal View Designer (Core UI)
+
+Track owners and editors can compose and tune saved views without editing
+YAML via the **View Designer** (`frontend/src/features/view-designer/`):
+
+- **Track Config** → per-view kebab → **Design layout**, or View settings →
+  **Open designer**.
+- **Track tab** → **Edit layout** (when the caller can edit the track).
+- **Entry detail** → layout icon when the entry type’s `ui_contributions`
+  resolve to a native saved view key (edits that view’s `config`, not the
+  contribution wiring itself).
+
+`layout_container` opens in **layout mode** (drag-reorder regions, add form /
+nested view, inspector for fields / nested keys, live preview). Other palette
+types open in **widget mode** (group_by, filters, projection, chart knobs,
+raw JSON). Saves use `PUT /api/views/{id}` with the existing
+`normalize_view_config` path. Nested layouts drill into child saved views by
+`_manifest_view_key`. The shell defaults to a **workspace**-sized dialog
+(`--dialog-w-workspace`); use the header **Expand** control for nearly
+full-viewport width (`--dialog-w-workspace-max`) when previewing wide tables.
+
+The designer is Core-generic: zero App/domain tokens. Set
+`VITE_VIEW_DESIGNER=0` to hide entry points. Package YAML remains the
+publishable source of truth for App packages; UI edits apply to the
+**attached** track views until derived back to a library model.
 
 Full field-level detail for each lives in the plugin's own module
 docstring (`backend/app/plugins/region_system/__init__.py`) and each

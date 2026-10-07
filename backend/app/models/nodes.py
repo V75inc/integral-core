@@ -531,6 +531,11 @@ class Track(Node):
     # personal workspace). Additive field — existing Tracks default to ""; no
     # migration. CONTEXT lock #1 / RESEARCH §Q7 Option A.
     kind: str = ""
+    # App navigation visibility. False = omit from default App track lists /
+    # Feed filters while the Track remains addressable (direct URL, pins,
+    # agent tools with include_nav_hidden). Sourced from OM app.tracks[].
+    # Additive — existing Tracks default True; no migration.
+    nav_visible: bool = True
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -597,6 +602,28 @@ class Comment(Node):
     text: str = ""
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+
+
+class GeneratedDocument(Node):
+    """Immutable record of a document rendered from a template version."""
+
+    __entity_name__ = "GeneratedDocument"
+
+    workspace_id: str = attribute(default="", indexed=True)
+    template_id: str = attribute(default="", indexed=True)
+    template_version_id: str = attribute(default="", indexed=True)
+    module: str = ""
+    context_type: str = attribute(default="", indexed=True)
+    context_entry_id: str = attribute(default="", indexed=True)
+    generated_by: str = ""
+    generated_at: Optional[str] = None
+    output_format: Literal["pdf", "html", "docx"] = "pdf"
+    attachment_id: str = ""
+    input_values: Dict[str, Any] = Field(default_factory=dict)
+    resolved_snapshot: Dict[str, Any] = Field(default_factory=dict)
+    checksum: str = ""
+    status: Literal["generated", "superseded", "void"] = "generated"
+    created_at: Optional[str] = None
 
 
 class Attachment(Node):

@@ -34,6 +34,7 @@ import {
   canCreateEntryForRole,
   resolveTrackRoleForUser,
 } from '../utils/entryEditRights';
+import { isTrackNavVisible } from '../utils/trackNav';
 import {
   FEED_ENTRIES_QUERY_KEY_ROOT,
   invalidateFeedCaches,
@@ -197,12 +198,17 @@ export function FeedPage() {
         : tracksApi.list({ limit: 100 }),
   });
 
+  const navTracks = useMemo(
+    () => (tracks as Track[]).filter(isTrackNavVisible),
+    [tracks],
+  );
+
   const creatableTracks = useMemo(
     () =>
-      (tracks as Track[]).filter(t =>
+      navTracks.filter(t =>
         canCreateEntryForRole(resolveTrackRoleForUser(user, t)),
       ),
-    [tracks, user],
+    [navTracks, user],
   );
 
   const allEntries = useMemo(
@@ -719,7 +725,7 @@ export function FeedPage() {
                 appName={appName}
                 filterTrack={filterTrack}
                 setFilterTrack={setFilterTrack}
-                tracks={tracks}
+                tracks={navTracks}
                 filterType={filterType}
                 setFilterType={setFilterType}
                 typeOptions={typeOptions}

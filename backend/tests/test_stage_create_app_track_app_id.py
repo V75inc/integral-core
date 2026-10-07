@@ -6,6 +6,7 @@ from app.agentive.tooling.bindings import (
     _normalize_in_batch_app_id,
     _stage_create_app_track,
 )
+from app.services.agent_scope import current_focused_app_id
 
 
 def test_normalize_leaves_token_and_node_id():
@@ -21,20 +22,28 @@ def test_normalize_display_name_and_pending_to_positional():
 
 
 def test_stage_create_app_track_rewrites_name():
-    staged = _stage_create_app_track(
-        {
-            "name": "Cars",
-            "app_id": "pending",
-            "description": "Fleet",
-            "entry_types": [
-                {
-                    "name": "Car",
-                    "fields": [
-                        {"key": "registration", "name": "Registration", "type": "text"}
-                    ],
-                }
-            ],
-        }
-    )
-    assert staged["payload"]["app_id"] == "{{app.id}}"
+    token = current_focused_app_id.set("n.IntegralApp.real-app")
+    try:
+        staged = _stage_create_app_track(
+            {
+                "name": "Cars",
+                "app_id": "pending",
+                "description": "Fleet",
+                "entry_types": [
+                    {
+                        "name": "Car",
+                        "fields": [
+                            {
+                                "key": "registration",
+                                "name": "Registration",
+                                "type": "text",
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+    finally:
+        current_focused_app_id.reset(token)
+    assert staged["payload"]["app_id"] == "n.IntegralApp.real-app"
     assert staged["kind"] == "create_track"

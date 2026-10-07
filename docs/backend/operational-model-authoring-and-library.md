@@ -407,6 +407,7 @@ When an **app-scoped** library package is applied to a **Workspace** (for exampl
 
 - **`app.defaults.provision_prescribed_tracks`**: optional boolean. If omitted and `app.tracks` is non-empty, canonical compilation defaults this to **true**. Set **`false`** to merge the manifest into the App operational model **without** auto-creating Tracks.
 - **`provision_on_create`** on each **`app.tracks[]`** entry: optional boolean, default **true**. Set **`false`** to keep that Track type in the manifest for manual creation (e.g. `app_track_type_key` on `POST /tracks`) and runtime resolution, but **not** provision it when the package is applied.
+- **`nav_visible`** on each **`app.tracks[]`** entry: optional boolean, default **true**. Set **`false`** when the Track must still be provisioned and addressable (document line editors, reverse relations, agent tools) but should **not** appear in default App track navigation lists / Feed track filters. Persisted on the materialized `Track.nav_visible` field; list endpoints omit these tracks unless called with `include_nav_hidden=true`. Reconcile on rematerialize updates existing Track nodes when the flag changes.
 - **`description`** on each **`app.tracks[]`** entry: optional string. When Tracks are auto-provisioned, this is copied to the new `Track.purpose` field so prefab bundles can explain each Track in the UI.
 - **`public_share`** on each **`app.tracks[]`** entry: optional block declaring that the Track is *intended* to be publicly shared, and with which permissions:
 

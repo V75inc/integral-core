@@ -167,6 +167,25 @@ describe('useStagedChange — bless', () => {
     await waitFor(() => expect(result.current.error).toBe('Track is read-only'));
     expect(result.current.state).toBe('blessed');
   });
+
+  it('shows detail when the write failed without a message', async () => {
+    vi.mocked(api.blessStagingToken).mockResolvedValue({
+      ok: true,
+      execute_result: {
+        error: true,
+        detail: 'add_entry_type requires spec with name/key',
+      },
+    } as never);
+
+    const { result } = renderHook(() => useStagedChange(staged), { wrapper });
+    await act(async () => {
+      await result.current.bless();
+    });
+
+    await waitFor(() =>
+      expect(result.current.error).toBe('add_entry_type requires spec with name/key'),
+    );
+  });
 });
 
 describe('useStagedChange — reconcile on mount', () => {

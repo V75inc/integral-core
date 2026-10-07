@@ -72,6 +72,24 @@ export const authApi = {
    *  user's registered email address. */
   resendVerification: (): Promise<{ ok: boolean; message: string }> =>
     apiClient.post('/auth/resend-verification').then(r => r.data),
+
+  changePassword: (
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<{ ok: boolean; message: string; must_change_password: boolean }> =>
+    apiClient
+      .post('/auth/update-password', {
+        current_password: currentPassword,
+        new_password: newPassword,
+      })
+      .then(r => r.data),
+
+  completeAssignedForm: (): Promise<{ ok: boolean; cleared: boolean }> =>
+    apiClient.post('/auth/complete-assigned-form').then(r => r.data),
+
+  /** @deprecated use completeAssignedForm */
+  completeOnboardingForm: (): Promise<{ ok: boolean; cleared: boolean }> =>
+    apiClient.post('/auth/complete-assigned-form').then(r => r.data),
 };
 
 /** Stable error_code constants for the password-reset flow.

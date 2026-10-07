@@ -8,22 +8,21 @@ from app.agentive.tooling.bindings import _stage_create_dashboard
 
 
 @pytest.mark.asyncio
-async def test_stage_create_dashboard_raises_on_unknown_widget_type():
-    """Staging create raises a helpful error for an unknown widget type."""
-    with pytest.raises(ValueError, match="unknown type 'bogus_widget'"):
-        await _stage_create_dashboard(
-            {
-                "app_id": "app-1",
-                "name": "Test board",
-                "widgets": [
-                    {
-                        "id": "w1",
-                        "type": "bogus_widget",
-                        "title": "Bad",
-                    }
-                ],
-            }
-        )
+async def test_stage_create_dashboard_discloses_starter_fallback_for_unknown_widget():
+    """Unknown widget requests are replaced visibly before user approval."""
+    staged = await _stage_create_dashboard(
+        {
+            "app_id": "app-1",
+            "name": "Test board",
+            "widgets": [{"id": "w1", "type": "bogus_widget", "title": "Bad"}],
+        }
+    )
+
+    assert "starter dashboard" in staged["diff_human"]
+    assert len(staged["payload"]["widgets"]) > 0
+    assert all(
+        widget["type"] != "bogus_widget" for widget in staged["payload"]["widgets"]
+    )
 
 
 @pytest.mark.asyncio

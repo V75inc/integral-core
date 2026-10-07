@@ -1,3 +1,4 @@
+/* patch:kanban-hire-intercept */
 import {
   useState,
   useEffect,
@@ -6,7 +7,7 @@ import {
   useRef,
   type CSSProperties,
 } from 'react';
-import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, Link, useNavigate, useSearchParams, Navigate } from 'react-router-dom';
 import {
   Sparkles,
 } from 'lucide-react';
@@ -28,6 +29,8 @@ import {
   viewsForTrackQueryKey
 } from '../queryKeys';
 import { errorMessageFromAxios } from '../api/helpers';
+import { interceptKanbanHireStageChange } from '../features/kanbanHire/kanbanHirePrompt';
+import { resolveDocumentTemplatesTrackRedirect } from '../features/documents/documentTemplatesRouting';
 import type { TrackDetailBundle, TrackEntriesPage } from '../api/tracks';
 import {
   EntryComposeModal,
@@ -318,6 +321,12 @@ export function TrackDetailPage() {
     queryClient.setQueryData(entryTypesForTrackQueryKey(id), d.entry_types);
     queryClient.setQueryData(viewsForTrackQueryKey(id), d.views as SavedView[]);
   }, [id, queryClient, trackDetailQuery.data]);
+
+  const documentTemplatesRedirect = useMemo(
+    () =>
+      track ? resolveDocumentTemplatesTrackRedirect(track, searchParams) : null,
+    [track, searchParams],
+  );
 
   // Track + collaborators (separate from entry types / views so that
   // schema mutations from TrackConfigPanel invalidate ONLY the
@@ -1080,6 +1089,27 @@ export function TrackDetailPage() {
    *  commonly used as kanban/board axes. */
   const handleEntryPersist = useCallback(
     async (u: Entry) => {
+      let previous: Entry | undefined;
+      patchEntriesCache(p => {
+        previous = p.entries.find(e => e.id === u.id);
+        return p;
+      });
+      if (
+        previous &&
+        interceptKanbanHireStageChange(previous, u, {
+          appId: u.app?.id || track?.app?.id,
+          workspaceId:
+            track?.app?.workspace_id ||
+            track?.workspace_id ||
+            u.track?.workspace_id,
+        })
+      ) {
+        patchEntriesCache(p => ({
+          ...p,
+          entries: p.entries.map(e => (e.id === previous!.id ? previous! : e)),
+        }));
+        return;
+      }
       patchEntriesCache(p => ({
         ...p,
         entries: p.entries.map(e => (e.id === u.id ? u : e))
@@ -1100,8 +1130,8 @@ export function TrackDetailPage() {
           entries: p.entries.map(e => (e.id === updated.id ? updated : e))
         }));
         return updated;
-      } catch {
-        showToast('Failed to save changes', 'error');
+      } catch (err) {
+        showToast(errorMessageFromAxios(err, 'Failed to save changes'), 'error');
         invalidateTrackEntries();
       }
     },
@@ -1727,6 +1757,10 @@ export function TrackDetailPage() {
       </div>
     );
 
+  if (documentTemplatesRedirect) {
+    return <Navigate to={documentTemplatesRedirect} replace />;
+  }
+
   return (
     <PageShell>
       <TrackDetailHeader
@@ -1836,6 +1870,7 @@ export function TrackDetailPage() {
           }}
           emptyStateContent={emptyStateContent}
           trackEntriesSentinelRef={trackEntriesSentinelRef}
+          canEditLayout={canAdminTrack || canCreateEntryByRole}
         />
 
         {id && rightRailOpen ? (

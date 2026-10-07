@@ -5,6 +5,7 @@ Orchestration facade over split modules — see ``.planning/refactors/operationa
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 from datetime import datetime, timezone
@@ -57,10 +58,27 @@ from app.services.operational_model_compile import (
     _as_list,
     _scan_seeded_libraries_for_view_key,
     _slug,
+    warm_seeded_library_view_index,
 )
 from app.services.operational_model_graph import (
     _resolve_or_create_template_operational_model,
 )
+
+
+async def _warm_seeded_view_index_off_loop() -> None:
+    """Parse seeded view specs on a worker thread, once per process.
+
+    A failure leaves the attached manifest as the only source. The old
+    per-view scan swallowed the same errors and continued.
+    """
+    try:
+        await asyncio.to_thread(warm_seeded_library_view_index)
+    except Exception:
+        logger.warning(
+            "seeded library view index unavailable; view entry-type "
+            "backfill will use the attached manifest only",
+            exc_info=True,
+        )
 
 
 async def backfill_view_entry_type_constraints_from_manifest(
@@ -93,6 +111,10 @@ async def backfill_view_entry_type_constraints_from_manifest(
             key = str(spec.get("key") or "").strip()
             if key:
                 by_key[key] = spec
+
+    # The seed fallback parses every library package. Do that off the event
+    # loop, once, so a track open does not freeze the only API worker.
+    await _warm_seeded_view_index_off_loop()
 
     for v in views:
         cfg = v.config if isinstance(v.config, dict) else {}
@@ -170,6 +192,8 @@ async def write_view_entry_type_constraints_from_manifest(
             key = str(spec.get("key") or "").strip()
             if key:
                 by_key[key] = spec
+
+    await _warm_seeded_view_index_off_loop()
 
     for v in views:
         cfg = v.config if isinstance(v.config, dict) else {}

@@ -52,6 +52,9 @@ def reset_library_operational_models_cache_for_testing() -> None:
     global _CACHED_LIBRARY_SPECS, _CACHED_PROFILES_ROOT
     _CACHED_LIBRARY_SPECS = None
     _CACHED_PROFILES_ROOT = None
+    from app.services.operational_model_compile import reset_seeded_library_view_index
+
+    reset_seeded_library_view_index()
 
 
 async def _is_library_operational_model_referenced(operational_model_id: str) -> bool:

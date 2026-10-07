@@ -175,17 +175,18 @@ async def test_update_entry_propose_returns_staged_token(
     """
     from app.agentive.staging import get_token
 
-    auth_user_id, workspace_id, _track_id = await _bootstrap_principal_and_track()
+    auth_user_id, workspace_id, track_id = await _bootstrap_principal_and_track()
+    entry_id = await _seed_entry(auth_user_id, workspace_id, track_id)
 
     r = await dispatch_tool(
         "integral_update_entry",
-        {"entry_id": "n.Entry.abc123", "title": "New title", "status": "done"},
+        {"entry_id": entry_id, "title": "New title", "status": "done"},
         principal_id=auth_user_id,
         scope=workspace_id,
     )
     _assert_staged(r, kind="update_entry")
     dm = r.data["diff_machine"]
-    assert dm.get("entry_id") == "n.Entry.abc123", dm
+    assert dm.get("entry_id") == entry_id, dm
     assert dm.get("title") == "New title", dm
     assert dm.get("status") == "done", dm
     # The status reaches the staged payload (what the executor splats), not just

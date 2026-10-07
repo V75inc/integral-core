@@ -39,6 +39,12 @@ current_focused_track_id: contextvars.ContextVar[Optional[str]] = (
     contextvars.ContextVar("integral_agent_focused_track_id", default=None)
 )
 
+# App the chat is focused on. A single add-track approval uses this id.
+# ``{{app.id}}`` is only valid inside a batch that creates the app.
+current_focused_app_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "integral_agent_focused_app_id", default=None
+)
+
 current_focused_view_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
     "integral_agent_focused_view_id", default=None
 )

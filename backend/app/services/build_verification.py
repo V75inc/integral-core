@@ -453,6 +453,34 @@ def _overall(statuses: List[str]) -> str:
     return "verified"
 
 
+def verification_reply(result: Dict[str, Any]) -> str:
+    """One sentence the resident must use as the closing line."""
+    if result.get("error"):
+        detail = str(result.get("detail") or result.get("error"))
+        return f"Failed. {detail}"
+    status = str(result.get("status") or "")
+    if status == "verified":
+        return "Verified. The approved design is present."
+    lead = {
+        "partial": "Partial.",
+        "blocked": "Blocked.",
+        "failed": "Failed.",
+    }.get(status, "Failed.")
+    named = [
+        f"{item.get('id') or 'item'} ({item.get('status') or 'missing'})"
+        for item in result.get("items") or []
+        if isinstance(item, dict) and item.get("status") != "present"
+    ]
+    if named:
+        return f"{lead} Not present: " + "; ".join(named) + "."
+    return lead
+
+
+def _with_reply(result: Dict[str, Any]) -> Dict[str, Any]:
+    result["reply"] = verification_reply(result)
+    return result
+
+
 async def verify_loaded(
     *,
     blueprint: Dict[str, Any],
@@ -567,14 +595,16 @@ async def verify_loaded(
             items.append({"id": item_id, "status": "mismatch"})
 
     statuses = [item["status"] for item in items]
-    return {
-        "design_id": design_id,
-        "design_revision": design_revision,
-        "execution_receipt_id": receipt.get("id"),
-        "status": _overall(statuses),
-        "items": items,
-        "resources": resources,
-    }
+    return _with_reply(
+        {
+            "design_id": design_id,
+            "design_revision": design_revision,
+            "execution_receipt_id": receipt.get("id"),
+            "status": _overall(statuses),
+            "items": items,
+            "resources": resources,
+        }
+    )
 
 
 def _revision(value: Any) -> Optional[int]:
@@ -611,10 +641,12 @@ async def verify_build(
     """
     revision = _revision(design_revision)
     if not str(design_id or "").strip() or revision is None:
-        return {
-            "error": "invalid_verification_request",
-            "detail": "design_id and design_revision are required.",
-        }
+        return _with_reply(
+            {
+                "error": "invalid_verification_request",
+                "detail": "design_id and design_revision are required.",
+            }
+        )
     _thread, marker = await _find_design(user_id, str(design_id).strip())
     # Tool dispatch injects workspace_id from its authenticated scope. Being
     # the same principal in another workspace does not admit that workspace's
@@ -623,25 +655,31 @@ async def verify_build(
         workspace_id is not None
         and getattr(_thread, "workspace_id", None) != workspace_id
     ):
-        return {
-            "error": "design_not_found",
-            "detail": "No design with that id is on a conversation you own in this scope.",
-        }
+        return _with_reply(
+            {
+                "error": "design_not_found",
+                "detail": "No design with that id is on a conversation you own in this scope.",
+            }
+        )
     blueprint = marker.get("blueprint")
     if not isinstance(blueprint, dict):
-        return {
-            "error": "blueprint_required",
-            "detail": "This design has no typed blueprint to verify.",
-        }
+        return _with_reply(
+            {
+                "error": "blueprint_required",
+                "detail": "This design has no typed blueprint to verify.",
+            }
+        )
     stored_revision = _revision(marker.get("blueprint_revision"))
     if stored_revision != revision:
-        return {
-            "error": "revision_mismatch",
-            "detail": (
-                f"The design is at revision {stored_revision}. "
-                "Verify that revision; an older one is not the approved build."
-            ),
-        }
+        return _with_reply(
+            {
+                "error": "revision_mismatch",
+                "detail": (
+                    f"The design is at revision {stored_revision}. "
+                    "Verify that revision; an older one is not the approved build."
+                ),
+            }
+        )
     receipt = marker.get("build_receipt")
     if (
         not isinstance(receipt, dict)
@@ -649,14 +687,16 @@ async def verify_build(
         or receipt.get("design_id") != design_id
         or _revision(receipt.get("design_revision")) != revision
     ):
-        return {
-            "error": "receipt_mismatch",
-            "detail": (
-                "That execution receipt is not the apply recorded for this "
-                "design revision. Do not build again; verify the receipt from "
-                "the apply that just finished, or apply the current revision first."
-            ),
-        }
+        return _with_reply(
+            {
+                "error": "receipt_mismatch",
+                "detail": (
+                    "That execution receipt is not the apply recorded for this "
+                    "design revision. Do not build again; verify the receipt from "
+                    "the apply that just finished, or apply the current revision first."
+                ),
+            }
+        )
     # Existing-App extension receipts predate (or may have been written by)
     # versions that mapped only objects created by the batch. Resolve the
     # approved target from the same design marker; never accept an App id from

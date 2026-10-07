@@ -275,13 +275,15 @@ async def _stage_existing_entry(
 async def stage_file_content(a: Dict[str, Any]) -> Dict[str, Any]:
     """Stage a ``file_content`` change when track + entry type resolve from hints."""
     from app.agentive.personalization import get_filing_defaults
-    from app.agentive.tooling.bindings import _bound_propose_principal
+    from app.agentive.tooling.bindings import (
+        _bound_propose_principal,
+        is_cleanup_instruction,
+    )
     from app.services.filing_resolution import (
         resolve_entry_type_for_track,
         resolve_track_for_filing,
     )
 
-    uid = _bound_propose_principal()
     text = (a.get("text") or "").strip()
     fields_in = a.get("fields")
     if not text and isinstance(fields_in, dict):
@@ -308,6 +310,18 @@ async def stage_file_content(a: Dict[str, Any]) -> Dict[str, Any]:
     if mode in ("update", "append"):
         return await _stage_existing_entry(a, mode=mode, text=text)
 
+    title = str(a.get("title") or "")
+    if is_cleanup_instruction(text) or is_cleanup_instruction(title):
+        return _no_stage_candidates(
+            message=(
+                "This is a cleanup instruction, not content to file. Query "
+                "the matching entries and stage integral_delete_entry or "
+                "integral_update_entry. Nothing was staged."
+            ),
+            filing_status="error",
+        )
+
+    uid = _bound_propose_principal()
     defaults: Dict[str, Any] = {}
     try:
         learned = await get_filing_defaults(user_id=uid, text=text)
@@ -390,6 +404,38 @@ async def stage_file_content(a: Dict[str, Any]) -> Dict[str, Any]:
     track_title = track.title or track.id
     entry_type_name = entry_type.name
     title = (a.get("title") or "").strip() or _derive_title(text)
+
+    from app.agentive.tooling.bindings import duplicate_create_block
+
+    blocked = await duplicate_create_block(
+        track_id=track.id,
+        title=title,
+        text=text,
+        fields=merged,
+        allow_duplicate_title=bool(a.get("allow_duplicate_title")),
+    )
+    if blocked:
+        return _no_stage_candidates(
+            message=blocked,
+            filing_status="error",
+            resolved_track={"id": track.id, "title": track_title},
+        )
+
+    from app.agentive.tooling.bindings import date_left_in_title_block
+
+    date_block = await date_left_in_title_block(
+        track_id=track.id,
+        title=title,
+        text=text,
+        fields=merged,
+        entry_type_name=entry_type_name,
+    )
+    if date_block:
+        return _no_stage_candidates(
+            message=f"file_content: {date_block}",
+            filing_status="error",
+            resolved_track={"id": track.id, "title": track_title},
+        )
 
     payload: Dict[str, Any] = {
         "track_id": track.id,

@@ -1,8 +1,12 @@
-import type { ReactNode, RefObject } from 'react';
-import { Loader2 } from 'lucide-react';
+import { useState, type ReactNode, type RefObject } from 'react';
+import { LayoutTemplate, Loader2 } from 'lucide-react';
 import { TrackFilterStrip } from '../TrackFilterStrip';
 import { EntryComposer } from '../../entries/EntryComposer';
-import { FilterActionRow, LINE_ICON_STROKE, filterBar } from '../../ui';
+import { Button, FilterActionRow, LINE_ICON_STROKE, filterBar } from '../../ui';
+import {
+  isViewDesignerEnabled,
+  ViewDesignerShell,
+} from '../../../features/view-designer';
 import { ViewRenderer } from '../../../views';
 import type { ViewWidgetProps } from '../../../views/types';
 import type {
@@ -60,6 +64,8 @@ export interface TrackDetailMainColumnProps {
   fetchNextPage: () => void;
   emptyStateContent: ReactNode;
   trackEntriesSentinelRef: RefObject<HTMLDivElement>;
+  /** When true, show in-context Edit layout for the active view. */
+  canEditLayout?: boolean;
 }
 
 export function TrackDetailMainColumn({
@@ -103,7 +109,11 @@ export function TrackDetailMainColumn({
   fetchNextPage,
   emptyStateContent,
   trackEntriesSentinelRef,
+  canEditLayout = false,
 }: TrackDetailMainColumnProps) {
+  const [designerOpen, setDesignerOpen] = useState(false);
+  const designerEnabled = isViewDesignerEnabled();
+
   return (
     <section
       className={`min-w-0 ${
@@ -132,19 +142,32 @@ export function TrackDetailMainColumn({
                 retrievalError={retrievalError}
               />
             </div>
-            {canCreateEntry ? (
-              <EntryComposer
-                track={track}
-                viewEntryTypeKeys={activeView?.entry_type_keys}
-                viewDefaultEntryTypeKey={
-                  activeView?.default_entry_type_key ??
-                  track?.operational_model_defaults?.default_entry_type
-                }
-                createCustomFieldFallback={kanbanCreateCustomFieldFallback}
-                workflowEnumLabels={kanbanWorkflowEnumLabels}
-                onCreated={onEntryCreatedFromComposer}
-              />
-            ) : null}
+            <div className="flex items-center gap-2 shrink-0">
+              {canEditLayout && designerEnabled && activeView ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setDesignerOpen(true)}
+                  aria-label="Edit view layout"
+                >
+                  <LayoutTemplate size={13} strokeWidth={LINE_ICON_STROKE} />
+                  Edit layout
+                </Button>
+              ) : null}
+              {canCreateEntry ? (
+                <EntryComposer
+                  track={track}
+                  viewEntryTypeKeys={activeView?.entry_type_keys}
+                  viewDefaultEntryTypeKey={
+                    activeView?.default_entry_type_key ??
+                    track?.operational_model_defaults?.default_entry_type
+                  }
+                  createCustomFieldFallback={kanbanCreateCustomFieldFallback}
+                  workflowEnumLabels={kanbanWorkflowEnumLabels}
+                  onCreated={onEntryCreatedFromComposer}
+                />
+              ) : null}
+            </div>
           </FilterActionRow>
 
           {semanticMode && retrievalMissingCount > 0 ? (
@@ -229,6 +252,19 @@ export function TrackDetailMainColumn({
       ) : (
         emptyStateContent
       )}
+
+      {designerEnabled && activeView && canEditLayout ? (
+        <ViewDesignerShell
+          open={designerOpen}
+          onClose={() => setDesignerOpen(false)}
+          trackId={track.id}
+          view={activeView}
+          previewEntries={filteredEntries}
+          onSaved={saved => {
+            onViewUpdate(saved);
+          }}
+        />
+      ) : null}
     </section>
   );
 }

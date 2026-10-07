@@ -45,6 +45,26 @@ describe('AppSettingsForm', () => {
     expect(onChange).toHaveBeenCalledWith({ title: 'world' });
   });
 
+  it('dispatches password widget when ui:widget is secret', () => {
+    const onChange = vi.fn();
+    render(
+      <AppSettingsForm
+        schema={{
+          type: 'object',
+          properties: {
+            api_key: { type: 'string', 'ui:widget': 'secret' },
+          },
+        }}
+        value={{}}
+        onChange={onChange}
+      />,
+    );
+    const inp = screen.getByTestId('widget-password-api_key') as HTMLInputElement;
+    expect(inp.type).toBe('password');
+    fireEvent.change(inp, { target: { value: 're_abc' } });
+    expect(onChange).toHaveBeenCalledWith({ api_key: 're_abc' });
+  });
+
   it('dispatches textarea widget when ui:widget is textarea', () => {
     const onChange = vi.fn();
     render(

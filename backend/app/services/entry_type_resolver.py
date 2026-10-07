@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from app.models.nodes import EntryType, Track
+from app.models.edges import IS_OF_TYPE
+from app.models.nodes import Entry, EntryType, Track
 from app.services.operational_model_runtime import slug_manifest_key
+from app.utils.time import utc_now_iso
 
 
 async def entry_types_for_track(track_id: str) -> List[EntryType]:
@@ -168,3 +170,33 @@ async def default_entry_type_id_for_track(
     if etypes:
         return etypes[0].id
     return ""
+
+
+async def ensure_entry_type_id(
+    entry: Entry,
+    *,
+    type_key: str,
+) -> Optional[EntryType]:
+    """Assign ``type_id`` + ``IS_OF_TYPE`` when missing on legacy rows."""
+    if entry.type_id:
+        existing = await EntryType.get(entry.type_id)
+        if existing:
+            return existing
+    track_id = str(getattr(entry, "track_id", "") or "")
+    if not track_id or not type_key:
+        return None
+    resolved_id = await resolve_entry_type_id_by_key(track_id, type_key)
+    if not resolved_id:
+        return None
+    et = await EntryType.get(resolved_id)
+    if not et:
+        return None
+    now = utc_now_iso()
+    entry.type_id = resolved_id
+    entry.updated_at = now
+    await entry.save()
+    try:
+        await entry.connect(et, edge=IS_OF_TYPE, assigned_at=now)
+    except Exception:
+        pass
+    return et
