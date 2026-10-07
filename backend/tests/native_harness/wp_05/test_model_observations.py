@@ -402,3 +402,53 @@ async def test_run_accounting_binds_original_identity_after_session_changes(
             workspace_id="workspace-1",
             thread_id="thread-1",
         )
+
+
+def test_context_diagnostics_deduplicate_attempts_and_preserve_cache_and_cost():
+    from datetime import timedelta
+
+    from app.agentive.harness.contracts import ModelRequestContextObservation
+    from app.agentive.harness.model_observations import summarize_model_context
+
+    first = _observation("dispatch_intent").model_copy(
+        update={
+            "observed_at": None,
+            "request_context": ModelRequestContextObservation(
+                instruction_chars=100,
+                conversation_chars=50,
+                tool_result_chars=20,
+                tool_schema_chars=400,
+                message_count=4,
+                visible_tool_count=2,
+                tool_schema_fingerprint="schema-a",
+            ),
+        }
+    )
+    responded = first.model_copy(
+        update={
+            "outcome": "responded",
+            "observed_at": first.dispatched_at + timedelta(seconds=2),
+            "usage": ModelUsageObservation(
+                input_tokens=10,
+                output_tokens=2,
+                cached_input_tokens=4,
+                provider_cost_usd=Decimal("0.001"),
+                cost_source="provider_response",
+                complete=True,
+            ),
+        }
+    )
+    second = responded.model_copy(
+        update={
+            "request_id": "request-2",
+            "dispatched_at": first.dispatched_at + timedelta(seconds=3),
+            "observed_at": first.dispatched_at + timedelta(seconds=4),
+        }
+    )
+    rows = summarize_model_context([second, responded, first])
+    assert len(rows) == 2
+    assert rows[0]["repeated_tool_schema_chars"] == 0
+    assert rows[1]["repeated_tool_schema_chars"] == 400
+    assert rows[0]["elapsed_ms"] == 2000
+    assert rows[0]["usage"]["cached_input_tokens"] == 4
+    assert rows[0]["usage"]["provider_cost_usd"] == "0.001"

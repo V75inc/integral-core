@@ -6,6 +6,7 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from decimal import Decimal
+from typing import Any
 
 from app.agentive.harness.contracts import (
     HarnessExecutionScope,
@@ -199,6 +200,70 @@ def unsettled_model_request_ids(
         if latest.outcome in {"dispatch_intent", "outcome_unknown"}:
             unsettled.append(request_id)
     return sorted(unsettled)
+
+
+def summarize_model_context(
+    observations: list[PhysicalModelRequest],
+) -> list[dict[str, Any]]:
+    """Content-free diagnostics for unique physical attempts, including late facts.
+
+    Repeated schema characters are serialized input, not estimated billed
+    tokens. Provider cache counts and cost remain nullable source observations.
+    This does not create billable requests or infer a missing provider outcome.
+    """
+    grouped: dict[str, list[PhysicalModelRequest]] = {}
+    for item in observations:
+        grouped.setdefault(item.request_id, []).append(item)
+    seen_schemas: set[str] = set()
+    rows = []
+    for request_id, transitions in sorted(
+        grouped.items(), key=lambda pair: (pair[1][0].dispatched_at, pair[0])
+    ):
+        ordered = sorted(
+            transitions, key=lambda item: item.observed_at or item.dispatched_at
+        )
+        latest = ordered[-1]
+        context = next(
+            (
+                item.request_context
+                for item in reversed(ordered)
+                if item.request_context is not None
+            ),
+            None,
+        )
+        usage: dict[str, Any] = {}
+        for item in ordered:
+            if item.usage is not None:
+                usage.update(item.usage.model_dump(mode="json", exclude_none=True))
+        row = {
+            "request_id": request_id,
+            "model": latest.model,
+            "attempt": latest.attempt,
+            "outcome": latest.outcome,
+            "elapsed_ms": (
+                max(
+                    0,
+                    round(
+                        (latest.observed_at - latest.dispatched_at).total_seconds()
+                        * 1000
+                    ),
+                )
+                if latest.observed_at is not None
+                else None
+            ),
+            "usage": usage or None,
+            **(context.model_dump(mode="json") if context is not None else {}),
+        }
+        fingerprint = context.tool_schema_fingerprint if context is not None else None
+        row["repeated_tool_schema_chars"] = (
+            context.tool_schema_chars
+            if context is not None and fingerprint in seen_schemas
+            else 0
+        )
+        if fingerprint:
+            seen_schemas.add(fingerprint)
+        rows.append(row)
+    return rows
 
 
 def summarize_model_usage(

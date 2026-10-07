@@ -191,6 +191,7 @@ class ModelRequestContextObservation(BaseModel):
     tool_schema_chars: int = Field(ge=0)
     message_count: int = Field(ge=0)
     visible_tool_count: int = Field(ge=0)
+    tool_schema_fingerprint: str | None = None
 
 
 class PhysicalModelRequest(BaseModel):

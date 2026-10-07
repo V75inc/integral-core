@@ -128,64 +128,35 @@ def test_likely_duplicate_matches_a_shared_name_under_a_different_title():
     )
 
 
-def test_another_record_is_the_users_sentence():
-    from app.services.turn_binding import user_asked_for_another_record
-
-    assert user_asked_for_another_record(
-        "Add another appointment for Sandy Singh on 2 October."
-    )
-    assert not user_asked_for_another_record(
-        "Create an appointment titled Follow-up with Sandy Singh on 1 October."
-    )
-
-
 @pytest.mark.asyncio
-async def test_model_flag_does_not_skip_a_shared_name(monkeypatch):
-    """The create flag cannot bypass a name that is already on the track."""
-    from app.services.turn_binding import current_user_sentence
-
-    token = bindings._propose_principal.set("u1")
-    sentence = current_user_sentence.set(
-        "Create an appointment titled Follow-up with Sandy Singh on 1 October."
-    )
-    monkeypatch.setattr(
-        "app.services.permissions.get_user_accessible_entries",
-        AsyncMock(
-            return_value=[_row("Sandy Singh Appointment", entry_id="n.Entry.sandy")]
-        ),
-    )
+async def test_explicit_separate_create_is_still_a_proposal_not_a_lexical_gate(
+    monkeypatch,
+):
+    lookup = AsyncMock(return_value=_row("Same title"))
+    monkeypatch.setattr(bindings, "_find_visible_entry_with_title", lookup)
+    principal = bindings._propose_principal.set("u1")
     try:
-        blocked = await bindings.duplicate_create_block(
-            track_id="n.Track.appointments",
-            title="Follow-up with Sandy Singh",
-            allow_duplicate_title=True,
+        assert (
+            await bindings.duplicate_create_block(
+                track_id="track-a", title="Same title", allow_duplicate_title=True
+            )
+            is None
+        )
+        lookup.assert_not_awaited()
+        assert "already exists" in await bindings.duplicate_create_block(
+            track_id="track-a", title="Same title"
         )
     finally:
-        current_user_sentence.reset(sentence)
-        bindings._propose_principal.reset(token)
-    assert blocked is not None
-    assert "n.Entry.sandy" in blocked
-
-
-@pytest.mark.asyncio
-async def test_another_appointment_may_be_a_new_row():
-    from app.services.turn_binding import current_user_sentence
-
-    sentence = current_user_sentence.set(
-        "Add another appointment for Sandy Singh on 2 October."
-    )
-    try:
-        blocked = await bindings.duplicate_create_block(
-            track_id="n.Track.appointments",
-            title="Sandy Singh — 2 October",
-        )
-    finally:
-        current_user_sentence.reset(sentence)
-    assert blocked is None
+        bindings._propose_principal.reset(principal)
 
 
 @pytest.mark.asyncio
 async def test_stage_create_entry_refuses_an_existing_named_record(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.view_create_resolution.load_entry_types_for_track",
+        AsyncMock(return_value=[]),
+    )
+
     """An update request must not surface a duplicate create approval."""
     from app.models.nodes import Track
     from app.services import policy_engine
@@ -219,36 +190,31 @@ async def test_stage_create_entry_refuses_an_existing_named_record(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_stage_create_entry_refuses_a_shared_name(monkeypatch):
-    from app.models.nodes import Track
-    from app.services import policy_engine
-
-    token = bindings._propose_principal.set("u1")
-    monkeypatch.setattr(
-        Track, "get", AsyncMock(return_value=SimpleNamespace(workspace_id="ws-test"))
-    )
-    monkeypatch.setattr(
-        policy_engine,
-        "evaluate",
-        AsyncMock(return_value=SimpleNamespace(allowed=True)),
-    )
+async def test_shared_prose_and_approximate_titles_do_not_establish_identity(
+    monkeypatch,
+):
     monkeypatch.setattr(
         "app.services.permissions.get_user_accessible_entries",
         AsyncMock(
-            return_value=[_row("Sandy Singh — 4 October", entry_id="n.Entry.oct4")]
+            return_value=[
+                _row(
+                    "Sandy Singh — 4 October", {"description": "Follow-up appointment"}
+                )
+            ]
         ),
     )
+    principal = bindings._propose_principal.set("u1")
     try:
-        with pytest.raises(ValueError, match="n.Entry.oct4"):
-            await bindings._stage_create_entry(
-                {
-                    "track_id": "n.Track.appointments",
-                    "title": "Sandy Singh Appointment",
-                    "text": "See Sandy Singh on 1 October",
-                }
+        assert (
+            await bindings.duplicate_create_block(
+                track_id="track-a",
+                title="Sandy Singh — 5 October",
+                text="Follow-up appointment",
             )
+            is None
+        )
     finally:
-        bindings._propose_principal.reset(token)
+        bindings._propose_principal.reset(principal)
 
 
 @pytest.mark.asyncio
@@ -338,3 +304,86 @@ async def test_stage_delete_entry_refuses_missing_id(monkeypatch):
         await bindings._stage_delete_entry(
             {"entry_id": "n.Entry.david-appointment-next-month"}
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("hint", ["type-book", "book", "Book"])
+async def test_duplicate_identity_is_verified_by_destination_type_catalogue(
+    monkeypatch, hint
+):
+    from app.models.nodes import Track
+
+    types = [
+        SimpleNamespace(id="type-book", name="Book", key="book", form_schema={}),
+        SimpleNamespace(id="type-note", name="Note", key="note", form_schema={}),
+    ]
+    note = _row("Shared title")
+    note.type_id = "type-note"
+    book = _row("Different book", {"description": "Shared title"})
+    book.type_id = "type-book"
+    monkeypatch.setattr(
+        Track, "get", AsyncMock(return_value=SimpleNamespace(id="track-a"))
+    )
+    monkeypatch.setattr(
+        "app.services.view_create_resolution.load_entry_types_for_track",
+        AsyncMock(return_value=types),
+    )
+    monkeypatch.setattr(
+        "app.services.permissions.get_user_accessible_entries",
+        AsyncMock(return_value=[note, book]),
+    )
+    principal = bindings._propose_principal.set("u1")
+    try:
+        assert (
+            await bindings.duplicate_create_block(
+                track_id="track-a",
+                title="Shared title",
+                entry_type=hint,
+                text="Different book Shared title",
+            )
+            is None
+        )
+        assert "already exists" in await bindings.duplicate_create_block(
+            track_id="track-a", title="Different book", entry_type=hint
+        )
+        legacy = _row("Shared title")
+        legacy.type_id = "legacy-unknown"
+        monkeypatch.setattr(
+            "app.services.permissions.get_user_accessible_entries",
+            AsyncMock(return_value=[legacy]),
+        )
+        assert "already exists" in await bindings.duplicate_create_block(
+            track_id="track-a", title="Shared title", entry_type=hint
+        )
+    finally:
+        bindings._propose_principal.reset(principal)
+
+
+@pytest.mark.asyncio
+async def test_unverified_type_hint_cannot_bypass_duplicate_identity(monkeypatch):
+    from app.models.nodes import Track
+
+    note = _row("Same title")
+    note.type_id = "type-note"
+    monkeypatch.setattr(
+        Track, "get", AsyncMock(return_value=SimpleNamespace(id="track-a"))
+    )
+    monkeypatch.setattr(
+        "app.services.view_create_resolution.load_entry_types_for_track",
+        AsyncMock(
+            return_value=[
+                SimpleNamespace(id="type-note", name="Note", key="note", form_schema={})
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.permissions.get_user_accessible_entries",
+        AsyncMock(return_value=[note]),
+    )
+    principal = bindings._propose_principal.set("u1")
+    try:
+        assert "already exists" in await bindings.duplicate_create_block(
+            track_id="track-a", title="Same title", entry_type="unverified type"
+        )
+    finally:
+        bindings._propose_principal.reset(principal)

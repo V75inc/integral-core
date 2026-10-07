@@ -1105,5 +1105,10 @@ def test_request_context_dimensions_are_content_free() -> None:
     assert dimensions.conversation_chars > 0
     assert dimensions.tool_result_chars > 0
     assert dimensions.tool_schema_chars > 0
+    assert len(dimensions.tool_schema_fingerprint) == 64
+    assert (
+        dimensions.tool_schema_fingerprint
+        == _request_context(body).tool_schema_fingerprint
+    )
     assert "private" not in dimensions.model_dump_json()
     assert "read_record" not in dimensions.model_dump_json()

@@ -307,13 +307,15 @@ def build_integral_context_compaction() -> ClearToolResults:
     receipt filing. The observed DeepSeek turn spent nearly 596k input tokens
     across nine requests, with a 79k peak input, while generating only 12.6k
     output tokens. A large provider context window delayed fractional
-    compaction until beyond a useful working set. Trigger at 32k estimated
-    conversation tokens while retaining the five most recent tool pairs and
+    compaction until beyond a useful working set. The follow-up Notes rename
+    measured 501,113 input tokens over 17 requests, with a 43,929-token peak;
+    repeated tool results reached 83k characters alongside 48k of tool schemas.
+    Trigger at 16k estimated conversation tokens while retaining the five most recent tool pairs and
     keeping capability-load parts intact because the Harness derives active
     skill state from them.
     """
     return ClearToolResults(
-        max_tokens=32_768,
+        max_tokens=16_384,
         # Keep the active decision window while releasing old tool payloads early.
         # Five pairs preserve the full filing context and recent scaffold
         # receipts without replaying every older payload into each model request.

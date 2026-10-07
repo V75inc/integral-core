@@ -57,7 +57,7 @@ def test_runtime_uses_zero_cost_compaction_and_session_scoped_search() -> None:
         item for item in _capabilities(agent) if isinstance(item, ConversationSearch)
     )
 
-    assert compaction.max_tokens == 32_768
+    assert compaction.max_tokens == 16_384
     assert compaction.max_fraction is None
     assert compaction.keep_pairs == 5
     assert compaction.exclude_tools == frozenset({"load_capability"})

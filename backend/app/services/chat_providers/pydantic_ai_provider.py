@@ -18,7 +18,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from app.agentive.harness.broker_tools import build_brokered_tools
 from app.agentive.harness.checkpoint_manifests import (
@@ -621,6 +621,110 @@ async def _continue_from_checkpoint(store, run_id: str):
         ) from exc
 
 
+def _terminal_staging_context(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Replace settled preview prose with authoritative outcome/identity facts.
+
+    This projection is for model history only; UI/audit/approval records retain
+    the exact full preview. Pending and approved-but-unapplied proposals are
+    never compacted. No new receipt, approval or execution is created here.
+    """
+    if snapshot.get("state") not in {"consumed", "revoked", "expired"}:
+        return snapshot
+    compact = {
+        key: value
+        for key, value in snapshot.items()
+        if key not in {"diff_human", "diff_machine", "preview", "payload"}
+    }
+
+    def identities(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                key: identities(item)
+                for key, item in value.items()
+                if key
+                in {
+                    "op",
+                    "kind",
+                    "payload",
+                    "diff_machine",
+                    "summary",
+                    "ops",
+                    "operations",
+                    "title",
+                    "entry_type",
+                    "type_hint",
+                }
+                or key == "id"
+                or key.endswith("_id")
+                or key.endswith("_revision")
+            }
+        if isinstance(value, list):
+            return [identities(item) for item in value if isinstance(item, dict)]
+        return value
+
+    compact["affected_resources"] = identities(snapshot.get("diff_machine") or {})
+    compact["context_projection"] = "terminal_receipt_summary_v1"
+    return compact
+
+
+async def _scoped_transcript_receipts(scope, tokens: set[str], *, conversation_id):
+    """Read server-patched terminal envelopes from this owned conversation.
+
+    Terminal staging tokens leave the pending store. The rooted chat transcript
+    retains their executor receipts across restarts. Neither model snapshots nor
+    client-authored text are authority for an approval or a completed write.
+    """
+    if not tokens or conversation_id != scope.thread_id:
+        return {}
+    from app.models.edges import CONTAINS
+
+    thread = await ChatThread.get(scope.thread_id)
+    if thread is None or (
+        thread.user_id != scope.principal_id
+        or thread.workspace_id != scope.workspace_id
+        or thread.provider_id != "integral_native"
+        or thread.provider_session_id != scope.session_id
+    ):
+        return {}
+    receipts = {}
+    cursor = None
+    while True:
+        messages, cursor = await thread.nodes_page(
+            edge=[CONTAINS],
+            node=[ChatMessage],
+            direction="out",
+            sort=[("context.created_at", -1)],
+            cursor=cursor,
+            limit=100,
+        )
+        for message in messages:
+            if message.role != "assistant" or message.thread_id != scope.thread_id:
+                continue
+            for part in message.parts or []:
+                if not isinstance(part, dict) or part.get("type") != "tool-call":
+                    continue
+                envelope = part.get("result")
+                if isinstance(envelope, str):
+                    try:
+                        envelope = json.loads(envelope)
+                    except (ValueError, TypeError):
+                        continue
+                if not isinstance(envelope, dict):
+                    continue
+                token = envelope.get("token")
+                if (
+                    envelope.get("_kind") == "staged_change"
+                    and isinstance(token, str)
+                    and token in tokens
+                    and token not in receipts
+                    and envelope.get("session_id") == conversation_id
+                    and envelope.get("state") in {"consumed", "revoked", "expired"}
+                ):
+                    receipts[token] = dict(envelope)
+        if cursor is None or tokens.issubset(receipts):
+            return receipts
+
+
 async def _refresh_staged_history(history, scope, *, conversation_id=None):
     """Reconcile model-visible proposals with Core's current decision facts.
 
@@ -631,6 +735,21 @@ async def _refresh_staged_history(history, scope, *, conversation_id=None):
     """
     from app.agentive.staging import get_token
 
+    tokens = {
+        part.content["token"]
+        for message in history
+        if isinstance(message, ModelRequest)
+        for part in message.parts
+        if isinstance(part, ToolReturnPart)
+        and isinstance(part.content, dict)
+        and part.content.get("_kind") == "staged_change"
+        and part.content.get("session_id") == conversation_id
+        and isinstance(part.content.get("token"), str)
+        and part.content["token"]
+    }
+    receipts = await _scoped_transcript_receipts(
+        scope, tokens, conversation_id=conversation_id
+    )
     refreshed = []
     for message in history:
         if not isinstance(message, ModelRequest):
@@ -656,13 +775,27 @@ async def _refresh_staged_history(history, scope, *, conversation_id=None):
                     **current.to_dict(),
                     "state_source": "current_core_staging",
                 }
+                if getattr(current, "progress", None):
+                    updated["application_progress"] = current.progress
+                receipt = receipts.get(token)
+                if receipt and receipt["state"] == updated.get("state"):
+                    for key in (
+                        "execute_result",
+                        "consumed_nav",
+                        "rolled_back_at",
+                        "rollback_event_ids",
+                    ):
+                        if key in receipt:
+                            updated[key] = receipt[key]
+            elif current is None and token in receipts:
+                updated = {**receipts[token], "state_source": "current_core_transcript"}
             else:
                 updated = {
                     "error": True,
                     "error_code": "staging_state_unavailable",
                     "message": "The earlier proposal's current outcome could not be verified. Do not replay it or claim it is pending or complete.",
                 }
-            parts.append(replace(part, content=updated))
+            parts.append(replace(part, content=_terminal_staging_context(updated)))
         refreshed.append(replace(message, parts=parts))
     return refreshed
 
@@ -677,9 +810,11 @@ def _bind_integral_turn_context(ctx: ChatTurnContext):
         current_page_context,
         current_scope_workspace_id,
     )
+    from app.services.turn_binding import current_user_sentence
 
     page_context = (ctx.extra_data or {}).get("page_context")
     bindings = (
+        (current_user_sentence, ctx.text or ""),
         (current_scope_workspace_id, ctx.workspace_id),
         (current_focused_track_id, ctx.focused_track_id),
         (current_focused_view_id, ctx.focused_view_id),
@@ -739,7 +874,6 @@ class PydanticAIProvider:
     def __init__(self) -> None:
         self._active_tokens: dict[str, CancellationToken] = {}
         self._active_tasks: dict[str, asyncio.Task[Any]] = {}
-        self._cancelled_before_start: set[str] = set()
 
     id = "integral_native"
     label = "Integral AI"
@@ -775,6 +909,19 @@ class PydanticAIProvider:
             }
         ]
 
+    def bind_turn_cancel(self, *, thread_id: str) -> Callable[[], None]:
+        """Fence a host cancel hook to this turn, including its pre-start window."""
+        cancellation = CancellationToken()
+        self._active_tokens[thread_id] = cancellation
+
+        def cancel_bound_turn() -> None:
+            # A closed generator removes its token. Late host cleanup must not
+            # cancel a newer turn or leave a thread-wide cancellation marker.
+            if self._active_tokens.get(thread_id) is cancellation:
+                self.cancel_turn(thread_id=thread_id)
+
+        return cancel_bound_turn
+
     def cancel_turn(self, *, thread_id: str) -> None:
         """Cancel the Pydantic run currently streaming for this thread."""
         token = self._active_tokens.get(thread_id)
@@ -789,11 +936,6 @@ class PydanticAIProvider:
             token.cancel()
         if task is not None and not task.done():
             task.cancel()
-        elif token is None:
-            # The host registers its stop hook before the async generator is
-            # first advanced. Remember cancellation in that small window so a
-            # late-starting provider cannot dispatch a model request anyway.
-            self._cancelled_before_start.add(thread_id)
 
     async def _prepare(self, ctx: ChatTurnContext):
         raw_work_context = (ctx.extra_data or {}).get("work_execution_context")
@@ -995,7 +1137,21 @@ class PydanticAIProvider:
             "If this list is empty, older pending cards in history are not current authority."
         )
         instructions = (
-            "You are Integral's resident intelligence. Fulfil the latest user "
+            "You are Integral's resident intelligence. A host continuation can "
+            "carry a current approval outcome without a new user message. An empty "
+            "utterance is not a human reply, refusal, or evidence a proposal is pending. "
+            "When current host context or Core receipts report consumed/applied "
+            "changes, read back the affected records and acknowledge the verified "
+            "outcome. Use record IDs in the server-verified execute_result or "
+            "consumed_nav with integral_resolve_entry for permitted record readback; "
+            "do not rediscover those IDs through broad searches. A receipt records "
+            "a past write, not current state; rolled_back_at invalidates an applied "
+            "claim. A missing receipt is uncertainty, not permission to replay. "
+            "When rejected, acknowledge no change. Do not ask for approval "
+            "of an applied or rejected change. Approved is distinct from applied: "
+            "if a current application error or partial progress exists, report "
+            "the verified outcome and limitation; never claim the whole batch "
+            "succeeded or replay completed operations. Fulfil the latest user "
             "request. Earlier user commands are conversation history, not a "
             "backlog of work. A question about current state requires reading "
             "and answering, not completing an earlier requested change. Never "
@@ -1069,6 +1225,8 @@ class PydanticAIProvider:
             "that url exactly. IDs are opaque: preserve the full n.Track., "
             "n.WorkspaceApp. or n.Entry. prefix and never shorten them. "
             "Never invent a deployment hostname. "
+            "Follow the loaded workflow's response format and total word limit. "
+            "Tool activity is not a reason to repeat its steps in the final answer. "
             "Load a skill once. Reuse a current read result when appropriate; "
             "read again after a change or to recover a failed read. Stop with a "
             "concise limitation if "
@@ -1186,14 +1344,19 @@ class PydanticAIProvider:
         from app.config import settings
 
         active_task = asyncio.current_task()
-        if ctx.thread_id in self._cancelled_before_start:
-            self._cancelled_before_start.discard(ctx.thread_id)
+        cancellation = self._active_tokens.get(ctx.thread_id) or CancellationToken()
+        if cancellation.cancelled:
+            if self._active_tokens.get(ctx.thread_id) is cancellation:
+                self._active_tokens.pop(ctx.thread_id, None)
             raise asyncio.CancelledError
+        self._active_tokens[ctx.thread_id] = cancellation
         if active_task is not None:
             self._active_tasks[ctx.thread_id] = active_task
         try:
             prepared = await self._prepare(ctx)
         except BaseException:
+            if self._active_tokens.get(ctx.thread_id) is cancellation:
+                self._active_tokens.pop(ctx.thread_id, None)
             if self._active_tasks.get(ctx.thread_id) is active_task:
                 self._active_tasks.pop(ctx.thread_id, None)
             raise
@@ -1216,8 +1379,6 @@ class PydanticAIProvider:
         first_token_ms: float | None = None
         emitted_observation_ids: set[str] = set()
         settled_text = SettledTextBuffer()
-        cancellation = CancellationToken()
-        self._active_tokens[ctx.thread_id] = cancellation
 
         async def watch_disconnect() -> None:
             while ctx.is_disconnected is not None:
@@ -1287,7 +1448,9 @@ class PydanticAIProvider:
                             "Core records approval before any build effect."
                         )
                 async with agent.run_stream_events(
-                    ctx.text,
+                    # No synthetic empty human turn for host-only continuations.
+                    # Current host instructions and scoped receipts carry the event.
+                    ctx.text or None,
                     message_history=history,
                     conversation_id=scope.framework_conversation_id,
                     run_id=scope.framework_run_id,

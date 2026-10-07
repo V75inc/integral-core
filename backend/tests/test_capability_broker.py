@@ -648,4 +648,4 @@ async def test_read_refusal_has_failed_receipt_and_repair_directive(
     assert result.error_code == "app_domain"
     assert result.data is None
     assert result.receipt.status == "failed"
-    assert result.next_tool == "integral_governed_query"
+    assert result.next_tool == "integral_describe_capabilities"
