@@ -122,6 +122,7 @@ def test_resident_web_research_actions_are_bounded_and_documented() -> None:
     frontmatter = yaml.safe_load(raw.split("---", 2)[1])
     assert set(frontmatter["allowed-tools"].split()) == {
         "mcp__serper_web_search__search_web",
+        "mcp__serper_web_search__fetch_web_page",
         "web_search__search",
         "web_fetch__fetch",
     }

@@ -502,6 +502,10 @@ def build_brokered_tools(
         seen_names.add(name)
         description = str(item.get("description") or "")
         source, op_class = infer_source_and_op_class(name)
+        if source == "connector":
+            # Generated from the vetted catalog by connector_tools, never
+            # remote readOnlyHint. Unknown classifications remain writes.
+            op_class = "read" if item.get("op_class") == "read" else "execute"
         immutable_skill_allowlist = tuple(skill_tools_required)
 
         invoke_tool = _make_handler(
