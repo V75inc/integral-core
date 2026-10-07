@@ -1132,7 +1132,12 @@ async def test_approved_build_macro_runs_at_most_once_per_model_turn(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "code", ["invalid_scaffold_plan", "scaffold_plan_validation_failed"]
+    "code",
+    [
+        "invalid_scaffold_plan",
+        "plan_differs_from_design",
+        "scaffold_plan_validation_failed",
+    ],
 )
 async def test_pre_effect_build_validation_can_be_corrected_with_framework_retry(
     monkeypatch, code
@@ -1143,7 +1148,12 @@ async def test_pre_effect_build_validation_can_be_corrected_with_framework_retry
         calls.append(kwargs)
         if len(calls) == 1:
             return CapabilityResult(
-                ok=False, error_code=code, message="Correct the sort list."
+                ok=False,
+                error_code=code,
+                message=(
+                    "The plan adds Track 'Vehicle Details', which is not in the "
+                    "approved design."
+                ),
             )
         return CapabilityResult(ok=True, data={"applied": True})
 
@@ -1167,8 +1177,9 @@ async def test_pre_effect_build_validation_can_be_corrected_with_framework_retry
     )[0]
     assert tool.max_retries == 2
     ctx = SimpleNamespace(tool_call_id="invalid", active_capability_ids=set())
-    with pytest.raises(ModelRetry, match="Correct the sort"):
+    with pytest.raises(ModelRetry, match="approved design") as retry:
         await tool.function_schema.call({}, ctx)
+    assert "Do not ask the user to repeat approval" in str(retry.value)
     ctx.tool_call_id = "corrected"
     assert (await tool.function_schema.call({}, ctx))["applied"] is True
     ctx.tool_call_id = "duplicate"
@@ -1219,6 +1230,99 @@ async def test_framework_bounds_pre_effect_build_correction(monkeypatch):
     with pytest.raises(UnexpectedModelBehavior, match="retries"):
         await agent.run("Build the approved design.")
     assert len(calls) == 3  # Initial validation plus the two library-owned retries.
+
+
+@pytest.mark.asyncio
+async def test_plan_drift_is_repaired_by_pydantic_in_the_same_turn(
+    monkeypatch, tmp_path
+):
+    """An extra generated Track is corrected without repeating user approval."""
+    from pydantic_ai_harness.step_persistence import InMemoryStepStore
+
+    invocations = []
+
+    async def invoke(**kwargs):
+        invocations.append(kwargs)
+        if len(invocations) == 1:
+            return CapabilityResult(
+                ok=False,
+                error_code="plan_differs_from_design",
+                message=(
+                    "The plan adds Track 'Vehicle Details', which is not in the "
+                    "approved design."
+                ),
+            )
+        return CapabilityResult(ok=True, data={"applied": True})
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda _: ("core", "write"),
+    )
+    model_calls = []
+
+    def respond(_messages, _info):
+        model_calls.append(len(model_calls) + 1)
+        if len(model_calls) == 1:
+            return ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        "integral_build_approved_design",
+                        {
+                            "operations": [
+                                {
+                                    "tool": "integral_create_app_track",
+                                    "args": {"name": "Vehicle Details"},
+                                }
+                            ]
+                        },
+                    )
+                ]
+            )
+        if len(model_calls) == 2:
+            return ModelResponse(
+                parts=[
+                    ToolCallPart("integral_build_approved_design", {"operations": []})
+                ]
+            )
+        return ModelResponse(
+            parts=[TextPart("The approved setup is built and ready to review.")]
+        )
+
+    scope = _scope()
+    agent, _ = build_native_runtime(
+        model=FunctionModel(respond),
+        instructions="Continue the saved approved design.",
+        tools=build_brokered_tools(
+            scope=scope,
+            catalogue=[
+                {
+                    "name": "integral_build_approved_design",
+                    "description": "Build the approved design.",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {"operations": {"type": "array"}},
+                    },
+                }
+            ],
+            run_state={"approved_design_ready": True},
+        ),
+        step_store_backend=InMemoryStepStore(),
+        scope=scope,
+        agent_name="scaffold-plan-retry-test",
+    )
+
+    result = await agent.run(
+        "Build the approved design.",
+        conversation_id=scope.framework_conversation_id,
+        run_id=scope.framework_run_id,
+    )
+
+    assert result.output == "The approved setup is built and ready to review."
+    assert len(model_calls) == 3
+    assert len(invocations) == 2
 
 
 @pytest.mark.asyncio

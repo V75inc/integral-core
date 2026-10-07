@@ -353,14 +353,25 @@ def _make_handler(
             call_state["build_succeeded"] = bool(result.ok)
             if not result.ok and result.error_code in {
                 "invalid_scaffold_plan",
+                "plan_differs_from_design",
                 "scaffold_plan_validation_failed",
             }:
                 # These Core errors are returned only before any substrate
                 # effect (including cancellation of the staging-only batch).
-                # Let Pydantic AI own bounded argument correction. Applied,
-                # partial, authorization and unknown outcomes stay one-shot.
+                # Let Pydantic AI own bounded argument correction against the
+                # already-approved blueprint. Plan drift is a compiler-input
+                # defect, not a reason to ask the user to approve the same
+                # design again. Applied, partial, authorization and unknown
+                # outcomes stay one-shot.
                 build_attempted = False
-                raise ModelRetry(result.message)
+                raise ModelRetry(
+                    result.message
+                    + " Correct the generated operation plan to match the saved, "
+                    "approved design and retry in this turn. Do not ask the user "
+                    "to repeat approval. If the approved design itself cannot be "
+                    "built without a material change, present only that specific "
+                    "change and ask for approval of the change."
+                )
         if capability_name == "integral_verify_build":
             call_state["verification_status"] = model_result.get("status")
             call_state["verification_succeeded"] = bool(

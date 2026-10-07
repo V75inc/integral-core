@@ -102,13 +102,14 @@ async def stage_schedule_task(args: Dict[str, Any]) -> Dict[str, Any]:
             "created from a live chat turn (need a thread to post into)"
         )
 
-    from app.services.chat_proactive_bridge import find_thread_by_provider_session
-
     principal_id = _bound_propose_principal()
-    thread = await find_thread_by_provider_session(
-        user_id=principal_id, provider_session_id=session_id
-    )
-    if thread is None:
+    from app.services.chat_threads import get_thread_by_session
+
+    # The shared resolver handles both provider session keys and Integral
+    # native ChatThread IDs. A routine always targets the active conversation,
+    # regardless of which harness owns it.
+    thread = await get_thread_by_session(session_id)
+    if thread is None or getattr(thread, "user_id", None) != principal_id:
         raise ValueError("schedule_task: could not resolve the active chat thread")
 
     from app.services.agent_scope import active_workspace_id

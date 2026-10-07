@@ -231,7 +231,9 @@ not on the Feed: when a track has several, mark the most useful one
    only when the user asks for a reminder, notification, or recurring action;
    do not infer one just because the App tracks dates. When a routine is
    requested, use the known workspace timezone or ask for it if unavailable,
-   and state its cadence in the proposal. A date field alone does not notify.
+   and state its cadence and timezone in the proposal. If discovered only after
+   approval, ask only for the timezone and do not request build approval again.
+   A date field alone does not notify.
 8. **Seeds prove the graph.** Demo entries (unless user wants empty) should
    exercise each track and each lookup edge with fictional labels — no real PII.
 9. **Honesty.** Say what the substrate cannot enforce (concurrency locks,
@@ -425,6 +427,18 @@ preflight errors have made no writes and need no second user approval. Do not
 switch to `integral_begin_batch` or author detached library models to work
 around a rejected fresh plan. If the tool reports a partial apply, inspect
 its receipt and repair only the unfinished portion of that existing App.
+
+The saved blueprint is the source of truth for build-plan details. A model-
+generated mismatch is plan repair, not a reason to ask the user to approve the
+same design again: remove unapproved additions and restore omitted approved
+items, then retry in this turn. If the approved design itself needs a material
+change to be buildable or to meet the request, do not silently change it. Show
+the user only the specific change and its consequence, ask once whether that
+delta is acceptable, and preserve approval for everything else. After the user
+approves the revised design, continue without another general go-ahead. Ask
+only for genuinely unresolved details that change the result (for example, a
+timezone needed for a requested reminder); acknowledge the approved design and
+proceed as soon as that detail is answered.
 
 With a blueprint, the builder compares the plan structurally: every
 blueprint Track, track template, field key, anchor target, view, seed,

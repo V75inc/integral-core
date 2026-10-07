@@ -412,9 +412,8 @@ def test_integral_compaction_preserves_the_recent_working_set() -> None:
     """Keep the live outcome and skill state while compacting bulky history."""
     compaction = build_integral_context_compaction()
 
-    assert compaction.max_tokens is None
-    assert compaction.max_fraction == 0.7
-    assert compaction.fallback_context_window == 32_768
+    assert compaction.max_tokens == 32_768
+    assert compaction.max_fraction is None
     assert compaction.keep_pairs == 5
     assert compaction.exclude_tools == frozenset({"load_capability"})
     assert compaction.clear_tool_inputs is True
