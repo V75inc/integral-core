@@ -371,9 +371,11 @@ def test_run_instructions_expose_active_capabilities_to_the_model() -> None:
     """Loaded skills remain explicit without depending on repeated loads."""
     instructions = build_integral_run_instructions("Integral resident agent.")
 
-    assert instructions(SimpleNamespace(active_capability_ids=set())) == (
-        "Integral resident agent."
-    )
+    base = instructions(SimpleNamespace(active_capability_ids=set()))
+    assert base.startswith("Integral resident agent.")
+    assert "copy the canonical url returned by Core tools exactly" in base
+    assert "replace its dots with slashes" in base
+    assert "plain record label instead of a guessed link" in base
     active = instructions(
         SimpleNamespace(active_capability_ids={"integral-scaffold", "integral-model"})
     )

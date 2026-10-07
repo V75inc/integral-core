@@ -261,7 +261,14 @@ def build_integral_run_instructions(
 
     def instructions(ctx: RunContext[Any]) -> str:
         active_ids = sorted(ctx.active_capability_ids)
-        blocks = [base_instructions]
+        blocks = [
+            base_instructions,
+            "Integral navigation: resource IDs are opaque. When linking saved "
+            "Apps, Tracks or Entries, copy the canonical url returned by Core "
+            "tools exactly. Do not split an ID, replace its dots with slashes, "
+            "or invent a route. If no verified url is available, use a plain "
+            "record label instead of a guessed link.",
+        ]
         if active_ids:
             blocks.append(
                 "Integral runtime state: these capabilities are already loaded and "
