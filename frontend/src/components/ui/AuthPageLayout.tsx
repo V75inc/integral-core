@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useState, type ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Stack, Surface, Text } from '../../ui';
 import { Logo } from './Logo';
+import { INTEGRAL_LOGO_HALF_PATH } from '../../brandLogo';
 
 export const AUTH_FIELD_INPUT_CLASSES = 'auth-field-input';
 
@@ -63,28 +64,18 @@ export function AuthPageLayout({
         <svg
           key={animationCycle}
           className="auth-ripple auth-ripple--auth"
-          viewBox="0 0 100 100"
+          viewBox="58 58 604 604"
           data-animation-cycle={animationCycle}
           aria-hidden="true"
         >
-          <rect
-            className="auth-ripple-square auth-ripple-square--frame"
-            x="12"
-            y="12"
-            width="76"
-            height="76"
-            rx="13"
-          />
-          {Array.from({ length: 3 }, (_, index) => (
-            <rect
+          {Array.from({ length: 4 }, (_, index) => (
+            <g
               key={index}
-              className="auth-ripple-square"
-              x="12"
-              y="12"
-              width="76"
-              height="76"
-              rx="13"
-            />
+              className={index === 0 ? 'auth-ripple-mark auth-ripple-mark--base' : 'auth-ripple-mark'}
+            >
+              <path d={INTEGRAL_LOGO_HALF_PATH} transform="translate(0 -32)" />
+              <path d={INTEGRAL_LOGO_HALF_PATH} transform="translate(0 32) rotate(180 360 360)" />
+            </g>
           ))}
         </svg>
       </span>

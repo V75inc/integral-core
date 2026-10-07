@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, MessageSquare } from "lucide-react";
 
-import { Avatar, LINE_ICON_STROKE } from "../../../components/ui";
+import { Avatar, LogoMark, LINE_ICON_STROKE } from "../../../components/ui";
 import { useAgentCatalog } from "../useAgentCatalog";
 import type { AgentDescriptor, ChatProvider } from "../providers/types";
 
@@ -139,7 +139,7 @@ export function AgentSwitcher({
           "transition-colors",
         ].join(" ")}
       >
-        <AgentAvatar agent={displayActive} size="sm" />
+        <AgentAvatar agent={displayActive} size="sm" native={provider.id === "integral_native"} />
         <span className="flex flex-1 min-w-0 flex-col leading-tight">
           <span className="truncate text-sm font-medium text-[var(--text)]">
             {displayActive.name}
@@ -194,7 +194,7 @@ export function AgentSwitcher({
                     onClick={() => onPick(agent.id)}
                     className="flex w-full items-start gap-3 px-3 py-2 text-left hover:bg-[var(--panel-2)]"
                   >
-                    <AgentAvatar agent={agent} size="xs" />
+                    <AgentAvatar agent={agent} size="xs" native={provider.id === "integral_native"} />
                     <span className="flex min-w-0 flex-1 flex-col">
                       <span className="truncate text-sm font-medium text-[var(--text)]">
                         {agent.name}
@@ -230,9 +230,18 @@ export function AgentSwitcher({
 function AgentAvatar({
   agent,
   size,
+  native = false,
 }: {
   agent: AgentDescriptor;
   size: "xs" | "sm";
+  native?: boolean;
 }) {
+  if (native && !agent.avatar_url) {
+    return (
+      <span className={`inline-flex shrink-0 items-center justify-center ${size === "sm" ? "h-8 w-8" : "h-6 w-6"}`}>
+        <LogoMark size={size} />
+      </span>
+    );
+  }
   return <Avatar name={agent.name} size={size} url={agent.avatar_url} />;
 }

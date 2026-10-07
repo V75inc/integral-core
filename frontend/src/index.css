@@ -159,13 +159,8 @@
   --dur-deliberate: 480ms;
   --dur-zoom:       540ms;
 
-  /* ── Brand mark gradient (light theme) ──────────────────── */
-  /* Logo mark renders as a dark rounded square on the paper-white
-     canvas, with a faint diagonal gradient for depth. The inner
-     cutout takes --bg so the mark reads as a frame around the
-     canvas color (matches the Direction A spec). */
-  --logo-mark-from: #0b0b0c;
-  --logo-mark-to:   #2d2d2d;
+  /* Approved monochrome mark; inset cutouts remain transparent. */
+  --logo-mark: #000;
 
   /* ── Scrollbar ──────────────────────────────────────────── */
   --scrollbar-thumb:       #d6d6da;
@@ -324,11 +319,8 @@
 
   /* radii / motion inherit from :root */
 
-  /* ── Brand mark gradient (dark theme) ───────────────────── */
-  /* Light gradient against the charcoal canvas — keeps the mark
-     legible without glowing. */
-  --logo-mark-from: #ededed;
-  --logo-mark-to:   #c8c8c8;
+  /* Approved reverse mark on dark surfaces. */
+  --logo-mark: #fff;
 
   /* ── Scrollbar ──────────────────────────────────────────── */
   --scrollbar-thumb:       #3a3a3a;
@@ -1041,7 +1033,7 @@
   .auth-ripple-circle:nth-child(2) { animation-delay: 2.3s; }
   .auth-ripple-circle:nth-child(3) { animation-delay: 4.6s; }
 
-  /* Auth pages use rounded-square waves that echo the Integral mark. Start
+  /* Auth pages use split-square waves that echo the frameless Integral mark. Start
      each pulse close to the center so its outward movement reads clearly. */
   .auth-ripple--auth {
     opacity: 0.14;
@@ -1052,18 +1044,19 @@
       width: 58%;
     }
   }
-  .auth-ripple-square {
+  .auth-ripple-mark {
     fill: none;
     stroke: var(--auth-accent, var(--brand-accent));
     stroke-width: 6;
     vector-effect: non-scaling-stroke;
     transform-origin: center;
     transform-box: fill-box;
-    animation: auth-square-ripple-pulse 12s linear infinite;
+    animation: auth-mark-ripple-pulse 12s linear infinite;
   }
-  .auth-ripple-square:nth-child(2) { animation-delay: 4s; }
-  .auth-ripple-square:nth-child(3) { animation-delay: 8s; }
-  .auth-ripple-square--frame {
+  .auth-ripple-mark path { vector-effect: non-scaling-stroke; }
+  .auth-ripple-mark:nth-child(2) { animation-delay: 4s; }
+  .auth-ripple-mark:nth-child(3) { animation-delay: 8s; }
+  .auth-ripple-mark--base {
     animation: none;
   }
 
@@ -1084,7 +1077,7 @@
     25%  { opacity: 0.55; }
     100% { transform: scale(1.0);  opacity: 0; }
   }
-  @keyframes auth-square-ripple-pulse {
+  @keyframes auth-mark-ripple-pulse {
     0%   { transform: scale(0.14); opacity: 0; stroke-width: 6; }
     8%   { transform: scale(0.21); opacity: 0.9; stroke-width: 6; }
     55%  { opacity: 0.62; stroke-width: 4.5; }

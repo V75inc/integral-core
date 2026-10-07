@@ -5,9 +5,8 @@
  *   - Sidebar (top-left in app chrome)
  *   - Auth pages (LoginPage / SignupPage / Forgot / Reset)
  *
- * The mark is a small rounded-square with a subtle gradient fill and an
- * inner cutout that takes the page background, exactly matching the
- * Direction A · Quiet Premium spec. The wordmark sits beside it at
+ * The frameless split-square mark uses two equal, offset halves with
+ * rounded ends that imply an integral symbol. The wordmark sits beside it at
  * 17px / weight 600 / tracking -0.02em.
  *
  * Pass `size="sm"` for compact placements (sidebar) and `size="lg"` for
@@ -16,6 +15,7 @@
 
 import { Link } from 'react-router-dom';
 import type { ReactNode } from 'react';
+import { INTEGRAL_LOGO_HALF_PATH } from '../../brandLogo';
 import { PRODUCT_NAME } from '../../brand';
 
 type LogoSize = 'xs' | 'sm' | 'md' | 'lg';
@@ -35,39 +35,33 @@ interface LogoProps {
 
 const SIZE_TOKENS: Record<
   LogoSize,
-  { mark: number; cutout: number; radius: number; word: string; gap: string }
+  { mark: number; word: string; gap: string }
 > = {
-  xs: { mark: 14, cutout: 3, radius: 4, word: 'text-[12px]', gap: 'gap-1.5' },
-  sm: { mark: 22, cutout: 5, radius: 6, word: 'text-[15px]', gap: 'gap-2' },
-  md: { mark: 28, cutout: 6, radius: 7, word: 'text-[17px]', gap: 'gap-2.5' },
-  lg: { mark: 40, cutout: 9, radius: 10, word: 'text-[22px]', gap: 'gap-3' },
+  xs: { mark: 14, word: 'text-[12px]', gap: 'gap-1.5' },
+  sm: { mark: 22, word: 'text-[15px]', gap: 'gap-2' },
+  md: { mark: 28, word: 'text-[17px]', gap: 'gap-2.5' },
+  lg: { mark: 40, word: 'text-[22px]', gap: 'gap-3' },
 };
 
 export function LogoMark({ size = 'sm' }: { size?: LogoSize }) {
   const t = SIZE_TOKENS[size];
   return (
-    <span
-      aria-hidden
-      className="relative inline-block shrink-0"
-      style={{
-        width: t.mark,
-        height: t.mark,
-        borderRadius: t.radius,
-        // Theme-aware gradient — dark on light canvas, light on dark
-        // canvas. Tokens defined in index.css per-theme.
-        background:
-          'linear-gradient(135deg, var(--logo-mark-from) 0%, var(--logo-mark-to) 100%)',
-      }}
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      viewBox="58 58 604 604"
+      width={t.mark}
+      height={t.mark}
+      className="block shrink-0"
+      style={{ color: 'var(--logo-mark)' }}
     >
-      <span
-        className="absolute"
-        style={{
-          inset: t.cutout,
-          borderRadius: Math.max(2, t.radius - 4),
-          background: 'var(--bg)',
-        }}
+      <path d={INTEGRAL_LOGO_HALF_PATH} transform="translate(0 -32)" fill="currentColor" />
+      <path
+        d={INTEGRAL_LOGO_HALF_PATH}
+        transform="translate(0 32) rotate(180 360 360)"
+        fill="currentColor"
       />
-    </span>
+    </svg>
   );
 }
 
