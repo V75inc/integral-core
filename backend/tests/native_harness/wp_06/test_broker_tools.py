@@ -54,6 +54,30 @@ def test_resource_urls_preserve_opaque_ids_and_the_original_receipt():
     assert "url" not in source["tracks"][0]
 
 
+def test_governed_query_rows_get_canonical_urls_without_mutating_receipts():
+    """Declared and generic queries use rows, not entries collections."""
+    source = {
+        "rows": [
+            {"id": "n.Entry.example", "track_id": "n.Track.example"},
+            {"id": "n.Track.example"},
+            {"id": "n.WorkspaceApp.example"},
+            {"count": 3},
+            {"id": "external-resource"},
+            "scalar-row",
+        ],
+        "_receipt": {"state": "complete", "run_id": "run-1"},
+    }
+    result = _resource_links_for_model(source)
+    assert [row["url"] for row in result["rows"][:3]] == [
+        "/entries/n.Entry.example",
+        "/tracks/n.Track.example",
+        "/apps/n.WorkspaceApp.example",
+    ]
+    assert result["rows"][3:] == source["rows"][3:]
+    assert result["_receipt"] == source["_receipt"]
+    assert "url" not in source["rows"][0]
+
+
 def test_pending_write_resolution_tool_is_only_exposed_for_scoped_pending_items():
     """Expose the chat decision tool only when Core supplied pending items."""
     tools = build_brokered_tools(

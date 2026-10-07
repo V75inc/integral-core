@@ -80,7 +80,7 @@ def _resource_links_for_model(payload: dict[str, Any]) -> dict[str, Any]:
         return item
 
     enriched = resource(payload)
-    for collection in ("apps", "tracks", "entries"):
+    for collection in ("apps", "tracks", "entries", "rows"):
         items = payload.get(collection)
         if isinstance(items, list):
             enriched = {**enriched, collection: [resource(item) for item in items]}
