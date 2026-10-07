@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import type { OperationalModelFieldSpec, Entry, SavedView } from '../../../types';
 
@@ -111,5 +111,31 @@ describe('TableWidget select-field rendering', () => {
     );
 
     expect(screen.getAllByText('warehouse supervisor').length).toBeGreaterThan(0);
+  });
+});
+
+
+describe('TableWidget column choices', () => {
+  it('starts sibling views with their prescribed columns and preserves each view choice', () => {
+    const first = view({ columns: [{ field: 'title', label: 'Title' }, { field: 'custom_fields.customer', label: 'Customer' }] });
+    const second = { ...view({ columns: [{ field: 'title', label: 'Item' }, { field: 'custom_fields.status', label: 'Readiness' }] }), id: 'v-2' };
+    const props = { entries: [], fields: [], isLoading: false, onEntryOpen: noop };
+    const { rerender } = render(<TableWidget {...props} view={first} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Customer', pressed: true }));
+    expect(screen.queryByRole('columnheader', { name: 'Customer' })).not.toBeInTheDocument();
+    rerender(<TableWidget {...props} view={second} />);
+    expect(screen.getByRole('columnheader', { name: 'Readiness' })).toBeInTheDocument();
+    rerender(<TableWidget {...props} view={first} />);
+    expect(screen.getByRole('button', { name: 'Customer' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByRole('columnheader', { name: 'Customer' })).not.toBeInTheDocument();
+  });
+
+  it('shows newly prescribed columns after the same view schema changes', () => {
+    const first = view({ columns: [{ field: 'title', label: 'Title' }] });
+    const props = { entries: [], fields: [], isLoading: false, onEntryOpen: noop };
+    const { rerender } = render(<TableWidget {...props} view={first} />);
+    const revised = view({ columns: [{ field: 'title', label: 'Title' }, { field: 'custom_fields.owner', label: 'Owner' }] });
+    rerender(<TableWidget {...props} view={revised} />);
+    expect(screen.getByRole('columnheader', { name: 'Owner' })).toBeInTheDocument();
   });
 });
