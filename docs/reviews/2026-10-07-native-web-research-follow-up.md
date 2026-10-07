@@ -39,3 +39,14 @@ The in-flight intermediate full gate was deliberately terminated after this addi
 ### Final gate result
 
 The final `LITELLM_MODE=PRODUCTION make verify` completed with `verify: all checks passed` on 2026-10-07 (`/tmp/integral-native-web-research-final-verify.log`). This covers the staged substrate guards and hooks, formatting/types, wheel/import check, CI-faithful backend smoke, all 256 frontend test files / 1,473 tests, and the full backend suite. Optional PostgreSQL/infrastructure and unseeded-App skips remain; this is local validation, not GitHub CI or release qualification.
+
+
+## Follow-up: constrained view identity
+
+After the Business package moved prescribed views to Track scope, browser navigation exposed an empty Test materials view despite two retained records of its declared type. The type has manifest key `test_asset` and display name `Test Material`. Core list filtering and response type projection derived the identity from the display label, disagreeing with the canonical EntryType key already used for writes and EntryType discovery. The generic repair uses stored manifest identity first, retaining a name-derived fallback for legacy nodes. Listing constraints still exclude unrelated types; there is no App-specific alias or widened query. Focused regressions and a new full gate are required before committing this additional change.
+
+
+Browser comparison after the identity overlay: the Test materials tab now shows the two retained rows with Superseded status. Screenshot `/tmp/integral-venture-smoke-20261007/evidence/venture-materials-table-upgrade.jpg`. Two focused regressions pass for canonical identity, legacy fallback, listing constraints and the compatibility filter. The first test drafts had an incorrect function import and a malformed mock context; both were repaired before successful focused execution. The full gate `/tmp/integral-native-view-identity-verify.log` is pending. No commit or broad acceptance claim yet.
+
+
+The additional view-identity repair's full `LITELLM_MODE=PRODUCTION make verify` finished with all checks passed on 2026-10-07 (`/tmp/integral-native-view-identity-verify.log`). Two focused regressions also pass; the full gate includes 256 frontend files / 1,473 tests, CI-faithful smoke, wheel/import and full backend suite with standard optional infrastructure skips. The test mock correction occurred during the guard phase before test collection; final focused execution and full-suite execution used the corrected test. Browser material visibility passes on the local overlay. Table column selection across different schemas and deterministic lifecycle-validation error classification remain separate generic gaps.
