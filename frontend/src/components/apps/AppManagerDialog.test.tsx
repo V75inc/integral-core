@@ -86,11 +86,27 @@ const LIB_AVAILABLE: OperationalModelNode = {
   id: 'lib-hr',
   name: 'HR Suite',
   library_package: true,
-  workspace_id: 'ws-1',
+  workspace_id: 'ws_1',
   manifest: {
     scope: 'app',
     package: { name: 'HR Suite', slug: 'hr-suite', description: 'HR bundle' },
     app: { tracks: [{ key: 'employees', name: 'Employees' }] },
+  },
+};
+
+const LIB_OTHER_WORKSPACE: OperationalModelNode = {
+  id: 'lib-other',
+  name: 'Other Workspace Template',
+  library_package: true,
+  workspace_id: 'ws_other',
+  manifest: {
+    scope: 'app',
+    package: {
+      name: 'Other Workspace Template',
+      slug: 'other-ws-template',
+      description: 'Private to another workspace',
+    },
+    app: { tracks: [] },
   },
 };
 
@@ -139,9 +155,23 @@ describe('AppManagerDialog', () => {
       updated_at: '',
       result_refs: [],
     });
-    mockListProfiles.mockResolvedValue([LIB_INSTALLED, LIB_AVAILABLE]);
+    mockListProfiles.mockResolvedValue([
+      LIB_INSTALLED,
+      LIB_AVAILABLE,
+      LIB_OTHER_WORKSPACE,
+    ]);
   });
   afterEach(() => cleanup());
+
+  it('hides private templates belonging to another workspace', async () => {
+    renderDialog();
+    expect(
+      await screen.findByTestId('app-manager-row-hr-suite'),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('app-manager-row-other-ws-template'),
+    ).not.toBeInTheDocument();
+  });
 
   it('renders installed and available sections after load', async () => {
     renderDialog();

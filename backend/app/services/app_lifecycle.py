@@ -122,6 +122,17 @@ async def enqueue_install_work(
 ) -> Dict[str, Any]:
     """Queue an idempotent package install for the leased lifecycle worker."""
     from app.agentive.services.work_items import enqueue_work_item
+    from app.api.operational_models import (
+        assert_library_package_installable_in_workspace,
+    )
+
+    library_cp = await OperationalModel.get(library_cp_id)
+    if not library_cp or not getattr(library_cp, "library_package", False):
+        raise BadRequestError(
+            message=f"Library OperationalModel {library_cp_id!r} not found",
+            details={"library_cp_id": library_cp_id},
+        )
+    await assert_library_package_installable_in_workspace(library_cp, workspace_id)
 
     work = await enqueue_work_item(
         kind="app_lifecycle",
@@ -397,8 +408,12 @@ async def install_app(
             message=f"OperationalModel {library_cp_id!r} is not a library package",
             details={"library_cp_id": library_cp_id},
         )
+    from app.api.operational_models import (
+        assert_library_package_installable_in_workspace,
+    )
     from app.services.package_trust import assert_library_artifact_trusted
 
+    await assert_library_package_installable_in_workspace(library_cp, workspace_id)
     assert_library_artifact_trusted(library_cp)
 
     manifest = library_cp.manifest or {}
