@@ -2,13 +2,14 @@
 
 from types import SimpleNamespace
 
+import pytest
+
+from app.api.errors import ResourceNotFoundError
 from app.api.operational_models import (
     assert_library_package_installable_in_workspace,
     is_library_package_visible_for_workspace,
     library_package_owner_workspace_id,
 )
-from app.api.errors import ResourceNotFoundError
-import pytest
 
 
 def test_platform_package_visible_everywhere():

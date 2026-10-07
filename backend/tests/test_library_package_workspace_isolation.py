@@ -17,9 +17,7 @@ def _app_manifest(name: str = "iso-pack") -> dict:
                     "key": "items",
                     "name": "Items",
                     "provision_on_create": False,
-                    "entry_types": [
-                        {"key": "item", "name": "Item", "fields": []}
-                    ],
+                    "entry_types": [{"key": "item", "name": "Item", "fields": []}],
                     "views": [{"key": "all", "name": "All", "view_type": "feed"}],
                     "taxonomy": {"tag_groups": []},
                 }
