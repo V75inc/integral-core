@@ -709,3 +709,74 @@ async def test_history_summary_never_distills_active_batch_receipts(monkeypatch)
         == compacted
     )
     assert seen == older
+
+
+@pytest.mark.asyncio
+async def test_compaction_preserves_active_multi_record_grounding():
+    messages = [ModelRequest(parts=[UserPromptPart("Prepare the related records")])]
+    for index in range(12):
+        messages.extend(
+            [
+                ModelResponse(
+                    parts=[ToolCallPart("read", {"index": index}, str(index))]
+                ),
+                ModelRequest(
+                    parts=[
+                        ToolReturnPart("read", {"record_id": str(index)}, str(index))
+                    ]
+                ),
+            ]
+        )
+    compacted = await build_integral_context_compaction().compact(
+        messages, SimpleNamespace()
+    )
+    assert compacted == messages
+    assert (
+        len(
+            [
+                p
+                for m in compacted
+                for p in m.parts
+                if isinstance(p, ToolReturnPart) and isinstance(p.content, dict)
+            ]
+        )
+        == 12
+    )
+
+
+@pytest.mark.asyncio
+async def test_compaction_clears_completed_turn_but_preserves_new_task():
+    messages = [ModelRequest(parts=[UserPromptPart("Earlier completed work")])]
+    for index in range(8):
+        messages.extend(
+            [
+                ModelResponse(
+                    parts=[ToolCallPart("read", {"index": index}, str(index))]
+                ),
+                ModelRequest(
+                    parts=[
+                        ToolReturnPart("read", {"record_id": str(index)}, str(index))
+                    ]
+                ),
+            ]
+        )
+    active = [ModelRequest(parts=[UserPromptPart("New task")])]
+    for index in range(10, 18):
+        active.extend(
+            [
+                ModelResponse(
+                    parts=[ToolCallPart("read", {"index": index}, str(index))]
+                ),
+                ModelRequest(
+                    parts=[
+                        ToolReturnPart("read", {"record_id": str(index)}, str(index))
+                    ]
+                ),
+            ]
+        )
+    compacted = await build_integral_context_compaction().compact(
+        messages + active, SimpleNamespace()
+    )
+    assert compacted[-len(active) :] == active
+    assert compacted[2].parts[0].content == "[tool result cleared]"
+    assert messages[2].parts[0].content == {"record_id": "0"}
