@@ -28,6 +28,9 @@ class WorkBudgetReservation(Object):
         "completed",
         "not_dispatched",
     ] = "legacy_untracked"
+    # Missing attribution in legacy marked holds is not exact model proof.
+    model_dispatch_scope: dict[str, str] = Field(default_factory=dict)
+    model_dispatch_attempt: int = Field(default=0, ge=0)
     dispatch_ref: str = ""
     dispatched_at: str = ""
     outcome_ref: str = ""

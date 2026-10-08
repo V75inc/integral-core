@@ -81,6 +81,24 @@ class HarnessExecutionScope(BaseModel):
         return self.run_id
 
 
+class ModelRouteIdentity(BaseModel):
+    """Persistable selected-route attribution, excluding credential material."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    provider: str
+    model: str
+    credential_source: Literal["workspace_byok", "platform", "local"]
+    credential_ref: str
+
+    @field_validator("provider", "model", "credential_ref")
+    @classmethod
+    def _canonical_identity(cls, value: str) -> str:
+        if not value.strip() or value != value.strip():
+            raise ValueError("model route identity must be canonical and nonempty")
+        return value
+
+
 class ResolvedModelRoute(BaseModel):
     """Per-run LiteLLM route resolved from trusted Core configuration.
 

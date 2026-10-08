@@ -14,6 +14,7 @@ from typing import Any
 from jvspatial.core.context import graph_transaction
 from pydantic import TypeAdapter, ValidationError
 
+from app.agentive.harness.contracts import HarnessExecutionScope
 from app.agentive.services.work_execution import deterministic_run_id, effect_key
 from app.agentive.services.work_mandates import load_approved_mandate_path
 from app.agentive.services.work_outbox import (
@@ -168,6 +169,24 @@ def _hydrate_reservation(document: dict) -> WorkBudgetReservation:
             when = datetime.fromisoformat(record.dispatched_at.replace("Z", "+00:00"))
             if when.utcoffset() is None:
                 raise WorkError("work.budget_invalid")
+        if record.model_dispatch_scope:
+            scope = HarnessExecutionScope.model_validate(record.model_dispatch_scope)
+            if (
+                not marked
+                or request.model_route is None
+                or record.model_dispatch_attempt < 1
+                or scope.principal_id != record.principal_id
+                or scope.workspace_id != record.workspace_id
+                or scope.thread_id != record.thread_id
+                or scope.run_id
+                != deterministic_run_id(
+                    work_item_id=record.work_item_id,
+                    attempt=record.model_dispatch_attempt,
+                )
+            ):
+                raise WorkError("work.budget_invalid")
+        elif record.model_dispatch_attempt:
+            raise WorkError("work.budget_invalid")
         expected_id = hashlib.sha256(
             f"{record.root_work_item_id}:{record.work_item_id}:{request.logical_effect_key}".encode()
         ).hexdigest()
@@ -579,6 +598,7 @@ async def mark_mandate_dispatch_intent(
     execution_context: WorkExecutionContext,
     request_fingerprint: str,
     dispatch_ref: str,
+    model_scope: HarnessExecutionScope | None = None,
 ) -> WorkBudgetReservation:
     """Persist one fenced dispatch intent; never repeat an uncertain operation.
 
@@ -644,6 +664,21 @@ async def mark_mandate_dispatch_intent(
         req = MandateReservationRequest.model_validate(record.request)
         _assert_leased_reservation(ctx, path[-1], req)
         _assert_reviewed_request(req, revision)
+        scope_payload = {}
+        if model_scope is not None:
+            try:
+                scope = HarnessExecutionScope.model_validate(model_scope.model_dump())
+            except (ValidationError, AttributeError) as exc:
+                raise WorkError("work.model_receipt_invalid") from exc
+            if (
+                req.model_route is None
+                or scope.principal_id != ctx.principal_id
+                or scope.workspace_id != ctx.workspace_id
+                or scope.thread_id != ctx.thread_id
+                or scope.run_id != ctx.run_id
+            ):
+                raise WorkError("work.model_receipt_invalid")
+            scope_payload = scope.model_dump(mode="json")
         if record.status == "released":
             raise WorkError("work.reservation_released")
         if record.status != "reserved" or record.dispatch_state != "not_started":
@@ -665,6 +700,10 @@ async def mark_mandate_dispatch_intent(
                     "context.dispatch_state": "intent",
                     "context.dispatch_ref": dispatch_ref,
                     "context.dispatched_at": now,
+                    "context.model_dispatch_scope": scope_payload,
+                    "context.model_dispatch_attempt": (
+                        ctx.attempt if scope_payload else 0
+                    ),
                 }
             },
         )
