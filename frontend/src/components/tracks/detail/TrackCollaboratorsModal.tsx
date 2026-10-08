@@ -61,8 +61,9 @@ export function TrackCollaboratorsModal({
             <p className="text-xs text-[color:var(--text-muted)]">
               Find anyone by name. Workspace members are added directly; external
               users get guest access on first share. Workspace owners and admins
-              can already view and comment, but they are not listed until you add
-              them. Add them here, then set Editor or Admin if they should edit.
+              can view Tracks shared with the workspace. A Private Track stays
+              hidden until you add them. Add them here, then set Editor or Admin
+              if they should edit.
             </p>
             <UserSearchPicker
               excludeIds={collabExcludeIds}
@@ -76,9 +77,9 @@ export function TrackCollaboratorsModal({
             <span className="font-medium text-[color:var(--text)]">
               track owner or admin
             </span>{' '}
-            can add, remove, or change collaborator roles. Workspace owners and
-            admins can view and comment without a row here. Editing needs a
-            direct Editor or Admin grant, which this dialog cannot give you.
+            can add, remove, or change collaborator roles. A Private Track stays
+            hidden from workspace owners and admins until they are added. This
+            dialog cannot grant that to you.
           </p>
         )}
 

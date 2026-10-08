@@ -141,8 +141,11 @@ async def workspace_staff_implicit_resource_role(
     """Implicit app/track role for org workspace owner/admin.
 
     Workspace membership does not cascade to children by default, but
-    owner/admin staff need inventory visibility and operational access to
-    contained Apps/Tracks without a per-resource ``COLLABORATES_ON`` edge.
+    owner/admin staff need inventory visibility on non-private Apps and
+    Tracks without a per-resource ``COLLABORATES_ON`` edge. Private
+    resources stay with their owner and the people that owner adds;
+    ``resolve_role`` drops this implicit role when effective visibility
+    is ``private``.
     """
     ws = await Workspace.get(workspace_id)
     if not ws or getattr(ws, "kind", "") != "organization":

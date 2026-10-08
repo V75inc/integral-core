@@ -690,7 +690,7 @@ flowchart TB
 - **Editor:** Create/edit/delete **entries**, manage **tags** on the track as allowed, create **views** (per product rules).
 - **Viewer:** Read-only on entries and views (unless view-level rule blocks a view).
 - **`visibility` on Track:**
-  - **`private`:** Not reachable via workspace-wide `visibility="organization"` on a parent App/Track; App collaborators with direct `OWNS` / `COLLABORATES_ON` still inherit entry access per §9.5 step 6. Org workspace owner/admin reach private inventory via implicit staff role, not visibility cascade — that implicit role is capped at `commenter` (see §9.5).
+  - **`private`:** Only the resource owner and people added with a direct `OWNS` / `COLLABORATES_ON` grant. Not reachable via workspace-wide visibility or the org owner/admin implicit staff role. App collaborators with a direct grant on the parent App still inherit entry access per §9.5 step 6.
   - **`organization`:** Members of the track’s org (and collaborators) per org policy.
   - **`public`:** Any **authenticated** user may **read** entries; **write** still requires collaborator/editor or owner.
 
@@ -773,11 +773,12 @@ rows and takes no part in role resolution.
 
 **Workspace staff are capped at `commenter` on resources they do not hold
 directly.** An `IS_MEMBER_OF{role: "owner" | "admin"}` edge grants an
-implicit role on every resource in the workspace so staff can see the full
-inventory and take part in discussion on it, but that implicit role resolves
-to `commenter` — read plus comment, no entry edits. Staff who need to mint
-share links, manage collaborators, or edit content must hold a direct
-`OWNS` / `COLLABORATES_ON` grant on the resource itself (step 2).
+implicit role on non-private Apps and Tracks so staff can see that inventory
+and take part in discussion, but that implicit role resolves to `commenter`
+— read plus comment, no entry edits. `visibility="private"` opts out: staff
+do not see it unless they hold a direct grant. Staff who need to mint share
+links, manage collaborators, or edit content must hold a direct `OWNS` /
+`COLLABORATES_ON` grant on the resource itself (step 2).
 
 > The cap was `viewer` until QA filed "users with full permissions cannot add
 > comments" twice (July 1, August 5). The comment gate is `commenter`-or-better,
