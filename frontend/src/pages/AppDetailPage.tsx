@@ -355,6 +355,10 @@ export function AppDetailPage() {
   const isAdminInCollab = myRole === 'admin';
   const canAdmin = isAppOwner || isAdminInCollab;
   const canManageCollaborators = canAdmin;
+  // Adding or linking a track is app.update, not the workspace create flag.
+  // A workspace owner can open this App as a commenter and still holds
+  // canCreateTracks; showing New track in that case returns 403.
+  const canAddTrackToThisApp = canAdmin && canCreateTracks;
   const canEditDashboard =
     isAppOwner ||
     ['admin', 'editor'].includes(myRole);
@@ -641,7 +645,7 @@ export function AppDetailPage() {
                 Settings
               </Button>
             ) : null}
-            {canCreateTracks ? (
+            {canAddTrackToThisApp ? (
               <Button
                 variant="primary"
                 size="sm"
@@ -652,15 +656,20 @@ export function AppDetailPage() {
                 New track
               </Button>
             ) : null}
+            {canAdmin || isAppOwner ? (
             <KebabMenu
               ariaLabel="More app actions"
               items={[
-                {
-                  key: 'link-track',
-                  label: 'Link existing track',
-                  icon: <Link2 size={13} strokeWidth={LINE_ICON_STROKE} />,
-                  onClick: () => setLinkModal(true)
-                },
+                ...(canAdmin
+                  ? [
+                      {
+                        key: 'link-track',
+                        label: 'Link existing track',
+                        icon: <Link2 size={13} strokeWidth={LINE_ICON_STROKE} />,
+                        onClick: () => setLinkModal(true)
+                      },
+                    ]
+                  : []),
                 ...(canAdmin
                   ? [
                       {
@@ -695,6 +704,7 @@ export function AppDetailPage() {
                   : []),
               ]}
             />
+            ) : null}
           </div>
         </div>
         <WorkspaceCreationRightsNotice
@@ -706,6 +716,12 @@ export function AppDetailPage() {
           <span>
             {tracks.length} {tracks.length === 1 ? 'track' : 'tracks'}
           </span>
+          {!canAdmin ? (
+            <>
+              <span aria-hidden>·</span>
+              <span>You can view and comment. The owner or an admin manages tracks.</span>
+            </>
+          ) : null}
           {uniqueCollabs.length > 0 ? (
             <>
               <span aria-hidden>·</span>
@@ -838,8 +854,13 @@ export function AppDetailPage() {
                 </IconWell>
               }
               title="No tracks in this App"
-              description="Create a new track or link an existing one."
+              description={
+                canAdmin
+                  ? 'Create a new track or link an existing one.'
+                  : 'Tracks in this App are managed by its owner or an admin. You can view and comment.'
+              }
               action={
+                canAdmin ? (
                 <div className="flex flex-wrap justify-center gap-2">
                   <Button
                     variant="outline"
@@ -849,7 +870,7 @@ export function AppDetailPage() {
                   >
                     Link track
                   </Button>
-                  {canCreateTracks ? (
+                  {canAddTrackToThisApp ? (
                     <Button
                       variant="primary"
                       size="sm"
@@ -860,6 +881,7 @@ export function AppDetailPage() {
                     </Button>
                   ) : null}
                 </div>
+                ) : undefined
               }
             />
           ) : filteredTracks.length === 0 ? (
@@ -1026,6 +1048,9 @@ export function AppDetailPage() {
               </h3>
               <p className="text-xs text-[var(--text-muted)]">
                 Search for a user by name or email, then add them as a commenter on this App.
+                Workspace owners and admins can already view and comment, but they are not
+                listed until you add them. Add them here, then set Editor or Admin if they
+                should edit.
               </p>
               <UserSearchPicker
                 excludeIds={excludeCollabIds}
@@ -1036,7 +1061,9 @@ export function AppDetailPage() {
           ) : (
             <p className="rounded-[var(--radius-input)] border border-[var(--panel-border)] bg-[var(--panel-2)] px-3 py-2 text-xs text-[var(--text-muted)]">
               Only the <span className="font-medium text-[var(--text)]">app owner or an admin</span>{' '}
-              can add or remove collaborators. You can still view who has access below.
+              can add people or change roles. Workspace owners and admins can view and comment
+              without a row here. Editing needs a direct Editor or Admin grant, which this
+              dialog cannot give you.
             </p>
           )}
 
