@@ -10,6 +10,7 @@ from typing import Any
 
 from app.agentive.harness.contracts import (
     HarnessExecutionScope,
+    ModelRouteIdentity,
     PhysicalModelRequest,
     ResolvedModelRoute,
     RunUsageSummary,
@@ -139,7 +140,7 @@ async def load_bound_model_request_observation(
     scope: HarnessExecutionScope,
     request_id: str,
     outcome: str,
-    expected_route: ResolvedModelRoute,
+    expected_route: ResolvedModelRoute | ModelRouteIdentity,
 ) -> PhysicalModelRequest:
     """Read exact encrypted intent/outcome evidence for a host-selected route.
 
