@@ -2231,18 +2231,46 @@ async def _x_delete_app(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]
 async def _x_link_entries(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     """Wire a relation field on the source entry → materializes the edge.
 
-    Sets ``custom_fields[field_key] = target_id`` via the ``update_entry`` handler,
-    whose ``sync_relation_edges`` materializes ``REFERENCES`` (field target=entry)
-    or ``ANCHORS`` (field target=track) with ``field_key`` (I-GRAPH-01) — a scalar
-    foreign key is never written without the edge.
+    Uses the canonical relation cardinality: single targets are assigned;
+    many targets are appended without replacing existing links. The update
+    endpoint retains policy, validation, audit and graph-edge materialization.
     """
     from app.api.entries import update_entry as handler
+    from app.models.nodes import Entry, EntryType, Track
+    from app.services.operational_model_entry_fields import resolve_entry_type_spec
+    from app.services.operational_model_runtime import resolve_track_runtime_profile
 
+    target = payload["target_id"]
+    source = await Entry.get(payload["source_entry_id"])
+    entry_type = (
+        await EntryType.get(source.type_id) if source and source.type_id else None
+    )
+    track = await Track.get(source.track_id) if source and source.track_id else None
+    if source and entry_type and track:
+        _, runtime_tier, _ = await resolve_track_runtime_profile(track)
+        spec = resolve_entry_type_spec(entry_type, runtime_tier)
+        field: Dict[str, Any] = next(
+            (f for f in spec.get("fields", []) if f.get("key") == payload["field_key"]),
+            {},
+        )
+        if field.get("type") == "relation" and (field.get("relation") or {}).get(
+            "many"
+        ):
+            existing = (source.custom_fields or {}).get(payload["field_key"]) or []
+            if not isinstance(existing, list):
+                from app.api.errors import BadRequestError
+
+                raise BadRequestError(
+                    message="Existing many-relation value must be a list"
+                )
+            target = list(existing)
+            if payload["target_id"] not in target:
+                target.append(payload["target_id"])
     return await _call_endpoint(
         handler,
         user_id,
         entry_id=payload["source_entry_id"],
-        custom_fields={payload["field_key"]: payload["target_id"]},
+        custom_fields={payload["field_key"]: target},
     )
 
 

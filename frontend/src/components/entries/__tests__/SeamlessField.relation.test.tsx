@@ -48,3 +48,15 @@ describe('single relation display and editing', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 });
+
+describe('many relation trigger stability', () => {
+  it('keeps an empty optional relation label present before pointer entry', () => {
+    render(<SeamlessField field={{ ...field, name: 'Sources', required: false, relation: { target: 'entry', many: true } }} value={[]} onChange={vi.fn()} relationChoices={choices} />);
+    const trigger = screen.getByRole('combobox', { name: 'Sources' });
+    expect(screen.getByText('Sources')).toBeVisible();
+    fireEvent.mouseEnter(trigger);
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByLabelText('Next opportunity')).toBeVisible();
+  });
+});
