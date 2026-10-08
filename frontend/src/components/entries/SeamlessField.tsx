@@ -1,11 +1,12 @@
 import { useState, type ReactNode } from 'react';
+import { Pencil, X } from 'lucide-react';
 import { AppSelect, DatePicker } from '../ui';
 import type { OperationalModelFieldSpec } from '../../types';
 import { buildFieldPlaceholder } from '../../utils/fieldPlaceholders';
 import { humanizeEnumValue } from '../../utils/humanizeFieldKey';
 import { SeamlessFileFieldInner } from './SeamlessFileFieldInner';
 import { resolveFieldType, MissingFieldType, checklistFieldRegistration } from './fieldTypes';
-import { Text } from '../../ui';
+import { IconButton, Text } from '../../ui';
 import { JsonTableEditor, isJsonTableShape } from './JsonTableEditor';
 import { useRelationLabels, RelationValue } from './relations';
 import { RelationMultiSelectCombobox } from './RelationMultiSelectCombobox';
@@ -621,6 +622,7 @@ function SeamlessRelationSingleInner({
     focusWithin || hovered || hasValue || isFieldRequired(field);
   const active = focusWithin || hasValue || readonly;
   const currentId = String(value || '');
+  const [editing, setEditing] = useState(false);
   const knownChoice = opts.find(o => o.value === currentId);
   // Same fallback as the many-chip path — when the picker's preloaded opts
   // don't cover the current value (cross-track relation, late preload,
@@ -638,25 +640,32 @@ function SeamlessRelationSingleInner({
     </span>
   );
 
-  if (readonly) {
+  if (readonly || (currentId && !editing)) {
     return (
       <div className="space-y-1.5 pl-3">
         <InlineFieldLabel field={field} />
-        {currentId ? (
-          <RelationValue
-            value={currentId}
-            relation={field.relation}
-            variant="chips"
-            stopPropagation
-            onNavigate={onNavigate}
-            navContext={navContext}
-            emptyFallback={chipFallback}
-          />
-        ) : (
-          <Text variant="body" tone="muted" as="p">
-            —
-          </Text>
-        )}
+        <div className="flex min-w-0 items-center gap-2">
+          {currentId ? (
+            <div className="min-w-0 flex-1">
+              <RelationValue
+                value={currentId}
+                relation={field.relation}
+                variant="chips"
+                stopPropagation
+                onNavigate={onNavigate}
+                navContext={navContext}
+                emptyFallback={chipFallback}
+              />
+            </div>
+          ) : (
+            <Text variant="body" tone="muted" as="p">—</Text>
+          )}
+          {!readonly && (
+            <IconButton label={`Change ${field.name}`} onClick={() => setEditing(true)} className="shrink-0">
+              <Pencil size={14} aria-hidden />
+            </IconButton>
+          )}
+        </div>
       </div>
     );
   }
@@ -673,30 +682,17 @@ function SeamlessRelationSingleInner({
         }
       }}
     >
-      {currentId ? (
-        <div className="pl-3">
-          <RelationValue
-            value={currentId}
-            relation={field.relation}
-            variant="chips"
-            stopPropagation
-            onNavigate={onNavigate}
-            navContext={navContext}
-            emptyFallback={chipFallback}
-          />
-        </div>
-      ) : null}
       <SeamlessShell
         showLabel={showFloat}
         field={field}
         active={active || hovered}
       >
-        <div className="py-0.5">
+        <div className="flex min-w-0 items-center gap-2 py-0.5">
           <AppSelect
             variant="pill"
-            className="w-full max-w-full border-0 bg-transparent px-0 py-1 font-normal shadow-none focus:ring-0"
+            className="min-w-0 w-full max-w-full border-0 bg-transparent px-0 py-1 font-normal shadow-none focus:ring-0"
             value={currentId}
-            onValueChange={val => onChange(val || null)}
+            onValueChange={val => { onChange(val || null); setEditing(false); }}
             disabled={readonly}
             placeholder={placeholder}
             options={[
@@ -716,6 +712,9 @@ function SeamlessRelationSingleInner({
             ]}
             aria-label={fieldAriaLabel(field)}
           />
+          {currentId && <IconButton label={`Cancel editing ${field.name}`} onClick={() => setEditing(false)} className="shrink-0">
+            <X size={14} aria-hidden />
+          </IconButton>}
         </div>
       </SeamlessShell>
     </div>
