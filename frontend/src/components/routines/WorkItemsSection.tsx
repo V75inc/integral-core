@@ -57,13 +57,21 @@ export function WorkItemsSection({ workspaceId }: { workspaceId: string }) {
     {loading && <div role="status"><Text variant="meta">Loading work status…</Text></div>}
     {!loading && !error && items.length === 0 && <Text as="p" tone="subtle">No workspace work yet.</Text>}
     <div className="mt-3 space-y-3">
-      {items.map(item => <Surface key={item.work_item_id} tone="panel" border="subtle" radius="card" className="p-4">
+      {items.map(item => <Surface key={item.work_item_id} tone="panel" border="subtle" radius="card" className="min-w-0 space-y-3 p-4">
         <Text as="h3" weight="medium">{item.kind === 'app_lifecycle' ? (operationLabels[item.operation ?? ''] ?? 'App lifecycle') : item.kind.replace(/_/g, ' ')} · {statusLabels[item.status] ?? item.status}</Text>
-        <Text as="p" variant="meta" tone="subtle" className="mt-1">Updated {formatRelativeTime(item.updated_at)} · Attempt {item.attempt}</Text>
-        <Text as="p" variant="meta" className="mt-1 break-all">Work: {item.work_item_id}</Text>
-        {item.app_id && <Text as="p" variant="meta" className="mt-1 break-all">App: {item.app_id}</Text>}
-        {item.failure && <Text as="p" tone="danger" className="mt-2">{item.failure.message || item.failure.code}</Text>}
-        {item.next_attempt_at && item.status === 'retry_wait' && <Text as="p" variant="meta" className="mt-1">Next attempt: {item.next_attempt_at}</Text>}
+        <Text as="p" variant="meta" tone="subtle">Updated {formatRelativeTime(item.updated_at)} · Attempt {item.attempt}</Text>
+        <dl className="space-y-2">
+          <div className="space-y-1">
+            <Text as="dt" variant="label" tone="subtle">Work ID</Text>
+            <Text as="dd" variant="mono" className="break-all">{item.work_item_id}</Text>
+          </div>
+          {item.app_id && <div className="space-y-1">
+            <Text as="dt" variant="label" tone="subtle">App ID</Text>
+            <Text as="dd" variant="mono" className="break-all">{item.app_id}</Text>
+          </div>}
+        </dl>
+        {item.failure && <Text as="p" tone="danger">{item.failure.message || item.failure.code}</Text>}
+        {item.next_attempt_at && item.status === 'retry_wait' && <Text as="p" variant="meta">Next attempt: {item.next_attempt_at}</Text>}
       </Surface>)}
     </div>
     {cursor && <Button className="mt-3" disabled={loading} onClick={() => void load(cursor)}>Load older work</Button>}
