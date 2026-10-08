@@ -401,9 +401,22 @@ function coalescePersistedReasoning(parts: MutableContent[]): MutableContent[] {
  */
 export function normalizePersistedParts(rawParts: MutableContent[]): MutableContent[] {
   const out: MutableContent[] = [];
+  const toolPositions = new Map<string, number>();
   for (const part of rawParts) {
     const p = part as Record<string, unknown>;
     if (p && p.type === "error") {
+      continue;
+    }
+    // Older durable transcripts saved start/result updates as separate parts.
+    // Hydrate one resource per call ID, preserving its position and latest state.
+    if (p?.type === "tool-call" && typeof p.toolCallId === "string" && p.toolCallId) {
+      const previous = toolPositions.get(p.toolCallId);
+      if (previous !== undefined) {
+        out[previous] = { ...out[previous], ...part } as MutableContent;
+      } else {
+        toolPositions.set(p.toolCallId, out.length);
+        out.push(part);
+      }
       continue;
     }
     if (p && p.type === "image") {
