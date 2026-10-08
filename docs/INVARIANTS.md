@@ -2413,3 +2413,24 @@ shared-store compare-and-set/fencing; process-local locks are insufficient.
 
 **Verification:** `backend/tests/native_harness/wp_02/` and WP-03 PostgreSQL
 concurrency tests.
+
+### I-WORK-07 — Approved work prices every physical model dispatch
+
+**Scope:** Native SDK transport, `work_model_admission.py`, host bounds/price hooks,
+and the shared mandate ledger.
+
+**Rule:** Durable mandate lineage, not the presence of a chat work context,
+selects mandatory admission. The physical adapter supplies final mapped SDK
+input, exact route generation and physical request identity. A trusted host
+must attest all billed input/output ceilings and applicable account pricing.
+Missing, expired or changed evidence prevents SDK dispatch. A current lease and
+reviewed shared-budget hold plus fenced dispatch intent precede each SDK call.
+Logical ordinals are distinct from physical IDs; a restarted adapter cannot
+reuse an uncertain slot. Only persisted definitive provider cost settles the
+hold; unknown or calculated cost retains it. Ordinary chat work continues to
+use lease/permission/route fencing without acquiring mandate authority.
+
+**Verification:** `backend/tests/test_work_model_admission.py`,
+`backend/tests/contract/test_work_model_admission_postgres.py`, and shared-ledger
+and model-receipt contract tests. Public executable approval and tool admission
+remain separately gated under I-WORK-05.
