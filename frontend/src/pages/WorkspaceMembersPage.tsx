@@ -72,7 +72,7 @@ function InviteStatusPill({ status }: { status: string }) {
 
 function roleDescription(role: Exclude<WorkspaceRole, 'owner'>): string {
   if (role === 'admin') {
-    return 'Can manage workspace members and settings, and can view and comment on every App and Track, including private ones. Creation and edit rights are assigned separately.';
+    return 'Can manage workspace members and settings. App and Track creation permissions are assigned separately. Private Apps and Tracks still need to be shared directly.';
   }
   if (role === 'guest') {
     return 'Can access only the Apps and Tracks explicitly shared with them.';

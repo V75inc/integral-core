@@ -1048,9 +1048,9 @@ export function AppDetailPage() {
               </h3>
               <p className="text-xs text-[var(--text-muted)]">
                 Search for a user by name or email, then add them as a commenter on this App.
-                Workspace owners and admins can already view and comment, but they are not
-                listed until you add them. Add them here, then set Editor or Admin if they
-                should edit.
+                Workspace owners and admins can view Apps shared with the workspace, but a
+                Private App stays hidden until you add them. Add them here, then set Editor
+                or Admin if they should edit.
               </p>
               <UserSearchPicker
                 excludeIds={excludeCollabIds}
@@ -1061,9 +1061,8 @@ export function AppDetailPage() {
           ) : (
             <p className="rounded-[var(--radius-input)] border border-[var(--panel-border)] bg-[var(--panel-2)] px-3 py-2 text-xs text-[var(--text-muted)]">
               Only the <span className="font-medium text-[var(--text)]">app owner or an admin</span>{' '}
-              can add people or change roles. Workspace owners and admins can view and comment
-              without a row here. Editing needs a direct Editor or Admin grant, which this
-              dialog cannot give you.
+              can add people or change roles. A Private App stays hidden from workspace
+              owners and admins until they are added. This dialog cannot grant that to you.
             </p>
           )}
 
