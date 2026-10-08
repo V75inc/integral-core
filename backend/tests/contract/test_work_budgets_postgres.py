@@ -1001,3 +1001,103 @@ async def test_accounting_only_history_does_not_prove_no_dispatch(budget_root):
         await reconcile_dispatch(record, "not_dispatched")
     assert exc.value.code == "work.outcome_reconciliation_required"
     assert (await ledger(db, root))["reserved_units"] == 60000000
+
+
+async def test_bound_model_reservation_retains_and_rechecks_physical_evidence(
+    leased_budget_child,
+):
+    from datetime import datetime, timedelta, timezone
+
+    from app.agentive.harness.contracts import HarnessExecutionScope
+    from app.schemas.agentive.work_price import (
+        ModelPriceBinding,
+        ModelPriceRequest,
+        ModelTokenPriceEvidence,
+    )
+
+    root, parent, leaf, context, legacy, db = leased_budget_child
+    scope = HarnessExecutionScope(
+        tenant_id=context.workspace_id,
+        workspace_id=context.workspace_id,
+        principal_id=context.principal_id,
+        thread_id=context.thread_id,
+        session_id="synthetic-bound-session",
+        run_id=context.run_id,
+        permission_revision="synthetic-permissions",
+        capability_version="synthetic-capabilities",
+    )
+    now = datetime.now(timezone.utc)
+    physical = ModelPriceRequest(
+        scope=scope,
+        route=legacy.model_route,
+        request_id=str(uuid4()),
+        input_fingerprint=legacy.input_fingerprint,
+        input_tokens_upper=1000,
+        output_tokens_upper=1000,
+        bounds_ref="synthetic-bound-policy",
+        bounds_valid_until=now + timedelta(minutes=5),
+    )
+    price = ModelTokenPriceEvidence(
+        request_digest=physical.digest(),
+        route=physical.route,
+        policy_ref="synthetic-price-policy",
+        source_ref="synthetic-price-source",
+        account_terms_ref="synthetic-account-terms",
+        valid_from=now - timedelta(minutes=1),
+        valid_until=now + timedelta(minutes=5),
+        input_usd_per_million=Decimal("0.30"),
+        output_usd_per_million=Decimal("1.20"),
+        request_fee_upper_usd=Decimal("0"),
+    )
+    binding = ModelPriceBinding(request=physical, evidence=price)
+    req = MandateReservationRequest(
+        logical_effect_key=context.effect_key,
+        input_fingerprint=physical.input_fingerprint,
+        model_route=physical.route,
+        model_price_binding=binding,
+        quote=binding.quote_fields(),
+    )
+    record = await reserve_leased(leaf, context, req)
+    assert (await ledger(db, root))["reserved_units"] == 150000
+    stored = await db.get("object", record.id)
+    restored = work_budgets._hydrate_reservation(stored)
+    assert (
+        MandateReservationRequest.model_validate(restored.request).model_price_binding
+        == binding
+    )
+    for candidate, expected in (
+        (None, "work.model_bounds_required"),
+        (
+            physical.model_copy(update={"output_tokens_upper": 1001}),
+            "work.model_bounds_conflict",
+        ),
+        (
+            physical.model_copy(update={"request_id": str(uuid4())}),
+            "work.model_bounds_conflict",
+        ),
+    ):
+        with pytest.raises(WorkError) as exc:
+            await work_budgets.mark_mandate_dispatch_intent(
+                reservation_id=record.reservation_id,
+                execution_context=context,
+                request_fingerprint=record.request_fingerprint,
+                dispatch_ref=physical.request_id,
+                model_scope=scope,
+                model_price_request=candidate,
+            )
+        assert exc.value.code == expected
+        assert (await db.get("object", record.id))["context"][
+            "dispatch_state"
+        ] == "not_started"
+    marked = await work_budgets.mark_mandate_dispatch_intent(
+        reservation_id=record.reservation_id,
+        execution_context=context,
+        request_fingerprint=record.request_fingerprint,
+        dispatch_ref=physical.request_id,
+        model_scope=scope,
+        model_price_request=physical,
+    )
+    assert marked.dispatch_state == "intent"
+    assert work_budgets._hydrate_reservation(
+        await db.get("object", record.id)
+    ).model_dispatch_scope == scope.model_dump(mode="json")

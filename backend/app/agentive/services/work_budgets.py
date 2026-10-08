@@ -35,6 +35,7 @@ from app.schemas.agentive.work_mandate import (
     MandateExternalGrant,
     WorkMandateRevision,
 )
+from app.schemas.agentive.work_price import ModelPriceRequest
 
 
 async def _transaction_database():
@@ -175,6 +176,14 @@ def _hydrate_reservation(document: dict) -> WorkBudgetReservation:
                 not marked
                 or request.model_route is None
                 or record.model_dispatch_attempt < 1
+                or (
+                    request.model_price_binding is not None
+                    and (
+                        scope != request.model_price_binding.request.scope
+                        or record.dispatch_ref
+                        != request.model_price_binding.request.request_id
+                    )
+                )
                 or scope.principal_id != record.principal_id
                 or scope.workspace_id != record.workspace_id
                 or scope.thread_id != record.thread_id
@@ -278,6 +287,36 @@ def _assert_leased_reservation(
         raise WorkError("work.logical_step_conflict")
 
 
+def _assert_bound_model_dispatch(
+    request: MandateReservationRequest,
+    scope: HarnessExecutionScope | None,
+    physical_request: ModelPriceRequest | None,
+    dispatch_ref: str,
+) -> None:
+    """Match retained bounds to fresh physical-adapter evidence, without dispatch."""
+    binding = request.model_price_binding
+    if binding is None:
+        if physical_request is not None:
+            raise WorkError("work.model_bounds_required")
+        return
+    try:
+        actual = ModelPriceRequest.model_validate(physical_request.model_dump())
+        scope = HarnessExecutionScope.model_validate(scope.model_dump())
+    except (ValidationError, AttributeError) as exc:
+        raise WorkError("work.model_bounds_required") from exc
+    if (
+        actual.digest() != binding.request.digest()
+        or actual.scope != scope
+        or actual.request_id != dispatch_ref
+    ):
+        raise WorkError("work.model_bounds_conflict")
+    now = datetime.now(timezone.utc)
+    if actual.bounds_valid_until <= now:
+        raise WorkError("work.model_bounds_expired")
+    if not binding.evidence.valid_from <= now < binding.evidence.valid_until:
+        raise WorkError("work.cost_quote_expired")
+
+
 async def _write_ledger(db: Any, root: WorkItem, fields: dict) -> None:
     """Persist under the shared root lock or roll back the reservation unit."""
     updated = await db.find_one_and_update(
@@ -324,6 +363,16 @@ async def reserve_mandate_budget(
             or execution_context.principal_id != principal_id
             or execution_context.workspace_id != workspace_id
             or execution_context.thread_id != thread_id
+        ):
+            raise WorkError("work.mandate_scope_denied")
+    if request.model_price_binding is not None:
+        scope = request.model_price_binding.request.scope
+        if (
+            execution_context is None
+            or scope.principal_id != principal_id
+            or scope.workspace_id != workspace_id
+            or scope.thread_id != thread_id
+            or scope.run_id != execution_context.run_id
         ):
             raise WorkError("work.mandate_scope_denied")
     if request.quote.upper_cost is None:
@@ -599,6 +648,7 @@ async def mark_mandate_dispatch_intent(
     request_fingerprint: str,
     dispatch_ref: str,
     model_scope: HarnessExecutionScope | None = None,
+    model_price_request: ModelPriceRequest | None = None,
 ) -> WorkBudgetReservation:
     """Persist one fenced dispatch intent; never repeat an uncertain operation.
 
@@ -664,6 +714,9 @@ async def mark_mandate_dispatch_intent(
         req = MandateReservationRequest.model_validate(record.request)
         _assert_leased_reservation(ctx, path[-1], req)
         _assert_reviewed_request(req, revision)
+        _assert_bound_model_dispatch(
+            req, model_scope, model_price_request, dispatch_ref
+        )
         scope_payload = {}
         if model_scope is not None:
             try:

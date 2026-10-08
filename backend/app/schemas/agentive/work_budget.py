@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime
-from decimal import Decimal, localcontext
 from typing import Annotated
 
 from pydantic import Field, model_validator
@@ -17,20 +16,8 @@ from app.schemas.agentive.work_mandate import (
     MandateExternalGrant,
     MandateModelRoute,
 )
-
-Money = Annotated[
-    Decimal, Field(ge=0, allow_inf_nan=False, max_digits=18, decimal_places=8)
-]
-
-
-def money_units(amount: Decimal) -> int:
-    """Exact USD units at 1e-8, independent of ambient decimal precision."""
-    with localcontext() as context:
-        context.prec = 36
-        scaled = amount * Decimal(100000000)
-        if scaled != scaled.to_integral_value():
-            raise ValueError("cost exceeds USD precision")
-        return int(scaled)
+from app.schemas.agentive.work_money import Money, money_units
+from app.schemas.agentive.work_price import ModelPriceBinding
 
 
 class MandateCostQuote(MandateContract):
@@ -55,6 +42,7 @@ class MandateReservationRequest(MandateContract):
     input_fingerprint: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
     quote: MandateCostQuote
     model_route: MandateModelRoute | None = None
+    model_price_binding: ModelPriceBinding | None = None
     capability_grant: MandateCapabilityGrant | None = None
     external_grant: MandateExternalGrant | None = None
     internal_write_units: int = Field(default=0, ge=0, le=10000)
@@ -78,10 +66,27 @@ class MandateReservationRequest(MandateContract):
             self.external_effect_units
         ):
             raise ValueError("host-derived effect volumes must match operation class")
+        if self.model_price_binding is not None:
+            binding = self.model_price_binding
+            if (
+                self.model_route != binding.request.route
+                or self.input_fingerprint != binding.request.input_fingerprint
+                or self.quote.model_dump() != binding.quote_fields()
+            ):
+                raise ValueError(
+                    "model reservation must retain its exact price binding"
+                )
         return self
 
     def fingerprint(self) -> str:
         payload = self.model_dump(mode="json")
+        if self.model_price_binding is None:
+            # Preserve historical unbound reservation fingerprints.
+            payload.pop("model_price_binding", None)
+        else:
+            payload["model_price_binding"] = (
+                self.model_price_binding.canonical_payload()
+            )
         payload["quote"]["upper_cost"] = (
             money_units(self.quote.upper_cost)
             if self.quote.upper_cost is not None

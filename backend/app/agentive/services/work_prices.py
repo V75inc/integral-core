@@ -3,24 +3,25 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import json
 from datetime import datetime, timezone
-from decimal import ROUND_CEILING, Decimal, localcontext
 
 from pydantic import ValidationError
 
 from app.schemas.agentive.work import WorkError
-from app.schemas.agentive.work_budget import MandateCostQuote
-from app.schemas.agentive.work_price import ModelPriceRequest, ModelTokenPriceEvidence
+from app.schemas.agentive.work_budget import MandateCostQuote, MandateReservationRequest
+from app.schemas.agentive.work_price import (
+    ModelPriceBinding,
+    ModelPriceRequest,
+    ModelTokenPriceEvidence,
+)
 from app.services.host_hooks import get_model_price_resolver
 
 _PRICE_RESOLUTION_TIMEOUT_SECONDS = 10.0
 
 
-async def resolve_mandate_model_cost_quote(
+async def _resolve_model_price_binding(
     request: ModelPriceRequest,
-) -> MandateCostQuote:
+) -> ModelPriceBinding:
     """Never infer price from a route name, chat, LiteLLM estimate or missing hook.
 
     The physical host must establish payload bounds before this call. The
@@ -55,35 +56,38 @@ async def resolve_mandate_model_cost_quote(
         raise WorkError("work.price_evidence_invalid")
     if not evidence.valid_from <= now < evidence.valid_until:
         raise WorkError("work.cost_quote_expired")
-    with localcontext() as context:
-        context.prec = 48
-        ceiling = (
-            Decimal(request.input_tokens_upper) * evidence.input_usd_per_million
-            + Decimal(request.output_tokens_upper) * evidence.output_usd_per_million
-        ) / Decimal(1_000_000) + evidence.request_fee_upper_usd
-        ceiling = ceiling.quantize(Decimal("0.00000001"), rounding=ROUND_CEILING)
-    # Canonical JSON binds the exact request and host policy. Rates are normalized
-    # to fixed decimal places so equivalent numeric representations do not fork IDs.
-    payload = evidence.model_dump(mode="json")
-    for field in (
-        "input_usd_per_million",
-        "output_usd_per_million",
-        "request_fee_upper_usd",
-    ):
-        payload[field] = format(getattr(evidence, field), ".8f")
-    for field in ("valid_from", "valid_until"):
-        payload[field] = getattr(evidence, field).astimezone(timezone.utc).isoformat()
-    identity = hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
+    return ModelPriceBinding(request=request, evidence=evidence)
+
+
+async def resolve_mandate_model_cost_quote(
+    request: ModelPriceRequest,
+) -> MandateCostQuote:
+    """Compute a host-attested ceiling without granting dispatch authority."""
+    binding = await _resolve_model_price_binding(request)
     try:
-        return MandateCostQuote(
-            provider=request.route.provider,
-            model=request.route.model,
-            credential_ref=request.route.credential_ref,
-            quote_ref="host-model-price:" + identity,
-            valid_until=min(request.bounds_valid_until, evidence.valid_until),
-            upper_cost=ceiling,
+        return MandateCostQuote(**binding.quote_fields())
+    except ValidationError as exc:
+        raise WorkError("work.price_evidence_invalid") from exc
+
+
+async def resolve_mandate_model_reservation_request(
+    request: ModelPriceRequest,
+    *,
+    logical_effect_key: str,
+) -> MandateReservationRequest:
+    """Retain bounds and evidence in the durable reservation input.
+
+    This creates no reservation or authority. The physical adapter must derive
+    actual payload bounds, then use the existing shared-budget and lease gates.
+    """
+    binding = await _resolve_model_price_binding(request)
+    try:
+        return MandateReservationRequest(
+            logical_effect_key=logical_effect_key,
+            input_fingerprint=binding.request.input_fingerprint,
+            quote=MandateCostQuote(**binding.quote_fields()),
+            model_route=binding.request.route,
+            model_price_binding=binding,
         )
     except ValidationError as exc:
         raise WorkError("work.price_evidence_invalid") from exc
