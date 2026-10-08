@@ -2299,6 +2299,16 @@ data and the lookup primitive that binds entries to workspace members.
 
 **Origin:** Dogfood Phase 16 (REQ-ID ACC-08). Surfaced by Employee↔User and Pricing-Rubric↔User needs; resolved by adding a dedicated field type rather than overloading `relation`.
 
+### I-FIELD-RESOURCE-01 — Resource references render as named destinations
+
+**Scope:** OperationalModel scaffolding and shared entry field presentation, including detail pages and cards.
+
+**Rule:** Declare references to entries/tracks as `relation`, members as `member`, and attachments as `file` / `files`. Persist canonical IDs for execution, but resolve them through authorized resource APIs for display. A resolved value shows its human label with navigation to the entry/track or an authenticated file preview/download. Never render the raw stored ID as the normal field value, including loading, denied, missing, or deleted states. Those states show a readable unavailable/loading message. Reference controls use the same label placement and alignment as adjacent fields.
+
+**Boundary:** Do not guess resource references from ordinary text, fingerprints, hashes, or arbitrary JSON. Opaque diagnostic values remain diagnostic text. Resolution must preserve workspace permissions; it must not substitute a label from another scope or manufacture a destination for an inaccessible resource.
+
+**Verification:** Shared `EntryMetaFields` uses `RelationValue`, `MemberValue`, and `FileValue`; typed file presentation tests cover named preview controls and unavailable values. Browser qualification covers relation-control alignment and authenticated PDF preview.
+
 ## Chat & Staging Surface
 
 ### I-CHAT-01 — No raw node id surfaces in human-facing chat or staging text

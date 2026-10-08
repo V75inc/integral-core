@@ -12,6 +12,8 @@ import { ArchiveIcon, Loader2, MoreHorizontalIcon, PencilIcon, PlusIcon, SearchI
 
 import { groupThreadsByRecency, type ThreadGroupInfo } from "../threadGrouping";
 
+import { ConversationLabel } from "./ConversationLabel";
+
 import { AgentSwitcher } from "./AgentSwitcher";
 import { useActiveChatProvider } from "../useActiveChatProvider";
 import { useChatActivity } from "../AIChatSurface";
@@ -146,7 +148,7 @@ function ThreadGroupHeader({ label }: { label: string }) {
 
 function ThreadListItem() {
   const threadId = useAuiState((s) => s.threadListItem.id);
-  const { threadGroups, threads } = useChatActivity();
+  const { threadGroups, threads, isThreadStreaming } = useChatActivity();
   const title = useThreadListItem(s => s.title);
   const thread = threads.find(t => t.id === threadId);
   const lastActivity = thread?.last_message_at ?? thread?.updated_at ?? thread?.created_at;
@@ -159,7 +161,7 @@ function ThreadListItem() {
       {group?.isFirst && <ThreadGroupHeader label={group.label} />}
       <ThreadListItemPrimitive.Root
         className="
-          group relative flex h-9 items-center gap-1
+          group relative flex min-h-[40px] items-center gap-1
           rounded-[var(--radius-input)]
           transition-colors duration-fast
           hover:bg-[var(--panel-2)] focus-visible:bg-[var(--panel-2)]
@@ -168,16 +170,14 @@ function ThreadListItem() {
       >
       <ThreadListItemPrimitive.Trigger
         className="
-          flex h-full min-w-0 flex-1 items-center gap-2 px-3
-          text-left text-sm text-[var(--text)]
+          flex h-full min-w-0 flex-1 items-start gap-2 px-2 py-1.5
+          text-left text-[13px] text-[var(--text)]
           focus:outline-none
         "
       >
         <ThreadListItemStreamingSpinner />
-        <span className="min-w-0 flex-1 truncate" title={title || "New conversation"}>
-          <ThreadListItemPrimitive.Title fallback="New conversation" />
-        </span>
-        {lastActivity && <time dateTime={lastActivity} title={new Date(lastActivity).toLocaleString()} className="shrink-0 text-[10px] tabular-nums text-[var(--text-subtle)]">{new Date(lastActivity).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time>}
+        <ConversationLabel title={title || "New conversation"} lastActivity={lastActivity}
+          createdAt={thread?.created_at} messageCount={thread?.message_count} working={isThreadStreaming(threadId)} />
       </ThreadListItemPrimitive.Trigger>
         <ThreadListItemMore />
       </ThreadListItemPrimitive.Root>
@@ -255,7 +255,7 @@ function ThreadListItemMore() {
       <ThreadListItemMorePrimitive.Trigger
         aria-label={`Options for ${title || "New conversation"}`}
         className="
-          me-1.5 flex h-7 w-7 items-center justify-center
+          absolute bottom-0 right-1 flex h-6 w-6 items-center justify-center
           rounded-[var(--radius-input)]
           text-[var(--text-subtle)] opacity-0
           transition-opacity hover:bg-[var(--panel)]

@@ -52,6 +52,8 @@ export interface SeamlessFieldRelationChoice {
 }
 
 export interface SeamlessFieldProps {
+  /** Detail grid owns the visible label and left alignment. */
+  externalLabel?: boolean;
   field: OperationalModelFieldSpec;
   value: unknown;
   onChange: (value: unknown) => void;
@@ -123,7 +125,9 @@ function SeamlessShell({
   field,
   active,
   className = '',
+  hideLabel = false,
 }: {
+  hideLabel?: boolean;
   children: ReactNode;
   showLabel: boolean;
   field: OperationalModelFieldSpec;
@@ -140,7 +144,7 @@ function SeamlessShell({
       `}
       aria-required={required || undefined}
     >
-      <FloatingLabel show={showLabel} name={field.name} required={required} />
+      {!hideLabel && <FloatingLabel show={showLabel} name={field.name} required={required} />}
       {children}
     </div>
   );
@@ -535,6 +539,7 @@ function SeamlessMultiSelectInner({
 }
 
 function SeamlessRelationManyInner({
+  externalLabel = false,
   field,
   value,
   onChange,
@@ -545,6 +550,7 @@ function SeamlessRelationManyInner({
   onNavigate,
   navContext,
 }: {
+  externalLabel?: boolean;
   field: OperationalModelFieldSpec;
   value: unknown;
   onChange: (v: unknown) => void;
@@ -561,9 +567,9 @@ function SeamlessRelationManyInner({
       : undefined;
 
   return (
-    <div className="space-y-1.5 pl-3">
+    <div className={`space-y-1.5 ${externalLabel ? '' : 'pl-3'}`}>
       {/* Keep the label in flow so pointer entry cannot move the trigger. */}
-      <InlineFieldLabel field={field} />
+      {!externalLabel && <InlineFieldLabel field={field} />}
       <RelationMultiSelectCombobox
         field={field}
         value={value}
@@ -581,6 +587,7 @@ function SeamlessRelationManyInner({
 }
 
 function SeamlessRelationSingleInner({
+  externalLabel = false,
   field,
   value,
   onChange,
@@ -591,6 +598,7 @@ function SeamlessRelationSingleInner({
   onNavigate,
   navContext,
 }: {
+  externalLabel?: boolean;
   field: OperationalModelFieldSpec;
   value: unknown;
   onChange: (v: unknown) => void;
@@ -628,8 +636,8 @@ function SeamlessRelationSingleInner({
 
   if (readonly || (currentId && !editing)) {
     return (
-      <div className="space-y-1.5 pl-3">
-        <InlineFieldLabel field={field} />
+      <div className={`space-y-1.5 ${externalLabel ? '' : 'pl-3'}`}>
+        {!externalLabel && <InlineFieldLabel field={field} />}
         <div className="flex min-w-0 items-center gap-2">
           {currentId ? (
             <div className="min-w-0 flex-1">
@@ -669,7 +677,8 @@ function SeamlessRelationSingleInner({
       }}
     >
       <SeamlessShell
-        showLabel={showFloat}
+        hideLabel={externalLabel}
+        showLabel={!externalLabel && showFloat}
         field={field}
         active={active || hovered}
       >
@@ -1101,6 +1110,7 @@ export function SeamlessField(props: SeamlessFieldProps) {
           : 'Select tasks…';
       return (
         <SeamlessRelationManyInner
+          externalLabel={props.externalLabel}
           field={field}
           value={value}
           onChange={onChange}
@@ -1117,6 +1127,7 @@ export function SeamlessField(props: SeamlessFieldProps) {
     }
     return (
       <SeamlessRelationSingleInner
+        externalLabel={props.externalLabel}
         field={field}
         value={value}
         onChange={onChange}

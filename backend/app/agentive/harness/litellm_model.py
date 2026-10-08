@@ -530,6 +530,8 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
             scope=self._scope,
             provider=self._route.provider,
             model=self._route.model,
+            credential_source=self._route.credential_source,
+            credential_ref=self._route.credential_ref,
             attempt=1,
             dispatched_at=started_at,
             observed_at=datetime.now(timezone.utc),

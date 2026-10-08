@@ -13,6 +13,7 @@ import { useScope } from '../../context/ScopeContext';
 import { InlineFieldEditor } from './InlineFieldEditor';
 import { JsonTableEditor, isJsonTableShape } from './JsonTableEditor';
 import { MemberValue } from './members';
+import { FileValue } from './FileValue';
 import { RelationValue } from './relations';
 import type { RelationNavContext } from './relations/routeForRelationTarget';
 import { formatChecklistSummary } from './fieldTypes/ChecklistField';
@@ -386,7 +387,7 @@ export function EntryMetaFields({
 
     // Relation / member fields skip the text rendering path — dedicated
     // resolvers hydrate ids to labels asynchronously in the JSX branch below.
-    if (t === 'relation' || t === 'member') {
+    if (t === 'relation' || t === 'member' || t === 'file' || t === 'files') {
       rows.push({
         field,
         text: '',
@@ -447,9 +448,9 @@ export function EntryMetaFields({
                 </div>
               ) : null}
               <div className={`min-w-0 [overflow-wrap:anywhere] ${fullBleed ? 'sm:col-span-2' : ''}`.trim()}>
-                {!row.relationEditable && <div className="text-[13px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
+                <div className="text-[13px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
                   {row.field.name}
-                </div>}
+                </div>
                 {row.inlineEditable && onCommitField ? (
                   <div className="mt-0.5">
                     <InlineFieldEditor
@@ -462,6 +463,7 @@ export function EntryMetaFields({
                 ) : row.relationEditable && onCommitField && !readOnlyKeys.includes(row.field.key) ? (
                   <div className="mt-0.5">
                     <SeamlessField
+                      externalLabel
                       field={row.field}
                       value={values[row.field.key] ?? null}
                       onChange={async newValue => {
@@ -523,6 +525,8 @@ export function EntryMetaFields({
                       }
                     />
                   </div>
+                ) : t === 'file' || t === 'files' ? (
+                  <div className="mt-0.5 min-w-0"><FileValue value={row.raw} /></div>
                 ) : t === 'member' ? (
                   <div
                     className={`mt-0.5 text-sm leading-relaxed ${valueClampClass}`.trim()}
