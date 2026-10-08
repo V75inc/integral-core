@@ -1129,17 +1129,40 @@ class PydanticAIProvider:
             workspace_id=ctx.workspace_id,
             default_model=os.environ["INTEGRAL_NATIVE_MODEL"].strip(),
         )
+        model_observer = (
+            partial(
+                persist_model_request_observation,
+                work_execution_context=work_execution_context,
+            )
+            if work_execution_context is not None
+            else persist_model_request_observation
+        )
+        model_admission = None
+        if work_execution_context is not None:
+            from app.agentive.services.work_model_admission import WorkModelAdmission
+
+            async def assert_model_authority() -> None:
+                current_role = await can_access_workspace(ctx.user_id, ctx.workspace_id)
+                if current_role == "none" or current_role != workspace_role:
+                    raise WorkError("work.permission_stale")
+                current_route = await resolve_native_model_route(
+                    workspace_id=ctx.workspace_id,
+                    default_model=os.environ["INTEGRAL_NATIVE_MODEL"].strip(),
+                )
+                if current_route != route:
+                    raise WorkError("work.model_route_stale")
+
+            model_admission = WorkModelAdmission(
+                context=work_execution_context,
+                assert_authority=assert_model_authority,
+                observer=model_observer,
+            )
+            model_observer = model_admission.observe
         model = build_litellm_sdk_model(
             route=route,
             scope=scope,
-            observer=(
-                partial(
-                    persist_model_request_observation,
-                    work_execution_context=work_execution_context,
-                )
-                if work_execution_context is not None
-                else persist_model_request_observation
-            ),
+            observer=model_observer,
+            admission=model_admission,
             timeout_seconds=settings.INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS,
         )
         design_marker = getattr(thread, "design_proposed", None) or {}

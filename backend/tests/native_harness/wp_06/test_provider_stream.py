@@ -692,7 +692,10 @@ async def test_prepare_uses_host_run_and_snapshot_as_broker_authority(
         in runtime_args["instructions"]
     )
     assert tool_args["work_execution_context"] == work_context
-    assert model_args["observer"].keywords["work_execution_context"] == work_context
+    boundary = model_args["admission"]
+    assert model_args["observer"] == boundary.observe
+    assert boundary._context == work_context
+    assert boundary._observer.keywords["work_execution_context"] == work_context
     assert _rest[-2] == work_context
     assert _rest[-1]["proposal_attempted"] is False
     assert _rest[-1]["capability_search_completed"] is False
