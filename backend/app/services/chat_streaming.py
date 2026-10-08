@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 import logging
 from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator, AsyncIterator, Dict, List, Optional, Tuple, cast
@@ -15,6 +14,7 @@ from app.schemas.agentive.work import WorkError, WorkExecutionContext
 from app.services import chat_turn_registry
 from app.services.chat_providers import ChatBackendProvider, ChatTurnContext
 from app.services.chat_providers.base import register_provider_cancel_hook
+from app.services.chat_sse import sse_bytes
 from app.services.chat_thread_events import notify_thread_stream_update
 from app.services.chat_turn_registry import InFlightTurn
 
@@ -37,11 +37,6 @@ async def _await_cleanup_task(task: asyncio.Task[Any]) -> Any:
             # strand run status, transcript persistence, or the thread fence.
             continue
     return task.result()
-
-
-def sse_bytes(event: str, data: Dict[str, Any]) -> bytes:
-    """Encode a named SSE event frame with JSON-serialized payload."""
-    return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n".encode("utf-8")
 
 
 class _DeltaHumanizer:

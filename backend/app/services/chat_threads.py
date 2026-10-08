@@ -32,6 +32,14 @@ def _now() -> str:
 # ---------------------------------------------------------------------------
 
 
+def derive_thread_title(text: str) -> str:
+    """Consistent first-message title for synchronous and durable acceptance."""
+    cleaned = " ".join(text.strip().split())
+    if not cleaned:
+        return "New chat"
+    return (cleaned[:60] + "…") if len(cleaned) > 60 else cleaned
+
+
 async def create_thread(
     *,
     user_id: str,

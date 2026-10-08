@@ -42,6 +42,7 @@ HANDLED_KINDS = frozenset(
         "event_trigger",
         "migration",
         "app_lifecycle",
+        "chat_turn",
     }
 )
 
@@ -1043,6 +1044,13 @@ async def execute_claimed_work(
                     retryable=False,
                 )
             },
+        )
+    # Native chat owns atomic transcript/run/admission terminalization. Do not
+    # send its storage or fencing errors through the generic transition path,
+    # which would leave its principal permit and thread reservation stranded.
+    if kind == "chat_turn":
+        return await _handle_chat_turn(
+            item, worker_id=worker_id, lease_seconds=lease_seconds
         )
     try:
         if kind == "capability":

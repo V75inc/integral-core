@@ -31,6 +31,7 @@ Provider abstraction:
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 import re
@@ -62,6 +63,7 @@ from app.api.errors import (
     UnprocessableEntityError,
 )
 from app.api.utils import resolve_principal_id
+from app.config import settings
 from app.schemas.api.ai_chat import PageContext
 from app.schemas.chat_entity_refs import EntityRef
 from app.services import chat_threads as chat_store
@@ -724,6 +726,50 @@ async def replay_chat_turn_events(
 
 
 @endpoint(
+    "/chat/threads/{thread_id}/work-items/{work_item_id}/stream",
+    methods=["GET"],
+    auth=True,
+    tags=["AI Chat"],
+)
+async def stream_chat_turn_events(
+    request: Request,
+    thread_id: str,
+    work_item_id: str,
+    after_sequence: int = 0,
+) -> StreamingResponse:
+    """Reconnect to committed output without submitting or executing work."""
+    from app.services.chat_turn_streaming import stream_committed_chat_turn
+
+    # Validate authorization and cursor before committing streaming headers.
+    await replay_chat_turn_events(request, thread_id, work_item_id, after_sequence)
+    user_id, _ = _resolve_principal(request)
+    thread = await _resolve_owned_thread(thread_id, user_id)
+    workspace_id = await _resolve_turn_workspace(request, user_id, thread)
+
+    if not workspace_id:
+        raise ResourceNotFoundError(message="Chat turn not found")
+
+    async def assert_scope() -> None:
+        owned = await _resolve_owned_thread(thread_id, user_id)
+        current_workspace = await _resolve_turn_workspace(request, user_id, owned)
+        if current_workspace != workspace_id:
+            raise InsufficientPermissionsError(message="Chat workspace changed")
+
+    return StreamingResponse(
+        stream_committed_chat_turn(
+            principal_id=user_id,
+            workspace_id=workspace_id,
+            thread_id=thread_id,
+            work_item_id=work_item_id.removeprefix("o.WorkItem."),
+            assert_scope=assert_scope,
+            after_sequence=after_sequence,
+        ),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@endpoint(
     "/chat/threads/{thread_id}/work-items/{work_item_id}/cancel",
     methods=["POST"],
     auth=True,
@@ -1133,11 +1179,7 @@ async def delete_thread(
 
 
 def _derive_thread_title(text: str) -> str:
-    """First-message-derived title when the thread is still untitled."""
-    cleaned = " ".join(text.strip().split())
-    if not cleaned:
-        return "New chat"
-    return (cleaned[:60] + "…") if len(cleaned) > 60 else cleaned
+    return chat_store.derive_thread_title(text)
 
 
 class _AssistantDraft:
@@ -1930,6 +1972,16 @@ async def send_message(
         )
     thread = await _resolve_owned_thread(thread_id, user_id)
     native_turn = thread.provider_id == "integral_native"
+    durable_turn = native_turn and settings.INTEGRAL_NATIVE_DURABLE_CHAT_ENABLED
+    if durable_turn:
+        if not client_request_id:
+            raise BadRequestError(
+                message="A durable chat request requires a request ID"
+            )
+        if images or attachment_ids or host_action:
+            raise BadRequestError(
+                message="Durable chat attachment and host continuation admission is not enabled yet"
+            )
     if host_prompt_sheet_resume:
         from app.services.prompt_queue import (
             QUEUE_STATUS_CLOSED,
@@ -1950,6 +2002,8 @@ async def send_message(
     # conversation belongs to. See ``_resolve_turn_workspace`` for why the
     # ``X-Integral-Scope`` header is a consistency check here, not the source.
     active_workspace_id = await _resolve_turn_workspace(request, user_id, thread)
+    if durable_turn and not active_workspace_id:
+        raise BadRequestError(message="Durable chat requires a workspace")
     # Native workflow selection belongs to the Pydantic run. The legacy judge
     # is an inference call outside native admission, usage and BYOK accounting.
     greenfield_proposal_required = (
@@ -2175,8 +2229,10 @@ async def send_message(
     # hit the 409 from acquire_turn — leaving a duplicate user bubble behind
     # a refused turn. Everything from here to the StreamingResponse runs
     # under the reservation and releases it if it raises.
-    turn_handle = await chat_turn_registry.acquire_turn(
-        thread_id=thread.id, user_id=user_id
+    turn_handle = (
+        None
+        if durable_turn
+        else await chat_turn_registry.acquire_turn(thread_id=thread.id, user_id=user_id)
     )
     try:
         return await _start_user_turn(
@@ -2205,9 +2261,23 @@ async def send_message(
             greenfield_proposal_required=greenfield_proposal_required,
             host_action=host_action,
             client_request_id=client_request_id,
+            durable_turn=durable_turn,
+            client_payload_digest=(
+                hashlib.sha256(
+                    json.dumps(
+                        parsed_body.model_dump(mode="json"),
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        ensure_ascii=False,
+                    ).encode()
+                ).hexdigest()
+                if durable_turn
+                else None
+            ),
         )
     except BaseException:
-        await chat_turn_registry.release_turn(thread.id)
+        if not durable_turn:
+            await chat_turn_registry.release_turn(thread.id)
         raise
 
 
@@ -2238,6 +2308,8 @@ async def _start_user_turn(
     greenfield_proposal_required: bool,
     host_action: Optional[str],
     client_request_id: Optional[str],
+    durable_turn: bool = False,
+    client_payload_digest: Optional[str] = None,
 ) -> StreamingResponse:
     """Persist the user message and open the stream, under an acquired turn."""
     native_turn = getattr(thread, "provider_id", None) == "integral_native"
@@ -2276,7 +2348,7 @@ async def _start_user_turn(
         )
     user_parts.extend(attachment_file_parts)
     persisted_user_message_id: Optional[str] = None
-    if user_parts:
+    if user_parts and not durable_turn:
         persisted_user_message = await chat_store.append_message(
             thread=thread,
             role="user",
@@ -2290,20 +2362,20 @@ async def _start_user_turn(
     from app.services.prompt_queue import queue_is_open
 
     had_pending_question = getattr(thread, "pending_question", None) is not None
-    if had_pending_question:
+    if had_pending_question and not durable_turn:
         thread.pending_question = None
     # Do not auto-skip the Prompt Sheet on ordinary turns — sheet owns
     # resolution. If somehow a turn arrives while open (API clients), leave
     # the queue; the sheet will still show on reload.
     _ = queue_is_open(thread)
 
-    if not thread.title:
+    if not durable_turn and not thread.title:
         fallback_title = (
             "Image" if images else ("File" if attachment_file_parts else "")
         )
         thread.title = _derive_thread_title(user_text or fallback_title)
         await thread.save()
-    elif had_pending_question:
+    elif had_pending_question and not durable_turn:
         await thread.save()
 
     extra_data: Dict[str, Any] = {}
@@ -2332,8 +2404,9 @@ async def _start_user_turn(
         )
     if page_context:
         extra_data["page_context"] = page_context.model_dump(mode="json")
-        thread.last_page_context = page_context.model_dump(mode="json")
-        await thread.save()
+        if not durable_turn:
+            thread.last_page_context = page_context.model_dump(mode="json")
+            await thread.save()
 
     # Cards the user has neither approved nor rejected are LIVE turn state,
     # not a one-shot event. The [SYSTEM:STAGING-RESOLVED] marker only fires
@@ -2489,6 +2562,54 @@ async def _start_user_turn(
         extra_data["no_workspace_writes"] = True
     if greenfield_proposal_required:
         extra_data["design_only"] = True
+
+    if durable_turn:
+        from app.schemas.agentive.work import (
+            ChatTurnExecutionContext,
+            ChatTurnSubmissionRequest,
+        )
+        from app.services.chat_turn_submissions import submit_chat_turn
+
+        receipt = await submit_chat_turn(
+            ChatTurnSubmissionRequest(
+                principal_id=user_id,
+                workspace_id=active_workspace_id or "",
+                thread_id=thread.id,
+                client_request_id=client_request_id or "",
+                parts=user_parts,
+                provider_metadata=user_provider_metadata,
+                client_payload_digest=client_payload_digest,
+                execution_context=ChatTurnExecutionContext(
+                    system_context="\n\n".join(
+                        block for block in system_context_blocks if block
+                    ),
+                    no_workspace_writes=bool(extra_data.get("no_workspace_writes")),
+                    design_only=bool(extra_data.get("design_only")),
+                    focused_track_id=focused_track_id,
+                    focused_space_id=focused_space_id,
+                    focused_view_id=focused_view_id,
+                    extra_data={
+                        key: value
+                        for key, value in extra_data.items()
+                        if key
+                        not in {
+                            "pending_approval_tokens",
+                            "no_workspace_writes",
+                            "design_only",
+                        }
+                    },
+                ),
+            )
+        )
+        response = await stream_chat_turn_events(
+            request, thread.id, receipt.work_item_id
+        )
+        response.headers["X-Integral-Work-Item"] = receipt.work_item_id
+        response.headers["X-Integral-Accepted-Message"] = receipt.message_id
+        response.headers["Access-Control-Expose-Headers"] = (
+            "X-Integral-Work-Item, X-Integral-Accepted-Message"
+        )
+        return response
 
     run_metadata = _run_observability_metadata(
         turn_id=turn_handle.turn_id,
@@ -2834,7 +2955,10 @@ async def agent_turn(
 async def cancel_thread(request: Request, thread_id: str) -> Dict[str, Any]:
     """Best-effort cancel for an in-flight assistant turn on this thread."""
     user_id, _ = _resolve_principal(request)
-    await _resolve_owned_thread(thread_id, user_id)
+    thread = await _resolve_owned_thread(thread_id, user_id)
+    if thread.provider_id == "integral_native" and thread.active_work_item_id:
+        receipt = await cancel_chat_turn(request, thread_id, thread.active_work_item_id)
+        return {"thread_id": thread_id, "cancelled": True, **receipt}
     cancelled = await chat_turn_registry.cancel_turn(thread_id)
     return {"thread_id": thread_id, "cancelled": cancelled}
 
