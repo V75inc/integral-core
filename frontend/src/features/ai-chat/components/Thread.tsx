@@ -3,7 +3,6 @@ import {
   ActionBarPrimitive,
   AttachmentPrimitive,
   AuiIf,
-  BranchPickerPrimitive,
   ComposerPrimitive,
   ErrorPrimitive,
   MessagePrimitive,
@@ -19,8 +18,6 @@ import {
   BugIcon,
   CheckIcon,
   ChevronDownIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
   CopyIcon,
   DownloadIcon,
   ExternalLinkIcon,
@@ -634,7 +631,6 @@ function AssistantMessage() {
 
       {(hasVisibleBody || hasDebugPayload || isRunning) && (
         <div className={`ms-2 flex items-center ${ACTION_BAR_RESERVE}`}>
-          {hasVisibleBody && <BranchPicker />}
           <AssistantActionBar debugOnly={!hasVisibleBody} />
         </div>
       )}
@@ -1151,7 +1147,6 @@ function UserMessage() {
           <UserActionBar />
         </div>
       </div>
-      <BranchPicker className="col-span-full col-start-1 row-start-3 -me-1 justify-end" />
     </MessagePrimitive.Root>
   );
 }
@@ -1227,40 +1222,8 @@ function EditComposer() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Branch picker
-// ---------------------------------------------------------------------------
-
-function BranchPicker({ className = "" }: { className?: string }) {
-  return (
-    <BranchPickerPrimitive.Root
-      hideWhenSingleBranch
-      className={`-ms-2 me-2 inline-flex items-center gap-1 text-[var(--text-subtle)] text-xs ${className}`}
-    >
-      <BranchPickerPrimitive.Previous
-        aria-label="Previous"
-        className="
-          flex h-6 w-6 items-center justify-center rounded-[var(--radius-input)]
-          hover:bg-[var(--panel-2)] hover:text-[var(--text)] transition
-        "
-      >
-        <ChevronLeftIcon size={14} />
-      </BranchPickerPrimitive.Previous>
-      <span className="font-medium tabular-nums">
-        <BranchPickerPrimitive.Number /> / <BranchPickerPrimitive.Count />
-      </span>
-      <BranchPickerPrimitive.Next
-        aria-label="Next"
-        className="
-          flex h-6 w-6 items-center justify-center rounded-[var(--radius-input)]
-          hover:bg-[var(--panel-2)] hover:text-[var(--text)] transition
-        "
-      >
-        <ChevronRightIcon size={14} />
-      </BranchPickerPrimitive.Next>
-    </BranchPickerPrimitive.Root>
-  );
-}
+// The host restores one canonical transcript, not persisted message branches.
+// Do not expose assistant-ui's transient repository branches as saved versions.
 
 // ---------------------------------------------------------------------------
 // Composer (sticky in viewport footer)
