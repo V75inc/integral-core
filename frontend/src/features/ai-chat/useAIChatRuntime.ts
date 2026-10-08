@@ -1716,6 +1716,7 @@ export function useAIChatRuntime(
           await refreshThreads();
         } catch (err) {
           console.error("AI chat: rename failed", err);
+          throw err;
         }
       },
       onArchive: async (threadId: string) => {
