@@ -44,6 +44,17 @@ describe('native committed response replay', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response('event: text-delta\ndata: {"type":"text-delta","delta":"Uncommitted"}\n\n', true)));
     expect(await drain()).toEqual([expect.objectContaining({ code: 'chat_event_sequence_invalid' })]);
   });
+  it('attaches directly to an owned work receipt after reload without POST', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response(frame(1, 'Recovered') + settled));
+    vi.stubGlobal('fetch', fetchMock);
+    const events = [];
+    for await (const event of IntegralNativeProvider.streamTurn({threadId: 'thread', userMessageText: '', resumeWorkItemId: 'chat-turn:owned', abortSignal: new AbortController().signal})) events.push(event);
+    expect(events).toEqual([{type: 'text-delta', delta: 'Recovered'}]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][1].method).toBe('GET');
+    expect(fetchMock.mock.calls[0][1].body).toBeUndefined();
+    expect(fetchMock.mock.calls[0][0]).toContain('/work-items/chat-turn%3Aowned/stream?after_sequence=0');
+  });
   it('does not reconnect jvagent with a receipt header', async () => {
     const fetchMock = vi.fn().mockResolvedValue(response(frame(1, 'Legacy'), true));
     vi.stubGlobal('fetch', fetchMock);

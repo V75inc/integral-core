@@ -1650,6 +1650,7 @@ def thread_to_dict(
         # debug clients can correlate a host thread with the harness's
         # own conversation graph; the FE runtime ignores it.
         "provider_session_id": thread.provider_session_id or None,
+        "active_work_item_id": thread.active_work_item_id or None,
         "title": thread.title or "",
         "archived": bool(thread.archived),
         "created_at": thread.created_at,

@@ -156,6 +156,9 @@ class ChatTurnExecutionContext(BaseModel):
     focused_space_id: Optional[str] = Field(default=None, max_length=255)
     focused_view_id: Optional[str] = Field(default=None, max_length=255)
     extra_data: Dict[str, Any] = Field(default_factory=dict)
+    attachment_bindings: list[Dict[str, Any]] = Field(
+        default_factory=list, max_length=10
+    )
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

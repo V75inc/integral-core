@@ -72,14 +72,19 @@ def _message_fingerprint(request: ChatTurnSubmissionRequest) -> str:
 
 
 def _request_fingerprint(request: ChatTurnSubmissionRequest) -> str:
+    context = (
+        request.execution_context.model_dump(mode="json")
+        if request.execution_context is not None
+        else None
+    )
+    # Preserve retained pre-attachment capsule fingerprints. An empty binding
+    # field carries no additional authority or input revision.
+    if context is not None and not context.get("attachment_bindings"):
+        context.pop("attachment_bindings", None)
     return _canonical_digest(
         {
             "message_fingerprint": _message_fingerprint(request),
-            "execution_context": (
-                request.execution_context.model_dump(mode="json")
-                if request.execution_context is not None
-                else None
-            ),
+            "execution_context": context,
         }
     )
 
@@ -102,6 +107,87 @@ def assert_accepted_chat_turn_fingerprint(
         )
     if not expected_fingerprint or expected_fingerprint not in fingerprints:
         raise WorkError("work.policy_denied", "accepted chat input changed")
+
+
+async def get_chat_turn_submission_receipt(
+    *,
+    principal_id: str,
+    workspace_id: str,
+    thread_id: str,
+    client_request_id: str,
+    client_payload_digest: str,
+) -> ChatTurnSubmissionReceipt | None:
+    """Recover accepted HTTP intent before rebuilding live host/file context."""
+    from app.agentive.services.work_items import work_item_object_id
+    from app.agentive.work_models import WorkItem
+
+    key, message_id = _submission_identity(
+        principal_id=principal_id,
+        workspace_id=workspace_id,
+        thread_id=thread_id,
+        client_request_id=client_request_id,
+    )
+    item = await WorkItem.get(
+        work_item_object_id(
+            kind="chat_turn",
+            origin="interactive_chat",
+            principal_id=principal_id,
+            workspace_id=workspace_id,
+            idempotency_key=key,
+        )
+    )
+    if item is None:
+        return None
+    thread = await ChatThread.get(thread_id)
+    if (
+        thread is None
+        or thread.user_id != principal_id
+        or thread.workspace_id != workspace_id
+        or item.principal_id != principal_id
+        or item.workspace_id != workspace_id
+        or item.thread_id != thread_id
+        or item.kind != "chat_turn"
+    ):
+        raise InsufficientPermissionsError(message="Chat thread scope mismatch")
+    payload = dict(item.input_payload or {})
+    if payload.get("client_payload_digest") != client_payload_digest:
+        raise ResourceConflictError(
+            message="Chat request ID was already used for different content",
+            details={"reason": "chat_submission_idempotency_conflict"},
+        )
+    message = await ChatMessage.get(message_id)
+    if (
+        not payload.get("capsule_id")
+        or not payload.get("capsule_digest")
+        or payload.get("accepted_message_id") != message_id
+        or message is None
+        or message.thread_id != thread_id
+        or message.role != "user"
+        or payload.get("message_fingerprint")
+        != _canonical_digest(
+            {
+                "parts": message.parts,
+                "provider_metadata": message.provider_metadata,
+                "parent_id": message.parent_id,
+            }
+        )
+    ):
+        raise ResourceConflictError(
+            message="Accepted chat message failed idempotency validation",
+            details={"reason": "chat_submission_message_mismatch"},
+        )
+    graph = await thread.get_context()
+    if not await graph.find_edges_between(thread_id, message_id, edge_class=CONTAINS):
+        raise ResourceConflictError(
+            message="Accepted chat message is detached",
+            details={"reason": "chat_submission_message_mismatch"},
+        )
+    return ChatTurnSubmissionReceipt(
+        client_request_id=client_request_id,
+        message_id=message_id,
+        work_item_id=item.work_item_id,
+        status=item.status,
+    )
 
 
 async def submit_chat_turn(
@@ -238,6 +324,18 @@ async def submit_chat_turn(
                 status=work_item.status,
             )
 
+        from app.services.chat_turn_attachments import assert_chat_attachment_bindings
+
+        await assert_chat_attachment_bindings(
+            thread=thread,
+            principal_id=request.principal_id,
+            parts=request.parts,
+            expected=(
+                request.execution_context.attachment_bindings
+                if request.execution_context
+                else []
+            ),
+        )
         # Every accepted durable turn needs a restorable encrypted capsule,
         # even when the host has no extra context to bind. An omitted context
         # is represented by the empty, typed context rather than a capsule-less

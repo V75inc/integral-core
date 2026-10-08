@@ -1103,3 +1103,277 @@ async def test_http_retry_retains_first_host_snapshot(postgres_graph_context) ->
                 update={"parts": [{"type": "text", "text": "changed intent"}]}
             )
         )
+
+
+async def _durable_file_request(thread, owner_id, workspace_id):
+    from app.models.edges import HAS_ATTACHMENT
+    from app.models.nodes import Attachment
+    from app.services.chat_turn_attachments import capture_chat_attachment_bindings
+
+    attachment = await Attachment.create(
+        filename="idea-brief.txt",
+        mime_type="text/plain",
+        size=12,
+        storage_key="chat/idea-brief",
+        content_hash="a" * 64,
+        uploaded_by=owner_id,
+        owner_kind="chat",
+        scan_status="skipped",
+        source_type="file",
+    )
+    await thread.connect(attachment, edge=HAS_ATTACHMENT)
+    part = {
+        "type": "file",
+        "attachment_id": attachment.id,
+        "filename": attachment.filename,
+        "mime_type": attachment.mime_type,
+        "size": attachment.size,
+    }
+    bindings = await capture_chat_attachment_bindings(
+        thread=thread, principal_id=owner_id, parts=[part]
+    )
+    request = _request(thread, owner_id, workspace_id).model_copy(
+        update={
+            "parts": [part],
+            "client_payload_digest": "c" * 64,
+            "execution_context": ChatTurnExecutionContext(attachment_bindings=bindings),
+        }
+    )
+    return request, attachment
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_durable_file_only_turn_restores_scoped_revision(postgres_graph_context):
+    thread, owner_id, workspace_id = await _submission_context()
+    request, attachment = await _durable_file_request(thread, owner_id, workspace_id)
+    accepted = await submit_chat_turn(request)
+    item = await work_items.claim_due_candidate(
+        work_item_id=accepted.work_item_id, worker_id="file-restoration"
+    )
+    restored = await load_claimed_chat_turn_input(item)
+    assert restored.text == ""
+    assert restored.message.parts == request.parts
+    assert (
+        restored.execution_context.attachment_bindings[0]["content_hash"]
+        == attachment.content_hash
+    )
+    assert "storage_key" not in str(item.input_payload)
+    assert "idea-brief" not in str(item.input_payload)
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("content_hash", "b" * 64),
+        ("storage_key", "another/file"),
+        ("uploaded_by", "another-principal"),
+        ("scan_status", "blocked"),
+        ("scan_status", "failed"),
+        ("filename", "renamed.txt"),
+    ],
+)
+async def test_durable_file_change_denies_worker_restoration(
+    postgres_graph_context, field, value
+):
+    thread, owner_id, workspace_id = await _submission_context()
+    request, attachment = await _durable_file_request(thread, owner_id, workspace_id)
+    accepted = await submit_chat_turn(request)
+    setattr(attachment, field, value)
+    await attachment.save()
+    item = await work_items.claim_due_candidate(
+        work_item_id=accepted.work_item_id, worker_id="changed-file"
+    )
+    with pytest.raises(WorkError, match="attachment"):
+        await load_claimed_chat_turn_input(item)
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_file_receipt_recovery_does_not_need_current_file(postgres_graph_context):
+    from app.services.chat_turn_submissions import get_chat_turn_submission_receipt
+
+    thread, owner_id, workspace_id = await _submission_context()
+    request, attachment = await _durable_file_request(thread, owner_id, workspace_id)
+    accepted = await submit_chat_turn(request)
+    attachment.scan_status = "blocked"
+    await attachment.save()
+    receipt = await get_chat_turn_submission_receipt(
+        principal_id=owner_id,
+        workspace_id=workspace_id,
+        thread_id=thread.id,
+        client_request_id=request.client_request_id,
+        client_payload_digest=request.client_payload_digest,
+    )
+    assert receipt == accepted
+    with pytest.raises(ResourceConflictError):
+        await get_chat_turn_submission_receipt(
+            principal_id=owner_id,
+            workspace_id=workspace_id,
+            thread_id=thread.id,
+            client_request_id=request.client_request_id,
+            client_payload_digest="d" * 64,
+        )
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_durable_file_foreign_thread_is_rejected_before_enqueue(
+    postgres_graph_context,
+):
+    thread, owner_id, workspace_id = await _submission_context()
+    request, _attachment = await _durable_file_request(thread, owner_id, workspace_id)
+    other = await create_thread(
+        user_id=owner_id, workspace_id=workspace_id, provider_id="integral_native"
+    )
+    with pytest.raises(WorkError, match="attachment is unavailable"):
+        await submit_chat_turn(request.model_copy(update={"thread_id": other.id}))
+    items, outbox = await _queued_for_thread(other.id)
+    assert items == outbox == []
+    assert (await ChatThread.get(other.id)).active_work_item_id == ""
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scan_status", ["blocked", "pending", "failed"])
+async def test_unsafe_file_is_rejected_before_acceptance(
+    postgres_graph_context, scan_status
+):
+    thread, owner_id, workspace_id = await _submission_context()
+    request, attachment = await _durable_file_request(thread, owner_id, workspace_id)
+    attachment.scan_status = scan_status
+    await attachment.save()
+    with pytest.raises(WorkError, match="attachment is unavailable"):
+        await submit_chat_turn(request)
+    items, outbox = await _queued_for_thread(thread.id)
+    assert items == outbox == []
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_retained_capsule_omitted_empty_bindings_reuses_stored_digest(
+    postgres_graph_context,
+):
+    import hashlib
+    import json
+
+    from app.agentive.harness.turn_input import (
+        load_turn_input_capsule,
+        persist_turn_input_capsule,
+    )
+    from app.services.credential_crypto import (
+        decrypt_secret_from_storage,
+        encrypt_secret_for_storage,
+    )
+
+    thread, owner_id, workspace_id = await _submission_context()
+    kwargs = dict(
+        principal_id=owner_id,
+        workspace_id=workspace_id,
+        thread_id=thread.id,
+        work_item_id="retained-file-context",
+        accepted_message_id="retained-message",
+        client_request_id="retained-request",
+        execution_context=ChatTurnExecutionContext(),
+        retention_days=90,
+    )
+    reference = await persist_turn_input_capsule(**kwargs)
+    record = await HarnessTurnInputRecord.get(reference["capsule_id"])
+    raw = json.loads(
+        decrypt_secret_from_storage(record.payload_ciphertext, aad=record.id)
+    )
+    raw["execution_context"].pop("attachment_bindings")
+    stored = json.dumps(raw, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    record.payload_ciphertext = encrypt_secret_for_storage(stored, aad=record.id)
+    record.payload_digest = hashlib.sha256(stored.encode()).hexdigest()
+    await record.save()
+    reused = await persist_turn_input_capsule(**kwargs)
+    assert reused["capsule_digest"] == record.payload_digest
+    restored = await load_turn_input_capsule(
+        capsule_id=reused["capsule_id"],
+        expected_digest=reused["capsule_digest"],
+        principal_id=owner_id,
+        workspace_id=workspace_id,
+        thread_id=thread.id,
+        work_item_id="retained-file-context",
+    )
+    assert restored.execution_context.attachment_bindings == []
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_changed_file_dispatch_fails_before_provider_and_releases_slot(
+    postgres_graph_context,
+    monkeypatch,
+):
+    from unittest.mock import Mock
+
+    from app.agentive.services.work_worker import execute_claimed_work
+
+    thread, owner_id, workspace_id = await _submission_context()
+    request, attachment = await _durable_file_request(thread, owner_id, workspace_id)
+    accepted = await submit_chat_turn(request)
+    attachment.content_hash = "b" * 64
+    await attachment.save()
+    item = await work_items.claim_due_candidate(
+        work_item_id=accepted.work_item_id, worker_id="file-dispatch"
+    )
+    registry = Mock(
+        side_effect=AssertionError("changed file must fail before provider lookup")
+    )
+    monkeypatch.setattr("app.services.chat_providers.get_registry", registry)
+    failed = await execute_claimed_work(
+        item, worker_id="file-dispatch", lease_seconds=30
+    )
+    assert failed.status == "failed"
+    registry.assert_not_called()
+    assert (await ChatThread.get(thread.id)).active_work_item_id == ""
+    assert (
+        await HarnessTurnAdmissionSlot.find({"work_item_id": accepted.work_item_id})
+        == []
+    )
+    next_turn = await submit_chat_turn(
+        _request(thread, owner_id, workspace_id, request_id="after-file-failure")
+    )
+    assert next_turn.status == "queued"
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "changed_field", ["content_hash", "extracted_text", "scan_status"]
+)
+async def test_attachment_read_boundary_rejects_changed_accepted_input(
+    postgres_graph_context, changed_field
+):
+    from app.services.chat_turn_attachments import assert_chat_attachment_read_inputs
+
+    thread, owner_id, workspace_id = await _submission_context()
+    request, attachment = await _durable_file_request(thread, owner_id, workspace_id)
+    accepted = await submit_chat_turn(request)
+    item = await work_items.claim_due_candidate(
+        work_item_id=accepted.work_item_id, worker_id="file-read-boundary"
+    )
+    await assert_chat_attachment_read_inputs(item=item)
+    setattr(
+        attachment,
+        changed_field,
+        {
+            "content_hash": "b" * 64,
+            "extracted_text": "substituted content after worker preparation",
+            "scan_status": "blocked",
+        }[changed_field],
+    )
+    await attachment.save()
+    with pytest.raises(WorkError, match="attachment"):
+        await assert_chat_attachment_read_inputs(item=item)

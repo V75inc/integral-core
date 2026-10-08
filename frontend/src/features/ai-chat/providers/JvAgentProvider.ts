@@ -125,6 +125,7 @@ export function createServerChatProvider({
     // One opaque identity belongs to this logical send. Keep it outside
     // doFetch so an authentication refresh replays the same request ID.
     const clientRequestId = crypto.randomUUID();
+    const resumeWorkItemId = id === "integral_native" ? ctx.resumeWorkItemId : undefined;
 
     // This stream is a raw fetch (SSE), so it does NOT pass through the axios
     // client's 401 → refresh → retry interceptor the rest of the app relies on.
@@ -141,16 +142,18 @@ export function createServerChatProvider({
     // return here means "genuinely unauthenticated", not "try again".
     const doFetch = (bearer: string | null): Promise<Response> =>
       fetch(
-        `${getApiBaseURL()}/chat/threads/${encodeURIComponent(ctx.threadId!)}/messages`,
+        resumeWorkItemId
+          ? `${getApiBaseURL()}/chat/threads/${encodeURIComponent(ctx.threadId!)}/work-items/${encodeURIComponent(resumeWorkItemId)}/stream?after_sequence=0`
+          : `${getApiBaseURL()}/chat/threads/${encodeURIComponent(ctx.threadId!)}/messages`,
         {
-          method: "POST",
+          method: resumeWorkItemId ? "GET" : "POST",
           headers: {
             "Content-Type": "application/json",
             Accept: "text/event-stream",
             ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
             ...(scopeHeader ? { "X-Integral-Scope": scopeHeader } : {}),
           },
-          body: JSON.stringify({
+          body: resumeWorkItemId ? undefined : JSON.stringify({
             client_request_id: clientRequestId,
             text: ctx.userMessageText,
             agent_id: ctx.agentId ?? null,
@@ -243,7 +246,7 @@ export function createServerChatProvider({
     // Only an accepted native WorkItem permits replay. Legacy responses keep
     // their existing transport behavior; reconnect is always GET, never POST.
     const workItemId = id === "integral_native"
-      ? response.headers.get("X-Integral-Work-Item")
+      ? resumeWorkItemId ?? response.headers.get("X-Integral-Work-Item")
       : null;
     let committedCursor = 0;
     let reconnects = 0;

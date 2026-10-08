@@ -30,6 +30,7 @@ export type ThreadSessionState = {
   streamError: string | null;
   abortController: AbortController | null;
   lastLoadedAt: number;
+  activeWorkItemId?: string | null;
 };
 
 export function createEmptySession(

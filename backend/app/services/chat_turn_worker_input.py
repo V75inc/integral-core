@@ -118,22 +118,33 @@ async def load_claimed_chat_turn_input(item: WorkItem) -> ChatTurnWorkerInput:
         expected_fingerprint=str(payload.get("request_fingerprint") or ""),
     )
 
-    # V1 worker admission deliberately supports text-only turns. Attachment
-    # bytes and image URLs must not be reconstructed from an opaque browser
-    # payload; they need a separate authorized artifact contract first.
     parts = list(message.parts or [])
-    if (
-        len(parts) != 1
-        or not isinstance(parts[0], dict)
-        or set(parts[0]) != {"type", "text"}
-        or parts[0].get("type") != "text"
-        or not isinstance(parts[0].get("text"), str)
-        or not parts[0]["text"].strip()
+    text_parts = []
+    for part in parts:
+        if not isinstance(part, dict):
+            raise WorkError("work.policy_denied", "accepted chat part is invalid")
+        if (
+            part.get("type") == "text"
+            and set(part) == {"type", "text"}
+            and isinstance(part.get("text"), str)
+        ):
+            text_parts.append(part["text"])
+        elif part.get("type") != "file":
+            raise WorkError("work.policy_denied", "accepted chat part is unsupported")
+    if len(text_parts) > 1 or (
+        not any(text.strip() for text in text_parts)
+        and not any(part.get("type") == "file" for part in parts)
     ):
-        raise WorkError(
-            "work.policy_denied",
-            "native durable turns currently require text-only input",
-        )
+        raise WorkError("work.policy_denied", "accepted chat input is empty")
+
+    from app.services.chat_turn_attachments import assert_chat_attachment_bindings
+
+    await assert_chat_attachment_bindings(
+        thread=thread,
+        principal_id=principal_id,
+        parts=parts,
+        expected=capsule.execution_context.attachment_bindings,
+    )
 
     from app.services.workspace_permissions import can_access_workspace
 
@@ -161,7 +172,7 @@ async def load_claimed_chat_turn_input(item: WorkItem) -> ChatTurnWorkerInput:
         # before the model sees it. Durable recovery must not let a user forge
         # a host-generated [SYSTEM:...] directive by sending raw transcript
         # content straight to the provider.
-        text=sanitize_user_text(parts[0]["text"]),
+        text=sanitize_user_text("\n".join(text_parts)),
     )
 
 
