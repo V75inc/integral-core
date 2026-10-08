@@ -1,21 +1,24 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { AttachmentRow } from '../attachments/AttachmentRow';
 import { EntryDetailPageChrome } from '../EntryDetailPageChrome';
 
-afterEach(cleanup);
+const media = vi.hoisted(() => ({ wide: true }));
+vi.mock('../../../hooks/useMediaQuery', () => ({ useMatchesMedia: () => media.wide }));
+afterEach(() => { cleanup(); media.wide = true; vi.restoreAllMocks(); });
 
 describe('full-page entry utilities', () => {
-  it('renders one details panel above the record without opening a dialog', () => {
+  it('renders one full-height companion panel only when supplied', () => {
     render(<EntryDetailPageChrome title="Document" onClose={() => {}}
       sidePanel={<div>Attachments and comments</div>}>
       <p>Saved record</p>
     </EntryDetailPageChrome>);
-    expect(screen.getByRole('region', { name: 'Entry utilities' })).toBeVisible();
+    expect(screen.getByRole('complementary', { name: 'Entry utilities' })).toBeVisible();
     expect(screen.getAllByText('Attachments and comments')).toHaveLength(1);
     expect(screen.getByText('Saved record')).toBeVisible();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Close details panel' })).toBeVisible();
+    expect(screen.getByTestId('entry-page-utilities')).toHaveClass('fixed', 'bottom-0');
   });
 
   it('respects hide/show without duplicating content or losing the record', () => {
@@ -26,6 +29,33 @@ describe('full-page entry utilities', () => {
     expect(screen.getByText('Record')).toBeVisible();
     rerender(<EntryDetailPageChrome {...props} sidePanel={<p>Files</p>}><p>Record</p></EntryDetailPageChrome>);
     expect(screen.getAllByText('Files')).toHaveLength(1);
+  });
+
+  it('uses one full-height drawer on narrow screens with the standard dismissal contract', () => {
+    media.wide = false;
+    const close = vi.fn();
+    render(<EntryDetailPageChrome title="Record" onClose={() => {}} panelTitle="Attachments" onPanelClose={close} sidePanel={<p>Files</p>}><p>Record body</p></EntryDetailPageChrome>);
+    const drawer = screen.getByRole('dialog', { name: 'Attachments' });
+    expect(drawer).toHaveClass('h-[calc(100dvh-var(--system-bar-h,0px))]');
+    expect(screen.getAllByText('Files')).toHaveLength(1);
+    expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it('uses a dock-aware drawer when the remaining page is too narrow', () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 850, top: 100 } as DOMRect);
+    render(<EntryDetailPageChrome allowAssistantDock onClose={() => {}} panelTitle="Attachments" sidePanel={<p>Files</p>}><p>Record body</p></EntryDetailPageChrome>);
+    expect(screen.getByRole('dialog', { name: 'Attachments' })).toBeVisible();
+    expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
+    expect(screen.getByText('Record body')).toBeVisible();
+  });
+
+  it('closes the desktop panel through its explicit close control', () => {
+    const close = vi.fn();
+    render(<EntryDetailPageChrome onClose={() => {}} onPanelClose={close} sidePanel={<p>Files</p>}><p>Body</p></EntryDetailPageChrome>);
+    fireEvent.click(screen.getByRole('button', { name: 'Close details panel' }));
+    expect(close).toHaveBeenCalledOnce();
   });
 
   it('retains canvas and fields when a companion panel is supplied', () => {
