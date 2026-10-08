@@ -17,7 +17,7 @@ export function AppHomePanel({ appId, workspaceId }: { appId: string; workspaceI
     enabled: Boolean(workspaceId && workspaceId === scope?.workspaceId),
     refetchInterval: 15000,
   });
-  if (query.isError) return <div className="space-y-3"><Text as="p" tone="muted">This home could not be loaded.</Text><Button variant="secondary" onClick={() => void query.refetch()}>Try again</Button></div>;
+  if (query.isError && !query.data) return <div className="space-y-3"><Text as="p" tone="muted">This home could not be loaded.</Text><Button variant="secondary" onClick={() => void query.refetch()}>Try again</Button></div>;
   if (!query.data) return <Skeleton className="h-48" />;
   const home = query.data.home;
   if (!home) return <Text as="p" tone="muted">No home is available for this App.</Text>;
@@ -33,8 +33,10 @@ export function AppHomePanel({ appId, workspaceId }: { appId: string; workspaceI
         <Text as="h2" variant="heading-md">{home.title}</Text>
         {home.description ? <Text as="p" tone="muted" variant="body-sm">{home.description}</Text> : null}
       </div>
-      {query.isFetching ? <div role="status"><Text as="p" variant="meta" tone="muted">Refreshing…</Text></div> : null}
-      {actions.length ? <div className="flex flex-wrap gap-2">{actions.map(action => <Button key={action.label} variant="secondary" disabled={query.isFetching} onClick={() => requestOpenCompanionChat({ draftText: action.draft })}>{action.label}</Button>)}</div> : null}
+      <div role="status" aria-live="polite" className="sr-only">
+        {query.isFetching ? 'Refreshing App home.' : query.isError ? 'App home could not refresh. Showing the last loaded information.' : ''}
+      </div>
+      {actions.length ? <div className="flex flex-wrap gap-2">{actions.map(action => <Button key={action.label} variant="secondary" onClick={() => requestOpenCompanionChat({ draftText: action.draft })}>{action.label}</Button>)}</div> : null}
       <div className="app-home-grid grid grid-cols-1 gap-4">
         {home.widgets.map(widget => <div key={widget.id} className="app-home-widget min-w-0" style={{
           '--home-widget-column': `${widget.grid.x + 1} / span ${widget.grid.w}`,

@@ -249,10 +249,12 @@ async def persist_work_item_assistant_result(
         accepted_edges = await graph.find_edges_between(
             thread.id, accepted_message_id, edge_class=CONTAINS
         )
+        accepted_role = (item.input_payload or {}).get("message_role", "user")
         if (
-            accepted is None
+            accepted_role not in {"user", "system"}
+            or accepted is None
             or accepted.thread_id != thread.id
-            or accepted.role != "user"
+            or accepted.role != accepted_role
             or not accepted_edges
         ):
             raise WorkError(

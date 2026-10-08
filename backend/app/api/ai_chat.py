@@ -1978,24 +1978,14 @@ async def send_message(
             raise BadRequestError(
                 message="A durable chat request requires a request ID"
             )
-        if images or host_action:
+        if images:
             raise BadRequestError(
-                message="Durable chat image and host continuation admission is not enabled yet"
+                message="Durable chat image admission is not enabled yet"
             )
-    if host_prompt_sheet_resume:
-        from app.services.prompt_queue import (
-            QUEUE_STATUS_CLOSED,
-            build_resume_summary,
-            get_queue,
-        )
-
-        queue = get_queue(thread)
-        if queue.get("status") != QUEUE_STATUS_CLOSED:
-            raise BadRequestError(message="Prompt Sheet is not ready to resume")
-        text = build_resume_summary(queue)
-        if not text:
-            raise BadRequestError(message="Prompt Sheet has no continuation")
-
+        if host_action and (text.strip() or attachment_ids):
+            raise BadRequestError(
+                message="Host continuations cannot include user content"
+            )
     # The turn runs in the THREAD's workspace. The chat provider forwards
     # this into the agent's tool-execution path so read/list tools
     # (list_tracks, query_entries, etc.) filter by the workspace the
@@ -2028,6 +2018,20 @@ async def send_message(
         )
         if receipt is not None:
             return await _stream_accepted_chat_turn(request, thread.id, receipt)
+    if host_prompt_sheet_resume:
+        from app.services.prompt_queue import (
+            QUEUE_STATUS_CLOSED,
+            build_resume_summary,
+            get_queue,
+        )
+
+        queue = get_queue(thread)
+        if queue.get("status") != QUEUE_STATUS_CLOSED:
+            raise BadRequestError(message="Prompt Sheet is not ready to resume")
+        text = build_resume_summary(queue)
+        if not text:
+            raise BadRequestError(message="Prompt Sheet has no continuation")
+
     # Native workflow selection belongs to the Pydantic run. The legacy judge
     # is an inference call outside native admission, usage and BYOK accounting.
     greenfield_proposal_required = (
@@ -2619,7 +2623,21 @@ async def _start_user_turn(
             WorkError,
         )
         from app.services.chat_turn_attachments import capture_chat_attachment_bindings
+        from app.services.chat_turn_host_controls import capture_chat_host_control
         from app.services.chat_turn_submissions import submit_chat_turn
+
+        host_control = None
+        if host_action:
+            try:
+                host_control = await capture_chat_host_control(
+                    thread=thread, principal_id=user_id, action=host_action
+                )
+            except WorkError as exc:
+                raise BadRequestError(
+                    message="The host continuation is unavailable"
+                ) from exc
+            # This is a system receipt, never a fabricated human utterance.
+            user_parts = [{"type": "text", "text": "Approval outcome received."}]
 
         try:
             attachment_bindings = await capture_chat_attachment_bindings(
@@ -2651,12 +2669,14 @@ async def _start_user_turn(
                     focused_space_id=focused_space_id,
                     focused_view_id=focused_view_id,
                     attachment_bindings=attachment_bindings,
+                    host_control=host_control,
                     extra_data={
                         key: value
                         for key, value in extra_data.items()
                         if key
                         not in {
                             "pending_approval_tokens",
+                            "staging_outcome_continuation",
                             "no_workspace_writes",
                             "design_only",
                         }

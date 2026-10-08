@@ -61,13 +61,34 @@ def _submission_identity(
     return f"chat-turn:{digest}", f"n.ChatMessage.{digest}"
 
 
+def _message_role(request: ChatTurnSubmissionRequest) -> str:
+    return (
+        "system"
+        if request.execution_context and request.execution_context.host_control
+        else "user"
+    )
+
+
+def _message_content_fingerprint(
+    *, parts: Any, provider_metadata: Any, parent_id: Any, role: str
+) -> str:
+    content = {
+        "parts": parts,
+        "provider_metadata": provider_metadata,
+        "parent_id": parent_id,
+    }
+    # Preserve old user-message fingerprints; host receipts bind their role.
+    if role != "user":
+        content["role"] = role
+    return _canonical_digest(content)
+
+
 def _message_fingerprint(request: ChatTurnSubmissionRequest) -> str:
-    return _canonical_digest(
-        {
-            "parts": request.parts,
-            "provider_metadata": request.provider_metadata,
-            "parent_id": request.parent_id,
-        }
+    return _message_content_fingerprint(
+        parts=request.parts,
+        provider_metadata=request.provider_metadata,
+        parent_id=request.parent_id,
+        role=_message_role(request),
     )
 
 
@@ -81,6 +102,8 @@ def _request_fingerprint(request: ChatTurnSubmissionRequest) -> str:
     # field carries no additional authority or input revision.
     if context is not None and not context.get("attachment_bindings"):
         context.pop("attachment_bindings", None)
+    if context is not None and context.get("host_control") is None:
+        context.pop("host_control", None)
     return _canonical_digest(
         {
             "message_fingerprint": _message_fingerprint(request),
@@ -162,14 +185,13 @@ async def get_chat_turn_submission_receipt(
         or payload.get("accepted_message_id") != message_id
         or message is None
         or message.thread_id != thread_id
-        or message.role != "user"
+        or message.role != payload.get("message_role", "user")
         or payload.get("message_fingerprint")
-        != _canonical_digest(
-            {
-                "parts": message.parts,
-                "provider_metadata": message.provider_metadata,
-                "parent_id": message.parent_id,
-            }
+        != _message_content_fingerprint(
+            parts=message.parts,
+            provider_metadata=message.provider_metadata,
+            parent_id=message.parent_id,
+            role=message.role,
         )
     ):
         raise ResourceConflictError(
@@ -257,6 +279,8 @@ async def submit_chat_turn(
                     "client_payload_digest": request.client_payload_digest,
                     "message_fingerprint": _message_fingerprint(request),
                 }
+            if _message_role(request) == "system":
+                input_payload["message_role"] = "system"
             work_item = await enqueue_work_item(
                 kind="chat_turn",
                 origin="interactive_chat",
@@ -295,13 +319,12 @@ async def submit_chat_turn(
                 )
                 or message is None
                 or message.thread_id != thread.id
-                or message.role != "user"
-                or _canonical_digest(
-                    {
-                        "parts": message.parts,
-                        "provider_metadata": message.provider_metadata,
-                        "parent_id": message.parent_id,
-                    }
+                or message.role != _message_role(request)
+                or _message_content_fingerprint(
+                    parts=message.parts,
+                    provider_metadata=message.provider_metadata,
+                    parent_id=message.parent_id,
+                    role=message.role,
                 )
                 != _message_fingerprint(request)
             ):
@@ -325,7 +348,17 @@ async def submit_chat_turn(
             )
 
         from app.services.chat_turn_attachments import assert_chat_attachment_bindings
+        from app.services.chat_turn_host_controls import assert_chat_host_control
 
+        await assert_chat_host_control(
+            thread=thread,
+            principal_id=request.principal_id,
+            expected=(
+                request.execution_context.host_control
+                if request.execution_context
+                else None
+            ),
+        )
         await assert_chat_attachment_bindings(
             thread=thread,
             principal_id=request.principal_id,
@@ -387,7 +420,7 @@ async def submit_chat_turn(
         if message is None:
             message = await append_message(
                 thread=thread,
-                role="user",
+                role=_message_role(request),
                 parts=request.parts,
                 parent_id=request.parent_id,
                 provider_metadata=request.provider_metadata,
@@ -395,13 +428,12 @@ async def submit_chat_turn(
             )
         elif (
             message.thread_id != thread.id
-            or message.role != "user"
-            or _canonical_digest(
-                {
-                    "parts": message.parts,
-                    "provider_metadata": message.provider_metadata,
-                    "parent_id": message.parent_id,
-                }
+            or message.role != _message_role(request)
+            or _message_content_fingerprint(
+                parts=message.parts,
+                provider_metadata=message.provider_metadata,
+                parent_id=message.parent_id,
+                role=message.role,
             )
             != _message_fingerprint(request)
         ):

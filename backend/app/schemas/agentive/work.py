@@ -121,6 +121,16 @@ class RetryPolicy(BaseModel):
         return self
 
 
+class ChatTurnHostControl(BaseModel):
+    """Server-captured host event bound to an authoritative source revision."""
+
+    action: Literal["prompt_sheet_resume", "staging_follow_through"]
+    source_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    read_only: bool = False
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
 class ChatTurnSubmissionRequest(BaseModel):
     """Trusted server-side envelope for an idempotent user chat submission."""
 
@@ -156,6 +166,7 @@ class ChatTurnExecutionContext(BaseModel):
     focused_space_id: Optional[str] = Field(default=None, max_length=255)
     focused_view_id: Optional[str] = Field(default=None, max_length=255)
     extra_data: Dict[str, Any] = Field(default_factory=dict)
+    host_control: Optional[ChatTurnHostControl] = None
     attachment_bindings: list[Dict[str, Any]] = Field(
         default_factory=list, max_length=10
     )

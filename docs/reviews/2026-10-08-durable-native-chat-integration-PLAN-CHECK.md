@@ -199,3 +199,48 @@ accepted scope. I-EXT-01/I-SUBSTRATE-01 remain domain neutral. Full repository
 gate, candidate browser reload/reconnect and independent process recovery remain
 required. The deployed API still uses the earlier default-off synchronous path;
 these results do not prove that the browser has exercised durable mode.
+
+
+## Host continuation and candidate UI integration
+
+The file/reload continuation is committed as 5c84ff56 in draft PR #122 after
+full `make verify` (1,539 frontend tests plus backend/CI/artifact/guards) and
+commit hooks pass. It remains undeployed. The subsequent isolated worktree
+adds typed host events with a digest of authoritative resolved Prompt Sheet
+state or scoped durable approved staging rows. Acceptance and worker claim
+recheck that source. Staging's best-effort process cache is not acceptance
+authority; direct durable rows are used and store errors abort acceptance.
+
+Canonical host receipts have role `system`, bound into request/message
+fingerprints and transcript-parent validation. Their receipt text is never
+the provider user utterance. Worker restoration returns an empty utterance
+and a typed host-outcome continuation flag. Negative Prompt Sheet outcomes
+force the native broker's no-workspace-writes contract. HTTP receipt recovery
+runs before live Prompt Sheet validation so an accepted retry does not
+become a new request when host state changes. Mixed user content and host
+events are refused. Image input remains unqualified and explicitly rejected
+under the default-off candidate flag.
+
+Host source revision is checked at claim, not readmitted after the run's own
+approved effects consume source approvals. The attachment read boundary
+still authenticates accepted file content and current scope. Approved effect
+execution continues to use the normal current policy/approval/lease fences.
+
+The first worker boundary test found transcript-parent validation's user-only
+assumption. It now accepts only the user/system role bound by the accepted
+WorkItem; other roles remain refused. Six focused host cases pass in 2.18s,
+`/tmp/venture-durable-host-worker-boundary-rerun.log`, proving a system receipt
+plus one assistant result, zero fabricated user messages, empty provider
+utterance and read-only negative-outcome flags. Earlier broader host/route/
+worker selection passed 93 cases before this final transcript refinement;
+a current broader rerun and full gate remain required. Initial failed test
+runs are diagnostic evidence, not passing qualification.
+
+Qualified PR #120 UI repairs are integrated into this candidate source: the
+Thread counter fix and stable shared App Home refresh implementation/tests
+are copied from 253fa943. This preserves the locally deployed UI behavior
+when the durable candidate frontend is built. I-HARNESS-02 now includes
+role-bound host receipts outside user utterances; all prior tenant, lease,
+extension and domain-neutral invariants remain. These changes are not yet
+committed or browser-qualified. Independent-process HTTP recovery, host
+controls on the default model, and original mandate/journey gates remain open.
