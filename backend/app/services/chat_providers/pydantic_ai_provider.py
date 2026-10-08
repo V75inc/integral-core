@@ -1554,6 +1554,14 @@ class PydanticAIProvider:
                     and (ctx.extra_data or {}).get("attachment_only_input")
                 ):
                     host_outcome = _ATTACHMENT_ONLY_EVENT_INSTRUCTIONS
+                    if ctx.system_context:
+                        # Keep the current file references at the new event
+                        # boundary as well as in run instructions. On resumed
+                        # conversations, old upload events remain in history;
+                        # the new event must identify its own scoped files.
+                        # Existing untrusted-data wrappers stay intact and no
+                        # host text is inserted into the human utterance.
+                        host_outcome += "\n\n" + ctx.system_context
                 # An explicit system-only request marks the new host event.
                 # Ending on the old assistant response can be interpreted as
                 # continuing that response even when run instructions changed.

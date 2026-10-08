@@ -277,6 +277,11 @@ async def test_provider_persists_session_and_resumes_previous_run(
     ctx = replace(
         ctx,
         text=second_text,
+        system_context=(
+            '<untrusted_data name="uploaded_file_references">'
+            '[{"name":"second-upload.txt","attachment_id":"attachment-b"}]'
+            "</untrusted_data>"
+        ),
         extra_data={
             "staging_outcome_continuation": staging_continuation,
             "attachment_only_input": attachment_only,
@@ -305,7 +310,11 @@ async def test_provider_persists_session_and_resumes_previous_run(
 
         part = observed_histories[-1][-1].parts[0]
         assert isinstance(part, SystemPromptPart)
-        assert part.content == _ATTACHMENT_ONLY_EVENT_INSTRUCTIONS
+        assert part.content == (
+            _ATTACHMENT_ONLY_EVENT_INSTRUCTIONS + "\n\n" + ctx.system_context
+        )
+        assert '"attachment_id":"attachment-b"' in part.content
+        assert '<untrusted_data name="uploaded_file_references">' in part.content
         assert "new user upload" in part.content
     assert ctx.text == second_text
     assert [event for event in second if event.get("type") == "text-delta"] == [
