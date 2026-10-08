@@ -127,7 +127,7 @@ async def enqueue_install_work(
         work_item_object_id,
     )
     from app.agentive.work_models import WorkItem
-    from app.api.operational_models import (
+    from app.services.library_package_visibility import (
         assert_library_package_installable_in_workspace,
     )
 
@@ -441,7 +441,7 @@ async def install_app(
             message=f"OperationalModel {library_cp_id!r} is not a library package",
             details={"library_cp_id": library_cp_id},
         )
-    from app.api.operational_models import (
+    from app.services.library_package_visibility import (
         assert_library_package_installable_in_workspace,
     )
     from app.services.package_trust import assert_library_artifact_trusted

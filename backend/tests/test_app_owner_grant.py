@@ -147,19 +147,26 @@ async def test_is_idempotent_and_does_not_duplicate_the_grant():
 
 
 @pytest.mark.asyncio
-async def test_workspace_owner_alone_cannot_administer_an_ownerless_app():
+@pytest.mark.parametrize(
+    "visibility, expected_role", [("private", None), ("workspace", "commenter")]
+)
+async def test_workspace_owner_alone_cannot_administer_an_ownerless_app(
+    visibility, expected_role
+):
     # Pins the reason the missing grant is fatal rather than cosmetic: org
     # staff get the implicit participation role and nothing more, so without
     # the edge the 403 is unavoidable. If this ever starts resolving as
     # owner/admin, the fallback above is redundant and should be revisited.
     #
-    # The implicit role is `commenter` (raised from `viewer` so workspace staff
-    # can answer comments on content they administer — ARCHITECTURE §9.5). The
-    # load-bearing assertion here is the second one: still not an admin.
+    # Non-private resources grant staff `commenter`; private resources grant
+    # nothing without an explicit edge (ARCHITECTURE §9.5). Neither case
+    # gives the workspace owner resource administration authority.
     await ensure_integral_app_graph(include_library=False)
     ws_owner = await User.create(name="Unwired Owner")
     ws = await _org_workspace(ws_owner)
     app = await _bare_app(ws)
 
-    assert await resolve_role(ws_owner.id, "app", app.id) == "commenter"
+    app.visibility = visibility
+    await app.save()
+    assert await resolve_role(ws_owner.id, "app", app.id) == expected_role
     assert not await can_admin_app(ws_owner.id, app.id)

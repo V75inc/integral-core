@@ -112,6 +112,7 @@ class TestSchemaEditIsolation:
         )
         assert ws.status_code == 200, ws.text
         workspace_id = ws.json()["workspace"]["id"]
+        authenticated_client.headers["X-Integral-Scope"] = f"ws:{workspace_id}"
 
         # 2. Publish a library track-scope OperationalModel.
         library_cp_id = await self._publish_library_profile(

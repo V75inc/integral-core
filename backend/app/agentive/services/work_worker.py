@@ -42,6 +42,7 @@ HANDLED_KINDS = frozenset(
         "event_trigger",
         "migration",
         "app_lifecycle",
+        "chat_turn",
     }
 )
 
@@ -403,6 +404,7 @@ def _native_chat_transcript(
     """
     text = ""
     parts: list[dict[str, Any]] = []
+    tool_positions: dict[str, int] = {}
     steps: list[dict[str, Any]] = []
     timing: dict[str, Any] = {}
     for event in events:
@@ -412,15 +414,23 @@ def _native_chat_transcript(
         elif kind == "text-replace":
             text = str(event.get("content") or "")
         elif kind == "tool-call":
-            parts.append(
-                {
-                    "type": "tool-call",
-                    "toolCallId": str(event.get("toolCallId") or ""),
-                    "toolName": str(event.get("name") or ""),
-                    "status": str(event.get("status") or "complete"),
-                    "isError": event.get("status") == "error",
-                }
-            )
+            call_id = str(event.get("toolCallId") or "")
+            if not call_id:
+                continue
+            summary = {
+                "type": "tool-call",
+                "toolCallId": call_id,
+                "toolName": str(event.get("name") or ""),
+                "status": str(event.get("status") or "complete"),
+                "isError": event.get("status") == "error",
+            }
+            # Start/result events describe one call, not two transcript parts.
+            # Keep the first position and update it with the final receipt state.
+            if call_id in tool_positions:
+                parts[tool_positions[call_id]] = summary
+            else:
+                tool_positions[call_id] = len(parts)
+                parts.append(summary)
         elif kind == "source":
             parts.append(
                 {
@@ -687,6 +697,13 @@ async def _handle_chat_turn(
 
         execution = worker_input.execution_context
         extra_data = dict(execution.extra_data)
+        # Derive the event from authenticated accepted file bindings, never
+        # client prose or an arbitrary extra_data claim.
+        extra_data["attachment_only_input"] = bool(
+            execution.attachment_bindings and not worker_input.text.strip()
+        )
+        if execution.host_control is not None:
+            extra_data["staging_outcome_continuation"] = True
         # Durable input intentionally excludes bearer-like staging tokens.
         # Reconstruct the decision tool's scoped authority after claiming work.
         extra_data["pending_approval_tokens"] = await _pending_write_references(
@@ -698,7 +715,8 @@ async def _handle_chat_turn(
             {
                 "run_id": ctx.run_id,
                 "work_execution_context": ctx.model_dump(mode="json"),
-                "no_workspace_writes": execution.no_workspace_writes,
+                "no_workspace_writes": execution.no_workspace_writes
+                or bool(execution.host_control and execution.host_control.read_only),
                 "design_only": execution.design_only,
             }
         )
@@ -1043,6 +1061,13 @@ async def execute_claimed_work(
                     retryable=False,
                 )
             },
+        )
+    # Native chat owns atomic transcript/run/admission terminalization. Do not
+    # send its storage or fencing errors through the generic transition path,
+    # which would leave its principal permit and thread reservation stranded.
+    if kind == "chat_turn":
+        return await _handle_chat_turn(
+            item, worker_id=worker_id, lease_seconds=lease_seconds
         )
     try:
         if kind == "capability":

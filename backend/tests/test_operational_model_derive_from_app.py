@@ -45,6 +45,7 @@ async def _seed_space_with_library(authenticated_client: AsyncClient) -> str:
     )
     assert ws.status_code == 200, ws.text
     ws_id = ws.json()["workspace"]["id"]
+    authenticated_client.headers["X-Integral-Scope"] = f"ws:{ws_id}"
     pub = await authenticated_client.post(
         "/api/operational-models",
         json={

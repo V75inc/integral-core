@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import { usePhantomClickGuard } from '../hooks/usePhantomClickGuard';
 import { Link } from 'react-router-dom';
 import { Layers, Package, GripVertical } from 'lucide-react';
@@ -82,9 +82,19 @@ export function AppsPage() {
   const [search, setSearch] = useState('');
   // Optimistic create can race an in-flight/change-event list that still
   // omits the new App. Keep the server-acked row until a list includes it.
-  const pendingCreatedRef = useRef<App | null>(null);
+  const pendingCreatedRef = useRef(new Map<string, App>());
+  const workspaceRef = useRef(activeWorkspace?.id);
+  const loadSequence = useRef(0);
+
+  useLayoutEffect(() => {
+    workspaceRef.current = activeWorkspace?.id;
+    pendingCreatedRef.current.clear();
+    setApps([]);
+  }, [activeWorkspace?.id]);
 
   const load = useCallback(async () => {
+    const workspaceId = workspaceRef.current;
+    const sequence = ++loadSequence.current;
     setLoading(true);
     setError(null);
     try {
@@ -93,12 +103,12 @@ export function AppsPage() {
         appsApi.list(),
         workspacesApi.list(),
       ]);
+      if (workspaceRef.current !== workspaceId || loadSequence.current !== sequence) return;
       if (appsRes.status === 'fulfilled') {
         let next = appsRes.value;
-        const pending = pendingCreatedRef.current;
-        if (pending) {
+        for (const pending of pendingCreatedRef.current.values()) {
           if (next.some(a => a.id === pending.id)) {
-            pendingCreatedRef.current = null;
+            pendingCreatedRef.current.delete(pending.id);
           } else {
             next = [pending, ...next];
           }
@@ -111,7 +121,9 @@ export function AppsPage() {
       }
       setWorkspaces(wsRes.status === 'fulfilled' ? wsRes.value : []);
     } finally {
-      setLoading(false);
+      if (workspaceRef.current === workspaceId && loadSequence.current === sequence) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -288,7 +300,8 @@ export function AppsPage() {
         mode="blank"
         onClose={() => setBlankAppModal(false)}
         onSaved={sp => {
-          pendingCreatedRef.current = sp;
+          if (sp.workspace_id !== workspaceRef.current) return;
+          pendingCreatedRef.current.set(sp.id, sp);
           setApps(p => (p.some(a => a.id === sp.id) ? p : [sp, ...p]));
           setBlankAppModal(false);
         }}

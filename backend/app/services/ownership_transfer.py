@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Dict
 
 from app.api.errors import BadRequestError, ResourceNotFoundError
 from app.models.edges import COLLABORATES_ON, OWNS
 from app.services.permissions import get_user_node
 from app.utils.time import utc_now_iso
-
-logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from app.models.nodes import App, Track
@@ -146,16 +143,13 @@ async def transfer_track_ownership(
 
 
 async def reassign_departing_member_ownership(
-    user,
-    workspace_id: str,
+    user, workspace_id: str
 ) -> Dict[str, int]:
-    """Move this member's in-workspace ``OWNS`` edges to the workspace owner.
+    """Transfer only departing ownership, failing if its new owner is missing.
 
-    Called when membership ends. The departing user keeps ``OWNS`` on
-    resources in other workspaces. They are not left as an editor here —
-    collaborator edges are dropped separately. The workspace owner's
-    implicit role stays ``commenter`` on resources they do not own; this
-    only moves the edges the departing member actually held.
+    The caller joins this to membership/grant removal in a graph transaction.
+    On development stores, create the replacement edge before deleting the old
+    one so an interrupted transfer cannot leave an unowned resource.
     """
     moved = {"apps": 0, "tracks": 0}
     if not user or not workspace_id:
@@ -164,70 +158,38 @@ async def reassign_departing_member_ownership(
     from app.services.permissions_process_cache import invalidate_user_aliases
     from app.services.workspace_permissions import get_workspace_owner_user_id
 
-    owner_id = await get_workspace_owner_user_id(workspace_id)
-    if not owner_id or owner_id == user.id:
-        return moved
-    owner = await get_user_node(owner_id)
-    if not owner:
-        logger.warning(
-            "Cannot reassign ownership in workspace %s; owner user %s is missing",
-            workspace_id,
-            owner_id,
-        )
+    resources = []
+    for node_type, kind in (("WorkspaceApp", "app"), ("Track", "track")):
+        for resource in await user.nodes(
+            edge=[OWNS], node=[node_type], direction="out"
+        ):
+            if str(getattr(resource, "workspace_id", "") or "") == workspace_id:
+                resources.append((kind, resource))
+    if not resources:
         return moved
 
-    resources = []
-    try:
-        for app in await user.nodes(
-            edge=[OWNS], node=["WorkspaceApp"], direction="out"
-        ):
-            if str(getattr(app, "workspace_id", "") or "") == workspace_id:
-                resources.append(("app", app))
-        for track in await user.nodes(edge=[OWNS], node=["Track"], direction="out"):
-            if str(getattr(track, "workspace_id", "") or "") == workspace_id:
-                resources.append(("track", track))
-    except Exception:
-        logger.exception(
-            "Failed listing OWNS edges for user %s in workspace %s",
-            getattr(user, "id", ""),
-            workspace_id,
-        )
-        return moved
+    owner_id = await get_workspace_owner_user_id(workspace_id)
+    owner = await get_user_node(owner_id) if owner_id else None
+    if owner is None:
+        raise ResourceNotFoundError(message="Workspace owner is unavailable")
+    if owner.id == user.id:
+        raise BadRequestError(message="Cannot remove the workspace owner")
 
     now = utc_now_iso()
-    user_ctx = await user.get_context()
-    owner_ctx = await owner.get_context()
+    ctx = await user.get_context()
     for kind, resource in resources:
-        try:
-            owns_edges = await user_ctx.find_edges_between(
-                user.id, resource.id, edge_class=OWNS
-            )
-        except Exception:
-            logger.exception(
-                "OWNS lookup failed for user %s → %s", user.id, resource.id
-            )
-            continue
+        owns_edges = await ctx.find_edges_between(user.id, resource.id, edge_class=OWNS)
         if not owns_edges:
             continue
-        try:
-            for edge in await owner_ctx.find_edges_between(
-                owner.id, resource.id, edge_class=COLLABORATES_ON
-            ):
-                await edge.delete()
-            already_owns = await owner_ctx.find_edges_between(
-                owner.id, resource.id, edge_class=OWNS
-            )
-        except Exception:
-            logger.exception(
-                "Workspace owner grant lookup failed for %s → %s",
-                owner.id,
-                resource.id,
-            )
-            continue
-        for edge in owns_edges:
-            await edge.delete()
+        already_owns = await ctx.find_edges_between(
+            owner.id, resource.id, edge_class=OWNS
+        )
         if not already_owns:
             await owner.connect(resource, edge=OWNS, role="owner", granted_at=now)
+        for edge in await ctx.find_edges_between(
+            owner.id, resource.id, edge_class=COLLABORATES_ON
+        ):
+            await edge.delete()
         if kind == "app":
             resource.owner_user_id = owner.id
             moved["apps"] += 1
@@ -235,8 +197,9 @@ async def reassign_departing_member_ownership(
             resource.owner_id = owner.id
             moved["tracks"] += 1
         await resource.save()
+        for edge in owns_edges:
+            await edge.delete()
 
-    if moved["apps"] or moved["tracks"]:
-        invalidate_user_aliases(user)
-        invalidate_user_aliases(owner)
+    invalidate_user_aliases(user)
+    invalidate_user_aliases(owner)
     return moved

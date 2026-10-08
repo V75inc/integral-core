@@ -60,6 +60,7 @@ async def _seed_library_pkg(
     )
     assert ws.status_code == 200, ws.text
     ws_id = ws.json()["workspace"]["id"]
+    authenticated_client.headers["X-Integral-Scope"] = f"ws:{ws_id}"
     manifest = _space_manifest() if scope == "app" else _track_manifest()
     pub = await authenticated_client.post(
         "/api/operational-models",

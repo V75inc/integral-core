@@ -63,12 +63,12 @@ export function SystemNotificationBar() {
   // open=true → slide in; flipped 500ms after a notification appears.
   const [open, setOpen] = useState(false);
   const [busyActions, setBusyActions] = useState<Record<number, boolean>>({});
-  const innerRef = useRef<HTMLDivElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
   const currentId = current?.id ?? null;
 
   // Schedule open=true after the delay, once we have a notification.
-  // While open, an ObserverObserver keeps --system-bar-h in sync with
-  // the bar's natural height — so title/body/action edits after the
+  // While open, a ResizeObserver keeps --system-bar-h in sync with
+  // the bar's full height, including its border — so title/body/action edits after the
   // initial measurement don't leave the layout's padding-top stale.
   useEffect(() => {
     if (!currentId) {
@@ -78,7 +78,7 @@ export function SystemNotificationBar() {
     }
     let ro: ResizeObserver | null = null;
     const publishHeight = () => {
-      const h = innerRef.current?.getBoundingClientRect().height ?? 0;
+      const h = barRef.current?.getBoundingClientRect().height ?? 0;
       if (h > 0) {
         document.documentElement.style.setProperty(CSS_VAR, `${h}px`);
       }
@@ -86,9 +86,9 @@ export function SystemNotificationBar() {
     const t = window.setTimeout(() => {
       setOpen(true);
       publishHeight();
-      if (innerRef.current && typeof ResizeObserver !== 'undefined') {
+      if (barRef.current && typeof ResizeObserver !== 'undefined') {
         ro = new ResizeObserver(() => publishHeight());
-        ro.observe(innerRef.current);
+        ro.observe(barRef.current);
       }
     }, ENTER_DELAY);
     return () => {
@@ -135,6 +135,7 @@ export function SystemNotificationBar() {
 
   return (
     <div
+      ref={barRef}
       role="status"
       aria-live={isError ? 'assertive' : 'polite'}
       data-open={open ? 'true' : 'false'}
@@ -149,7 +150,7 @@ export function SystemNotificationBar() {
         borderColor: 'var(--system-bar-border)',
       }}
     >
-      <div ref={innerRef} className="relative w-full py-2 pl-4 pr-12 sm:pl-6 sm:pr-14">
+      <div className="relative w-full py-2 pl-4 pr-12 sm:pl-6 sm:pr-14">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-start gap-x-4 gap-y-2 sm:justify-center">
           <div className="flex min-w-0 items-start gap-2.5 sm:items-center">
             <Icon size={18} strokeWidth={LINE_ICON_STROKE} className="mt-0.5 shrink-0 sm:mt-0" style={{ color: style.accentFg }} aria-hidden />

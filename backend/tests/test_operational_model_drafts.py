@@ -14,6 +14,7 @@ class TestOperationalModelDrafts:
         )
         assert org_resp.status_code == 200
         org_id = org_resp.json()["workspace"]["id"]
+        authenticated_client.headers["X-Integral-Scope"] = f"ws:{org_id}"
         manifest = {
             "operational_model_schema_version": 2,
             "scope": "track",

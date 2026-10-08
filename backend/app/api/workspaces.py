@@ -924,18 +924,9 @@ async def remove_workspace_member(
     if await is_workspace_owner(member.id, ws.id):
         raise BadRequestError(message="Cannot remove the workspace owner")
 
-    ctx = await member.get_context()
-    edges = await ctx.find_edges_between(
-        source_id=member.id, target_id=ws.id, edge_class=IS_MEMBER_OF
-    )
-    for edge in edges:
-        await edge.delete()
+    from app.services.workspace_departure import remove_workspace_membership
 
-    from app.services.ownership_transfer import reassign_departing_member_ownership
-    from app.services.sharing import revoke_workspace_resource_grants
-
-    await reassign_departing_member_ownership(member, ws.id)
-    await revoke_workspace_resource_grants(member, ws.id)
+    await remove_workspace_membership(member=member, workspace_id=ws.id)
 
     await emit_change_event(
         actor_kind="human",
@@ -985,27 +976,13 @@ async def leave_workspace(request: Request, workspace_id: str) -> Dict[str, Any]
     member = await get_user_node(user_id)
     if not member:
         raise ResourceNotFoundError(message="User not found")
-    ctx = await member.get_context()
-    edges = await ctx.find_edges_between(
-        source_id=member.id, target_id=ws.id, edge_class=IS_MEMBER_OF
+    from app.services.workspace_departure import remove_workspace_membership
+
+    removed = await remove_workspace_membership(
+        member=member, workspace_id=ws.id, clear_active_workspace=True
     )
-    for edge in edges:
-        await edge.delete()
 
-    from app.services.ownership_transfer import reassign_departing_member_ownership
-    from app.services.sharing import revoke_workspace_resource_grants
-
-    await reassign_departing_member_ownership(member, ws.id)
-    await revoke_workspace_resource_grants(member, ws.id)
-
-    # Clear a stale explicit active-workspace preference. The next scope read
-    # will select one of the caller's remaining workspaces.
-    if str(getattr(member, "active_workspace_id", "") or "") == ws.id:
-        member.active_workspace_id = ""
-        member.active_workspace_id_explicit = False
-        await member.save()
-
-    if edges:
+    if removed:
         _invalidate_member_permission_cache(member)
         await emit_change_event(
             actor_kind="human",
