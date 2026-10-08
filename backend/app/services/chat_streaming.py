@@ -115,6 +115,38 @@ _ERROR_MESSAGES: Dict[str, str] = {
 }
 
 
+# These current-state conflicts can happen on a first-ever conversation. Do
+# not describe them as an earlier user run requiring outcome reconciliation.
+_HARNESS_CURRENT_STATE_REASONS = frozenset(
+    {
+        "harness_session_id_collision",
+        "harness_session_pointer_mismatch",
+        "harness_session_pointer_missing",
+        "harness_session_scope_mismatch",
+        "harness_session_revision_changed",
+        "harness_session_generation_conflict",
+        "harness_session_edge_missing",
+        "harness_session_terminal",
+        "harness_checkpoint_manifest_unavailable",
+        "harness_checkpoint_fence_lost",
+    }
+)
+_HARNESS_RECOVERY_REASONS = frozenset(
+    {
+        "harness_model_request_unsettled",
+        "harness_tool_effect_unresolved",
+        "harness_recovery_reconciliation_required",
+        "harness_recovery_message_unavailable",
+        "harness_checkpoint_unavailable",
+    }
+)
+_HARNESS_CURRENT_STATE_MESSAGE = (
+    "The assistant could not safely complete this response. Its work was not "
+    "replayed. Start a new conversation for new work, or review this run "
+    "before retrying here."
+)
+
+
 def classify_turn_exception(
     exc: BaseException, *, provider: ChatBackendProvider | None = None
 ) -> Tuple[str, str]:
@@ -126,8 +158,22 @@ def classify_turn_exception(
             details = getattr(exc, "details", {})
             reason = details.get("reason") if isinstance(details, dict) else None
             if isinstance(reason, str) and reason.startswith("harness_"):
+                # Log only a fixed host reason code. Exception text/details
+                # can contain private data and never belong in this diagnostic.
+                safe_reason = (
+                    reason
+                    if reason
+                    in _HARNESS_CURRENT_STATE_REASONS | _HARNESS_RECOVERY_REASONS
+                    else "harness_unclassified_conflict"
+                )
+                logger.warning("Native chat authority guard denied: %s", safe_reason)
                 code = "harness_reconciliation_required"
-                return code, _ERROR_MESSAGES[code]
+                message = (
+                    _HARNESS_CURRENT_STATE_MESSAGE
+                    if reason in _HARNESS_CURRENT_STATE_REASONS
+                    else _ERROR_MESSAGES[code]
+                )
+                return code, message
     except Exception:  # noqa: BLE001 — keep error reporting best-effort
         pass
 
