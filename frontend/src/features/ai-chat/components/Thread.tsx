@@ -59,7 +59,7 @@ import { ComposerSendWithRefs } from "./ComposerSendWithRefs";
 import { MarkdownText } from "./MarkdownText";
 import { ChatAttachmentList } from "./ChatAttachmentList";
 import { extractAttachmentListsFromParts } from "./extractAttachmentListsFromParts";
-import { MessageObservability } from "./MessageObservability";
+import { MessageObservability, useMessageModelLabel } from "./MessageObservability";
 import { MessageDebugDialog } from "./MessageDebugDialog";
 import { Reasoning } from "./Reasoning";
 import {
@@ -349,15 +349,6 @@ function ThreadMessage() {
   return <AssistantMessage />;
 }
 
-function workedForLabel(ms: number | undefined): string {
-  if (!ms || ms <= 0) return "Worked";
-  const seconds = Math.max(1, Math.round(ms / 1000));
-  if (seconds < 60) return `Worked for ${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const rest = seconds % 60;
-  return rest ? `Worked for ${minutes}m ${rest}s` : `Worked for ${minutes}m`;
-}
-
 function clipStatus(text: string): string {
   const clean = text.replace(/\s+/g, " ").trim();
   if (clean.length <= 72) return clean;
@@ -385,7 +376,7 @@ export function liveWorkSynopsis(
  * One trail for reasoning and tool steps.
  *
  * Stays collapsed. While the turn runs the label is a one-line status.
- * When the reply lands it becomes "Worked for …". Expanding retraces the
+ * When the reply lands it becomes "Worked · steps · model". Expanding retraces the
  * activity and the steps. A manual expansion survives completion.
  */
 export function WorkTrail({ children }: { children: ReactNode }) {
@@ -396,9 +387,7 @@ export function WorkTrail({ children }: { children: ReactNode }) {
       (s.message.metadata?.custom as { statusLabel?: string } | undefined)
         ?.statusLabel,
   );
-  const totalStreamTime = useAuiState(
-    (s) => s.message.metadata?.timing?.totalStreamTime,
-  );
+  const modelLabel = useMessageModelLabel();
   const toolCount = useAuiState(
     (s) => (s.message.parts ?? []).filter((p) => p.type === "tool-call").length,
   );
@@ -421,8 +410,9 @@ export function WorkTrail({ children }: { children: ReactNode }) {
     latestTool,
   );
   const done = [
-    workedForLabel(totalStreamTime),
+    "Worked",
     toolCount > 0 ? `${toolCount} ${toolCount === 1 ? "step" : "steps"}` : "",
+    modelLabel,
     toolFailed ? "a step failed" : "",
   ]
     .filter(Boolean)
@@ -438,7 +428,7 @@ export function WorkTrail({ children }: { children: ReactNode }) {
     >
       <CollapsibleTrigger
         className="
-          flex items-center gap-1.5 py-0.5 text-left text-[12px]
+          flex w-full min-w-0 items-center gap-1.5 py-0.5 text-left text-[12px]
           text-[var(--text-muted)] transition-colors hover:text-[var(--text)]
         "
       >
@@ -450,10 +440,11 @@ export function WorkTrail({ children }: { children: ReactNode }) {
         <span aria-hidden="true" className="relative -top-px inline-flex h-4 w-4 shrink-0 items-center justify-center leading-none">
           <span className={`inline-flex items-center justify-center ${running ? "animate-agent-working motion-reduce:animate-none" : ""}`}><LogoMark size="xs" /></span>
         </span>
-        <span role="status" aria-live="polite" className="inline-flex min-h-4 items-center leading-4"><span key={label} className="animate-status-reveal motion-reduce:animate-none">{label}</span></span>
+        <span role="status" aria-live="polite" title={label} className="inline-flex min-h-4 min-w-0 items-center leading-4"><span key={label} className="truncate animate-status-reveal motion-reduce:animate-none">{label}</span></span>
       </CollapsibleTrigger>
       <CollapsibleContent className="mt-2 flex max-h-80 flex-col gap-3 overflow-y-auto pl-5 text-xs">
         <p className="text-xs text-[var(--text-muted)]">Activity and tool results are shown here. Private model reasoning is not displayed.</p>
+        <MessageObservability />
         {children}
       </CollapsibleContent>
     </Collapsible>
@@ -542,6 +533,68 @@ function AssistantMessage() {
   // compensate, and -mb would pull the next message up over the icons.
   const ACTION_BAR_RESERVE = "min-h-7 pt-1.5";
 
+  const renderParts = (activityOnly: boolean) => (
+    <MessagePrimitive.GroupedParts groupBy={assistantMessageGroupBy}>
+      {({ part, children }) => {
+        if ("indices" in part) {
+          if (!activityOnly) return null;
+          switch (part.type) {
+            case "group-chainOfThought":
+              return activityOnly ? <>{children}</> : null;
+            case "group-reasoning":
+              return (
+                <div className="flex max-h-64 flex-col gap-1 overflow-y-auto text-xs text-[var(--text-muted)]">
+                  <div className="text-[11px] font-medium text-[var(--text-subtle)]">
+                    Thinking
+                  </div>
+                  {children}
+                </div>
+              );
+            case "group-tool":
+              return (
+                <div className="flex flex-col gap-2">
+                  <div className="text-[11px] font-medium text-[var(--text-subtle)]">
+                    Steps
+                  </div>
+                  {children}
+                </div>
+              );
+            default:
+              return null;
+          }
+        }
+        if (activityOnly !== (part.type === "reasoning" || part.type === "tool-call")) return null;
+        switch (part.type) {
+          case "text":
+            // Smooth-streamed assistant answer. `MarkdownText` reads the
+            // live part from assistant-ui context and interpolates it
+            // character-by-character (with the streaming dot from dot.css),
+            // so the answer types in instead of re-rendering whole chunks.
+            return (
+              <div className="my-1.5 first:mt-0 last:mb-0">
+                <MarkdownText />
+              </div>
+            );
+          case "reasoning":
+            // Live thinking stream — rendered by the ported Reasoning
+            // component (smooth markdown body that tails the stream),
+            // grouped under the work trail's Thinking section.
+            return <Reasoning {...part} />;
+          case "tool-call":
+            return part.toolUI ?? <ToolFallback {...part} />;
+          case "source":
+            return (
+              <SourceView
+                part={part as { url?: string; title?: string }}
+              />
+            );
+          default:
+            return null;
+        }
+      }}
+    </MessagePrimitive.GroupedParts>
+  );
+
   return (
     <MessagePrimitive.Root
       data-role="assistant"
@@ -554,79 +607,13 @@ function AssistantMessage() {
         {isCancelled && !hasParts && (
           <span role="status" className="text-xs text-[var(--text-muted)]">Stopped</span>
         )}
-        {isRunning && !hasParts && (
-          <span
-            data-slot="aui_assistant-message-indicator"
-            className="inline-flex min-h-4 items-center gap-2 text-xs leading-4 text-[var(--text-muted)]"
-            aria-label="Assistant is working"
-          >
-            <span aria-hidden="true" className="relative -top-px inline-flex h-4 w-4 shrink-0 items-center justify-center leading-none"><span className="inline-flex items-center justify-center animate-agent-working motion-reduce:animate-none"><LogoMark size="xs" /></span></span>
-            Working
-          </span>
-        )}
-        <MessagePrimitive.GroupedParts groupBy={assistantMessageGroupBy}>
-          {({ part, children }) => {
-            if ("indices" in part) {
-              switch (part.type) {
-                case "group-chainOfThought":
-                  return <WorkTrail>{children}</WorkTrail>;
-                case "group-reasoning":
-                  return (
-                    <div className="flex max-h-64 flex-col gap-1 overflow-y-auto text-xs text-[var(--text-muted)]">
-                      <div className="text-[11px] font-medium text-[var(--text-subtle)]">
-                        Thinking
-                      </div>
-                      {children}
-                    </div>
-                  );
-                case "group-tool":
-                  return (
-                    <div className="flex flex-col gap-2">
-                      <div className="text-[11px] font-medium text-[var(--text-subtle)]">
-                        Steps
-                      </div>
-                      {children}
-                    </div>
-                  );
-                default:
-                  return null;
-              }
-            }
-            switch (part.type) {
-              case "text":
-                // Smooth-streamed assistant answer. `MarkdownText` reads the
-                // live part from assistant-ui context and interpolates it
-                // character-by-character (with the streaming dot from dot.css),
-                // so the answer types in instead of re-rendering whole chunks.
-                return (
-                  <div className="my-1.5 first:mt-0 last:mb-0">
-                    <MarkdownText />
-                  </div>
-                );
-              case "reasoning":
-                // Live thinking stream — rendered by the ported Reasoning
-                // component (smooth markdown body that tails the stream),
-                // grouped under the work trail's Thinking section.
-                return <Reasoning {...part} />;
-              case "tool-call":
-                return part.toolUI ?? <ToolFallback {...part} />;
-              case "source":
-                return (
-                  <SourceView
-                    part={part as { url?: string; title?: string }}
-                  />
-                );
-              default:
-                return null;
-            }
-          }}
-        </MessagePrimitive.GroupedParts>
+        {renderParts(false)}
         {/* Prompt Sheet (composer) owns live sequester for questions +
             staged writes. Inline attachment lists stay as transcript
             artifacts when already in message parts. */}
         <InlineAttachmentLists />
         <MessageError />
-        <MessageObservability />
+        <WorkTrail>{renderParts(true)}</WorkTrail>
       </div>
 
       {(hasVisibleBody || hasDebugPayload || isRunning) && (
