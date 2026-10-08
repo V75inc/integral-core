@@ -256,12 +256,12 @@
   --surface: var(--panel);
   --surface-raised: var(--panel-2);
 
-  /* A quiet blue notice surface stays distinct from the app chrome. */
-  --system-bar-bg: #20262c;
-  --system-bar-muted: #c4cbd2;
-  --system-bar-border: #39434d;
-  --system-bar-hover: #303b46;
-  --system-bar-info-fg: #bddeff;
+  /* Warm graphite keeps notices in the app's neutral palette. */
+  --system-bar-bg: #252321;
+  --system-bar-muted: #cac7c2;
+  --system-bar-border: #403c38;
+  --system-bar-hover: #36322e;
+  --system-bar-info-fg: #ece7df;
 
   --entry-table-border: #484848;
   --entry-table-divider: #3d3d3d;
