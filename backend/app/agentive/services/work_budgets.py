@@ -29,7 +29,10 @@ from app.schemas.agentive.work_budget import (
     Money,
     money_units,
 )
-from app.schemas.agentive.work_mandate import WorkMandateRevision
+from app.schemas.agentive.work_mandate import (
+    MandateExternalGrant,
+    WorkMandateRevision,
+)
 
 
 async def _transaction_database():
@@ -51,7 +54,14 @@ def _ledger(plan: dict) -> dict:
             "external_effects": 0,
             "capability_calls": {},
             "external_effects_by_capability": {},
+            "external_effects_by_grant": {},
         }
+    # Legacy ledgers without external effects can upgrade without attribution
+    # guesses. Existing external counts need explicit reconciliation first.
+    if isinstance(value, dict) and "external_effects_by_grant" not in value:
+        if value.get("external_effects") != 0:
+            raise WorkError("work.budget_attribution_required")
+        value = {**value, "external_effects_by_grant": {}}
     if not isinstance(value, dict) or set(value) != {
         "reserved_units",
         "charged_units",
@@ -61,11 +71,16 @@ def _ledger(plan: dict) -> dict:
         "external_effects",
         "capability_calls",
         "external_effects_by_capability",
+        "external_effects_by_grant",
     }:
         raise WorkError("work.budget_invalid")
     result = dict(value)
     for key, amount in result.items():
-        if key in {"capability_calls", "external_effects_by_capability"}:
+        if key in {
+            "capability_calls",
+            "external_effects_by_capability",
+            "external_effects_by_grant",
+        }:
             if not isinstance(amount, dict) or any(
                 type(v) is not int or v < 0 for v in amount.values()
             ):
@@ -73,7 +88,17 @@ def _ledger(plan: dict) -> dict:
             result[key] = dict(amount)
         elif type(amount) is not int or amount < 0:
             raise WorkError("work.budget_invalid")
+    if any(
+        sum(result[key].values()) != result["external_effects"]
+        for key in ("external_effects_by_capability", "external_effects_by_grant")
+    ):
+        raise WorkError("work.budget_invalid")
     return result
+
+
+def _external_grant_key(grant: MandateExternalGrant) -> str:
+    """Bind a destination count to its complete reviewed provider/grant tuple."""
+    return hashlib.sha256(grant.model_dump_json().encode()).hexdigest()
 
 
 def _hydrate_reservation(document: dict) -> WorkBudgetReservation:
@@ -250,15 +275,20 @@ async def reserve_mandate_budget(
                 ledger["internal_writes"] += request.internal_write_units
             if grant.operation == "external_effect":
                 external = request.external_grant
+                destination_key = _external_grant_key(external)
                 effects = (
+                    ledger["external_effects_by_grant"].get(destination_key, 0)
+                    + request.external_effect_units
+                )
+                if effects > external.max_effects:
+                    raise WorkError("work.budget_exhausted")
+                ledger["external_effects_by_grant"][destination_key] = effects
+                ledger["external_effects_by_capability"][grant.capability_key] = (
                     ledger["external_effects_by_capability"].get(
                         grant.capability_key, 0
                     )
                     + request.external_effect_units
                 )
-                if effects > external.max_effects:
-                    raise WorkError("work.budget_exhausted")
-                ledger["external_effects_by_capability"][grant.capability_key] = effects
                 ledger["external_effects"] += request.external_effect_units
         for key in (
             "model_requests",
