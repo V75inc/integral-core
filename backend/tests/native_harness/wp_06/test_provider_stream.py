@@ -809,9 +809,25 @@ async def test_completed_build_requires_readback_before_final_answer():
 
     state["verification_succeeded"] = False
     state["verification_status"] = "partial"
-    partial = await validate(None, "Everything is ready.")
-    assert "verification returned partial" in partial
-    assert "Everything is ready" not in partial
+    state["verification_reply"] = (
+        "Partial. Not present: seed:Highway Rehabilitation (mismatch)."
+    )
+    with pytest.raises(ModelRetry, match="seed:Highway Rehabilitation") as retry:
+        await validate(None, "Everything is ready.")
+    message = str(retry.value)
+    assert "verification returned partial" in message
+    assert "Do not claim the setup is ready" in message
+    assert "do not call write tools" in message
+    assert "report every resource on each project" in message
+    assert state["verification_narrated"] is True
+
+    explained = await validate(
+        None,
+        "Highway Rehabilitation did not match. I cannot report the setup as ready.",
+    )
+    assert explained == (
+        "Highway Rehabilitation did not match. I cannot report the setup as ready."
+    )
 
 
 @pytest.mark.asyncio

@@ -147,11 +147,24 @@ def _scaffold_completion_validator(run_state: dict[str, Any]):
             if not run_state.get("verification_succeeded"):
                 status = run_state.get("verification_status")
                 if status in {"partial", "blocked", "failed"}:
-                    return (
-                        "The setup was applied, but its verification returned "
-                        f"{status}. I cannot report it as ready until the "
-                        "missing, changed or unreadable parts are resolved."
-                    )
+                    if not run_state.get("verification_narrated"):
+                        run_state["verification_narrated"] = True
+                        reply = run_state.get("verification_reply")
+                        receipt = (
+                            f" Verification receipt: {reply}"
+                            if isinstance(reply, str) and reply.strip()
+                            else ""
+                        )
+                        raise ModelRetry(
+                            "The setup was applied, but its verification returned "
+                            f"{status}.{receipt} Tell the user which items are "
+                            "missing or mismatched, in plain words. If they asked "
+                            "for the current resource assignments, read those "
+                            "entries and report every resource on each project. "
+                            "Do not claim the setup is ready, and do not call "
+                            "write tools."
+                        )
+                    return output
                 raise ModelRetry(
                     "The setup has been applied. Call integral_verify_build with "
                     "the identifiers from its receipt before reporting completion."
