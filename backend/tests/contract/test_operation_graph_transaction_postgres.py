@@ -7,6 +7,7 @@ documents such as a work receipt.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 import pytest
@@ -27,6 +28,61 @@ class TransactionProbeEdge(Edge):
 
 class _RollbackProbe(Exception):
     """Private control-flow exception for rollback proof."""
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_transaction_supports_concurrent_graph_reads_and_bounded_pagination(
+    postgres_raw_db,
+) -> None:
+    from app.services.pagination import paginate_entity_find
+
+    suffix = uuid.uuid4().hex
+    async with postgres_graph_transaction(postgres_raw_db):
+        parent = await TransactionProbeNode.create(label=f"parent-{suffix}")
+        children = [
+            await TransactionProbeNode.create(label=f"child-{suffix}") for _ in range(4)
+        ]
+        for child in children:
+            await parent.connect(child, edge=TransactionProbeEdge)
+
+        # Permission resolvers fan out these parent walks on the same handle.
+        parents = await asyncio.gather(
+            *(
+                child.nodes(
+                    edge=[TransactionProbeEdge],
+                    direction="in",
+                    node=[TransactionProbeNode],
+                )
+                for child in children
+            )
+        )
+        assert all([node.id for node in result] == [parent.id] for result in parents)
+
+        first, metadata = await paginate_entity_find(
+            TransactionProbeNode,
+            {"context.label": f"child-{suffix}"},
+            None,
+            2,
+            sort=[("id", 1)],
+            include_total=True,
+        )
+        assert len(first) == 2
+        assert metadata["total"] is None
+        assert metadata["has_more"] is True
+        assert metadata["next_cursor"]
+        second, final = await paginate_entity_find(
+            TransactionProbeNode,
+            {"context.label": f"child-{suffix}"},
+            metadata["next_cursor"],
+            2,
+            sort=[("id", 1)],
+            include_total=True,
+        )
+        assert {node.id for node in first + second} == {node.id for node in children}
+        assert final["has_more"] is False
+        assert final["next_cursor"] is None
 
 
 @pytest.mark.contract

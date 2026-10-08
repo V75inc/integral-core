@@ -8,7 +8,10 @@ silently switching to another transaction implementation.
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 from contextlib import asynccontextmanager
+from functools import wraps
 from typing import Any, AsyncIterator
 
 from jvspatial.core.context import TransactionUnavailable as _JvTxnUnavailable
@@ -18,6 +21,51 @@ from jvspatial.db import get_prime_database
 
 class OperationTransactionUnavailable(RuntimeError):
     """Raised when the configured store cannot host a graph transaction."""
+
+
+class _SerializedTransaction:
+    """Serialize public I/O on one transaction's held database connection.
+
+    Graph services can fan out permission reads with asyncio.gather. An asyncpg
+    transaction has one connection and cannot execute those reads concurrently.
+    Keep the library-owned graph/cache/commit scope, while queuing its public
+    database calls on that same transaction rather than escaping to the pool.
+    """
+
+    def __init__(self, transaction: Any) -> None:
+        self.inner = transaction
+        self._lock = asyncio.Lock()
+
+    def __getattr__(self, name: str) -> Any:
+        value = getattr(self.inner, name)
+        if not inspect.iscoroutinefunction(value):
+            return value
+
+        @wraps(value)
+        async def serialized(*args: Any, **kwargs: Any) -> Any:
+            async with self._lock:
+                return await value(*args, **kwargs)
+
+        return serialized
+
+
+class _SerializedTransactionDatabase:
+    """Let jvspatial create its normal GraphContext on a serialized handle."""
+
+    def __init__(self, database: Any) -> None:
+        self.inner = database
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.inner, name)
+
+    async def begin_transaction(self) -> _SerializedTransaction:
+        return _SerializedTransaction(await self.inner.begin_transaction())
+
+    async def commit_transaction(self, transaction: _SerializedTransaction) -> None:
+        await self.inner.commit_transaction(transaction.inner)
+
+    async def rollback_transaction(self, transaction: _SerializedTransaction) -> None:
+        await self.inner.rollback_transaction(transaction.inner)
 
 
 def _transaction_database(database: Any) -> Any:
@@ -56,8 +104,14 @@ async def postgres_graph_transaction(
     """
     # A missing argument must use the prime store, not an auto-created manager.
     bound = database or get_prime_database()
+    concrete = _transaction_database(bound)
+    adapter = (
+        _SerializedTransactionDatabase(concrete)
+        if graph_transaction_available(concrete)
+        else concrete
+    )
     try:
-        async with _jv_graph_transaction(bound) as ctx:
+        async with _jv_graph_transaction(adapter) as ctx:
             yield ctx.database
     except _JvTxnUnavailable as exc:
         raise OperationTransactionUnavailable(str(exc)) from exc
