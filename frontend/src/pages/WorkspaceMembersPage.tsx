@@ -72,7 +72,7 @@ function InviteStatusPill({ status }: { status: string }) {
 
 function roleDescription(role: Exclude<WorkspaceRole, 'owner'>): string {
   if (role === 'admin') {
-    return 'Can manage workspace members and settings. App and Track creation permissions are assigned separately.';
+    return 'Can manage workspace members and settings. App and Track creation permissions are assigned separately. Private Apps and Tracks still need to be shared directly.';
   }
   if (role === 'guest') {
     return 'Can access only the Apps and Tracks explicitly shared with them.';
@@ -114,18 +114,13 @@ export function WorkspaceMembersPage() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
 
-  // Add-existing-user (search picker) role selection.
-  const [pickerRole, setPickerRole] =
-    useState<Exclude<WorkspaceRole, 'owner'>>('member');
-
-  // Invite-by-email form state.
+  // Single invite panel — Email | Existing user modes share role/permissions/note.
+  const [inviteMode, setInviteMode] = useState<'email' | 'user'>('email');
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] =
     useState<Exclude<WorkspaceRole, 'owner'>>('member');
   const [inviteCanCreateApps, setInviteCanCreateApps] = useState(false);
   const [inviteCanCreateTracks, setInviteCanCreateTracks] = useState(false);
-  const [pickerCanCreateApps, setPickerCanCreateApps] = useState(false);
-  const [pickerCanCreateTracks, setPickerCanCreateTracks] = useState(false);
   const [inviteMessage, setInviteMessage] = useState('');
   const [inviting, setInviting] = useState(false);
   const [lastAcceptanceUrl, setLastAcceptanceUrl] = useState<string | null>(null);
@@ -212,24 +207,24 @@ export function WorkspaceMembersPage() {
     load();
   }, [load]);
 
-  const inviteRegisteredUser = async (
-    u: User,
-    role: Exclude<WorkspaceRole, 'owner'>,
-  ) => {
+  const inviteRegisteredUser = async (u: User) => {
     if (!workspaceId) return;
     const email = (u.email || '').trim();
     if (!email) {
-      showToast('This user has no email on file — use Invite by email instead', 'error');
+      showToast('This user has no email on file — switch to Email mode', 'error');
       return;
     }
     setInviting(true);
+    setLastAcceptanceUrl(null);
     try {
-      await invitationsApi.create(workspaceId, {
+      const res = await invitationsApi.create(workspaceId, {
         email,
-        role,
-        can_create_apps: pickerCanCreateApps,
-        can_create_tracks: pickerCanCreateTracks,
+        role: inviteRole,
+        can_create_apps: inviteCanCreateApps,
+        can_create_tracks: inviteCanCreateTracks,
+        message: inviteMessage.trim() || undefined,
       });
+      setLastAcceptanceUrl(res.acceptance_url);
       showToast('Invitation sent', 'success');
       load();
     } catch (e: unknown) {
@@ -405,8 +400,8 @@ export function WorkspaceMembersPage() {
               ? `Personal workspaces do not have a member list.`
               : `Owners and admins invite teammates by email or from the
               registered-user directory. Invitations must be accepted before
-              access is granted. Guests see only the apps/tracks they're
-              explicitly added to.`}
+              access is granted. Guests see only apps and tracks shared with
+              them directly.`}
           </p>
         </header>
       </PageSection>
@@ -424,170 +419,100 @@ export function WorkspaceMembersPage() {
         )}
 
         {canManage && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
-            <form
-              className="app-card p-5 space-y-4"
-              onSubmit={e => {
-                e.preventDefault();
-                sendInvitation();
-              }}
-              aria-label="Invite by email"
-            >
+          <form
+            className="app-card p-5 space-y-4 mb-6 max-w-2xl"
+            onSubmit={e => {
+              e.preventDefault();
+              if (inviteMode === 'email') sendInvitation();
+            }}
+            aria-label="Invite to workspace"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-sm font-semibold text-[var(--text)]">
-                Invite to this workspace by email
+                Invite to this workspace
               </h2>
-              <div className="flex flex-col gap-3">
-                <div>
-                  <label
-                    htmlFor="invite-email"
-                    className="text-xs font-medium text-[var(--text-muted)] block mb-1"
-                  >
-                    Email address
-                  </label>
-                  <input
-                    id="invite-email"
-                    type="email"
-                    autoComplete="email"
-                    className="app-input"
-                    placeholder="teammate@example.com"
-                    value={inviteEmail}
-                    onChange={e => setInviteEmail(e.target.value)}
-                    disabled={inviting}
-                    required
-                  />
-                </div>
-                <div className="flex gap-2 items-end">
-                  <div className="flex-1">
-                    <label
-                      htmlFor="invite-role"
-                      className="text-xs font-medium text-[var(--text-muted)] block mb-1"
-                    >
-                      Workspace role
-                    </label>
-                    <select
-                      id="invite-role"
-                      className="app-input"
-                      value={inviteRole}
-                      onChange={e =>
-                        setInviteRole(
-                          e.target.value as Exclude<WorkspaceRole, 'owner'>
-                        )
-                      }
-                      disabled={inviting}
-                    >
-                      {ASSIGNABLE_ROLES.map(r => (
-                        <option key={r} value={r}>
-                          {r.charAt(0).toUpperCase() + r.slice(1)}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <Button
-                    type="submit"
-                    variant="primary"
-                    size="sm"
-                    icon={<Mail size={14} strokeWidth={LINE_ICON_STROKE} />}
-                    disabled={inviting || !inviteEmail.trim()}
-                  >
-                    {inviting ? 'Sending…' : 'Send invite'}
-                  </Button>
-                </div>
-                <p className="text-xs text-[var(--text-muted)]" aria-live="polite">
-                  {roleDescription(inviteRole)}
-                </p>
-                <fieldset className="space-y-2">
-                  <legend className="text-xs font-medium text-[var(--text-muted)] mb-1">
-                    Additional creation permissions
-                  </legend>
-                  <label className="flex items-center gap-2 text-sm text-[var(--text)]">
-                    <input
-                      type="checkbox"
-                      checked={inviteCanCreateApps}
-                      onChange={e => setInviteCanCreateApps(e.target.checked)}
-                      disabled={inviting}
-                    />
-                    Can create Apps
-                  </label>
-                  <label className="flex items-center gap-2 text-sm text-[var(--text)]">
-                    <input
-                      type="checkbox"
-                      checked={inviteCanCreateTracks}
-                      onChange={e => setInviteCanCreateTracks(e.target.checked)}
-                      disabled={inviting}
-                    />
-                    Can create Tracks
-                  </label>
-                </fieldset>
-                <div>
-                  <label
-                    htmlFor="invite-message"
-                    className="text-xs font-medium text-[var(--text-muted)] block mb-1"
-                  >
-                    Note (optional)
-                  </label>
-                  <textarea
-                    id="invite-message"
-                    className="app-input"
-                    placeholder="Anything you want them to know"
-                    rows={2}
-                    value={inviteMessage}
-                    onChange={e => setInviteMessage(e.target.value)}
-                    disabled={inviting}
-                  />
-                </div>
-              </div>
-              {lastAcceptanceUrl && (
-                <div
-                  className="rounded-md border border-[var(--panel-border)] bg-[var(--panel-2)] p-3 text-xs"
-                  role="status"
-                  aria-live="polite"
+              <div
+                className="inline-flex rounded-md border border-[var(--panel-border)] p-0.5"
+                role="tablist"
+                aria-label="Invite method"
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={inviteMode === 'email'}
+                  className={`px-3 py-1 text-xs font-medium rounded ${
+                    inviteMode === 'email'
+                      ? 'bg-[var(--panel-2)] text-[var(--text)]'
+                      : 'text-[var(--text-muted)] hover:text-[var(--text)]'
+                  }`}
+                  onClick={() => setInviteMode('email')}
+                  disabled={inviting}
                 >
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-[var(--text-muted)]">
-                      Email sent. You can also share the link directly:
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => copyAcceptanceUrl(lastAcceptanceUrl)}
-                      className="inline-flex items-center justify-center w-9 h-9 rounded hover:bg-[var(--panel)] text-[var(--text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]"
-                      aria-label="Copy acceptance URL to clipboard"
-                      title="Copy URL"
-                    >
-                      <Copy size={14} strokeWidth={LINE_ICON_STROKE} />
-                    </button>
-                  </div>
-                  <p className="mt-1.5 break-all text-[var(--text)] font-mono">
-                    {lastAcceptanceUrl}
-                  </p>
-                </div>
-              )}
-            </form>
+                  Email
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={inviteMode === 'user'}
+                  className={`px-3 py-1 text-xs font-medium rounded ${
+                    inviteMode === 'user'
+                      ? 'bg-[var(--panel-2)] text-[var(--text)]'
+                      : 'text-[var(--text-muted)] hover:text-[var(--text)]'
+                  }`}
+                  onClick={() => setInviteMode('user')}
+                  disabled={inviting}
+                >
+                  Existing user
+                </button>
+              </div>
+            </div>
 
-            <div className="app-card p-5 space-y-4">
-              <h2 className="text-sm font-semibold text-[var(--text)]">
-                Invite a registered user to this workspace
-              </h2>
-              <UserSearchPicker
-                excludeIds={excludeIds}
-                onSelect={u => inviteRegisteredUser(u, pickerRole)}
-                label="Search registered users"
-              />
+            {inviteMode === 'email' ? (
               <div>
                 <label
-                  htmlFor="picker-role"
+                  htmlFor="invite-email"
+                  className="text-xs font-medium text-[var(--text-muted)] block mb-1"
+                >
+                  Email address
+                </label>
+                <input
+                  id="invite-email"
+                  type="email"
+                  autoComplete="email"
+                  className="app-input"
+                  placeholder="teammate@example.com"
+                  value={inviteEmail}
+                  onChange={e => setInviteEmail(e.target.value)}
+                  disabled={inviting}
+                  required
+                />
+              </div>
+            ) : (
+              <UserSearchPicker
+                excludeIds={excludeIds}
+                onSelect={u => inviteRegisteredUser(u)}
+                label="Search registered users"
+              />
+            )}
+
+            <div className="flex gap-2 items-end">
+              <div className="flex-1">
+                <label
+                  htmlFor="invite-role"
                   className="text-xs font-medium text-[var(--text-muted)] block mb-1"
                 >
                   Workspace role
                 </label>
                 <select
-                  id="picker-role"
+                  id="invite-role"
                   className="app-input"
-                  value={pickerRole}
+                  value={inviteRole}
                   onChange={e =>
-                    setPickerRole(
+                    setInviteRole(
                       e.target.value as Exclude<WorkspaceRole, 'owner'>
                     )
                   }
+                  disabled={inviting}
                 >
                   {ASSIGNABLE_ROLES.map(r => (
                     <option key={r} value={r}>
@@ -596,32 +521,90 @@ export function WorkspaceMembersPage() {
                   ))}
                 </select>
               </div>
-              <p className="text-xs text-[var(--text-muted)]" aria-live="polite">
-                {roleDescription(pickerRole)}
-              </p>
-              <fieldset className="space-y-2">
-                <legend className="text-xs font-medium text-[var(--text-muted)] mb-1">
-                  Additional creation permissions
-                </legend>
-                <label className="flex items-center gap-2 text-sm text-[var(--text)]">
-                  <input
-                    type="checkbox"
-                    checked={pickerCanCreateApps}
-                    onChange={e => setPickerCanCreateApps(e.target.checked)}
-                  />
-                  Can create Apps
-                </label>
-                <label className="flex items-center gap-2 text-sm text-[var(--text)]">
-                  <input
-                    type="checkbox"
-                    checked={pickerCanCreateTracks}
-                    onChange={e => setPickerCanCreateTracks(e.target.checked)}
-                  />
-                  Can create Tracks
-                </label>
-              </fieldset>
+              {inviteMode === 'email' && (
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="sm"
+                  icon={<Mail size={14} strokeWidth={LINE_ICON_STROKE} />}
+                  disabled={inviting || !inviteEmail.trim()}
+                >
+                  {inviting ? 'Sending…' : 'Send invite'}
+                </Button>
+              )}
             </div>
-          </div>
+            <p className="text-xs text-[var(--text-muted)]" aria-live="polite">
+              {roleDescription(inviteRole)}
+              {inviteMode === 'user'
+                ? ' Select a user above to send the invitation.'
+                : ''}
+            </p>
+            <fieldset className="space-y-2">
+              <legend className="text-xs font-medium text-[var(--text-muted)] mb-1">
+                Additional creation permissions
+              </legend>
+              <label className="flex items-center gap-2 text-sm text-[var(--text)]">
+                <input
+                  type="checkbox"
+                  checked={inviteCanCreateApps}
+                  onChange={e => setInviteCanCreateApps(e.target.checked)}
+                  disabled={inviting}
+                />
+                Can create apps
+              </label>
+              <label className="flex items-center gap-2 text-sm text-[var(--text)]">
+                <input
+                  type="checkbox"
+                  checked={inviteCanCreateTracks}
+                  onChange={e => setInviteCanCreateTracks(e.target.checked)}
+                  disabled={inviting}
+                />
+                Can create tracks
+              </label>
+            </fieldset>
+            <div>
+              <label
+                htmlFor="invite-message"
+                className="text-xs font-medium text-[var(--text-muted)] block mb-1"
+              >
+                Note (optional)
+              </label>
+              <textarea
+                id="invite-message"
+                className="app-input"
+                placeholder="Anything you want them to know"
+                rows={2}
+                value={inviteMessage}
+                onChange={e => setInviteMessage(e.target.value)}
+                disabled={inviting}
+              />
+            </div>
+            {lastAcceptanceUrl && (
+              <div
+                className="rounded-md border border-[var(--panel-border)] bg-[var(--panel-2)] p-3 text-xs"
+                role="status"
+                aria-live="polite"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[var(--text-muted)]">
+                    Invitation ready. You can also share the link directly:
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => copyAcceptanceUrl(lastAcceptanceUrl)}
+                    className="inline-flex items-center justify-center w-9 h-9 rounded hover:bg-[var(--panel)] text-[var(--text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]"
+                    aria-label="Copy acceptance URL to clipboard"
+                    title="Copy URL"
+                  >
+                    <Copy size={14} strokeWidth={LINE_ICON_STROKE} />
+                  </button>
+                </div>
+                <p className="mt-1.5 break-all text-[var(--text)] font-mono">
+                  {lastAcceptanceUrl}
+                </p>
+              </div>
+            )}
+          </form>
         )}
 
         <SearchRow>
@@ -753,7 +736,7 @@ export function WorkspaceMembersPage() {
                               })
                             }
                           />
-                          Apps
+                          Can create apps
                         </label>
                         <label className="flex items-center gap-1.5 cursor-pointer">
                           <input
@@ -765,7 +748,7 @@ export function WorkspaceMembersPage() {
                               })
                             }
                           />
-                          Tracks
+                          Can create tracks
                         </label>
                       </div>
                     ) : null}

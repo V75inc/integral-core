@@ -45,17 +45,26 @@ export type StagedChangeStatus =
   | { kind: 'loading'; state: StagedChangeState }
   | { kind: 'error'; state: StagedChangeState; message: string };
 
+export type AgentNudgeHostAction =
+  | 'staging_follow_through'
+  | 'prompt_sheet_resume';
+
 export interface UseStagedChangeOptions {
   /** Fired once the change reaches consumed / revoked / expired. */
   onTerminal?: (token: string) => void;
   /**
-   * Called when the bless succeeded but no write ran — the agent has to
-   * call `execute_X` on its next turn, so the surface should nudge it.
-   * Only the chat card can: it has a thread runtime. A list row passes
+   * Called when the bless succeeded but the agent still owes a turn:
+   * - no ``execute_result`` → host-apply blessed token(s)
+   * - ``needs_agent_build`` → design affirmed; host continues the build
+   *
+   * Never called when execute failed/skipped — Prompt Sheet and the card
+   * surface the error instead of an empty host turn.
+   *
+   * Only the chat card can nudge: it has a thread runtime. A list row passes
    * nothing and the nudge is skipped, which is correct — there is no
    * conversation to nudge.
    */
-  onNeedsAgentNudge?: () => void;
+  onNeedsAgentNudge?: (hostAction: AgentNudgeHostAction) => void;
   /** Explicit UI confirmation for server-classified high-impact changes. */
   onNeedsStrongConfirmation?: (summary: string) => Promise<boolean>;
 }
@@ -296,11 +305,15 @@ export function useStagedChange(
         // whatever the backend says:
         //   - `execute_result` present and clean → it already ran.
         //   - `execute_result` carrying an error, `filed: false`, or
-        //     `skipped: true` → surface it, stay blessed.
-        //   - absent → the agent applies it on its next turn; the card stays
-        //     `blessed` ("Approved — not yet applied") and the surface that
-        //     can nudge the agent does so below.
+        //     `skipped: true` → surface it, stay blessed; do NOT nudge
+        //     (an empty host turn is not a retry).
+        //   - `needs_agent_build` → design affirmed; staging_follow_through
+        //     + host design-build directive (AGENT-17). Also emit the
+        //     staging event so Prompt Sheet reconcile can drain.
+        //   - absent → blessed; staging_follow_through host-applies next.
         let writeCompleted = false;
+        let needsAgentBuild = false;
+        let needsFollowThrough = false;
         let executePayload: unknown;
         const exec = res.execute_result as
           | (Record<string, unknown> & {
@@ -314,15 +327,11 @@ export function useStagedChange(
           | undefined;
         const execFailed =
           !!exec && (!!exec.error || exec.filed === false || exec.skipped === true);
-        // needs_agent_build: host flagged a follow-on agent turn (e.g. legacy).
-        const needsAgentBuild = !!exec && exec.needs_agent_build === true;
+        needsAgentBuild = !!exec && !execFailed && exec.needs_agent_build === true;
 
-        if (exec && !execFailed && needsAgentBuild) {
+        if (needsAgentBuild) {
           executePayload = exec;
           setStatus({ kind: 'idle', state: 'consumed' });
-          // Still nudge — consume without substrate writes would otherwise
-          // skip the build turn (AGENT-17).
-          writeCompleted = false;
         } else if (exec && !execFailed) {
           executePayload = exec;
           setConsumedNav(extractConsumedNav(exec, staged));
@@ -336,22 +345,33 @@ export function useStagedChange(
           });
         } else {
           setStatus({ kind: 'idle', state: 'blessed' });
+          needsFollowThrough = true;
         }
 
-        if (writeCompleted) {
-          const nav = extractConsumedNav(executePayload, staged);
-          stashUndoTokensFromConsumedNav(staged.token, nav);
+        if (writeCompleted || needsAgentBuild) {
+          if (writeCompleted) {
+            const nav = extractConsumedNav(executePayload, staged);
+            stashUndoTokensFromConsumedNav(staged.token, nav);
+            void invalidateAfterAgentWrite(queryClient, {
+              staged,
+              executeResult: executePayload,
+            });
+          }
           window.dispatchEvent(
             new CustomEvent('integral:staging-state-changed', {
-              detail: { token: staged.token, state: 'consumed' },
+              detail: {
+                token: staged.token,
+                state: 'consumed',
+              },
             }),
           );
-          void invalidateAfterAgentWrite(queryClient, {
-            staged,
-            executeResult: executePayload,
-          });
-        } else {
-          onNeedsAgentNudge?.();
+        }
+        if (needsAgentBuild || needsFollowThrough) {
+          // Design affirm uses the same host action: backend allows
+          // staging_follow_through with no blessed tokens when a design is
+          // affirmed for build. prompt_sheet_resume requires a drained sheet
+          // and races the reconcile that closes it.
+          onNeedsAgentNudge?.('staging_follow_through');
         }
       } catch (err) {
         setStatus((prev) => ({

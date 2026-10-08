@@ -2355,20 +2355,26 @@ def _stage_delete_view(args: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _stage_attach_file(args: Dict[str, Any]) -> Dict[str, Any]:
+async def _stage_attach_file(args: Dict[str, Any]) -> Dict[str, Any]:
     _require(args, "entry_id", "sandbox_path")
+    entry_id = args["entry_id"]
+    path = args["sandbox_path"]
+    current = await _sd.load_entry_record(entry_id)
+    title_lbl = (
+        _sd.entry_display_label(current, entry_id)
+        if current
+        else f"Entry {_sd.short_node_id(entry_id)}"
+    )
     payload = {
-        "entry_id": args["entry_id"],
-        "sandbox_path": args["sandbox_path"],
+        "entry_id": entry_id,
+        "sandbox_path": path,
     }
     return {
         "kind": "attach_file",
-        "summary": (
-            f"Attach sandbox file {args['sandbox_path']} to entry {args['entry_id']}"
-        ),
+        "summary": f"Attach sandbox file “{path}” to entry “{title_lbl}”",
         "diff_human": (
-            f"Attach sandbox file `{args['sandbox_path']}` to entry "
-            f"`{args['entry_id']}`"
+            f"**Attach sandbox file** *{path}*\n\n"
+            "Copies the sandbox path onto this entry on approval."
         ),
         "diff_machine": {"op": "attach_file", **payload},
         "payload": payload,
@@ -2457,22 +2463,31 @@ async def _stage_attach_uploaded_image(args: Dict[str, Any]) -> Dict[str, Any]:
             "Pass the image_id from the upload note, or upload the image again."
         )
     filename, mime_type, content_b64 = found
+    entry_id = args["entry_id"]
+    current = await _sd.load_entry_record(entry_id)
+    title_lbl = (
+        _sd.entry_display_label(current, entry_id)
+        if current
+        else f"Entry {_sd.short_node_id(entry_id)}"
+    )
     payload = {
-        "entry_id": args["entry_id"],
+        "entry_id": entry_id,
         "filename": filename,
         "mime_type": mime_type,
         "content_b64": content_b64,
     }
     return {
         "kind": "attach_uploaded_image",
-        "summary": f"Attach uploaded image {filename} to entry {args['entry_id']}",
+        "summary": f"Attach uploaded image “{filename}” to entry “{title_lbl}”",
         "diff_human": (
-            f"Attach uploaded image `{filename}` to entry `{args['entry_id']}`"
+            f"**Attach uploaded image** *{filename}*\n\n"
+            "Materializes the pasted chat image onto this entry. Storage is "
+            "only consumed on approval."
         ),
         # The base64 stays out of the diff (large/noisy); the payload carries it.
         "diff_machine": {
             "op": "attach_uploaded_image",
-            "entry_id": args["entry_id"],
+            "entry_id": entry_id,
             "filename": filename,
             "mime_type": mime_type,
         },

@@ -41,6 +41,35 @@ def test_harness_usage_limit_has_an_actionable_message() -> None:
     assert "80000" not in message
 
 
+def test_exhausted_scaffold_retry_shows_seed_reason() -> None:
+    """A spent build retry shows the seed reason, not a generic platform error."""
+    cause = RuntimeError(
+        "Operation 8: Seed line 'Berghotel Grosse Scheidegg' does not match "
+        "a declared field. Correct the generated operation plan to match the "
+        "saved, approved design and retry in this turn. Do not ask the user "
+        "to repeat approval."
+    )
+    exc = RuntimeError(
+        "Tool 'integral_build_approved_design' exceeded max retries count of 2."
+    )
+    exc.__cause__ = cause
+
+    code, message = classify_turn_exception(exc)
+
+    assert code == "scaffold_plan_invalid"
+    assert "Berghotel Grosse Scheidegg" in message
+    assert "does not match a declared field" in message
+    assert "Correct the generated operation plan" not in message
+    assert "Something went wrong on our side" not in message
+
+
+def test_unrelated_exception_stays_internal_error() -> None:
+    """Unrelated turn failures keep the generic internal-error sentence."""
+    code, message = classify_turn_exception(RuntimeError("database unavailable"))
+    assert code == "internal_error"
+    assert message == "Something went wrong on our side. Please try again."
+
+
 def test_first_conversation_state_conflict_is_not_described_as_prior_work(
     caplog,
 ) -> None:

@@ -56,6 +56,14 @@ export function usePromptQueue() {
   const [index, setIndex] = useState(0);
   const resumedRefreshes = useRef(new Set<string>());
   const reviewEpisode = useRef<{ threadId: string; queue: PromptQueue } | null>(null);
+  // Resume we saw while a stream was active — retry once it settles.
+  // getPromptQueue only returns resume_text on the reconcile that closes the
+  // sheet, so a mid-stream miss cannot be recovered from a later poll alone.
+  const pendingResumeRef = useRef<{
+    threadId: string;
+    resumeText: string;
+    resultQueue?: PromptQueue;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -70,7 +78,17 @@ export function usePromptQueue() {
   const failures = useRef(0);
 
   const resumeOnce = useCallback((threadId: string, text: string | null | undefined, resultQueue?: PromptQueue) => {
-    if (!text || live.current.activeThreadId !== threadId || live.current.isThreadStreaming(threadId)) return;
+    if (!text || live.current.activeThreadId !== threadId) return;
+    if (live.current.isThreadStreaming(threadId)) {
+      // A clear chat approval is applied before its ordinary native turn
+      // continues. The continuation belongs to that run; do not launch a
+      // second Prompt Sheet resume while its stream is active — and do not
+      // mark the key consumed until we actually resume, or a mid-stream
+      // poll permanently drops the continuation.
+      pendingResumeRef.current = { threadId, resumeText: text, resultQueue };
+      return;
+    }
+    pendingResumeRef.current = null;
     const episode = resultQueue?.items.length ? resultQueue
       : reviewEpisode.current?.threadId === threadId ? reviewEpisode.current.queue : undefined;
     // Deduplicate one resolved review, not identical wording across new reviews.
@@ -165,6 +183,16 @@ export function usePromptQueue() {
       window.clearTimeout(timer);
     };
   }, [refresh]);
+
+  // Flush a resume that was deferred because a stream was already active.
+  useEffect(() => {
+    const pending = pendingResumeRef.current;
+    if (!pending || !activeThreadId || pending.threadId !== activeThreadId) {
+      return;
+    }
+    if (isThreadStreaming(pending.threadId)) return;
+    resumeOnce(pending.threadId, pending.resumeText, pending.resultQueue);
+  }, [activeThreadId, isThreadStreaming, resumeOnce]);
 
   const scopeCurrent = queueScope === activeThreadId;
   const items = scopeCurrent ? queue?.items ?? [] : [];

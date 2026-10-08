@@ -159,6 +159,34 @@ describe('invalidateAfterChangeEvent', () => {
     }
   });
 
+  it('marks a deleted track stale without refetching it', async () => {
+    const qc = new QueryClient();
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+
+    await invalidateAfterChangeEvent(qc, {
+      id: 'evt-track-delete',
+      ts: '2026-01-01T00:00:00Z',
+      actor_kind: 'user',
+      actor_id: 'user-a',
+      action: 'track.delete',
+      resource_type: 'Track',
+      resource_id: 'n.Track.deleted',
+      scope: 'track:n.Track.deleted',
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['feed'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['workspaces'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tracks'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['dashboard-data'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['track', 'n.Track.deleted'],
+      refetchType: 'none',
+    });
+    expect(invalidateSpy).not.toHaveBeenCalledWith({
+      queryKey: ['track', 'n.Track.deleted', 'entries'],
+    });
+  });
+
   it('invalidates dashboards on dashboard.update', async () => {
     const qc = new QueryClient();
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');

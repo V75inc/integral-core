@@ -69,7 +69,7 @@ def test_governed_query_rows_get_canonical_urls_without_mutating_receipts():
     }
     result = _resource_links_for_model(source)
     assert [row["url"] for row in result["rows"][:3]] == [
-        "/entries/n.Entry.example",
+        "/tracks/n.Track.example?entry=n.Entry.example",
         "/tracks/n.Track.example",
         "/apps/n.WorkspaceApp.example",
     ]

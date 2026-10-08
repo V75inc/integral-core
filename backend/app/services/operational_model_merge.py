@@ -10,7 +10,13 @@ from typing import Any, Dict, List, Optional, Protocol, Set
 from jvspatial.api.exceptions import ResourceNotFoundError
 
 from app.exceptions import BadRequestError, CustomSkillPublicCatalogRejectedError
-from app.models.edges import CATALOGS, CONTAINS, DEFINES_TRACK_PROFILE, OWNS
+from app.models.edges import (
+    CATALOGS,
+    CONTAINS,
+    DEFINES_TRACK_PROFILE,
+    HAS_OPERATIONAL_MODEL,
+    OWNS,
+)
 from app.models.nodes import (
     App,
     EntryType,
@@ -26,6 +32,10 @@ from app.services.app_graph import (
     get_app_attached_operational_model,
     get_or_create_views_registry_for_operational_model,
     get_track_attached_operational_model,
+)
+from app.services.library_package_visibility import (
+    assert_library_package_installable_in_workspace,
+    library_package_owner_workspace_id,
 )
 from app.services.operational_model_runtime import (
     SCHEMA_VERSION,
@@ -736,10 +746,40 @@ async def merge_library_manifest_into_operational_model(
     for_space: bool = False,
     _skip_dependencies: bool = False,
     _dry_run: bool = False,
+    _scope_target: Optional[OperationalModel] = None,
 ) -> None:
     """Apply ``library_cp.manifest`` tier into ``target_cp`` (never mutates library)."""
-    if not _skip_dependencies and isinstance(library_cp, OperationalModel):
-        chain = await _resolve_library_dependency_chain(library_cp)
+    if isinstance(library_cp, OperationalModel):
+        chain = (
+            [library_cp]
+            if _skip_dependencies
+            else await _resolve_library_dependency_chain(library_cp)
+        )
+        private_packages = [
+            package
+            for package in chain
+            if package.library_package and library_package_owner_workspace_id(package)
+        ]
+        if private_packages:
+            target_workspace_id = getattr(track, "workspace_id", "") or ""
+            if not target_workspace_id:
+                scope_target = _scope_target if _scope_target is not None else target_cp
+                if not isinstance(scope_target, OperationalModel):
+                    raise ResourceNotFoundError(message="Operational Model not found")
+                parents = await scope_target.nodes(
+                    edge=[HAS_OPERATIONAL_MODEL],
+                    node=["WorkspaceApp", "Track"],
+                    direction="in",
+                    limit=1,
+                )
+                target_workspace_id = (
+                    getattr(parents[0], "workspace_id", "") if parents else ""
+                )
+            # Validate the complete dependency chain before the first merge write.
+            for package in private_packages:
+                await assert_library_package_installable_in_workspace(
+                    package, target_workspace_id
+                )
         for dep in chain[:-1]:
             await merge_library_manifest_into_operational_model(
                 dep,
@@ -748,6 +788,7 @@ async def merge_library_manifest_into_operational_model(
                 for_space=for_space,
                 _skip_dependencies=True,
                 _dry_run=_dry_run,
+                _scope_target=_scope_target,
             )
     manifest = library_cp.manifest or {}
     canonical = compile_canonical_manifest(manifest=manifest)
@@ -1271,6 +1312,7 @@ async def preview_effective_app_manifest_after_library_merge(
     *,
     target_manifest: Dict[str, Any],
     library_cp: OperationalModel,
+    target_profile: Optional[OperationalModel] = None,
 ) -> Dict[str, Any]:
     """Calculate the effective App manifest produced by a library update.
 
@@ -1287,6 +1329,7 @@ async def preview_effective_app_manifest_after_library_merge(
         track=None,
         for_space=True,
         _dry_run=True,
+        _scope_target=target_profile,
     )
     return compile_canonical_manifest(manifest=target.manifest)
 
