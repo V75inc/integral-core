@@ -283,12 +283,12 @@ async def test_stop_native_thread_uses_active_durable_work(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("file_only", [False, True])
+@pytest.mark.parametrize("input_kind", ["text", "file", "host"])
 async def test_native_message_route_accepts_durable_work_without_inline_run(
     authenticated_client: AsyncClient,
     test_user,
     monkeypatch: pytest.MonkeyPatch,
-    file_only,
+    input_kind,
 ) -> None:
     from fastapi.responses import StreamingResponse
 
@@ -335,7 +335,7 @@ async def test_native_message_route_accepts_durable_work_without_inline_run(
     replay = AsyncMock(side_effect=saved_stream)
     monkeypatch.setattr(ai_chat, "stream_chat_turn_events", replay)
     payload = {"text": "Help me assess my idea", "client_request_id": "durable-route"}
-    if file_only:
+    if input_kind == "file":
         from app.models.edges import HAS_ATTACHMENT
         from app.models.nodes import Attachment
 
@@ -354,6 +354,19 @@ async def test_native_message_route_accepts_durable_work_without_inline_run(
             "attachment_ids": [attachment.id],
             "client_request_id": "durable-route",
         }
+    if input_kind == "host":
+        thread.prompt_queue = {
+            "status": "closed",
+            "closed_at": "2026-10-08T12:00:00Z",
+            "items": [
+                {"id": "decision-1", "kind": "staged_write", "status": "rejected"}
+            ],
+        }
+        await thread.save()
+        payload = {
+            "host_action": "prompt_sheet_resume",
+            "client_request_id": "durable-route",
+        }
     response = await authenticated_client.post(
         f"/api/chat/threads/{thread_id}/messages",
         headers={"X-Integral-Scope": f"ws:{workspace_id}"},
@@ -363,7 +376,7 @@ async def test_native_message_route_accepts_durable_work_without_inline_run(
     assert response.headers["X-Integral-Work-Item"] == "chat-turn:accepted"
     assert response.headers["X-Integral-Accepted-Message"] == "n.ChatMessage.accepted"
     accepted = submit.await_args.args[0]
-    if file_only:
+    if input_kind == "file":
         assert accepted.parts[0]["type"] == "file"
         assert all(part["type"] != "text" for part in accepted.parts)
         assert (
@@ -373,6 +386,15 @@ async def test_native_message_route_accepts_durable_work_without_inline_run(
         assert (
             "BEGIN_CONTEXT_DATA kind=uploaded_file_references"
             in accepted.execution_context.system_context
+        )
+    elif input_kind == "host":
+        assert accepted.execution_context.host_control.action == "prompt_sheet_resume"
+        assert accepted.execution_context.host_control.read_only is True
+        assert accepted.parts == [
+            {"type": "text", "text": "Approval outcome received."}
+        ]
+        assert (
+            "staging_outcome_continuation" not in accepted.execution_context.extra_data
         )
     else:
         assert accepted.parts == [{"type": "text", "text": "Help me assess my idea"}]

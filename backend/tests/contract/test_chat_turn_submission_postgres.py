@@ -1377,3 +1377,202 @@ async def test_attachment_read_boundary_rejects_changed_accepted_input(
     await attachment.save()
     with pytest.raises(WorkError, match="attachment"):
         await assert_chat_attachment_read_inputs(item=item)
+
+
+async def _host_resume_request(thread, owner_id, workspace_id):
+    from app.services.chat_turn_host_controls import capture_chat_host_control
+
+    thread.prompt_queue = {
+        "status": "closed",
+        "closed_at": "2026-10-08T12:00:00Z",
+        "items": [{"id": "decision-1", "kind": "staged_write", "status": "rejected"}],
+    }
+    await thread.save()
+    control = await capture_chat_host_control(
+        thread=thread, principal_id=owner_id, action="prompt_sheet_resume"
+    )
+    return _request(thread, owner_id, workspace_id).model_copy(
+        update={
+            "parts": [{"type": "text", "text": "Approval outcome received."}],
+            "client_payload_digest": "d" * 64,
+            "execution_context": ChatTurnExecutionContext(host_control=control),
+        }
+    )
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_host_resume_is_system_receipt_with_no_user_utterance(
+    postgres_graph_context,
+):
+    thread, owner_id, workspace_id = await _submission_context()
+    request = await _host_resume_request(thread, owner_id, workspace_id)
+    accepted = await submit_chat_turn(request)
+    message = await ChatMessage.get(accepted.message_id)
+    assert message.role == "system"
+    item = await work_items.claim_due_candidate(
+        work_item_id=accepted.work_item_id, worker_id="host-control"
+    )
+    restored = await load_claimed_chat_turn_input(item)
+    assert restored.text == ""
+    assert restored.execution_context.host_control.read_only is True
+    assert (
+        restored.execution_context.host_control
+        == request.execution_context.host_control
+    )
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_changed_host_source_rejects_claim_but_receipt_retry_is_stable(
+    postgres_graph_context,
+):
+    from app.services.chat_turn_submissions import get_chat_turn_submission_receipt
+
+    thread, owner_id, workspace_id = await _submission_context()
+    request = await _host_resume_request(thread, owner_id, workspace_id)
+    accepted = await submit_chat_turn(request)
+    thread = await ChatThread.get(thread.id)
+    thread.prompt_queue = {
+        "status": "open",
+        "items": [{"id": "new-decision", "status": "pending"}],
+    }
+    await thread.save()
+    recovered = await get_chat_turn_submission_receipt(
+        principal_id=owner_id,
+        workspace_id=workspace_id,
+        thread_id=thread.id,
+        client_request_id=request.client_request_id,
+        client_payload_digest=request.client_payload_digest,
+    )
+    assert recovered == accepted
+    item = await work_items.claim_due_candidate(
+        work_item_id=accepted.work_item_id, worker_id="changed-host"
+    )
+    with pytest.raises(WorkError, match="host continuation"):
+        await load_claimed_chat_turn_input(item)
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_host_receipt_role_cannot_be_changed_to_user(postgres_graph_context):
+    thread, owner_id, workspace_id = await _submission_context()
+    request = await _host_resume_request(thread, owner_id, workspace_id)
+    accepted = await submit_chat_turn(request)
+    message = await ChatMessage.get(accepted.message_id)
+    message.role = "user"
+    await message.save()
+    item = await work_items.claim_due_candidate(
+        work_item_id=accepted.work_item_id, worker_id="tampered-host"
+    )
+    with pytest.raises(WorkError, match="scope mismatch"):
+        await load_claimed_chat_turn_input(item)
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_host_follow_through_uses_durable_scoped_approved_rows(
+    postgres_graph_context,
+):
+    from datetime import datetime, timedelta, timezone
+
+    from app.agentive.staging_store import StagedChangeRecord
+    from app.services.chat_turn_host_controls import capture_chat_host_control
+
+    thread, owner_id, workspace_id = await _submission_context()
+    with pytest.raises(WorkError, match="no approved change"):
+        await capture_chat_host_control(
+            thread=thread, principal_id=owner_id, action="staging_follow_through"
+        )
+    now = datetime.now(timezone.utc)
+    record = await StagedChangeRecord.create(
+        token="test-approved-token",
+        user_id=owner_id,
+        workspace_id=workspace_id,
+        session_id=thread.id,
+        kind="create_entry",
+        state="blessed",
+        created_at=now.isoformat(),
+        blessed_at=now.isoformat(),
+        expires_at=(now + timedelta(minutes=10)).isoformat(),
+        payload={"title": "Approved draft"},
+    )
+    control = await capture_chat_host_control(
+        thread=thread, principal_id=owner_id, action="staging_follow_through"
+    )
+    assert control.read_only is False
+    request = _request(thread, owner_id, workspace_id).model_copy(
+        update={
+            "parts": [{"type": "text", "text": "Approval outcome received."}],
+            "execution_context": ChatTurnExecutionContext(host_control=control),
+        }
+    )
+    accepted = await submit_chat_turn(request)
+    item = await work_items.claim_due_candidate(
+        work_item_id=accepted.work_item_id, worker_id="host-follow-through"
+    )
+    assert (await load_claimed_chat_turn_input(item)).text == ""
+    record.payload = {"title": "Changed after approval"}
+    await record.save()
+    with pytest.raises(WorkError, match="accepted host continuation changed"):
+        await load_claimed_chat_turn_input(item)
+    # The file-read guard may run after this run's own approved effects consume
+    # the staging rows; it does not readmit the original host event.
+    assert (
+        await load_claimed_chat_turn_input(item, recheck_host_control=False)
+    ).text == ""
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_host_resume_worker_keeps_receipt_out_of_user_utterance(
+    postgres_graph_context, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from app.agentive.services import execution_runs, work_worker
+    from tests.native_harness.wp_03.test_chat_turn_worker_postgres import (
+        _fake_start_run,
+    )
+
+    thread, owner_id, workspace_id = await _submission_context()
+    request = await _host_resume_request(thread, owner_id, workspace_id)
+    accepted = await submit_chat_turn(request)
+    turns = []
+
+    class Provider:
+        def is_available(self):
+            return True
+
+        async def stream_turn(self, turn):
+            turns.append(turn)
+            yield {
+                "type": "text-delta",
+                "delta": "The rejected change was not applied.",
+            }
+            yield {"type": "message-finish", "timing": {"totalMs": 1.0}}
+
+    monkeypatch.setattr(
+        "app.services.chat_providers.get_registry",
+        lambda: SimpleNamespace(get=lambda provider_id: Provider()),
+    )
+    monkeypatch.setattr(execution_runs, "start_run", _fake_start_run)
+    finished = await work_worker.process_one_due_item(
+        work_item_id=accepted.work_item_id,
+        worker_id="host-resume-worker",
+        lease_seconds=120,
+    )
+    assert finished.status == "succeeded"
+    assert len(turns) == 1
+    assert turns[0].text == ""
+    assert turns[0].extra_data["staging_outcome_continuation"] is True
+    assert turns[0].extra_data["no_workspace_writes"] is True
+    messages = await ChatMessage.find({"thread_id": thread.id})
+    assert [message.role for message in messages].count("user") == 0
+    assert [message.role for message in messages].count("system") == 1
+    assert [message.role for message in messages].count("assistant") == 1

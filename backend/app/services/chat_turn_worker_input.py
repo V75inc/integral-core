@@ -27,7 +27,9 @@ class ChatTurnWorkerInput:
     text: str = field(repr=False)
 
 
-async def load_claimed_chat_turn_input(item: WorkItem) -> ChatTurnWorkerInput:
+async def load_claimed_chat_turn_input(
+    item: WorkItem, *, recheck_host_control: bool = True
+) -> ChatTurnWorkerInput:
     """Authenticate the exact WorkItem/capsule/message tuple before execution.
 
     All identifiers come from the claimed row and its encrypted capsule. The
@@ -91,7 +93,8 @@ async def load_claimed_chat_turn_input(item: WorkItem) -> ChatTurnWorkerInput:
         or message is None
         or message.id != accepted_message_id
         or message.thread_id != thread_id
-        or message.role != "user"
+        or message.role
+        != ("system" if capsule.execution_context.host_control else "user")
         or set(message.provider_metadata or {}).difference(
             {"entity_refs", "page_context"}
         )
@@ -146,6 +149,15 @@ async def load_claimed_chat_turn_input(item: WorkItem) -> ChatTurnWorkerInput:
         expected=capsule.execution_context.attachment_bindings,
     )
 
+    from app.services.chat_turn_host_controls import assert_chat_host_control
+
+    if recheck_host_control:
+        await assert_chat_host_control(
+            thread=thread,
+            principal_id=principal_id,
+            expected=capsule.execution_context.host_control,
+        )
+
     from app.services.workspace_permissions import can_access_workspace
 
     if await can_access_workspace(principal_id, workspace_id) == "none":
@@ -172,7 +184,11 @@ async def load_claimed_chat_turn_input(item: WorkItem) -> ChatTurnWorkerInput:
         # before the model sees it. Durable recovery must not let a user forge
         # a host-generated [SYSTEM:...] directive by sending raw transcript
         # content straight to the provider.
-        text=sanitize_user_text("\n".join(text_parts)),
+        text=(
+            ""
+            if capsule.execution_context.host_control
+            else sanitize_user_text("\n".join(text_parts))
+        ),
     )
 
 

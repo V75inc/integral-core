@@ -101,4 +101,7 @@ async def assert_chat_attachment_read_inputs(*, item: Any) -> None:
 
     # Restoration authenticates all submitted artifacts, including their
     # extracted text digest. A changed input fails before capability dispatch.
-    await load_claimed_chat_turn_input(item)
+    # The provider already admitted the host event before starting. Its own
+    # approved effects may consume those source approvals. This read boundary
+    # rechecks file revision and current scope, not the pre-effect host state.
+    await load_claimed_chat_turn_input(item, recheck_host_control=False)

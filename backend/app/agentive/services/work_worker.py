@@ -688,6 +688,8 @@ async def _handle_chat_turn(
 
         execution = worker_input.execution_context
         extra_data = dict(execution.extra_data)
+        if execution.host_control is not None:
+            extra_data["staging_outcome_continuation"] = True
         # Durable input intentionally excludes bearer-like staging tokens.
         # Reconstruct the decision tool's scoped authority after claiming work.
         extra_data["pending_approval_tokens"] = await _pending_write_references(
@@ -699,7 +701,8 @@ async def _handle_chat_turn(
             {
                 "run_id": ctx.run_id,
                 "work_execution_context": ctx.model_dump(mode="json"),
-                "no_workspace_writes": execution.no_workspace_writes,
+                "no_workspace_writes": execution.no_workspace_writes
+                or bool(execution.host_control and execution.host_control.read_only),
                 "design_only": execution.design_only,
             }
         )
