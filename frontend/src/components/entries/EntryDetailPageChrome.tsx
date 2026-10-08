@@ -60,7 +60,7 @@ export function EntryDetailPageChrome({
           {titleIcon ? (
             <IconWell size="sm">{titleIcon}</IconWell>
           ) : null}
-          <Text as="h1" variant="heading-sm" weight="semibold" truncate>
+          <Text as="h1" variant="heading-sm" weight="semibold" className="flex min-w-0 items-center gap-2.5">
             {title}
           </Text>
         </div>
