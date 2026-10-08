@@ -20,6 +20,7 @@ from app.agentive.harness.pydantic_ai_compat import (
 )
 from app.agentive.harness.tool_argument_adapter import normalize_tool_arguments
 from app.schemas.agentive.work import WorkExecutionContext
+from app.services.notification_paths import entry_path
 
 # Fallback visibility for broker fixtures or runtimes without a projected skill
 # catalogue. A resident run with skills configured starts with unified
@@ -74,6 +75,16 @@ def _resource_links_for_model(payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(item, dict) or not isinstance(item.get("id"), str):
             return item
         identifier = item["id"]
+        track_id = item.get("track_id")
+        if (
+            identifier.startswith("n.Entry.")
+            and isinstance(track_id, str)
+            and track_id.strip()
+        ):
+            # Chat copies ``url`` exactly. The product deep link opens the
+            # entry on its track; ``/entries/{id}`` is only the full-page
+            # fallback when the parent track is unknown.
+            return {**item, "url": entry_path(identifier, track_id.strip())}
         for prefix, path in paths.items():
             if identifier.startswith(prefix):
                 return {**item, "url": f"/{path}/{quote(identifier, safe='')}"}
@@ -372,6 +383,9 @@ def _make_handler(
             call_state["verification_succeeded"] = bool(
                 result.ok and model_result.get("status") == "verified"
             )
+            reply = model_result.get("reply")
+            if isinstance(reply, str) and reply.strip():
+                call_state["verification_reply"] = reply.strip()
         if capability_name == "integral_propose_design" and result.ok:
             call_state["proposal_succeeded"] = True
             call_state["approved_design_ready"] = bool(model_result.get("approved"))

@@ -196,6 +196,28 @@ export async function invalidateAfterChangeEvent(
     return;
   }
 
+  if (action === 'track.delete') {
+    // The detail page is still mounted when this event arrives. Refetching
+    // the deleted track 404s and toasts "Track not found" beside the success
+    // toast. Mark those queries stale without a request; navigation unmounts
+    // them. List caches still refresh so the parent app and track index drop
+    // the row.
+    const trackId = evt.resource_id ?? trackIdFromScope(evt.scope);
+    await Promise.all([
+      invalidateFeedCaches(qc),
+      invalidateWorkspaceListCaches(qc),
+      qc.invalidateQueries({ queryKey: ['tracks'] }),
+      trackId
+        ? qc.invalidateQueries({
+            queryKey: ['track', trackId],
+            refetchType: 'none',
+          })
+        : Promise.resolve(),
+      invalidateDashboardData(qc),
+    ]);
+    return;
+  }
+
   if (action.startsWith('track.')) {
     const trackId = evt.resource_id ?? trackIdFromScope(evt.scope);
     await Promise.all([

@@ -268,6 +268,25 @@ def _track_declared_field_names(params: Dict[str, Any]) -> set[str]:
     }
 
 
+def _is_unlabelled_title_line(line: str, labels: Dict[str, Any]) -> bool:
+    """True when ``line`` names a record and is not a broken ``Field: value`` row.
+
+    A line that begins with a declared field name but omits the colon stays
+    invalid. A name such as ``Berghotel Grosse Scheidegg`` does not.
+    """
+    if ":" in line:
+        return False
+    folded = line.strip().casefold()
+    if not folded:
+        return False
+    for label in labels:
+        if not label:
+            continue
+        if folded == label or folded.startswith(f"{label} "):
+            return False
+    return True
+
+
 def _structured_seed(
     params: Dict[str, Any],
     track_fields: Dict[str, list[Dict[str, Any]]],
@@ -305,6 +324,14 @@ def _structured_seed(
         for field in specs
         if isinstance(field, dict) and field.get("key")
     }
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if len(lines) == 1 and _is_unlabelled_title_line(lines[0], labels):
+        # The user named the record and supplied no field labels. File the
+        # line as the title instead of rejecting it as a malformed field row.
+        if not str(entry.get("title") or "").strip():
+            entry["title"] = lines[0]
+        entry.pop("text", None)
+        return entry
     values: Dict[str, Any] = {}
     for line in text.splitlines():
         label, separator, raw_value = line.partition(":")

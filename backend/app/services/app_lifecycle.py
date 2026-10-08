@@ -127,6 +127,22 @@ async def enqueue_install_work(
         work_item_object_id,
     )
     from app.agentive.work_models import WorkItem
+    from app.services.library_package_visibility import (
+        assert_library_package_installable_in_workspace,
+    )
+
+    library_cp = await OperationalModel.get(library_cp_id)
+    if not library_cp:
+        raise BadRequestError(
+            message=f"Library OperationalModel {library_cp_id!r} not found",
+            details={"library_cp_id": library_cp_id},
+        )
+    if not getattr(library_cp, "library_package", False):
+        raise BadRequestError(
+            message=f"OperationalModel {library_cp_id!r} is not a library package",
+            details={"library_cp_id": library_cp_id},
+        )
+    await assert_library_package_installable_in_workspace(library_cp, workspace_id)
 
     # One in-flight install per package is the point of the key (a double click
     # reuses it). A FINISHED install must not block installing again later, e.g.
@@ -425,8 +441,12 @@ async def install_app(
             message=f"OperationalModel {library_cp_id!r} is not a library package",
             details={"library_cp_id": library_cp_id},
         )
+    from app.services.library_package_visibility import (
+        assert_library_package_installable_in_workspace,
+    )
     from app.services.package_trust import assert_library_artifact_trusted
 
+    await assert_library_package_installable_in_workspace(library_cp, workspace_id)
     assert_library_artifact_trusted(library_cp)
 
     manifest = library_cp.manifest or {}

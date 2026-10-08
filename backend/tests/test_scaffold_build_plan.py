@@ -329,6 +329,18 @@ def test_labelled_seed_text_becomes_fields_and_named_relation_refs():
             {"honda civic": "Honda Civic"},
         )
 
+    titled = _structured_seed(
+        {
+            "track_id": "{{track.id:Rentals}}",
+            "text": "Berghotel Grosse Scheidegg",
+        },
+        tracks,
+        {},
+    )
+    assert titled["title"] == "Berghotel Grosse Scheidegg"
+    assert "text" not in titled
+    assert "fields" not in titled
+
     with pytest.raises(ValueError, match="use a relation field"):
         _structured_seed(
             {"track_id": "{{track.id:Jobs}}", "text": "Assigned Technician: Alice"},

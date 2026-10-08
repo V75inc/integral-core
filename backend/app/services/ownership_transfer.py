@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Dict
 
 from app.api.errors import BadRequestError, ResourceNotFoundError
 from app.models.edges import COLLABORATES_ON, OWNS
@@ -140,3 +140,66 @@ async def transfer_track_ownership(
     track.owner_id = new_owner.id
     await track.save()
     return track
+
+
+async def reassign_departing_member_ownership(
+    user, workspace_id: str
+) -> Dict[str, int]:
+    """Transfer only departing ownership, failing if its new owner is missing.
+
+    The caller joins this to membership/grant removal in a graph transaction.
+    On development stores, create the replacement edge before deleting the old
+    one so an interrupted transfer cannot leave an unowned resource.
+    """
+    moved = {"apps": 0, "tracks": 0}
+    if not user or not workspace_id:
+        return moved
+
+    from app.services.permissions_process_cache import invalidate_user_aliases
+    from app.services.workspace_permissions import get_workspace_owner_user_id
+
+    resources = []
+    for node_type, kind in (("WorkspaceApp", "app"), ("Track", "track")):
+        for resource in await user.nodes(
+            edge=[OWNS], node=[node_type], direction="out"
+        ):
+            if str(getattr(resource, "workspace_id", "") or "") == workspace_id:
+                resources.append((kind, resource))
+    if not resources:
+        return moved
+
+    owner_id = await get_workspace_owner_user_id(workspace_id)
+    owner = await get_user_node(owner_id) if owner_id else None
+    if owner is None:
+        raise ResourceNotFoundError(message="Workspace owner is unavailable")
+    if owner.id == user.id:
+        raise BadRequestError(message="Cannot remove the workspace owner")
+
+    now = utc_now_iso()
+    ctx = await user.get_context()
+    for kind, resource in resources:
+        owns_edges = await ctx.find_edges_between(user.id, resource.id, edge_class=OWNS)
+        if not owns_edges:
+            continue
+        already_owns = await ctx.find_edges_between(
+            owner.id, resource.id, edge_class=OWNS
+        )
+        if not already_owns:
+            await owner.connect(resource, edge=OWNS, role="owner", granted_at=now)
+        for edge in await ctx.find_edges_between(
+            owner.id, resource.id, edge_class=COLLABORATES_ON
+        ):
+            await edge.delete()
+        if kind == "app":
+            resource.owner_user_id = owner.id
+            moved["apps"] += 1
+        else:
+            resource.owner_id = owner.id
+            moved["tracks"] += 1
+        await resource.save()
+        for edge in owns_edges:
+            await edge.delete()
+
+    invalidate_user_aliases(user)
+    invalidate_user_aliases(owner)
+    return moved

@@ -112,7 +112,46 @@ _ERROR_MESSAGES: Dict[str, str] = {
         "for new work, or review the previous run before retrying here."
     ),
     "internal_error": "Something went wrong on our side. Please try again.",
+    "scaffold_plan_invalid": (
+        "The approved setup could not be built. Please try again."
+    ),
 }
+
+_SCAFFOLD_PLAN_COACHING = " Correct the generated operation plan"
+
+
+def _scaffold_plan_failure_message(exc: BaseException) -> Optional[str]:
+    """User text when a build-plan retry budget is spent.
+
+    Pydantic AI raises ``UnexpectedModelBehavior`` after ``ModelRetry``. The
+    seed or plan reason is on the cause chain; the outer message only says
+    the retry count was exceeded. Return that reason without the coaching
+    sentence written for the model.
+    """
+    outer = str(getattr(exc, "message", exc))
+    if "max retries" not in outer.lower():
+        return None
+    detail = ""
+    current: Optional[BaseException] = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        text = str(getattr(current, "message", current)).strip()
+        coaching_at = text.find(_SCAFFOLD_PLAN_COACHING)
+        if coaching_at >= 0:
+            text = text[:coaching_at].strip()
+        if text and (
+            "does not match a declared field" in text
+            or text.startswith("Operation ")
+            or "approved design" in text.lower()
+        ):
+            detail = text
+            break
+        current = current.__cause__ or current.__context__
+    lead = "The approved setup could not be built."
+    if detail:
+        return f"{lead} {detail}"
+    return lead
 
 
 # These current-state conflicts can happen on a first-ever conversation. Do
@@ -198,6 +237,9 @@ def classify_turn_exception(
                 return code, msg or _ERROR_MESSAGES[code]
         except Exception:  # noqa: BLE001
             pass
+        scaffold_message = _scaffold_plan_failure_message(exc)
+        if scaffold_message:
+            return "scaffold_plan_invalid", scaffold_message
         classify_provider_error = getattr(provider, "classify_exception", None)
         provider_code = None
         if callable(classify_provider_error):

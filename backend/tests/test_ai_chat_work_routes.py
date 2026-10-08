@@ -283,7 +283,7 @@ async def test_stop_native_thread_uses_active_durable_work(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("input_kind", ["text", "file", "host"])
+@pytest.mark.parametrize("input_kind", ["text", "file", "host", "staging"])
 async def test_native_message_route_accepts_durable_work_without_inline_run(
     authenticated_client: AsyncClient,
     test_user,
@@ -367,6 +367,46 @@ async def test_native_message_route_accepts_durable_work_without_inline_run(
             "host_action": "prompt_sheet_resume",
             "client_request_id": "durable-route",
         }
+    if input_kind == "staging":
+        from datetime import datetime, timedelta, timezone
+
+        from app.agentive.staging import StagedChange
+        from app.schemas.agentive.work import ChatTurnHostControl
+
+        now = datetime.now(timezone.utc)
+        staged = StagedChange(
+            token="test-approved-token",
+            user_id=test_user.user_id,
+            session_id=thread_id,
+            kind="update_entry",
+            summary="Update a record",
+            diff_human="",
+            diff_machine={},
+            payload={},
+            created_at=now,
+            expires_at=now + timedelta(minutes=5),
+            state="blessed",
+        )
+        monkeypatch.setattr(
+            ai_chat, "_pending_staged_for_turn", AsyncMock(return_value=[staged])
+        )
+        execute = AsyncMock(return_value={"consumed": True})
+        monkeypatch.setattr(
+            "app.agentive.services.staging_apply.execute_blessed_change", execute
+        )
+        monkeypatch.setattr(
+            "app.services.chat_turn_host_controls.capture_chat_host_control",
+            AsyncMock(
+                return_value=ChatTurnHostControl(
+                    action="staging_follow_through",
+                    source_digest="a" * 64,
+                )
+            ),
+        )
+        payload = {
+            "host_action": "staging_follow_through",
+            "client_request_id": "durable-route",
+        }
     response = await authenticated_client.post(
         f"/api/chat/threads/{thread_id}/messages",
         headers={"X-Integral-Scope": f"ws:{workspace_id}"},
@@ -396,6 +436,12 @@ async def test_native_message_route_accepts_durable_work_without_inline_run(
         assert (
             "staging_outcome_continuation" not in accepted.execution_context.extra_data
         )
+    elif input_kind == "staging":
+        execute.assert_not_awaited()
+        assert (
+            accepted.execution_context.host_control.action == "staging_follow_through"
+        )
+        assert staged.state == "blessed"
     else:
         assert accepted.parts == [{"type": "text", "text": "Help me assess my idea"}]
     assert accepted.principal_id == test_user.user_id

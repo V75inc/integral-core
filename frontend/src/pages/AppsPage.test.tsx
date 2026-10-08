@@ -1,12 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AppsPage } from './AppsPage';
+import type { App } from '../types';
 import { CHANGE_EVENT_APPLIED } from '../hooks/useChangeEventInvalidation';
 
+const blankAppSavedRef = vi.hoisted(() => ({ current: null as null | ((app: unknown) => void) }));
+
 vi.mock('../components/apps/AppModal', () => ({
-  AppModal: () => null,
+  AppModal: ({
+    open,
+    onSaved,
+  }: {
+    open: boolean;
+    onSaved: (app: unknown) => void;
+  }) => {
+    blankAppSavedRef.current = onSaved;
+    return open ? <div data-testid="blank-app-modal" /> : null;
+  },
 }));
 
 vi.mock('../components/apps/AppManagerDialog', () => ({
@@ -130,6 +142,77 @@ describe('AppsPage creation rights gating', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Car Rental Management')).toBeInTheDocument();
+    });
+  });
+
+  it('keeps a blank-created app visible when a stale change-event list omits it', async () => {
+    const { appsApi } = await import('../api');
+    vi.mocked(appsApi.list).mockResolvedValue([]);
+    mockUseWorkspaceCreationRights.mockReturnValue({
+      canCreateApps: true,
+      canCreateTracks: true,
+      lacksAppCreationInOrg: false,
+      lacksTrackCreationInOrg: false,
+    });
+
+    renderPage();
+    expect(await screen.findByText('No apps yet')).toBeInTheDocument();
+
+    blankAppSavedRef.current?.({
+      id: 'app-blank',
+      name: 'Blank App',
+      workspace_id: 'ws-org',
+    });
+
+    expect(await screen.findByText('Blank App')).toBeInTheDocument();
+
+    // Stale refetch still returns [] — optimistic row must survive.
+    window.dispatchEvent(
+      new CustomEvent(CHANGE_EVENT_APPLIED, {
+        detail: { id: 'evt-2', action: 'app.create' },
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Blank App')).toBeInTheDocument();
+    });
+  });
+
+  it('discards pending rows and in-flight lists from a previous workspace', async () => {
+    const { appsApi } = await import('../api');
+    vi.mocked(appsApi.list).mockResolvedValue([]);
+    let resolveOld!: (apps: App[]) => void;
+    mockUseWorkspaceCreationRights.mockReturnValue({ canCreateApps: true });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const page = <QueryClientProvider client={client}><MemoryRouter><AppsPage /></MemoryRouter></QueryClientProvider>;
+    const view = render(page);
+    expect(await screen.findByText('No apps yet')).toBeInTheDocument();
+    act(() => blankAppSavedRef.current?.({ id: 'old-created', name: 'Previous Workspace App', workspace_id: 'ws-org' }));
+    expect(screen.getByText('Previous Workspace App')).toBeInTheDocument();
+    vi.mocked(appsApi.list).mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; }));
+    act(() => window.dispatchEvent(new CustomEvent(CHANGE_EVENT_APPLIED, { detail: { action: 'app.create' } })));
+    mockUseScope.mockReturnValue({ activeWorkspace: { id: 'ws-new', name: 'New Workspace' } });
+    view.rerender(<QueryClientProvider client={client}><MemoryRouter><AppsPage /></MemoryRouter></QueryClientProvider>);
+    expect(await screen.findByText('No apps yet')).toBeInTheDocument();
+    await act(async () => { resolveOld([{ id: 'old-result', name: 'Stale Workspace App', workspace_id: 'ws-org' }]); });
+    expect(screen.queryByText('Previous Workspace App')).not.toBeInTheDocument();
+    expect(screen.queryByText('Stale Workspace App')).not.toBeInTheDocument();
+  });
+
+  it('retains every acknowledged creation until the scoped list includes them', async () => {
+    const { appsApi } = await import('../api');
+    vi.mocked(appsApi.list).mockResolvedValue([]);
+    mockUseWorkspaceCreationRights.mockReturnValue({ canCreateApps: true });
+    renderPage();
+    expect(await screen.findByText('No apps yet')).toBeInTheDocument();
+    act(() => {
+      blankAppSavedRef.current?.({ id: 'created-1', name: 'First Created App', workspace_id: 'ws-org' });
+      blankAppSavedRef.current?.({ id: 'created-2', name: 'Second Created App', workspace_id: 'ws-org' });
+      window.dispatchEvent(new CustomEvent(CHANGE_EVENT_APPLIED, { detail: { action: 'app.create' } }));
+    });
+    await waitFor(() => {
+      expect(screen.getByText('First Created App')).toBeInTheDocument();
+      expect(screen.getByText('Second Created App')).toBeInTheDocument();
     });
   });
 });

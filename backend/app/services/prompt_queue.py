@@ -34,6 +34,9 @@ STATUS_APPROVED = "approved"
 STATUS_REJECTED = "rejected"
 STATUS_CANCELLED = "cancelled"
 
+# Bound sheet spam for "delete everything" style multi-propose turns.
+MAX_PENDING_STAGED_WRITES = 20
+
 _RESOLVED = frozenset(
     {
         STATUS_ANSWERED,
@@ -688,6 +691,22 @@ async def enqueue_staged_write(
     for item in queue["items"]:
         if item.get("kind") == ITEM_STAGED_WRITE and item.get("token") == token:
             return
+
+    pending_writes = sum(
+        1
+        for item in queue.get("items") or []
+        if item.get("kind") == ITEM_STAGED_WRITE
+        and item.get("status") == STATUS_PENDING
+    )
+    if pending_writes >= MAX_PENDING_STAGED_WRITES:
+        logger.warning(
+            "prompt_queue: refusing enqueue — %s pending staged writes already "
+            "(cap=%s) session=%s",
+            pending_writes,
+            MAX_PENDING_STAGED_WRITES,
+            session_id,
+        )
+        return
 
     _ensure_open(queue)
     queue["items"].append(

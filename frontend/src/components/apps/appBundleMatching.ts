@@ -66,6 +66,18 @@ export function filterAppScopedLibraryPackages(
   });
 }
 
+/** Platform packages (no workspace_id) plus private templates for this workspace. */
+export function filterWorkspaceVisibleLibraryPackages(
+  profiles: OperationalModelNode[],
+  workspaceId: string | null | undefined,
+): OperationalModelNode[] {
+  return profiles.filter(p => {
+    const pkgWs = String(p.workspace_id || '').trim();
+    if (!pkgWs) return true;
+    return Boolean(workspaceId) && pkgWs === workspaceId;
+  });
+}
+
 export function lifecycleBadge(
   state?: App['lifecycle_state'],
 ): 'Active' | 'Needs settings' | 'Paused' | 'Installing' | null {
