@@ -471,6 +471,9 @@ async def test_dispatcher_failure_releases_accepted_turn_admission(
     )
     assert finished is not None
     assert finished.status == "failed"
+    assert finished.failure is not None
+    assert finished.failure["class"] == "permanent"
+    assert finished.failure["retryable"] is False
     assert provider.calls == 0
     thread = await ChatThread.get(item.thread_id)
     assert thread is not None

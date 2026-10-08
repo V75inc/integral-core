@@ -116,8 +116,8 @@ describe('Modal sidePanel', () => {
       </Modal>,
     );
     const cls = screen.getByRole('dialog').className;
-    expect(cls).toContain('sm:min-h-[80vh]');
-    expect(cls).toContain('sm:max-h-[90vh]');
+    expect(cls).toContain('sm:min-h-[calc(80dvh-var(--system-bar-h,0px))]');
+    expect(cls).toContain('sm:max-h-[calc(90dvh-var(--system-bar-h,0px))]');
     // The floor also has to override the mobile `min-h-[100dvh]`, so it
     // replaces `sm:min-h-0` rather than sitting beside it — two min-height
     // utilities at one breakpoint collide.
@@ -135,7 +135,7 @@ describe('Modal sidePanel', () => {
       </Modal>,
     );
     const cls = screen.getByRole('dialog').className;
-    expect(cls).toContain('sm:min-h-[80vh]');
+    expect(cls).toContain('sm:min-h-[calc(80dvh-var(--system-bar-h,0px))]');
     expect(cls).not.toContain('sm:min-h-0');
   });
 
@@ -157,7 +157,7 @@ describe('Modal sidePanel', () => {
       </Modal>,
     );
     const plain = screen.getByRole('dialog').className;
-    expect(plain).not.toContain('min-h-[80vh]');
+    expect(plain).not.toContain('min-h-[calc(80dvh-var(--system-bar-h,0px))]');
     expect(plain).toContain('sm:min-h-0');
     unmount();
 
@@ -166,7 +166,7 @@ describe('Modal sidePanel', () => {
         <p>Are you sure?</p>
       </Modal>,
     );
-    expect(screen.getByRole('dialog').className).not.toContain('min-h-[80vh]');
+    expect(screen.getByRole('dialog').className).not.toContain('min-h-[calc(80dvh-var(--system-bar-h,0px))]');
   });
 
   it('widens the dialog only when the column is present', () => {
