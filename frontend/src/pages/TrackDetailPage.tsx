@@ -28,6 +28,7 @@ import {
   viewsForTrackQueryKey
 } from '../queryKeys';
 import { errorMessageFromAxios } from '../api/helpers';
+import { pathAfterTrackDelete } from '../utils/pathAfterTrackDelete';
 import type { TrackDetailBundle, TrackEntriesPage } from '../api/tracks';
 import {
   EntryComposeModal,
@@ -938,6 +939,7 @@ export function TrackDetailPage() {
       variant: 'danger'
     });
     if (!ok) return;
+    const destination = pathAfterTrackDelete(track);
     try {
       await tracksApi.delete(track.id);
       // Refresh Mission Control's per-workspace track aggregation and
@@ -946,7 +948,7 @@ export function TrackDetailPage() {
       void invalidateWorkspaceListCaches(queryClient);
       void invalidateFeedCaches(queryClient);
       showToast('Track deleted', 'success');
-      navigate('/tracks');
+      navigate(destination);
     } catch {
       showToast('Failed to delete track', 'error');
     }
