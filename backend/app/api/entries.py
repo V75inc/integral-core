@@ -516,6 +516,11 @@ async def get_entry(request: Request, entry_id: str) -> Dict[str, Any]:
         raise InsufficientPermissionsError(message="Access denied")
     entry_data = await export_node(entry)
     await _project_entry_computed(entry, entry_data)
+    from app.services.entry_read_time_fields import resolve_entry_read_time_fields
+
+    live_fields = await resolve_entry_read_time_fields(entry, user_id)
+    if live_fields:
+        entry_data["read_time_fields"] = live_fields
     await attach_author_exports([entry_data])
     await attach_track_and_space(entry_data, entry)
     await attach_comment_count(entry_data, entry)

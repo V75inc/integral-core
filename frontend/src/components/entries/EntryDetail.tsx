@@ -49,7 +49,7 @@ import {
 } from './RelatedViewsSection';
 import { ViewTabs, type ViewTabOption } from '../ui/ViewTabs';
 import { EmptyState } from '../ui/EmptyState';
-import { IconButton } from '../../ui';
+import { IconButton, Text } from '../../ui';
 import { useSidePanelRoom } from '../../hooks/useSidePanelRoom';
 import { COMMENT_REFETCH_EVENT } from '../../services/graphMutationInvalidation';
 import { EntrySocialActions } from './EntrySocialActions';
@@ -1901,10 +1901,15 @@ export function EntryDetail({
               </div>
               {!detailOwnsForm ? (
               <div className="mt-4">
+                {Object.values(entry.read_time_fields?.status || {}).includes('unavailable') ? (
+                  <div role="status"><Text as="p" variant="body-sm" tone="muted">Some live fields could not be checked. Their values are unknown.</Text></div>
+                ) : null}
                 <EntryMetaFields
                   fields={dynamicFields}
+                  readOnlyKeys={Object.keys(entry.read_time_fields?.values || {})}
                   values={{
                     ...((entry.custom_fields || {}) as Record<string, unknown>),
+                    ...(entry.read_time_fields?.values || {}),
                     ...(entryTypeSlug === 'sprint'
                       ? {
                           tasks: Array.isArray((entry.custom_fields || {}).tasks)

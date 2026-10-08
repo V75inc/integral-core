@@ -3131,6 +3131,25 @@ def _parse_manifest_hooks(
                 ed.get("tool_input") or {},
                 where=f"{where}[{key!r}].tool_input",
             )
+        read_time_fields = ed.get("read_time_fields")
+        if read_time_fields is not None:
+            if point != "entry.precompute" or mode != "tool":
+                raise OperationalModelValidationError(
+                    message=f"{where}[{key!r}].read_time_fields requires a tool precompute hook"
+                )
+            if (
+                not isinstance(read_time_fields, list)
+                or not read_time_fields
+                or len(read_time_fields) > 32
+                or any(
+                    not isinstance(f, str) or not f.strip() for f in read_time_fields
+                )
+                or len(set(read_time_fields)) != len(read_time_fields)
+            ):
+                raise OperationalModelValidationError(
+                    message=f"{where}[{key!r}].read_time_fields must contain 1-32 unique field keys"
+                )
+            binding["read_time_fields"] = list(read_time_fields)
         out.append(binding)
     return out
 
