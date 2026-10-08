@@ -80,7 +80,7 @@
   --surface-raised: var(--panel-2);
 
   /* System notices use dark chrome with theme-specific contrast. */
-  --system-bar-bg: #101011;
+  --system-bar-bg: #2f2f2f;
   --system-bar-fg: #f7f7f7;
   --system-bar-muted: #c4c4c7;
   --system-bar-border: #303033;
@@ -256,8 +256,8 @@
   --surface: var(--panel);
   --surface-raised: var(--panel-2);
 
-  /* Warm graphite keeps notices in the app's neutral palette. */
-  --system-bar-bg: #252321;
+  /* Shared graphite background in both themes. */
+  --system-bar-bg: #2f2f2f;
   --system-bar-muted: #cac7c2;
   --system-bar-border: #403c38;
   --system-bar-hover: #36322e;
