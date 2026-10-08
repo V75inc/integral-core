@@ -63,11 +63,11 @@ export function WorkItemsSection({ workspaceId }: { workspaceId: string }) {
         <dl className="space-y-2">
           <div className="space-y-1">
             <Text as="dt" variant="label" tone="subtle">Work ID</Text>
-            <Text as="dd" variant="mono" className="break-all">{item.work_item_id}</Text>
+            <Text as="dd" variant="mono" truncate title={item.work_item_id} className="min-w-0">{item.work_item_id}</Text>
           </div>
           {item.app_id && <div className="space-y-1">
             <Text as="dt" variant="label" tone="subtle">App ID</Text>
-            <Text as="dd" variant="mono" className="break-all">{item.app_id}</Text>
+            <Text as="dd" variant="mono" truncate title={item.app_id} className="min-w-0">{item.app_id}</Text>
           </div>}
         </dl>
         {item.failure && <Text as="p" tone="danger">{item.failure.message || item.failure.code}</Text>}
