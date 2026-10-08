@@ -57,6 +57,7 @@ export interface EntryMetaFieldsProps {
   onCommitField?: (key: string, value: unknown) => Promise<void>;
   /** When true, the inline editor is visible but non-interactive (no edit affordance). */
   readOnly?: boolean;
+  readOnlyKeys?: string[];
   /** Kanban workflow field key → enum key → display label (for select / multi_select). */
   workflowEnumLabels?: Record<string, Record<string, string>>;
   /** Called before relation link navigation (e.g. dismiss host modal). */
@@ -87,6 +88,7 @@ export function EntryMetaFields({
   expanded = false,
   onCommitField,
   readOnly = false,
+  readOnlyKeys = [],
   workflowEnumLabels,
   onNavigate,
   navContext,
@@ -453,11 +455,11 @@ export function EntryMetaFields({
                     <InlineFieldEditor
                       field={row.field}
                       value={values[row.field.key] ?? null}
-                      readOnly={readOnly}
+                      readOnly={readOnly || readOnlyKeys.includes(row.field.key)}
                       onCommit={newValue => onCommitField(row.field.key, newValue)}
                     />
                   </div>
-                ) : row.relationEditable && onCommitField ? (
+                ) : row.relationEditable && onCommitField && !readOnlyKeys.includes(row.field.key) ? (
                   <div className="mt-0.5">
                     <SeamlessField
                       field={row.field}

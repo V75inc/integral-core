@@ -998,3 +998,11 @@ Items deferred from this spec, to revisit in a future revision:
 - [../product/ARCHITECTURE.md](../product/ARCHITECTURE.md) — overall integral architecture
 - `../PROJECT.md` (in `.planning/PROJECT.md`, which is gitignored — not available in a fresh clone) — project vision
 - [agent/agents/integral/integral_agent/agent.yaml](../../agent/agents/integral/integral_agent/agent.yaml) — default agent persona shape (reference for App-bundled personas)
+
+### Opt-in read-time precompute projections
+
+A tool-mode `entry.precompute` binding may declare `read_time_fields: [field_key, ...]` (1–32 unique keys). On an authorized saved-entry GET, Core runs only matching bindings contributed by that record's single owning installed App. The tool must belong to that same package, explicitly declare `side_effects: read_only` (or `read`), and be non-privileged. The existing frozen hook point is reused; no domain-specific hook is added.
+
+The response carries `read_time_fields: {values: {...}, status: {...}}` separately from saved `custom_fields`. It never persists the computed patch or merges it into edit payloads. Only declared record fields are projected; duplicate projections, missing/unsafe tools, failures and the five-second total check budget yield null values with status `unavailable`. Successful non-null results have status `current`, meaning the check completed, not that a boolean result is true. Detail views display projected values without inline editing and surface unavailable checks. Other read/list contracts remain unchanged. Closing/reopening or reloading an entry checks again; automatic invalidation while an entry remains open needs separate qualification.
+
+The tool uses the normal principal-gated facade with `read_only=True`; writer methods remain disabled. Apps own their rule, source traversal and missing-source behavior. A source that cannot be read must produce an unknown/error, never a confident current state. No filename, App slug, business milestone or domain rule appears in the generic projection service. This preserves I-SUBSTRATE-01, I-EXT-01, I-HOOK-01, I-HOOK-02 and existing record/policy/graph ownership.
