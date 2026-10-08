@@ -424,7 +424,7 @@ export function WorkTrail({ children }: { children: ReactNode }) {
       open={open}
       onOpenChange={setOpen}
       data-slot="aui_work-trail"
-      className="mb-3"
+      className="mt-4 mb-3"
     >
       <CollapsibleTrigger
         className="

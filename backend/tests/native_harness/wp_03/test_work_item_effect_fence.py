@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone, tzinfo
 from decimal import Decimal
@@ -421,11 +422,11 @@ async def test_native_step_store_event_uses_atomic_workitem_fence(
 @pytest.mark.contract
 @pytest.mark.postgres
 @pytest.mark.asyncio
-async def test_stale_workitem_fence_rejects_model_usage_completion(
+async def test_stale_workitem_keeps_authorized_model_usage_completion(
     postgres_graph_context,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A reclaimed attempt cannot append a terminal model-usage receipt."""
+    """Late accounting survives lease loss without granting fresh dispatch authority."""
     from app.agentive.harness.contracts import (
         ModelUsageObservation,
         PhysicalModelRequest,
@@ -482,18 +483,22 @@ async def test_stale_workitem_fence_rejects_model_usage_completion(
             ),
         }
     )
+    await persist_model_request_observation(response, work_execution_context=context)
+    fresh_dispatch = dispatch.model_copy(update={"request_id": "physical-request-2"})
     with pytest.raises(WorkError) as exc_info:
         await persist_model_request_observation(
-            response, work_execution_context=context
+            fresh_dispatch, work_execution_context=context
         )
-
     assert exc_info.value.code == "work.lease_lost"
     records = await HarnessModelRequestRecord.find(
         {"scope_key": _scope_key(scope), "run_key": scope.run_id}
     )
-    assert len(records) == 1
+    assert len(records) == 2
     observations = await list_model_request_observations(scope=scope)
-    assert [observation.outcome for observation in observations] == ["dispatch_intent"]
+    assert {observation.outcome for observation in observations} == {
+        "dispatch_intent",
+        "responded",
+    }
 
 
 @pytest.mark.contract
@@ -629,3 +634,18 @@ async def test_stale_workitem_fence_blocks_brokered_capability_and_receipt(
     assert invocations == []
     records = await HarnessToolEffectRecord.find({"run_key": scope.run_id})
     assert records == []
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_fenced_effect_serializes_parallel_graph_reads(
+    postgres_graph_context,
+) -> None:
+    """Broker permission fanout must stay on its fenced transaction safely."""
+    item, context = await _claimed_context()
+    async with work_items.authorized_work_item_effect(context) as graph:
+        pages = await asyncio.gather(
+            *(graph.database.find("object", {"id": item.id}) for _ in range(12))
+        )
+        assert all(len(page) == 1 and page[0]["id"] == item.id for page in pages)
