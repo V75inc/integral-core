@@ -1078,6 +1078,12 @@ export function useAIChatRuntime(
   const previousAgentIdRef = useRef<string | null>(activeAgentId);
   useEffect(() => {
     if (previousAgentIdRef.current === activeAgentId) return;
+    if (previousAgentIdRef.current == null) {
+      // Resolving the initial catalog is not a user switching agents. In
+      // particular, do not undo New conversation chosen while it loaded.
+      previousAgentIdRef.current = activeAgentId;
+      return;
+    }
     previousAgentIdRef.current = activeAgentId;
     initialAutoSelectDoneRef.current = false;
     setActiveThreadId(null);
@@ -1672,6 +1678,13 @@ export function useAIChatRuntime(
     }
   }, [activeThreadId, provider.serverPersisted, updateSession]);
 
+  const switchToNewThread = useCallback(() => {
+    // An explicit choice wins over an initial list request still in flight.
+    initialAutoSelectDoneRef.current = true;
+    activeThreadIdRef.current = null;
+    setActiveThreadId(null);
+  }, []);
+
   const threadListAdapter = useMemo<ExternalStoreThreadListAdapter>(() => {
     const regular = threads.filter((t) => !t.archived);
     const archived = threads.filter((t) => t.archived);
@@ -1692,8 +1705,7 @@ export function useAIChatRuntime(
         // has not committed yet in that case, while ``ensureThreadId`` reads
         // this ref synchronously; leaving it set sends the first message of a
         // supposedly new conversation into the previous provider session.
-        activeThreadIdRef.current = null;
-        setActiveThreadId(null);
+        switchToNewThread();
       },
       onSwitchToThread: async (threadId: string) => {
         setActiveThreadId(threadId);
@@ -1725,7 +1737,7 @@ export function useAIChatRuntime(
         }
       },
     };
-  }, [threads, activeThreadId, refreshThreads]);
+  }, [threads, activeThreadId, refreshThreads, switchToNewThread]);
 
   // Composite: images retain vision content plus a persisted file identity; general
   // file branch (Slice B — uploads to the chat-upload endpoint at send()
@@ -1850,16 +1862,14 @@ export function useAIChatRuntime(
       isThreadStreaming,
       appendAssistantNote,
       switchToThread: (threadId: string) => setActiveThreadId(threadId),
-      switchToNewThread: () => {
-        activeThreadIdRef.current = null;
-        setActiveThreadId(null);
-      },
+      switchToNewThread,
     }),
     [
       runtime,
       provider,
       threads,
       threadGroups,
+      switchToNewThread,
       activeThreadId,
       activeProviderSessionId,
       activityText,

@@ -242,6 +242,13 @@ def _resolve_prompt_body(
 
     resolved_tools = list(tools_required)
     if bundle_meta is not None:
+        # The same standard metadata used by Core skills must survive App
+        # overlay materialization, or load_capability reveals instructions
+        # without disclosing their declared tools. Body overrides cannot
+        # add tools; broker authority still governs every call.
+        disk_tools = bundle_meta.get("allowed_tools") or []
+        if disk_tools:
+            resolved_tools = list(disk_tools)
         return domain_body, resolved_tools
 
     return domain_body, resolved_tools
