@@ -66,6 +66,83 @@ async def _claimed_context(
     return claimed, context
 
 
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_effect_fence_accepts_a_concurrent_same_authority_heartbeat(
+    postgres_raw_db, postgres_graph_context, monkeypatch
+) -> None:
+    from jvspatial.core.context import scoped_default_context_async
+
+    item, context = await _claimed_context()
+    original = work_items._cas_lease_fence_in_transaction
+    renewed = False
+
+    async def renew_before_cas(**kwargs):
+        nonlocal renewed
+        async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+            current = await work_items.heartbeat_lease(
+                item.work_item_id,
+                lease_token=item.lease_token,
+                lease_fence=item.lease_fence,
+                worker_id=item.lease_owner,
+                lease_seconds=60,
+            )
+            renewed = current.lease_expires_at != item.lease_expires_at
+            assert current.lease_token == item.lease_token
+            assert current.lease_fence == item.lease_fence
+        await original(**kwargs)
+
+    monkeypatch.setattr(work_items, "_cas_lease_fence_in_transaction", renew_before_cas)
+    async with work_items.authorized_work_item_effect(context):
+        assert renewed
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+@pytest.mark.parametrize("revocation", ["cancel", "fence", "deadline"])
+async def test_heartbeat_retry_does_not_accept_changed_execution_authority(
+    postgres_raw_db, postgres_graph_context, monkeypatch, revocation
+) -> None:
+    from jvspatial.core.context import scoped_default_context_async
+
+    from app.agentive.services.work_outbox import cas_work_item_update
+
+    item, context = await _claimed_context()
+    original = work_items._cas_lease_fence_in_transaction
+
+    async def revoke_before_cas(**kwargs):
+        async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+            await work_items.heartbeat_lease(
+                item.work_item_id,
+                lease_token=item.lease_token,
+                lease_fence=item.lease_fence,
+                worker_id=item.lease_owner,
+                lease_seconds=60,
+            )
+            changes = {
+                "cancel": {
+                    "cancel_requested_at": datetime.now(timezone.utc).isoformat()
+                },
+                "fence": {"lease_fence": item.lease_fence + 1},
+                "deadline": {"deadline_at": datetime.now(timezone.utc).isoformat()},
+            }
+            await cas_work_item_update(
+                item.work_item_id,
+                expected={"status": "running", "lease_fence": item.lease_fence},
+                updates=changes[revocation],
+            )
+        await original(**kwargs)
+
+    monkeypatch.setattr(
+        work_items, "_cas_lease_fence_in_transaction", revoke_before_cas
+    )
+    with pytest.raises(WorkError):
+        async with work_items.authorized_work_item_effect(context):
+            pytest.fail("changed authority must not enter the effect")
+
+
 def test_work_execution_authority_is_frozen_and_strict() -> None:
     """Execution authority rejects mutation and noncanonical field types."""
     context = WorkExecutionContext(
