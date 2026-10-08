@@ -14,7 +14,8 @@ from typing import Any
 from jvspatial.core.context import graph_transaction
 from pydantic import TypeAdapter, ValidationError
 
-from app.agentive.services.work_mandates import load_approved_mandate_lineage
+from app.agentive.services.work_execution import deterministic_run_id, effect_key
+from app.agentive.services.work_mandates import load_approved_mandate_path
 from app.agentive.services.work_outbox import (
     OBJECT_COLLECTION,
     _active_database,
@@ -23,7 +24,7 @@ from app.agentive.services.work_outbox import (
 )
 from app.agentive.work_budget_models import WorkBudgetReservation
 from app.agentive.work_models import WorkItem
-from app.schemas.agentive.work import WorkError
+from app.schemas.agentive.work import WorkError, WorkExecutionContext
 from app.schemas.agentive.work_budget import (
     MandateReservationRequest,
     Money,
@@ -160,7 +161,7 @@ def _assert_reviewed_request(
             raise WorkError("work.mandate_scope_denied")
 
 
-async def _lock_root(
+async def _lock_work_scope(
     db, root_id: str, principal_id: str, workspace_id: str, thread_id: str
 ):
     doc = await db.find_one_and_update(
@@ -177,6 +178,43 @@ async def _lock_root(
     if doc is None:
         raise WorkError("work.mandate_scope_denied")
     return _hydrate_work_item(doc)
+
+
+def _assert_leased_reservation(
+    context: WorkExecutionContext,
+    item: WorkItem,
+    request: MandateReservationRequest,
+) -> None:
+    """Check fresh, row-locked authority, not a cached worker snapshot."""
+    if context.cancellation_signal:
+        raise WorkError("work.cancelled")
+    if (
+        item.status != "running"
+        or item.attempt != context.attempt
+        or item.principal_id != context.principal_id
+        or item.workspace_id != context.workspace_id
+        or (item.thread_id or "") != context.thread_id
+        or item.lease_token != context.lease_token
+        or item.lease_fence != context.lease_fence
+        or (item.deadline_at or None) != context.deadline_at
+        or context.run_id
+        != deterministic_run_id(work_item_id=item.work_item_id, attempt=item.attempt)
+    ):
+        raise WorkError("work.lease_lost")
+    try:
+        expiry = datetime.fromisoformat(item.lease_expires_at.replace("Z", "+00:00"))
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise WorkError("work.lease_lost") from exc
+    if expiry.utcoffset() is None or expiry <= datetime.now(timezone.utc):
+        raise WorkError("work.lease_lost")
+    if (
+        context.effect_key
+        != effect_key(
+            work_item_id=item.work_item_id, logical_step_key=context.logical_step_key
+        )
+        or request.logical_effect_key != context.effect_key
+    ):
+        raise WorkError("work.logical_step_conflict")
 
 
 async def _write_ledger(db: Any, root: WorkItem, fields: dict) -> None:
@@ -197,12 +235,15 @@ async def reserve_mandate_budget(
     workspace_id: str,
     thread_id: str,
     request: MandateReservationRequest,
+    execution_context: WorkExecutionContext | None = None,
 ) -> WorkBudgetReservation:
     """Reserve global/per-capability counts and a known conservative USD hold.
 
     Quote identity/upper-bound validity must be supplied by a trusted resolver.
-    Success here never authorizes dispatch; current permission, lease and root
-    controls still need a fenced dispatch admission boundary.
+    Optional server-derived execution context fences the root-to-leaf rows and
+    checks current leaf lease/effect identity in the accounting transaction.
+    Success still never authorizes dispatch: current permissions, price
+    provenance, dispatch marking and physical-boundary hooks remain required.
     """
     try:
         request = MandateReservationRequest.model_validate(
@@ -210,22 +251,47 @@ async def reserve_mandate_budget(
         )
     except ValidationError as exc:
         raise WorkError("work.budget_invalid") from exc
+    if execution_context is not None:
+        try:
+            execution_context = WorkExecutionContext.model_validate(
+                execution_context.model_dump()
+            )
+        except (ValidationError, AttributeError) as exc:
+            raise WorkError("work.lease_lost") from exc
+        if (
+            execution_context.work_item_id != work_item_id
+            or execution_context.principal_id != principal_id
+            or execution_context.workspace_id != workspace_id
+            or execution_context.thread_id != thread_id
+        ):
+            raise WorkError("work.mandate_scope_denied")
     if request.quote.upper_cost is None:
         raise WorkError("work.cost_unavailable")
     db = await _transaction_database()
     async with graph_transaction(database=db) as graph:
-        root, _ = await load_approved_mandate_lineage(
+        root, _, path = await load_approved_mandate_path(
             work_item_id=work_item_id,
             principal_id=principal_id,
             workspace_id=workspace_id,
             thread_id=thread_id,
         )
-        locked = await _lock_root(
-            graph.database, root.work_item_id, principal_id, workspace_id, thread_id
-        )
+        # Root-to-leaf order is shared by all siblings. Locks live until the
+        # reservation transaction commits; no provider call holds these locks.
+        locked_path = []
+        for item in path if execution_context is not None else (root,):
+            locked_path.append(
+                await _lock_work_scope(
+                    graph.database,
+                    item.work_item_id,
+                    principal_id,
+                    workspace_id,
+                    thread_id,
+                )
+            )
+        locked = locked_path[0]
         # Re-read lineage/approval after locking root; concurrent root stop or
         # revision changes cannot bypass reservation accounting.
-        root, revision = await load_approved_mandate_lineage(
+        root, revision, current_path = await load_approved_mandate_path(
             work_item_id=work_item_id,
             principal_id=principal_id,
             workspace_id=workspace_id,
@@ -233,6 +299,12 @@ async def reserve_mandate_budget(
         )
         if root.plan_revision != locked.plan_revision:
             raise WorkError("work.mandate_revision_conflict")
+        if execution_context is not None:
+            if tuple(item.work_item_id for item in current_path) != tuple(
+                item.work_item_id for item in locked_path
+            ):
+                raise WorkError("work.mandate_lineage_invalid")
+            _assert_leased_reservation(execution_context, current_path[-1], request)
         _assert_reviewed_request(request, revision)
         ledger = _ledger(root.plan)
         reservation_id = hashlib.sha256(
@@ -370,7 +442,7 @@ async def settle_mandate_budget(
             thread_id,
         ):
             raise WorkError("work.mandate_scope_denied")
-        root = await _lock_root(
+        root = await _lock_work_scope(
             graph.database,
             record.root_work_item_id,
             principal_id,

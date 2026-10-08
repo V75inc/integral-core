@@ -310,10 +310,10 @@ async def _load_lineage_approval(approval_id: str) -> WorkApproval | None:
     return _hydrate_approval(document) if document is not None else None
 
 
-async def load_approved_mandate_lineage(
+async def load_approved_mandate_path(
     *, work_item_id: str, principal_id: str, workspace_id: str, thread_id: str
-) -> tuple[WorkItem, WorkMandateRevision]:
-    """Resolve a root approval through exact durable parent links.
+) -> tuple[WorkItem, WorkMandateRevision, tuple[WorkItem, ...]]:
+    """Resolve a root approval and root-to-leaf durable path.
 
     Every child carries only ``plan.mandate_root_work_item_id`` and the root
     review digest, never a copied snapshot/approval. All ancestors must retain
@@ -401,4 +401,17 @@ async def load_approved_mandate_lineage(
         or revision.thread_id != thread_id
     ):
         raise WorkError("work.mandate_revision_conflict")
+    return root, revision, tuple(reversed(ancestors))
+
+
+async def load_approved_mandate_lineage(
+    *, work_item_id: str, principal_id: str, workspace_id: str, thread_id: str
+) -> tuple[WorkItem, WorkMandateRevision]:
+    """Read approved root intent; the returned values are not dispatch authority."""
+    root, revision, _ = await load_approved_mandate_path(
+        work_item_id=work_item_id,
+        principal_id=principal_id,
+        workspace_id=workspace_id,
+        thread_id=thread_id,
+    )
     return root, revision

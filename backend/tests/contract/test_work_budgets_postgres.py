@@ -476,3 +476,173 @@ async def test_legacy_external_attribution_is_not_guessed(budget_root, external_
     else:
         await reserve(root, request(payload, "after-upgrade", "0"))
         assert (await ledger(db, root))["external_effects_by_grant"] == {}
+
+
+@pytest.fixture
+async def leased_budget_child(budget_root):
+    from app.agentive.services.work_execution import build_work_execution_context
+
+    root, payload, db = budget_root
+    parent_id = root.work_item_id
+    children = []
+    for _ in range(2):
+        child = await work_items.enqueue_work_item(
+            kind="capability",
+            origin="mandate_child",
+            principal_id="user-1",
+            workspace_id="workspace-1",
+            thread_id="thread-1",
+            idempotency_key=uuid4().hex,
+            parent_work_item_id=parent_id,
+            plan_revision=root.plan_revision,
+            plan={"mandate_root_work_item_id": root.work_item_id},
+            deadline_at="2030-01-01T09:00:00Z",
+        )
+        children.append(child)
+        parent_id = child.work_item_id
+    leaf = await work_items.claim_due_candidate(
+        worker_id="budget-fence-test",
+        work_item_id=children[-1].work_item_id,
+        lease_seconds=60,
+    )
+    assert leaf is not None
+    context = build_work_execution_context(
+        work_item=leaf, logical_step_key="provider:0"
+    )
+    data = request(payload, cost="0.10").model_dump(mode="json")
+    data["logical_effect_key"] = context.effect_key
+    req = MandateReservationRequest.model_validate(data)
+    return root, children[0], leaf, context, req, db
+
+
+async def reserve_leased(leaf, context, req):
+    return await work_budgets.reserve_mandate_budget(
+        work_item_id=leaf.work_item_id,
+        principal_id="user-1",
+        workspace_id="workspace-1",
+        thread_id="thread-1",
+        request=req,
+        execution_context=context,
+    )
+
+
+async def test_current_leaf_lease_reserves_and_replays_once(leased_budget_child):
+    root, parent, leaf, context, req, db = leased_budget_child
+    first = await reserve_leased(leaf, context, req)
+    repeated = await reserve_leased(leaf, context, req)
+    assert repeated.id == first.id
+    assert (await ledger(db, root))["reserved_units"] == 10000000
+    assert (await ledger(db, root))["model_requests"] == 1
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("lease_fence", 2),
+        ("lease_token", "replacement-lease"),
+        ("attempt", 2),
+        ("lease_expires_at", "2000-01-01T00:00:00Z"),
+        ("lease_expires_at", "2030-01-01T00:00:00"),
+        ("lease_expires_at", "invalid-expiry"),
+    ],
+)
+async def test_stale_or_invalid_leaf_lease_cannot_replay_hold(
+    leased_budget_child, field, value
+):
+    root, parent, leaf, context, req, db = leased_budget_child
+    await reserve_leased(leaf, context, req)
+    baseline = await ledger(db, root)
+    # Mutate the durable row while the claimed WorkItem remains cached.
+    await db.find_one_and_update(
+        "object", {"id": leaf.id}, {"$set": {f"context.{field}": value}}
+    )
+    with pytest.raises(WorkError) as exc:
+        await reserve_leased(leaf, context, req)
+    assert exc.value.code == "work.lease_lost"
+    assert await ledger(db, root) == baseline
+
+
+@pytest.mark.parametrize("ancestor", ["root", "parent"])
+async def test_cancelled_ancestor_blocks_child_before_hold(
+    leased_budget_child, ancestor
+):
+    root, parent, leaf, context, req, db = leased_budget_child
+    selected = root if ancestor == "root" else parent
+    await db.find_one_and_update(
+        "object",
+        {"id": selected.id},
+        {"$set": {"context.cancel_requested_at": "2026-01-01T00:00:00Z"}},
+    )
+    with pytest.raises(WorkError) as exc:
+        await reserve_leased(leaf, context, req)
+    assert exc.value.code == "work.mandate_inactive"
+    assert await ledger(db, root) is None
+
+
+@pytest.mark.parametrize(
+    "field,value,code",
+    [
+        ("thread_id", "wrong-thread", "work.mandate_scope_denied"),
+        ("run_id", "wrong-run", "work.lease_lost"),
+        ("effect_key", "wrong-effect", "work.logical_step_conflict"),
+        ("deadline_at", "2030-01-01T08:00:00Z", "work.lease_lost"),
+        ("cancellation_signal", True, "work.cancelled"),
+    ],
+)
+async def test_forged_execution_context_cannot_reserve(
+    leased_budget_child, field, value, code
+):
+    root, parent, leaf, context, req, db = leased_budget_child
+    changed = context.model_copy(update={field: value})
+    with pytest.raises(WorkError) as exc:
+        await reserve_leased(leaf, changed, req)
+    assert exc.value.code == code
+    assert await ledger(db, root) is None
+
+
+async def test_logical_reservation_must_match_context_effect(leased_budget_child):
+    root, parent, leaf, context, req, db = leased_budget_child
+    data = req.model_dump(mode="json")
+    data["logical_effect_key"] = "unrelated-logical-slot"
+    with pytest.raises(WorkError) as exc:
+        await reserve_leased(
+            leaf, context, MandateReservationRequest.model_validate(data)
+        )
+    assert exc.value.code == "work.logical_step_conflict"
+    assert await ledger(db, root) is None
+
+
+@pytest.mark.parametrize("ancestor", ["root", "parent", "leaf"])
+async def test_cancellation_serializes_with_leased_budget_transaction(
+    leased_budget_child, monkeypatch, ancestor
+):
+    root, parent, leaf, context, req, db = leased_budget_child
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    original = work_budgets._write_ledger
+
+    async def hold_transaction(database, locked_root, fields):
+        entered.set()
+        await asyncio.wait_for(release.wait(), timeout=5)
+        await original(database, locked_root, fields)
+
+    monkeypatch.setattr(work_budgets, "_write_ledger", hold_transaction)
+    selected = {"root": root, "parent": parent, "leaf": leaf}[ancestor]
+    holder = asyncio.create_task(reserve_leased(leaf, context, req))
+    await asyncio.wait_for(entered.wait(), timeout=5)
+    cancellation = asyncio.create_task(
+        work_items.cancel_work_item(selected.work_item_id)
+    )
+    try:
+        # Cancellation cannot mutate any locked ancestor before accounting
+        # commits. Shield keeps the genuine cancellation alive after observing.
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(asyncio.shield(cancellation), timeout=0.1)
+    finally:
+        release.set()
+        await asyncio.gather(holder, cancellation)
+    assert (await ledger(db, root))["reserved_units"] == 10000000
+    with pytest.raises(WorkError) as exc:
+        await reserve_leased(leaf, context, req)
+    assert exc.value.code == "work.mandate_inactive"
+    assert (await ledger(db, root))["reserved_units"] == 10000000
