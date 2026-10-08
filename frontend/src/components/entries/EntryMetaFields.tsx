@@ -445,9 +445,9 @@ export function EntryMetaFields({
                 </div>
               ) : null}
               <div className={`min-w-0 [overflow-wrap:anywhere] ${fullBleed ? 'sm:col-span-2' : ''}`.trim()}>
-                <div className="text-[13px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
+                {!row.relationEditable && <div className="text-[13px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
                   {row.field.name}
-                </div>
+                </div>}
                 {row.inlineEditable && onCommitField ? (
                   <div className="mt-0.5">
                     <InlineFieldEditor
