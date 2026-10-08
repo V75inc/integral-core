@@ -699,3 +699,18 @@ def test_w01_d17_insights_resolves_field_keys_before_ranking() -> None:
             }
         )
     )
+
+
+def test_attachments_skill_observes_app_query_boundaries_and_viewer_controls() -> None:
+    skill = _skill("integral-attachments")
+    frontmatter = yaml.safe_load(skill.split("---", 2)[1])
+    tools = set(frontmatter["allowed-tools"].split())
+    assert {
+        "integral_describe_capabilities",
+        "integral_governed_query",
+        "integral_list_apps",
+    } <= tools
+    assert "declared_query_required" in skill
+    assert "do not repeat generic searches" in skill
+    assert "missing `preview_url` or `thumb_url` does not mean" in skill
+    assert "Open/Download" in skill

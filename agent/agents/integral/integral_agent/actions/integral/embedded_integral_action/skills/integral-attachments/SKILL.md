@@ -1,7 +1,7 @@
 ---
 name: integral-attachments
 description: Reads and interprets uploaded documents, PDFs and receipts, then files the source attachment with the matching authorized App, Track and record. Use first for a file dropped in chat, including “file this where it belongs”. Also lists, summarizes and delivers existing entry attachments across a track or workspace. Clarify ambiguous destinations before writing.
-allowed-tools: integral_list_attachments integral_list_track_attachments integral_list_workspace_attachments integral_get_attachment_text integral_transcribe_audio integral_attach_file integral_attach_uploaded_file_to_entry integral_attach_uploaded_image_to_entry integral_resolve_entry integral_query_entries integral_rank_destinations integral_list_tracks integral_get_track_schema integral_begin_batch integral_commit_batch integral_cancel_batch integral_create_entry
+allowed-tools: integral_list_attachments integral_list_track_attachments integral_list_workspace_attachments integral_get_attachment_text integral_transcribe_audio integral_attach_file integral_attach_uploaded_file_to_entry integral_attach_uploaded_image_to_entry integral_resolve_entry integral_query_entries integral_governed_query integral_describe_capabilities integral_list_apps integral_rank_destinations integral_list_tracks integral_get_track_schema integral_begin_batch integral_commit_batch integral_cancel_batch integral_create_entry
 ---
 
 # Integral attachments — SOP
@@ -62,8 +62,18 @@ question naming the actual choices and wait before proposing the write.
    `integral_query_entries` (search the workspace) — use only ids returned by
    tools **this turn**.
 
+**App-owned sources:** if a generic search excludes a track with
+`declared_query_required`, do not repeat generic searches or conclude the
+record is missing. Confirm the owning App with `integral_list_apps`, discover
+its declared read query contract once with `integral_describe_capabilities`,
+and use `integral_governed_query` in `declared_capability` mode with the
+verified App ID and that query's actual parameters. Compare only requested
+fields, then list attachments on the verified returned entry ID. This applies
+to any App and does not authorize bypassing access or query contracts.
+
 There is **no global file search by filename**. To find a file by name across
-the workspace, **compose**: `integral_query_entries` →
+the workspace, resolve its parent record using the appropriate declared App
+query or generic `integral_query_entries` →
 `integral_list_attachments` on the matching entry →
 `integral_get_attachment_text` if you need the content.
 
@@ -88,6 +98,12 @@ and can render an empty "No attachments on this entry" card.
    attachment with `filename`, `mime_type`, `size`, `page_count`, `metadata`,
    `metadata_status`, `has_text`/`text_length`, and a `download_url`. The body
    text is **omitted here** — the list is a summary.
+   A missing `preview_url` or `thumb_url` does not mean the in-app viewer is
+   unavailable: attachment cards can open supported formats such as PDF from
+   authenticated file bytes. Direct the user to the card's Open/Download
+   controls or the verified entry's Attachments tab. Pending metadata or
+   `has_text: false` limits extracted-text analysis, not necessarily preview
+   or download. Do not claim a browser action succeeded unless observed.
 2. **Read** (only when you need the content) —
    `integral_get_attachment_text(attachment_id)` returns the extracted `text`
    (capped; `truncated`/`char_count` tell you if it was cut), plus `metadata`.
