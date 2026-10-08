@@ -33,10 +33,42 @@ class _RollbackProbe(Exception):
 @pytest.mark.contract
 @pytest.mark.postgres
 @pytest.mark.asyncio
-async def test_transaction_supports_concurrent_graph_reads_and_bounded_pagination(
+async def test_transaction_track_count_preserves_entry_access_overrides(
     postgres_raw_db,
 ) -> None:
+    from app.models.edges import COLLABORATES_ON, CONTAINS, EXCLUDED_FROM, OWNS
+    from app.models.nodes import Entry, Track, User
+    from app.services.permissions import count_user_accessible_entries
+
+    async with postgres_graph_transaction(postgres_raw_db):
+        owner = await User.create(user_id=uuid.uuid4().hex, display_name="Owner")
+        track = await Track.create(title="Transaction count", owner_id=owner.id)
+        await owner.connect(track, edge=OWNS)
+        entries = [
+            await Entry.create(title=str(i), author_id=owner.id, track_id=track.id)
+            for i in range(3)
+        ]
+        for entry in entries:
+            await track.connect(entry, edge=CONTAINS)
+        await owner.connect(entries[0], edge=EXCLUDED_FROM)
+        await owner.connect(entries[1], edge=EXCLUDED_FROM)
+        await owner.connect(entries[1], edge=COLLABORATES_ON, role="viewer")
+        assert await count_user_accessible_entries(owner.id, track.id) == 2
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_transaction_supports_concurrent_graph_reads_and_bounded_pagination(
+    postgres_raw_db,
+    monkeypatch,
+) -> None:
     from app.services.pagination import paginate_entity_find
+
+    monkeypatch.setattr(
+        "app.services.app_operations.transaction_scope._TRANSACTION_COUNT_PAGE_SIZE",
+        2,
+    )
 
     suffix = uuid.uuid4().hex
     async with postgres_graph_transaction(postgres_raw_db):
@@ -78,7 +110,7 @@ async def test_transaction_supports_concurrent_graph_reads_and_bounded_paginatio
             include_total=True,
         )
         assert len(first) == 2
-        assert metadata["total"] is None
+        assert metadata["total"] == 4
         assert metadata["has_more"] is True
         assert metadata["next_cursor"]
         second, final = await paginate_entity_find(

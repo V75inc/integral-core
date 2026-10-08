@@ -18,6 +18,8 @@ from jvspatial.core.context import TransactionUnavailable as _JvTxnUnavailable
 from jvspatial.core.context import graph_transaction as _jv_graph_transaction
 from jvspatial.db import get_prime_database
 
+_TRANSACTION_COUNT_PAGE_SIZE = 256
+
 
 class OperationTransactionUnavailable(RuntimeError):
     """Raised when the configured store cannot host a graph transaction."""
@@ -48,6 +50,42 @@ class _SerializedTransaction:
         async with self._lock:
             records = await self.inner.find(collection, query, limit=1)
         return records[0] if records else None
+
+    async def count(self, collection: str, query: dict[str, Any]) -> int:
+        """Count on the held transaction without escaping to the pool.
+
+        Prefer a public aggregate when supplied by the transaction. The pinned
+        PostgreSQL handle lacks it, so use bounded, id-ordered public reads.
+        This compatibility path scans matching records but never hydrates graph
+        entities or loads the entire collection into one result list.
+        """
+        native_count = getattr(self.inner, "count", None)
+        if callable(native_count):
+            async with self._lock:
+                return await native_count(collection, query)
+        total = 0
+        last_id: str | None = None
+        while True:
+            page_query = (
+                {"$and": [query, {"id": {"$gt": last_id}}]}
+                if last_id is not None
+                else query
+            )
+            page = await self.find(
+                collection,
+                page_query,
+                limit=_TRANSACTION_COUNT_PAGE_SIZE,
+                sort=[("id", 1)],
+            )
+            total += len(page)
+            if len(page) < _TRANSACTION_COUNT_PAGE_SIZE:
+                return total
+            next_id = page[-1].get("id")
+            if not isinstance(next_id, str) or (
+                last_id is not None and next_id <= last_id
+            ):
+                raise RuntimeError("Transaction count cursor did not advance")
+            last_id = next_id
 
     def __getattr__(self, name: str) -> Any:
         value = getattr(self.inner, name)
