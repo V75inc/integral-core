@@ -152,8 +152,8 @@ class WorkMandateRevision(MandateContract):
             raise ValueError("capability keys must be unique in a revision")
         return self
 
-    def review_digest(self) -> str:
-        """Stable SHA-256 of canonical values, independent of JSON key order."""
+    def canonical_review_payload(self) -> dict:
+        """Detached JSON values for storage and digest-equivalent retries."""
         payload = self.model_dump(mode="json")
         # Normalize equivalent monetary/time representations before hashing.
         spend = self.limits.max_spend
@@ -164,8 +164,12 @@ class WorkMandateRevision(MandateContract):
         payload["limits"]["deadline_at"] = self.limits.deadline_at.astimezone(
             timezone.utc
         ).isoformat()
+        return payload
+
+    def review_digest(self) -> str:
+        """Stable SHA-256 of canonical values, independent of JSON key order."""
         encoded = json.dumps(
-            payload,
+            self.canonical_review_payload(),
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),

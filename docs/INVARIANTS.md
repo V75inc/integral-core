@@ -2371,7 +2371,7 @@ data and the lookup primitive that binds entries to workspace members.
 
 **Scope:** `work_approvals.py`, staging/approve paths.
 
-**Rule:** Human waits require a pending `WorkApproval`. Approve requeues the original WorkItem; reject/expiry terminalize. Cards without `work_approval_id` keep the legacy inline path.
+**Rule:** Human waits require a pending `WorkApproval`. Approve requeues the original WorkItem; reject/expiry terminalize. A bounded mandate review cannot use ordinary approval to bypass current-grant and shared-limit admission: it remains non-runnable until the dedicated admission path is implemented and qualified. Cards without `work_approval_id` keep the legacy inline path.
 
 **Verification:** `tests/test_work_approvals.py`.
 
