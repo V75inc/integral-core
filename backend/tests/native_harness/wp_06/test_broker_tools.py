@@ -1757,3 +1757,117 @@ async def test_durable_attachment_tool_checks_accepted_input_before_dispatch(
     result = await tool.function_schema.call({"attachment_id": "file-1"}, ctx)
     assert result["text"] == "accepted file"
     assert len(invocations) == 1
+
+
+@pytest.mark.asyncio
+async def test_durable_tools_forward_distinct_host_owned_logical_contexts(monkeypatch):
+    from contextlib import asynccontextmanager
+
+    from app.schemas.agentive.work import WorkError, WorkExecutionContext
+
+    scope = _scope()
+    parent = WorkExecutionContext(
+        work_item_id="work-1",
+        attempt=1,
+        run_id=scope.run_id,
+        principal_id=scope.principal_id,
+        workspace_id=scope.workspace_id,
+        thread_id=scope.thread_id,
+        logical_step_key="provider:0",
+        effect_key="parent-effect",
+        lease_token="lease-1",
+        lease_fence=1,
+    )
+    calls = []
+
+    @asynccontextmanager
+    async def authorized(context):
+        assert context is parent
+        yield
+
+    async def invoke(**kwargs):
+        calls.append(kwargs)
+        return CapabilityResult(ok=True, data={"tracks": []})
+
+    monkeypatch.setattr(
+        "app.agentive.services.work_items.authorized_work_item_effect", authorized
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda name: ("core", "read"),
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    tools = build_brokered_tools(
+        scope=scope,
+        work_execution_context=parent,
+        catalogue=[
+            {
+                "name": "integral_list_tracks",
+                "description": "List tracks.",
+                "input_schema": {"type": "object", "properties": {}},
+            }
+        ],
+    )
+    tool = next(t for t in tools if t.name == "integral_list_tracks")
+    for identifier in ("call-a", "call-b", "call-a"):
+        await tool.function_schema.call(
+            {}, SimpleNamespace(tool_call_id=identifier, active_capability_ids=set())
+        )
+    first, second, replay = [c["work_execution_context"] for c in calls]
+    assert first.logical_step_key != second.logical_step_key
+    assert first.effect_key != second.effect_key
+    assert first == replay
+    assert first.logical_step_key != parent.logical_step_key
+    for context in (first, second):
+        for field in (
+            "work_item_id",
+            "attempt",
+            "run_id",
+            "principal_id",
+            "workspace_id",
+            "thread_id",
+            "lease_token",
+            "lease_fence",
+            "deadline_at",
+            "cancellation_signal",
+        ):
+            assert getattr(context, field) == getattr(parent, field)
+    with pytest.raises(WorkError, match="tool call identity"):
+        await tool.function_schema.call(
+            {}, SimpleNamespace(tool_call_id=None, active_capability_ids=set())
+        )
+    assert len(calls) == 3
+
+
+def test_tool_effect_identity_survives_new_attempt_but_keeps_current_lease():
+    from app.agentive.harness.broker_tools import _tool_work_context
+    from app.schemas.agentive.work import WorkExecutionContext
+
+    parent = WorkExecutionContext(
+        work_item_id="work-1",
+        attempt=1,
+        run_id="run-1",
+        principal_id="user-1",
+        workspace_id="workspace-1",
+        thread_id="thread-1",
+        logical_step_key="provider:0",
+        effect_key="parent-effect",
+        lease_token="lease-1",
+        lease_fence=1,
+    )
+    newer = parent.model_copy(
+        update={
+            "attempt": 2,
+            "run_id": "run-2",
+            "lease_token": "lease-2",
+            "lease_fence": 2,
+        }
+    )
+    first = _tool_work_context(parent, "persisted-call", "integral_list_tracks")
+    replay = _tool_work_context(newer, "persisted-call", "integral_list_tracks")
+    assert first.logical_step_key == replay.logical_step_key
+    assert first.effect_key == replay.effect_key
+    assert replay.attempt == 2 and replay.lease_fence == 2
+    assert replay.run_id == "run-2" and replay.lease_token == "lease-2"

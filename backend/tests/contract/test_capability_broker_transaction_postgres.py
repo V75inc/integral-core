@@ -134,3 +134,112 @@ async def test_transactional_permission_fanout_preserves_entries_and_denials(
             assert {entry.id for entry in inside} == expected
     finally:
         _default_context_var.reset(token)
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_native_tool_calls_link_distinct_receipts_to_durable_work(
+    postgres_raw_db, monkeypatch
+):
+    """Exercise native wrapper, lease fence, broker metadata and actual receipts."""
+    from types import SimpleNamespace
+
+    from jvspatial.core.context import _default_context_var
+
+    from app.agentive.harness.broker_tools import build_brokered_tools
+    from app.agentive.harness.contracts import HarnessExecutionScope
+    from app.agentive.services import capability_broker, work_items
+    from app.agentive.services.execution_runs import AgentRun, RunStep
+    from app.agentive.services.work_execution import build_work_execution_context
+    from tests.contract.test_chat_turn_submission_postgres import _submission_context
+
+    token = set_default_context(GraphContext(database=postgres_raw_db))
+    try:
+        thread, principal, workspace = await _submission_context()
+        queued = await work_items.enqueue_work_item(
+            kind="chat_turn",
+            origin="interactive_chat",
+            principal_id=principal,
+            workspace_id=workspace,
+            thread_id=thread.id,
+            idempotency_key=uuid.uuid4().hex,
+            input_payload={},
+        )
+        item = await work_items.claim_due_candidate(
+            worker_id="native-tool-test",
+            lease_seconds=60,
+            work_item_id=queued.work_item_id,
+        )
+        parent = build_work_execution_context(
+            work_item=item, logical_step_key="provider:0"
+        )
+        snapshot = {
+            "manifest_version": "1.0.0",
+            "fingerprint": "synthetic",
+            "capabilities": [{"name": "integral_list_tracks", "op_class": "read"}],
+        }
+        run = await AgentRun.create(
+            run_id=parent.run_id,
+            user_id=principal,
+            workspace_id=workspace,
+            thread_id=thread.id,
+            work_item_id=item.work_item_id,
+            status="running",
+            capability_snapshot=snapshot,
+        )
+        calls = []
+
+        async def current_snapshot(workspace_id):
+            assert workspace_id == workspace
+            return snapshot
+
+        async def adapter(invocation, declaration):
+            calls.append(invocation.work_execution_context)
+            return {"tracks": []}
+
+        monkeypatch.setattr(
+            capability_broker, "build_capability_snapshot", current_snapshot
+        )
+        monkeypatch.setattr(capability_broker, "_call_adapter", adapter)
+        scope = HarnessExecutionScope(
+            tenant_id=workspace,
+            principal_id=principal,
+            workspace_id=workspace,
+            thread_id=thread.id,
+            session_id=thread.id,
+            run_id=parent.run_id,
+            permission_revision="synthetic",
+            capability_version="1.0.0",
+        )
+        tools = build_brokered_tools(
+            scope=scope,
+            work_execution_context=parent,
+            catalogue=[
+                {
+                    "name": "integral_list_tracks",
+                    "description": "List tracks.",
+                    "input_schema": {"type": "object", "properties": {}},
+                }
+            ],
+        )
+        tool = next(t for t in tools if t.name == "integral_list_tracks")
+        for identity in ("call-a", "call-b", "call-a"):
+            result = await tool.function_schema.call(
+                {}, SimpleNamespace(tool_call_id=identity, active_capability_ids=set())
+            )
+            assert not result.get("error"), result
+        assert len(calls) == 2
+        assert calls[0].effect_key != calls[1].effect_key
+        steps = await RunStep.find({"run_id": parent.run_id})
+        assert len(steps) == 2
+        assert all(
+            s.work_item_id == item.work_item_id and s.status == "succeeded"
+            for s in steps
+        )
+        persisted = await AgentRun.get(run.id)
+        assert set(persisted.metadata["logical_steps"]) == {
+            c.logical_step_key for c in calls
+        }
+    finally:
+        _default_context_var.reset(token)
