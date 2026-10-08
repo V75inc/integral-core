@@ -372,11 +372,30 @@ async def test_input_capsule_is_encrypted_scoped_and_idempotent(
 @pytest.mark.contract
 @pytest.mark.postgres
 @pytest.mark.asyncio
+@pytest.mark.parametrize("auth_principal", [False, True])
 async def test_claimed_chat_turn_rebuilds_only_its_scoped_text_input(
     postgres_graph_context,
+    auth_principal: bool,
 ) -> None:
     """A worker resolves prompt/context from the accepted row and capsule."""
     thread, owner_id, workspace_id = await _submission_context()
+    if auth_principal:
+        from jvspatial.api.auth.models import User as AuthUser
+
+        from app.models.nodes import User
+
+        owner = await User.get(owner_id)
+        assert owner is not None
+        auth_user = await AuthUser.create(
+            email=f"chat-worker-{uuid.uuid4().hex}@example.com",
+            password_hash="test-hash",
+            name="Chat worker contract",
+        )
+        owner.user_id = auth_user.id
+        await owner.save()
+        owner_id = auth_user.id
+        thread.user_id = owner_id
+        await thread.save()
     execution_context = ChatTurnExecutionContext(
         system_context="server-only instruction",
         focused_track_id="n.Track.focused",

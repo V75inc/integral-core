@@ -244,3 +244,17 @@ role-bound host receipts outside user utterances; all prior tenant, lease,
 extension and domain-neutral invariants remain. These changes are not yet
 committed or browser-qualified. Independent-process HTTP recovery, host
 controls on the default model, and original mandate/journey gates remain open.
+
+
+## Browser-discovered HTTP principal identity follow-up
+
+The local candidate accepted one read-only founder request, then failed at
+worker graph validation before a provider run. Live scoped readback showed
+the principal was an AuthUser ID, while the worker looked up a graph User
+directly. Existing PostgreSQL fixtures used graph User IDs and missed this
+production boundary. The restoration path now uses canonical `get_user_node`
+and validates the supplied principal against either its graph ID or linked
+AuthUser ID. The same accepted-input regression runs with both identity forms.
+User, workspace, thread, capsule, message and membership checks remain enforced.
+The local API was rolled back to qualified synchronous execution while this
+follow-up is gated; no durable recovery acceptance is claimed.

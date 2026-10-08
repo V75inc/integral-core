@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from app.agentive.harness.turn_input import load_turn_input_capsule
 from app.agentive.work_models import WorkItem
 from app.models.edges import CONTAINS
-from app.models.nodes import ChatMessage, ChatThread, User
+from app.models.nodes import ChatMessage, ChatThread
 from app.schemas.agentive.work import (
     ChatTurnExecutionContext,
     ChatTurnSubmissionRequest,
@@ -82,7 +82,11 @@ async def load_claimed_chat_turn_input(
 
     thread = await ChatThread.get(thread_id)
     message = await ChatMessage.get(accepted_message_id)
-    user = await User.get(principal_id)
+    from app.services.permissions import get_user_node
+
+    # HTTP principals use AuthUser IDs; resolve their linked graph User using
+    # the same identity contract as workspace authorization.
+    user = await get_user_node(principal_id)
     if (
         thread is None
         or thread.id != thread_id
@@ -99,7 +103,7 @@ async def load_claimed_chat_turn_input(
             {"entity_refs", "page_context"}
         )
         or user is None
-        or user.id != principal_id
+        or principal_id not in {user.id, user.user_id}
     ):
         raise WorkError("work.policy_denied", "chat turn graph scope mismatch")
 
