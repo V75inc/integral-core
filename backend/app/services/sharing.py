@@ -189,7 +189,9 @@ async def revoke_workspace_resource_grants(
     """Drop in-workspace ``COLLABORATES_ON`` / ``EXCLUDED_FROM`` for ``user``.
 
     Called when membership ends (self-leave or admin remove). Does not touch
-    ``OWNS`` — owners cannot leave, and removing an owner is already blocked.
+    ``OWNS``. Callers reassign those edges to the workspace owner first via
+    ``reassign_departing_member_ownership`` so a removed creator does not
+    leave an unmanageable resource behind.
     """
     deleted = {"collaborates_on": 0, "excluded_from": 0}
     if not user or not workspace_id:

@@ -819,6 +819,7 @@ a direct `OWNS` or `COLLABORATES_ON` edge to the resource itself.
 
 ### 9.7 Ownership Transfer
 - Initiated only by current **owner** (App or Track). Implementation: transactional update of **`OWNS`** and **`COLLABORATES_ON`** per §4.1. **API:** `POST .../transfer-ownership` with target `userId`.
+- **Membership end.** When a member is removed or leaves, their in-workspace `OWNS` edges move to the workspace owner. The departing user is not kept as an editor. Resources they own in other workspaces stay theirs. While they are still a member, the workspace owner’s implicit role remains `commenter` (§9.5); this transfer does not make the workspace owner an editor of resources they do not hold directly.
 
 ### 9.8 Data Isolation
 All queries are scoped by the authenticated user's **effective** App/Track/Entry permissions; the backend never returns nodes the user cannot access. List endpoints additionally enforce the `X-Integral-Scope` workspace header (§9.6) so a user with access to two workspaces cannot accidentally mix their contents in a single response.

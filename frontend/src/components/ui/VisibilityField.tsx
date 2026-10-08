@@ -51,7 +51,7 @@ export function VisibilityField({
       key: 'private',
       label: 'Private',
       Icon: Lock,
-      sub: 'Only you, unless you add others',
+      sub: 'You and workspace owners and admins, unless you add others',
     },
     {
       key: 'workspace',
