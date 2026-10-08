@@ -806,6 +806,9 @@ export function useAIChatRuntime(
   const activeAgentId = activeAgent?.id ?? null;
   const [threads, setThreads] = useState<AIChatThread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const selectionKey = JSON.stringify([principalId, workspaceId, provider.id, activeAgentId]);
+  const [settledSelectionKey, setSettledSelectionKey] = useState<string | null>(null);
+  const composerReady = selectionScopeReady && (!provider.serverPersisted || settledSelectionKey === selectionKey);
   const selectThread = useCallback((threadId: string) => {
     rememberFreshChat(freshChatScope, false);
     setActiveThreadId(threadId);
@@ -1019,6 +1022,7 @@ export function useAIChatRuntime(
     void (async () => {
       const list = await refreshThreads();
       if (cancelled) return;
+      setSettledSelectionKey(selectionKey);
       if (initialAutoSelectDoneRef.current) return;
       initialAutoSelectDoneRef.current = true;
       // Threads were still listed above so the rail is populated; we just
@@ -1047,6 +1051,7 @@ export function useAIChatRuntime(
     startNewThread,
     freshChatScope,
     selectionScopeReady,
+    selectionKey,
     selectThread,
   ]);
 
@@ -1879,6 +1884,7 @@ export function useAIChatRuntime(
       threads,
       threadGroups,
       activeThreadId,
+      composerReady,
       activeProviderSessionId,
       activityText,
       isRunning,
@@ -1898,6 +1904,7 @@ export function useAIChatRuntime(
       switchToNewThread,
       selectThread,
       activeThreadId,
+      composerReady,
       activeProviderSessionId,
       activityText,
       isRunning,

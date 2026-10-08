@@ -947,6 +947,7 @@ async def merge_library_manifest_into_operational_model(
                 "track_templates": merged_template_list,
                 "relations": merged_relations,
                 "defaults": merged_defaults,
+                "home": canonical_app.get("home") or {},
                 # v2 operational layer (Plan 10-03 MANIFEST-V2-01)
                 "skills": merged_skills,
                 "agents": merged_agents,

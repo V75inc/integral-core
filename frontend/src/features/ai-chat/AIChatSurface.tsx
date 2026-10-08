@@ -35,6 +35,7 @@ const ChatActivityContext = createContext<{
   /** ChatThread node id for the open thread — what the questions/staging
    *  REST surface keys on (distinct from the provider session id). */
   activeThreadId: string | null;
+  composerReady: boolean;
   streamingThreadIds: readonly string[];
   /** Threads busy with a turn this tab did not start. */
   remoteTurns: Record<string, { workspaceId: string | null; turnId: string | null }>;
@@ -51,6 +52,7 @@ const ChatActivityContext = createContext<{
   activeProviderSessionId: null,
   activeProviderId: "",
   activeThreadId: null,
+  composerReady: false,
   streamingThreadIds: [],
   remoteTurns: {},
   isThreadStreaming: () => false,
@@ -145,6 +147,7 @@ function AIChatRuntimeBoundaryInner({
     appendAssistantNote,
     activeProviderSessionId,
     activeThreadId,
+    composerReady,
     streamingThreadIds,
     remoteTurns,
     isThreadStreaming,
@@ -167,6 +170,7 @@ function AIChatRuntimeBoundaryInner({
           activeProviderSessionId,
           activeProviderId: provider.id,
           activeThreadId,
+          composerReady,
           streamingThreadIds,
           remoteTurns,
           isThreadStreaming,

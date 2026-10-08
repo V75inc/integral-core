@@ -170,6 +170,17 @@
     "hot_loadable": false
   },
   {
+    "type": "record_summary",
+    "label": "Record summary",
+    "default_always_on": false,
+    "platforms": [
+      "web"
+    ],
+    "palette_group": "summaries",
+    "configurable": true,
+    "hot_loadable": false
+  },
+  {
     "type": "table_widget",
     "label": "Top records",
     "default_always_on": false,

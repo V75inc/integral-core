@@ -4057,6 +4057,12 @@ def compile_canonical_manifest(
                 app_node.get("queries"),
                 where="app.queries",
             )
+            from app.services.app_home_contract import normalize_app_home
+
+            try:
+                app_home = normalize_app_home(app_node.get("home"), app_queries)
+            except ValueError as exc:
+                raise BadRequestError(message=str(exc)) from exc
             operation_keys = {str(item.get("key") or "") for item in app_operations}
             query_keys = {str(item.get("key") or "") for item in app_queries}
             duplicate_capability_keys = sorted(operation_keys & query_keys)
@@ -4101,6 +4107,7 @@ def compile_canonical_manifest(
                     for r in _as_list(app_node.get("relations"), where="app.relations")
                 ],
                 "defaults": app_defaults,
+                **({"home": app_home} if app_home is not None else {}),
                 # v2 operational layer (Plan 10-03 MANIFEST-V2-01)
                 "skills": app_skills,
                 "agents": app_agents,
