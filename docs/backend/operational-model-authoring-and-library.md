@@ -17,6 +17,8 @@ For the **view palette convention** (contracts, manifests, catalog apply, no
 runtime hot-load), see
 [../../docs/operational-models/VIEW_PALETTE.md](../../docs/operational-models/VIEW_PALETTE.md).
 
+For an installed package's prescribed landing view, see [Package-owned App Home](app-home.md).
+
 ---
 
 ## What a OperationalModel does

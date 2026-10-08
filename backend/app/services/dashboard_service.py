@@ -24,7 +24,10 @@ from app.services.app_graph import (
     get_or_create_dashboards_registry,
     get_track_attached_operational_model,
 )
-from app.services.dashboard_widget_validation import normalize_widget_specs
+from app.services.dashboard_widget_validation import (
+    normalize_widget_specs,
+    validate_widget_specs,
+)
 from app.services.entry_aggregate import aggregate_rows
 from app.services.permissions import can_edit_app, can_view_app
 from app.services.query_filters import entry_field_value, entry_matches_filters
@@ -1192,14 +1195,16 @@ def _declared_query_output_paths(
     return rows_path, total_path
 
 
-async def _resolve_declared_query_aggregate(
+async def _resolve_declared_query_data(
     *,
     user_id: str,
     app_id: str,
     workspace_id: Optional[str],
     data_source: Dict[str, Any],
+    record_fields: Optional[List[str]] = None,
+    max_records: int = 3,
 ) -> Dict[str, Any]:
-    """Aggregate an App query's explicitly declared, complete result rows."""
+    """Resolve complete authorized App rows for aggregates or field summaries."""
     from app.services.app_queries.dispatch import invoke_app_query
     from app.services.app_queries.registry import get_app_query
 
@@ -1224,6 +1229,21 @@ async def _resolve_declared_query_aggregate(
     paths = _declared_query_output_paths(query, data_source)
     if paths is None:
         return {"value": None, "error": "declared_query_output_not_qualified"}
+    if record_fields is not None:
+        rows_schema = _json_schema_path(query["output_schema"], paths[0]) or {}
+        item_schema = rows_schema.get("items") or {}
+        for field in record_fields:
+            field_schema = _json_schema_path(item_schema, field)
+            field_type = (field_schema or {}).get("type")
+            types = set(field_type) if isinstance(field_type, list) else {field_type}
+            if not types - {"null"} or not types <= {
+                "string",
+                "boolean",
+                "integer",
+                "number",
+                "null",
+            }:
+                return {"error": "declared_query_summary_field_not_declared"}
 
     base_params = dict(data_source.get("query_params") or {})
     try:
@@ -1274,6 +1294,33 @@ async def _resolve_declared_query_aggregate(
     row_ids = [item["id"] for item in aggregate_rows_input]
     if len(row_ids) != len(set(row_ids)):
         return {"value": None, "error": "duplicate_declared_query_rows"}
+    if record_fields is not None:
+        if any(not isinstance(row.get("id"), str) or not row["id"] for row in rows):
+            return {"error": "declared_query_record_identity_unavailable"}
+        if len({row["id"] for row in rows}) != len(rows):
+            return {"error": "duplicate_declared_query_rows"}
+        if any(
+            value is not None and not isinstance(value, (str, bool, int, float))
+            for row in rows
+            for field in record_fields
+            for value in [_json_path_value(row, field)]
+        ):
+            return {"error": "declared_query_summary_value_invalid"}
+        return {
+            "records": [
+                {
+                    "id": row["id"],
+                    "title": str(row.get("title") or "Untitled"),
+                    "fields": {
+                        field: _json_path_value(row, field) for field in record_fields
+                    },
+                }
+                for row in rows[:max_records]
+            ],
+            "total_matched": total,
+            "total_shown": min(total, max_records),
+            "drill_through_supported": False,
+        }
     field = str(data_source.get("field") or "").strip()
     if field.startswith("custom_fields."):
         field = field[len("custom_fields.") :]
@@ -1332,8 +1379,20 @@ async def resolve_widget_data(
                 "refused": decision.public(app_id=app_id),
             }
     wtype = str(widget.get("type") or "")
+    if wtype == "record_summary":
+        if validate_widget_specs([widget]):
+            return {"error": "invalid_record_summary"}
+        config = widget.get("config") or {}
+        return await _resolve_declared_query_data(
+            user_id=user_id,
+            app_id=app_id,
+            workspace_id=workspace_id,
+            data_source=ds,
+            record_fields=[field["field"] for field in config["fields"]],
+            max_records=config.get("max_records", 3),
+        )
     if ds.get("kind") == "declared_query":
-        return await _resolve_declared_query_aggregate(
+        return await _resolve_declared_query_data(
             user_id=user_id,
             app_id=app_id,
             workspace_id=workspace_id,

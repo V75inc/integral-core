@@ -30,6 +30,13 @@ export interface Dashboard {
   updated_at?: string;
 }
 
+export interface AppHome {
+  title: string;
+  description: string;
+  actions: Array<{ label: string; draft: string; when?: { widget: string; state: 'empty' | 'has_records' } }>;
+  widgets: Array<DashboardWidget & { data?: Record<string, unknown> }>;
+}
+
 export interface DashboardWidgetTypeSpec {
   type: string;
   label: string;
@@ -67,6 +74,10 @@ export interface DashboardDrilldownResult {
 }
 
 export const dashboardsApi = {
+  async home(appId: string, includeData = true): Promise<{ home: AppHome | null; definition_revision?: number }> {
+    const { data } = await apiClient.get(`/apps/${appId}/home`, { params: { include_data: String(includeData) } });
+    return data;
+  },
   async list(appId: string): Promise<Dashboard[]> {
     const { data } = await apiClient.get(`/apps/${appId}/dashboards`);
     return unwrapResource<Dashboard[]>(data, 'dashboards');

@@ -33,6 +33,36 @@ vi.mock('recharts', async () => {
 });
 
 describe('DashboardWidgetRenderer', () => {
+  it('renders selected record fields, unknown values and optional details', () => {
+    render(<MemoryRouter><DashboardWidgetRenderer type="record_summary" title="Current work"
+      data={{ records: [{ id: 'n.Entry.1', title: 'My record', fields: { step: 'Explore', next: null, brief: 'A concise brief' } }], total_matched: 2 }}
+      config={{ fields: [{ field: 'step', label: 'Step' }, { field: 'next', label: 'Next action' }, { field: 'brief', label: 'Brief', detail: true }] }}
+    /></MemoryRouter>);
+    expect(screen.getByRole('link', { name: 'My record' })).toHaveAttribute('href', '/entries/n.Entry.1');
+    expect(screen.getByText('Explore')).toBeInTheDocument();
+    expect(screen.getByText('Not yet set')).toBeInTheDocument();
+    expect(screen.getByText('A concise brief').closest('details')).not.toHaveAttribute('open');
+    expect(screen.getByText('Showing 1 of 2 records.')).toBeInTheDocument();
+  });
+
+  it('keeps the configured empty state separate from a failed query', () => {
+    const config = { fields: [{ field: 'step', label: 'Step' }], empty_message: 'Bring an idea or explore your interests.' };
+    const { rerender } = render(<DashboardWidgetRenderer type="record_summary" title="Current work" data={{ records: [] }} config={config} />);
+    expect(screen.getByText('Bring an idea or explore your interests.')).toBeInTheDocument();
+    rerender(<DashboardWidgetRenderer type="record_summary" title="Current work" data={{ error: 'declared_query_failed' }} config={config} />);
+    expect(screen.queryByText('Bring an idea or explore your interests.')).not.toBeInTheDocument();
+    expect(screen.getByText("Couldn't load: declared_query_failed")).toBeInTheDocument();
+  });
+
+  it('does not treat a returned URL as a record navigation target', () => {
+    render(<MemoryRouter><DashboardWidgetRenderer type="record_summary" title="Current work"
+      data={{ records: [{ id: 'https://external.example', title: 'Unlinked record', fields: { step: 'Test' } }] }}
+      config={{ fields: [{ field: 'step', label: 'Step' }] }}
+    /></MemoryRouter>);
+    expect(screen.getByText('Unlinked record')).toBeInTheDocument();
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+  });
+
   it('renders metric_card with value', () => {
     render(
       <MetricCardWidget title="Open items" data={{ value: 42 }} />,
