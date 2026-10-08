@@ -719,3 +719,305 @@ async def test_postgres_review_approval_is_held_but_rejection_is_durable():
     assert (await db.get("object", approval.id))["context"]["decision"] == "rejected"
     repeated, same_approval = await _propose_review(payload)
     assert repeated.status == "failed" and same_approval.status == "rejected"
+
+
+@pytest.fixture
+def mandate_lineage(monkeypatch):
+    from app.agentive.work_models import WorkItem
+
+    service, root, approval, revision = approved_binding_fixture(monkeypatch)
+    root.status = "waiting_for_event"
+    child = WorkItem(
+        id="o.WorkItem.child-1",
+        work_item_id="child-1",
+        status="running",
+        principal_id=root.principal_id,
+        workspace_id=root.workspace_id,
+        thread_id=root.thread_id,
+        parent_work_item_id=root.work_item_id,
+        plan_revision=root.plan_revision,
+        plan={"mandate_root_work_item_id": root.work_item_id},
+        deadline_at="2030-01-01T09:00:00Z",
+    )
+    records = {root.work_item_id: root, child.work_item_id: child}
+    reads = []
+
+    async def load_item(work_id):
+        from app.schemas.agentive.work import WorkError
+
+        reads.append(work_id)
+        if work_id not in records:
+            raise WorkError("work.not_found")
+        return records[work_id]
+
+    async def load_approval(approval_id):
+        assert approval_id == approval.work_approval_id
+        return approval
+
+    monkeypatch.setattr(service, "_load_lineage_item", load_item)
+    monkeypatch.setattr(service, "_load_lineage_approval", load_approval)
+    return service, root, child, approval, revision, records, reads
+
+
+async def _resolve_lineage(service, work_id="child-1"):
+    return await service.load_approved_mandate_lineage(
+        work_item_id=work_id,
+        principal_id="user-1",
+        workspace_id="workspace-1",
+        thread_id="thread-1",
+    )
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+async def test_lineage_child_resolves_one_root_review(mandate_lineage):
+    service, root, child, _, revision, _, reads = mandate_lineage
+    resolved, approved = await _resolve_lineage(service)
+    assert resolved == root and approved == revision
+    assert reads == [child.work_item_id, root.work_item_id]
+    direct, same_review = await _resolve_lineage(service, root.work_item_id)
+    assert direct == root and same_review == revision
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field", ["principal_id", "workspace_id", "thread_id"])
+@pytest.mark.parametrize("target", ["root", "child"])
+async def test_lineage_rejects_changed_scope(mandate_lineage, field, target):
+    from app.schemas.agentive.work import WorkError
+
+    service, root, child, *_ = mandate_lineage
+    setattr(root if target == "root" else child, field, "different-scope")
+    with pytest.raises(WorkError) as exc:
+        await _resolve_lineage(service)
+    assert exc.value.code == "work.mandate_scope_denied"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("mandate_root_work_item_id", "unrelated-root"),
+        ("mandate_approval_id", "approval-1"),
+        ("mandate_revision", {}),
+    ],
+)
+async def test_lineage_rejects_copied_or_wrong_authority(mandate_lineage, field, value):
+    from app.schemas.agentive.work import WorkError
+
+    service, _, child, *_ = mandate_lineage
+    child.plan[field] = value
+    with pytest.raises(WorkError) as exc:
+        await _resolve_lineage(service)
+    assert exc.value.code == "work.mandate_lineage_invalid"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("target", ["root", "child"])
+@pytest.mark.parametrize("status", ["cancelled", "succeeded", "failed"])
+async def test_lineage_rejects_terminal_ancestors(mandate_lineage, target, status):
+    from app.schemas.agentive.work import WorkError
+
+    service, root, child, *_ = mandate_lineage
+    (root if target == "root" else child).status = status
+    with pytest.raises(WorkError) as exc:
+        await _resolve_lineage(service)
+    assert exc.value.code == "work.mandate_inactive"
+
+
+@pytest.mark.asyncio
+async def test_lineage_cancelled_parent_blocks_grandchild(mandate_lineage):
+    from app.agentive.work_models import WorkItem
+    from app.schemas.agentive.work import WorkError
+
+    service, root, child, _, _, records, _ = mandate_lineage
+    middle = WorkItem(
+        id="o.WorkItem.middle-1",
+        work_item_id="middle-1",
+        principal_id=root.principal_id,
+        workspace_id=root.workspace_id,
+        thread_id=root.thread_id,
+        parent_work_item_id=root.work_item_id,
+        plan_revision=root.plan_revision,
+        plan={"mandate_root_work_item_id": root.work_item_id},
+        deadline_at=child.deadline_at,
+        status="running",
+        cancel_requested_at="2026-01-01T00:00:00Z",
+    )
+    records[middle.work_item_id] = middle
+    child.parent_work_item_id = middle.work_item_id
+    with pytest.raises(WorkError) as exc:
+        await _resolve_lineage(service)
+    assert exc.value.code == "work.mandate_inactive"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "deadline", ["", "2030-01-02T00:00:00Z", "2030-01-01T09:00:00", "invalid"]
+)
+async def test_lineage_deadline_cannot_be_omitted_or_extended(
+    mandate_lineage, deadline
+):
+    from app.schemas.agentive.work import WorkError
+
+    service, _, child, *_ = mandate_lineage
+    child.deadline_at = deadline
+    with pytest.raises(WorkError) as exc:
+        await _resolve_lineage(service)
+    assert exc.value.code == "work.mandate_lineage_invalid"
+
+
+@pytest.mark.asyncio
+async def test_lineage_rejects_expired_child_and_changed_digest(mandate_lineage):
+    from app.schemas.agentive.work import WorkError
+
+    service, _, child, *_ = mandate_lineage
+    child.deadline_at = "2000-01-01T00:00:00Z"
+    with pytest.raises(WorkError) as exc:
+        await _resolve_lineage(service)
+    assert exc.value.code == "work.mandate_expired"
+    child.deadline_at = "2030-01-01T09:00:00Z"
+    child.plan_revision = "unreviewed"
+    with pytest.raises(WorkError) as exc:
+        await _resolve_lineage(service)
+    assert exc.value.code == "work.mandate_lineage_invalid"
+
+
+@pytest.mark.asyncio
+async def test_lineage_cycle_and_depth_bound(mandate_lineage):
+    from app.schemas.agentive.work import WorkError
+
+    service, root, child, _, _, records, reads = mandate_lineage
+    child.parent_work_item_id = child.work_item_id
+    with pytest.raises(WorkError) as exc:
+        await _resolve_lineage(service)
+    assert exc.value.code == "work.mandate_lineage_invalid"
+    child.parent_work_item_id = "ancestor-0"
+    for index in range(32):
+        node = type(child)(
+            **(
+                child.model_dump()
+                | {
+                    "id": f"o.WorkItem.ancestor-{index}",
+                    "work_item_id": f"ancestor-{index}",
+                }
+            )
+        )
+        node.parent_work_item_id = (
+            f"ancestor-{index+1}" if index < 31 else root.work_item_id
+        )
+        records[node.work_item_id] = node
+    reads.clear()
+    with pytest.raises(WorkError) as exc:
+        await _resolve_lineage(service)
+    assert exc.value.code == "work.mandate_lineage_invalid"
+    assert len(reads) == 32
+
+
+@pytest.mark.asyncio
+async def test_lineage_grandchild_cannot_extend_parent_deadline(mandate_lineage):
+    from app.agentive.work_models import WorkItem
+    from app.schemas.agentive.work import WorkError
+
+    service, root, child, _, _, records, _ = mandate_lineage
+    parent = WorkItem(
+        id="o.WorkItem.parent-1",
+        work_item_id="parent-1",
+        principal_id=root.principal_id,
+        workspace_id=root.workspace_id,
+        thread_id=root.thread_id,
+        parent_work_item_id=root.work_item_id,
+        plan_revision=root.plan_revision,
+        plan={"mandate_root_work_item_id": root.work_item_id},
+        deadline_at="2030-01-01T08:00:00Z",
+        status="waiting_for_event",
+    )
+    records[parent.work_item_id] = parent
+    child.parent_work_item_id = parent.work_item_id
+    with pytest.raises(WorkError) as exc:
+        await _resolve_lineage(service)
+    assert exc.value.code == "work.mandate_lineage_invalid"
+
+
+@pytest.mark.asyncio
+async def test_lineage_checks_fresh_root_approval_state(mandate_lineage):
+    from app.schemas.agentive.work import WorkError
+
+    service, _, _, approval, *_ = mandate_lineage
+    approval.status = "pending"
+    with pytest.raises(WorkError) as exc:
+        await _resolve_lineage(service)
+    assert exc.value.code == "work.mandate_approval_required"
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_postgres_lineage_reads_persisted_root_controls_and_approval():
+    import uuid
+
+    from app.agentive.services import work_items, work_mandates, work_outbox
+    from app.schemas.agentive.work import WorkError
+
+    payload = mandate_payload()
+    payload["mandate_id"] = f"pg-lineage-{uuid.uuid4().hex}"
+    root, approval = await _propose_review(payload)
+    db = work_outbox._txn_database(work_outbox._active_database())
+    # Synthetic seed only: executable admission is not enabled by this test.
+    await db.find_one_and_update(
+        "object",
+        {"id": approval.id},
+        {
+            "$set": {
+                "context.status": "approved",
+                "context.decision": "approved",
+                "context.decider_id": "user-1",
+                "context.decided_at": "2025-01-01T00:00:00Z",
+            }
+        },
+    )
+    child = await work_items.enqueue_work_item(
+        kind="capability",
+        origin="mandate_child",
+        principal_id="user-1",
+        workspace_id="workspace-1",
+        thread_id="thread-1",
+        idempotency_key=f"pg-child-{uuid.uuid4().hex}",
+        parent_work_item_id=root.work_item_id,
+        plan_revision=root.plan_revision,
+        plan={"mandate_root_work_item_id": root.work_item_id},
+        deadline_at="2030-01-01T09:00:00Z",
+    )
+    resolved, revision = await work_mandates.load_approved_mandate_lineage(
+        work_item_id=child.work_item_id,
+        principal_id="user-1",
+        workspace_id="workspace-1",
+        thread_id="thread-1",
+    )
+    assert resolved.id == root.id and revision.review_digest() == root.plan_revision
+    # Original cached root/approval remain unchanged. Store mutations must win.
+    await db.find_one_and_update(
+        "object",
+        {"id": approval.id},
+        {"$set": {"context.status": "pending"}},
+    )
+    with pytest.raises(WorkError) as exc:
+        await work_mandates.load_approved_mandate_lineage(
+            work_item_id=child.work_item_id,
+            principal_id="user-1",
+            workspace_id="workspace-1",
+            thread_id="thread-1",
+        )
+    assert exc.value.code == "work.mandate_approval_required"
+    await db.find_one_and_update(
+        "object",
+        {"id": root.id},
+        {"$set": {"context.cancel_requested_at": "2026-01-01T00:00:00Z"}},
+    )
+    with pytest.raises(WorkError) as exc:
+        await work_mandates.load_approved_mandate_lineage(
+            work_item_id=child.work_item_id,
+            principal_id="user-1",
+            workspace_id="workspace-1",
+            thread_id="thread-1",
+        )
+    assert exc.value.code == "work.mandate_inactive"
