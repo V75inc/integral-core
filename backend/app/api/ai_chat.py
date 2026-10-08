@@ -2432,6 +2432,8 @@ async def _start_user_turn(
         await thread.save()
 
     extra_data: Dict[str, Any] = {}
+    if native_turn and attachment_file_parts and not user_text.strip():
+        extra_data["attachment_only_input"] = True
     if native_turn and host_action == "prompt_sheet_resume":
         extra_data["staging_outcome_continuation"] = True
         from app.services.prompt_queue import get_queue
@@ -2677,6 +2679,7 @@ async def _start_user_turn(
                         not in {
                             "pending_approval_tokens",
                             "staging_outcome_continuation",
+                            "attachment_only_input",
                             "no_workspace_writes",
                             "design_only",
                         }
