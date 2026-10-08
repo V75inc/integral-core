@@ -1396,3 +1396,21 @@
     overflow-y: auto;
   }
 }
+
+/* Entry reading width changes when utility and assistant panels open. */
+.entry-page-container {
+  container-type: inline-size;
+  container-name: entry-page;
+}
+@container entry-page (max-width: 640px) {
+  .entry-page-container .entry-page-header-title {
+    flex: 0 0 100%;
+    width: 100%;
+  }
+  .entry-meta-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .entry-meta-grid > * {
+    grid-column: 1 / -1;
+  }
+}
