@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from app.agentive.harness.contracts import PhysicalModelRequest
 from app.agentive.services.work_budgets import (
+    assert_mandate_model_dispatch_current,
     mark_mandate_dispatch_intent,
     reserve_mandate_budget,
 )
@@ -107,12 +108,16 @@ class WorkModelAdmission:
         self._reservations: dict[str, str] = {}
         self._lock = asyncio.Lock()
 
-    async def __call__(self, dispatch: ModelDispatchInput) -> None:
+    async def __call__(
+        self, dispatch: ModelDispatchInput
+    ) -> Callable[[], Awaitable[None]]:
         """Reserve and fence approved work before any physical SDK call."""
         async with self._lock:
-            await self._admit(dispatch)
+            return await self._admit(dispatch)
 
-    async def _admit(self, dispatch: ModelDispatchInput) -> None:
+    async def _admit(
+        self, dispatch: ModelDispatchInput
+    ) -> Callable[[], Awaitable[None]]:
         ctx = self._context
         if (
             dispatch.scope.tenant_id != ctx.workspace_id
@@ -128,7 +133,13 @@ class WorkModelAdmission:
         await assert_effect_boundary_allowed(ctx)
         await self._assert_authority()
         if not await _is_mandate_work(ctx.work_item_id):
-            return
+
+            async def ordinary_ready() -> None:
+                await self._assert_authority()
+                await assert_effect_boundary_allowed(ctx)
+                await assert_work_item_execution_current(ctx)
+
+            return self._one_shot(ordinary_ready)
         price_request = await _resolve_bounds(dispatch)
         logical_step = f"provider:{self._ordinal}"
         operation_context = ctx.model_copy(
@@ -165,6 +176,39 @@ class WorkModelAdmission:
         )
         self._reservations[dispatch.request_id] = reservation.reservation_id
         self._ordinal += 1
+
+        async def mandate_ready() -> None:
+            await self._assert_authority()
+            await assert_effect_boundary_allowed(operation_context)
+            await assert_mandate_model_dispatch_current(
+                reservation_id=reservation.reservation_id,
+                execution_context=operation_context,
+                model_price_request=price_request,
+            )
+            # No await follows these clocks before transport enters the SDK.
+            # Even transaction close may have outlived the retained evidence.
+            now = datetime.now(timezone.utc)
+            if price_request.bounds_valid_until <= now:
+                raise WorkError("work.model_bounds_expired")
+            if reservation_request.quote.valid_until <= now:
+                raise WorkError("work.cost_quote_expired")
+
+        return self._one_shot(mandate_ready)
+
+    @staticmethod
+    def _one_shot(
+        check: Callable[[], Awaitable[None]]
+    ) -> Callable[[], Awaitable[None]]:
+        consumed = False
+
+        async def ready() -> None:
+            nonlocal consumed
+            if consumed:
+                raise WorkError("work.outcome_reconciliation_required")
+            consumed = True
+            await check()
+
+        return ready
 
     async def observe(self, observation: PhysicalModelRequest) -> None:
         """Persist first, then settle only definitive provider-priced evidence."""
