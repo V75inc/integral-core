@@ -9,6 +9,7 @@ at this seam and qualified by adapter contract tests.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 from pydantic_ai import (
@@ -259,10 +260,21 @@ def build_integral_run_instructions(
     adapter boundary so they can continue with the already-loaded procedure.
     """
 
+    # Capture once for this invocation. Resumed/new runs build fresh instructions;
+    # model requests within the run share a stable, server-owned date.
+    run_started_at = datetime.now(timezone.utc)
+
     def instructions(ctx: RunContext[Any]) -> str:
         active_ids = sorted(ctx.active_capability_ids)
         blocks = [
             base_instructions,
+            "Integral trusted clock: this invocation started at "
+            f"{run_started_at.isoformat()}; current UTC date is "
+            f"{run_started_at.date().isoformat()}. Use this date for today's "
+            "recorded actions unless the user specifies an event date or a "
+            "verified timezone requires another local date. Historical record "
+            "dates and model memory do not establish today's date. Do not "
+            "invent a user timezone or shift the date without a verified basis.",
             "Integral navigation: resource IDs are opaque. When linking saved "
             "Apps, Tracks or Entries, copy the canonical url returned by Core "
             "tools exactly. Do not split an ID, replace its dots with slashes, "

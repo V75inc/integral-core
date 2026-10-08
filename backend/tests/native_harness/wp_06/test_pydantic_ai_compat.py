@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -382,6 +383,31 @@ def test_run_instructions_expose_active_capabilities_to_the_model() -> None:
     assert "already loaded" in active
     assert "integral-model, integral-scaffold" in active
     assert "Do not call load_capability for them again." in active
+
+
+def test_run_instructions_use_server_utc_date_and_refresh_for_new_invocations(
+    monkeypatch,
+) -> None:
+    from app.agentive.harness import pydantic_ai_compat
+
+    class Clock:
+        value = datetime(2026, 10, 7, 23, 59, tzinfo=timezone.utc)
+
+        @classmethod
+        def now(cls, tz):
+            assert tz is timezone.utc
+            return cls.value
+
+    monkeypatch.setattr(pydantic_ai_compat, "datetime", Clock)
+    ctx = SimpleNamespace(active_capability_ids=set())
+    first = build_integral_run_instructions("Integral resident agent.")
+    assert "current UTC date is 2026-10-07" in first(ctx)
+    assert "2026-10-07T23:59:00+00:00" in first(ctx)
+    assert "Do not invent a user timezone" in first(ctx)
+    Clock.value = datetime(2026, 10, 8, 0, 1, tzinfo=timezone.utc)
+    assert "current UTC date is 2026-10-07" in first(ctx)
+    second = build_integral_run_instructions("Integral resident agent.")
+    assert "current UTC date is 2026-10-08" in second(ctx)
 
 
 def test_run_instructions_surface_current_core_outcomes_over_old_proposal_text():
