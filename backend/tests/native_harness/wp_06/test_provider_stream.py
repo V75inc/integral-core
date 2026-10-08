@@ -142,11 +142,13 @@ class _Session:
 @pytest.mark.parametrize("token_limit", [300_000, 450_000])
 @pytest.mark.parametrize("second_text", ["continue", ""])
 @pytest.mark.parametrize("staging_continuation", [False, True])
+@pytest.mark.parametrize("attachment_only", [False, True])
 async def test_provider_persists_session_and_resumes_previous_run(
     monkeypatch: pytest.MonkeyPatch,
     token_limit: int,
     second_text: str,
     staging_continuation: bool,
+    attachment_only: bool,
 ) -> None:
     """Two turns share a session while resuming separate durable runs."""
     from app.config import settings
@@ -275,7 +277,10 @@ async def test_provider_persists_session_and_resumes_previous_run(
     ctx = replace(
         ctx,
         text=second_text,
-        extra_data={"staging_outcome_continuation": staging_continuation},
+        extra_data={
+            "staging_outcome_continuation": staging_continuation,
+            "attachment_only_input": attachment_only,
+        },
     )
     second = [event async for event in provider.stream_turn(ctx)]
     assert second[0]["type"] == "_meta"
@@ -291,6 +296,18 @@ async def test_provider_persists_session_and_resumes_previous_run(
         part = observed_histories[-1][-1].parts[0]
         assert isinstance(part, SystemPromptPart)
         assert part.content == "Trusted host outcome"
+    elif attachment_only and not second_text:
+        from pydantic_ai.messages import SystemPromptPart
+
+        from app.services.chat_providers.pydantic_ai_provider import (
+            _ATTACHMENT_ONLY_EVENT_INSTRUCTIONS,
+        )
+
+        part = observed_histories[-1][-1].parts[0]
+        assert isinstance(part, SystemPromptPart)
+        assert part.content == _ATTACHMENT_ONLY_EVENT_INSTRUCTIONS
+        assert "new user upload" in part.content
+    assert ctx.text == second_text
     assert [event for event in second if event.get("type") == "text-delta"] == [
         {"type": "text-delta", "delta": "answer-run-b"}
     ]

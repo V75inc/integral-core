@@ -688,6 +688,11 @@ async def _handle_chat_turn(
 
         execution = worker_input.execution_context
         extra_data = dict(execution.extra_data)
+        # Derive the event from authenticated accepted file bindings, never
+        # client prose or an arbitrary extra_data claim.
+        extra_data["attachment_only_input"] = bool(
+            execution.attachment_bindings and not worker_input.text.strip()
+        )
         if execution.host_control is not None:
             extra_data["staging_outcome_continuation"] = True
         # Durable input intentionally excludes bearer-like staging tokens.

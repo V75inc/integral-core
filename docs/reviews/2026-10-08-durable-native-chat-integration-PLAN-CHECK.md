@@ -258,3 +258,29 @@ AuthUser ID. The same accepted-input regression runs with both identity forms.
 User, workspace, thread, capsule, message and membership checks remain enforced.
 The local API was rolled back to qualified synchronous execution while this
 follow-up is gated; no durable recovery acceptance is claimed.
+
+
+## Identity-qualified browser recovery and file/replay follow-up
+
+Identity correction `83d2fe29` passes the full gate and 56 selected PostgreSQL/worker
+cases. Its baked API candidate reaches healthy status with durable chat explicitly
+enabled only in the local qualification override. A real browser-authored read-only
+turn is accepted and confirmed running before page reload, then renders the
+canonical completed answer. WorkItem `312215dcfafee231f9a73c81087a7735be0ba03b334af7d4c8cec4527a01d963`
+succeeds with one matching canonical user message and one bound physical default
+DeepSeek request. The active pointer clears and all Venture records remain exact.
+
+A subsequent file-only browser turn accepts one file/user message and succeeds
+at the worker but repeats the prior answer, without reading the attachment. It
+also leaves Stop generating visible after terminalization. A fresh PostgreSQL
+regression reproduces a long-lived replay context retaining running status after
+an independent succeeded commit. The candidate follow-up adds a trusted system-only
+attachment input event while preserving an empty user utterance, and reads each
+replay page through a fresh shared-store graph transaction. File input conveys
+no write/approval authority. Provider tests cover empty/textual inputs, host-event
+precedence, explicit system role, unchanged user text and request limits.
+
+The file/replay follow-up remains uncommitted and unqualified until its targeted
+PostgreSQL and complete gates pass and the actual browser case is repeated.
+Independent-process interruption, approved/rejected host continuations and public
+mandate/accounting controls remain separate required acceptance evidence.
