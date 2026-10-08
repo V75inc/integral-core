@@ -33,6 +33,7 @@ from tests.contract.test_work_budgets_postgres import (
     ledger,
     reserve_leased,
 )
+from tests.fixtures.encryption import encrypted_model_storage
 
 pytestmark = [pytest.mark.contract, pytest.mark.postgres, pytest.mark.asyncio]
 

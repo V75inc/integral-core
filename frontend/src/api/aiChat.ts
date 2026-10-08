@@ -25,6 +25,7 @@ export interface AIChatThread {
    * ``PendingStagedChanges`` filters on.
    */
   provider_session_id?: string | null;
+  active_work_item_id?: string | null;
   title: string;
   archived: boolean;
   created_at?: string;

@@ -8,7 +8,7 @@ name: CI
 
 on:
   pull_request:
-    branches: [main, dev, ab/dev2, prod]
+    branches: [main, dev, ab/dev2, prod, codex/pr-113-staging]
     paths:
       - "backend/**"
       - "sdk/**"

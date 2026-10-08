@@ -2439,3 +2439,19 @@ use lease/permission/route fencing without acquiring mandate authority.
 `backend/tests/contract/test_work_model_admission_postgres.py`, and shared-ledger
 and model-receipt contract tests. Public executable approval and tool admission
 remain separately gated under I-WORK-05.
+
+### I-HARNESS-02 — Restored chat input matches accepted content
+
+**Scope:** `chat_turn_submissions.py`, `chat_turn_worker_input.py`.
+
+**Rule:** A durable native chat worker verifies canonical message parts,
+metadata, parent and encrypted typed host context against the accepted request
+fingerprint before provider preparation. Matching message identity and tenant
+scope alone do not authenticate its content. Missing or changed fingerprints
+fail closed. Historical omitted host context may match its typed empty
+representation only when the restored context is entirely empty. Host
+directives remain outside canonical user message content.
+
+**Verification:** `backend/tests/native_harness/wp_03/test_submission_idempotency.py`
+and dispatcher-level changed-message cases in
+`backend/tests/native_harness/wp_03/test_chat_turn_worker_postgres.py`.

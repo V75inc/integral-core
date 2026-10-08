@@ -28,6 +28,7 @@ from app.agentive.harness.model_observations import (
     persist_model_request_observation,
 )
 from app.agentive.services.work_outbox import _active_database
+from tests.fixtures.encryption import encrypted_model_storage
 
 pytestmark = [pytest.mark.contract, pytest.mark.postgres, pytest.mark.asyncio]
 

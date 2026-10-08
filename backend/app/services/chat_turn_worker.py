@@ -10,6 +10,7 @@ from app.schemas.agentive.work import (
     TERMINAL_WORK_STATUSES,
     WorkError,
     WorkExecutionContext,
+    WorkFailure,
 )
 from app.services.app_operations.transaction_scope import (
     OperationTransactionUnavailable,
@@ -72,13 +73,24 @@ async def terminalize_chat_turn(
             if receipt_refs:
                 fields["receipt_refs"] = list(dict.fromkeys(receipt_refs))
             if status in {"failed", "cancelled"}:
-                fields["failure"] = failure or work_items.normalize_failure(
-                    class_="cancelled" if status == "cancelled" else "permanent",
-                    code="work.cancelled" if status == "cancelled" else "work.failed",
-                    message=(
-                        "Turn cancelled" if status == "cancelled" else "Turn failed"
-                    ),
-                    retryable=False,
+                fields["failure"] = (
+                    WorkFailure.from_record(
+                        failure,
+                        default_class=(
+                            "cancelled" if status == "cancelled" else "permanent"
+                        ),
+                    ).model_dump(by_alias=True)
+                    if failure
+                    else work_items.normalize_failure(
+                        class_="cancelled" if status == "cancelled" else "permanent",
+                        code=(
+                            "work.cancelled" if status == "cancelled" else "work.failed"
+                        ),
+                        message=(
+                            "Turn cancelled" if status == "cancelled" else "Turn failed"
+                        ),
+                        retryable=False,
+                    )
                 )
             transitioned = await work_items.transition_leased(
                 context.work_item_id,
@@ -119,7 +131,7 @@ async def terminalize_chat_turn(
             if run.status not in {"succeeded", "failed", "cancelled"}:
                 run.status = status
                 run.finished_at = utc_now_iso()
-                run.error = failure if status != "succeeded" else None
+                run.error = transitioned.failure if status != "succeeded" else None
                 await run.save()
         return transitioned
 

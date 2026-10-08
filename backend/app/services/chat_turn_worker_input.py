@@ -7,8 +7,13 @@ from dataclasses import dataclass, field
 from app.agentive.harness.turn_input import load_turn_input_capsule
 from app.agentive.work_models import WorkItem
 from app.models.edges import CONTAINS
-from app.models.nodes import ChatMessage, ChatThread, User
-from app.schemas.agentive.work import ChatTurnExecutionContext, WorkError
+from app.models.nodes import ChatMessage, ChatThread
+from app.schemas.agentive.work import (
+    ChatTurnExecutionContext,
+    ChatTurnSubmissionRequest,
+    WorkError,
+)
+from app.services.chat_turn_submissions import assert_accepted_chat_turn_fingerprint
 
 
 @dataclass(frozen=True)
@@ -22,7 +27,9 @@ class ChatTurnWorkerInput:
     text: str = field(repr=False)
 
 
-async def load_claimed_chat_turn_input(item: WorkItem) -> ChatTurnWorkerInput:
+async def load_claimed_chat_turn_input(
+    item: WorkItem, *, recheck_host_control: bool = True
+) -> ChatTurnWorkerInput:
     """Authenticate the exact WorkItem/capsule/message tuple before execution.
 
     All identifiers come from the claimed row and its encrypted capsule. The
@@ -75,7 +82,11 @@ async def load_claimed_chat_turn_input(item: WorkItem) -> ChatTurnWorkerInput:
 
     thread = await ChatThread.get(thread_id)
     message = await ChatMessage.get(accepted_message_id)
-    user = await User.get(principal_id)
+    from app.services.permissions import get_user_node
+
+    # HTTP principals use AuthUser IDs; resolve their linked graph User using
+    # the same identity contract as workspace authorization.
+    user = await get_user_node(principal_id)
     if (
         thread is None
         or thread.id != thread_id
@@ -86,30 +97,69 @@ async def load_claimed_chat_turn_input(item: WorkItem) -> ChatTurnWorkerInput:
         or message is None
         or message.id != accepted_message_id
         or message.thread_id != thread_id
-        or message.role != "user"
+        or message.role
+        != ("system" if capsule.execution_context.host_control else "user")
         or set(message.provider_metadata or {}).difference(
             {"entity_refs", "page_context"}
         )
         or user is None
-        or user.id != principal_id
+        or principal_id not in {user.id, user.user_id}
     ):
         raise WorkError("work.policy_denied", "chat turn graph scope mismatch")
 
-    # V1 worker admission deliberately supports text-only turns. Attachment
-    # bytes and image URLs must not be reconstructed from an opaque browser
-    # payload; they need a separate authorized artifact contract first.
+    try:
+        restored_request = ChatTurnSubmissionRequest(
+            principal_id=principal_id,
+            workspace_id=workspace_id,
+            thread_id=thread_id,
+            client_request_id=capsule.client_request_id,
+            parts=list(message.parts or []),
+            provider_metadata=dict(message.provider_metadata or {}),
+            parent_id=message.parent_id,
+            execution_context=capsule.execution_context,
+        )
+    except ValueError as exc:
+        raise WorkError("work.policy_denied", "accepted chat input is invalid") from exc
+    assert_accepted_chat_turn_fingerprint(
+        request=restored_request,
+        expected_fingerprint=str(payload.get("request_fingerprint") or ""),
+    )
+
     parts = list(message.parts or [])
-    if (
-        len(parts) != 1
-        or not isinstance(parts[0], dict)
-        or set(parts[0]) != {"type", "text"}
-        or parts[0].get("type") != "text"
-        or not isinstance(parts[0].get("text"), str)
-        or not parts[0]["text"].strip()
+    text_parts = []
+    for part in parts:
+        if not isinstance(part, dict):
+            raise WorkError("work.policy_denied", "accepted chat part is invalid")
+        if (
+            part.get("type") == "text"
+            and set(part) == {"type", "text"}
+            and isinstance(part.get("text"), str)
+        ):
+            text_parts.append(part["text"])
+        elif part.get("type") != "file":
+            raise WorkError("work.policy_denied", "accepted chat part is unsupported")
+    if len(text_parts) > 1 or (
+        not any(text.strip() for text in text_parts)
+        and not any(part.get("type") == "file" for part in parts)
     ):
-        raise WorkError(
-            "work.policy_denied",
-            "native durable turns currently require text-only input",
+        raise WorkError("work.policy_denied", "accepted chat input is empty")
+
+    from app.services.chat_turn_attachments import assert_chat_attachment_bindings
+
+    await assert_chat_attachment_bindings(
+        thread=thread,
+        principal_id=principal_id,
+        parts=parts,
+        expected=capsule.execution_context.attachment_bindings,
+    )
+
+    from app.services.chat_turn_host_controls import assert_chat_host_control
+
+    if recheck_host_control:
+        await assert_chat_host_control(
+            thread=thread,
+            principal_id=principal_id,
+            expected=capsule.execution_context.host_control,
         )
 
     from app.services.workspace_permissions import can_access_workspace
@@ -138,7 +188,11 @@ async def load_claimed_chat_turn_input(item: WorkItem) -> ChatTurnWorkerInput:
         # before the model sees it. Durable recovery must not let a user forge
         # a host-generated [SYSTEM:...] directive by sending raw transcript
         # content straight to the provider.
-        text=sanitize_user_text(parts[0]["text"]),
+        text=(
+            ""
+            if capsule.execution_context.host_control
+            else sanitize_user_text("\n".join(text_parts))
+        ),
     )
 
 
