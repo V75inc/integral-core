@@ -67,3 +67,26 @@ async def test_transaction_handle_serializes_fanout_and_releases_after_error():
         await transaction.find("fail")
     assert await transaction.find("after") == "after"
     assert getattr(transaction, "count", None) is None
+
+
+@pytest.mark.asyncio
+async def test_transaction_find_one_uses_bounded_held_connection_read():
+    from app.services.app_operations.transaction_scope import _SerializedTransaction
+
+    class Connection:
+        calls = []
+
+        async def find(self, collection, query, *, limit=None):
+            self.calls.append((collection, query, limit))
+            return [{"id": "record"}] if query else []
+
+    connection = Connection()
+    transaction = _SerializedTransaction(connection)
+    assert await transaction.find_one("object", {"context.token": "token"}) == {
+        "id": "record"
+    }
+    assert await transaction.find_one("object", {}) is None
+    assert connection.calls == [
+        ("object", {"context.token": "token"}, 1),
+        ("object", {}, 1),
+    ]

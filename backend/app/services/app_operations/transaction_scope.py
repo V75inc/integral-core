@@ -36,6 +36,19 @@ class _SerializedTransaction:
         self.inner = transaction
         self._lock = asyncio.Lock()
 
+    async def find_one(
+        self, collection: str, query: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Supply the graph database convenience read on the held connection.
+
+        The pinned transaction exposes find but not Database.find_one, which
+        Object.find_one calls. Bound the equivalent read to one result and use
+        the same serialization lock as every other transaction operation.
+        """
+        async with self._lock:
+            records = await self.inner.find(collection, query, limit=1)
+        return records[0] if records else None
+
     def __getattr__(self, name: str) -> Any:
         value = getattr(self.inner, name)
         if not inspect.iscoroutinefunction(value):

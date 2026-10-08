@@ -60,6 +60,15 @@ async def test_transaction_supports_concurrent_graph_reads_and_bounded_paginatio
         )
         assert all([node.id for node in result] == [parent.id] for result in parents)
 
+        found = await asyncio.gather(
+            *(
+                TransactionProbeNode.find_one({"context.label": f"parent-{suffix}"})
+                for _ in range(12)
+            )
+        )
+        assert all(node is not None and node.id == parent.id for node in found)
+        assert await TransactionProbeNode.find_one({"id": "missing-probe"}) is None
+
         first, metadata = await paginate_entity_find(
             TransactionProbeNode,
             {"context.label": f"child-{suffix}"},

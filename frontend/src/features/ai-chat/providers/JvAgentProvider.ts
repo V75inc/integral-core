@@ -191,39 +191,47 @@ export function createServerChatProvider({
 
     if (!response.ok) {
       const body = await response.text().catch(() => "");
-      // 409 is the one status with a meaning worth saying out loud: the
-      // backend admits one in-flight turn per thread (I-CHAT-PAR-01), so
-      // this is "it is already answering", not a failure. The raw envelope
-      // rendered as `http_409` plus a JSON blob, which reads like a crash.
-      if (response.status === 409) {
-        // Two different conflicts arrive as 409 and want different things from
-        // the user: this thread is busy (wait or stop THIS one), or too many
-        // of their conversations are running at once (stop ANY one). The
-        // backend distinguishes them in `details.reason`; telling someone to
-        // stop a thread that is not the problem sends them the wrong way.
-        let reason = "";
-        let serverMessage = "";
-        try {
-          const parsed = JSON.parse(body) as {
-            message?: string;
-            details?: { reason?: string };
+      // Conflicts include admission, recovery and submission authority. Only
+        // an explicit thread_busy reason means another response is running.
+        if (response.status === 409) {
+          // Two different conflicts arrive as 409 and want different things from
+          // the user: this thread is busy (wait or stop THIS one), or too many
+          // of their conversations are running at once (stop ANY one). The
+          // backend distinguishes them in `details.reason`; telling someone to
+          // stop a thread that is not the problem sends them the wrong way.
+          let reason = "";
+          let serverMessage = "";
+          try {
+            const parsed = JSON.parse(body) as {
+              message?: unknown;
+              details?: { reason?: unknown };
+            };
+            reason =
+              typeof parsed.details?.reason === "string"
+                ? parsed.details.reason
+                : "";
+            serverMessage =
+              typeof parsed.message === "string" ? parsed.message.trim() : "";
+          } catch {
+            /* non-JSON envelope — use a generic conflict sentence */
+          }
+          yield {
+            type: "error",
+            code:
+              reason === "thread_busy"
+                ? "turn_in_flight"
+                : reason === "user_turn_limit"
+                  ? "user_turn_limit"
+                  : "http_409",
+            message:
+              reason === "thread_busy"
+                ? "This conversation is already responding. Wait for it to finish, or stop it first."
+                : serverMessage ||
+                  "This request conflicts with the current conversation state. Please review it before retrying.",
           };
-          reason = parsed.details?.reason ?? "";
-          serverMessage = parsed.message ?? "";
-        } catch {
-          /* non-JSON envelope — fall through to the thread-busy default */
+          return;
         }
-        yield {
-          type: "error",
-          code: reason === "user_turn_limit" ? "user_turn_limit" : "turn_in_flight",
-          message:
-            reason === "user_turn_limit" && serverMessage
-              ? serverMessage
-              : "This conversation is already responding. Wait for it to finish, or stop it first.",
-        };
-        return;
-      }
-      // Every other failure: say the server's own sentence when the
+        // Every other failure: say the server's own sentence when the
       // envelope carries one, otherwise a human line with the status. The raw
       // JSON envelope used to be rendered verbatim as the assistant's reply.
       let serverMessage = "";
