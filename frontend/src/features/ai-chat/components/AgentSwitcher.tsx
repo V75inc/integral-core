@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronDown, MessageSquare } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 
 import { Avatar, LogoMark, LINE_ICON_STROKE } from "../../../components/ui";
+import { Text } from "../../../ui";
 import { useAgentCatalog } from "../useAgentCatalog";
 import type { AgentDescriptor, ChatProvider } from "../providers/types";
 
@@ -100,25 +101,16 @@ export function AgentSwitcher({
   if (displayAgents.length === 0 || !displayActive) return null;
 
   const roleLabel =
-    displayActive.role_label ||
+    displayActive.id === "integral_core" ? OPS_CAPABILITY_LINE : displayActive.role_label ||
     (isEcho || displayActive.id === ECHO_HARNESS.id
       ? "Test assistant"
       : null);
 
   return (
     <div
-      className="border-b border-[var(--panel-border)] px-2 pt-0 pb-4"
+      className="border-b border-[var(--panel-border)] px-2 py-3"
       onClick={haltDrawerClose}
     >
-      <div className="flex items-center gap-1.5 px-2 pt-0 pb-3 text-[10px] uppercase tracking-[0.08em] text-[var(--text-subtle)]">
-        <MessageSquare
-          size={11}
-          strokeWidth={LINE_ICON_STROKE}
-          aria-hidden
-          className="shrink-0"
-        />
-        <span className="truncate">{OPS_CAPABILITY_LINE}</span>
-      </div>
       <button
         ref={triggerRef}
         type="button"
@@ -141,13 +133,13 @@ export function AgentSwitcher({
       >
         <AgentAvatar agent={displayActive} size="sm" native={provider.id === "integral_native"} />
         <span className="flex flex-1 min-w-0 flex-col leading-tight">
-          <span className="truncate text-sm font-medium text-[var(--text)]">
+          <Text truncate weight="medium">
             {displayActive.name}
-          </span>
+          </Text>
           {roleLabel ? (
-            <span className="truncate text-[10px] uppercase tracking-[0.08em] text-[var(--text-subtle)]">
+            <Text variant="meta" tone="subtle" truncate>
               {roleLabel}
-            </span>
+            </Text>
           ) : null}
         </span>
         {canPick ? (

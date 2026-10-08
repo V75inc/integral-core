@@ -14,7 +14,8 @@ describe('Workspace work', () => {
     expect(screen.getByText('update-1').tagName).toBe('DD');
     expect(screen.getByText('App ID').tagName).toBe('DT');
     expect(screen.getByText('app-1').tagName).toBe('DD');
-    expect(screen.getByText('update-1')).toHaveClass('break-all');
+    expect(screen.getByText('update-1')).toHaveClass('truncate');
+    expect(screen.getByText('update-1')).toHaveAttribute('title', 'update-1');
     expect(list).toHaveBeenCalledWith('workspace-1', undefined);
     fireEvent.click(screen.getByText('Load older work'));
     await screen.findByText('Update failed');
