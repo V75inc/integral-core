@@ -73,3 +73,64 @@ async def test_transactional_run_and_receipt_queries_preserve_scope(postgres_raw
             )
     finally:
         _default_context_var.reset(token)
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_transactional_permission_fanout_preserves_entries_and_denials(
+    postgres_raw_db,
+):
+    from jvspatial.core.context import _default_context_var
+
+    from app.models.edges import CONTAINS, EXCLUDED_FROM, IS_MEMBER_OF, OWNS
+    from app.models.nodes import App, Entry, Track, User, Workspace
+    from app.services.app_graph import (
+        catalog_app,
+        catalog_track,
+        catalog_user,
+        catalog_workspace,
+    )
+    from app.services.permissions import get_user_accessible_entries
+    from app.utils.time import utc_now_iso
+
+    token = set_default_context(GraphContext(database=postgres_raw_db))
+    try:
+        suffix = uuid.uuid4().hex
+        now = utc_now_iso()
+        user = await User.create(user_id=f"fanout-{suffix}")
+        workspace = await Workspace.create(kind="personal", name=f"Fanout {suffix}")
+        await user.connect(workspace, edge=IS_MEMBER_OF, role="owner", joined_at=now)
+        await catalog_user(user)
+        await catalog_workspace(workspace)
+        app = await App.create(
+            name=f"Fanout {suffix}",
+            workspace_id=workspace.id,
+            owner_user_id=user.id,
+            visibility="private",
+        )
+        await user.connect(app, edge=OWNS, role="owner", granted_at=now)
+        await catalog_app(app)
+        entries = []
+        for index in range(5):
+            track = await Track.create(
+                title=f"Track {index}", workspace_id=workspace.id, visibility="private"
+            )
+            await app.connect(track, edge=CONTAINS, added_at=now)
+            await catalog_track(track)
+            entry = await Entry.create(
+                title=f"Record {index}", track_id=track.id, author_id=user.id
+            )
+            await track.connect(entry, edge=CONTAINS, added_at=now)
+            entries.append(entry)
+        await user.connect(entries[-1], edge=EXCLUDED_FROM)
+
+        kwargs = {"app_id": app.id, "workspace_id": workspace.id, "strict": True}
+        expected = {entry.id for entry in entries[:-1]}
+        outside = await get_user_accessible_entries(user.id, **kwargs)
+        assert {entry.id for entry in outside} == expected
+        async with postgres_graph_transaction(postgres_raw_db):
+            inside = await get_user_accessible_entries(user.id, **kwargs)
+            assert {entry.id for entry in inside} == expected
+    finally:
+        _default_context_var.reset(token)

@@ -34,3 +34,36 @@ async def test_omitted_database_uses_the_prime_store(monkeypatch):
     async with postgres_graph_transaction() as handle:
         assert handle == "txn-handle"
     assert seen["database"] is prime
+
+
+@pytest.mark.asyncio
+async def test_transaction_handle_serializes_fanout_and_releases_after_error():
+    import asyncio
+
+    from app.services.app_operations.transaction_scope import _SerializedTransaction
+
+    class Connection:
+        active = 0
+        maximum = 0
+
+        async def find(self, value):
+            self.active += 1
+            self.maximum = max(self.maximum, self.active)
+            try:
+                await asyncio.sleep(0)
+                if value == "fail":
+                    raise ValueError("synthetic read failure")
+                return value
+            finally:
+                self.active -= 1
+
+    connection = Connection()
+    transaction = _SerializedTransaction(connection)
+    assert await asyncio.gather(*(transaction.find(i) for i in range(12))) == list(
+        range(12)
+    )
+    assert connection.maximum == 1
+    with pytest.raises(ValueError, match="synthetic read failure"):
+        await transaction.find("fail")
+    assert await transaction.find("after") == "after"
+    assert getattr(transaction, "count", None) is None
