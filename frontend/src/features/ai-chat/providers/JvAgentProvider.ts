@@ -33,7 +33,7 @@ function readScopeHeader(): string | null {
 async function* readSseEvents(
   response: Response,
   signal: AbortSignal,
-): AsyncIterable<{ event: string; data: unknown }> {
+): AsyncIterable<{ event: string; data: unknown; id?: string }> {
   if (!response.body) return;
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -72,19 +72,21 @@ async function* readSseEvents(
   }
 }
 
-function parseSseBlock(block: string): { event: string; data: unknown } | null {
+function parseSseBlock(block: string): { event: string; data: unknown; id?: string } | null {
   let event = "message";
+  let id: string | undefined;
   const dataLines: string[] = [];
   for (const line of block.split("\n")) {
     if (line.startsWith("event:")) event = line.slice(6).trim();
+    else if (line.startsWith("id:")) id = line.slice(3).trim();
     else if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
   }
   if (dataLines.length === 0) return null;
   const raw = dataLines.join("\n");
   try {
-    return { event, data: JSON.parse(raw) };
+    return { event, data: JSON.parse(raw), id };
   } catch {
-    return { event, data: raw };
+    return { event, data: raw, id };
   }
 }
 
@@ -123,6 +125,7 @@ export function createServerChatProvider({
     // One opaque identity belongs to this logical send. Keep it outside
     // doFetch so an authentication refresh replays the same request ID.
     const clientRequestId = crypto.randomUUID();
+    const resumeWorkItemId = id === "integral_native" ? ctx.resumeWorkItemId : undefined;
 
     // This stream is a raw fetch (SSE), so it does NOT pass through the axios
     // client's 401 → refresh → retry interceptor the rest of the app relies on.
@@ -139,16 +142,18 @@ export function createServerChatProvider({
     // return here means "genuinely unauthenticated", not "try again".
     const doFetch = (bearer: string | null): Promise<Response> =>
       fetch(
-        `${getApiBaseURL()}/chat/threads/${encodeURIComponent(ctx.threadId!)}/messages`,
+        resumeWorkItemId
+          ? `${getApiBaseURL()}/chat/threads/${encodeURIComponent(ctx.threadId!)}/work-items/${encodeURIComponent(resumeWorkItemId)}/stream?after_sequence=0`
+          : `${getApiBaseURL()}/chat/threads/${encodeURIComponent(ctx.threadId!)}/messages`,
         {
-          method: "POST",
+          method: resumeWorkItemId ? "GET" : "POST",
           headers: {
             "Content-Type": "application/json",
             Accept: "text/event-stream",
             ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
             ...(scopeHeader ? { "X-Integral-Scope": scopeHeader } : {}),
           },
-          body: JSON.stringify({
+          body: resumeWorkItemId ? undefined : JSON.stringify({
             client_request_id: clientRequestId,
             text: ctx.userMessageText,
             agent_id: ctx.agentId ?? null,
@@ -186,39 +191,47 @@ export function createServerChatProvider({
 
     if (!response.ok) {
       const body = await response.text().catch(() => "");
-      // 409 is the one status with a meaning worth saying out loud: the
-      // backend admits one in-flight turn per thread (I-CHAT-PAR-01), so
-      // this is "it is already answering", not a failure. The raw envelope
-      // rendered as `http_409` plus a JSON blob, which reads like a crash.
-      if (response.status === 409) {
-        // Two different conflicts arrive as 409 and want different things from
-        // the user: this thread is busy (wait or stop THIS one), or too many
-        // of their conversations are running at once (stop ANY one). The
-        // backend distinguishes them in `details.reason`; telling someone to
-        // stop a thread that is not the problem sends them the wrong way.
-        let reason = "";
-        let serverMessage = "";
-        try {
-          const parsed = JSON.parse(body) as {
-            message?: string;
-            details?: { reason?: string };
+      // Conflicts include admission, recovery and submission authority. Only
+        // an explicit thread_busy reason means another response is running.
+        if (response.status === 409) {
+          // Two different conflicts arrive as 409 and want different things from
+          // the user: this thread is busy (wait or stop THIS one), or too many
+          // of their conversations are running at once (stop ANY one). The
+          // backend distinguishes them in `details.reason`; telling someone to
+          // stop a thread that is not the problem sends them the wrong way.
+          let reason = "";
+          let serverMessage = "";
+          try {
+            const parsed = JSON.parse(body) as {
+              message?: unknown;
+              details?: { reason?: unknown };
+            };
+            reason =
+              typeof parsed.details?.reason === "string"
+                ? parsed.details.reason
+                : "";
+            serverMessage =
+              typeof parsed.message === "string" ? parsed.message.trim() : "";
+          } catch {
+            /* non-JSON envelope — use a generic conflict sentence */
+          }
+          yield {
+            type: "error",
+            code:
+              reason === "thread_busy"
+                ? "turn_in_flight"
+                : reason === "user_turn_limit"
+                  ? "user_turn_limit"
+                  : "http_409",
+            message:
+              reason === "thread_busy"
+                ? "This conversation is already responding. Wait for it to finish, or stop it first."
+                : serverMessage ||
+                  "This request conflicts with the current conversation state. Please review it before retrying.",
           };
-          reason = parsed.details?.reason ?? "";
-          serverMessage = parsed.message ?? "";
-        } catch {
-          /* non-JSON envelope — fall through to the thread-busy default */
+          return;
         }
-        yield {
-          type: "error",
-          code: reason === "user_turn_limit" ? "user_turn_limit" : "turn_in_flight",
-          message:
-            reason === "user_turn_limit" && serverMessage
-              ? serverMessage
-              : "This conversation is already responding. Wait for it to finish, or stop it first.",
-        };
-        return;
-      }
-      // Every other failure: say the server's own sentence when the
+        // Every other failure: say the server's own sentence when the
       // envelope carries one, otherwise a human line with the status. The raw
       // JSON envelope used to be rendered verbatim as the assistant's reply.
       let serverMessage = "";
@@ -238,22 +251,84 @@ export function createServerChatProvider({
       return;
     }
 
-    try {
-      for await (const ev of readSseEvents(response, ctx.abortSignal)) {
-        if (ctx.abortSignal.aborted) break;
-        if (ev.event === "turn-settled") return;
-        const payload = ev.data;
-        if (payload && typeof payload === "object") {
-          yield payload as NormalizedEvent;
+    // Only an accepted native WorkItem permits replay. Legacy responses keep
+    // their existing transport behavior; reconnect is always GET, never POST.
+    const workItemId = id === "integral_native"
+      ? resumeWorkItemId ?? response.headers.get("X-Integral-Work-Item")
+      : null;
+    let committedCursor = 0;
+    let reconnects = 0;
+    while (!ctx.abortSignal.aborted) {
+      let deliveryError: unknown;
+      try {
+        for await (const ev of readSseEvents(response, ctx.abortSignal)) {
+          if (ctx.abortSignal.aborted) return;
+          if (ev.event === "turn-settled") return;
+          if (ev.event === "turn-accepted") continue;
+          if (workItemId && ev.id === undefined && ev.event !== "error") {
+            yield { type: "error", code: "chat_event_sequence_invalid",
+              message: "The saved response needs reconciliation. Reload this conversation." };
+            return;
+          }
+          if (workItemId && ev.id !== undefined) {
+            const sequence = Number(ev.id);
+            if (!/^[1-9]\d*$/.test(ev.id) || !Number.isSafeInteger(sequence)) {
+              yield { type: "error", code: "chat_event_sequence_invalid",
+                message: "The saved response needs reconciliation. Reload this conversation." };
+              return;
+            }
+            if (sequence <= committedCursor) continue;
+            if (sequence !== committedCursor + 1) {
+              yield { type: "error", code: "chat_event_sequence_gap",
+                message: "The saved response needs reconciliation. Reload this conversation." };
+              return;
+            }
+            committedCursor = sequence;
+          }
+          const payload = ev.data;
+          if (payload && typeof payload === "object") yield payload as NormalizedEvent;
         }
+      } catch (err) {
+        if (ctx.abortSignal.aborted || (err as DOMException)?.name === "AbortError") return;
+        deliveryError = err;
       }
-    } catch (err) {
-      if ((err as DOMException)?.name === "AbortError") return;
-      yield {
-        type: "error",
-        code: "stream_read_failed",
-        message: err instanceof Error ? err.message : String(err),
-      };
+      if (!workItemId) {
+        if (deliveryError) yield {
+          type: "error", code: "stream_read_failed",
+          message: deliveryError instanceof Error ? deliveryError.message : String(deliveryError),
+        };
+        return;
+      }
+      if (ctx.abortSignal.aborted) return;
+      if (reconnects++ >= 3) {
+        yield { type: "error", code: "chat_reconnect_exhausted",
+          message: "Connection interrupted. Your request is saved; reload this conversation to recover its response." };
+        return;
+      }
+      const fetchReplay = (bearer: string | null) => fetch(
+        `${getApiBaseURL()}/chat/threads/${encodeURIComponent(ctx.threadId!)}/work-items/${encodeURIComponent(workItemId)}/stream?after_sequence=${committedCursor}`,
+        { method: "GET", headers: {
+          Accept: "text/event-stream",
+          ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
+          ...(scopeHeader ? { "X-Integral-Scope": scopeHeader } : {}),
+        }, signal: ctx.abortSignal },
+      );
+      try {
+        response = await fetchReplay(getAccessToken());
+        if (response.status === 401) {
+          const refreshed = await refreshAccessToken();
+          if (refreshed) response = await fetchReplay(refreshed);
+        }
+        if (!response.ok) {
+          yield { type: "error", code: `chat_reconnect_http_${response.status}`,
+            message: "The saved response could not be recovered. Reload this conversation." };
+          return;
+        }
+      } catch (err) {
+        if (ctx.abortSignal.aborted || (err as DOMException)?.name === "AbortError") return;
+        // Retry delivery from the same cursor, retaining the accepted receipt.
+        response = new Response(null);
+      }
     }
   },
   };

@@ -47,7 +47,14 @@ async def get_visible_work_item(
 
 def _project_work_status(fields: dict) -> WorkItemStatusResponse:
     failure = (
-        WorkFailure.model_validate(fields["failure"]) if fields.get("failure") else None
+        WorkFailure.from_record(
+            fields["failure"],
+            default_class=(
+                "cancelled" if fields.get("status") == "cancelled" else "permanent"
+            ),
+        )
+        if fields.get("failure")
+        else None
     )
     action = (fields.get("input_payload") or {}).get("action", "")
     operation = (

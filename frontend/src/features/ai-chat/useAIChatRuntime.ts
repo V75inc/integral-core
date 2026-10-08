@@ -401,9 +401,22 @@ function coalescePersistedReasoning(parts: MutableContent[]): MutableContent[] {
  */
 export function normalizePersistedParts(rawParts: MutableContent[]): MutableContent[] {
   const out: MutableContent[] = [];
+  const toolPositions = new Map<string, number>();
   for (const part of rawParts) {
     const p = part as Record<string, unknown>;
     if (p && p.type === "error") {
+      continue;
+    }
+    // Older durable transcripts saved start/result updates as separate parts.
+    // Hydrate one resource per call ID, preserving its position and latest state.
+    if (p?.type === "tool-call" && typeof p.toolCallId === "string" && p.toolCallId) {
+      const previous = toolPositions.get(p.toolCallId);
+      if (previous !== undefined) {
+        out[previous] = { ...out[previous], ...part } as MutableContent;
+      } else {
+        toolPositions.set(p.toolCallId, out.length);
+        out.push(part);
+      }
       continue;
     }
     if (p && p.type === "image") {
@@ -935,33 +948,38 @@ export function useAIChatRuntime(
    * via the system-message route (no model call needed).
    */
   const appendAssistantNote = useCallback(
-    (text: string) => {
-      if (!text) return;
+    async (text: string): Promise<string | null> => {
+      if (!text || !activeThreadId) return null;
       const threadId = activeThreadId;
-      if (!threadId) return;
+      const noteId = nextId("a");
       updateSession(threadId, (session) => ({
         ...session,
         messages: [
           ...session.messages,
           {
-            id: nextId("a"),
+            id: noteId,
             role: "assistant" as const,
             content: [{ type: "text" as const, text }],
             status: { type: "complete" as const, reason: "stop" as const },
           },
         ],
       }));
-      const isLocal = threadId.startsWith("local-");
-      if (!isLocal && provider.serverPersisted) {
-        aiChatApi
-          .appendSystemMessage(threadId, text)
-          .catch((err) => {
-            console.warn(
-              "appendAssistantNote: backend persistence failed",
-              err,
-            );
-          });
+      if (!threadId.startsWith("local-") && provider.serverPersisted) {
+        try {
+          const persisted = await aiChatApi.appendSystemMessage(threadId, text);
+          updateSession(threadId, (session) => ({
+            ...session,
+            messages: session.messages.map((message) =>
+              message.id === noteId ? { ...message, id: persisted.id } : message,
+            ),
+          }));
+          return persisted.id;
+        } catch (err) {
+          console.warn("appendAssistantNote: backend persistence failed", err);
+          return null;
+        }
       }
+      return noteId;
     },
     [nextId, activeThreadId, provider, updateSession],
   );
@@ -1157,6 +1175,7 @@ export function useAIChatRuntime(
               ? mergeColdTranscript(server, session.messages)
               : server,
           lastLoadedAt: Date.now(),
+          activeWorkItemId: t.provider_id === "integral_native" ? t.active_work_item_id ?? null : null,
         }));
         return "ok";
       } catch (err) {
@@ -1275,9 +1294,9 @@ export function useAIChatRuntime(
    * and then return with only a console.warn, so the user saw their text
    * land and nothing answer it.
    */
-  const admissionError = useCallback((threadId: string): string | null => {
+  const admissionError = useCallback((threadId: string, attachToRemote = false): string | null => {
     const streaming = peekStreamingThreadIds();
-    if (streaming.includes(threadId) || threadId in getRemoteTurnsSnapshot()) {
+    if (streaming.includes(threadId) || (!attachToRemote && threadId in getRemoteTurnsSnapshot())) {
       return THREAD_ALREADY_RESPONDING;
     }
     if (streaming.length >= MAX_CONCURRENT_STREAMS) {
@@ -1295,8 +1314,9 @@ export function useAIChatRuntime(
       images?: ChatImageInput[],
       attachmentIds?: string[],
       hostAction?: "prompt_sheet_resume" | "staging_follow_through",
+      resumeWorkItemId?: string,
     ) => {
-      const refused = admissionError(threadId);
+      const refused = admissionError(threadId, Boolean(resumeWorkItemId));
       if (refused) {
         // A thread that is already answering is not a failed turn. Recording
         // that as streamError left a red alert under the reply that just
@@ -1376,6 +1396,7 @@ export function useAIChatRuntime(
             focusedAppId ?? pageContext.focused_app_id ?? undefined,
           pageContext,
           hostAction,
+          resumeWorkItemId,
         });
 
         for await (const ev of stream as AsyncIterable<NormalizedEvent>) {
@@ -1491,7 +1512,7 @@ export function useAIChatRuntime(
         if (
           provider.serverPersisted &&
           !threadId.startsWith("local-") &&
-          (!session || session.lastLoadedAt === 0)
+          (resumeWorkItemId || !session || session.lastLoadedAt === 0)
         ) {
           void loadThread(threadId);
         }
@@ -1499,6 +1520,20 @@ export function useAIChatRuntime(
     },
     [provider, nextId, refreshThreads, activeAgentId, updateSession, focusedTrackId, focusedViewId, focusedAppId, snapshotPageContext, admissionError, loadThread],
   );
+
+  // A fresh page attaches to accepted work discovered from the owned thread.
+  // Attempt once per WorkItem per mounted view; a failed connection leaves a
+  // recoverable error rather than restarting work or spinning a retry loop.
+  const recoveredWorkItemsRef = useRef(new Set<string>());
+  useEffect(() => {
+    if (provider.id !== "integral_native" || !activeThreadId || !selectionScopeReady) return;
+    const session = sessions[activeThreadId];
+    const workItemId = session?.activeWorkItemId;
+    if (!workItemId || session.streaming || recoveredWorkItemsRef.current.has(workItemId)) return;
+    if (peekStreamingThreadIds().length >= MAX_CONCURRENT_STREAMS) return;
+    recoveredWorkItemsRef.current.add(workItemId);
+    void streamAssistantTurn(activeThreadId, "", session.messages, undefined, undefined, undefined, undefined, workItemId);
+  }, [provider.id, activeThreadId, selectionScopeReady, sessions, streamAssistantTurn]);
 
   /**
    * Return the active thread id, creating one if none exists yet — same

@@ -71,6 +71,17 @@ class AgentRun(Object):
     work_item_id: str = ""
     deadline_at: str = ""
 
+    @classmethod
+    async def find_one(
+        cls, query: Optional[Dict[str, Any]] = None, **kwargs: Any
+    ) -> Optional["AgentRun"]:
+        """Use the public query operation supported by shared-store transactions."""
+        # jvspatial 0.1.1 Object.find_one calls database.find_one, which its
+        # PostgresTransaction does not implement. Keep receipt lookups inside
+        # the worker's current transaction using Object.find's public contract.
+        matches = await cls.find(query, **kwargs)
+        return matches[0] if matches else None
+
 
 class RunStep(Object):
     """Authoritative capability receipt for one execution boundary."""
@@ -105,6 +116,14 @@ class RunStep(Object):
     duration_ms: Optional[float] = None
     result_json: str = ""
     work_item_id: str = ""
+
+    @classmethod
+    async def find_one(
+        cls, query: Optional[Dict[str, Any]] = None, **kwargs: Any
+    ) -> Optional["RunStep"]:
+        """Resolve a receipt through the transaction-compatible public query."""
+        matches = await cls.find(query, **kwargs)
+        return matches[0] if matches else None
 
 
 async def start_run(

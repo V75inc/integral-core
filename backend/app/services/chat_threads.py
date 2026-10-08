@@ -32,6 +32,14 @@ def _now() -> str:
 # ---------------------------------------------------------------------------
 
 
+def derive_thread_title(text: str) -> str:
+    """Consistent first-message title for synchronous and durable acceptance."""
+    cleaned = " ".join(text.strip().split())
+    if not cleaned:
+        return "New chat"
+    return (cleaned[:60] + "…") if len(cleaned) > 60 else cleaned
+
+
 async def create_thread(
     *,
     user_id: str,
@@ -1642,6 +1650,7 @@ def thread_to_dict(
         # debug clients can correlate a host thread with the harness's
         # own conversation graph; the FE runtime ignores it.
         "provider_session_id": thread.provider_session_id or None,
+        "active_work_item_id": thread.active_work_item_id or None,
         "title": thread.title or "",
         "archived": bool(thread.archived),
         "created_at": thread.created_at,

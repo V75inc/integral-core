@@ -244,9 +244,7 @@ async def test_invited_admin_cannot_open_private_app_without_a_direct_grant():
     """Private means the owner and people they add, not every workspace admin."""
     await ensure_integral_app_graph(include_library=False)
     owner = await User.create(user_id="staff_owner6", display_name="Owner")
-    ws, _shared, _nested, _standalone = await _org_workspace_with_inventory(
-        owner=owner
-    )
+    ws, _shared, _nested, _standalone = await _org_workspace_with_inventory(owner=owner)
     now = datetime.now().isoformat()
     private_app = await App.create(
         name="Private App",

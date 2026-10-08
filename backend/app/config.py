@@ -119,6 +119,9 @@ class Settings(BaseSettings):
     # Bound a native chat WorkItem from acceptance through completion. A
     # persisted deadline lets workers stop a wedged provider stream and keeps
     # recovery from extending the same turn indefinitely.
+    # WP-03 rollout candidate: enable only after durable HTTP/recovery/browser
+    # qualification. Native remains the selected provider in either mode.
+    INTEGRAL_NATIVE_DURABLE_CHAT_ENABLED: bool = False
     INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS: int = Field(default=900, ge=30, le=3600)
     # Bound one provider request inside the longer multi-step chat-turn budget.
     # A stalled stream must not hold a browser turn open until the full harness

@@ -168,3 +168,72 @@ async def test_regular_member_lists_only_own_work(
 async def test_work_list_requires_bounded_workspace(authenticated_client, params):
     response = await authenticated_client.get("/api/work-items", params=params)
     assert response.status_code == 400, response.text
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "legacy_failure, expected_code",
+    [
+        (
+            {
+                "code": "chat.provider_unavailable",
+                "message": "Provider unavailable",
+                "private_details": "must-not-leak",
+            },
+            "chat.provider_unavailable",
+        ),
+        (
+            {"class": "unknown", "code": {"secret": "must-not-leak"}},
+            "work.failure_record_invalid",
+        ),
+    ],
+)
+async def test_legacy_failure_does_not_break_safe_work_list(
+    authenticated_client, second_user_client, test_user, legacy_failure, expected_code
+):
+    from jvspatial.core.context import get_default_context
+
+    workspace_id = await _workspace_id(authenticated_client)
+    failed = await work_items.enqueue_work_item(
+        kind="chat_turn",
+        origin="legacy-test",
+        principal_id=test_user.id,
+        workspace_id=workspace_id,
+        idempotency_key="legacy-failure",
+        input_payload={},
+    )
+    failed.status = "failed"
+    failed.failure = legacy_failure
+    await failed.save()
+    completed = await work_items.enqueue_work_item(
+        kind="app_lifecycle",
+        origin="test",
+        principal_id=test_user.id,
+        workspace_id=workspace_id,
+        idempotency_key="completed",
+        input_payload={},
+    )
+    completed.status = "succeeded"
+    await completed.save()
+    database = get_default_context().database
+    before = await database.get("object", failed.id)
+
+    response = await authenticated_client.get(
+        "/api/work-items", params={"workspace_id": workspace_id}
+    )
+    assert response.status_code == 200, response.text
+    rows = {row["work_item_id"]: row for row in response.json()["items"]}
+    assert rows[completed.work_item_id]["status"] == "succeeded"
+    assert rows[failed.work_item_id]["status"] == "failed"
+    assert rows[failed.work_item_id]["failure"]["class_"] == "permanent"
+    assert rows[failed.work_item_id]["failure"]["code"] == expected_code
+    assert rows[failed.work_item_id]["failure"]["retryable"] is False
+    assert "must-not-leak" not in response.text
+    detail = await authenticated_client.get(f"/api/work-items/{failed.work_item_id}")
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["failure"] == rows[failed.work_item_id]["failure"]
+    assert "must-not-leak" not in detail.text
+    stranger = await second_user_client.get(f"/api/work-items/{failed.work_item_id}")
+    assert stranger.status_code == 404
+    assert await database.get("object", failed.id) == before

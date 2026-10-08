@@ -199,12 +199,18 @@ async def paginate_entity_find(
         next_cursor = encode_cursor(last_id, last_val)
 
     total: Optional[int] = None
-    if include_total:
+    count = getattr(ctx.database, "count", None)
+    if include_total and callable(count):
         base_query = dict(query) if query else {}
         count_collection, count_filter = await entity_cls._build_database_query(
             ctx, base_query, {}
         )
-        total = await ctx.database.count(count_collection, count_filter)
+        total = await count(count_collection, count_filter)
+
+    # Some public transaction adapters support bounded find but not count.
+    # Preserve the actual page and cursor; a missing optional total is unknown,
+    # not an empty result. Never leave this transaction for an out-of-scope count
+    # or materialize an unbounded match set merely to compute a display total.
 
     return page, {
         "total": total,

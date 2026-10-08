@@ -32,7 +32,9 @@ async def _create_workspace(client: AsyncClient, name: str = "AuthoringWs") -> s
     """Create an org workspace; returns workspace_id (caller is owner)."""
     resp = await client.post("/api/workspaces", json={"name": name})
     assert resp.status_code == 200, resp.text
-    return resp.json()["workspace"]["id"]
+    workspace_id = resp.json()["workspace"]["id"]
+    client.headers["X-Integral-Scope"] = f"ws:{workspace_id}"
+    return workspace_id
 
 
 async def _seed_library_package(name: str, description: str, manifest: Dict[str, Any]):
@@ -733,7 +735,7 @@ async def test_create_track_type_hint_multi_match_400(
     from app.api import operational_models as cp_mod
     from app.api import tracks as tracks_mod
 
-    async def _fake_resolve(hint):
+    async def _fake_resolve(hint, *, workspace_id=None):
         return [
             {
                 "operational_model_id": "cp-a",
@@ -784,7 +786,7 @@ async def test_create_track_type_hint_zero_matches_warning(
     """Zero matches → 200 with warnings[] mentioning type_hint."""
     from app.api import operational_models as cp_mod
 
-    async def _fake_resolve(hint):
+    async def _fake_resolve(hint, *, workspace_id=None):
         return []
 
     monkeypatch.setattr(cp_mod, "resolve_type_hint", _fake_resolve)
@@ -822,8 +824,8 @@ async def test_create_space_type_hint_symmetric(
 
     captured_calls = []
 
-    async def _fake_resolve(hint):
-        captured_calls.append(hint)
+    async def _fake_resolve(hint, *, workspace_id=None):
+        captured_calls.append((hint, workspace_id))
         return [
             {
                 "operational_model_id": "cp-unique",
@@ -844,7 +846,7 @@ async def test_create_space_type_hint_symmetric(
         },
     )
     # The resolver was called (Pitfall 6 verified — direct service call).
-    assert captured_calls == ["synthetic-hint"], captured_calls
+    assert captured_calls == [("synthetic-hint", ws_id)], captured_calls
     # The endpoint accepted the resolved id (even though "cp-unique" is a
     # fake id, the picker-conflict gate accepted the hint and assigned it
     # to library_operational_model_id; downstream 'Library package not

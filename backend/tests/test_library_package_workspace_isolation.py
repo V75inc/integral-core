@@ -83,3 +83,55 @@ async def test_private_library_hidden_and_not_installable_in_other_workspace(
         headers=headers_b,
     )
     assert install_b.status_code in (404, 400, 403), install_b.text
+
+    # Existing-resource merge paths must enforce the same template boundary.
+    app_b = await authenticated_client.post(
+        "/api/apps",
+        json={"name": "Existing B App"},
+        headers=headers_b,
+    )
+    assert app_b.status_code == 200, app_b.text
+    app_b_id = app_b.json()["app"]["id"]
+    merge_app_b = await authenticated_client.post(
+        f"/api/apps/{app_b_id}/operational-model/merge-library",
+        json={"library_operational_model_id": private_id},
+        headers=headers_b,
+    )
+    assert merge_app_b.status_code == 404, merge_app_b.text
+    track_b = await authenticated_client.post(
+        "/api/tracks",
+        json={"title": "Existing B Track"},
+        headers=headers_b,
+    )
+    assert track_b.status_code == 200, track_b.text
+    track_b_id = track_b.json()["track"]["id"]
+    merge_track_b = await authenticated_client.post(
+        f"/api/tracks/{track_b_id}/operational-model/merge-library",
+        json={"library_operational_model_id": private_id},
+        headers=headers_b,
+    )
+    assert merge_track_b.status_code == 404, merge_track_b.text
+
+    # A local package cannot launder a private dependency from another workspace.
+    from copy import deepcopy
+
+    from app.models.nodes import App, OperationalModel
+    from app.services.app_graph import get_app_attached_operational_model
+
+    manifest = _app_manifest("local-with-foreign-dependency")
+    manifest["package"]["dependencies"] = [{"id": private_id, "version": "1.0.0"}]
+    local = await authenticated_client.post(
+        "/api/operational-models",
+        json={"name": "Local Wrapper", "workspace_id": ws_b_id, "manifest": manifest},
+        headers=headers_b,
+    )
+    assert local.status_code == 200, local.text
+    attached = await get_app_attached_operational_model(await App.get(app_b_id))
+    before_manifest = deepcopy(attached.manifest)
+    merge_dependency = await authenticated_client.post(
+        f"/api/apps/{app_b_id}/operational-model/merge-library",
+        json={"library_operational_model_id": local.json()["operational_model"]["id"]},
+        headers=headers_b,
+    )
+    assert merge_dependency.status_code == 404, merge_dependency.text
+    assert (await OperationalModel.get(attached.id)).manifest == before_manifest

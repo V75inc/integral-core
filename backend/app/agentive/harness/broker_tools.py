@@ -104,6 +104,32 @@ def _idempotency_key(run_id: str, tool_call_id: str | None, tool_name: str) -> s
     return f"native:{digest}"
 
 
+def _tool_work_context(
+    parent: WorkExecutionContext, tool_call_id: str | None, tool_name: str
+) -> WorkExecutionContext:
+    """Bind a persisted model call to its own durable logical effect slot.
+
+    A replayed call keeps its slot across WorkItem attempts. Distinct calls
+    never share the parent turn's slot, even when they invoke the same tool.
+    Authority fields remain host-owned and unchanged.
+    """
+    from app.agentive.services.work_execution import effect_key
+    from app.schemas.agentive.work import WorkError
+
+    if not tool_call_id:
+        raise WorkError("work.logical_step_missing", "tool call identity is required")
+    identity = "\0".join((parent.logical_step_key, tool_call_id, tool_name))
+    logical_step = "tool:" + hashlib.sha256(identity.encode("utf-8")).hexdigest()
+    return parent.model_copy(
+        update={
+            "logical_step_key": logical_step,
+            "effect_key": effect_key(
+                work_item_id=parent.work_item_id, logical_step_key=logical_step
+            ),
+        }
+    )
+
+
 def _make_handler(
     *,
     scope: HarnessExecutionScope,
@@ -283,6 +309,14 @@ def _make_handler(
             # repeated batch (and repeated full-plan context) in the same run.
             build_attempted = True
 
+        tool_work_context = (
+            _tool_work_context(
+                work_execution_context, ctx.tool_call_id, capability_name
+            )
+            if work_execution_context is not None
+            else None
+        )
+
         async def dispatch() -> Any:
             return await invoke_declared(
                 principal_id=scope.principal_id,
@@ -293,6 +327,7 @@ def _make_handler(
                 op_class=capability_op_class,
                 arguments=arguments,
                 run_id=scope.run_id,
+                work_execution_context=tool_work_context,
                 idempotency_key=_idempotency_key(
                     scope.run_id, ctx.tool_call_id, capability_name
                 ),
@@ -308,6 +343,16 @@ def _make_handler(
             from app.agentive.services.work_items import authorized_work_item_effect
 
             async with authorized_work_item_effect(work_execution_context):
+                if capability_name == "integral_get_attachment_text":
+                    from app.agentive.work_models import WorkItem
+                    from app.services.chat_turn_attachments import (
+                        assert_chat_attachment_read_inputs,
+                    )
+
+                    item = await WorkItem.get(
+                        f"o.WorkItem.{work_execution_context.work_item_id}"
+                    )
+                    await assert_chat_attachment_read_inputs(item=item)
                 result = await dispatch()
         model_result = _resource_links_for_model(result.for_model())
         if capability_name == "integral_build_approved_design":

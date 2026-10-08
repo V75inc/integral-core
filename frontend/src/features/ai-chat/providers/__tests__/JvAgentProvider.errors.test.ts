@@ -93,3 +93,66 @@ describe('JvAgentProvider.streamTurn non-409 failures', () => {
     expect(events[0].message).not.toContain('{');
   });
 });
+
+describe("JvAgentProvider.streamTurn conflicts", () => {
+  it.each([
+    [
+      "thread_busy",
+      "turn_in_flight",
+      "This conversation is already responding. Wait for it to finish, or stop it first.",
+    ],
+    [
+      "user_turn_limit",
+      "user_turn_limit",
+      "Too many conversations are responding.",
+    ],
+    [
+      "harness_tool_effect_unresolved",
+      "http_409",
+      "The prior Harness run has an unresolved tool effect",
+    ],
+    [
+      "chat_submission_message_mismatch",
+      "http_409",
+      "The accepted message differs from this request.",
+    ],
+  ])(
+    "distinguishes %s from a busy conversation",
+    async (reason, code, message) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              message,
+              details: { reason },
+            }),
+            { status: 409 },
+          ),
+        ),
+      );
+      const events = await drain(JvAgentProvider.streamTurn(ctx()));
+      expect(events).toEqual([{ type: "error", code, message }]);
+    },
+  );
+
+  it("does not invent an active response for an unclassified conflict", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response("<html>Conflict</html>", { status: 409 }),
+        ),
+    );
+    const events = await drain(JvAgentProvider.streamTurn(ctx()));
+    expect(events).toEqual([
+      {
+        type: "error",
+        code: "http_409",
+        message:
+          "This request conflicts with the current conversation state. Please review it before retrying.",
+      },
+    ]);
+  });
+});
