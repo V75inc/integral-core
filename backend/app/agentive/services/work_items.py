@@ -153,13 +153,16 @@ async def authorized_work_item_effect(
     preflight lease read followed by an unfenced write is not an acceptable
     substitute for durable worker effects.
     """
-    from jvspatial.core.context import get_default_context, graph_transaction
+    from jvspatial.core.context import get_default_context
 
     from app.agentive.services.work_execution import (
         deterministic_run_id,
         effect_key,
     )
     from app.schemas.agentive.work import WorkExecutionContext
+    from app.services.app_operations.transaction_scope import (
+        postgres_graph_transaction,
+    )
 
     if not isinstance(context, WorkExecutionContext):
         raise TypeError("a trusted WorkExecutionContext is required")
@@ -168,7 +171,10 @@ async def authorized_work_item_effect(
     if not context.lease_token or context.lease_fence < 1:
         raise WorkError("work.lease_lost", "execution lease is unavailable")
 
-    async with graph_transaction(database=get_default_context().database) as graph:
+    async with postgres_graph_transaction(
+        database=get_default_context().database
+    ) as transaction:
+        graph = get_default_context()
         item = await WorkItem.get(_object_id(context.work_item_id))
         if item is None:
             raise WorkError("work.not_found", "work item not found")
@@ -211,7 +217,7 @@ async def authorized_work_item_effect(
             await _cas_lease_fence_in_transaction(
                 context=context,
                 lease_expires_at=item.lease_expires_at,
-                transaction=graph.database,
+                transaction=transaction,
             )
         except WorkError as exc:
             if exc.code in {"work.lease_lost", "work.cas_conflict"}:

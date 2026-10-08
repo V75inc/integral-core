@@ -45,6 +45,7 @@ describe('activity disclosure', () => {
   it('centers the working mark with its label and supports reduced motion', () => {
     state.message.status.type = 'running';
     const {container} = render(<WorkTrail><span>Tool receipt</span></WorkTrail>);
+    expect(container.querySelector('[data-slot="aui_work-trail"]')).toHaveClass('mt-4');
     const mark = container.querySelector('.animate-agent-working');
     expect(mark).toHaveClass('inline-flex', 'items-center', 'justify-center', 'motion-reduce:animate-none');
     expect(mark?.parentElement).toHaveClass('relative', '-top-px', 'h-4', 'w-4', 'items-center', 'justify-center', 'leading-none');
