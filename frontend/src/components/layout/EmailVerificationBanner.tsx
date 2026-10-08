@@ -66,9 +66,8 @@ export function EmailVerificationBanner() {
       // Reflect busy state in the bar without re-pushing (preserves animation).
       update(NOTIF_ID, {
         actions: [
+          { label: 'Enter code', onClick: () => navigate('/verify-email') },
           { label: 'Resend code', onClick: handleResend, busy: true },
-          { label: 'enter your code', onClick: () => navigate('/verify-email') },
-          { label: 'Not now', onClick: handleLater },
         ],
       });
       try {
@@ -82,9 +81,8 @@ export function EmailVerificationBanner() {
         if (mountedRef.current) {
           update(NOTIF_ID, {
             actions: [
+              { label: 'Enter code', onClick: () => navigate('/verify-email') },
               { label: 'Resend code', onClick: handleResend, busy: false },
-              { label: 'enter your code', onClick: () => navigate('/verify-email') },
-              { label: 'Not now', onClick: handleLater },
             ],
           });
         }
@@ -95,13 +93,13 @@ export function EmailVerificationBanner() {
       type: 'info',
       icon: MailCheck,
       title: 'Verify your email',
-      body: 'Confirm you own this address. You can keep working meanwhile.',
+      body: 'You can keep working while you verify.',
       actions: [
+        { label: 'Enter code', onClick: () => navigate('/verify-email') },
         { label: 'Resend code', onClick: handleResend },
-        { label: 'enter your code', onClick: () => navigate('/verify-email') },
-        { label: 'Not now', onClick: handleLater },
       ],
-      dismissible: false,
+      dismissible: true,
+      onUserDismiss: handleLater,
     });
     return cleanup;
   }, [shouldShow, user, notify, dismiss, update, navigate, showToast]);
