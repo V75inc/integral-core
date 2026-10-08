@@ -41,7 +41,7 @@ describe('companion panel reachability', () => {
   it('renders the panel in the dialog body when there is no side column', () => {
     // The fix. `showSideColumn` picks a host; the body branch is what makes
     // the content exist at all on a phone.
-    expect(source()).toMatch(/!showSideColumn && \(/);
+    expect(source()).toMatch(/!showSideColumn && variant !== 'page' && \(/);
   });
 
   it('keeps exactly one definition of the panel content', () => {
@@ -54,7 +54,8 @@ describe('companion panel reachability', () => {
 
   it('chooses a host rather than rendering both', () => {
     const s = source();
-    expect(s).toMatch(/sidePanel=\{showSideColumn && commentsPanelOpen \? panelNode : undefined\}/);
+    expect(s).toMatch(/sidePanel=\{commentsPanelOpen && \(variant === 'page'/);
+    expect(s).toMatch(/: showSideColumn\) \? panelNode : undefined\}/);
   });
 
   it('drops the duplicate comment button from the body', () => {

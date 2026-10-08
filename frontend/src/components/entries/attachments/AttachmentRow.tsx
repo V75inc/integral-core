@@ -169,6 +169,11 @@ export function AttachmentRow({
       // Bad URL — skip the host chip.
     }
   }
+  // Added time distinguishes retained files that share a filename.
+  const addedAt = attachment.created_at ? new Date(attachment.created_at) : null;
+  if (addedAt && Number.isFinite(addedAt.getTime())) {
+    metaParts.push(`Added ${addedAt.toLocaleString()}`);
+  }
   const metaLabel = metaParts.join(' · ');
 
   const stopProp = (e: React.MouseEvent) => {
@@ -279,7 +284,7 @@ export function AttachmentRow({
             )}
           </span>
           {metaLabel && (
-            <span className="min-w-0 truncate text-[11px] tabular-nums text-[var(--text-muted)]">
+            <span title={metaLabel} className="min-w-0 truncate text-[11px] tabular-nums text-[var(--text-muted)]">
               {metaLabel}
             </span>
           )}

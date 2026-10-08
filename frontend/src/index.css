@@ -79,14 +79,14 @@
   --surface: var(--panel);
   --surface-raised: var(--panel-2);
 
-  /* Muted slate blue distinguishes system notices in both themes. */
-  --system-bar-bg: #243746;
-  --system-bar-fg: #f1f5f9;
-  --system-bar-muted: #cbd5e1;
-  --system-bar-border: #405467;
-  --system-bar-hover: #31495c;
+  /* System notices use dark chrome with theme-specific contrast. */
+  --system-bar-bg: #101011;
+  --system-bar-fg: #f7f7f7;
+  --system-bar-muted: #c4c4c7;
+  --system-bar-border: #303033;
+  --system-bar-hover: #29292c;
   --system-bar-focus: #f7f7f7;
-  --system-bar-info-fg: #e2edf7;
+  --system-bar-info-fg: #f7f7f7;
   --system-bar-warn-fg: #ffd58a;
   --system-bar-error-fg: #ffb5ad;
   --system-bar-success-fg: #a9e8bd;
@@ -255,6 +255,13 @@
   /* surface aliases inherit from above */
   --surface: var(--panel);
   --surface-raised: var(--panel-2);
+
+  /* Warm graphite keeps notices in the app's neutral palette. */
+  --system-bar-bg: #252321;
+  --system-bar-muted: #cac7c2;
+  --system-bar-border: #403c38;
+  --system-bar-hover: #36322e;
+  --system-bar-info-fg: #ece7df;
 
   --entry-table-border: #484848;
   --entry-table-divider: #3d3d3d;

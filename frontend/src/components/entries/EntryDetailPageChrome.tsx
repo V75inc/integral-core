@@ -20,6 +20,7 @@ export function EntryDetailPageChrome({
   onClose,
   children,
   canvas,
+  sidePanel,
 }: {
   open?: boolean;
   onClose(): void;
@@ -45,9 +46,9 @@ export function EntryDetailPageChrome({
         tone="panel"
         border="none"
         radius="none"
-        className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-[var(--panel-border)] px-4 py-3 sm:px-6"
+        className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--panel-border)] px-4 py-3 sm:px-6"
       >
-        <div className="flex min-w-0 items-center gap-3">
+        <div className="flex w-full min-w-0 items-center gap-3 sm:w-auto sm:flex-1">
           <IconButton
             label="Back"
             onClick={onClose}
@@ -65,9 +66,16 @@ export function EntryDetailPageChrome({
           </Text>
         </div>
         {headerActions ? (
-          <div className="flex shrink-0 items-center gap-1">{headerActions}</div>
+          <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center gap-1">{headerActions}</div>
         ) : null}
       </Surface>
+      {sidePanel ? (
+        <Surface as="section" tone="panel" border="none" radius="none"
+          aria-label="Entry utilities" data-testid="entry-page-utilities"
+          className="border-b border-[var(--panel-border)]">
+          <div className="mx-auto max-w-page">{sidePanel}</div>
+        </Surface>
+      ) : null}
       {canvas ? (
         <div
           data-testid="entry-canvas-layout"
