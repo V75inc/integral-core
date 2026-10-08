@@ -948,33 +948,38 @@ export function useAIChatRuntime(
    * via the system-message route (no model call needed).
    */
   const appendAssistantNote = useCallback(
-    (text: string) => {
-      if (!text) return;
+    async (text: string): Promise<string | null> => {
+      if (!text || !activeThreadId) return null;
       const threadId = activeThreadId;
-      if (!threadId) return;
+      const noteId = nextId("a");
       updateSession(threadId, (session) => ({
         ...session,
         messages: [
           ...session.messages,
           {
-            id: nextId("a"),
+            id: noteId,
             role: "assistant" as const,
             content: [{ type: "text" as const, text }],
             status: { type: "complete" as const, reason: "stop" as const },
           },
         ],
       }));
-      const isLocal = threadId.startsWith("local-");
-      if (!isLocal && provider.serverPersisted) {
-        aiChatApi
-          .appendSystemMessage(threadId, text)
-          .catch((err) => {
-            console.warn(
-              "appendAssistantNote: backend persistence failed",
-              err,
-            );
-          });
+      if (!threadId.startsWith("local-") && provider.serverPersisted) {
+        try {
+          const persisted = await aiChatApi.appendSystemMessage(threadId, text);
+          updateSession(threadId, (session) => ({
+            ...session,
+            messages: session.messages.map((message) =>
+              message.id === noteId ? { ...message, id: persisted.id } : message,
+            ),
+          }));
+          return persisted.id;
+        } catch (err) {
+          console.warn("appendAssistantNote: backend persistence failed", err);
+          return null;
+        }
       }
+      return noteId;
     },
     [nextId, activeThreadId, provider, updateSession],
   );
