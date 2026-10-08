@@ -14,18 +14,23 @@ import { useConfirm } from '../../../context/ConfirmContext';
 import { useChatActivity } from '../AIChatSurface';
 import type { PromptItem, PromptQueue } from './types';
 
-export function resumeIfNeeded(
+export async function resumeIfNeeded(
   threadRuntime: ReturnType<typeof useThreadRuntime> | null,
   resumeText: string | null | undefined,
-  appendAssistantNote: (text: string) => void,
+  appendAssistantNote: (text: string) => void | Promise<string | null>,
+  stillCurrent: () => boolean = () => true,
 ) {
   if (!resumeText || !threadRuntime) return;
   try {
     // Keep the resolved review visible as an assistant note. The runtime
     // continuation starts separately and never appends a user utterance.
-    appendAssistantNote(resumeText);
+    // The note write bumps the stored thread revision. Starting admission in
+    // parallel races that write and can report a false thread-busy conflict.
+    // Use the persisted note id, never its optimistic client-only id.
+    const noteId = await appendAssistantNote(resumeText);
+    if (noteId === null || !stillCurrent()) return;
     const messages = threadRuntime.getState().messages;
-    const parentId = messages[messages.length - 1]?.id ?? null;
+    const parentId = noteId ?? messages[messages.length - 1]?.id ?? null;
     threadRuntime.startRun({
       parentId,
       sourceId: null,
@@ -73,7 +78,8 @@ export function usePromptQueue() {
     if (resumedRefreshes.current.has(key)) return;
     resumedRefreshes.current.add(key);
     if (resumedRefreshes.current.size > 64) resumedRefreshes.current.delete(resumedRefreshes.current.values().next().value!);
-    resumeIfNeeded(live.current.threadRuntime, text, live.current.appendAssistantNote);
+    void resumeIfNeeded(live.current.threadRuntime, text, live.current.appendAssistantNote,
+      () => live.current.activeThreadId === threadId && !live.current.isThreadStreaming(threadId));
   }, []);
 
   const refresh = useCallback(async () => {
