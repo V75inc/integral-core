@@ -2425,6 +2425,11 @@ input, exact route generation and physical request identity. A trusted host
 must attest all billed input/output ceilings and applicable account pricing.
 Missing, expired or changed evidence prevents SDK dispatch. A current lease and
 reviewed shared-budget hold plus fenced dispatch intent precede each SDK call.
+After required intent receipt storage, a single-use readiness callback rechecks
+current permission and route authority, approved lineage, lease, retained
+physical binding and shared hold. Retained bounds and quote expiry are checked
+again after the final transaction closes, immediately before entering the SDK.
+Missing readiness or a denial prevents dispatch and keeps any existing hold.
 Logical ordinals are distinct from physical IDs; a restarted adapter cannot
 reuse an uncertain slot. Only persisted definitive provider cost settles the
 hold; unknown or calculated cost retains it. Ordinary chat work continues to

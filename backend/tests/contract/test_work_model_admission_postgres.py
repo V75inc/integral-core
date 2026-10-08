@@ -166,3 +166,120 @@ async def test_sdk_follows_real_hold_and_intent_and_cannot_exceed_count(
         assert row["context"]["status"] == (
             "reserved" if reported_cost is None else "settled"
         )
+
+
+@pytest.mark.parametrize(
+    "change", ["root_cancel", "approval_revoked", "leaf_lease", "price_expired"]
+)
+async def test_receipt_storage_change_prevents_actual_sdk_and_keeps_hold(
+    leased_budget_child,
+    monkeypatch,
+    change,
+):
+    from app.agentive.services import work_budgets, work_model_admission
+    from app.agentive.services.work_approvals import work_approval_object_id
+
+    root, parent, leaf, context, original, db = leased_budget_child
+    route = ResolvedModelRoute(
+        **original.model_route.model_dump(), api_key="synthetic-credential"
+    )
+    scope = scope_for(context)
+
+    async def bounds(dispatch):
+        return ModelPayloadBounds(
+            input_fingerprint=dispatch.fingerprint(),
+            input_tokens_upper=1000,
+            output_tokens_upper=1000,
+            bounds_ref="synthetic-bounds",
+            valid_until=datetime.now(timezone.utc) + timedelta(minutes=1),
+        )
+
+    async def price(request):
+        return ModelTokenPriceEvidence(
+            request_digest=request.digest(),
+            route=request.route,
+            policy_ref="synthetic-policy",
+            source_ref="synthetic-source",
+            account_terms_ref="synthetic-account",
+            valid_from=datetime.now(timezone.utc) - timedelta(seconds=1),
+            valid_until=datetime.now(timezone.utc)
+            + timedelta(seconds=1 if change == "price_expired" else 60),
+            input_usd_per_million=Decimal("0.30"),
+            output_usd_per_million=Decimal("1.20"),
+            request_fee_upper_usd=Decimal("0"),
+        )
+
+    class Later(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.now(tz) + timedelta(seconds=2)
+
+    async def storing(observation):
+        await persist_model_request_observation(
+            observation, work_execution_context=context
+        )
+        if observation.outcome != "dispatch_intent":
+            return
+        if change == "root_cancel":
+            await db.find_one_and_update(
+                "object",
+                {"id": root.id},
+                {
+                    "$set": {
+                        "context.cancel_requested_at": datetime.now(
+                            timezone.utc
+                        ).isoformat()
+                    }
+                },
+            )
+        elif change == "approval_revoked":
+            await db.find_one_and_update(
+                "object",
+                {"id": work_approval_object_id(root.plan["mandate_approval_id"])},
+                {"$set": {"context.status": "rejected"}},
+            )
+        elif change == "leaf_lease":
+            await db.find_one_and_update(
+                "object",
+                {"id": leaf.id},
+                {"$set": {"context.lease_fence": context.lease_fence + 1}},
+            )
+        else:
+            monkeypatch.setattr(work_budgets, "datetime", Later)
+            monkeypatch.setattr(work_model_admission, "datetime", Later)
+
+    host_hooks.register_model_bounds_resolver(bounds)
+    host_hooks.register_model_price_resolver(price)
+    sdk = AsyncMock(side_effect=AssertionError("SDK must not run"))
+    boundary = WorkModelAdmission(
+        context=context, assert_authority=AsyncMock(), observer=storing
+    )
+    transport = LiteLLMSDKTransport(
+        route=route,
+        scope=scope,
+        observer=boundary.observe,
+        admission=boundary,
+        completion=sdk,
+    )
+    with pytest.raises(WorkError) as exc:
+        await transport.handle_async_request(
+            httpx.Request(
+                "POST",
+                "http://synthetic-bridge.invalid/v1/chat/completions",
+                json={
+                    "model": route.model,
+                    "messages": [{"role": "user", "content": "Private summary"}],
+                    "max_tokens": 1000,
+                },
+            )
+        )
+    assert exc.value.code in {
+        "work.mandate_inactive",
+        "work.mandate_approval_required",
+        "work.lease_lost",
+        "work.cost_quote_expired",
+    }
+    assert sdk.await_count == 0
+    saved = await ledger(db, root)
+    assert saved["reserved_units"] == 150000 and saved["charged_units"] == 0
+    assert saved["model_requests"] == 1
