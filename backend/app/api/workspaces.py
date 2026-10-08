@@ -931,8 +931,10 @@ async def remove_workspace_member(
     for edge in edges:
         await edge.delete()
 
+    from app.services.ownership_transfer import reassign_departing_member_ownership
     from app.services.sharing import revoke_workspace_resource_grants
 
+    await reassign_departing_member_ownership(member, ws.id)
     await revoke_workspace_resource_grants(member, ws.id)
 
     await emit_change_event(
@@ -990,8 +992,10 @@ async def leave_workspace(request: Request, workspace_id: str) -> Dict[str, Any]
     for edge in edges:
         await edge.delete()
 
+    from app.services.ownership_transfer import reassign_departing_member_ownership
     from app.services.sharing import revoke_workspace_resource_grants
 
+    await reassign_departing_member_ownership(member, ws.id)
     await revoke_workspace_resource_grants(member, ws.id)
 
     # Clear a stale explicit active-workspace preference. The next scope read

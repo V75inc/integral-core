@@ -205,6 +205,50 @@ async def test_revoke_workspace_resource_grants_scoped_to_workspace():
     assert kept, "collaborator edge outside the left workspace must remain"
 
 
+@pytest.mark.asyncio
+async def test_departing_member_owns_move_to_workspace_owner():
+    """Removal must not strand Apps and Tracks the member created."""
+    from app.services.ownership_transfer import reassign_departing_member_ownership
+
+    owner = await _user("reassign_owner")
+    member = await _user("reassign_member")
+    ws = await _workspace("Reassign WS")
+    other_ws = await _workspace("Reassign Other")
+    await owner.connect(ws, edge=IS_MEMBER_OF, role="owner")
+    await member.connect(ws, edge=IS_MEMBER_OF, role="member")
+    app = await _space("Member App", workspace_id=ws.id)
+    track = await _track("Member Track", workspace_id=ws.id)
+    other_app = await _space("Other App", workspace_id=other_ws.id)
+    await member.connect(app, edge=OWNS, role="owner")
+    await member.connect(track, edge=OWNS, role="owner")
+    await member.connect(other_app, edge=OWNS, role="owner")
+    await owner.connect(app, edge=COLLABORATES_ON, role="editor")
+    app.owner_user_id = member.id
+    track.owner_id = member.id
+    await app.save()
+    await track.save()
+
+    moved = await reassign_departing_member_ownership(member, ws.id)
+    assert moved == {"apps": 1, "tracks": 1}
+
+    member_ctx = await member.get_context()
+    owner_ctx = await owner.get_context()
+    assert not await member_ctx.find_edges_between(member.id, app.id, edge_class=OWNS)
+    assert not await member_ctx.find_edges_between(member.id, track.id, edge_class=OWNS)
+    assert await owner_ctx.find_edges_between(owner.id, app.id, edge_class=OWNS)
+    assert await owner_ctx.find_edges_between(owner.id, track.id, edge_class=OWNS)
+    assert not await owner_ctx.find_edges_between(
+        owner.id, app.id, edge_class=COLLABORATES_ON
+    )
+    assert await member_ctx.find_edges_between(member.id, other_app.id, edge_class=OWNS)
+    refreshed_app = await App.get(app.id)
+    refreshed_track = await Track.get(track.id)
+    assert refreshed_app.owner_user_id == owner.id
+    assert refreshed_track.owner_id == owner.id
+    assert await resolve_role(owner.id, "app", app.id) == "owner"
+    assert await resolve_role(owner.id, "track", track.id) == "owner"
+
+
 # ---------------------------------------------------------------------------
 # Exclusions
 # ---------------------------------------------------------------------------
