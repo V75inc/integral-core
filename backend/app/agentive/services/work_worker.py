@@ -10,7 +10,7 @@ from typing import Any, Awaitable, Callable, Optional
 
 from app.agentive.services import work_execution, work_items
 from app.agentive.work_models import WorkItem
-from app.exceptions import AppDependencyError, AppUninstallBlockedError
+from app.exceptions import BadRequestError
 from app.schemas.agentive.work import WorkError, WorkFailure
 
 log = logging.getLogger(__name__)
@@ -1069,9 +1069,10 @@ async def execute_claimed_work(
             return await _handle_app_lifecycle(
                 item, worker_id=worker_id, lease_seconds=lease_seconds
             )
-    except (AppUninstallBlockedError, AppDependencyError) as exc:
-        # Permanent lifecycle blockers must terminalize — a bare raise leaves
-        # status=running and recovery reclaims forever (CRM-with-Sales case).
+    except BadRequestError as exc:
+        # Known permanent input/lifecycle failures must terminalize. Leaving
+        # status=running would let recovery reclaim the same invalid input.
+        # Validation subclasses retain their specific public failure code.
         code = getattr(exc, "error_code", None) or "app_lifecycle_blocked"
         message = getattr(exc, "message", None) or str(exc)
         return await work_items.transition_leased(
