@@ -33,7 +33,7 @@ function readScopeHeader(): string | null {
 async function* readSseEvents(
   response: Response,
   signal: AbortSignal,
-): AsyncIterable<{ event: string; data: unknown }> {
+): AsyncIterable<{ event: string; data: unknown; id?: string }> {
   if (!response.body) return;
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -72,19 +72,21 @@ async function* readSseEvents(
   }
 }
 
-function parseSseBlock(block: string): { event: string; data: unknown } | null {
+function parseSseBlock(block: string): { event: string; data: unknown; id?: string } | null {
   let event = "message";
+  let id: string | undefined;
   const dataLines: string[] = [];
   for (const line of block.split("\n")) {
     if (line.startsWith("event:")) event = line.slice(6).trim();
+    else if (line.startsWith("id:")) id = line.slice(3).trim();
     else if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
   }
   if (dataLines.length === 0) return null;
   const raw = dataLines.join("\n");
   try {
-    return { event, data: JSON.parse(raw) };
+    return { event, data: JSON.parse(raw), id };
   } catch {
-    return { event, data: raw };
+    return { event, data: raw, id };
   }
 }
 
@@ -238,22 +240,84 @@ export function createServerChatProvider({
       return;
     }
 
-    try {
-      for await (const ev of readSseEvents(response, ctx.abortSignal)) {
-        if (ctx.abortSignal.aborted) break;
-        if (ev.event === "turn-settled") return;
-        const payload = ev.data;
-        if (payload && typeof payload === "object") {
-          yield payload as NormalizedEvent;
+    // Only an accepted native WorkItem permits replay. Legacy responses keep
+    // their existing transport behavior; reconnect is always GET, never POST.
+    const workItemId = id === "integral_native"
+      ? response.headers.get("X-Integral-Work-Item")
+      : null;
+    let committedCursor = 0;
+    let reconnects = 0;
+    while (!ctx.abortSignal.aborted) {
+      let deliveryError: unknown;
+      try {
+        for await (const ev of readSseEvents(response, ctx.abortSignal)) {
+          if (ctx.abortSignal.aborted) return;
+          if (ev.event === "turn-settled") return;
+          if (ev.event === "turn-accepted") continue;
+          if (workItemId && ev.id === undefined && ev.event !== "error") {
+            yield { type: "error", code: "chat_event_sequence_invalid",
+              message: "The saved response needs reconciliation. Reload this conversation." };
+            return;
+          }
+          if (workItemId && ev.id !== undefined) {
+            const sequence = Number(ev.id);
+            if (!/^[1-9]\d*$/.test(ev.id) || !Number.isSafeInteger(sequence)) {
+              yield { type: "error", code: "chat_event_sequence_invalid",
+                message: "The saved response needs reconciliation. Reload this conversation." };
+              return;
+            }
+            if (sequence <= committedCursor) continue;
+            if (sequence !== committedCursor + 1) {
+              yield { type: "error", code: "chat_event_sequence_gap",
+                message: "The saved response needs reconciliation. Reload this conversation." };
+              return;
+            }
+            committedCursor = sequence;
+          }
+          const payload = ev.data;
+          if (payload && typeof payload === "object") yield payload as NormalizedEvent;
         }
+      } catch (err) {
+        if (ctx.abortSignal.aborted || (err as DOMException)?.name === "AbortError") return;
+        deliveryError = err;
       }
-    } catch (err) {
-      if ((err as DOMException)?.name === "AbortError") return;
-      yield {
-        type: "error",
-        code: "stream_read_failed",
-        message: err instanceof Error ? err.message : String(err),
-      };
+      if (!workItemId) {
+        if (deliveryError) yield {
+          type: "error", code: "stream_read_failed",
+          message: deliveryError instanceof Error ? deliveryError.message : String(deliveryError),
+        };
+        return;
+      }
+      if (ctx.abortSignal.aborted) return;
+      if (reconnects++ >= 3) {
+        yield { type: "error", code: "chat_reconnect_exhausted",
+          message: "Connection interrupted. Your request is saved; reload this conversation to recover its response." };
+        return;
+      }
+      const fetchReplay = (bearer: string | null) => fetch(
+        `${getApiBaseURL()}/chat/threads/${encodeURIComponent(ctx.threadId!)}/work-items/${encodeURIComponent(workItemId)}/stream?after_sequence=${committedCursor}`,
+        { method: "GET", headers: {
+          Accept: "text/event-stream",
+          ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
+          ...(scopeHeader ? { "X-Integral-Scope": scopeHeader } : {}),
+        }, signal: ctx.abortSignal },
+      );
+      try {
+        response = await fetchReplay(getAccessToken());
+        if (response.status === 401) {
+          const refreshed = await refreshAccessToken();
+          if (refreshed) response = await fetchReplay(refreshed);
+        }
+        if (!response.ok) {
+          yield { type: "error", code: `chat_reconnect_http_${response.status}`,
+            message: "The saved response could not be recovered. Reload this conversation." };
+          return;
+        }
+      } catch (err) {
+        if (ctx.abortSignal.aborted || (err as DOMException)?.name === "AbortError") return;
+        // Retry delivery from the same cursor, retaining the accepted receipt.
+        response = new Response(null);
+      }
     }
   },
   };

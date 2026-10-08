@@ -136,6 +136,12 @@ class ChatTurnSubmissionRequest(BaseModel):
     provider_metadata: Dict[str, Any] = Field(default_factory=dict)
     parent_id: Optional[str] = None
     execution_context: Optional["ChatTurnExecutionContext"] = None
+    # Computed by the authenticated HTTP producer from the validated client
+    # payload. It never comes from an arbitrary browser-supplied digest.
+    client_payload_digest: Optional[str] = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

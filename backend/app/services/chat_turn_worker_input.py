@@ -8,7 +8,12 @@ from app.agentive.harness.turn_input import load_turn_input_capsule
 from app.agentive.work_models import WorkItem
 from app.models.edges import CONTAINS
 from app.models.nodes import ChatMessage, ChatThread, User
-from app.schemas.agentive.work import ChatTurnExecutionContext, WorkError
+from app.schemas.agentive.work import (
+    ChatTurnExecutionContext,
+    ChatTurnSubmissionRequest,
+    WorkError,
+)
+from app.services.chat_turn_submissions import assert_accepted_chat_turn_fingerprint
 
 
 @dataclass(frozen=True)
@@ -94,6 +99,24 @@ async def load_claimed_chat_turn_input(item: WorkItem) -> ChatTurnWorkerInput:
         or user.id != principal_id
     ):
         raise WorkError("work.policy_denied", "chat turn graph scope mismatch")
+
+    try:
+        restored_request = ChatTurnSubmissionRequest(
+            principal_id=principal_id,
+            workspace_id=workspace_id,
+            thread_id=thread_id,
+            client_request_id=capsule.client_request_id,
+            parts=list(message.parts or []),
+            provider_metadata=dict(message.provider_metadata or {}),
+            parent_id=message.parent_id,
+            execution_context=capsule.execution_context,
+        )
+    except ValueError as exc:
+        raise WorkError("work.policy_denied", "accepted chat input is invalid") from exc
+    assert_accepted_chat_turn_fingerprint(
+        request=restored_request,
+        expected_fingerprint=str(payload.get("request_fingerprint") or ""),
+    )
 
     # V1 worker admission deliberately supports text-only turns. Attachment
     # bytes and image URLs must not be reconstructed from an opaque browser

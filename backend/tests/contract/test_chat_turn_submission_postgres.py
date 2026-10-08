@@ -721,6 +721,71 @@ async def test_terminal_release_is_idempotent_and_cannot_clear_newer_turn(
 @pytest.mark.contract
 @pytest.mark.postgres
 @pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["cancel", "expire", "fail"])
+async def test_kernel_terminal_transition_releases_queued_chat_admission(
+    postgres_graph_context, action
+) -> None:
+    thread, owner_id, workspace_id = await _submission_context()
+    first = await submit_chat_turn(_request(thread, owner_id, workspace_id))
+    if action == "cancel":
+        finished = await work_items.cancel_work_item(first.work_item_id)
+        assert finished.status == "cancelled"
+    elif action == "expire":
+        finished = await work_items.expire_work_item(first.work_item_id)
+        assert finished.status == "expired"
+    else:
+        finished = await work_items.transition_work_item(
+            first.work_item_id, expected_status="queued", target="failed"
+        )
+        assert finished.status == "failed"
+    # No separate release call: the kernel transaction owns both facts.
+    persisted = await ChatThread.get(thread.id)
+    assert persisted is not None and persisted.active_work_item_id == ""
+    assert not await HarnessTurnAdmissionSlot.find({"work_item_id": first.work_item_id})
+    next_turn = await submit_chat_turn(
+        _request(thread, owner_id, workspace_id, request_id="after-kernel-terminal")
+    )
+    assert next_turn.status == "queued"
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_terminal_cleanup_failure_rolls_back_chat_transition(
+    postgres_graph_context, monkeypatch
+) -> None:
+    from app.agentive.services import work_outbox
+
+    thread, owner_id, workspace_id = await _submission_context()
+    accepted = await submit_chat_turn(_request(thread, owner_id, workspace_id))
+    cleanup = work_outbox._release_terminal_chat_admission
+
+    async def fail_after_cleanup(**kwargs):
+        await cleanup(**kwargs)
+        raise RuntimeError("synthetic cleanup failure")
+
+    monkeypatch.setattr(
+        work_outbox, "_release_terminal_chat_admission", fail_after_cleanup
+    )
+    with pytest.raises(RuntimeError, match="synthetic cleanup failure"):
+        await work_items.cancel_work_item(accepted.work_item_id)
+    item = await WorkItem.get(f"o.WorkItem.{accepted.work_item_id}")
+    assert item is not None and item.status == "queued"
+    assert item.transition_seq == 0
+    persisted = await ChatThread.get(thread.id)
+    assert persisted is not None
+    assert persisted.active_work_item_id == accepted.work_item_id
+    assert (
+        len(
+            await HarnessTurnAdmissionSlot.find({"work_item_id": accepted.work_item_id})
+        )
+        == 1
+    )
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
 async def test_enqueue_then_failure_rolls_back_outbox_and_message(
     postgres_graph_context, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -886,3 +951,155 @@ async def test_assistant_result_rejects_reasoning_and_unapproved_metadata() -> N
         _public_parts([{"type": "reasoning", "text": "private chain of thought"}])
     with pytest.raises(ValueError, match="unsupported fields"):
         _public_metadata({"finalPayload": {"system_prompt": "private"}})
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_completed_retry_is_read_only_even_with_new_active_turn(
+    postgres_graph_context,
+    monkeypatch,
+) -> None:
+    """Recover a lost receipt without needing encryption or touching new work."""
+    from app.agentive.harness import turn_input
+    from app.services import chat_turn_submissions
+
+    thread, owner_id, workspace_id = await _submission_context()
+    request = _request(thread, owner_id, workspace_id)
+    first = await submit_chat_turn(request)
+    await work_items.cancel_work_item(first.work_item_id)
+    second = await submit_chat_turn(
+        _request(
+            thread,
+            owner_id,
+            workspace_id,
+            request_id="next-turn",
+        )
+    )
+    before = await WorkItem.get(f"o.WorkItem.{first.work_item_id}")
+    before_payload = dict(before.input_payload)
+    before_updated_at = before.updated_at
+
+    async def must_not_mutate(**_kwargs):
+        raise AssertionError("receipt retry must not mutate acceptance")
+
+    monkeypatch.setattr(turn_input, "persist_turn_input_capsule", must_not_mutate)
+    monkeypatch.setattr(
+        chat_turn_submissions, "reserve_chat_turn_admission", must_not_mutate
+    )
+    retry = await submit_chat_turn(request)
+    assert retry.work_item_id == first.work_item_id
+    assert retry.message_id == first.message_id
+    assert retry.status == "cancelled"
+    after = await WorkItem.get(f"o.WorkItem.{first.work_item_id}")
+    assert after.input_payload == before_payload
+    assert after.updated_at == before_updated_at
+    current_thread = await ChatThread.get(thread.id)
+    assert current_thread.active_work_item_id == second.work_item_id
+    assert (
+        await HarnessTurnAdmissionSlot.find({"work_item_id": first.work_item_id}) == []
+    )
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+@pytest.mark.parametrize("claimed", [False, True])
+async def test_active_receipt_retry_does_not_rewrite_accepted_input(
+    postgres_graph_context,
+    monkeypatch,
+    claimed,
+) -> None:
+    from app.agentive.harness import turn_input
+    from app.services import chat_turn_submissions
+
+    thread, owner_id, workspace_id = await _submission_context()
+    request = _request(thread, owner_id, workspace_id)
+    first = await submit_chat_turn(request)
+    if claimed:
+        await work_items.claim_due_candidate(
+            work_item_id=first.work_item_id, worker_id="receipt-test"
+        )
+    item = await WorkItem.get(f"o.WorkItem.{first.work_item_id}")
+    before_payload, before_updated = dict(item.input_payload), item.updated_at
+
+    async def must_not_mutate(**_kwargs):
+        raise AssertionError("retry must not rewrite accepted input or admission")
+
+    monkeypatch.setattr(turn_input, "persist_turn_input_capsule", must_not_mutate)
+    monkeypatch.setattr(
+        chat_turn_submissions, "reserve_chat_turn_admission", must_not_mutate
+    )
+    retry = await submit_chat_turn(request)
+    assert retry.work_item_id == first.work_item_id
+    assert retry.status == ("running" if claimed else "queued")
+    item = await WorkItem.get(f"o.WorkItem.{first.work_item_id}")
+    assert item.input_payload == before_payload
+    assert item.updated_at == before_updated
+    assert (await ChatThread.get(thread.id)).active_work_item_id == first.work_item_id
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_receipt_retry_rejects_changed_canonical_message(
+    postgres_graph_context,
+) -> None:
+    thread, owner_id, workspace_id = await _submission_context()
+    request = _request(thread, owner_id, workspace_id)
+    first = await submit_chat_turn(request)
+    message = await ChatMessage.get(first.message_id)
+    message.parts = [{"type": "text", "text": "changed after acceptance"}]
+    await message.save()
+    with pytest.raises(ResourceConflictError) as conflict:
+        await submit_chat_turn(request)
+    assert conflict.value.details["reason"] == "chat_submission_message_mismatch"
+    assert (await ChatThread.get(thread.id)).active_work_item_id == first.work_item_id
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_http_retry_retains_first_host_snapshot(postgres_graph_context) -> None:
+    from app.agentive.harness.turn_input import load_turn_input_capsule
+
+    thread, owner_id, workspace_id = await _submission_context()
+    request = _request(
+        thread,
+        owner_id,
+        workspace_id,
+        execution_context=ChatTurnExecutionContext(
+            system_context="first host snapshot"
+        ),
+    )
+    request = request.model_copy(update={"client_payload_digest": "a" * 64})
+    first = await submit_chat_turn(request)
+    changed_host = request.model_copy(
+        update={
+            "execution_context": ChatTurnExecutionContext(
+                system_context="host state after acceptance"
+            )
+        }
+    )
+    retry = await submit_chat_turn(changed_host)
+    assert retry == first
+    item = await WorkItem.get(f"o.WorkItem.{first.work_item_id}")
+    restored = await load_turn_input_capsule(
+        capsule_id=item.input_payload["capsule_id"],
+        expected_digest=item.input_payload["capsule_digest"],
+        principal_id=owner_id,
+        workspace_id=workspace_id,
+        thread_id=thread.id,
+        work_item_id=first.work_item_id,
+    )
+    assert restored.execution_context.system_context == "first host snapshot"
+    with pytest.raises(ResourceConflictError):
+        await submit_chat_turn(
+            request.model_copy(update={"client_payload_digest": "b" * 64})
+        )
+    with pytest.raises(ResourceConflictError):
+        await submit_chat_turn(
+            request.model_copy(
+                update={"parts": [{"type": "text", "text": "changed intent"}]}
+            )
+        )

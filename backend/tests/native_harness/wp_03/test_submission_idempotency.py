@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from app.schemas.agentive.work import (
     ChatTurnExecutionContext,
     ChatTurnSubmissionRequest,
+    WorkError,
 )
 from app.schemas.api.ai_chat import SendMessageRequest
 from app.services.app_operations.transaction_scope import (
@@ -16,6 +17,7 @@ from app.services.app_operations.transaction_scope import (
 from app.services.chat_turn_submissions import (
     _request_fingerprint,
     _submission_identity,
+    assert_accepted_chat_turn_fingerprint,
 )
 
 
@@ -95,6 +97,39 @@ def test_execution_context_changes_submission_fingerprint() -> None:
         execution_context=ChatTurnExecutionContext(system_context="context B")
     )
     assert _request_fingerprint(first) != _request_fingerprint(changed)
+
+
+@pytest.mark.parametrize("explicit_context", [False, True])
+def test_restored_empty_context_preserves_accepted_fingerprint(
+    explicit_context,
+) -> None:
+    accepted = _request(
+        execution_context=ChatTurnExecutionContext() if explicit_context else None
+    )
+    restored = accepted.model_copy(
+        update={"execution_context": ChatTurnExecutionContext()}
+    )
+    assert_accepted_chat_turn_fingerprint(
+        request=restored, expected_fingerprint=_request_fingerprint(accepted)
+    )
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"parts": [{"type": "text", "text": "replaced"}]},
+        {"provider_metadata": {"page_context": {"route": "/changed"}}},
+        {"parent_id": "foreign-message"},
+        {"execution_context": ChatTurnExecutionContext(system_context="new directive")},
+    ],
+)
+def test_restored_input_cannot_change_accepted_content_or_host_context(changes) -> None:
+    accepted = _request()
+    changed = accepted.model_copy(update=changes)
+    with pytest.raises(WorkError, match="accepted chat input changed"):
+        assert_accepted_chat_turn_fingerprint(
+            request=changed, expected_fingerprint=_request_fingerprint(accepted)
+        )
 
 
 @pytest.mark.parametrize(
