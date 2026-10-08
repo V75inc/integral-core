@@ -27,15 +27,18 @@ import httpx
 from app.agentive.harness.contracts import (
     HarnessExecutionScope,
     ModelRequestContextObservation,
+    ModelRouteIdentity,
     ModelUsageObservation,
     PhysicalModelRequest,
     ResolvedModelRoute,
 )
 from app.agentive.harness.pydantic_ai_compat import LiteLLMProvider, OpenAIChatModel
+from app.schemas.agentive.model_dispatch import ModelDispatchInput
 
 logger = logging.getLogger(__name__)
 
 AttemptObserver = Callable[[PhysicalModelRequest], Awaitable[None]]
+ModelAdmission = Callable[[ModelDispatchInput], Awaitable[None]]
 
 
 class _ModelStreamOutcome(str, Enum):
@@ -481,6 +484,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         observer: AttemptObserver | None = None,
         completion: Callable[..., Awaitable[Any]] | None = None,
         timeout_seconds: float = 180.0,
+        admission: ModelAdmission | None = None,
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("model request timeout must be positive")
@@ -489,6 +493,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         self._observer = observer
         self._completion = completion
         self._timeout_seconds = timeout_seconds
+        self._admission = admission
 
     async def _sdk_completion(self, **kwargs: Any) -> Any:
         completion = self._completion
@@ -626,10 +631,43 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
             kwargs["extra_body"] = extra_body
         if self._route.api_base is not None:
             kwargs["api_base"] = self._route.api_base
+        else:
+            kwargs.pop("api_base", None)
         if self._route.api_key is not None:
             kwargs["api_key"] = self._route.api_key.get_secret_value()
         else:
             kwargs.pop("api_key", None)
+
+        if self._admission is not None:
+            # Use final mapped SDK kwargs, including tools, reasoning controls
+            # and enforced output settings. Do not pass credential material to
+            # the host payload resolver or persist plaintext input there.
+            payload = {
+                key: value
+                for key, value in kwargs.items()
+                if key not in {"api_key", "api_base"}
+            }
+            await self._admission(
+                ModelDispatchInput(
+                    scope=self._scope,
+                    route=ModelRouteIdentity(
+                        provider=self._route.provider,
+                        model=self._route.model,
+                        credential_source=self._route.credential_source,
+                        credential_ref=self._route.credential_ref,
+                    ),
+                    request_id=request_id,
+                    sdk_payload_json=json.dumps(
+                        payload,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        allow_nan=False,
+                    ),
+                    endpoint_fingerprint=hashlib.sha256(
+                        (self._route.api_base or "provider-default").encode()
+                    ).hexdigest(),
+                )
+            )
 
         await self._observe(
             request_id=request_id,
@@ -730,6 +768,7 @@ def build_litellm_sdk_model(
     observer: AttemptObserver,
     completion: Callable[..., Awaitable[Any]] | None = None,
     timeout_seconds: float = 180.0,
+    admission: ModelAdmission | None = None,
 ) -> OpenAIChatModel:
     """Build an OpenAI-compatible Pydantic model over LiteLLM's in-process SDK."""
     transport = LiteLLMSDKTransport(
@@ -738,6 +777,7 @@ def build_litellm_sdk_model(
         observer=observer,
         completion=completion,
         timeout_seconds=timeout_seconds,
+        admission=admission,
     )
     http_client = httpx.AsyncClient(
         transport=transport, timeout=httpx.Timeout(timeout_seconds)

@@ -17,6 +17,7 @@ import threading
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence
 
+from app.schemas.agentive.model_dispatch import ModelDispatchInput, ModelPayloadBounds
 from app.schemas.agentive.work_price import ModelPriceRequest, ModelTokenPriceEvidence
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ MiddlewareFactory = Callable[[], Any]
 # (request, action, workspace_id) → raise or pass
 EntitlementMutationAuthorizer = Callable[[Any, str, str], Awaitable[Any]]
 ModelPriceResolver = Callable[[ModelPriceRequest], Awaitable[ModelTokenPriceEvidence]]
+ModelBoundsResolver = Callable[[ModelDispatchInput], Awaitable[ModelPayloadBounds]]
 
 _USAGE_FAILURE_IDENTITY_KEYS = (
     "workspace_id",
@@ -62,6 +64,7 @@ _background_task_factories: List[BackgroundTaskFactory] = []
 _middleware_registrations: List[MiddlewareRegistration] = []
 _entitlement_mutation_authorizer: Optional[EntitlementMutationAuthorizer] = None
 _model_price_resolver: Optional[ModelPriceResolver] = None
+_model_bounds_resolver: Optional[ModelBoundsResolver] = None
 
 _lock = threading.Lock()
 _last_usage_record_failure: Optional[Dict[str, Any]] = None
@@ -85,6 +88,19 @@ def register_model_price_resolver(fn: Optional[ModelPriceResolver]) -> None:
 def get_model_price_resolver() -> Optional[ModelPriceResolver]:
     """Used by the fail-closed work price service, never a public/model tool."""
     return _model_price_resolver
+
+
+def register_model_bounds_resolver(fn: Optional[ModelBoundsResolver]) -> None:
+    """Register trusted payload policy at host boot, never through an agent tool."""
+    global _model_bounds_resolver
+    if fn is not None and not callable(fn):
+        raise TypeError("model bounds resolver must be callable")
+    _model_bounds_resolver = fn
+
+
+def get_model_bounds_resolver() -> Optional[ModelBoundsResolver]:
+    """Missing host bounds must prevent approved bounded-work model dispatch."""
+    return _model_bounds_resolver
 
 
 def register_usage_event_recorder(fn: Optional[UsageEventRecorder]) -> None:
