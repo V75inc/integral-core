@@ -153,13 +153,16 @@ async def authorized_work_item_effect(
     preflight lease read followed by an unfenced write is not an acceptable
     substitute for durable worker effects.
     """
-    from jvspatial.core.context import get_default_context, graph_transaction
+    from jvspatial.core.context import get_default_context
 
     from app.agentive.services.work_execution import (
         deterministic_run_id,
         effect_key,
     )
     from app.schemas.agentive.work import WorkExecutionContext
+    from app.services.app_operations.transaction_scope import (
+        postgres_graph_transaction,
+    )
 
     if not isinstance(context, WorkExecutionContext):
         raise TypeError("a trusted WorkExecutionContext is required")
@@ -168,7 +171,10 @@ async def authorized_work_item_effect(
     if not context.lease_token or context.lease_fence < 1:
         raise WorkError("work.lease_lost", "execution lease is unavailable")
 
-    async with graph_transaction(database=get_default_context().database) as graph:
+    async with postgres_graph_transaction(
+        database=get_default_context().database
+    ) as transaction:
+        graph = get_default_context()
         item = await WorkItem.get(_object_id(context.work_item_id))
         if item is None:
             raise WorkError("work.not_found", "work item not found")
@@ -211,7 +217,7 @@ async def authorized_work_item_effect(
             await _cas_lease_fence_in_transaction(
                 context=context,
                 lease_expires_at=item.lease_expires_at,
-                transaction=graph.database,
+                transaction=transaction,
             )
         except WorkError as exc:
             if exc.code in {"work.lease_lost", "work.cas_conflict"}:
@@ -239,22 +245,49 @@ async def _cas_lease_fence_in_transaction(
 ) -> None:
     from app.agentive.services.work_outbox import cas_work_item_update
 
-    await cas_work_item_update(
-        context.work_item_id,
-        expected={
-            "status": "running",
-            "attempt": context.attempt,
-            "principal_id": context.principal_id,
-            "workspace_id": context.workspace_id,
-            "lease_token": context.lease_token,
-            "lease_fence": context.lease_fence,
-            "cancel_requested_at": "",
-            "lease_expires_at": lease_expires_at,
-        },
-        updates={},
-        error_code="work.lease_lost",
-        transaction=transaction,
-    )
+    expected = {
+        "status": "running",
+        "attempt": context.attempt,
+        "principal_id": context.principal_id,
+        "workspace_id": context.workspace_id,
+        "thread_id": context.thread_id,
+        "deadline_at": context.deadline_at or "",
+        "lease_token": context.lease_token,
+        "lease_fence": context.lease_fence,
+        "cancel_requested_at": "",
+    }
+    expiry = lease_expires_at
+    for retry in range(3):
+        try:
+            await cas_work_item_update(
+                context.work_item_id,
+                expected={**expected, "lease_expires_at": expiry},
+                updates={},
+                error_code="work.lease_lost",
+                transaction=transaction,
+            )
+            return
+        except WorkError as exc:
+            if retry == 2 or exc.code not in {"work.lease_lost", "work.cas_conflict"}:
+                raise
+            # A heartbeat may extend expiry between the read and the CAS. It
+            # does not change execution authority. Re-read on this same held
+            # transaction; retry only a live extension with every scope/fence,
+            # cancellation and deadline field still exactly matching.
+            current = await transaction.get("object", _object_id(context.work_item_id))
+            fields = (current or {}).get("context") or {}
+            if any(fields.get(key) != value for key, value in expected.items()):
+                raise
+            renewed = fields.get("lease_expires_at")
+            before = _parse_lease_timestamp(expiry)
+            after = _parse_lease_timestamp(renewed)
+            now = datetime.now(timezone.utc)
+            if before is None or after is None or after <= before or after <= now:
+                raise
+            deadline = _parse_lease_timestamp(context.deadline_at)
+            if deadline is not None and deadline <= now:
+                raise WorkError("work.deadline_exceeded", "execution deadline passed")
+            expiry = renewed
 
 
 def compute_retry_delay(

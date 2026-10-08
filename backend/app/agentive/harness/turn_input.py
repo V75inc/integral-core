@@ -126,6 +126,9 @@ async def persist_turn_input_capsule(
         loaded = _decode_record(record, expected_scope_key=scope_key)
         if loaded != payload:
             raise RuntimeError("turn input capsule identity is already bound")
+        # Retained schema-compatible JSON can omit newly added empty context
+        # fields. Reuse the digest of the stored bytes, not a reserialization.
+        digest = record.payload_digest
     return {"capsule_id": record_id, "capsule_digest": digest}
 
 

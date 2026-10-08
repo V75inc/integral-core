@@ -78,5 +78,6 @@ it('keeps loaded content and open details mounted throughout background refresh 
   expect(details).toHaveAttribute('open');
   expect(screen.getByText('Saved work')).toBeInTheDocument();
   expect(screen.queryByText('This home could not be loaded.')).not.toBeInTheDocument();
-  expect(screen.getByRole('status')).toHaveTextContent('Showing the last loaded information.');
+  // Query cache settlement precedes the observer's scheduled React update.
+  await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Showing the last loaded information.'));
 });

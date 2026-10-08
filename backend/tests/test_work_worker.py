@@ -44,6 +44,42 @@ async def test_unknown_kind_fails_permanently() -> None:
 
 
 @pytest.mark.asyncio
+async def test_native_chat_dispatches_to_its_atomic_handler(monkeypatch) -> None:
+    item = WorkItem(work_item_id="chat-dispatch", kind="chat_turn")
+    handler = AsyncMock(return_value=item)
+    generic_transition = AsyncMock()
+    monkeypatch.setattr(work_worker, "_handle_chat_turn", handler)
+    monkeypatch.setattr(work_items, "transition_leased", generic_transition)
+
+    assert "chat_turn" in work_worker.HANDLED_KINDS
+    assert (
+        await work_worker.execute_claimed_work(
+            item, worker_id="chat-worker", lease_seconds=45
+        )
+        is item
+    )
+    handler.assert_awaited_once_with(item, worker_id="chat-worker", lease_seconds=45)
+    generic_transition.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_chat_storage_failure_does_not_use_generic_terminal_transition(
+    monkeypatch,
+) -> None:
+    item = WorkItem(work_item_id="chat-dispatch-failure", kind="chat_turn")
+    monkeypatch.setattr(
+        work_worker,
+        "_handle_chat_turn",
+        AsyncMock(side_effect=WorkError("work.storage_transient")),
+    )
+    generic_transition = AsyncMock()
+    monkeypatch.setattr(work_items, "transition_leased", generic_transition)
+    with pytest.raises(WorkError, match="work.storage_transient"):
+        await work_worker.execute_claimed_work(item)
+    generic_transition.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_capability_requires_principal_and_workspace() -> None:
     item = await work_items.enqueue_work_item(
         kind="capability",

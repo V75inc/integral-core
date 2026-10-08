@@ -13,10 +13,9 @@ from urllib.parse import urlparse
 import pytest
 from jvspatial.core.context import GraphContext, set_default_context
 
-from app.agentive.services import execution_runs, work_items
+from app.agentive.services import execution_runs, work_items, work_worker
 from app.agentive.services.execution_runs import AgentRun
 from app.agentive.services.work_execution import deterministic_run_id
-from app.agentive.services.work_worker import _handle_chat_turn
 from app.agentive.work_models import WorkItem
 from app.models.edges import CONTAINS, IS_MEMBER_OF
 from app.models.nodes import ChatThread
@@ -261,7 +260,7 @@ async def postgres_graph_context(postgres_raw_db):
         manager.set_prime_database(previous_database)
 
 
-async def _submitted_claimed_turn() -> tuple[WorkItem, str]:
+async def _submitted_claimed_turn(*, claim: bool = True) -> tuple[WorkItem, str]:
     """Create a real scoped user message, encrypted capsule, and lease."""
     from app.services.app_graph import catalog_workspace, ensure_integral_app_graph
 
@@ -288,6 +287,10 @@ async def _submitted_claimed_turn() -> tuple[WorkItem, str]:
             parts=[{"type": "text", "text": "Give a concise answer."}],
         )
     )
+    if not claim:
+        queued = await WorkItem.get(f"o.WorkItem.{receipt.work_item_id}")
+        assert queued is not None
+        return queued, owner_id
     claimed = await work_items.claim_due_candidate(
         worker_id=f"worker-{suffix}",
         lease_seconds=120,
@@ -366,7 +369,7 @@ async def test_worker_commits_events_and_one_usage_bearing_transcript(
     """The durable worker commits replayable output before succeeding once."""
     from app.services import chat_providers
 
-    item, principal_id = await _submitted_claimed_turn()
+    item, principal_id = await _submitted_claimed_turn(claim=False)
     provider = _Provider(
         [
             {"type": "_meta", "provider_session_id": "private-session"},
@@ -388,8 +391,11 @@ async def test_worker_commits_events_and_one_usage_bearing_transcript(
     monkeypatch.setattr(chat_providers, "get_registry", lambda: _Registry(provider))
     monkeypatch.setattr(execution_runs, "start_run", _fake_start_run)
 
-    finished = await _handle_chat_turn(item, worker_id="worker-1", lease_seconds=120)
+    finished = await work_worker.process_one_due_item(
+        work_item_id=item.work_item_id, worker_id="worker-1", lease_seconds=120
+    )
 
+    assert finished is not None
     assert finished.status == "succeeded"
     assert provider.calls == 1
     page = await replay_work_item_chat_events(
@@ -403,6 +409,7 @@ async def test_worker_commits_events_and_one_usage_bearing_transcript(
     assert all("provider_session_id" not in event for event in page.events)
     thread = await ChatThread.get(item.thread_id)
     assert thread is not None
+    assert thread.active_work_item_id == ""
     messages = await thread.nodes(
         edge=[CONTAINS], node=["ChatMessage"], direction="out", limit=10
     )
@@ -417,7 +424,7 @@ async def test_worker_commits_events_and_one_usage_bearing_transcript(
         {
             "run_id": deterministic_run_id(
                 work_item_id=item.work_item_id,
-                attempt=item.attempt,
+                attempt=finished.attempt,
             )
         }
     )
@@ -427,6 +434,62 @@ async def test_worker_commits_events_and_one_usage_bearing_transcript(
         "chat_message_id": item.input_payload["accepted_message_id"],
     }
     assert "Give a concise answer." not in repr(run.metadata)
+    assert (
+        await work_worker.process_one_due_item(
+            work_item_id=item.work_item_id, worker_id="worker-2", lease_seconds=120
+        )
+        is None
+    )
+    assert provider.calls == 1
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", ["provider_unavailable", "tampered_message"])
+async def test_dispatcher_failure_releases_accepted_turn_admission(
+    postgres_graph_context, monkeypatch, reason
+) -> None:
+    from app.models.harness_records import HarnessTurnAdmissionSlot
+    from app.models.nodes import ChatMessage
+    from app.services import chat_providers
+
+    item, _ = await _submitted_claimed_turn(claim=False)
+    provider = _Provider([])
+    if reason == "provider_unavailable":
+        monkeypatch.setattr(provider, "is_available", lambda: False)
+    else:
+        message = await ChatMessage.get(item.input_payload["accepted_message_id"])
+        assert message is not None
+        message.parts = [{"type": "text", "text": "Changed after acceptance."}]
+        await message.save()
+    monkeypatch.setattr(chat_providers, "get_registry", lambda: _Registry(provider))
+    monkeypatch.setattr(execution_runs, "start_run", _fake_start_run)
+
+    finished = await work_worker.process_one_due_item(
+        work_item_id=item.work_item_id, worker_id="worker-failure", lease_seconds=120
+    )
+    assert finished is not None
+    assert finished.status == "failed"
+    assert finished.failure is not None
+    assert finished.failure["class"] == "permanent"
+    assert finished.failure["retryable"] is False
+    assert provider.calls == 0
+    thread = await ChatThread.get(item.thread_id)
+    assert thread is not None
+    assert thread.active_work_item_id == ""
+    assert not await HarnessTurnAdmissionSlot.find({"work_item_id": item.work_item_id})
+    # Acceptance of another turn proves the thread reservation was released.
+    follow_up = await submit_chat_turn(
+        ChatTurnSubmissionRequest(
+            principal_id=item.principal_id,
+            workspace_id=item.workspace_id,
+            thread_id=item.thread_id,
+            client_request_id=f"after-failure-{uuid.uuid4().hex}",
+            parts=[{"type": "text", "text": "A new user request."}],
+        )
+    )
+    assert follow_up.status == "queued"
 
 
 @pytest.mark.contract
@@ -443,7 +506,7 @@ async def test_worker_fails_closed_when_provider_stream_has_no_finish_event(
     monkeypatch.setattr(chat_providers, "get_registry", lambda: _Registry(provider))
     monkeypatch.setattr(execution_runs, "start_run", _fake_start_run)
 
-    finished = await _handle_chat_turn(
+    finished = await work_worker.execute_claimed_work(
         item, worker_id="worker-incomplete", lease_seconds=120
     )
 
@@ -493,7 +556,7 @@ async def test_worker_times_out_and_cancels_a_stalled_provider_stream(
     monkeypatch.setattr(chat_providers, "get_registry", lambda: _Registry(provider))
     monkeypatch.setattr(execution_runs, "start_run", _fake_start_run)
 
-    finished = await _handle_chat_turn(
+    finished = await work_worker.execute_claimed_work(
         item, worker_id="worker-timeout", lease_seconds=120
     )
 
@@ -822,7 +885,9 @@ async def test_cancelled_worker_persists_committed_partial_output(
     monkeypatch.setattr(chat_providers, "get_registry", lambda: _Registry(provider))
     monkeypatch.setattr(execution_runs, "start_run", _fake_start_run)
 
-    finished = await _handle_chat_turn(item, worker_id="worker-2", lease_seconds=120)
+    finished = await work_worker.execute_claimed_work(
+        item, worker_id="worker-2", lease_seconds=120
+    )
 
     assert finished.status == "cancelled"
     page = await replay_work_item_chat_events(
@@ -885,9 +950,11 @@ async def test_retry_after_transcript_write_does_not_repeat_model_request(
         chat_turn_worker, "terminalize_chat_turn", crash_after_transcript
     )
     with pytest.raises(RuntimeError, match="simulated worker death"):
-        await _handle_chat_turn(item, worker_id="worker-crash", lease_seconds=120)
+        await work_worker.execute_claimed_work(
+            item, worker_id="worker-crash", lease_seconds=120
+        )
 
-    finished = await _handle_chat_turn(
+    finished = await work_worker.execute_claimed_work(
         item, worker_id="worker-recovery", lease_seconds=120
     )
 
@@ -937,9 +1004,11 @@ async def test_retry_after_terminal_event_does_not_repeat_model_request(
         crash_before_transcript,
     )
     with pytest.raises(RuntimeError, match="after terminal event"):
-        await _handle_chat_turn(item, worker_id="worker-crash", lease_seconds=120)
+        await work_worker.execute_claimed_work(
+            item, worker_id="worker-crash", lease_seconds=120
+        )
 
-    finished = await _handle_chat_turn(
+    finished = await work_worker.execute_claimed_work(
         item, worker_id="worker-recovery", lease_seconds=120
     )
 

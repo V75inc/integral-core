@@ -309,12 +309,16 @@ export function Modal({
      stacked; keying on ``sidePanel`` meant hiding the panel collapsed the
      dialog to its content height. */
   const holdsPanel = hasCompanionPanel ?? Boolean(sidePanel);
+  // The system bar stays above overlays. Reserve its measured height in both
+  // the container and panel sizing, including tall and mobile sheets.
   const heightFloor = tall
-    ? 'sm:min-h-[85vh]'
+    ? 'sm:min-h-[calc(85dvh-var(--system-bar-h,0px))]'
     : holdsPanel
-      ? 'sm:min-h-[80vh]'
+      ? 'sm:min-h-[calc(80dvh-var(--system-bar-h,0px))]'
       : 'sm:min-h-0';
-  const heightCap = tall ? 'sm:max-h-[95vh]' : 'sm:max-h-[90vh]';
+  const heightCap = tall
+    ? 'sm:max-h-[calc(95dvh-var(--system-bar-h,0px))]'
+    : 'sm:max-h-[calc(90dvh-var(--system-bar-h,0px))]';
   // Outer container.
   //
   // Full-bleed mode: at mobile the panel is positioned absolutely to
@@ -347,17 +351,15 @@ export function Modal({
     : fullBleed
     ? [
         'bg-[var(--panel)] flex flex-col outline-none focus:outline-none',
-        // Mobile: full viewport sheet. Explicit ``h-[100dvh]`` /
-        // ``min-h-[100dvh]`` / ``w-[100dvw]`` pins the panel to the
-        // dynamic viewport (DVH adapts to iOS Safari URL-bar
-        // visibility). ``max-h-none`` and ``max-sm:max-w-none`` clear
+        // Mobile: fill the container below the system bar. Percent heights
+        // track its available space as the banner wraps or dismisses. ``max-h-none`` and ``max-sm:max-w-none`` clear
         // any inherited cap on mobile — the ``max-sm:`` prefix scopes
         // the override to below the sm breakpoint so it doesn't
         // compete with the unprefixed ``${width}`` cap at sm+.
         // (Tailwind sorts arbitrary ``max-w-[Npx]`` differently from
         // named tokens; without ``max-sm:`` here, an arbitrary-value
         // width cap loses to ``max-w-none`` at desktop.)
-        'absolute inset-0 h-[100dvh] min-h-[100dvh] w-[100dvw] max-h-none max-sm:max-w-none rounded-none border-0 shadow-none',
+        'absolute inset-0 h-full min-h-full w-full max-h-none max-sm:max-w-none rounded-none border-0 shadow-none',
         // sm+: re-enable normal floating-dialog flow. ``sm:h-auto``
         // unsets the mobile height; ``sm:w-full`` re-establishes flex
         // width inside the centered container before ``${width}`` caps it;
@@ -373,7 +375,7 @@ export function Modal({
       ].join(' ')
     : [
         'relative bg-[var(--panel)] flex flex-col outline-none focus:outline-none',
-        `w-full ${effectiveWidth} max-h-[95vh] sm:max-h-[90vh]`,
+        `w-full ${effectiveWidth} max-h-[calc(95dvh-var(--system-bar-h,0px))] sm:max-h-[calc(90dvh-var(--system-bar-h,0px))]`,
         'rounded-t-[var(--radius-card)] sm:rounded-[var(--radius-card)]',
         'border border-[var(--panel-border)] shadow-[var(--shadow-pop)]',
         // Same rationale as the full-bleed branch — clip children at
@@ -400,11 +402,10 @@ export function Modal({
          The var is published by AssistantDockContext and is already 0
          whenever the dock isn't squeezing (closed, mobile, /agent), so even
          when opted in this is inert in every other case. */
-      style={
-        placement === 'right'
-          ? { top: 'var(--system-bar-h, 0px)', ...(allowAssistantDock ? { right: 'var(--assistant-dock-w, 0px)' } : {}) }
-          : allowAssistantDock ? { right: 'var(--assistant-dock-w, 0px)' } : undefined
-      }
+      style={{
+        top: 'var(--system-bar-h, 0px)',
+        ...(allowAssistantDock ? { right: 'var(--assistant-dock-w, 0px)' } : {}),
+      }}
     >
       {/* Quiet Premium scrim — softer than 40% so the editorial
           surfaces below remain legible and the dialog reads as a beat

@@ -89,3 +89,32 @@ def test_native_chat_projection_preserves_safe_parts() -> None:
         "error": {"code": "provider_error", "message": "The provider failed."},
     }
     assert "not persisted" not in repr(parts)
+
+
+def test_native_chat_projection_updates_one_part_per_tool_call() -> None:
+    parts, _ = _native_chat_transcript(
+        [
+            {
+                "type": "tool-call",
+                "toolCallId": "a",
+                "name": "read",
+                "status": "running",
+            },
+            {
+                "type": "tool-call",
+                "toolCallId": "b",
+                "name": "list",
+                "status": "running",
+            },
+            {
+                "type": "tool-call",
+                "toolCallId": "a",
+                "name": "read",
+                "status": "complete",
+            },
+            {"type": "tool-call", "toolCallId": "b", "name": "list", "status": "error"},
+        ]
+    )
+    assert [part["toolCallId"] for part in parts] == ["a", "b"]
+    assert [part["status"] for part in parts] == ["complete", "error"]
+    assert [part["isError"] for part in parts] == [False, True]

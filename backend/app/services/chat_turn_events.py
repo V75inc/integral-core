@@ -235,6 +235,34 @@ async def replay_work_item_chat_events(
     after_sequence: int = 0,
     limit: int = 200,
 ) -> ChatEventReplayPage:
+    """Read a fresh committed page without long-lived graph entity caches."""
+    from app.services.app_operations.transaction_scope import (
+        postgres_graph_transaction,
+    )
+
+    # Each SSE poll needs current shared-store status/cursor, not the cached
+    # running row from acceptance. The transaction provides an isolated graph
+    # context and bypasses observable database cache decorators.
+    async with postgres_graph_transaction():
+        return await _read_chat_event_page(
+            principal_id=principal_id,
+            workspace_id=workspace_id,
+            thread_id=thread_id,
+            work_item_id=work_item_id,
+            after_sequence=after_sequence,
+            limit=limit,
+        )
+
+
+async def _read_chat_event_page(
+    *,
+    principal_id: str,
+    workspace_id: str,
+    thread_id: str,
+    work_item_id: str,
+    after_sequence: int,
+    limit: int,
+) -> ChatEventReplayPage:
     """Read events, status, and cursor within the exact chat scope."""
     if after_sequence < 0 or not 1 <= limit <= 500:
         raise ValueError("invalid chat event replay cursor or limit")

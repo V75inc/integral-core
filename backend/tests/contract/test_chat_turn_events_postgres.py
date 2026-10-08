@@ -190,3 +190,42 @@ async def test_postgres_concurrent_chat_event_append_has_one_sequence_order(
     )
 
     assert {event["sequence"] for event in events} == {1, 2}
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_replay_refreshes_cached_status_after_independent_terminal_commit(
+    postgres_graph_context: Any,
+    postgres_raw_db: Any,
+) -> None:
+    """A live replay must observe another task's commit and stop polling."""
+    from jvspatial.core.context import _default_context_var
+
+    item, context = await _claimed_chat_turn()
+    # Simulate the long-lived stream's initial cached WorkItem read.
+    cached = await WorkItem.get(item.id)
+    assert cached is not None
+    assert cached.status == "running"
+    initial = await replay_work_item_chat_events(
+        principal_id=context.principal_id,
+        workspace_id=context.workspace_id,
+        thread_id=context.thread_id,
+        work_item_id=item.work_item_id,
+    )
+    assert initial.work_status == "running"
+    token = set_default_context(GraphContext(database=postgres_raw_db))
+    try:
+        committed = await WorkItem.get(item.id)
+        assert committed is not None
+        committed.status = "succeeded"
+        await committed.save()
+    finally:
+        _default_context_var.reset(token)
+    final = await replay_work_item_chat_events(
+        principal_id=context.principal_id,
+        workspace_id=context.workspace_id,
+        thread_id=context.thread_id,
+        work_item_id=item.work_item_id,
+    )
+    assert final.work_status == "succeeded"

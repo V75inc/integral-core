@@ -566,6 +566,12 @@ async def _transition_postgres(
                 run_id=str(field_updates.get("run_id") or ctx.get("run_id") or ""),
             ),
         )
+        await _release_terminal_chat_admission(
+            transaction=txn,
+            context=ctx,
+            work_item_id=bare_id,
+            target=target,
+        )
         if owns_txn:
             await db.commit_transaction(txn)
         item = _hydrate_work_item(updated)
@@ -774,6 +780,30 @@ async def cas_work_item_update(
         )
 
 
+async def _release_terminal_chat_admission(
+    *,
+    transaction: Any,
+    context: Dict[str, Any],
+    work_item_id: str,
+    target: Any,
+) -> None:
+    """Join chat admission cleanup to every shared-store terminal transition."""
+    from app.schemas.agentive.work import TERMINAL_WORK_STATUSES
+
+    if context.get("kind") != "chat_turn" or target not in TERMINAL_WORK_STATUSES:
+        return
+    from app.services.chat_turn_admission import (
+        release_chat_turn_admission_in_transaction,
+    )
+
+    await release_chat_turn_admission_in_transaction(
+        transaction=transaction,
+        thread=None,
+        thread_id=str(context.get("thread_id") or ""),
+        work_item_id=work_item_id,
+    )
+
+
 async def _cas_postgres(
     *,
     db: Any,
@@ -829,6 +859,12 @@ async def _cas_postgres(
                     created_at=now,
                 ),
             )
+        await _release_terminal_chat_admission(
+            transaction=txn,
+            context=ctx,
+            work_item_id=bare_id,
+            target=updates.get("status"),
+        )
         if owns_txn:
             await db.commit_transaction(txn)
         item = _hydrate_work_item(updated)

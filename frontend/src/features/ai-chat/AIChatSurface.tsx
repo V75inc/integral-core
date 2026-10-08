@@ -29,7 +29,7 @@ const ChatActivityContext = createContext<{
   activityText: string | null;
   isRunning: boolean;
   streamError: string | null;
-  appendAssistantNote: (text: string) => void;
+  appendAssistantNote: (text: string) => Promise<string | null>;
   activeProviderSessionId: string | null;
   activeProviderId: string;
   /** ChatThread node id for the open thread — what the questions/staging
@@ -48,7 +48,7 @@ const ChatActivityContext = createContext<{
   activityText: null,
   isRunning: false,
   streamError: null,
-  appendAssistantNote: () => {},
+  appendAssistantNote: async () => null,
   activeProviderSessionId: null,
   activeProviderId: "",
   activeThreadId: null,

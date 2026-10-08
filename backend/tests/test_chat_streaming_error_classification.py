@@ -39,3 +39,32 @@ def test_harness_usage_limit_has_an_actionable_message() -> None:
     assert code == "harness_usage_limit"
     assert "safe generation limit" in message
     assert "80000" not in message
+
+
+def test_first_conversation_state_conflict_is_not_described_as_prior_work(
+    caplog,
+) -> None:
+    exc = ResourceConflictError(
+        message="private exception text",
+        details={
+            "reason": "harness_checkpoint_manifest_unavailable",
+            "private": "do not log",
+        },
+    )
+    code, message = classify_turn_exception(exc)
+    assert code == "harness_reconciliation_required"
+    assert "could not safely complete" in message
+    assert "earlier" not in message
+    assert "harness_checkpoint_manifest_unavailable" in caplog.text
+    assert "private" not in caplog.text
+    assert "do not log" not in caplog.text
+
+
+def test_unrecognized_harness_conflict_logs_only_fixed_fallback(caplog) -> None:
+    exc = ResourceConflictError(
+        message="private exception text",
+        details={"reason": "harness_private_identifier_do_not_log"},
+    )
+    classify_turn_exception(exc)
+    assert "harness_unclassified_conflict" in caplog.text
+    assert "private" not in caplog.text

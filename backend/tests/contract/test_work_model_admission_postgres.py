@@ -25,6 +25,7 @@ from tests.contract.test_work_budgets_postgres import (
     ledger,
 )
 from tests.contract.test_work_model_receipts_postgres import scope_for
+from tests.fixtures.encryption import encrypted_model_storage
 
 pytestmark = [pytest.mark.contract, pytest.mark.postgres, pytest.mark.asyncio]
 
