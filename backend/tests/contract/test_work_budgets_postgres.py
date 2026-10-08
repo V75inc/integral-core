@@ -398,3 +398,81 @@ async def test_replay_rejects_missing_cost_hold(budget_root):
     with pytest.raises(WorkError) as exc:
         await reserve(root, req)
     assert exc.value.code == "work.budget_invalid"
+
+
+@pytest.mark.parametrize("global_limit", [10, 3])
+async def test_two_destinations_have_independent_counts_and_shared_global_limit(
+    global_limit,
+):
+    payload = mandate_payload()
+    payload["grants"][0].update(operation="external_effect", max_calls=10)
+    payload["limits"].update(max_external_effects=global_limit, max_tool_calls=10)
+    payload["external_grants"] = [
+        {
+            "capability_key": "records.read",
+            "provider": "provider-1",
+            "credential_ref": "key-ref-1",
+            "operation": "deliver",
+            "destination": destination,
+            "max_effects": 2,
+        }
+        for destination in ("destination-a", "destination-b")
+    ]
+    root, payload, db = await approved_root(payload)
+
+    # Build exact external scope before validating its required effect volume.
+    def scoped(index, units=2, effect=None):
+        route = payload["model_routes"][0]
+        return MandateReservationRequest.model_validate(
+            {
+                "logical_effect_key": effect or f"destination:{index}",
+                "input_fingerprint": "a" * 64,
+                "capability_grant": payload["grants"][0],
+                "external_grant": payload["external_grants"][index],
+                "external_effect_units": units,
+                "quote": {
+                    **{k: route[k] for k in ("provider", "model", "credential_ref")},
+                    "quote_ref": "synthetic-quote",
+                    "valid_until": "2030-01-01T09:00:00Z",
+                    "upper_cost": "0",
+                },
+            }
+        )
+
+    await reserve(root, scoped(0))
+    if global_limit == 3:
+        with pytest.raises(WorkError) as exc:
+            await reserve(root, scoped(1))
+        assert exc.value.code == "work.budget_exhausted"
+        assert (await ledger(db, root))["external_effects"] == 2
+        return
+    await reserve(root, scoped(1))
+    await reserve(root, scoped(1))
+    saved = await ledger(db, root)
+    assert saved["external_effects"] == 4
+    assert saved["external_effects_by_capability"] == {"records.read": 4}
+    assert sorted(saved["external_effects_by_grant"].values()) == [2, 2]
+    with pytest.raises(WorkError) as exc:
+        await reserve(root, scoped(0, 1, "extra:first-destination"))
+    assert exc.value.code == "work.budget_exhausted"
+    assert await ledger(db, root) == saved
+
+
+@pytest.mark.parametrize("external_count", [0, 1])
+async def test_legacy_external_attribution_is_not_guessed(budget_root, external_count):
+    root, payload, db = budget_root
+    await reserve(root, request(payload, "before-upgrade", "0"))
+    saved = await ledger(db, root)
+    del saved["external_effects_by_grant"]
+    saved["external_effects"] = external_count
+    await db.find_one_and_update(
+        "object", {"id": root.id}, {"$set": {"context.plan.mandate_budget": saved}}
+    )
+    if external_count:
+        with pytest.raises(WorkError) as exc:
+            await reserve(root, request(payload, "after-upgrade", "0"))
+        assert exc.value.code == "work.budget_attribution_required"
+        assert await ledger(db, root) == saved
+    else:
+        await reserve(root, request(payload, "after-upgrade", "0"))
+        assert (await ledger(db, root))["external_effects_by_grant"] == {}
