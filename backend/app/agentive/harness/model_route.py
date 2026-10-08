@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 from typing import Any
 
@@ -99,7 +101,9 @@ async def resolve_native_model_route(
         resolve_agent_model_override,
     )
 
-    override: dict[str, Any] | None = await resolve_agent_model_override(workspace_id)
+    override: dict[str, Any] | None = await resolve_agent_model_override(
+        workspace_id, include_credential_identity=True
+    )
     if not override:
         local_route = provider == "ollama"
         model = default_model
@@ -133,6 +137,14 @@ async def resolve_native_model_route(
             ollama_think=ollama_think,
             ollama_clear_thinking=ollama_clear_thinking,
             credential_source="local" if local_route else "platform",
+            # The operator supplies a versioned nonsecret reference for the
+            # environment/remote daemon credential generation. Missing means
+            # unattributed; never invent identity from a provider/model name.
+            credential_ref=(
+                _local_credential_ref("deployment", api_base)
+                if local_route
+                else _deployment_credential_ref()
+            ),
         )
 
     slots = override.get("slots") or {}
@@ -174,4 +186,31 @@ async def resolve_native_model_route(
         ollama_think=ollama_think,
         ollama_clear_thinking=ollama_clear_thinking,
         credential_source="local" if local_route else "workspace_byok",
+        credential_ref=(
+            _local_credential_ref(override.get("credential_ref"), api_base)
+            if local_route
+            else override.get("credential_ref")
+        ),
     )
+
+
+def _deployment_credential_ref() -> str | None:
+    raw = os.getenv("INTEGRAL_NATIVE_CREDENTIAL_REF")
+    if raw is None or raw == "":
+        return None
+    if raw != raw.strip() or len(raw) > 255 or not raw.strip():
+        raise ValueError(
+            "deployment credential reference must be canonical and bounded"
+        )
+    return raw
+
+
+def _local_credential_ref(profile_ref: str | None, api_base: str | None) -> str | None:
+    # A keyless workspace model profile does not identify the remote daemon's
+    # credentials. Bind both profile generation and operator-owned daemon
+    # generation, including the endpoint. Cloud-on-Ollama is not free-by-default.
+    deployment = _deployment_credential_ref()
+    if not profile_ref or not deployment:
+        return None
+    identity = json.dumps([profile_ref, deployment, api_base], separators=(",", ":"))
+    return "local-model-generation:" + hashlib.sha256(identity.encode()).hexdigest()
