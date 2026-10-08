@@ -508,7 +508,8 @@ export function EntryDetail({
   // that is simply always there is predictable; the header toggle is for
   // hiding it deliberately, and that choice lasts until the dialog closes.
   const [commentsPanelOpen, setCommentsPanelOpen] = useState(true);
-  const [panelTab, setPanelTab] = useState<PanelTabKey>('comments');
+  const [panelTab, setPanelTab] = useState<PanelTabKey>(variant === 'page' ? 'attachments' : 'comments');
+  const [pageDetailsRequested, setPageDetailsRequested] = useState(false);
   /* Below `sm` the dialog is full-bleed, so there is no "beside" to render
      into — the panel moves into the body instead of vanishing, which is what
      it did when it was `hidden sm:flex` with no fallback: comments,
@@ -518,10 +519,10 @@ export function EntryDetail({
   useEffect(() => {
     didFocusComments.current = false;
     setCommentsPanelOpen(true);
-    // A new record starts on the discussion, not on whichever tab the last
-    // one happened to be left on.
-    setPanelTab('comments');
-  }, [initialEntry.id]);
+    // Reset utilities for each record: page files, dialog discussion.
+    setPanelTab(variant === 'page' ? 'attachments' : 'comments');
+    setPageDetailsRequested(false);
+  }, [initialEntry.id, variant]);
 
   // Opening from a "Comments" affordance should land on that tab.
   useEffect(() => {
@@ -1467,21 +1468,23 @@ export function EntryDetail({
 
   const panelNode = (
     <>
-      <ViewTabs
+      {variant !== 'page' && <ViewTabs
         options={panelTabOptions}
         value={panelTab}
         onChange={setPanelTab}
         ariaLabel="Entry details"
         size="sm"
         className="shrink-0 px-2"
-      />
+      />}
       <div
         ref={commentsAnchorRef}
         id="entry-panel-body"
-        role="tabpanel"
+        role={variant === 'page' ? 'region' : 'tabpanel'}
         aria-label={PANEL_TABS.find(t => t.key === panelTab)?.label}
         className={
-          showSideColumn
+          variant === 'page'
+            ? 'max-h-[24rem] overflow-y-auto px-4 py-3'
+            : showSideColumn
             ? 'flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-3'
             : 'px-1 py-3'
         }
@@ -1514,6 +1517,7 @@ export function EntryDetail({
               {attachmentsForDisplay.length > 0 && (
                 <AttachmentRowList
                   attachments={attachmentsForDisplay}
+                  layout={variant === 'page' ? 'strip' : 'list'}
                   canDelete={canEdit}
                   canSetCardPreview={canEdit}
                   cardPreviewAttachmentId={
@@ -1640,7 +1644,25 @@ export function EntryDetail({
           body and always present, so a show/hide control there would toggle
           nothing the user cannot already see. Icon swaps with state
           (PanelRightOpen/Close), matching the track activity-rail toggle. */}
-      {showSideColumn && (
+      {variant === 'page' ? (
+        <>
+          {panelTabOptions.map(option => {
+            const selected = commentsPanelOpen && panelTab === option.value &&
+              (option.value !== 'attachments' || attachmentsForDisplay.length > 0 || pageDetailsRequested);
+            return <IconButton key={option.value}
+              label={`${selected ? 'Hide' : 'Show'} ${option.value}`}
+              title={`${option.label}${option.count != null ? ` (${option.count})` : ''}`}
+              size="md" aria-expanded={selected} aria-controls="entry-panel-body"
+              onClick={() => {
+                setPageDetailsRequested(true);
+                setPanelTab(option.value);
+                setCommentsPanelOpen(!selected);
+              }}>
+              {option.icon}
+            </IconButton>;
+          })}
+        </>
+      ) : showSideColumn && (
         <IconButton
           label={commentsPanelOpen ? 'Hide details panel' : 'Show details panel'}
           title={commentsPanelOpen ? 'Hide details panel' : 'Show details panel'}
@@ -1751,7 +1773,9 @@ export function EntryDetail({
       onClose={onClose}
       title={titleSlot}
       headerActions={headerActions}
-      sidePanel={showSideColumn && commentsPanelOpen ? panelNode : undefined}
+      sidePanel={commentsPanelOpen && (variant === 'page'
+        ? attachmentsForDisplay.length > 0 || panelTab !== 'attachments' || pageDetailsRequested
+        : showSideColumn) ? panelNode : undefined}
       /* The panel is part of this surface even when it is hidden or stacked
          into the body, so the dialog keeps its height either way. */
       hasCompanionPanel
@@ -1956,7 +1980,7 @@ export function EntryDetail({
                   desktop column — chosen, never duplicated — so comments,
                   attachments and activity stay reachable on a phone instead
                   of disappearing with the side column. */}
-              {!showSideColumn && (
+              {!showSideColumn && variant !== 'page' && (
                 <section className="mt-6 border-t border-[var(--panel-border)] pt-2">
                   {panelNode}
                 </section>
