@@ -1021,3 +1021,37 @@ async def test_postgres_lineage_reads_persisted_root_controls_and_approval():
             thread_id="thread-1",
         )
     assert exc.value.code == "work.mandate_inactive"
+
+
+def test_budget_money_and_fingerprint_ignore_decimal_context():
+    from decimal import Decimal, localcontext
+
+    from app.schemas.agentive.work_budget import MandateReservationRequest, money_units
+
+    payload = mandate_payload()
+    request = MandateReservationRequest.model_validate(
+        {
+            "logical_effect_key": "model:1",
+            "input_fingerprint": "a" * 64,
+            "model_route": payload["model_routes"][0],
+            "quote": {
+                "provider": "provider-1",
+                "model": "model-1",
+                "credential_ref": "key-ref-1",
+                "quote_ref": "synthetic-quote",
+                "valid_until": "2030-01-01T09:00:00Z",
+                "upper_cost": "12345.60000000",
+            },
+        }
+    )
+    expected = request.fingerprint()
+    with localcontext() as context:
+        context.prec = 3
+        assert money_units(Decimal("12345.60000000")) == 1234560000000
+        assert request.fingerprint() == expected
+    equivalent = request.model_dump(mode="json")
+    equivalent["quote"]["upper_cost"] = "12345.6"
+    equivalent["quote"]["valid_until"] = "2030-01-01T05:00:00-04:00"
+    assert (
+        MandateReservationRequest.model_validate(equivalent).fingerprint() == expected
+    )
