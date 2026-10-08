@@ -379,3 +379,105 @@ async def test_shared_personal_workspace_guest_can_remove_it_from_their_list(
     after = await second_user_client.get("/api/workspaces")
     assert after.status_code == 200, after.text
     assert all(w["id"] != workspace_id for w in after.json()["workspaces"])
+
+
+@pytest.mark.asyncio
+async def test_leave_workspace_revokes_app_collaborator_edges(
+    authenticated_client: AsyncClient,
+    second_user_client: AsyncClient,
+    second_user,
+):
+    if not second_user or not getattr(second_user, "id", None):
+        pytest.skip("second_user unavailable")
+
+    created = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Leave clears collab"}
+    )
+    assert created.status_code == 200, created.text
+    workspace_id = created.json()["workspace"]["id"]
+    scope = {"X-Integral-Scope": f"ws:{workspace_id}"}
+
+    added = await authenticated_client.post(
+        f"/api/workspaces/{workspace_id}/members",
+        json={"member_user_id": second_user.id, "role": "guest"},
+    )
+    assert added.status_code == 200, added.text
+
+    app_resp = await authenticated_client.post(
+        "/api/apps",
+        json={"name": "Shared before leave", "visibility": "private"},
+        headers=scope,
+    )
+    assert app_resp.status_code == 200, app_resp.text
+    app_id = app_resp.json()["app"]["id"]
+
+    collab = await authenticated_client.post(
+        f"/api/apps/{app_id}/collaborators",
+        json={"collaborator_user_id": second_user.id, "role": "viewer"},
+    )
+    assert collab.status_code == 200, collab.text
+
+    left = await second_user_client.delete(f"/api/workspaces/{workspace_id}/membership")
+    assert left.status_code == 200, left.text
+
+    listing = await authenticated_client.get(f"/api/apps/{app_id}/collaborators")
+    assert listing.status_code == 200, listing.text
+    collab_ids = {
+        c.get("id") or c.get("user_id") for c in listing.json()["collaborators"]
+    }
+    assert second_user.id not in collab_ids
+
+    denied = await second_user_client.get(f"/api/apps/{app_id}", headers=scope)
+    assert denied.status_code in (403, 404), denied.text
+
+
+@pytest.mark.asyncio
+async def test_remove_member_revokes_app_collaborator_edges(
+    authenticated_client: AsyncClient,
+    second_user_client: AsyncClient,
+    second_user,
+):
+    if not second_user or not getattr(second_user, "id", None):
+        pytest.skip("second_user unavailable")
+
+    created = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Remove clears collab"}
+    )
+    assert created.status_code == 200, created.text
+    workspace_id = created.json()["workspace"]["id"]
+    scope = {"X-Integral-Scope": f"ws:{workspace_id}"}
+
+    added = await authenticated_client.post(
+        f"/api/workspaces/{workspace_id}/members",
+        json={"member_user_id": second_user.id, "role": "guest"},
+    )
+    assert added.status_code == 200, added.text
+
+    app_resp = await authenticated_client.post(
+        "/api/apps",
+        json={"name": "Shared before remove", "visibility": "private"},
+        headers=scope,
+    )
+    assert app_resp.status_code == 200, app_resp.text
+    app_id = app_resp.json()["app"]["id"]
+
+    collab = await authenticated_client.post(
+        f"/api/apps/{app_id}/collaborators",
+        json={"collaborator_user_id": second_user.id, "role": "viewer"},
+    )
+    assert collab.status_code == 200, collab.text
+
+    removed = await authenticated_client.delete(
+        f"/api/workspaces/{workspace_id}/members/{second_user.id}"
+    )
+    assert removed.status_code == 200, removed.text
+
+    listing = await authenticated_client.get(f"/api/apps/{app_id}/collaborators")
+    assert listing.status_code == 200, listing.text
+    collab_ids = {
+        c.get("id") or c.get("user_id") for c in listing.json()["collaborators"]
+    }
+    assert second_user.id not in collab_ids
+
+    denied = await second_user_client.get(f"/api/apps/{app_id}", headers=scope)
+    assert denied.status_code in (403, 404), denied.text

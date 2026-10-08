@@ -112,6 +112,39 @@ async def bless_and_execute(
         autonomy="single",
         decision_source=decision_source,
     )
+    return await execute_blessed_change(
+        user_id=user_id,
+        token=token,
+        request=request,
+        staged=sc,
+    )
+
+
+async def execute_blessed_change(
+    *,
+    user_id: str,
+    token: str,
+    request: Optional[Any] = None,
+    staged: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """Dispatch + consume an already-blessed token (host follow-through / retry).
+
+    Same post-bless path as :func:`bless_and_execute` without re-blessing.
+    Used by ``staging_follow_through`` so an empty host turn does not leave
+    apply to an unreliable model utterance.
+    """
+    from app.agentive.staging import get_token
+
+    sc = staged if staged is not None else await get_token(token)
+    if sc is None:
+        raise StagingError("unknown_token", f"No staged change for token {token!r}")
+    if sc.user_id != user_id:
+        raise StagingError("wrong_user", "Token does not belong to this user")
+    if sc.state != "blessed":
+        raise StagingError(
+            f"already_{sc.state}" if sc.state != "pending" else "not_blessed",
+            f"Token is not blessed (state={sc.state!r})",
+        )
 
     response: Dict[str, Any] = {
         "ok": True,

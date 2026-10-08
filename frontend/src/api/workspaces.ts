@@ -77,6 +77,17 @@ export function workspaceAccessLabel(
   return 'Member';
 }
 
+/** Explicit membership role for org workspace chrome (Guest / Member / Admin / Owner). */
+export function workspaceMembershipRoleLabel(
+  workspace?: Pick<Workspace, 'your_role'> | null,
+): string {
+  const role = workspace?.your_role;
+  if (role === 'owner') return 'Owner';
+  if (role === 'admin') return 'Admin';
+  if (role === 'guest') return 'Guest';
+  return 'Member';
+}
+
 /** Summary of app-bundle provisioning during workspace create (Manage-Apps
  *  semantics): ``installed`` = active now, ``awaiting_settings`` = paused until
  *  finalized in Manage apps, ``failed`` = e.g. unmet hard dependency. */

@@ -20,6 +20,7 @@ import { summarizeLibraryManifest } from '../../lib/operationalModelManifest';
 import {
   extractPackageMeta,
   filterAppScopedLibraryPackages,
+  filterWorkspaceVisibleLibraryPackages,
   isBundleBackedApp,
   isPackageInstalled,
   lifecycleBadge,
@@ -31,6 +32,7 @@ import {
 import { AppUninstallModal } from './AppUninstallModal';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
+import { useScope } from '../../context/ScopeContext';
 import { useToast } from '../../context/ToastContext';
 import { isSamePrincipal } from '../../utils';
 import {
@@ -78,6 +80,8 @@ export function AppManagerDialog({
   onCreateBlankApp,
 }: AppManagerDialogProps) {
   const { user } = useAuth();
+  const { scope } = useScope();
+  const workspaceId = scope?.workspaceId;
   const confirm = useConfirm();
   const toast = useToast();
   const [profiles, setProfiles] = useState<OperationalModelNode[]>([]);
@@ -136,7 +140,9 @@ export function AppManagerDialog({
       try {
         const data = await operationalModelsApi.list();
         if (cancelled) return;
-        const libs = filterAppScopedLibraryPackages(data);
+        const libs = filterAppScopedLibraryPackages(
+          filterWorkspaceVisibleLibraryPackages(data, workspaceId),
+        );
         libs.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
         setProfiles(libs);
       } catch (err) {
@@ -152,7 +158,7 @@ export function AppManagerDialog({
     return () => {
       cancelled = true;
     };
-  }, [isOpen]);
+  }, [isOpen, workspaceId]);
 
   useEffect(() => {
     if (!isOpen || bundleApps.length === 0) {
