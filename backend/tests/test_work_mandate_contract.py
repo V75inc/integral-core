@@ -356,3 +356,366 @@ async def test_binding_terminal_work_cannot_resume(monkeypatch, status) -> None:
         await service.load_approved_work_mandate(
             work_item_id="work-1", principal_id="user-1", workspace_id="workspace-1"
         )
+
+
+class _ReviewTransaction:
+    """Transaction simulator; does not qualify PostgreSQL durability."""
+
+    def __init__(self, records, fail_entity=""):
+        self.records = deepcopy(records)
+        self.fail_entity = fail_entity
+
+    async def insert_if_absent(self, collection, document):
+        from types import SimpleNamespace
+
+        assert collection == "object"
+        if document["entity"] == self.fail_entity:
+            raise RuntimeError("injected persistence failure")
+        existing = self.records.get(document["id"])
+        if existing is not None:
+            return SimpleNamespace(created=False, record=deepcopy(existing))
+        self.records[document["id"]] = deepcopy(document)
+        return SimpleNamespace(created=True, record=None)
+
+    async def get(self, collection, object_id):
+        assert collection == "object"
+        return deepcopy(self.records.get(object_id))
+
+
+class _ReviewDatabase:
+    def __init__(self):
+        self.records = {}
+        self.fail_entity = ""
+        self.commits = 0
+        self.rollbacks = 0
+
+    async def begin_transaction(self):
+        return _ReviewTransaction(self.records, self.fail_entity)
+
+    async def commit_transaction(self, transaction):
+        self.records = transaction.records
+        self.commits += 1
+
+    async def rollback_transaction(self, transaction):
+        self.rollbacks += 1
+
+
+@pytest.fixture
+def review_database(monkeypatch):
+    from app.agentive.services import work_approvals, work_outbox
+
+    db = _ReviewDatabase()
+    monkeypatch.setattr(work_outbox, "_active_database", lambda: db)
+    monkeypatch.setattr(work_outbox, "_is_postgres_txn_db", lambda _db: True)
+    monkeypatch.setattr(work_outbox, "_txn_database", lambda _db: db)
+
+    async def no_cache(_record):
+        pass
+
+    monkeypatch.setattr(work_outbox, "_refresh_work_item_cache", no_cache)
+    monkeypatch.setattr(work_approvals, "_refresh_work_approval_cache", no_cache)
+    return db
+
+
+async def _propose_review(payload=None):
+    from app.agentive.services.work_mandates import propose_work_mandate_review
+
+    return await propose_work_mandate_review(
+        revision=WorkMandateRevision.model_validate(payload or mandate_payload()),
+        principal_id="user-1",
+        workspace_id="workspace-1",
+        thread_id="thread-1",
+    )
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+async def test_review_producer_commits_bound_pending_unit_and_reconciles_retry(
+    review_database,
+):
+    item, approval = await _propose_review()
+    assert item.status == "waiting_for_human"
+    assert not item.lease_token and not item.next_attempt_at
+    assert approval.status == "pending" and not approval.decision
+    assert item.plan_revision == approval.authority_digest
+    assert item.plan["mandate_approval_id"] == approval.work_approval_id
+    assert item.deadline_at == approval.expires_at
+    assert len(review_database.records) == 3
+    outbox = next(
+        d for d in review_database.records.values() if d["entity"] == "WorkOutboxEntry"
+    )
+    assert outbox["context"]["topic"] == "work.mandate_review_proposed"
+    repeated, same_approval = await _propose_review()
+    assert repeated == item and same_approval == approval
+    assert len(review_database.records) == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("entity", ["WorkApproval", "WorkOutboxEntry"])
+async def test_review_producer_rolls_back_on_each_partial_insert(
+    review_database, entity
+):
+    review_database.fail_entity = entity
+    with pytest.raises(RuntimeError, match="injected persistence failure"):
+        await _propose_review()
+    assert not review_database.records
+    assert review_database.rollbacks == 1
+    assert review_database.commits == 0
+
+
+@pytest.mark.asyncio
+async def test_review_producer_changed_same_revision_conflicts(review_database):
+    from app.schemas.agentive.work import WorkError
+
+    await _propose_review()
+    baseline = deepcopy(review_database.records)
+    changed = mandate_payload()
+    changed["goal"] = "Different reviewed intent"
+    with pytest.raises(WorkError) as exc:
+        await _propose_review(changed)
+    assert exc.value.code == "work.idempotency_conflict"
+    assert review_database.records == baseline
+    changed["revision"] = 2
+    next_item, _ = await _propose_review(changed)
+    assert next_item.plan["mandate_revision"]["revision"] == 2
+    assert len(review_database.records) == 6
+
+
+@pytest.mark.asyncio
+async def test_review_producer_never_recreates_missing_approval(review_database):
+    from app.schemas.agentive.work import WorkError
+
+    _, approval = await _propose_review()
+    del review_database.records[approval.id]
+    with pytest.raises(WorkError) as exc:
+        await _propose_review()
+    assert exc.value.code == "work.mandate_approval_required"
+    assert approval.id not in review_database.records
+
+
+@pytest.mark.asyncio
+async def test_review_producer_retains_decided_retry(review_database):
+    _, approval = await _propose_review()
+    review_database.records[approval.id]["context"].update(
+        status="rejected", decision="rejected", decider_id="user-1"
+    )
+    _, repeated = await _propose_review()
+    assert repeated.status == "rejected" and repeated.decision == "rejected"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field", ["principal_id", "workspace_id", "thread_id"])
+async def test_review_producer_scope_denied_before_storage(monkeypatch, field):
+    from app.agentive.services import work_outbox
+    from app.schemas.agentive.work import WorkError
+
+    def no_database():
+        pytest.fail("scope mismatch must be rejected before accessing storage")
+
+    monkeypatch.setattr(work_outbox, "_active_database", no_database)
+    payload = mandate_payload()
+    payload[field] = "different-scope"
+    with pytest.raises(WorkError) as exc:
+        await _propose_review(payload)
+    assert exc.value.code == "work.mandate_scope_denied"
+
+
+@pytest.mark.asyncio
+async def test_review_producer_requires_transactional_storage(monkeypatch):
+    from app.agentive.services import work_outbox
+    from app.schemas.agentive.work import WorkError
+
+    monkeypatch.setattr(work_outbox, "_is_postgres_txn_db", lambda _db: False)
+    with pytest.raises(WorkError) as exc:
+        await _propose_review()
+    assert exc.value.code == "work.transaction_required"
+
+
+@pytest.mark.asyncio
+async def test_ordinary_approval_cannot_queue_review(review_database, monkeypatch):
+    from app.agentive.services import work_approvals
+    from app.agentive.work_models import WorkItem
+    from app.schemas.agentive.work import WorkError
+
+    item, approval = await _propose_review()
+
+    async def get_approval(_id):
+        return approval
+
+    async def get_item(_id):
+        return item
+
+    monkeypatch.setattr(work_approvals, "get_work_approval", get_approval)
+    monkeypatch.setattr(WorkItem, "get", get_item)
+    baseline = deepcopy(review_database.records)
+    with pytest.raises(WorkError) as exc:
+        await work_approvals.decide_work_approval_unit(
+            work_approval_id=approval.work_approval_id,
+            decision="approved",
+            decider_id="user-1",
+        )
+    assert exc.value.code == "work.mandate_admission_required"
+    assert review_database.records == baseline
+
+
+@pytest.mark.asyncio
+async def test_review_producer_equivalent_money_and_timezone_retry(review_database):
+    item, approval = await _propose_review()
+    equivalent = mandate_payload()
+    equivalent["limits"]["max_spend"] = "1.00000000"
+    equivalent["limits"]["deadline_at"] = "2030-01-01T06:00:00-04:00"
+    same_item, same_approval = await _propose_review(equivalent)
+    assert same_item == item and same_approval == approval
+    assert len(review_database.records) == 3
+
+
+@pytest.mark.asyncio
+async def test_review_producer_expired_before_storage(monkeypatch):
+    from app.agentive.services import work_outbox
+    from app.schemas.agentive.work import WorkError
+
+    def no_database():
+        pytest.fail("expired intent must be rejected before storage")
+
+    monkeypatch.setattr(work_outbox, "_active_database", no_database)
+    payload = mandate_payload()
+    payload["limits"]["deadline_at"] = "2000-01-01T10:00:00Z"
+    with pytest.raises(WorkError) as exc:
+        await _propose_review(payload)
+    assert exc.value.code == "work.mandate_expired"
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_postgres_review_atomic_binding_and_duplicate_delivery():
+    import asyncio
+    import uuid
+
+    from app.agentive.services import work_outbox
+    from app.agentive.services.work_mandates import propose_work_mandate_review
+    from app.agentive.work_models import WorkApproval, WorkItem, WorkOutboxEntry
+
+    payload = mandate_payload()
+    payload["mandate_id"] = f"pg-review-{uuid.uuid4().hex}"
+    revision = WorkMandateRevision.model_validate(payload)
+
+    async def propose():
+        return await propose_work_mandate_review(
+            revision=revision,
+            principal_id="user-1",
+            workspace_id="workspace-1",
+            thread_id="thread-1",
+        )
+
+    first, second = await asyncio.gather(propose(), propose())
+    assert first[0].id == second[0].id and first[1].id == second[1].id
+    db = work_outbox._txn_database(work_outbox._active_database())
+    # Bypass identity caches: committed store readback is the authority.
+    item_doc = await db.get("object", first[0].id)
+    approval_doc = await db.get("object", first[1].id)
+    assert item_doc["context"]["status"] == "waiting_for_human"
+    assert item_doc["context"]["plan_revision"] == revision.review_digest()
+    assert approval_doc["context"]["authority_digest"] == revision.review_digest()
+    assert approval_doc["context"]["status"] == "pending"
+    assert (
+        len(await WorkItem.find({"context.idempotency_key": first[0].idempotency_key}))
+        == 1
+    )
+    assert (
+        len(await WorkApproval.find({"context.work_item_id": first[0].work_item_id}))
+        == 1
+    )
+    outboxes = await WorkOutboxEntry.find(
+        {"context.work_item_id": first[0].work_item_id}
+    )
+    assert len(outboxes) == 1
+    assert outboxes[0].topic == "work.mandate_review_proposed"
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+@pytest.mark.parametrize("entity", ["WorkApproval", "WorkOutboxEntry"])
+async def test_postgres_review_partial_failure_rolls_back(monkeypatch, entity):
+    import uuid
+
+    from app.agentive.services import work_outbox
+    from app.agentive.services.work_items import work_item_object_id
+    from app.agentive.services.work_mandates import propose_work_mandate_review
+
+    payload = mandate_payload()
+    payload["mandate_id"] = f"pg-rollback-{uuid.uuid4().hex}"
+    revision = WorkMandateRevision.model_validate(payload)
+    db = work_outbox._txn_database(work_outbox._active_database())
+    original_begin = db.begin_transaction
+
+    class FailureProxy:
+        def __init__(self, transaction):
+            self.transaction = transaction
+
+        def __getattr__(self, name):
+            return getattr(self.transaction, name)
+
+        async def insert_if_absent(self, collection, document):
+            if document["entity"] == entity:
+                raise RuntimeError("injected persistence failure")
+            return await self.transaction.insert_if_absent(collection, document)
+
+    async def begin():
+        return FailureProxy(await original_begin())
+
+    monkeypatch.setattr(db, "begin_transaction", begin)
+    with pytest.raises(RuntimeError, match="injected persistence failure"):
+        await propose_work_mandate_review(
+            revision=revision,
+            principal_id="user-1",
+            workspace_id="workspace-1",
+            thread_id="thread-1",
+        )
+    object_id = work_item_object_id(
+        kind="capability",
+        origin="mandate_review",
+        principal_id="user-1",
+        workspace_id="workspace-1",
+        idempotency_key=f"mandate:{revision.mandate_id}:1",
+    )
+    assert await db.get("object", object_id) is None
+    from app.agentive.work_models import WorkApproval, WorkOutboxEntry
+
+    bare_id = object_id.removeprefix("o.WorkItem.")
+    assert await WorkApproval.find({"context.work_item_id": bare_id}) == []
+    assert await WorkOutboxEntry.find({"context.work_item_id": bare_id}) == []
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_postgres_review_approval_is_held_but_rejection_is_durable():
+    import uuid
+
+    from app.agentive.services import work_approvals, work_outbox
+    from app.schemas.agentive.work import WorkError
+
+    payload = mandate_payload()
+    payload["mandate_id"] = f"pg-admission-{uuid.uuid4().hex}"
+    item, approval = await _propose_review(payload)
+    with pytest.raises(WorkError) as exc:
+        await work_approvals.decide_work_approval_unit(
+            work_approval_id=approval.work_approval_id,
+            decision="approved",
+            decider_id="user-1",
+        )
+    assert exc.value.code == "work.mandate_admission_required"
+    db = work_outbox._txn_database(work_outbox._active_database())
+    assert (await db.get("object", item.id))["context"]["status"] == "waiting_for_human"
+    assert (await db.get("object", approval.id))["context"]["status"] == "pending"
+    rejected, stopped = await work_approvals.decide_work_approval_unit(
+        work_approval_id=approval.work_approval_id,
+        decision="rejected",
+        decider_id="user-1",
+    )
+    assert rejected.status == "rejected" and stopped.status == "failed"
+    assert (await db.get("object", approval.id))["context"]["decision"] == "rejected"
+    repeated, same_approval = await _propose_review(payload)
+    assert repeated.status == "failed" and same_approval.status == "rejected"

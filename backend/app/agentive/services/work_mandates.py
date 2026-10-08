@@ -11,9 +11,172 @@ from datetime import datetime, timezone
 from pydantic import ValidationError
 
 from app.agentive.services.work_approvals import get_work_approval
-from app.agentive.work_models import WorkItem
+from app.agentive.work_models import WorkApproval, WorkItem
 from app.schemas.agentive.work import WorkError
 from app.schemas.agentive.work_mandate import WorkMandateRevision
+
+
+async def propose_work_mandate_review(
+    *,
+    revision: WorkMandateRevision,
+    principal_id: str,
+    workspace_id: str,
+    thread_id: str,
+) -> tuple[WorkItem, WorkApproval]:
+    """Atomically persist one pending review, never runnable work.
+
+    Host code supplies authenticated scope; no public tool calls this service.
+    Current resource/capability authorization and execution admission must be
+    added before exposing approval. Same mandate/revision retries reconcile
+    stored values; changed values require a new explicit revision.
+    PostgreSQL is required, with no process-local atomicity substitute.
+    """
+    from app.agentive.services.work_approvals import (
+        _hydrate_approval,
+        _refresh_work_approval_cache,
+        build_work_approval_document,
+        deterministic_work_approval_id,
+    )
+    from app.agentive.services.work_items import work_item_object_id
+    from app.agentive.services.work_outbox import (
+        OBJECT_COLLECTION,
+        _active_database,
+        _hydrate_work_item,
+        _is_postgres_txn_db,
+        _refresh_work_item_cache,
+        _txn_database,
+        build_outbox_document,
+        build_work_item_document,
+        outbox_id_for,
+    )
+
+    # Revalidate even a model constructed with unchecked copy/update helpers.
+    try:
+        revision = WorkMandateRevision.model_validate(revision.model_dump(mode="json"))
+    except ValidationError as exc:
+        raise WorkError("work.mandate_invalid") from exc
+    if not all((principal_id, workspace_id, thread_id)) or (
+        revision.principal_id != principal_id
+        or revision.workspace_id != workspace_id
+        or revision.thread_id != thread_id
+    ):
+        raise WorkError("work.mandate_scope_denied")
+    now = datetime.now(timezone.utc)
+    if revision.limits.deadline_at <= now:
+        raise WorkError("work.mandate_expired")
+    db = _active_database()
+    if not _is_postgres_txn_db(db):
+        raise WorkError("work.transaction_required")
+    db = _txn_database(db)
+    digest = revision.review_digest()
+    # Thread is in the immutable digest; a same-revision cross-thread retry
+    # conflicts instead of producing a second independently approvable review.
+    identity = f"mandate:{revision.mandate_id}:{revision.revision}"
+    object_id = work_item_object_id(
+        kind="capability",
+        origin="mandate_review",
+        principal_id=principal_id,
+        workspace_id=workspace_id,
+        idempotency_key=identity,
+    )
+    work_id = object_id.removeprefix("o.WorkItem.")
+    approval_id = deterministic_work_approval_id(
+        work_item_id=work_id, policy_approval_id=digest
+    )
+    timestamp = now.isoformat()
+    snapshot = revision.canonical_review_payload()
+    deadline = snapshot["limits"]["deadline_at"]
+    work_doc = build_work_item_document(
+        object_id=object_id,
+        work_item_id=work_id,
+        kind="capability",
+        origin="mandate_review",
+        principal_id=principal_id,
+        workspace_id=workspace_id,
+        thread_id=thread_id,
+        idempotency_key=identity,
+        input_payload={},
+        input_fingerprint=digest,
+        status="waiting_for_human",
+        attempt=0,
+        transition_seq=0,
+        next_attempt_at="",
+        created_at=timestamp,
+        updated_at=timestamp,
+        retry_policy={"max_attempts": revision.max_attempts},
+        deadline_at=deadline,
+        plan_revision=digest,
+        plan={
+            "mandate_revision": snapshot,
+            "mandate_approval_id": approval_id,
+        },
+    )
+    approval_doc = build_work_approval_document(
+        work_approval_id=approval_id,
+        work_item_id=work_id,
+        staging_token="",
+        policy_approval_id="",
+        run_id="",
+        run_step_id="",
+        authority_digest=digest,
+        expires_at=deadline,
+        created_at=timestamp,
+    )
+    topic = "work.mandate_review_proposed"
+    outbox_doc = build_outbox_document(
+        outbox_id=outbox_id_for(work_item_id=work_id, topic=topic, seq=0),
+        work_item_id=work_id,
+        topic=topic,
+        payload={"review_digest": digest, "work_approval_id": approval_id},
+        created_at=timestamp,
+        deadline_at=deadline,
+    )
+    txn = await db.begin_transaction()
+    try:
+        inserted = await txn.insert_if_absent(OBJECT_COLLECTION, work_doc)
+        if not inserted.created:
+            stored = inserted.record or await txn.get(OBJECT_COLLECTION, object_id)
+            if stored is None:
+                raise WorkError("work.cas_conflict")
+            item = _hydrate_work_item(stored)
+            if (
+                item.principal_id != principal_id
+                or item.workspace_id != workspace_id
+                or item.thread_id != thread_id
+                or item.origin != "mandate_review"
+                or item.input_fingerprint != digest
+                or item.plan_revision != digest
+                or item.plan != work_doc["context"]["plan"]
+            ):
+                raise WorkError("work.idempotency_conflict")
+            # Existing review must have its original atomic binding. Do not
+            # reconstruct missing authority or reset a decided approval.
+            stored_approval = await txn.get(OBJECT_COLLECTION, approval_doc["id"])
+            if stored_approval is None:
+                raise WorkError("work.mandate_approval_required")
+            approval = _hydrate_approval(stored_approval)
+            if (
+                approval.work_item_id != work_id
+                or approval.authority_digest != digest
+                or approval.expires_at != deadline
+            ):
+                raise WorkError("work.mandate_revision_conflict")
+        else:
+            approval_insert = await txn.insert_if_absent(
+                OBJECT_COLLECTION, approval_doc
+            )
+            if not approval_insert.created:
+                raise WorkError("work.cas_conflict")
+            await txn.insert_if_absent(OBJECT_COLLECTION, outbox_doc)
+            item = _hydrate_work_item(work_doc)
+            approval = _hydrate_approval(approval_doc)
+        await db.commit_transaction(txn)
+    except Exception:
+        await db.rollback_transaction(txn)
+        raise
+    await _refresh_work_item_cache(item)
+    await _refresh_work_approval_cache(approval)
+    return item, approval
 
 
 async def load_approved_work_mandate(
