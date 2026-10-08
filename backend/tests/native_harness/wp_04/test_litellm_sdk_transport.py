@@ -56,6 +56,9 @@ def test_usage_calculates_cost_when_litellm_returns_tokens_without_cost(
     # LiteLLM initializes its tokenizer cache path on import. Keep that
     # process-level setting contained by pytest's environment restoration.
     monkeypatch.setenv("TIKTOKEN_CACHE_DIR", "/tmp/integral-litellm-test-cache")
+    # Offline import must not discover developer .env files and mutate the
+    # rest of this pytest worker. LiteLLM loads dotenv only in DEV mode.
+    monkeypatch.setenv("LITELLM_MODE", "PRODUCTION")
     import litellm
 
     response = {

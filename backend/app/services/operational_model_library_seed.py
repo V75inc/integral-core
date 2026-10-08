@@ -96,6 +96,21 @@ async def _upsert_one(
             }
         )
     if not raw:
+        # Restore the same platform seed after removal, preserving references.
+        # Never adopt a workspace model or an unrelated manual catalog row.
+        inactive = (
+            await OperationalModel.find(
+                {
+                    "context.library_package": False,
+                    "context.metadata.slug": slug,
+                    "context.metadata.seed_status": "inactive",
+                }
+            )
+            if slug
+            else []
+        )
+        raw = [row for row in inactive or [] if not getattr(row, "workspace_id", None)]
+    if not raw:
         raw = await OperationalModel.find(
             {
                 "context.library_package": True,
@@ -144,6 +159,8 @@ async def _upsert_one(
     lib_cp = found[0]
     needs_update = canonical_manifests_differ(lib_cp.manifest or {}, spec.manifest)
     md = dict(lib_cp.metadata or {})
+    if not lib_cp.library_package or md.get("seed_status") != "active":
+        needs_update = True
     # Bundle-fingerprint drift triggers an update even when the canonical
     # manifest is equivalent — covers the file-edit-without-manifest-change
     # case that hot-load needs to detect.
@@ -154,8 +171,11 @@ async def _upsert_one(
         lib_cp.name = spec.name
         lib_cp.version = spec.version
         lib_cp.description = spec.description
+        lib_cp.library_package = spec.library_package
         lib_cp.updated_at = now_iso
         md.update(metadata_patch)
+        md.pop("seed_removed_at", None)
+        md.pop("seed_removed_reason", None)
         lib_cp.metadata = md
         await lib_cp.save()
         logger.info(
