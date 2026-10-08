@@ -193,6 +193,23 @@ async def load_approved_work_mandate(
     item = await WorkItem.get(f"o.WorkItem.{work_item_id}")
     if item is None:
         raise WorkError("work.not_found")
+    return await _validate_approved_mandate_item(
+        item=item,
+        work_item_id=work_item_id,
+        principal_id=principal_id,
+        workspace_id=workspace_id,
+    )
+
+
+async def _validate_approved_mandate_item(
+    *,
+    item: WorkItem,
+    work_item_id: str,
+    principal_id: str,
+    workspace_id: str,
+    fresh_approval: bool = False,
+) -> WorkMandateRevision:
+    """Verify the exact supplied durable snapshot and its approval binding."""
     if (
         not principal_id
         or not workspace_id
@@ -222,9 +239,14 @@ async def load_approved_work_mandate(
     digest = revision.review_digest()
     if item.plan_revision != digest:
         raise WorkError("work.mandate_revision_conflict")
-    approval = await get_work_approval(approval_id)
+    approval = (
+        await _load_lineage_approval(approval_id)
+        if fresh_approval
+        else await get_work_approval(approval_id)
+    )
     if approval is None or (
-        approval.work_item_id != item.work_item_id
+        approval.work_approval_id != approval_id
+        or approval.work_item_id != item.work_item_id
         or approval.authority_digest != digest
         or approval.status != "approved"
         or approval.decision != "approved"
@@ -256,3 +278,126 @@ async def load_approved_work_mandate(
     }:
         raise WorkError("work.mandate_inactive")
     return revision
+
+
+async def _load_lineage_item(work_item_id: str) -> WorkItem:
+    """Read durable lineage without an identity-cache authority shortcut."""
+    from app.agentive.services.work_outbox import (
+        OBJECT_COLLECTION,
+        _active_database,
+        _hydrate_work_item,
+    )
+
+    document = await _active_database().get(
+        OBJECT_COLLECTION, f"o.WorkItem.{work_item_id}"
+    )
+    if document is None:
+        raise WorkError("work.not_found")
+    return _hydrate_work_item(document)
+
+
+async def _load_lineage_approval(approval_id: str) -> WorkApproval | None:
+    from app.agentive.services.work_approvals import (
+        _hydrate_approval,
+        work_approval_object_id,
+    )
+    from app.agentive.services.work_outbox import OBJECT_COLLECTION, _active_database
+
+    document = await _active_database().get(
+        OBJECT_COLLECTION, work_approval_object_id(approval_id)
+    )
+    return _hydrate_approval(document) if document is not None else None
+
+
+async def load_approved_mandate_lineage(
+    *, work_item_id: str, principal_id: str, workspace_id: str, thread_id: str
+) -> tuple[WorkItem, WorkMandateRevision]:
+    """Resolve a root approval through exact durable parent links.
+
+    Every child carries only ``plan.mandate_root_work_item_id`` and the root
+    review digest, never a copied snapshot/approval. All ancestors must retain
+    authenticated owner/workspace/thread, the same root and digest, and active
+    uncancelled state. Cycles and more than 32 ancestors fail closed.
+
+    This read is not dispatch authority: admission must lock/fence the root
+    and executing child, recheck current grants, and reserve shared limits in
+    the effect transaction. It does not create or enqueue a child.
+    """
+    if not all((work_item_id, principal_id, workspace_id, thread_id)):
+        raise WorkError("work.mandate_scope_denied")
+    seen: set[str] = set()
+    ancestors: list[WorkItem] = []
+    current_id = work_item_id
+    for _ in range(32):
+        if current_id in seen:
+            raise WorkError("work.mandate_lineage_invalid")
+        seen.add(current_id)
+        item = await _load_lineage_item(current_id)
+        if (
+            item.work_item_id != current_id
+            or item.principal_id != principal_id
+            or item.workspace_id != workspace_id
+            or item.thread_id != thread_id
+        ):
+            raise WorkError("work.mandate_scope_denied")
+        if item.cancel_requested_at or item.status not in {
+            "queued",
+            "running",
+            "waiting_for_human",
+            "waiting_for_event",
+            "retry_wait",
+        }:
+            raise WorkError("work.mandate_inactive")
+        ancestors.append(item)
+        if not item.parent_work_item_id:
+            root = item
+            break
+        if (
+            "mandate_revision" in item.plan
+            or "mandate_approval_id" in item.plan
+            or not item.plan.get("mandate_root_work_item_id")
+        ):
+            raise WorkError("work.mandate_lineage_invalid")
+        current_id = item.parent_work_item_id
+    else:
+        raise WorkError("work.mandate_lineage_invalid")
+    if root.plan.get("mandate_root_work_item_id") not in (None, root.work_item_id):
+        raise WorkError("work.mandate_lineage_invalid")
+    try:
+        stored_revision = WorkMandateRevision.model_validate(
+            root.plan.get("mandate_revision")
+        )
+    except ValidationError as exc:
+        raise WorkError("work.mandate_invalid") from exc
+    digest = stored_revision.review_digest()
+    parent_deadline = stored_revision.limits.deadline_at
+    for child in reversed(ancestors[:-1]):
+        if (
+            child.plan.get("mandate_root_work_item_id") != root.work_item_id
+            or child.plan_revision != digest
+        ):
+            raise WorkError("work.mandate_lineage_invalid")
+        # A child may shorten, never extend or omit, the reviewed deadline.
+        try:
+            deadline = datetime.fromisoformat(child.deadline_at.replace("Z", "+00:00"))
+        except (TypeError, ValueError) as exc:
+            raise WorkError("work.mandate_lineage_invalid") from exc
+        if deadline.utcoffset() is None or deadline > parent_deadline:
+            raise WorkError("work.mandate_lineage_invalid")
+        if deadline <= datetime.now(timezone.utc):
+            raise WorkError("work.mandate_expired")
+        parent_deadline = deadline
+    revision = await _validate_approved_mandate_item(
+        item=root,
+        work_item_id=root.work_item_id,
+        principal_id=principal_id,
+        workspace_id=workspace_id,
+        fresh_approval=True,
+    )
+    if (
+        revision.review_digest() != digest
+        or root.plan_revision != digest
+        or revision.thread_id != thread_id
+    ):
+        raise WorkError("work.mandate_revision_conflict")
+    return root, revision
