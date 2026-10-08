@@ -56,6 +56,9 @@ def test_usage_calculates_cost_when_litellm_returns_tokens_without_cost(
     # LiteLLM initializes its tokenizer cache path on import. Keep that
     # process-level setting contained by pytest's environment restoration.
     monkeypatch.setenv("TIKTOKEN_CACHE_DIR", "/tmp/integral-litellm-test-cache")
+    # Offline import must not discover developer .env files and mutate the
+    # rest of this pytest worker. LiteLLM loads dotenv only in DEV mode.
+    monkeypatch.setenv("LITELLM_MODE", "PRODUCTION")
     import litellm
 
     response = {
@@ -594,6 +597,11 @@ async def test_bridge_streams_deltas_and_final_usage_chunk() -> None:
     assert observations[1].usage.input_tokens == 10
     assert observations[1].usage.output_tokens == 1
     assert observations[1].usage.complete is True
+    assert all(item.credential_source == "workspace_byok" for item in observations)
+    assert all(item.credential_ref == "credential-1" for item in observations)
+    assert all(
+        "workspace-key-test" not in item.model_dump_json() for item in observations
+    )
 
 
 @pytest.mark.asyncio

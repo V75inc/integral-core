@@ -7,6 +7,7 @@ node ids in ``summary`` / ``diff_human``.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 _TITLE_LIKE_FIELD_KEYS = ("name", "title", "subject", "label")
@@ -266,7 +267,10 @@ def format_scalar_for_diff(
             or s.startswith("n.Track.")
         ):
             return truncate(s, 40)
-        return truncate(s, 40)
+        # Approval must expose the actual proposed text. Ellipsizing here
+        # destroys URL targets and hides qualifiers the reviewer must assess.
+        # The approval sheet already provides a scrollable review region.
+        return item
 
     if isinstance(value, list):
         parts = [fmt_one(v) for v in value]
@@ -330,6 +334,14 @@ async def load_app_record(app_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def format_review_text(value: str) -> str:
+    """Show complete literal content without letting embedded Markdown alter review."""
+    # A longer fence keeps even embedded code fences inside the literal preview.
+    longest = max((len(run) for run in re.findall(r"`+", value)), default=0)
+    fence = "`" * max(3, longest + 1)
+    return f"{fence}text\n{value}\n{fence}"
+
+
 async def format_scalar_change_line(
     key: str,
     new_val: Any,
@@ -356,5 +368,15 @@ async def format_scalar_change_line(
             entry_names=entry_names,
             track_names=track_names,
         )
-        return f"- **{key}:** `{truncate(old_rendered)}` → `{truncate(new_rendered)}`"
-    return f"- **{key}:** `{truncate(new_rendered)}`"
+        if any(
+            len(text) > 80 or "\n" in text or "`" in text
+            for text in (old_rendered, new_rendered)
+        ):
+            return (
+                f"- **{key}:**\n\n**Previous:**\n\n{format_review_text(old_rendered)}"
+                f"\n\n**Proposed:**\n\n{format_review_text(new_rendered)}"
+            )
+        return f"- **{key}:** `{old_rendered}` → `{new_rendered}`"
+    if len(new_rendered) > 80 or "\n" in new_rendered or "`" in new_rendered:
+        return f"- **{key}:**\n\n{format_review_text(new_rendered)}"
+    return f"- **{key}:** `{new_rendered}`"

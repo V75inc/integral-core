@@ -58,6 +58,27 @@ async def test_resolver_uses_owner_byok(enc_key, test_user):
     assert override["model"] == "openai/gpt-4o-mini"
     assert override["slots"]["default"]["model"] == "openai/gpt-4o-mini"
     assert override["slots"]["default"]["provider"] == "litellm"
+    assert "credential_ref" not in override
+
+    bound = await resolve_agent_model_override(
+        workspace_id, include_credential_identity=True
+    )
+    identity = bound["credential_ref"]
+    assert identity.startswith("user-model-generation:")
+    assert "sk-owner-key" not in identity
+    assert record.api_key_enc not in identity
+    # Telemetry writes performed by the resolver do not create a new key generation.
+    repeated = await resolve_agent_model_override(
+        workspace_id, include_credential_identity=True
+    )
+    assert repeated["credential_ref"] == identity
+    record.api_key_enc = encrypt_secret_for_storage("sk-rotated-key", aad=auth_user_id)
+    await record.save()
+    rotated = await resolve_agent_model_override(
+        workspace_id, include_credential_identity=True
+    )
+    assert rotated["credential_ref"] != identity
+    assert rotated["api_key"] == "sk-rotated-key"
 
 
 @pytest.mark.asyncio

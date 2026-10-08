@@ -143,3 +143,36 @@ export function peekChatHandoff(): ChatHandoff | null {
     return null;
   }
 }
+
+/** A deliberate empty conversation is a view choice, scoped to its owner. */
+export type FreshChatScope = {
+  principalId: string | null;
+  workspaceId: string | null;
+  providerId: string;
+};
+
+function freshChatKey(scope: FreshChatScope): string | null {
+  if (!scope.principalId || !scope.workspaceId) return null;
+  return `integral:ai-chat-fresh:${JSON.stringify([scope.principalId, scope.workspaceId, scope.providerId])}`;
+}
+
+export function rememberFreshChat(scope: FreshChatScope, fresh: boolean): void {
+  const key = freshChatKey(scope);
+  if (!key) return;
+  try {
+    if (fresh) sessionStorage.setItem(key, '1');
+    else sessionStorage.removeItem(key);
+  } catch {
+    /* Storage may be unavailable; the in-memory selection still works. */
+  }
+}
+
+export function prefersFreshChat(scope: FreshChatScope): boolean {
+  const key = freshChatKey(scope);
+  if (!key) return false;
+  try {
+    return sessionStorage.getItem(key) === '1';
+  } catch {
+    return false;
+  }
+}

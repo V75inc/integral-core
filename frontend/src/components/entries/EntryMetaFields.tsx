@@ -13,6 +13,7 @@ import { useScope } from '../../context/ScopeContext';
 import { InlineFieldEditor } from './InlineFieldEditor';
 import { JsonTableEditor, isJsonTableShape } from './JsonTableEditor';
 import { MemberValue } from './members';
+import { FileValue } from './FileValue';
 import { RelationValue } from './relations';
 import type { RelationNavContext } from './relations/routeForRelationTarget';
 import { formatChecklistSummary } from './fieldTypes/ChecklistField';
@@ -57,6 +58,7 @@ export interface EntryMetaFieldsProps {
   onCommitField?: (key: string, value: unknown) => Promise<void>;
   /** When true, the inline editor is visible but non-interactive (no edit affordance). */
   readOnly?: boolean;
+  readOnlyKeys?: string[];
   /** Kanban workflow field key → enum key → display label (for select / multi_select). */
   workflowEnumLabels?: Record<string, Record<string, string>>;
   /** Called before relation link navigation (e.g. dismiss host modal). */
@@ -87,6 +89,7 @@ export function EntryMetaFields({
   expanded = false,
   onCommitField,
   readOnly = false,
+  readOnlyKeys = [],
   workflowEnumLabels,
   onNavigate,
   navContext,
@@ -384,7 +387,7 @@ export function EntryMetaFields({
 
     // Relation / member fields skip the text rendering path — dedicated
     // resolvers hydrate ids to labels asynchronously in the JSX branch below.
-    if (t === 'relation' || t === 'member') {
+    if (t === 'relation' || t === 'member' || t === 'file' || t === 'files') {
       rows.push({
         field,
         text: '',
@@ -418,7 +421,7 @@ export function EntryMetaFields({
       className={`${variant === 'card' ? 'mt-2' : 'mt-4'} ${className}`.trim()}
       aria-label={variant === 'card' ? 'Entry details' : 'Entry fields'}
     >
-      <div className="grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
+      <div className="entry-meta-grid grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
         {rows.map((row, idx) => {
           const prev = idx > 0 ? rows[idx - 1] : undefined;
           const showGroupHeader = Boolean(row.group && row.group !== prev?.group);
@@ -453,13 +456,14 @@ export function EntryMetaFields({
                     <InlineFieldEditor
                       field={row.field}
                       value={values[row.field.key] ?? null}
-                      readOnly={readOnly}
+                      readOnly={readOnly || readOnlyKeys.includes(row.field.key)}
                       onCommit={newValue => onCommitField(row.field.key, newValue)}
                     />
                   </div>
-                ) : row.relationEditable && onCommitField ? (
+                ) : row.relationEditable && onCommitField && !readOnlyKeys.includes(row.field.key) ? (
                   <div className="mt-0.5">
                     <SeamlessField
+                      externalLabel
                       field={row.field}
                       value={values[row.field.key] ?? null}
                       onChange={async newValue => {
@@ -521,6 +525,8 @@ export function EntryMetaFields({
                       }
                     />
                   </div>
+                ) : t === 'file' || t === 'files' ? (
+                  <div className="mt-0.5 min-w-0"><FileValue value={row.raw} /></div>
                 ) : t === 'member' ? (
                   <div
                     className={`mt-0.5 text-sm leading-relaxed ${valueClampClass}`.trim()}

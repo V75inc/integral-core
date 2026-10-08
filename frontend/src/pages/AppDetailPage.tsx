@@ -14,6 +14,7 @@ import {
   ClipboardList,
   GripVertical,
   LayoutDashboard,
+  Home,
   Settings2
 } from 'lucide-react';
 import {
@@ -74,6 +75,7 @@ import { useToast } from '../context/ToastContext';
 import { useSetCrumbs } from '../context/CrumbsContext';
 import { useChatPageFocus } from '../context/ChatPageFocusContext';
 import { AppDashboardPanel } from '../features/app-dashboards/AppDashboardPanel';
+import { AppHomePanel } from '../features/app-dashboards/AppHomePanel';
 import { dashboardsApi } from '../api/dashboards';
 import { useScope } from '../context/ScopeContext';
 import { useWorkspaceCrumbPrefix } from '../hooks/useWorkspaceCrumbPrefix';
@@ -157,6 +159,15 @@ export function AppDetailPage() {
     enabled: !!appId
   });
   const dashboardCount = dashboardsQuery.data?.length ?? 0;
+  const homeQuery = useQuery({
+    queryKey: ['app-home-definition', appId],
+    queryFn: () => dashboardsApi.home(appId!, false),
+    enabled: Boolean(appId),
+  });
+  const hasHome = Boolean(homeQuery.data?.home);
+  useEffect(() => {
+    if (appId && homeQuery.data) setAppSection(readAppDetailSection(appId, hasHome ? 'home' : 'tracks'));
+  }, [appId, homeQuery.data, hasHome]);
 
   // Publish breadcrumb trail to the TopBar.
   // When the App is workspace-scoped, lead the trail with the {WorkspaceName}
@@ -280,7 +291,7 @@ export function AppDetailPage() {
     }
     if (appSection === 'dashboards') return;
     setPageContext({
-      pageKind: 'app_detail',
+      pageKind: appSection === 'home' ? 'app_home' : 'app_detail',
       focusedAppId: appId,
       visibleData: {
         tracks: filteredTracks.map(t => ({
@@ -710,7 +721,7 @@ export function AppDetailPage() {
             {app.description}
           </p>
         ) : null}
-        {defaultTrack ? (
+        {defaultTrack && !hasHome ? (
           <div className="mt-5 flex flex-col gap-3 rounded-[var(--radius-card)] border border-[var(--border-subtle)] bg-[var(--surface-raised)] p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
             <div className="min-w-0">
               <p className="text-xs font-medium uppercase tracking-wide text-[var(--text-subtle)]">
@@ -774,12 +785,13 @@ export function AppDetailPage() {
         ) : null}
       </header>
 
-      <ViewTabs<'tracks' | 'dashboards'>
+      <ViewTabs<AppDetailSection>
         className="mt-6"
         ariaLabel="App sections"
         value={appSection}
         onChange={selectAppSection}
         options={[
+          ...(hasHome ? [{ value: 'home' as const, label: 'Home', icon: <Home size={15} strokeWidth={LINE_ICON_STROKE} /> }] : []),
           {
             value: 'tracks',
             label: 'Tracks',
@@ -799,7 +811,11 @@ export function AppDetailPage() {
 
       <PageSection.Separator />
 
-      {appSection === 'tracks' ? (
+      {appSection === 'home' && hasHome ? (
+        <PageSection className={filterBar.sectionTop}>
+          <AppHomePanel appId={appId} workspaceId={app?.workspace_id || ''} />
+        </PageSection>
+      ) : appSection === 'tracks' ? (
       <PageSection className={filterBar.sectionTop}>
 
       {/* Search — right-anchored utility row matching FeedPage / TrackDetail. */}

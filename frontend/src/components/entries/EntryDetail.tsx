@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { entryTypesForTrackQueryKey, invalidateFeedCaches, viewsForTrackQueryKey } from '../../queryKeys';
 import {
   Edit2,
+  X,
   Trash2,
   File,
   CornerUpLeft,
@@ -20,7 +21,7 @@ import {
   Minimize2,
 } from 'lucide-react';
 import { isSamePrincipal, formatRelativeTime, entryTypeColor } from '../../utils';
-import { appPath } from '../../utils/resourcePaths';
+import { appPath, entryPagePath } from '../../utils/resourcePaths';
 import {
   attachmentsApi,
   commentsApi,
@@ -48,7 +49,7 @@ import {
 } from './RelatedViewsSection';
 import { ViewTabs, type ViewTabOption } from '../ui/ViewTabs';
 import { EmptyState } from '../ui/EmptyState';
-import { IconButton } from '../../ui';
+import { IconButton, Text } from '../../ui';
 import { useSidePanelRoom } from '../../hooks/useSidePanelRoom';
 import { COMMENT_REFETCH_EVENT } from '../../services/graphMutationInvalidation';
 import { EntrySocialActions } from './EntrySocialActions';
@@ -161,6 +162,7 @@ export function EntryDetail({
   workflowEnumLabels,
   variant
 }: EntryDetailProps) {
+  const navigateToEntryPage = useNavigate();
   const { user } = useAuth();
   const { activeWorkspace } = useScope();
   const trackId = initialEntry.track_id || '';
@@ -205,37 +207,6 @@ export function EntryDetail({
       showToast('Failed to update watch status', 'error');
     }
   };
-  // ESC closes the entry detail modal. Modal's built-in ESC handler is
-  // disabled via `disableEscape` (below) because EntryDetail hosts inline
-  // editors (entry edit form, comment compose) that should consume ESC
-  // for their own cancel path BEFORE the dialog closes. We re-implement
-  // ESC at the document level with that focus-aware skip.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      const target = e.target as HTMLElement | null;
-      if (target) {
-        const tag = target.tagName;
-        if (
-          tag === 'INPUT' ||
-          tag === 'TEXTAREA' ||
-          target.isContentEditable ||
-          // No [aria-modal="true"] qualifier: this dialog opts into
-          // allowAssistantDock, which (correctly) omits aria-modal — the old
-          // selector silently stopped matching and the inner-editor skip died.
-          target.closest('[role="dialog"]')?.querySelector(
-            '[data-entry-detail-editing="true"]',
-          )
-        ) {
-          // Inner editor owns ESC.
-          return;
-        }
-      }
-      onClose();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
   const [entry, setEntry] = useState(initialEntry);
   const [parentEntry, setParentEntry] = useState<Entry | null>(null);
   const canEdit = useCanEditEntry(entry, {
@@ -501,14 +472,17 @@ export function EntryDetail({
   );
   const commentsAnchorRef = useRef<HTMLDivElement>(null);
   const didFocusComments = useRef(false);
+  // Dialogs start with their companion panel; pages start at full reading width.
   // Comments are part of the dialog, always shown. An earlier version derived
   // this from the thread length — open when the entry had comments, closed
   // when it did not — which read as the panel popping open by itself, because
   // the state flipped after the fetch resolved rather than at open. A column
   // that is simply always there is predictable; the header toggle is for
   // hiding it deliberately, and that choice lasts until the dialog closes.
-  const [commentsPanelOpen, setCommentsPanelOpen] = useState(true);
-  const [panelTab, setPanelTab] = useState<PanelTabKey>('comments');
+  const [commentsPanelOpen, setCommentsPanelOpen] = useState(variant !== 'page');
+  const pagePanelTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const panelRecordRef = useRef({ id: initialEntry.id, variant });
+  const [panelTab, setPanelTab] = useState<PanelTabKey>(variant === 'page' ? 'attachments' : 'comments');
   /* Below `sm` the dialog is full-bleed, so there is no "beside" to render
      into — the panel moves into the body instead of vanishing, which is what
      it did when it was `hidden sm:flex` with no fallback: comments,
@@ -516,16 +490,63 @@ export function EntryDetail({
   const showSideColumn = useSidePanelRoom();
 
   useEffect(() => {
+    // Initial state already matches this record; do not erase an early utility click.
+    if (panelRecordRef.current.id === initialEntry.id && panelRecordRef.current.variant === variant) return;
+    panelRecordRef.current = { id: initialEntry.id, variant };
     didFocusComments.current = false;
-    setCommentsPanelOpen(true);
-    // A new record starts on the discussion, not on whichever tab the last
-    // one happened to be left on.
-    setPanelTab('comments');
-  }, [initialEntry.id]);
+    setCommentsPanelOpen(variant !== 'page');
+    // Reset utilities for each record: page files, dialog discussion.
+    setPanelTab(variant === 'page' ? 'attachments' : 'comments');
+  }, [initialEntry.id, variant]);
+
+  // ESC closes the entry detail modal. Modal's built-in ESC handler is
+  // disabled via `disableEscape` (below) because EntryDetail hosts inline
+  // editors (entry edit form, comment compose) that should consume ESC
+  // for their own cancel path BEFORE the dialog closes. We re-implement
+  // ESC at the document level with that focus-aware skip.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      // The page stays open. Nested drawers/viewers own their own dismissal.
+      if (variant === 'page') {
+        if ((e.target as HTMLElement | null)?.closest('[role="dialog"]')) return;
+        if (commentsPanelOpen && !(e.target as HTMLElement | null)?.isContentEditable &&
+          !['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement | null)?.tagName ?? '')) {
+          setCommentsPanelOpen(false);
+          pagePanelTriggerRef.current?.focus();
+        }
+        return;
+      }
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (
+          tag === 'INPUT' ||
+          tag === 'TEXTAREA' ||
+          target.isContentEditable ||
+          // No [aria-modal="true"] qualifier: this dialog opts into
+          // allowAssistantDock, which (correctly) omits aria-modal — the old
+          // selector silently stopped matching and the inner-editor skip died.
+          target.closest('[role="dialog"]')?.querySelector(
+            '[data-entry-detail-editing="true"]',
+          )
+        ) {
+          // Inner editor owns ESC.
+          return;
+        }
+      }
+      onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose, variant, commentsPanelOpen]);
 
   // Opening from a "Comments" affordance should land on that tab.
   useEffect(() => {
-    if (initialFocusComments) setPanelTab('comments');
+    if (initialFocusComments) {
+      setPanelTab('comments');
+      setCommentsPanelOpen(true);
+    }
   }, [initialFocusComments, initialEntry.id]);
 
   useEffect(() => {
@@ -1467,21 +1488,23 @@ export function EntryDetail({
 
   const panelNode = (
     <>
-      <ViewTabs
+      {variant !== 'page' && <ViewTabs
         options={panelTabOptions}
         value={panelTab}
         onChange={setPanelTab}
         ariaLabel="Entry details"
         size="sm"
         className="shrink-0 px-2"
-      />
+      />}
       <div
         ref={commentsAnchorRef}
         id="entry-panel-body"
-        role="tabpanel"
+        role={variant === 'page' ? 'region' : 'tabpanel'}
         aria-label={PANEL_TABS.find(t => t.key === panelTab)?.label}
         className={
-          showSideColumn
+          variant === 'page'
+            ? 'flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-3'
+            : showSideColumn
             ? 'flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-3'
             : 'px-1 py-3'
         }
@@ -1636,11 +1659,35 @@ export function EntryDetail({
           )}
         </IconButton>
       ) : null}
+      {variant !== 'page' && !isEditing ? (
+        <IconButton label="Open full page" title="Open full page" size="md"
+          data-testid="entry-open-full-page"
+          onClick={() => navigateToEntryPage(entryPagePath(entry.id))}>
+          <ArrowUpRight size={16} strokeWidth={LINE_ICON_STROKE} aria-hidden />
+        </IconButton>
+      ) : null}
       {/* Panel toggle — desktop only. Below `sm` the panel is part of the
           body and always present, so a show/hide control there would toggle
           nothing the user cannot already see. Icon swaps with state
           (PanelRightOpen/Close), matching the track activity-rail toggle. */}
-      {showSideColumn && (
+      {variant === 'page' ? (
+        <>
+          {panelTabOptions.map(option => {
+            const selected = commentsPanelOpen && panelTab === option.value;
+            return <IconButton key={option.value}
+              label={`${selected ? 'Hide' : 'Show'} ${option.value}`}
+              title={`${option.label}${option.count != null ? ` (${option.count})` : ''}`}
+              size="md" aria-expanded={selected} aria-controls="entry-panel-body"
+              onClick={event => {
+                pagePanelTriggerRef.current = event.currentTarget;
+                setPanelTab(option.value);
+                setCommentsPanelOpen(!selected);
+              }}>
+              {option.icon}
+            </IconButton>;
+          })}
+        </>
+      ) : showSideColumn && (
         <IconButton
           label={commentsPanelOpen ? 'Hide details panel' : 'Show details panel'}
           title={commentsPanelOpen ? 'Hide details panel' : 'Show details panel'}
@@ -1681,9 +1728,9 @@ export function EntryDetail({
           <LayoutTemplate size={14} strokeWidth={LINE_ICON_STROKE} />
         </button>
       ) : null}
-      {canEdit && !isEditing ? (
+      {canEdit ? (
         <>
-          {showStartProject ? (
+          {!isEditing && showStartProject ? (
             <button
               type="button"
               onClick={() => void handleStartDeliveryProject()}
@@ -1707,7 +1754,7 @@ export function EntryDetail({
           ) : null}
           <button
             type="button"
-            onClick={() => setIsEditing(true)}
+            onClick={() => setIsEditing(editing => !editing)}
             className="
               inline-flex items-center justify-center
               w-10 h-10 sm:w-8 sm:h-8 rounded-md
@@ -1716,11 +1763,12 @@ export function EntryDetail({
               transition-colors duration-fast
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]
             "
-            aria-label="Edit entry"
+            aria-label={isEditing ? 'Cancel edit' : 'Edit entry'}
+            title={isEditing ? 'Cancel edit' : 'Edit entry'}
           >
-            <Edit2 size={14} strokeWidth={LINE_ICON_STROKE} />
+            {isEditing ? <X size={14} strokeWidth={LINE_ICON_STROKE} /> : <Edit2 size={14} strokeWidth={LINE_ICON_STROKE} />}
           </button>
-          {onDelete ? (
+          {!isEditing && onDelete ? (
             <button
               type="button"
               onClick={() => void handleDeleteEntry()}
@@ -1751,7 +1799,14 @@ export function EntryDetail({
       onClose={onClose}
       title={titleSlot}
       headerActions={headerActions}
-      sidePanel={showSideColumn && commentsPanelOpen ? panelNode : undefined}
+      sidePanel={commentsPanelOpen && (variant === 'page' || showSideColumn) ? panelNode : undefined}
+      {...(variant === 'page' ? {
+        panelTitle: PANEL_TABS.find(t => t.key === panelTab)?.label,
+        onPanelClose: () => {
+          setCommentsPanelOpen(false);
+          pagePanelTriggerRef.current?.focus();
+        },
+      } : {})}
       /* The panel is part of this surface even when it is hidden or stacked
          into the body, so the dialog keeps its height either way. */
       hasCompanionPanel
@@ -1846,10 +1901,15 @@ export function EntryDetail({
               </div>
               {!detailOwnsForm ? (
               <div className="mt-4">
+                {Object.values(entry.read_time_fields?.status || {}).includes('unavailable') ? (
+                  <div role="status"><Text as="p" variant="body-sm" tone="muted">Some live fields could not be checked. Their values are unknown.</Text></div>
+                ) : null}
                 <EntryMetaFields
                   fields={dynamicFields}
+                  readOnlyKeys={Object.keys(entry.read_time_fields?.values || {})}
                   values={{
                     ...((entry.custom_fields || {}) as Record<string, unknown>),
+                    ...(entry.read_time_fields?.values || {}),
                     ...(entryTypeSlug === 'sprint'
                       ? {
                           tasks: Array.isArray((entry.custom_fields || {}).tasks)
@@ -1956,7 +2016,7 @@ export function EntryDetail({
                   desktop column — chosen, never duplicated — so comments,
                   attachments and activity stay reachable on a phone instead
                   of disappearing with the side column. */}
-              {!showSideColumn && (
+              {!showSideColumn && variant !== 'page' && (
                 <section className="mt-6 border-t border-[var(--panel-border)] pt-2">
                   {panelNode}
                 </section>

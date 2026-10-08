@@ -1,11 +1,12 @@
 import { useState, type ReactNode } from 'react';
+import { Pencil, X } from 'lucide-react';
 import { AppSelect, DatePicker } from '../ui';
 import type { OperationalModelFieldSpec } from '../../types';
 import { buildFieldPlaceholder } from '../../utils/fieldPlaceholders';
 import { humanizeEnumValue } from '../../utils/humanizeFieldKey';
 import { SeamlessFileFieldInner } from './SeamlessFileFieldInner';
 import { resolveFieldType, MissingFieldType, checklistFieldRegistration } from './fieldTypes';
-import { Text } from '../../ui';
+import { IconButton, Text } from '../../ui';
 import { JsonTableEditor, isJsonTableShape } from './JsonTableEditor';
 import { useRelationLabels, RelationValue } from './relations';
 import { RelationMultiSelectCombobox } from './RelationMultiSelectCombobox';
@@ -51,6 +52,8 @@ export interface SeamlessFieldRelationChoice {
 }
 
 export interface SeamlessFieldProps {
+  /** Detail grid owns the visible label and left alignment. */
+  externalLabel?: boolean;
   field: OperationalModelFieldSpec;
   value: unknown;
   onChange: (value: unknown) => void;
@@ -122,7 +125,9 @@ function SeamlessShell({
   field,
   active,
   className = '',
+  hideLabel = false,
 }: {
+  hideLabel?: boolean;
   children: ReactNode;
   showLabel: boolean;
   field: OperationalModelFieldSpec;
@@ -139,7 +144,7 @@ function SeamlessShell({
       `}
       aria-required={required || undefined}
     >
-      <FloatingLabel show={showLabel} name={field.name} required={required} />
+      {!hideLabel && <FloatingLabel show={showLabel} name={field.name} required={required} />}
       {children}
     </div>
   );
@@ -534,6 +539,7 @@ function SeamlessMultiSelectInner({
 }
 
 function SeamlessRelationManyInner({
+  externalLabel = false,
   field,
   value,
   onChange,
@@ -544,6 +550,7 @@ function SeamlessRelationManyInner({
   onNavigate,
   navContext,
 }: {
+  externalLabel?: boolean;
   field: OperationalModelFieldSpec;
   value: unknown;
   onChange: (v: unknown) => void;
@@ -554,29 +561,15 @@ function SeamlessRelationManyInner({
   onNavigate?: () => void;
   navContext?: RelationNavContext | null;
 }) {
-  const selected = Array.isArray(value) ? (value as string[]) : [];
-  const [hovered, setHovered] = useState(false);
-  const [focusWithin, setFocusWithin] = useState(false);
-  const showFloat =
-    focusWithin || hovered || selected.length > 0 || isFieldRequired(field);
   const emptyHint =
     field.key === 'tasks' && opts.length === 0 && !relationLoading
       ? (placeholder || 'Select project(s) above first to load tasks.')
       : undefined;
 
   return (
-    <div
-      className="space-y-1.5 pl-3"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      onFocusCapture={() => setFocusWithin(true)}
-      onBlurCapture={e => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
-          setFocusWithin(false);
-        }
-      }}
-    >
-      {showFloat ? <InlineFieldLabel field={field} /> : null}
+    <div className={`space-y-1.5 ${externalLabel ? '' : 'pl-3'}`}>
+      {/* Keep the label in flow so pointer entry cannot move the trigger. */}
+      {!externalLabel && <InlineFieldLabel field={field} />}
       <RelationMultiSelectCombobox
         field={field}
         value={value}
@@ -594,6 +587,7 @@ function SeamlessRelationManyInner({
 }
 
 function SeamlessRelationSingleInner({
+  externalLabel = false,
   field,
   value,
   onChange,
@@ -604,6 +598,7 @@ function SeamlessRelationSingleInner({
   onNavigate,
   navContext,
 }: {
+  externalLabel?: boolean;
   field: OperationalModelFieldSpec;
   value: unknown;
   onChange: (v: unknown) => void;
@@ -621,6 +616,7 @@ function SeamlessRelationSingleInner({
     focusWithin || hovered || hasValue || isFieldRequired(field);
   const active = focusWithin || hasValue || readonly;
   const currentId = String(value || '');
+  const [editing, setEditing] = useState(false);
   const knownChoice = opts.find(o => o.value === currentId);
   // Same fallback as the many-chip path — when the picker's preloaded opts
   // don't cover the current value (cross-track relation, late preload,
@@ -638,25 +634,32 @@ function SeamlessRelationSingleInner({
     </span>
   );
 
-  if (readonly) {
+  if (readonly || (currentId && !editing)) {
     return (
-      <div className="space-y-1.5 pl-3">
-        <InlineFieldLabel field={field} />
-        {currentId ? (
-          <RelationValue
-            value={currentId}
-            relation={field.relation}
-            variant="chips"
-            stopPropagation
-            onNavigate={onNavigate}
-            navContext={navContext}
-            emptyFallback={chipFallback}
-          />
-        ) : (
-          <Text variant="body" tone="muted" as="p">
-            —
-          </Text>
-        )}
+      <div className={`space-y-1.5 ${externalLabel ? '' : 'pl-3'}`}>
+        {!externalLabel && <InlineFieldLabel field={field} />}
+        <div className="flex min-w-0 items-center gap-2">
+          {currentId ? (
+            <div className="min-w-0 flex-1">
+              <RelationValue
+                value={currentId}
+                relation={field.relation}
+                variant="chips"
+                stopPropagation
+                onNavigate={onNavigate}
+                navContext={navContext}
+                emptyFallback={chipFallback}
+              />
+            </div>
+          ) : (
+            <Text variant="body" tone="muted" as="p">—</Text>
+          )}
+          {!readonly && (
+            <IconButton label={`Change ${field.name}`} onClick={() => setEditing(true)} className="shrink-0">
+              <Pencil size={14} aria-hidden />
+            </IconButton>
+          )}
+        </div>
       </div>
     );
   }
@@ -673,30 +676,18 @@ function SeamlessRelationSingleInner({
         }
       }}
     >
-      {currentId ? (
-        <div className="pl-3">
-          <RelationValue
-            value={currentId}
-            relation={field.relation}
-            variant="chips"
-            stopPropagation
-            onNavigate={onNavigate}
-            navContext={navContext}
-            emptyFallback={chipFallback}
-          />
-        </div>
-      ) : null}
       <SeamlessShell
-        showLabel={showFloat}
+        hideLabel={externalLabel}
+        showLabel={!externalLabel && showFloat}
         field={field}
         active={active || hovered}
       >
-        <div className="py-0.5">
+        <div className="flex min-w-0 items-center gap-2 py-0.5">
           <AppSelect
             variant="pill"
-            className="w-full max-w-full border-0 bg-transparent px-0 py-1 font-normal shadow-none focus:ring-0"
+            className="min-w-0 w-full max-w-full border-0 bg-transparent px-0 py-1 font-normal shadow-none focus:ring-0"
             value={currentId}
-            onValueChange={val => onChange(val || null)}
+            onValueChange={val => { onChange(val || null); setEditing(false); }}
             disabled={readonly}
             placeholder={placeholder}
             options={[
@@ -716,6 +707,9 @@ function SeamlessRelationSingleInner({
             ]}
             aria-label={fieldAriaLabel(field)}
           />
+          {currentId && <IconButton label={`Cancel editing ${field.name}`} onClick={() => setEditing(false)} className="shrink-0">
+            <X size={14} aria-hidden />
+          </IconButton>}
         </div>
       </SeamlessShell>
     </div>
@@ -1116,6 +1110,7 @@ export function SeamlessField(props: SeamlessFieldProps) {
           : 'Select tasks…';
       return (
         <SeamlessRelationManyInner
+          externalLabel={props.externalLabel}
           field={field}
           value={value}
           onChange={onChange}
@@ -1132,6 +1127,7 @@ export function SeamlessField(props: SeamlessFieldProps) {
     }
     return (
       <SeamlessRelationSingleInner
+        externalLabel={props.externalLabel}
         field={field}
         value={value}
         onChange={onChange}

@@ -88,7 +88,7 @@ function countItems(value: unknown): number {
   return 0;
 }
 
-function previewValue(value: unknown, palette: Palette): React.ReactNode {
+function previewValue(value: unknown, palette: Palette, identifier = false): React.ReactNode {
   const t = typeOf(value);
   switch (t) {
     case "string":
@@ -96,11 +96,13 @@ function previewValue(value: unknown, palette: Palette): React.ReactNode {
       // system_prompt) instead of collapsing them into one run-on line.
       return (
         <span
+          title={identifier ? String(value) : undefined}
           style={{
             color: palette.string,
-            whiteSpace: "pre-wrap",
-            overflowWrap: "anywhere",
-            minWidth: 0
+            whiteSpace: identifier ? "nowrap" : "pre-wrap",
+            overflowWrap: identifier ? undefined : "anywhere",
+            minWidth: 0,
+            ...(identifier ? { flex: 1, overflow: "hidden", textOverflow: "ellipsis" } : {})
           }}
         >
           "{String(value)}"
@@ -144,6 +146,10 @@ const JsonNode: React.FC<JsonNodeProps> = ({
   const expandable = isExpandable(value);
   const itemCount = countItems(value);
   const type = typeOf(value);
+  const identifier = type === "string" && (
+    /^(?:id|.*_id|token)$/.test(nodeKey ?? "") ||
+    /^(?:[A-Za-z]\.\w+\.[\da-f]{16,}|[\da-f]{32,}|[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12})$/i.test(String(value))
+  );
 
   const handleCopy = useCallback(
     (e: React.MouseEvent) => {
@@ -184,14 +190,14 @@ const JsonNode: React.FC<JsonNodeProps> = ({
 
   if (!expandable) {
     return (
-      <div style={{ ...rowStyle, paddingLeft: indent }} className="json-row">
+      <div style={{ ...rowStyle, flexWrap: identifier ? "nowrap" : "wrap", paddingLeft: indent }} className="json-row">
         <span style={{ width: 16, flexShrink: 0 }} />
         {nodeKey !== null && (
           <span style={{ color: palette.key, flexShrink: 0 }}>
             "{nodeKey}":{" "}
           </span>
         )}
-        {previewValue(value, palette)}
+        {previewValue(value, palette, identifier)}
         {!isLast && <span style={{ color: palette.bracket }}>,</span>}
         <button
           onClick={handleCopy}

@@ -54,6 +54,30 @@ def test_resource_urls_preserve_opaque_ids_and_the_original_receipt():
     assert "url" not in source["tracks"][0]
 
 
+def test_governed_query_rows_get_canonical_urls_without_mutating_receipts():
+    """Declared and generic queries use rows, not entries collections."""
+    source = {
+        "rows": [
+            {"id": "n.Entry.example", "track_id": "n.Track.example"},
+            {"id": "n.Track.example"},
+            {"id": "n.WorkspaceApp.example"},
+            {"count": 3},
+            {"id": "external-resource"},
+            "scalar-row",
+        ],
+        "_receipt": {"state": "complete", "run_id": "run-1"},
+    }
+    result = _resource_links_for_model(source)
+    assert [row["url"] for row in result["rows"][:3]] == [
+        "/entries/n.Entry.example",
+        "/tracks/n.Track.example",
+        "/apps/n.WorkspaceApp.example",
+    ]
+    assert result["rows"][3:] == source["rows"][3:]
+    assert result["_receipt"] == source["_receipt"]
+    assert "url" not in source["rows"][0]
+
+
 def test_pending_write_resolution_tool_is_only_exposed_for_scoped_pending_items():
     """Expose the chat decision tool only when Core supplied pending items."""
     tools = build_brokered_tools(
@@ -1609,3 +1633,49 @@ async def test_identical_read_recovers_and_observes_new_state(
     second = await tool.function_schema.call({}, SimpleNamespace(tool_call_id="second"))
     assert second["entries"][0]["id"] == "n.Entry.created"
     assert attempts == 2
+
+
+@pytest.mark.asyncio
+async def test_vetted_connector_read_crosses_broker_on_no_save_turn(monkeypatch):
+    invocations = []
+
+    async def invoke(**kwargs):
+        invocations.append(kwargs)
+        return CapabilityResult(ok=True, data={"results": []})
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    tools = build_brokered_tools(
+        scope=_scope(),
+        no_workspace_writes=True,
+        catalogue=[
+            {
+                "name": "mcp__serper_web_search__search_web",
+                "description": "Search public sources.",
+                "op_class": "read",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                },
+            },
+            {
+                "name": "mcp__custom__delete",
+                "description": "Unknown remote side effects.",
+                "input_schema": {"type": "object", "properties": {}},
+            },
+        ],
+    )
+    context = SimpleNamespace(tool_call_id="read", active_capability_ids=set())
+    read = next(tool for tool in tools if tool.name.endswith("search_web"))
+    assert read.sequential is False
+    result = await read.function_schema.call({"query": "public documentation"}, context)
+    assert result["results"] == []
+    assert invocations[0]["source"] == "connector"
+    assert invocations[0]["op_class"] == "read"
+    assert invocations[0]["workspace_id"] == "workspace-1"
+    write = next(tool for tool in tools if tool.name.endswith("delete"))
+    assert write.sequential is True
+    denied = await write.function_schema.call({}, context)
+    assert denied["error_code"] == "user_no_workspace_writes"
+    assert len(invocations) == 1

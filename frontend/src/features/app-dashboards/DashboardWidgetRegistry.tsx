@@ -414,6 +414,50 @@ export function ActivityDigestWidget({
   );
 }
 
+export function RecordSummaryWidget({ title, data, config }: WidgetRendererProps) {
+  const errorUi = widgetDataError(title, data);
+  if (errorUi) return errorUi;
+  const records = (data?.records ?? []) as Array<{
+    id: string; title: string; fields: Record<string, unknown>;
+  }>;
+  const fields = (config?.fields ?? []) as Array<{
+    field: string; label: string; detail?: boolean; value_labels?: Record<string, string>;
+  }>;
+  const showValue = (value: unknown, labels?: Record<string, string>) => value === null || value === undefined || value === ''
+    ? 'Not yet set' : labels && Object.prototype.hasOwnProperty.call(labels, String(value)) ? labels[String(value)] : String(value);
+  return (
+    <WidgetShell title={title}>
+      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto">
+        {records.length === 0 ? (
+          <Text variant="body-sm" tone="muted" as="p">{String(config?.empty_message || 'No records yet')}</Text>
+        ) : records.map(record => (
+          <section key={record.id} className="space-y-3">
+            <Text variant="body" as="p" truncate>
+              {/^[no]\.Entry\.[a-zA-Z0-9_-]+$/.test(record.id) ? (
+                <Link to={`/entries/${encodeURIComponent(record.id)}`} className="underline underline-offset-2">{record.title}</Link>
+              ) : record.title}
+            </Text>
+            {fields.map(field => field.detail ? (
+              <details key={field.field}>
+                <summary className="cursor-pointer"><Text variant="body-sm" as="span">{field.label}</Text></summary>
+                <Text variant="body-sm" as="p" className="mt-2 whitespace-pre-wrap break-words">{showValue(record.fields[field.field], field.value_labels)}</Text>
+              </details>
+            ) : (
+              <div key={field.field}>
+                <Text variant="meta" tone="muted" as="p">{field.label}</Text>
+                <Text variant="body-sm" as="p" className="whitespace-pre-wrap break-words">{showValue(record.fields[field.field], field.value_labels)}</Text>
+              </div>
+            ))}
+          </section>
+        ))}
+        {Number(data?.total_matched) > records.length ? (
+          <Text variant="meta" tone="muted" as="p">Showing {records.length} of {String(data?.total_matched)} records.</Text>
+        ) : null}
+      </div>
+    </WidgetShell>
+  );
+}
+
 export function RecentEntriesWidget({
   title,
   data,
@@ -555,6 +599,7 @@ type WidgetRendererProps = {
 };
 
 const WIDGET_RENDERERS: Record<string, ComponentType<WidgetRendererProps>> = {
+  record_summary: RecordSummaryWidget,
   metric_card: MetricCardWidget,
   metric_row: MetricRowWidget,
   chart_bar: ChartBarWidget,

@@ -59,6 +59,8 @@ export interface SystemNotification {
   actions?: SystemNotificationAction[];
   /** Whether the user can dismiss with the close button. Default true. */
   dismissible?: boolean;
+  /** Called only when the user closes the banner, not when its condition clears. */
+  onUserDismiss?: () => void;
   /** Custom icon. Defaults are selected by type. */
   icon?: LucideIcon;
   /** If set, auto-dismiss after N ms. Omit for persistent bars. */

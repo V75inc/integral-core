@@ -427,7 +427,12 @@ async def compute_entry_impact(
                     {"entry_id": entry.id, "reason": "entry_type missing"}
                 )
             continue
-        et_key = str(et.name or "").strip().lower().replace(" ", "_")
+        # Package identity survives display-label edits. Only legacy types
+        # without a manifest key fall back to their historical name slug.
+        et_key = str(
+            (getattr(et, "form_schema", None) or {}).get("_manifest_entry_type_key")
+            or ""
+        ).strip() or str(et.name or "").strip().lower().replace(" ", "_")
         candidate_et_key = entry_type_aliases.get(et_key, et_key)
         custom = getattr(entry, "custom_fields", None) or {}
         for change in type_changes:

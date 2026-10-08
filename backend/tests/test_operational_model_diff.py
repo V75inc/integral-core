@@ -617,3 +617,48 @@ def test_single_literal_grep_gates_unchanged():
             f"{symbol} should have exactly 1 Literal declaration, "
             f"found {len(matches)}: {matches}"
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "manifest_key,candidate_key,expected_failures",
+    [
+        ("attachment_draft", "attachment_draft", 0),
+        ("attachment_draft", "removed_type", 1),
+        (None, "display_label", 0),
+    ],
+)
+async def test_entry_impact_uses_manifest_identity_before_display_label(
+    monkeypatch, manifest_key, candidate_key, expected_failures
+):
+    import app.services.operational_model_entry_fields as entry_fields
+    from app.models.nodes import EntryType
+    from app.services import operational_model_diff as diff_module
+
+    entry = SimpleNamespace(id="entry-1", type_id="type-1", custom_fields={})
+    entry_type = SimpleNamespace(
+        name="Display Label", form_schema={"_manifest_entry_type_key": manifest_key}
+    )
+
+    async def entries(**_kwargs):
+        return [entry]
+
+    async def get_type(_type_id):
+        return entry_type
+
+    async def validate(**_kwargs):
+        return None
+
+    monkeypatch.setattr(EntryType, "get", get_type)
+    monkeypatch.setattr(
+        diff_module,
+        "_candidate_track_tier",
+        lambda *_: {"entry_types": [{"key": candidate_key, "fields": []}]},
+    )
+    monkeypatch.setattr(
+        entry_fields, "validate_and_materialize_entry_custom_fields", validate
+    )
+    impact = await diff_module.compute_entry_impact(
+        track=SimpleNamespace(id="track-1", nodes=entries), candidate_manifest={}
+    )
+    assert impact["would_fail_validation"] == expected_failures

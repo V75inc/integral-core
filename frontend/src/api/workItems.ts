@@ -16,6 +16,7 @@ export type WorkItemStatus =
 export interface WorkItemStatusResponse {
   work_item_id: string;
   kind: string;
+  operation?: string;
   status: WorkItemStatus;
   workspace_id: string;
   app_id: string;
@@ -27,6 +28,10 @@ export interface WorkItemStatusResponse {
 }
 
 export const workItemsApi = {
+  list: (workspaceId: string, cursor?: string) =>
+    apiClient.get<{ items: WorkItemStatusResponse[]; next_cursor: string | null }>('/work-items',
+      { params: { workspace_id: workspaceId, ...(cursor ? { cursor } : {}) } })
+      .then(response => response.data),
   get: (workItemId: string) =>
     apiClient
       .get<WorkItemStatusResponse>(`/work-items/${workItemId}`)

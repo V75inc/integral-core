@@ -23,12 +23,17 @@ import {
 import { MAX_CONCURRENT_STREAMS } from "../threadSessionRegistry";
 import type { ChatProvider, NormalizedEvent } from "../providers/types";
 
+vi.mock("../../../context/AuthContext", () => ({
+  useAuthOptional: () => ({ user: { id: "user1" }, loading: false }),
+}));
+
 vi.mock("../../../context/ScopeContext", () => ({
   useScope: () => ({ scope: { workspaceId: "ws1" } }),
 }));
 
+const catalog = vi.hoisted(() => ({ agentId: "agent1" as string | null }));
 vi.mock("../useAgentCatalog", () => ({
-  useAgentCatalog: () => ({ activeAgent: { id: "agent1", name: "Agent" } }),
+  useAgentCatalog: () => ({ activeAgent: catalog.agentId ? { id: catalog.agentId, name: "Agent" } : null }),
 }));
 
 vi.mock("../../../context/ChatPageFocusContext", () => ({
@@ -135,6 +140,8 @@ async function send(
 }
 
 beforeEach(() => {
+  sessionStorage.clear();
+  catalog.agentId = "agent1";
   vi.clearAllMocks();
   __resetThreadSessionStoreForTests();
 });
@@ -151,6 +158,61 @@ describe("a clipped design invitation is finished", () => {
 });
 
 describe("admission refusals are visible, and nothing is appended", () => {
+  it("preserves New conversation when the initial agent catalog resolves", async () => {
+    const { aiChatApi } = await import("../../../api/aiChat");
+    catalog.agentId = null;
+    vi.mocked(aiChatApi.listThreads).mockResolvedValue([{ id: "t-previous", title: "Previous", archived: false } as never]);
+    const { result, rerender } = renderHook(() => useAIChatRuntime(persistedProvider));
+    await act(async () => { result.current.switchToNewThread(); });
+    catalog.agentId = "agent1";
+    rerender();
+    await waitFor(() => expect(result.current.threads).toHaveLength(1));
+    expect(result.current.activeThreadId).toBeNull();
+    expect(result.current.runtime.thread.getState().messages).toHaveLength(0);
+    vi.mocked(aiChatApi.listThreads).mockResolvedValue([]);
+  });
+
+  it.each(["public", "adapter"])("keeps an explicit new conversation when the initial list resolves late (%s)", async (path) => {
+    const { aiChatApi } = await import("../../../api/aiChat");
+    let resolveList!: (rows: never[]) => void;
+    vi.mocked(aiChatApi.listThreads).mockImplementationOnce(() => new Promise((resolve) => { resolveList = resolve; }));
+    const { result } = renderHook(() => useAIChatRuntime(persistedProvider));
+    await waitFor(() => expect(resolveList).toBeDefined());
+    await act(async () => {
+      if (path === "adapter") await result.current.runtime.threads.switchToNewThread();
+      else result.current.switchToNewThread();
+    });
+    await act(async () => { resolveList([{ id: "t-previous", title: "Previous", archived: false } as never]); });
+    await waitFor(() => expect(result.current.threads).toHaveLength(1));
+    expect(result.current.activeThreadId).toBeNull();
+    expect(result.current.runtime.thread.getState().messages).toHaveLength(0);
+  });
+
+  it("preserves an explicit fresh start across a runtime remount", async () => {
+    const { aiChatApi } = await import("../../../api/aiChat");
+    vi.mocked(aiChatApi.listThreads).mockResolvedValue([{ id: "t-previous", title: "Previous", archived: false } as never]);
+    const first = renderHook(() => useAIChatRuntime(persistedProvider));
+    await waitFor(() => expect(first.result.current.activeThreadId).toBe("t-previous"));
+    await act(async () => { first.result.current.switchToNewThread(); });
+    first.unmount();
+    const second = renderHook(() => useAIChatRuntime(persistedProvider));
+    await waitFor(() => expect(second.result.current.threads).toHaveLength(1));
+    expect(second.result.current.activeThreadId).toBeNull();
+    expect(second.result.current.runtime.thread.getState().messages).toHaveLength(0);
+    await act(async () => { second.result.current.switchToThread("t-previous"); });
+    second.unmount();
+    const third = renderHook(() => useAIChatRuntime(persistedProvider));
+    await waitFor(() => expect(third.result.current.activeThreadId).toBe("t-previous"));
+    vi.mocked(aiChatApi.listThreads).mockResolvedValue([]);
+  });
+
+  it("opens an explicit thread link despite a remembered fresh start", async () => {
+    const { rememberFreshChat } = await import("../chatHandoff");
+    rememberFreshChat({ principalId: "user1", workspaceId: "ws1", providerId: "persisted" }, true);
+    const { result } = renderHook(() => useAIChatRuntime(persistedProvider, { initialThreadId: "t-linked" }));
+    await waitFor(() => expect(result.current.activeThreadId).toBe("t-linked"));
+  });
+
   it("allocates a fresh provider thread after switching to a new conversation", async () => {
     const { aiChatApi } = await import("../../../api/aiChat");
     vi.mocked(aiChatApi.createThread).mockResolvedValueOnce({

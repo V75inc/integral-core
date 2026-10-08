@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, Literal, Optional
@@ -148,6 +150,8 @@ async def resolve_agent_key_source(
 
 async def resolve_agent_model_override(
     workspace_id: Optional[str],
+    *,
+    include_credential_identity: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """Return jvagent override dict (canonical ``slots`` map) for this turn."""
     mode = (settings.INTEGRAL_AGENT_KEY_MODE or "hybrid").strip().lower()
@@ -235,6 +239,24 @@ async def resolve_agent_model_override(
         slots["vision"] = vision
 
     override: Dict[str, Any] = {"slots": slots}
+    if include_credential_identity:
+        # Identify this stored generation, never the plaintext key or its
+        # display fingerprint. Rotation/re-encryption conservatively changes
+        # attribution; last-used telemetry does not. Compatibility callers
+        # receive their unchanged model override shape.
+        identity = json.dumps(
+            [
+                record.id,
+                record.provider,
+                record.model,
+                record.api_key_enc,
+                record.updated_at,
+            ],
+            separators=(",", ":"),
+        )
+        override["credential_ref"] = (
+            "user-model-generation:" + hashlib.sha256(identity.encode()).hexdigest()
+        )
 
     # Legacy flat keys — older jvagent builds still read these.
     override["provider"] = "litellm"

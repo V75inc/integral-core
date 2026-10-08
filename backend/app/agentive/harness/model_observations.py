@@ -10,7 +10,9 @@ from typing import Any
 
 from app.agentive.harness.contracts import (
     HarnessExecutionScope,
+    ModelRouteIdentity,
     PhysicalModelRequest,
+    ResolvedModelRoute,
     RunUsageSummary,
 )
 from app.agentive.harness.jvspatial_store import HarnessPersistenceError
@@ -111,6 +113,8 @@ async def persist_model_request_observation(
             intent.scope != observation.scope
             or intent.provider != observation.provider
             or intent.model != observation.model
+            or intent.credential_source != observation.credential_source
+            or intent.credential_ref != observation.credential_ref
             or intent.attempt != observation.attempt
             or intent.dispatched_at != observation.dispatched_at
             or observation.scope.principal_id != work_execution_context.principal_id
@@ -129,6 +133,66 @@ async def persist_model_request_observation(
 
         async with authorized_work_item_effect(work_execution_context):
             await persist()
+
+
+async def load_bound_model_request_observation(
+    *,
+    scope: HarnessExecutionScope,
+    request_id: str,
+    outcome: str,
+    expected_route: ResolvedModelRoute | ModelRouteIdentity,
+) -> PhysicalModelRequest:
+    """Read exact encrypted intent/outcome evidence for a host-selected route.
+
+    The caller must authorize the owning run. This is evidence lookup, not
+    dispatch authority or a cost settlement: source cost may still be unknown
+    or estimated. Historical records lacking credential attribution cannot
+    establish an exact reviewed billing route. No latest-session substitution
+    or caller-supplied cost/receipt payload is accepted.
+    """
+    if (
+        not request_id
+        or request_id != request_id.strip()
+        or outcome not in {"responded", "failed", "cancelled", "outcome_unknown"}
+        or not expected_route.credential_ref
+    ):
+        raise HarnessPersistenceError("Exact model request route evidence required")
+    scope_key = _scope_key(scope)
+    observations = []
+    for transition in ("dispatch_intent", outcome):
+        record_id = _record_id(scope_key, request_id, transition)
+        record = await HarnessModelRequestRecord.get(record_id)
+        if record is None:
+            raise HarnessPersistenceError("Model request receipt is incomplete")
+        observation = _decode(record)
+        if (
+            record.id != record_id
+            or record.scope_key != scope_key
+            or record.run_key != scope.run_id
+            or record.request_key != request_id
+            or record.transition_key != f"{request_id}:{transition}"
+            or record.outcome != transition
+            or observation.scope != scope
+            or observation.request_id != request_id
+            or observation.outcome != transition
+            or observation.provider != expected_route.provider
+            or observation.model != expected_route.model
+            or observation.credential_source != expected_route.credential_source
+            or observation.credential_ref != expected_route.credential_ref
+        ):
+            raise HarnessPersistenceError("Model request receipt route mismatch")
+        observations.append(observation)
+    intent, terminal = observations
+    if (
+        intent.attempt != terminal.attempt
+        or intent.dispatched_at != terminal.dispatched_at
+        or intent.dispatched_at.utcoffset() is None
+        or terminal.observed_at is None
+        or terminal.observed_at.utcoffset() is None
+        or terminal.observed_at < intent.dispatched_at
+    ):
+        raise HarnessPersistenceError("Model outcome does not match dispatch intent")
+    return terminal
 
 
 async def list_model_request_observations(

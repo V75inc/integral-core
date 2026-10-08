@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -371,15 +372,42 @@ def test_run_instructions_expose_active_capabilities_to_the_model() -> None:
     """Loaded skills remain explicit without depending on repeated loads."""
     instructions = build_integral_run_instructions("Integral resident agent.")
 
-    assert instructions(SimpleNamespace(active_capability_ids=set())) == (
-        "Integral resident agent."
-    )
+    base = instructions(SimpleNamespace(active_capability_ids=set()))
+    assert base.startswith("Integral resident agent.")
+    assert "copy the canonical url returned by Core tools exactly" in base
+    assert "replace its dots with slashes" in base
+    assert "plain record label instead of a guessed link" in base
     active = instructions(
         SimpleNamespace(active_capability_ids={"integral-scaffold", "integral-model"})
     )
     assert "already loaded" in active
     assert "integral-model, integral-scaffold" in active
     assert "Do not call load_capability for them again." in active
+
+
+def test_run_instructions_use_server_utc_date_and_refresh_for_new_invocations(
+    monkeypatch,
+) -> None:
+    from app.agentive.harness import pydantic_ai_compat
+
+    class Clock:
+        value = datetime(2026, 10, 7, 23, 59, tzinfo=timezone.utc)
+
+        @classmethod
+        def now(cls, tz):
+            assert tz is timezone.utc
+            return cls.value
+
+    monkeypatch.setattr(pydantic_ai_compat, "datetime", Clock)
+    ctx = SimpleNamespace(active_capability_ids=set())
+    first = build_integral_run_instructions("Integral resident agent.")
+    assert "current UTC date is 2026-10-07" in first(ctx)
+    assert "2026-10-07T23:59:00+00:00" in first(ctx)
+    assert "Do not invent a user timezone" in first(ctx)
+    Clock.value = datetime(2026, 10, 8, 0, 1, tzinfo=timezone.utc)
+    assert "current UTC date is 2026-10-07" in first(ctx)
+    second = build_integral_run_instructions("Integral resident agent.")
+    assert "current UTC date is 2026-10-08" in second(ctx)
 
 
 def test_run_instructions_surface_current_core_outcomes_over_old_proposal_text():
@@ -709,3 +737,74 @@ async def test_history_summary_never_distills_active_batch_receipts(monkeypatch)
         == compacted
     )
     assert seen == older
+
+
+@pytest.mark.asyncio
+async def test_compaction_preserves_active_multi_record_grounding():
+    messages = [ModelRequest(parts=[UserPromptPart("Prepare the related records")])]
+    for index in range(12):
+        messages.extend(
+            [
+                ModelResponse(
+                    parts=[ToolCallPart("read", {"index": index}, str(index))]
+                ),
+                ModelRequest(
+                    parts=[
+                        ToolReturnPart("read", {"record_id": str(index)}, str(index))
+                    ]
+                ),
+            ]
+        )
+    compacted = await build_integral_context_compaction().compact(
+        messages, SimpleNamespace()
+    )
+    assert compacted == messages
+    assert (
+        len(
+            [
+                p
+                for m in compacted
+                for p in m.parts
+                if isinstance(p, ToolReturnPart) and isinstance(p.content, dict)
+            ]
+        )
+        == 12
+    )
+
+
+@pytest.mark.asyncio
+async def test_compaction_clears_completed_turn_but_preserves_new_task():
+    messages = [ModelRequest(parts=[UserPromptPart("Earlier completed work")])]
+    for index in range(8):
+        messages.extend(
+            [
+                ModelResponse(
+                    parts=[ToolCallPart("read", {"index": index}, str(index))]
+                ),
+                ModelRequest(
+                    parts=[
+                        ToolReturnPart("read", {"record_id": str(index)}, str(index))
+                    ]
+                ),
+            ]
+        )
+    active = [ModelRequest(parts=[UserPromptPart("New task")])]
+    for index in range(10, 18):
+        active.extend(
+            [
+                ModelResponse(
+                    parts=[ToolCallPart("read", {"index": index}, str(index))]
+                ),
+                ModelRequest(
+                    parts=[
+                        ToolReturnPart("read", {"record_id": str(index)}, str(index))
+                    ]
+                ),
+            ]
+        )
+    compacted = await build_integral_context_compaction().compact(
+        messages + active, SimpleNamespace()
+    )
+    assert compacted[-len(active) :] == active
+    assert compacted[2].parts[0].content == "[tool result cleared]"
+    assert messages[2].parts[0].content == {"record_id": "0"}

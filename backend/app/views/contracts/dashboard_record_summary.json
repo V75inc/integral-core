@@ -1,0 +1,11 @@
+{
+  "type": "record_summary",
+  "label": "Record summary",
+  "description": "Selected fields from an authorized App query, with optional details.",
+  "platforms": ["web"],
+  "palette_group": "summaries",
+  "configurable": true,
+  "hot_loadable": false,
+  "default_size": { "w": 12, "h": 5 },
+  "data_source_kinds": ["declared_query"]
+}

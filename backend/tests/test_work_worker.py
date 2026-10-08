@@ -567,3 +567,65 @@ async def test_uninstall_blocked_terminalizes_failed() -> None:
     assert done.failure is not None
     assert done.failure["code"] == "app_uninstall_blocked"
     assert done.failure.get("retryable") is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "action,service_name",
+    [("upgrade", "update_app_from_library"), ("resume", "resume_app")],
+)
+@pytest.mark.parametrize(
+    "error_name",
+    [
+        "BadRequestError",
+        "AppInstallError",
+        "OperationalModelValidationError",
+        "PackageArtifactTrustError",
+    ],
+)
+async def test_lifecycle_validation_failure_is_terminal_and_not_reclaimed(
+    action: str, service_name: str, error_name: str
+) -> None:
+    """Invalid package input must not strand or repeatedly reclaim running work."""
+    from app import exceptions
+    from app.agentive.services.work_recovery import run_recovery_pass
+
+    with patch(
+        "app.agentive.services.work_items.resolve_active_definition_binding",
+        new=AsyncMock(return_value="n.ApplicationDefinition.lifecycle"),
+    ):
+        item = await work_items.enqueue_work_item(
+            kind="app_lifecycle",
+            origin="app_lifecycle",
+            principal_id="ww-validation-user",
+            workspace_id="ww-validation-workspace",
+            app_id="ww-validation-app",
+            idempotency_key=f"ww-validation-{action}-{error_name}",
+            input_payload={"action": action},
+        )
+    error = getattr(exceptions, error_name)(message="Package validation failed")
+    handler = AsyncMock(side_effect=error)
+    with patch(f"app.services.app_lifecycle.{service_name}", new=handler):
+        done = await work_worker.process_one_due_item(
+            worker_id="validation-worker",
+            work_item_id=item.work_item_id,
+            lease_seconds=30,
+        )
+        assert done is not None and done.status == "failed"
+        assert done.failure["code"] == error.error_code
+        assert done.failure["message"] == "Package validation failed"
+        assert done.failure["retryable"] is False
+        assert done.result_refs == []
+        stored = await WorkItem.get(f"o.WorkItem.{item.work_item_id}")
+        assert stored is not None and stored.status == "failed"
+        recovery = await run_recovery_pass(reclaim_worker_id="validation-recovery")
+        assert recovery.reclaimed == 0
+        assert (
+            await work_items.claim_due_candidate(
+                worker_id="second-worker",
+                work_item_id=item.work_item_id,
+                lease_seconds=30,
+            )
+            is None
+        )
+        handler.assert_awaited_once()

@@ -28,7 +28,11 @@ async def test_rejected_relation_field_does_not_retry_without_it(monkeypatch):
         return {"entry": {"id": "n.Entry.OK", "custom_fields": cf or {}}}
 
     monkeypatch.setattr(staging_executors, "_call_endpoint", fake_call_endpoint)
-    monkeypatch.setattr(staging_executors, "_resolve_entry_type_id", _async_none)
+
+    async def resolved_type(*_args):
+        return "n.EntryType.request"
+
+    monkeypatch.setattr(staging_executors, "_resolve_entry_type_id", resolved_type)
 
     result = await staging_executors._x_create_entry(
         "u1",
@@ -160,3 +164,47 @@ async def test_resolve_entry_type_matches_by_key(monkeypatch):
 
     got = await sx._resolve_entry_type_id("t1", "time_off_request")
     assert got == "n.EntryType.TOR"
+
+
+@pytest.mark.asyncio
+async def test_explicit_unresolved_type_never_creates_using_default(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    endpoint = AsyncMock()
+    monkeypatch.setattr(staging_executors, "_call_endpoint", endpoint)
+    monkeypatch.setattr(staging_executors, "_resolve_entry_type_id", _async_none)
+    result = await staging_executors._x_create_entry(
+        "u1", {"track_id": "t1", "title": "Document", "entry_type": "artifact"}
+    )
+    assert result["error_code"] == "entry_type_unresolved"
+    endpoint.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_manifest_type_key_resolves_when_display_name_is_different(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.agentive import staging_executors as sx
+
+    class Profile:
+        async def nodes(self, **kwargs):
+            return [
+                SimpleNamespace(id="type-default", name="Task", form_schema={}),
+                SimpleNamespace(
+                    id="type-artifact",
+                    name="Supporting document",
+                    form_schema={"_manifest_entry_type_key": "artifact"},
+                ),
+            ]
+
+    async def profile(_track):
+        return Profile(), {}, None
+
+    async def track(_id):
+        return object()
+
+    monkeypatch.setattr("app.models.nodes.Track.get", track)
+    monkeypatch.setattr(
+        "app.services.operational_model_runtime.resolve_track_runtime_profile", profile
+    )
+    assert await sx._resolve_entry_type_id("track", "artifact") == "type-artifact"

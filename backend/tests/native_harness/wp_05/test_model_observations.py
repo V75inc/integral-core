@@ -11,9 +11,11 @@ from app.agentive.harness.contracts import (
     HarnessExecutionScope,
     ModelUsageObservation,
     PhysicalModelRequest,
+    ResolvedModelRoute,
 )
 from app.agentive.harness.model_observations import (
     list_model_request_observations,
+    load_bound_model_request_observation,
     persist_model_request_observation,
     summarize_model_usage,
     unsettled_model_request_ids,
@@ -374,7 +376,211 @@ async def test_cancelled_work_can_append_only_existing_dispatch_accounting(
             terminal.model_copy(update={"model": "another-model"}),
             work_execution_context=context,
         )
+    for changed in (
+        {"credential_source": "platform"},
+        {"credential_source": "workspace_byok", "credential_ref": "another-credential"},
+    ):
+        with pytest.raises(RuntimeError, match="authorized dispatch intent"):
+            await persist_model_request_observation(
+                terminal.model_copy(update=changed), work_execution_context=context
+            )
     assert len(model_request_rows) == 2
+
+
+def _receipt_route() -> ResolvedModelRoute:
+    return ResolvedModelRoute(
+        provider="anthropic",
+        model="anthropic/claude-sonnet",
+        api_key="synthetic-key-never-stored",
+        credential_source="workspace_byok",
+        credential_ref="credential-1",
+    )
+
+
+def _attributed_intent() -> PhysicalModelRequest:
+    return _observation().model_copy(
+        update={"credential_source": "workspace_byok", "credential_ref": "credential-1"}
+    )
+
+
+@pytest.mark.parametrize("value", ["", " credential-1", "credential-1 "])
+def test_observation_credential_reference_is_canonical(value):
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        PhysicalModelRequest.model_validate(
+            _attributed_intent().model_dump() | {"credential_ref": value}
+        )
+
+
+def test_credential_reference_without_source_is_not_attribution():
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        PhysicalModelRequest.model_validate(
+            _attributed_intent().model_dump() | {"credential_source": None}
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "outcome", ["responded", "failed", "cancelled", "outcome_unknown"]
+)
+async def test_exact_route_receipt_preserves_encrypted_attribution(
+    model_request_rows, outcome
+):
+    intent = _attributed_intent()
+    terminal = intent.model_copy(
+        update={"outcome": outcome, "observed_at": datetime.now(timezone.utc)}
+    )
+    await persist_model_request_observation(intent)
+    await persist_model_request_observation(terminal)
+    receipt = await load_bound_model_request_observation(
+        scope=_scope(),
+        request_id=intent.request_id,
+        outcome=outcome,
+        expected_route=_receipt_route(),
+    )
+    assert receipt == terminal
+    assert receipt.usage is None  # Evidence lookup never fabricates a cost.
+    assert all(
+        "credential-1" not in row.payload_ciphertext
+        for row in model_request_rows.values()
+    )
+    assert all(
+        "synthetic-key-never-stored" not in row.model_dump_json()
+        for row in model_request_rows.values()
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"provider": "openai"},
+        {"model": "other-model"},
+        {"credential_source": "platform", "api_key": None},
+        {"credential_ref": "credential-other"},
+        {"credential_ref": None},
+    ],
+)
+async def test_receipt_cannot_substitute_route_or_credential(
+    model_request_rows, change
+):
+    intent = _attributed_intent()
+    await persist_model_request_observation(intent)
+    await persist_model_request_observation(
+        intent.model_copy(update={"outcome": "responded"})
+    )
+    with pytest.raises(RuntimeError):
+        await load_bound_model_request_observation(
+            scope=_scope(),
+            request_id=intent.request_id,
+            outcome="responded",
+            expected_route=_receipt_route().model_copy(update=change),
+        )
+
+
+@pytest.mark.asyncio
+async def test_legacy_unknown_attribution_is_readable_but_not_exact_route_proof(
+    model_request_rows,
+):
+    intent = _observation()
+    await persist_model_request_observation(intent)
+    await persist_model_request_observation(
+        intent.model_copy(update={"outcome": "responded"})
+    )
+    restored = await list_model_request_observations(scope=_scope())
+    assert all(
+        item.credential_source is None and item.credential_ref is None
+        for item in restored
+    )
+    with pytest.raises(RuntimeError, match="route mismatch"):
+        await load_bound_model_request_observation(
+            scope=_scope(),
+            request_id=intent.request_id,
+            outcome="responded",
+            expected_route=_receipt_route(),
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "field", ["scope_key", "run_key", "request_key", "transition_key", "outcome"]
+)
+async def test_receipt_rejects_outer_record_identity_drift(model_request_rows, field):
+    intent = _attributed_intent()
+    await persist_model_request_observation(intent)
+    await persist_model_request_observation(
+        intent.model_copy(update={"outcome": "responded"})
+    )
+    row = next(row for row in model_request_rows.values() if row.outcome == "responded")
+    setattr(row, field, "counterfeit")
+    with pytest.raises(RuntimeError, match="route mismatch"):
+        await load_bound_model_request_observation(
+            scope=_scope(),
+            request_id=intent.request_id,
+            outcome="responded",
+            expected_route=_receipt_route(),
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "changed",
+    [
+        {"attempt": 2},
+        {"dispatched_at": datetime(2025, 1, 1, tzinfo=timezone.utc)},
+        {"observed_at": None},
+        {"observed_at": datetime(2025, 1, 1)},
+    ],
+)
+async def test_receipt_requires_matching_dispatch_and_aware_outcome(
+    model_request_rows, changed
+):
+    intent = _attributed_intent()
+    await persist_model_request_observation(intent)
+    await persist_model_request_observation(
+        intent.model_copy(update={"outcome": "responded", **changed})
+    )
+    with pytest.raises(RuntimeError, match="does not match dispatch intent"):
+        await load_bound_model_request_observation(
+            scope=_scope(),
+            request_id=intent.request_id,
+            outcome="responded",
+            expected_route=_receipt_route(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_receipt_requires_both_transitions_and_original_scope(model_request_rows):
+    intent = _attributed_intent()
+    await persist_model_request_observation(intent)
+    with pytest.raises(RuntimeError, match="incomplete"):
+        await load_bound_model_request_observation(
+            scope=_scope(),
+            request_id=intent.request_id,
+            outcome="responded",
+            expected_route=_receipt_route(),
+        )
+    await persist_model_request_observation(
+        intent.model_copy(update={"outcome": "responded"})
+    )
+    for field in (
+        "tenant_id",
+        "principal_id",
+        "workspace_id",
+        "thread_id",
+        "session_id",
+        "run_id",
+    ):
+        with pytest.raises(RuntimeError):
+            await load_bound_model_request_observation(
+                scope=_scope().model_copy(update={field: "other"}),
+                request_id=intent.request_id,
+                outcome="responded",
+                expected_route=_receipt_route(),
+            )
 
 
 @pytest.mark.asyncio

@@ -41,7 +41,7 @@ describe('companion panel reachability', () => {
   it('renders the panel in the dialog body when there is no side column', () => {
     // The fix. `showSideColumn` picks a host; the body branch is what makes
     // the content exist at all on a phone.
-    expect(source()).toMatch(/!showSideColumn && \(/);
+    expect(source()).toMatch(/!showSideColumn && variant !== 'page' && \(/);
   });
 
   it('keeps exactly one definition of the panel content', () => {
@@ -54,7 +54,15 @@ describe('companion panel reachability', () => {
 
   it('chooses a host rather than rendering both', () => {
     const s = source();
-    expect(s).toMatch(/sidePanel=\{showSideColumn && commentsPanelOpen \? panelNode : undefined\}/);
+    expect(s).toMatch(/sidePanel=\{commentsPanelOpen && \(variant === 'page' \|\| showSideColumn\)/);
+    expect(s).toMatch(/\? panelNode : undefined\}/);
+  });
+
+  it('defaults pages to a closed panel and offers full-page navigation for saved dialogs', () => {
+    expect(source()).toContain("useState(variant !== 'page')");
+    expect(source()).toContain("variant !== 'page' && !isEditing");
+    expect(source()).toContain('navigateToEntryPage(entryPagePath(entry.id))');
+    expect(source()).toContain('pagePanelTriggerRef.current?.focus()');
   });
 
   it('drops the duplicate comment button from the body', () => {
@@ -248,5 +256,14 @@ describe('EmptyState dense', () => {
 
     const { container: wide } = render(<EmptyState title="No comments yet" />);
     expect(wide.firstElementChild?.className).toContain('py-16');
+  });
+});
+
+describe('entry edit header control', () => {
+  it('keeps a cancel toggle in the edit position while retaining form cancellation', () => {
+    const source = fs.readFileSync(ENTRY_DETAIL, 'utf8');
+    expect(source).toContain("aria-label={isEditing ? 'Cancel edit' : 'Edit entry'}");
+    expect(source).toContain('onClick={() => setIsEditing(editing => !editing)}');
+    expect(source).toContain('onCancel={() => setIsEditing(false)}');
   });
 });

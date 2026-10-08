@@ -65,6 +65,8 @@ interface ModalProps {
    *   takeover would feel disproportionate.
    */
   variant?: 'default' | 'compact';
+  /** Right-aligned, full-height drawer using the same focus and dismissal contract. */
+  placement?: 'center' | 'right';
   /**
    * Companion column rendered INSIDE this dialog, to the right of the body.
    * The standard home for surfaces that comment on a record rather than
@@ -153,6 +155,7 @@ export function Modal({
   children,
   width = 'max-w-dialog-form',
   variant = 'default',
+  placement = 'center',
   sidePanel,
   hasCompanionPanel,
   tall = false,
@@ -321,7 +324,9 @@ export function Modal({
   // flex layout so the floating dialog reappears.
   //
   // Compact mode: traditional bottom-sheet on mobile, centered on sm+.
-  const containerClass = fullBleed
+  const containerClass = placement === 'right'
+    ? 'fixed inset-0 z-overlay flex items-stretch justify-end'
+    : fullBleed
     ? 'fixed inset-0 z-overlay sm:flex sm:items-center sm:justify-center sm:p-4'
     : 'fixed inset-0 z-overlay flex items-end justify-center p-0 sm:items-center sm:p-4';
   // Panel.
@@ -337,7 +342,9 @@ export function Modal({
   // the panel: at sm+ it caps the dialog width, and on mobile the
   // explicit `inset-0` overrides any `max-w-*` because position takes
   // precedence over content sizing for absolutely positioned elements.
-  const panelClass = fullBleed
+  const panelClass = placement === 'right'
+    ? `relative bg-[var(--panel)] flex flex-col outline-none focus:outline-none h-[calc(100dvh-var(--system-bar-h,0px))] w-full ${effectiveWidth} overflow-hidden border-l border-[var(--panel-border)] shadow-[var(--shadow-pop)]`
+    : fullBleed
     ? [
         'bg-[var(--panel)] flex flex-col outline-none focus:outline-none',
         // Mobile: full viewport sheet. Explicit ``h-[100dvh]`` /
@@ -394,7 +401,9 @@ export function Modal({
          whenever the dock isn't squeezing (closed, mobile, /agent), so even
          when opted in this is inert in every other case. */
       style={
-        allowAssistantDock ? { right: 'var(--assistant-dock-w, 0px)' } : undefined
+        placement === 'right'
+          ? { top: 'var(--system-bar-h, 0px)', ...(allowAssistantDock ? { right: 'var(--assistant-dock-w, 0px)' } : {}) }
+          : allowAssistantDock ? { right: 'var(--assistant-dock-w, 0px)' } : undefined
       }
     >
       {/* Quiet Premium scrim — softer than 40% so the editorial

@@ -250,6 +250,7 @@ class WorkItemStatusResponse(BaseModel):
 
     work_item_id: str
     kind: str
+    operation: str = ""
     status: WorkStatus
     workspace_id: str
     app_id: str = ""

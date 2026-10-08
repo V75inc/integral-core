@@ -122,6 +122,7 @@ def test_resident_web_research_actions_are_bounded_and_documented() -> None:
     frontmatter = yaml.safe_load(raw.split("---", 2)[1])
     assert set(frontmatter["allowed-tools"].split()) == {
         "mcp__serper_web_search__search_web",
+        "mcp__serper_web_search__fetch_web_page",
         "web_search__search",
         "web_fetch__fetch",
     }
@@ -698,3 +699,18 @@ def test_w01_d17_insights_resolves_field_keys_before_ranking() -> None:
             }
         )
     )
+
+
+def test_attachments_skill_observes_app_query_boundaries_and_viewer_controls() -> None:
+    skill = _skill("integral-attachments")
+    frontmatter = yaml.safe_load(skill.split("---", 2)[1])
+    tools = set(frontmatter["allowed-tools"].split())
+    assert {
+        "integral_describe_capabilities",
+        "integral_governed_query",
+        "integral_list_apps",
+    } <= tools
+    assert "declared_query_required" in skill
+    assert "do not repeat generic searches" in skill
+    assert "missing `preview_url` or `thumb_url` does not mean" in skill
+    assert "Open/Download" in skill
