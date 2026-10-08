@@ -334,3 +334,174 @@ async def test_unchecked_invalid_bounds_are_revalidated(price_request):
         )
     assert exc.value.code == "work.price_request_invalid"
     handler.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_bound_reservation_retains_exact_request_and_price_evidence(
+    price_request,
+):
+    from app.schemas.agentive.work_budget import MandateReservationRequest
+
+    host_hooks.register_model_price_resolver(
+        AsyncMock(return_value=evidence(price_request))
+    )
+    reservation = await work_prices.resolve_mandate_model_reservation_request(
+        price_request, logical_effect_key="logical-step-1"
+    )
+    assert reservation.logical_effect_key != price_request.request_id
+    assert reservation.model_price_binding.request == price_request
+    restored = MandateReservationRequest.model_validate_json(
+        reservation.model_dump_json()
+    )
+    assert restored == reservation
+    assert restored.fingerprint() == reservation.fingerprint()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("input_fingerprint", "b" * 64),
+        ("quote", None),
+        ("model_route", None),
+    ],
+)
+async def test_bound_reservation_rejects_changed_price_or_payload(
+    price_request, field, value
+):
+    from pydantic import ValidationError
+
+    from app.schemas.agentive.work_budget import MandateReservationRequest
+
+    host_hooks.register_model_price_resolver(
+        AsyncMock(return_value=evidence(price_request))
+    )
+    reservation = await work_prices.resolve_mandate_model_reservation_request(
+        price_request, logical_effect_key="logical-step-1"
+    )
+    payload = reservation.model_dump()
+    if field == "quote":
+        value = reservation.quote.model_copy(update={"upper_cost": Decimal("0")})
+    payload[field] = value
+    with pytest.raises(ValidationError):
+        MandateReservationRequest.model_validate(payload)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("request_id", "other-request"),
+        ("input_fingerprint", "b" * 64),
+        ("input_tokens_upper", 32769),
+        ("output_tokens_upper", 8193),
+        ("bounds_ref", "other-bounds"),
+    ],
+)
+async def test_dispatch_rejects_changed_physical_request(price_request, field, value):
+    from app.agentive.services.work_budgets import _assert_bound_model_dispatch
+
+    host_hooks.register_model_price_resolver(
+        AsyncMock(return_value=evidence(price_request))
+    )
+    reservation = await work_prices.resolve_mandate_model_reservation_request(
+        price_request, logical_effect_key="logical-step-1"
+    )
+    _assert_bound_model_dispatch(
+        reservation, price_request.scope, price_request, price_request.request_id
+    )
+    with pytest.raises(WorkError) as exc:
+        _assert_bound_model_dispatch(
+            reservation,
+            price_request.scope,
+            price_request.model_copy(update={field: value}),
+            price_request.request_id,
+        )
+    assert exc.value.code == "work.model_bounds_conflict"
+
+
+@pytest.mark.asyncio
+async def test_bound_dispatch_requires_fresh_scope_and_bounds(price_request):
+    from app.agentive.services.work_budgets import _assert_bound_model_dispatch
+
+    host_hooks.register_model_price_resolver(
+        AsyncMock(return_value=evidence(price_request))
+    )
+    reservation = await work_prices.resolve_mandate_model_reservation_request(
+        price_request, logical_effect_key="logical-step-1"
+    )
+    with pytest.raises(WorkError) as exc:
+        _assert_bound_model_dispatch(
+            reservation, price_request.scope, None, price_request.request_id
+        )
+    assert exc.value.code == "work.model_bounds_required"
+    with pytest.raises(WorkError) as exc:
+        _assert_bound_model_dispatch(
+            reservation,
+            price_request.scope.model_copy(
+                update={"permission_revision": "new-permissions"}
+            ),
+            price_request,
+            price_request.request_id,
+        )
+    assert exc.value.code == "work.model_bounds_conflict"
+
+
+@pytest.mark.asyncio
+async def test_equivalent_bound_evidence_keeps_reservation_fingerprint(price_request):
+    from app.schemas.agentive.work_budget import MandateReservationRequest
+
+    value = evidence(price_request)
+    host_hooks.register_model_price_resolver(AsyncMock(return_value=value))
+    first = await work_prices.resolve_mandate_model_reservation_request(
+        price_request, logical_effect_key="logical-step-1"
+    )
+    payload = first.model_dump()
+    payload["model_price_binding"]["evidence"]["input_usd_per_million"] = Decimal(
+        "0.30000000"
+    )
+    payload["model_price_binding"]["request"]["bounds_valid_until"] = (
+        price_request.bounds_valid_until.astimezone(timezone(timedelta(hours=-4)))
+    )
+    second = MandateReservationRequest.model_validate(payload)
+    assert first.fingerprint() == second.fingerprint()
+
+
+@pytest.mark.asyncio
+async def test_bound_dispatch_reference_must_identify_the_priced_physical_call(
+    price_request,
+):
+    from app.agentive.services.work_budgets import _assert_bound_model_dispatch
+
+    host_hooks.register_model_price_resolver(
+        AsyncMock(return_value=evidence(price_request))
+    )
+    reservation = await work_prices.resolve_mandate_model_reservation_request(
+        price_request, logical_effect_key="logical-step-1"
+    )
+    with pytest.raises(WorkError) as exc:
+        _assert_bound_model_dispatch(
+            reservation, price_request.scope, price_request, "different-call"
+        )
+    assert exc.value.code == "work.model_bounds_conflict"
+
+
+@pytest.mark.asyncio
+async def test_bound_reservation_requires_owning_execution_lease(price_request):
+    from app.agentive.services.work_budgets import reserve_mandate_budget
+
+    host_hooks.register_model_price_resolver(
+        AsyncMock(return_value=evidence(price_request))
+    )
+    reservation = await work_prices.resolve_mandate_model_reservation_request(
+        price_request, logical_effect_key="logical-step-1"
+    )
+    with pytest.raises(WorkError) as exc:
+        await reserve_mandate_budget(
+            work_item_id="work-1",
+            principal_id="user-1",
+            workspace_id="workspace-1",
+            thread_id="thread-1",
+            request=reservation,
+        )
+    assert exc.value.code == "work.mandate_scope_denied"
