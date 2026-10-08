@@ -7,6 +7,20 @@ import {
 } from '../useAIChatRuntime';
 
 describe('normalizePersistedParts', () => {
+  it('folds historical tool updates without losing arguments, result or ordering', () => {
+    const parts = normalizePersistedParts([
+      { type: 'tool-call', toolCallId: 'a', toolName: 'read', args: { file: 'file1' }, status: 'running' },
+      { type: 'text', text: 'Partial answer' },
+      { type: 'tool-call', toolCallId: 'b', toolName: 'list', status: 'running' },
+      { type: 'tool-call', toolCallId: 'a', toolName: 'read', result: 'read receipt', status: 'complete', isError: false },
+      { type: 'tool-call', toolCallId: 'b', toolName: 'list', status: 'error', isError: true },
+    ] as any);
+    expect(parts).toHaveLength(3);
+    expect(parts[0]).toMatchObject({ toolCallId: 'a', args: { file: 'file1' }, result: 'read receipt', status: 'complete' });
+    expect(parts[1]).toEqual({ type: 'text', text: 'Partial answer' });
+    expect(parts[2]).toMatchObject({ toolCallId: 'b', status: 'error', isError: true });
+  });
+
   it('reconstructs image data URL from persisted data and content_type', () => {
     const rawParts = [
       { type: 'text', text: 'Check out this photo' },

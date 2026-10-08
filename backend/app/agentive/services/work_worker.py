@@ -404,6 +404,7 @@ def _native_chat_transcript(
     """
     text = ""
     parts: list[dict[str, Any]] = []
+    tool_positions: dict[str, int] = {}
     steps: list[dict[str, Any]] = []
     timing: dict[str, Any] = {}
     for event in events:
@@ -413,15 +414,23 @@ def _native_chat_transcript(
         elif kind == "text-replace":
             text = str(event.get("content") or "")
         elif kind == "tool-call":
-            parts.append(
-                {
-                    "type": "tool-call",
-                    "toolCallId": str(event.get("toolCallId") or ""),
-                    "toolName": str(event.get("name") or ""),
-                    "status": str(event.get("status") or "complete"),
-                    "isError": event.get("status") == "error",
-                }
-            )
+            call_id = str(event.get("toolCallId") or "")
+            if not call_id:
+                continue
+            summary = {
+                "type": "tool-call",
+                "toolCallId": call_id,
+                "toolName": str(event.get("name") or ""),
+                "status": str(event.get("status") or "complete"),
+                "isError": event.get("status") == "error",
+            }
+            # Start/result events describe one call, not two transcript parts.
+            # Keep the first position and update it with the final receipt state.
+            if call_id in tool_positions:
+                parts[tool_positions[call_id]] = summary
+            else:
+                tool_positions[call_id] = len(parts)
+                parts.append(summary)
         elif kind == "source":
             parts.append(
                 {
