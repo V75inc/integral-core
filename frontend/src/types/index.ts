@@ -620,6 +620,8 @@ export interface Entry {
   comment_count?: number;
   status?: string;
   custom_fields?: Record<string, unknown>;
+  /** Read-only live projections; never merge into write payloads. */
+  read_time_fields?: { values: Record<string, unknown>; status: Record<string, string> };
   /** Optimistic-concurrency token returned by the record write contract. */
   record_revision?: number;
   /** Effective profile revision under which this record was last written. */

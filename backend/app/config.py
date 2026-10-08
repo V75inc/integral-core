@@ -60,7 +60,19 @@ def load_integral_env_files() -> None:
         load_dotenv(cwd_env)
 
 
+def configure_integral_text_fidelity() -> None:
+    """Preserve authored text by default, including semantic Unicode symbols.
+
+    jvspatial's optional ASCII normalization can turn ``≠`` into ``=``.
+    Integral already owns dedicated search-fold fields; display, evidence and
+    transcript text must retain its meaning even without an operator .env.
+    Apply after dotenv loading so an explicit deployment choice is preserved.
+    """
+    os.environ.setdefault("JVSPATIAL_TEXT_NORMALIZATION_ENABLED", "false")
+
+
 load_integral_env_files()
+configure_integral_text_fidelity()
 
 
 class Settings(BaseSettings):

@@ -214,8 +214,11 @@
         "integral_cancel_batch",
         "integral_commit_batch",
         "integral_create_entry",
+        "integral_describe_capabilities",
         "integral_get_attachment_text",
         "integral_get_track_schema",
+        "integral_governed_query",
+        "integral_list_apps",
         "integral_list_attachments",
         "integral_list_track_attachments",
         "integral_list_tracks",
@@ -232,8 +235,11 @@
         "integral_cancel_batch",
         "integral_commit_batch",
         "integral_create_entry",
+        "integral_describe_capabilities",
         "integral_get_attachment_text",
         "integral_get_track_schema",
+        "integral_governed_query",
+        "integral_list_apps",
         "integral_list_attachments",
         "integral_list_track_attachments",
         "integral_list_tracks",
@@ -977,6 +983,7 @@
       "op_class": "read",
       "policy_action": "app.read",
       "skills": [
+        "integral-attachments",
         "integral-dashboards",
         "integral-insights",
         "integral-model",
@@ -1178,6 +1185,7 @@
       "op_class": "read",
       "policy_action": null,
       "skills": [
+        "integral-attachments",
         "integral-insights"
       ],
       "status": "existing"
@@ -1197,6 +1205,7 @@
       "op_class": "read",
       "policy_action": null,
       "skills": [
+        "integral-attachments",
         "integral-insights"
       ],
       "status": "existing"

@@ -91,6 +91,14 @@ class TestFormatScalarForDiff:
         assert rendered == "Projects"
         assert "n.Track." not in rendered
 
+    def test_long_url_and_qualifying_text_are_not_truncated(self):
+        url = "https://example.com/research/" + "full-source-path/" * 8
+        claim = "Vendor claims only; " * 8 + "customer demand remains unvalidated."
+        for value in (url, claim):
+            assert (
+                sd.format_scalar_for_diff(value, tag_names={}, entry_names={}) == value
+            )
+
     def test_unresolved_id_truncated(self):
         rendered = sd.format_scalar_for_diff(
             "n.Tag.unknown",
@@ -168,3 +176,31 @@ async def test_resolve_node_labels_omits_records_the_actor_cannot_access(monkeyp
     assert tags == {}
     assert entries == {}
     assert tracks == {}
+
+
+@pytest.mark.asyncio
+async def test_scalar_change_review_keeps_complete_multiline_old_and_new():
+    old = "# Prior brief\n" + "Historical omission retained. " * 10
+    new = "# Current brief\nSource: https://example.com/" + "full-path/" * 20
+    result = await sd.format_scalar_change_line("body", new, old)
+    assert old in result
+    assert new in result
+    assert "**Previous:**" in result
+    assert "**Proposed:**" in result
+    assert "…" not in result
+
+
+def test_review_text_contains_embedded_markdown_fences_literally():
+    value = "First\n```html\n<img src='https://example.com/image'>\n```\nLast"
+    result = sd.format_review_text(value)
+    assert result == f"````text\n{value}\n````"
+
+
+@pytest.mark.asyncio
+async def test_scalar_change_short_values_keep_compact_review():
+    assert await sd.format_scalar_change_line("title", "After", "Before") == (
+        "- **title:** `Before` → `After`"
+    )
+    assert (
+        await sd.format_scalar_change_line("title", "New", None) == "- **title:** `New`"
+    )

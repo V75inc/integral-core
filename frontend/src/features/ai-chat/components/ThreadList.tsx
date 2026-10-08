@@ -1,3 +1,4 @@
+import { createContext, useContext, useMemo, useState } from "react";
 import {
   AuiIf,
   ThreadListItemMorePrimitive,
@@ -7,13 +8,19 @@ import {
   useThreadListItem,
   useThreadListItemRuntime,
 } from "@assistant-ui/react";
-import { ArchiveIcon, Loader2, MoreHorizontalIcon, PlusIcon, TrashIcon } from "lucide-react";
+import { ArchiveIcon, Loader2, MoreHorizontalIcon, PencilIcon, PlusIcon, SearchIcon, TrashIcon, XIcon } from "lucide-react";
+
+import { groupThreadsByRecency, type ThreadGroupInfo } from "../threadGrouping";
+
+import { ConversationLabel } from "./ConversationLabel";
 
 import { AgentSwitcher } from "./AgentSwitcher";
 import { useActiveChatProvider } from "../useActiveChatProvider";
 import { useChatActivity } from "../AIChatSurface";
 import { useConfirm } from "../../../context/ConfirmContext";
 import { useScope } from "../../../context/ScopeContext";
+
+const VisibleThreadGroups = createContext<ReadonlyMap<string, ThreadGroupInfo> | null>(null);
 
 /**
  * Thread switcher rail — assistant-ui reference layout, Integral chrome.
@@ -29,7 +36,14 @@ export function AIChatThreadList() {
   const provider = useActiveChatProvider();
   const { scope } = useScope();
   const workspaceId = scope?.workspaceId ?? "";
-  const { isRunning, streamingThreadIds } = useChatActivity();
+  const { isRunning, streamingThreadIds, threads } = useChatActivity();
+  const [search, setSearch] = useState("");
+  const visibleGroups = useMemo(() => {
+    const terms = search.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+    return groupThreadsByRecency(threads.filter(t => !t.archived && terms.every(term =>
+      (t.title || "New conversation").toLocaleLowerCase().includes(term),
+    )).map(t => ({ id: t.id, ts: t.last_message_at || t.updated_at || t.created_at ? new Date((t.last_message_at ?? t.updated_at ?? t.created_at)!).getTime() : null })), Date.now());
+  }, [threads, search]);
 
   return (
     <aside
@@ -55,6 +69,18 @@ export function AIChatThreadList() {
         <ThreadListNew />
       </header>
 
+      <div className="px-3 py-2">
+        <div className="relative">
+          <SearchIcon size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-subtle)]" aria-hidden />
+          <input type="search" aria-label="Search conversations" placeholder="Search conversations…"
+            value={search} onChange={e => setSearch(e.target.value)}
+            onKeyDown={e => { if (e.key === "Escape") setSearch(""); }}
+            className="h-9 w-full rounded-[var(--radius-input)] border border-[var(--panel-border)] bg-[var(--bg)] pl-8 pr-8 text-sm text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring-color)]" />
+          {search && <button type="button" aria-label="Clear conversation search" onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)]"><XIcon size={14} /></button>}
+        </div>
+        {search.trim() && <p role="status" className="pt-2 text-xs text-[var(--text-muted)]">{visibleGroups.size} matching conversations</p>}
+      </div>
+      <VisibleThreadGroups.Provider value={visibleGroups}>
       <ThreadListPrimitive.Root className="flex flex-1 min-h-0 flex-col gap-1 overflow-y-auto p-2">
         <AuiIf condition={(s) => s.threads.isLoading}>
           <ThreadListSkeleton />
@@ -64,7 +90,9 @@ export function AIChatThreadList() {
             {() => <ThreadListItem />}
           </ThreadListPrimitive.Items>
         </AuiIf>
+        {search.trim() && visibleGroups.size === 0 && <p className="px-3 py-4 text-sm text-[var(--text-muted)]">No conversations match. Try a different name.</p>}
       </ThreadListPrimitive.Root>
+      </VisibleThreadGroups.Provider>
     </aside>
   );
 }
@@ -120,15 +148,20 @@ function ThreadGroupHeader({ label }: { label: string }) {
 
 function ThreadListItem() {
   const threadId = useAuiState((s) => s.threadListItem.id);
-  const { threadGroups } = useChatActivity();
-  const group = threadGroups.get(threadId);
+  const { threadGroups, threads, isThreadStreaming } = useChatActivity();
+  const title = useThreadListItem(s => s.title);
+  const thread = threads.find(t => t.id === threadId);
+  const lastActivity = thread?.last_message_at ?? thread?.updated_at ?? thread?.created_at;
+  const visibleGroups = useContext(VisibleThreadGroups);
+  const group = (visibleGroups ?? threadGroups).get(threadId);
+  if (visibleGroups && !visibleGroups.has(threadId)) return null;
 
   return (
     <>
       {group?.isFirst && <ThreadGroupHeader label={group.label} />}
       <ThreadListItemPrimitive.Root
         className="
-          group flex h-9 items-center gap-1
+          group relative flex min-h-[40px] items-center gap-1
           rounded-[var(--radius-input)]
           transition-colors duration-fast
           hover:bg-[var(--panel-2)] focus-visible:bg-[var(--panel-2)]
@@ -137,15 +170,14 @@ function ThreadListItem() {
       >
       <ThreadListItemPrimitive.Trigger
         className="
-          flex h-full min-w-0 flex-1 items-center gap-2 px-3
-          text-left text-sm text-[var(--text)]
+          flex h-full min-w-0 flex-1 items-start gap-2 px-2 py-1.5
+          text-left text-[13px] text-[var(--text)]
           focus:outline-none
         "
       >
         <ThreadListItemStreamingSpinner />
-        <span className="min-w-0 flex-1 truncate">
-          <ThreadListItemPrimitive.Title fallback="New conversation" />
-        </span>
+        <ConversationLabel title={title || "New conversation"} lastActivity={lastActivity}
+          createdAt={thread?.created_at} messageCount={thread?.message_count} working={isThreadStreaming(threadId)} />
       </ThreadListItemPrimitive.Trigger>
         <ThreadListItemMore />
       </ThreadListItemPrimitive.Root>
@@ -179,6 +211,19 @@ function ThreadListItemMore() {
   const itemRuntime = useThreadListItemRuntime();
   const title = useThreadListItem((s) => s.title);
   const confirm = useConfirm();
+  const [renaming, setRenaming] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [renameError, setRenameError] = useState("");
+  const saveName = async () => {
+    const name = draft.trim();
+    if (!name || saving) return;
+    setSaving(true);
+    setRenameError("");
+    try { await itemRuntime.rename(name); setRenaming(false); }
+    catch { setRenameError("Could not rename. Try again."); }
+    finally { setSaving(false); }
+  };
 
   const handleDelete = async () => {
     const name = title?.trim();
@@ -194,12 +239,23 @@ function ThreadListItemMore() {
     await itemRuntime.delete();
   };
 
+  if (renaming) return (
+    <form className="absolute inset-0 z-20 flex items-center gap-1 rounded-[var(--radius-input)] bg-[var(--panel)] px-1" onSubmit={e => { e.preventDefault(); void saveName(); }}>
+      <input autoFocus aria-label="Conversation name" maxLength={200} value={draft} disabled={saving}
+        onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === "Escape" && !saving) setRenaming(false); }}
+        className="h-8 min-w-0 flex-1 rounded border border-[var(--panel-border)] bg-[var(--bg)] px-2 text-sm text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring-color)]" />
+      <button type="submit" disabled={saving || !draft.trim()} className="text-xs text-[var(--text)]">{saving ? "Saving…" : "Save"}</button>
+      <button type="button" aria-label="Cancel rename" disabled={saving} onClick={() => setRenaming(false)}><XIcon size={14} /></button>
+      {renameError && <span role="alert" className="absolute left-0 top-full z-30 rounded bg-[var(--panel)] p-2 text-xs text-[var(--danger-fg)]">{renameError}</span>}
+    </form>
+  );
+
   return (
     <ThreadListItemMorePrimitive.Root>
       <ThreadListItemMorePrimitive.Trigger
-        aria-label="More options"
+        aria-label={`Options for ${title || "New conversation"}`}
         className="
-          me-1.5 flex h-7 w-7 items-center justify-center
+          absolute bottom-0 right-1 flex h-6 w-6 items-center justify-center
           rounded-[var(--radius-input)]
           text-[var(--text-subtle)] opacity-0
           transition-opacity hover:bg-[var(--panel)]
@@ -221,6 +277,10 @@ function ThreadListItemMore() {
           text-sm text-[var(--text)] shadow-[var(--shadow-pop)]
         `}
       >
+        <ThreadListItemMorePrimitive.Item onSelect={() => { setDraft(title || ""); setRenameError(""); setRenaming(true); }}
+          className="flex cursor-pointer select-none items-center gap-2 rounded-[var(--radius-input)] px-2 py-1.5 outline-none hover:bg-[var(--panel-2)] focus:bg-[var(--panel-2)]">
+          <PencilIcon size={14} /> Rename
+        </ThreadListItemMorePrimitive.Item>
         <ThreadListItemPrimitive.Archive asChild>
           <ThreadListItemMorePrimitive.Item
             className="

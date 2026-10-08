@@ -7,6 +7,7 @@ auth state or the server environment. It never logs or returns the key.
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -62,6 +63,8 @@ def _search(
         "results": results,
         "result_count": len(results),
         "source": "Serper",
+        "retrieved_at": datetime.now(timezone.utc).isoformat(),
+        "source_kind": "search_snippets_not_fetched_pages",
     }
 
 
@@ -71,6 +74,18 @@ def search_web(
 ) -> dict[str, Any]:
     """Search the public web. Returns titles, URLs, and snippets for sources."""
     return _search(query, gl=gl, hl=hl, num=num)
+
+
+@mcp.tool()
+async def fetch_web_page(url: str) -> dict[str, Any]:
+    """Fetch a public HTML/text page for source verification; never runs scripts.
+
+    Returns bounded, untrusted page text, final URL, retrieval time and truncation.
+    Search snippets alone do not establish that a page was accessed or verified.
+    """
+    from app.services.web_fetch import fetch_public_page
+
+    return await fetch_public_page(url)
 
 
 def main() -> None:

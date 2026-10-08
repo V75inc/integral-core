@@ -206,6 +206,8 @@ class ToolContext:
     bundle_slug: str = ""
     #: Policy subject kind for dual-gate tool invokes (human vs agent).
     actor_kind: str = "human"
+    #: Explicit facade enforcement for read-time projections and read operations.
+    read_only: bool = False
 
     async def get_entry(self, entry_id: str):
         """Fetch an Entry node by id (scoped to caller's workspace access)."""

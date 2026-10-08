@@ -9,6 +9,7 @@ at this seam and qualified by adapter contract tests.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 from pydantic_ai import (
@@ -38,6 +39,7 @@ from pydantic_ai.messages import (
     ModelMessagesTypeAdapter,
     ModelRequest,
     ModelResponse,
+    SystemPromptPart,
     ToolAvailabilityDeltaPart,
     ToolReturn,
     ToolReturnPart,
@@ -258,9 +260,27 @@ def build_integral_run_instructions(
     adapter boundary so they can continue with the already-loaded procedure.
     """
 
+    # Capture once for this invocation. Resumed/new runs build fresh instructions;
+    # model requests within the run share a stable, server-owned date.
+    run_started_at = datetime.now(timezone.utc)
+
     def instructions(ctx: RunContext[Any]) -> str:
         active_ids = sorted(ctx.active_capability_ids)
-        blocks = [base_instructions]
+        blocks = [
+            base_instructions,
+            "Integral trusted clock: this invocation started at "
+            f"{run_started_at.isoformat()}; current UTC date is "
+            f"{run_started_at.date().isoformat()}. Use this date for today's "
+            "recorded actions unless the user specifies an event date or a "
+            "verified timezone requires another local date. Historical record "
+            "dates and model memory do not establish today's date. Do not "
+            "invent a user timezone or shift the date without a verified basis.",
+            "Integral navigation: resource IDs are opaque. When linking saved "
+            "Apps, Tracks or Entries, copy the canonical url returned by Core "
+            "tools exactly. Do not split an ID, replace its dots with slashes, "
+            "or invent a route. If no verified url is available, use a plain "
+            "record label instead of a guessed link.",
+        ]
         if active_ids:
             blocks.append(
                 "Integral runtime state: these capabilities are already loaded and "
@@ -298,27 +318,39 @@ def build_integral_run_instructions(
     return instructions
 
 
-def build_integral_context_compaction() -> ClearToolResults:
-    """Construct the adapter-owned context policy for Integral tool turns.
+@dataclass
+class IntegralToolResultCompaction(ClearToolResults):
+    """Clear completed-turn payloads without erasing the active task's inputs.
 
-    Preserve the recent working set: filing needs the source, destination,
-    schema and duplicate check together before proposing its writes. A fixed
-    12k trigger retaining one result discarded those inputs during ordinary
-    receipt filing. The observed DeepSeek turn spent nearly 596k input tokens
-    across nine requests, with a 79k peak input, while generating only 12.6k
-    output tokens. A large provider context window delayed fractional
-    compaction until beyond a useful working set. The follow-up Notes rename
-    measured 501,113 input tokens over 17 requests, with a 43,929-token peak;
-    repeated tool results reached 83k characters alongside 48k of tool schemas.
-    Trigger at 16k estimated conversation tokens while retaining the five most recent tool pairs and
-    keeping capability-load parts intact because the Harness derives active
-    skill state from them.
+    A five-pair window cannot retain a task that needs several record reads
+    plus destination schemas before staging. Clearing those reads mid-turn
+    causes the model to repeat them instead of completing the task. Keep the
+    active user turn exact; the native run's usage and tool limits still bound
+    it. Completed turns retain only the library's bounded recent window.
     """
-    return ClearToolResults(
+
+    async def compact(self, messages, ctx):
+        turn_start = next(
+            (
+                index
+                for index in range(len(messages) - 1, -1, -1)
+                if isinstance(messages[index], ModelRequest)
+                and any(
+                    isinstance(part, UserPromptPart) for part in messages[index].parts
+                )
+            ),
+            None,
+        )
+        if turn_start is None:
+            return await super().compact(messages, ctx)
+        history = await super().compact(messages[:turn_start], ctx)
+        return [*history, *messages[turn_start:]]
+
+
+def build_integral_context_compaction() -> ClearToolResults:
+    """Bound completed-turn payloads while preserving active task grounding."""
+    return IntegralToolResultCompaction(
         max_tokens=16_384,
-        # Keep the active decision window while releasing old tool payloads early.
-        # Five pairs preserve the full filing context and recent scaffold
-        # receipts without replaying every older payload into each model request.
         keep_pairs=5,
         exclude_tools=frozenset({"load_capability"}),
         clear_tool_inputs=True,
@@ -474,6 +506,7 @@ __all__ = [
     "StepEvent",
     "StepPersistence",
     "StepStore",
+    "SystemPromptPart",
     "TaskStatus",
     "TextPart",
     "TextPartDelta",

@@ -22,6 +22,7 @@ def test_init_writes_env_readme_and_matching_slug(tmp_path: Path) -> None:
     assert "name: Studio Desk" in manifest
     assert f"INTEGRAL_PACKAGE_PATHS={dest / 'integral-apps'}" in env
     assert "INTEGRAL_CORE_ONLY=0" in env
+    assert "JVSPATIAL_TEXT_NORMALIZATION_ENABLED=false" in env
     assert "OPENAI_API_KEY=" in env
     assert "INTEGRAL_AGENT_KEY_MODE=hybrid" in env
     assert "ADMIN_EMAIL=" in env
@@ -113,3 +114,34 @@ def test_cli_main_writes_and_returns_zero(
     assert (
         tmp_path / "box" / "integral-apps" / "starter" / "operational-model.yaml"
     ).is_file()
+
+
+def test_core_defaults_to_semantic_text_fidelity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from jvspatial.utils.normalization import (
+        is_text_normalization_enabled,
+        normalize_text_to_ascii,
+    )
+
+    from app.config import configure_integral_text_fidelity
+
+    monkeypatch.delenv("JVSPATIAL_TEXT_NORMALIZATION_ENABLED", raising=False)
+    configure_integral_text_fidelity()
+    assert os.environ["JVSPATIAL_TEXT_NORMALIZATION_ENABLED"] == "false"
+    assert not is_text_normalization_enabled()
+    # Establish why applying the persistence normalizer is unsafe for meaning.
+    assert (
+        normalize_text_to_ascii("Vendor claims ≠ demand evidence")
+        == "Vendor claims = demand evidence"
+    )
+
+
+def test_text_fidelity_default_preserves_explicit_deployment_choice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.config import configure_integral_text_fidelity
+
+    monkeypatch.setenv("JVSPATIAL_TEXT_NORMALIZATION_ENABLED", "true")
+    configure_integral_text_fidelity()
+    assert os.environ["JVSPATIAL_TEXT_NORMALIZATION_ENABLED"] == "true"

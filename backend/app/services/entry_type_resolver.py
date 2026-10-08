@@ -10,6 +10,14 @@ from app.services.operational_model_runtime import slug_manifest_key
 from app.utils.time import utc_now_iso
 
 
+def canonical_entry_type_key(entry_type: EntryType) -> str:
+    """Stable manifest identity, with a name fallback for legacy types."""
+    form = entry_type.form_schema or {}
+    return slug_manifest_key(
+        str(form.get("_manifest_entry_type_key") or "")
+    ) or slug_manifest_key(str(entry_type.name or ""))
+
+
 async def entry_types_for_track(track_id: str) -> List[EntryType]:
     """Find EntryTypes materialized on a track (supports both query shapes)."""
     found = await EntryType.find({"context.track_id": track_id})

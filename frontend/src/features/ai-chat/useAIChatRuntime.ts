@@ -15,6 +15,7 @@ import {
 } from "@assistant-ui/react";
 import { aiChatApi, type AIChatThread, type AIChatPersistedMessage } from "../../api/aiChat";
 import { useScope } from "../../context/ScopeContext";
+import { useAuthOptional } from "../../context/AuthContext";
 import { useChatPageFocus } from "../../context/ChatPageFocusContext";
 import { useChatPageContextSnapshot } from "./useChatPageContextSnapshot";
 import type { ChatEntityRef } from "../../types/chatEntityRefs";
@@ -52,6 +53,9 @@ import {
 } from "./threadSessionRegistry";
 import {
   OPEN_AI_CHAT_EVENT,
+  consumeChatHandoff,
+  prefersFreshChat,
+  rememberFreshChat,
   peekChatHandoff,
   peekLastActiveChatThreadId,
   rememberActiveChatThreadId,
@@ -788,6 +792,13 @@ export function useAIChatRuntime(
   const { focusedTrackId, focusedViewId, focusedAppId } = useChatPageFocus();
   const snapshotPageContext = useChatPageContextSnapshot();
   const workspaceId = scope?.workspaceId ?? null;
+  const auth = useAuthOptional();
+  const principalId = auth?.user?.id ?? null;
+  const selectionScopeReady = Boolean(workspaceId) && !auth?.loading && (auth === null || Boolean(principalId));
+  const freshChatScope = useMemo(
+    () => ({ principalId, workspaceId, providerId: provider.id }),
+    [principalId, workspaceId, provider.id],
+  );
   // Read the active agent for the current (provider, workspace). When the
   // provider has an empty catalog (MockEcho), activeAgent is null and we
   // fall through to unfiltered listing (single-agent mode).
@@ -795,6 +806,13 @@ export function useAIChatRuntime(
   const activeAgentId = activeAgent?.id ?? null;
   const [threads, setThreads] = useState<AIChatThread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const selectionKey = JSON.stringify([principalId, workspaceId, provider.id, activeAgentId]);
+  const [settledSelectionKey, setSettledSelectionKey] = useState<string | null>(null);
+  const composerReady = selectionScopeReady && (!provider.serverPersisted || settledSelectionKey === selectionKey);
+  const selectThread = useCallback((threadId: string) => {
+    rememberFreshChat(freshChatScope, false);
+    setActiveThreadId(threadId);
+  }, [freshChatScope]);
   /**
    * Per-thread transcript + stream state (I-CHAT-PAR-04), read from a
    * module-level store rather than local state so it outlives this hook
@@ -829,13 +847,16 @@ export function useAIChatRuntime(
 
   // Companion handoff from /agent Created links — switch to the originating thread.
   useEffect(() => {
+    if (!selectionScopeReady) return;
     const apply = (threadId?: string | null) => {
       if (!threadId || threadId.startsWith("local-")) return;
-      setActiveThreadId(threadId);
+      selectThread(threadId);
     };
     // Prefer event/handoff thread; fall back to last-active (survives handoff consume).
     const pending = peekChatHandoff();
-    apply(pending?.threadId ?? peekLastActiveChatThreadId(workspaceIdRef.current));
+    apply(pending?.threadId ?? (
+      prefersFreshChat(freshChatScope) ? null : peekLastActiveChatThreadId(workspaceIdRef.current)
+    ));
 
     const onOpen = (e: Event) => {
       const detail = (e as CustomEvent<{ threadId?: string | null }>).detail;
@@ -843,7 +864,7 @@ export function useAIChatRuntime(
     };
     window.addEventListener(OPEN_AI_CHAT_EVENT, onOpen);
     return () => window.removeEventListener(OPEN_AI_CHAT_EVENT, onOpen);
-  }, []);
+  }, [freshChatScope, selectThread, selectionScopeReady]);
 
   // Guards concurrent callers (onNew + any in-flight attachment upload) from
   // creating two threads for the same first message — see ensureThreadId.
@@ -996,11 +1017,12 @@ export function useAIChatRuntime(
   // latest thread after an explicit "New conversation" click; reset on
   // workspace switch so the new workspace gets its own auto-select.
   useEffect(() => {
-    if (!provider.serverPersisted) return;
+    if (!provider.serverPersisted || !selectionScopeReady) return;
     let cancelled = false;
     void (async () => {
       const list = await refreshThreads();
       if (cancelled) return;
+      setSettledSelectionKey(selectionKey);
       if (initialAutoSelectDoneRef.current) return;
       initialAutoSelectDoneRef.current = true;
       // Threads were still listed above so the rail is populated; we just
@@ -1009,9 +1031,10 @@ export function useAIChatRuntime(
       const applied = initialThreadAppliedRef.current;
       if (initialThreadId && (!applied || applied.workspaceId === workspaceId)) {
         initialThreadAppliedRef.current = { workspaceId, threadId: initialThreadId };
-        setActiveThreadId(initialThreadId);
+        selectThread(initialThreadId);
         return;
       }
+      if (prefersFreshChat(freshChatScope)) return;
       if (list.length > 0) {
         setActiveThreadId((current) => current ?? list[0].id);
       }
@@ -1026,6 +1049,10 @@ export function useAIChatRuntime(
     activeAgentId,
     initialThreadId,
     startNewThread,
+    freshChatScope,
+    selectionScopeReady,
+    selectionKey,
+    selectThread,
   ]);
 
   // Reset the initial-auto-select guard whenever the provider changes,
@@ -1078,6 +1105,12 @@ export function useAIChatRuntime(
   const previousAgentIdRef = useRef<string | null>(activeAgentId);
   useEffect(() => {
     if (previousAgentIdRef.current === activeAgentId) return;
+    if (previousAgentIdRef.current == null) {
+      // Resolving the initial catalog is not a user switching agents. In
+      // particular, do not undo New conversation chosen while it loaded.
+      previousAgentIdRef.current = activeAgentId;
+      return;
+    }
     previousAgentIdRef.current = activeAgentId;
     initialAutoSelectDoneRef.current = false;
     setActiveThreadId(null);
@@ -1488,7 +1521,7 @@ export function useAIChatRuntime(
       if (!provider.serverPersisted) {
         const localId = `local-${nextId("thr")}`;
         activeThreadIdRef.current = localId;
-        setActiveThreadId(localId);
+        selectThread(localId);
         return localId;
       }
       const created = await aiChatApi.createThread(provider.id, {
@@ -1497,7 +1530,7 @@ export function useAIChatRuntime(
       activeThreadIdRef.current = created.id;
       setThreads((prev) => [created, ...prev]);
       skipLoadForThreadIdRef.current = created.id;
-      setActiveThreadId(created.id);
+      selectThread(created.id);
       return created.id;
     })();
     threadCreationPromiseRef.current = promise;
@@ -1506,7 +1539,7 @@ export function useAIChatRuntime(
     } finally {
       threadCreationPromiseRef.current = null;
     }
-  }, [provider, activeAgentId, nextId]);
+  }, [provider, activeAgentId, nextId, selectThread]);
 
   const onNew = useCallback(
     async (message: AppendMessage) => {
@@ -1672,6 +1705,16 @@ export function useAIChatRuntime(
     }
   }, [activeThreadId, provider.serverPersisted, updateSession]);
 
+  const switchToNewThread = useCallback(() => {
+    // An explicit choice wins over an initial list request still in flight.
+    initialAutoSelectDoneRef.current = true;
+    rememberFreshChat(freshChatScope, true);
+    rememberActiveChatThreadId(null, workspaceId);
+    consumeChatHandoff();
+    activeThreadIdRef.current = null;
+    setActiveThreadId(null);
+  }, [freshChatScope, workspaceId]);
+
   const threadListAdapter = useMemo<ExternalStoreThreadListAdapter>(() => {
     const regular = threads.filter((t) => !t.archived);
     const archived = threads.filter((t) => t.archived);
@@ -1692,11 +1735,10 @@ export function useAIChatRuntime(
         // has not committed yet in that case, while ``ensureThreadId`` reads
         // this ref synchronously; leaving it set sends the first message of a
         // supposedly new conversation into the previous provider session.
-        activeThreadIdRef.current = null;
-        setActiveThreadId(null);
+        switchToNewThread();
       },
       onSwitchToThread: async (threadId: string) => {
-        setActiveThreadId(threadId);
+        selectThread(threadId);
       },
       onRename: async (threadId: string, newTitle: string) => {
         try {
@@ -1704,6 +1746,7 @@ export function useAIChatRuntime(
           await refreshThreads();
         } catch (err) {
           console.error("AI chat: rename failed", err);
+          throw err;
         }
       },
       onArchive: async (threadId: string) => {
@@ -1725,7 +1768,7 @@ export function useAIChatRuntime(
         }
       },
     };
-  }, [threads, activeThreadId, refreshThreads]);
+  }, [threads, activeThreadId, refreshThreads, switchToNewThread, selectThread]);
 
   // Composite: images retain vision content plus a persisted file identity; general
   // file branch (Slice B — uploads to the chat-upload endpoint at send()
@@ -1841,6 +1884,7 @@ export function useAIChatRuntime(
       threads,
       threadGroups,
       activeThreadId,
+      composerReady,
       activeProviderSessionId,
       activityText,
       isRunning,
@@ -1849,18 +1893,18 @@ export function useAIChatRuntime(
       remoteTurns,
       isThreadStreaming,
       appendAssistantNote,
-      switchToThread: (threadId: string) => setActiveThreadId(threadId),
-      switchToNewThread: () => {
-        activeThreadIdRef.current = null;
-        setActiveThreadId(null);
-      },
+      switchToThread: selectThread,
+      switchToNewThread,
     }),
     [
       runtime,
       provider,
       threads,
       threadGroups,
+      switchToNewThread,
+      selectThread,
       activeThreadId,
+      composerReady,
       activeProviderSessionId,
       activityText,
       isRunning,

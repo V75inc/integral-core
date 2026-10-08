@@ -7,9 +7,47 @@ from pydantic_ai.messages import ModelRequest, ToolReturnPart
 
 from app.agentive.harness.contracts import HarnessExecutionScope
 from app.services.chat_providers.pydantic_ai_provider import (
+    _host_staging_outcome_instructions,
     _refresh_staged_history,
     _scoped_transcript_receipts,
 )
+
+
+@pytest.mark.parametrize("state", ["consumed", "revoked", "expired"])
+def test_host_task_uses_latest_reconciled_outcome_without_proposal_prose(state):
+    def request(outcome):
+        return ModelRequest(
+            parts=[ToolReturnPart("integral_commit_batch", outcome, "call")]
+        )
+
+    latest = {
+        **_envelope(state),
+        "state_source": "current_core_staging",
+        "summary": "Untrusted proposal prose must not become host instructions",
+    }
+    history = [request({**latest, "state": "consumed"}), request(latest)]
+    instructions = _host_staging_outcome_instructions(history, conversation_id="thread")
+    assert f'"state": "{state}"' in instructions
+    assert "Untrusted proposal prose" not in instructions
+    assert "not a new human request" in instructions
+    assert "do not invite approval or restage it" in instructions
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"state_source": "snapshot"},
+        {"session_id": "foreign"},
+        {"state": "pending"},
+        {"state": "blessed"},
+    ],
+)
+def test_host_task_cannot_use_unverified_foreign_or_unsettled_receipts(override):
+    content = {**_envelope(), "state_source": "current_core_transcript", **override}
+    history = [
+        ModelRequest(parts=[ToolReturnPart("integral_commit_batch", content, "call")])
+    ]
+    assert _host_staging_outcome_instructions(history, conversation_id="thread") == ""
 
 
 @pytest.fixture

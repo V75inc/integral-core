@@ -3131,6 +3131,25 @@ def _parse_manifest_hooks(
                 ed.get("tool_input") or {},
                 where=f"{where}[{key!r}].tool_input",
             )
+        read_time_fields = ed.get("read_time_fields")
+        if read_time_fields is not None:
+            if point != "entry.precompute" or mode != "tool":
+                raise OperationalModelValidationError(
+                    message=f"{where}[{key!r}].read_time_fields requires a tool precompute hook"
+                )
+            if (
+                not isinstance(read_time_fields, list)
+                or not read_time_fields
+                or len(read_time_fields) > 32
+                or any(
+                    not isinstance(f, str) or not f.strip() for f in read_time_fields
+                )
+                or len(set(read_time_fields)) != len(read_time_fields)
+            ):
+                raise OperationalModelValidationError(
+                    message=f"{where}[{key!r}].read_time_fields must contain 1-32 unique field keys"
+                )
+            binding["read_time_fields"] = list(read_time_fields)
         out.append(binding)
     return out
 
@@ -4038,6 +4057,12 @@ def compile_canonical_manifest(
                 app_node.get("queries"),
                 where="app.queries",
             )
+            from app.services.app_home_contract import normalize_app_home
+
+            try:
+                app_home = normalize_app_home(app_node.get("home"), app_queries)
+            except ValueError as exc:
+                raise BadRequestError(message=str(exc)) from exc
             operation_keys = {str(item.get("key") or "") for item in app_operations}
             query_keys = {str(item.get("key") or "") for item in app_queries}
             duplicate_capability_keys = sorted(operation_keys & query_keys)
@@ -4082,6 +4107,7 @@ def compile_canonical_manifest(
                     for r in _as_list(app_node.get("relations"), where="app.relations")
                 ],
                 "defaults": app_defaults,
+                **({"home": app_home} if app_home is not None else {}),
                 # v2 operational layer (Plan 10-03 MANIFEST-V2-01)
                 "skills": app_skills,
                 "agents": app_agents,

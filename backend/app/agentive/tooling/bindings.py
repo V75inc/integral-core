@@ -571,12 +571,14 @@ async def date_left_in_title_block(
     entry_type_id: str = "",
     update: bool = False,
 ) -> Optional[str]:
-    """Refusal when a stated date never lands on the date field."""
-    from app.services.turn_binding import current_user_sentence
+    """Catch a title date omitted from a single unambiguous date field.
 
-    prose = " ".join(
-        part for part in (title, text, current_user_sentence.get() or "") if part
-    )
+    Body prose and the whole user turn can describe history, note provenance or
+    unrelated dates. They cannot establish a value for a record's date fields.
+    Multiple date fields also require semantic attribution; the schema's required
+    field validation remains authoritative rather than demanding every date key.
+    """
+    prose = title
     if not text_has_calendar_date(prose):
         return None
     if not isinstance(track_id, str) or not track_id or track_id.startswith("{{"):
@@ -597,9 +599,10 @@ async def date_left_in_title_block(
         named = [item for item in entry_types if item.name.casefold() == wanted]
         if named:
             entry_types = named
-    missing = missing_date_fields(
-        date_field_keys(entry_types), prose, fields, stored_fields
-    )
+    keys = date_field_keys(entry_types)
+    if len(keys) != 1:
+        return None
+    missing = missing_date_fields(keys, prose, fields, stored_fields)
     if not missing:
         return None
     return date_field_refusal(missing, update=update)
@@ -991,7 +994,7 @@ async def _stage_create_entry(args: Dict[str, Any]) -> Dict[str, Any]:
         lines.append(f"- **Note:** {w}")
     if body:
         lines.append("")
-        lines.append(f"> {_truncate(body, 160)}")
+        lines.append(f"**Body:**\n\n{_sd.format_review_text(str(body))}")
     return {
         "kind": "create_entry",
         "summary": f"Create entry “{title}” in {track_lbl}",

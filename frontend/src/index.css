@@ -80,7 +80,7 @@
   --surface-raised: var(--panel-2);
 
   /* System notices use dark chrome with theme-specific contrast. */
-  --system-bar-bg: #101011;
+  --system-bar-bg: #2f2f2f;
   --system-bar-fg: #f7f7f7;
   --system-bar-muted: #c4c4c7;
   --system-bar-border: #303033;
@@ -256,12 +256,12 @@
   --surface: var(--panel);
   --surface-raised: var(--panel-2);
 
-  /* A warmer notice surface stays distinct from the charcoal app chrome. */
-  --system-bar-bg: #452b28;
-  --system-bar-muted: #e1cbc1;
-  --system-bar-border: #855047;
-  --system-bar-hover: #613b35;
-  --system-bar-info-fg: #ffc19f;
+  /* Shared graphite background in both themes. */
+  --system-bar-bg: #2f2f2f;
+  --system-bar-muted: #cac7c2;
+  --system-bar-border: #403c38;
+  --system-bar-hover: #36322e;
+  --system-bar-info-fg: #ece7df;
 
   --entry-table-border: #484848;
   --entry-table-divider: #3d3d3d;
@@ -1394,5 +1394,23 @@
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
+  }
+}
+
+/* Entry reading width changes when utility and assistant panels open. */
+.entry-page-container {
+  container-type: inline-size;
+  container-name: entry-page;
+}
+@container entry-page (max-width: 640px) {
+  .entry-page-container .entry-page-header-title {
+    flex: 0 0 100%;
+    width: 100%;
+  }
+  .entry-meta-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .entry-meta-grid > * {
+    grid-column: 1 / -1;
   }
 }

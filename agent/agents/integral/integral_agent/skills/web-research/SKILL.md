@@ -1,7 +1,7 @@
 ---
 name: web-research
 description: Searches current public web sources and reads selected pages when an answer depends on external or time-sensitive information. Use for market, competitor, product, technical, and jurisdiction research; do not use for private workspace records.
-allowed-tools: mcp__serper_web_search__search_web web_search__search web_fetch__fetch
+allowed-tools: mcp__serper_web_search__search_web mcp__serper_web_search__fetch_web_page web_search__search web_fetch__fetch
 ---
 
 # Public web research
@@ -45,7 +45,8 @@ the tool returned it successfully.
 3. Select the most relevant sources. Prefer official, primary, and dated
    sources for factual or consequential claims. Do not assume search rank means
    authority.
-4. Call `web_fetch__fetch` on up to three selected public pages to verify the
+4. Call `mcp__serper_web_search__fetch_web_page` when available, otherwise
+   `web_fetch__fetch`, on up to three selected public pages to verify the
    claim against page content. A successful verification requires substantive
    page text relevant to that claim; a returned URL or page title alone is not
    a successful fetch. If fetching fails or content is empty, truncated, or
@@ -54,6 +55,10 @@ the tool returned it successfully.
    state substantive market facts. If no page is fetched successfully, label
    the research unverified and provide only candidate links plus a proposed
    test.
+   Use the tool's `retrieved_at` for access dates and the current UTC date;
+   never search news or the web to discover today's date. A search retrieval
+   timestamp is not a page access date. Label snippet-only candidate links
+   as unverified, without page quotations or substantive feature claims.
 5. For time-sensitive questions, compare dates stated on the fetched page with
    today's date. Label dated events and offers as past, upcoming, or undated;
    treat an event dated before today as past and an event dated after today as

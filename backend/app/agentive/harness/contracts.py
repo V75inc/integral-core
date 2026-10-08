@@ -81,6 +81,24 @@ class HarnessExecutionScope(BaseModel):
         return self.run_id
 
 
+class ModelRouteIdentity(BaseModel):
+    """Persistable selected-route attribution, excluding credential material."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    provider: str
+    model: str
+    credential_source: Literal["workspace_byok", "platform", "local"]
+    credential_ref: str
+
+    @field_validator("provider", "model", "credential_ref")
+    @classmethod
+    def _canonical_identity(cls, value: str) -> str:
+        if not value.strip() or value != value.strip():
+            raise ValueError("model route identity must be canonical and nonempty")
+        return value
+
+
 class ResolvedModelRoute(BaseModel):
     """Per-run LiteLLM route resolved from trusted Core configuration.
 
@@ -203,6 +221,10 @@ class PhysicalModelRequest(BaseModel):
     scope: HarnessExecutionScope
     provider: str
     model: str
+    # Selected route attribution only, never credential material. Older
+    # encrypted observations remain readable with explicitly unknown values.
+    credential_source: Literal["workspace_byok", "platform", "local"] | None = None
+    credential_ref: str | None = None
     attempt: int = Field(ge=1)
     dispatched_at: datetime
     observed_at: datetime | None = None
@@ -229,12 +251,18 @@ class PhysicalModelRequest(BaseModel):
             )
         return value
 
-    @field_validator("provider_request_id")
+    @field_validator("provider_request_id", "credential_ref")
     @classmethod
     def _provider_request_id_canonical(cls, value: str | None) -> str | None:
         if value is not None and (not value.strip() or value != value.strip()):
-            raise ValueError("provider request ID must be canonical and nonempty")
+            raise ValueError("observation reference must be canonical and nonempty")
         return value
+
+    @model_validator(mode="after")
+    def _credential_attribution(self) -> "PhysicalModelRequest":
+        if self.credential_ref is not None and self.credential_source is None:
+            raise ValueError("credential reference requires its selected source")
+        return self
 
 
 class RunUsageSummary(BaseModel):

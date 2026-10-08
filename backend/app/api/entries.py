@@ -261,10 +261,10 @@ async def _apply_view_entry_type_filter(
     if cp is None:
         return entries
     ets = await cp.nodes(edge=[CONTAINS], node=["EntryType"])
+    from app.services.entry_type_resolver import canonical_entry_type_key
+
     et_id_to_key = {
-        et.id: _slugify_entry_type_key(getattr(et, "name", ""))
-        for et in ets
-        if getattr(et, "id", None)
+        et.id: canonical_entry_type_key(et) for et in ets if getattr(et, "id", None)
     }
     allowed_ids = {tid for tid, slug in et_id_to_key.items() if slug in allowed_keys}
     if not allowed_ids:
@@ -290,6 +290,8 @@ async def enrich_entry_page_for_response(
     comment_counts = await prefetch_comment_counts(page_entries)
     attachment_lookup = await prefetch_attachments_for_entries(page_entries)
 
+    from app.services.entry_type_resolver import canonical_entry_type_key
+
     type_ids = list({e.type_id for e in page_entries if getattr(e, "type_id", None)})
     type_slug_by_id: Dict[str, str] = {}
     fields_by_type_id: Dict[str, List[Dict[str, Any]]] = {}
@@ -298,9 +300,7 @@ async def enrich_entry_page_for_response(
         for et in et_nodes:
             tid_et = getattr(et, "id", None)
             if tid_et:
-                type_slug_by_id[tid_et] = _slugify_entry_type_key(
-                    getattr(et, "name", "") or ""
-                )
+                type_slug_by_id[tid_et] = canonical_entry_type_key(et)
                 fields_by_type_id[tid_et] = _fields_of(et)
 
     async def _enrich_one(e: Entry, ed: Dict[str, Any]) -> Dict[str, Any]:
@@ -516,6 +516,11 @@ async def get_entry(request: Request, entry_id: str) -> Dict[str, Any]:
         raise InsufficientPermissionsError(message="Access denied")
     entry_data = await export_node(entry)
     await _project_entry_computed(entry, entry_data)
+    from app.services.entry_read_time_fields import resolve_entry_read_time_fields
+
+    live_fields = await resolve_entry_read_time_fields(entry, user_id)
+    if live_fields:
+        entry_data["read_time_fields"] = live_fields
     await attach_author_exports([entry_data])
     await attach_track_and_space(entry_data, entry)
     await attach_comment_count(entry_data, entry)
