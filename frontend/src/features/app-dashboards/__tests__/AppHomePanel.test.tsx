@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -18,8 +18,8 @@ const home = {
   ],
   widgets: [{ id: 'current', type: 'record_summary', title: 'Next step', grid: { x: 0, y: 0, w: 12, h: 5 }, config: { fields: [{ field: 'step', label: 'Step' }] }, data_source: {}, data: { records: [], total_matched: 0 } }],
 };
-function mount() {
-  return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter><AppHomePanel appId="a1" workspaceId="ws1" /></MemoryRouter></QueryClientProvider>);
+function mount(client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
+  return render(<QueryClientProvider client={client}><MemoryRouter><AppHomePanel appId="a1" workspaceId="ws1" /></MemoryRouter></QueryClientProvider>);
 }
 beforeEach(() => vi.clearAllMocks());
 describe('AppHomePanel', () => {
@@ -45,4 +45,38 @@ describe('AppHomePanel', () => {
     expect(screen.queryByRole('button', { name: 'Start' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Continue' })).not.toBeInTheDocument();
   });
+});
+
+
+it('keeps loaded content and open details mounted throughout background refresh and failure', async () => {
+  const loaded = { home: { ...home, widgets: [{ ...home.widgets[0],
+    config: { fields: [{ field: 'brief', label: 'Your brief', detail: true }] },
+    data: { records: [{ id: 'n.Entry.1', title: 'Saved work', fields: { brief: 'The saved brief' } }], total_matched: 1 },
+  }] } };
+  vi.mocked(dashboardsApi.home).mockResolvedValueOnce(loaded as never);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  mount(client);
+  const action = await screen.findByRole('button', { name: 'Continue' });
+  const details = screen.getByText('Your brief').closest('details')!;
+  details.open = true;
+  const card = screen.getByText('Next step').closest('.app-home-widget');
+  const layoutChildren = action.parentElement!.parentElement!.children.length;
+  let resolveRefresh!: (value: never) => void;
+  vi.mocked(dashboardsApi.home).mockImplementationOnce(() => new Promise(resolve => { resolveRefresh = resolve; }));
+  let refresh!: Promise<void>;
+  act(() => { refresh = client.invalidateQueries({ queryKey: ['app-home-data'] }); });
+  await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Refreshing App home.'));
+  expect(screen.getByRole('status')).toHaveClass('sr-only');
+  expect(action).toBeEnabled();
+  expect(action.parentElement!.parentElement!.children.length).toBe(layoutChildren);
+  expect(screen.getByText('Next step').closest('.app-home-widget')).toBe(card);
+  expect(details).toHaveAttribute('open');
+  await act(async () => { resolveRefresh(loaded as never); await refresh; });
+  vi.mocked(dashboardsApi.home).mockRejectedValueOnce(new Error('Temporary refresh failure'));
+  await act(async () => { await client.invalidateQueries({ queryKey: ['app-home-data'] }); });
+  expect(screen.getByText('Your brief').closest('details')).toBe(details);
+  expect(details).toHaveAttribute('open');
+  expect(screen.getByText('Saved work')).toBeInTheDocument();
+  expect(screen.queryByText('This home could not be loaded.')).not.toBeInTheDocument();
+  expect(screen.getByRole('status')).toHaveTextContent('Showing the last loaded information.');
 });
