@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { usePhantomClickGuard } from '../hooks/usePhantomClickGuard';
 import { Link } from 'react-router-dom';
 import { Layers, Package, GripVertical } from 'lucide-react';
@@ -80,6 +80,9 @@ export function AppsPage() {
   const [managerModal, setManagerModal] = useState(false);
   const [blankAppModal, setBlankAppModal] = useState(false);
   const [search, setSearch] = useState('');
+  // Optimistic create can race an in-flight/change-event list that still
+  // omits the new App. Keep the server-acked row until a list includes it.
+  const pendingCreatedRef = useRef<App | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -91,7 +94,16 @@ export function AppsPage() {
         workspacesApi.list(),
       ]);
       if (appsRes.status === 'fulfilled') {
-        setApps(appsRes.value);
+        let next = appsRes.value;
+        const pending = pendingCreatedRef.current;
+        if (pending) {
+          if (next.some(a => a.id === pending.id)) {
+            pendingCreatedRef.current = null;
+          } else {
+            next = [pending, ...next];
+          }
+        }
+        setApps(next);
       } else {
         const e = appsRes.reason as { response?: { data?: { detail?: string } } };
         setError(String(e?.response?.data?.detail || 'Failed to load apps'));
@@ -276,7 +288,8 @@ export function AppsPage() {
         mode="blank"
         onClose={() => setBlankAppModal(false)}
         onSaved={sp => {
-          setApps(p => [sp, ...p]);
+          pendingCreatedRef.current = sp;
+          setApps(p => (p.some(a => a.id === sp.id) ? p : [sp, ...p]));
           setBlankAppModal(false);
         }}
       />

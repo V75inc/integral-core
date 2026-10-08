@@ -181,6 +181,7 @@ export function AppModal({ open, onClose, onSaved, editApp, mode }: AppModalProp
         });
       }
       void invalidateWorkspaceListCaches(queryClient);
+      void queryClient.invalidateQueries({ queryKey: ['apps'] });
       onSaved(sp);
       onClose();
       showToast(

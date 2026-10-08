@@ -182,6 +182,95 @@ async def ensure_guest_membership(
     )
 
 
+async def revoke_workspace_resource_grants(
+    user: User,
+    workspace_id: str,
+) -> Dict[str, int]:
+    """Drop in-workspace ``COLLABORATES_ON`` / ``EXCLUDED_FROM`` for ``user``.
+
+    Called when membership ends (self-leave or admin remove). Does not touch
+    ``OWNS`` — owners cannot leave, and removing an owner is already blocked.
+    """
+    deleted = {"collaborates_on": 0, "excluded_from": 0}
+    if not user or not workspace_id:
+        return deleted
+
+    targets: List[Tuple[ResourceType, Any]] = []
+    try:
+        for app in await user.nodes(
+            edge=["COLLABORATES_ON"], node=["WorkspaceApp"], direction="out"
+        ):
+            targets.append(("app", app))
+        for track in await user.nodes(
+            edge=["COLLABORATES_ON"], node=["Track"], direction="out"
+        ):
+            targets.append(("track", track))
+        for entry in await user.nodes(
+            edge=["COLLABORATES_ON"], node=["Entry"], direction="out"
+        ):
+            targets.append(("entry", entry))
+        for app in await user.nodes(
+            edge=["EXCLUDED_FROM"], node=["WorkspaceApp"], direction="out"
+        ):
+            targets.append(("app", app))
+        for track in await user.nodes(
+            edge=["EXCLUDED_FROM"], node=["Track"], direction="out"
+        ):
+            targets.append(("track", track))
+        for entry in await user.nodes(
+            edge=["EXCLUDED_FROM"], node=["Entry"], direction="out"
+        ):
+            targets.append(("entry", entry))
+    except Exception:
+        logger.exception(
+            "Failed listing resource grants for user %s in workspace %s",
+            getattr(user, "id", ""),
+            workspace_id,
+        )
+        return deleted
+
+    # Deduplicate by (type, id) — a resource may appear under both edge classes.
+    seen: set[Tuple[str, str]] = set()
+    in_workspace: List[Tuple[ResourceType, str]] = []
+    for rtype, resource in targets:
+        rid = getattr(resource, "id", "") or ""
+        if not rid or (rtype, rid) in seen:
+            continue
+        seen.add((rtype, rid))
+        wid = await _resource_workspace_id(rtype, resource)
+        if wid == workspace_id:
+            in_workspace.append((rtype, rid))
+
+    if not in_workspace:
+        return deleted
+
+    ctx = await user.get_context()
+    for _rtype, rid in in_workspace:
+        for edge_class, key in (
+            (COLLABORATES_ON, "collaborates_on"),
+            (EXCLUDED_FROM, "excluded_from"),
+        ):
+            try:
+                edges = await ctx.find_edges_between(
+                    user.id, rid, edge_class=edge_class
+                )
+            except Exception:
+                logger.exception(
+                    "Edge lookup failed for user %s → %s (%s)",
+                    user.id,
+                    rid,
+                    edge_class.__name__,
+                )
+                continue
+            for edge in edges:
+                await edge.delete()
+                deleted[key] += 1
+
+    if deleted["collaborates_on"] or deleted["excluded_from"]:
+        _invalidate_perm_cache(user)
+    return deleted
+
+
 # ---------------------------------------------------------------------------
 # Notifications
 # ---------------------------------------------------------------------------

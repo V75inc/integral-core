@@ -64,7 +64,7 @@ export function StagedChangeCard({ staged, onTerminal }: StagedChangeCardProps) 
         confirmLabel: 'Confirm change',
         variant: 'danger',
       }),
-    onNeedsAgentNudge: () => {
+    onNeedsAgentNudge: (hostAction) => {
       try {
         if (!threadRuntime) return;
         const messages = threadRuntime.getState().messages;
@@ -72,7 +72,7 @@ export function StagedChangeCard({ staged, onTerminal }: StagedChangeCardProps) 
         threadRuntime.startRun({
           parentId,
           sourceId: null,
-          runConfig: { custom: { hostAction: 'staging_follow_through' } },
+          runConfig: { custom: { hostAction } },
         });
       } catch {
         /* non-fatal — server-side state is correct */

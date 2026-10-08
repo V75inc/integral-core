@@ -36,4 +36,12 @@ describe('diffBodyWithoutSummary', () => {
       'Create track Clients',
     );
   });
+
+  it('strips attach-image bodies that differ only by markdown backticks', () => {
+    const summary =
+      'Attach uploaded image pasted-image-ffd4a39f.jpeg to entry Queued App Deletion';
+    const body =
+      'Attach uploaded image `pasted-image-ffd4a39f.jpeg` to entry `Queued App Deletion`';
+    expect(diffBodyWithoutSummary(summary, body)).toBe('');
+  });
 });

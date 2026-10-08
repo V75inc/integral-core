@@ -3,15 +3,17 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SkillsSection } from '../SkillsSection';
 
-const { listSkills, listTools } = vi.hoisted(() => ({
+const { listSkills, listTools, effectiveSkills } = vi.hoisted(() => ({
   listSkills: vi.fn(),
   listTools: vi.fn(),
+  effectiveSkills: vi.fn(),
 }));
 
 vi.mock('../../../../api/skills', () => ({
   skillsApi: {
     list: listSkills,
     toolCatalogue: listTools,
+    effective: effectiveSkills,
     update: vi.fn(),
   },
 }));
@@ -94,6 +96,43 @@ describe('AI Skills search', () => {
         },
       ],
     });
+    effectiveSkills.mockResolvedValue({
+      workspace_id: 'workspace-1',
+      focused_app_id: null,
+      apps: [],
+      skills: [
+        {
+          id: 'eff-workspace',
+          key: 'workspace',
+          name: 'Workspace',
+          description: 'Manage workspace context',
+          source: 'core',
+          state: 'available',
+          tools_required: [],
+        },
+        {
+          id: 'eff-filing',
+          key: 'filing',
+          name: 'Filing',
+          description: 'Organize documents',
+          source: 'core',
+          state: 'available',
+          tools_required: [],
+        },
+      ],
+      tools: [
+        {
+          name: 'integral_workspace_setup',
+          description: 'Prepare a workspace',
+          source: 'core',
+        },
+        {
+          name: 'integral_query',
+          description: 'Search records',
+          source: 'core',
+        },
+      ],
+    });
   });
 
   it('filters skills and tools together as the user types', async () => {
@@ -101,11 +140,26 @@ describe('AI Skills search', () => {
     const search = await screen.findByRole('textbox', { name: 'Search skills and tools' });
     fireEvent.change(search, { target: { value: 'Workspace' } });
 
-    expect(await screen.findByText('integral_workspace_setup')).toBeInTheDocument();
-    expect(await screen.findByText('Workspace setup')).toBeInTheDocument();
     await waitFor(() => {
+      expect(screen.getAllByText('integral_workspace_setup').length).toBeGreaterThan(0);
+      expect(screen.getByText('Workspace setup')).toBeInTheDocument();
       expect(screen.queryByText('Filing')).not.toBeInTheDocument();
       expect(screen.queryByText('Query records')).not.toBeInTheDocument();
+    });
+  });
+
+  it('filters the effective available panel with the same query', async () => {
+    renderSection();
+    expect(await screen.findByText('Skills and tools available here')).toBeInTheDocument();
+    expect(await screen.findByText('Skills (2)')).toBeInTheDocument();
+
+    const search = await screen.findByRole('textbox', { name: 'Search skills and tools' });
+    fireEvent.change(search, { target: { value: 'Workspace' } });
+
+    await waitFor(() => {
+      expect(screen.getByText('Skills (1)')).toBeInTheDocument();
+      expect(screen.getByText('Tools Integral can use (1)')).toBeInTheDocument();
+      expect(screen.queryByText('Filing')).not.toBeInTheDocument();
     });
   });
 
@@ -115,5 +169,8 @@ describe('AI Skills search', () => {
     fireEvent.change(search, { target: { value: 'missing-capability' } });
 
     expect(await screen.findByText('No skills match “missing-capability”')).toBeInTheDocument();
+    expect(
+      await screen.findByText('No available skills or tools match “missing-capability”.'),
+    ).toBeInTheDocument();
   });
 });
