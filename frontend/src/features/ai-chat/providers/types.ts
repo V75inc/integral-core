@@ -88,6 +88,8 @@ export interface ChatImageInput {
 export interface TurnContext {
   threadId: string;
   userMessageText: string;
+  /** Authenticated thread receipt to read after reload; never a new send. */
+  resumeWorkItemId?: string;
   abortSignal: AbortSignal;
   /** Agent the active thread is bound to. Adapters MUST forward it on
    *  the stream request so the dispatcher can route correctly. */

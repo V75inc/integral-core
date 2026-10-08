@@ -283,8 +283,12 @@ async def test_stop_native_thread_uses_active_durable_work(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("file_only", [False, True])
 async def test_native_message_route_accepts_durable_work_without_inline_run(
-    authenticated_client: AsyncClient, test_user, monkeypatch: pytest.MonkeyPatch
+    authenticated_client: AsyncClient,
+    test_user,
+    monkeypatch: pytest.MonkeyPatch,
+    file_only,
 ) -> None:
     from fastapi.responses import StreamingResponse
 
@@ -330,16 +334,48 @@ async def test_native_message_route_accepts_durable_work_without_inline_run(
 
     replay = AsyncMock(side_effect=saved_stream)
     monkeypatch.setattr(ai_chat, "stream_chat_turn_events", replay)
+    payload = {"text": "Help me assess my idea", "client_request_id": "durable-route"}
+    if file_only:
+        from app.models.edges import HAS_ATTACHMENT
+        from app.models.nodes import Attachment
+
+        attachment = await Attachment.create(
+            filename="idea-brief.txt",
+            mime_type="text/plain",
+            size=12,
+            storage_key="chat/idea-brief",
+            content_hash="a" * 64,
+            uploaded_by=test_user.user_id,
+            owner_kind="chat",
+            scan_status="skipped",
+        )
+        await thread.connect(attachment, edge=HAS_ATTACHMENT)
+        payload = {
+            "attachment_ids": [attachment.id],
+            "client_request_id": "durable-route",
+        }
     response = await authenticated_client.post(
         f"/api/chat/threads/{thread_id}/messages",
         headers={"X-Integral-Scope": f"ws:{workspace_id}"},
-        json={"text": "Help me assess my idea", "client_request_id": "durable-route"},
+        json=payload,
     )
     assert response.status_code == 200, response.text
     assert response.headers["X-Integral-Work-Item"] == "chat-turn:accepted"
     assert response.headers["X-Integral-Accepted-Message"] == "n.ChatMessage.accepted"
     accepted = submit.await_args.args[0]
-    assert accepted.parts == [{"type": "text", "text": "Help me assess my idea"}]
+    if file_only:
+        assert accepted.parts[0]["type"] == "file"
+        assert all(part["type"] != "text" for part in accepted.parts)
+        assert (
+            accepted.execution_context.attachment_bindings[0]["content_hash"]
+            == "a" * 64
+        )
+        assert (
+            "BEGIN_CONTEXT_DATA kind=uploaded_file_references"
+            in accepted.execution_context.system_context
+        )
+    else:
+        assert accepted.parts == [{"type": "text", "text": "Help me assess my idea"}]
     assert accepted.principal_id == test_user.user_id
     assert accepted.workspace_id == workspace_id
     assert accepted.thread_id == thread_id

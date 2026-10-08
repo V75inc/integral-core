@@ -128,3 +128,74 @@ browser receipt/reload/reconnect integration, secure attachment/host-control
 input contracts,
 default-model browser verification and full `make verify`. No account tariff, provider bounds policy, public mandate,
 version change or production rollout is enabled by this candidate.
+
+
+## Gated integration delivery and reload continuation
+
+The staged snapshot `6db93d17ab73560feab7855dece2b2ddc3b2538aa6fe1dc254b3c0f04df944bd`
+passes full `make verify`, terminal exit 0, including 1,536 frontend tests,
+reproducible wheel imports, configured format/lint/types/guards, CI smoke and
+full backend tests. It is committed as `d00afb1c` and pushed in draft Core PR
+#122, based on #121. The gate log is
+`/tmp/venture-durable-native-full-verify.log`.
+
+API candidate image `integral-venture-core:durable-chat-candidate-local`, digest
+`sha256:c933018fef2ad0770c5c00e3411c614d2de8207fee8fc14c6d98fa63e7bc2a4e`,
+built from that frozen source snapshot. Network-disabled import and dependency
+checks pass; durable mode defaults false. The image submission-module SHA256
+`8d1124cc28e53d80f6c7bb5abe63222b4682d92019483be385094cedf62d8aa6`
+matches the source. No rollout is implied by this build.
+
+The isolated reload follow-up now surfaces the owned thread's active WorkItem
+pointer, loads it into the view session and attaches with scoped GET from
+sequence zero. It creates no new user message or thread, and replaces its
+temporary response with the canonical saved transcript after delivery. A
+failed attachment is attempted once per WorkItem per mounted view to avoid a
+retry loop. Existing stream concurrency and workspace-selection gates remain.
+
+Two new runtime recovery cases and the native provider replay/parallel-stream/
+admission/workspace suite pass: **36 tests across five files**, plus TypeScript
+checks. Logs: `/tmp/venture-reload-runtime.log`,
+`/tmp/venture-reload-frontend.log`, `/tmp/venture-reload-types.log`.
+This reload delta is a tested, uncommitted follow-up, copied back from
+`/tmp/integral-core-chat-reload`; it is not part of `d00afb1c`'s full-gate proof.
+The full repository gate must run on the final continuation before its commit.
+
+
+## File input and read-boundary continuation
+
+The uncommitted continuation accepts canonical file parts, including file-only
+turns without artificial user text. Encrypted capsules bind the uploaded file's
+thread ownership, scanner eligibility, presentation, storage key, content hash
+and SHA256 of extracted text. Worker restoration repeats these checks; the
+native broker repeats restoration inside the current-lease transaction before
+`integral_get_attachment_text` dispatch. A changed accepted input fails closed.
+Ordinary authorized reads of other workspace files retain the existing policy
+path. This proves graph revision and extracted-text integrity; it does not
+verify physical storage bytes at each read. Images and host-only continuations
+remain outside the gated candidate's supported input contract.
+
+HTTP duplicate requests recover an authenticated saved receipt before resolving
+live file or host state. Retained capsules omitting the newly optional empty
+binding list reuse the original stored digest instead of a reserialized digest.
+No approval token, file body or storage key is placed in WorkItem input.
+
+Actual PostgreSQL submission/worker/route/idempotency and legacy attachment
+selection: **103 passed in 31.97s**,
+`/tmp/venture-durable-file-read-boundary.log`. Native broker selection:
+**40 passed in 4.78s**, `/tmp/venture-durable-file-broker.log`, including rejection
+before capability dispatch and successful dispatch of unchanged accepted input.
+The first invocation used incorrect test paths and ran no tests; it is not
+qualification evidence. The corrected run above terminated with exit zero.
+
+A separate earlier run hit Docker disk exhaustion during PostgreSQL fixture
+setup. Only regenerable Docker build cache was cleaned (1.282GB then 15.93GB);
+images, containers and database volumes were preserved. PostgreSQL health
+recovered and the actual database tests above passed.
+
+I-HARNESS-02 is preserved at both restoration and attachment text-read boundaries;
+I-WORK-01/02/03 remain enforced by the broker's current-lease transaction and
+accepted scope. I-EXT-01/I-SUBSTRATE-01 remain domain neutral. Full repository
+gate, candidate browser reload/reconnect and independent process recovery remain
+required. The deployed API still uses the earlier default-off synchronous path;
+these results do not prove that the browser has exercised durable mode.

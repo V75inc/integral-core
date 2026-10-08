@@ -297,6 +297,16 @@ def _make_handler(
             from app.agentive.services.work_items import authorized_work_item_effect
 
             async with authorized_work_item_effect(work_execution_context):
+                if capability_name == "integral_get_attachment_text":
+                    from app.agentive.work_models import WorkItem
+                    from app.services.chat_turn_attachments import (
+                        assert_chat_attachment_read_inputs,
+                    )
+
+                    item = await WorkItem.get(
+                        f"o.WorkItem.{work_execution_context.work_item_id}"
+                    )
+                    await assert_chat_attachment_read_inputs(item=item)
                 result = await dispatch()
         model_result = _resource_links_for_model(result.for_model())
         if capability_name == "integral_build_approved_design":
