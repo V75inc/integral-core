@@ -38,7 +38,8 @@ from app.schemas.agentive.model_dispatch import ModelDispatchInput
 logger = logging.getLogger(__name__)
 
 AttemptObserver = Callable[[PhysicalModelRequest], Awaitable[None]]
-ModelAdmission = Callable[[ModelDispatchInput], Awaitable[None]]
+DispatchReadiness = Callable[[], Awaitable[None]]
+ModelAdmission = Callable[[ModelDispatchInput], Awaitable[DispatchReadiness]]
 
 
 class _ModelStreamOutcome(str, Enum):
@@ -638,6 +639,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         else:
             kwargs.pop("api_key", None)
 
+        readiness = None
         if self._admission is not None:
             # Use final mapped SDK kwargs, including tools, reasoning controls
             # and enforced output settings. Do not pass credential material to
@@ -647,7 +649,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
                 for key, value in kwargs.items()
                 if key not in {"api_key", "api_base"}
             }
-            await self._admission(
+            readiness = await self._admission(
                 ModelDispatchInput(
                     scope=self._scope,
                     route=ModelRouteIdentity(
@@ -668,6 +670,8 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
                     ).hexdigest(),
                 )
             )
+            if not callable(readiness):
+                raise RuntimeError("model admission requires final dispatch readiness")
 
         await self._observe(
             request_id=request_id,
@@ -676,6 +680,12 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
             outcome="dispatch_intent",
             required=True,
         )
+
+        if readiness is not None:
+            # Receipt persistence can outlive pricing or current authority.
+            # A rejected readiness check has no SDK dispatch; retain its hold
+            # conservatively for the separate no-dispatch recovery path.
+            await readiness()
 
         try:
             response = await self._sdk_completion(**kwargs)

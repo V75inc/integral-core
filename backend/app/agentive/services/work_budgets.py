@@ -1,7 +1,8 @@
 """Atomic root-shared reservations, not permission or dispatch authority.
 
 Only trusted host price/usage resolvers may supply quotes or settlements.
-No public API/tool or harness hook enables these services yet.
+Native durable-work model hooks use the ledger; public executable mandate
+approval and tool dispatch remain separately gated.
 """
 
 from __future__ import annotations
@@ -629,6 +630,79 @@ async def _read_scoped_reservation(
     ):
         raise WorkError("work.mandate_scope_denied")
     return record
+
+
+async def assert_mandate_model_dispatch_current(
+    *,
+    reservation_id: str,
+    execution_context: WorkExecutionContext,
+    model_price_request: ModelPriceRequest,
+) -> None:
+    """Recheck a marked physical request after intent receipt storage.
+
+    This creates no second intent and never makes an uncertain slot replayable.
+    The adapter must invoke it once immediately before the SDK, then check its
+    retained expiry synchronously after this transaction has closed.
+    """
+    ctx = WorkExecutionContext.model_validate(execution_context.model_dump())
+    db = await _transaction_database()
+    async with graph_transaction(database=db) as graph:
+        root, _, path = await load_approved_mandate_path(
+            work_item_id=ctx.work_item_id,
+            principal_id=ctx.principal_id,
+            workspace_id=ctx.workspace_id,
+            thread_id=ctx.thread_id,
+        )
+        locked_ids = []
+        for item in path:
+            await _lock_work_scope(
+                graph.database,
+                item.work_item_id,
+                ctx.principal_id,
+                ctx.workspace_id,
+                ctx.thread_id,
+            )
+            locked_ids.append(item.work_item_id)
+        root, revision, path = await load_approved_mandate_path(
+            work_item_id=ctx.work_item_id,
+            principal_id=ctx.principal_id,
+            workspace_id=ctx.workspace_id,
+            thread_id=ctx.thread_id,
+        )
+        if locked_ids != [item.work_item_id for item in path]:
+            raise WorkError("work.mandate_lineage_invalid")
+        record = await _read_scoped_reservation(
+            graph.database,
+            reservation_id,
+            ctx.principal_id,
+            ctx.workspace_id,
+            ctx.thread_id,
+        )
+        if (
+            record.work_item_id != ctx.work_item_id
+            or record.root_work_item_id != root.work_item_id
+            or record.review_digest != root.plan_revision
+        ):
+            raise WorkError("work.mandate_scope_denied")
+        if record.status != "reserved" or record.dispatch_state != "intent":
+            raise WorkError("work.outcome_reconciliation_required")
+        req = MandateReservationRequest.model_validate(record.request)
+        if req.model_price_binding is None:
+            raise WorkError("work.model_bounds_required")
+        _assert_leased_reservation(ctx, path[-1], req)
+        _assert_reviewed_request(req, revision)
+        _assert_bound_model_dispatch(
+            req, model_price_request.scope, model_price_request, record.dispatch_ref
+        )
+        if (
+            record.model_dispatch_scope
+            != model_price_request.scope.model_dump(mode="json")
+            or record.model_dispatch_attempt != ctx.attempt
+            or _ledger(root.plan)["reserved_units"] < record.upper_units
+        ):
+            raise WorkError("work.budget_invalid")
+        if req.quote.valid_until <= datetime.now(timezone.utc):
+            raise WorkError("work.cost_quote_expired")
 
 
 def _evidence_ref(value: str) -> None:

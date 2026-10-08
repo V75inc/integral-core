@@ -100,6 +100,10 @@ def physical_boundary(monkeypatch):
     monkeypatch.setattr(admission, "_is_mandate_work", AsyncMock(return_value=True))
     monkeypatch.setattr(admission, "reserve_mandate_budget", reserve)
     monkeypatch.setattr(admission, "mark_mandate_dispatch_intent", mark)
+    current_dispatch = AsyncMock()
+    monkeypatch.setattr(
+        admission, "assert_mandate_model_dispatch_current", current_dispatch
+    )
     settlement = AsyncMock(side_effect=WorkError("work.cost_unavailable"))
     monkeypatch.setattr(admission, "settle_mandate_model_receipt", settlement)
     authority = AsyncMock()
@@ -211,7 +215,8 @@ async def test_actual_mapped_payload_and_price_precede_sdk(physical_boundary):
     assert "untrusted-secret" not in repr(dispatch)
     assert b.reservations[0]["request"].input_fingerprint == dispatch.fingerprint()
     assert b.dispatches[0]["dispatch_ref"] == dispatch.request_id
-    assert b.authority.await_count == 3
+    assert b.authority.await_count == 4
+    assert b.current_dispatch.await_count == 1
     assert b.settlement.await_count == 1
 
 
@@ -364,3 +369,122 @@ async def test_foreign_tenant_does_not_enter_price_policy(physical_boundary):
         await b.boundary(dispatch)
     assert exc.value.code == "work.mandate_scope_denied"
     assert b.events == baseline
+
+
+@pytest.mark.asyncio
+async def test_receipt_delay_can_expire_bounds_before_sdk(
+    physical_boundary, monkeypatch
+):
+    b = physical_boundary
+    host_hooks.register_model_bounds_resolver(b.bounds)
+    host_hooks.register_model_price_resolver(b.price)
+
+    class Later(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.now(tz) + timedelta(minutes=2)
+
+    async def delayed(observation):
+        b.events.append(observation.outcome)
+        if observation.outcome == "dispatch_intent":
+            monkeypatch.setattr(admission, "datetime", Later)
+
+    b.boundary._observer = delayed
+    with pytest.raises(WorkError) as exc:
+        await call(b)
+    assert exc.value.code == "work.model_bounds_expired"
+    assert b.events == ["bounds", "price", "reserve", "mark", "dispatch_intent"]
+    assert b.current_dispatch.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_receipt_delay_can_expire_price_before_sdk(
+    physical_boundary, monkeypatch
+):
+    b = physical_boundary
+    host_hooks.register_model_bounds_resolver(b.bounds)
+
+    async def short_price(request):
+        result = await b.price(request)
+        return result.model_copy(
+            update={"valid_until": datetime.now(timezone.utc) + timedelta(seconds=1)}
+        )
+
+    host_hooks.register_model_price_resolver(short_price)
+
+    class Later(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.now(tz) + timedelta(seconds=2)
+
+    async def delayed(observation):
+        b.events.append(observation.outcome)
+        if observation.outcome == "dispatch_intent":
+            monkeypatch.setattr(admission, "datetime", Later)
+
+    b.boundary._observer = delayed
+    with pytest.raises(WorkError) as exc:
+        await call(b)
+    assert exc.value.code == "work.cost_quote_expired"
+    assert "sdk" not in b.events
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("code", ["work.permission_stale", "work.model_route_stale"])
+async def test_authority_revocation_during_receipt_prevents_sdk(
+    physical_boundary, code
+):
+    b = physical_boundary
+    host_hooks.register_model_bounds_resolver(b.bounds)
+    host_hooks.register_model_price_resolver(b.price)
+    b.authority.side_effect = [None, None, None, WorkError(code)]
+    with pytest.raises(WorkError) as exc:
+        await call(b)
+    assert exc.value.code == code
+    assert b.events[-1] == "dispatch_intent"
+    assert "sdk" not in b.events
+
+
+@pytest.mark.asyncio
+async def test_current_ledger_revocation_after_receipt_prevents_sdk(physical_boundary):
+    b = physical_boundary
+    host_hooks.register_model_bounds_resolver(b.bounds)
+    host_hooks.register_model_price_resolver(b.price)
+    b.current_dispatch.side_effect = WorkError("work.mandate_inactive")
+    with pytest.raises(WorkError):
+        await call(b)
+    assert "dispatch_intent" in b.events and "sdk" not in b.events
+
+
+@pytest.mark.asyncio
+async def test_readiness_is_consumed_even_if_it_fails():
+    check = AsyncMock(side_effect=WorkError("work.cancelled"))
+    ready = admission.WorkModelAdmission._one_shot(check)
+    with pytest.raises(WorkError):
+        await ready()
+    with pytest.raises(WorkError) as exc:
+        await ready()
+    assert exc.value.code == "work.outcome_reconciliation_required"
+    assert check.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_missing_readiness_is_not_a_silent_fallback(physical_boundary):
+    b = physical_boundary
+    b.transport._admission = AsyncMock(return_value=None)
+    with pytest.raises(RuntimeError, match="final dispatch readiness"):
+        await call(b)
+    assert b.events == []
+
+
+@pytest.mark.asyncio
+async def test_ordinary_chat_lease_revoked_during_receipt_prevents_sdk(
+    physical_boundary, monkeypatch
+):
+    b = physical_boundary
+    monkeypatch.setattr(admission, "_is_mandate_work", AsyncMock(return_value=False))
+    current = AsyncMock(side_effect=[None, WorkError("work.lease_lost")])
+    monkeypatch.setattr(admission, "assert_work_item_execution_current", current)
+    with pytest.raises(WorkError):
+        await call(b)
+    assert b.events == ["dispatch_intent"]
