@@ -555,29 +555,15 @@ function SeamlessRelationManyInner({
   onNavigate?: () => void;
   navContext?: RelationNavContext | null;
 }) {
-  const selected = Array.isArray(value) ? (value as string[]) : [];
-  const [hovered, setHovered] = useState(false);
-  const [focusWithin, setFocusWithin] = useState(false);
-  const showFloat =
-    focusWithin || hovered || selected.length > 0 || isFieldRequired(field);
   const emptyHint =
     field.key === 'tasks' && opts.length === 0 && !relationLoading
       ? (placeholder || 'Select project(s) above first to load tasks.')
       : undefined;
 
   return (
-    <div
-      className="space-y-1.5 pl-3"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      onFocusCapture={() => setFocusWithin(true)}
-      onBlurCapture={e => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
-          setFocusWithin(false);
-        }
-      }}
-    >
-      {showFloat ? <InlineFieldLabel field={field} /> : null}
+    <div className="space-y-1.5 pl-3">
+      {/* Keep the label in flow so pointer entry cannot move the trigger. */}
+      <InlineFieldLabel field={field} />
       <RelationMultiSelectCombobox
         field={field}
         value={value}
