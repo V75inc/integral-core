@@ -51,6 +51,7 @@ describe('Modal dock clearance', () => {
     // Inline style, not a class: the width is a live CSS variable that the
     // dock updates as the user drags the resize handle.
     expect(overlayContainer().style.right).toBe('var(--assistant-dock-w, 0px)');
+    expect(overlayContainer().style.top).toBe('var(--system-bar-h, 0px)');
   });
 
   it('covers the dock by default', () => {
@@ -62,6 +63,7 @@ describe('Modal dock clearance', () => {
       </Modal>,
     );
     expect(overlayContainer().style.right).toBe('');
+    expect(overlayContainer().style.top).toBe('var(--system-bar-h, 0px)');
   });
 
   it('claims aria-modal only when the page really is inert', () => {
