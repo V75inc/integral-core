@@ -146,7 +146,8 @@ async def propose_work_mandate_review(
                 or item.origin != "mandate_review"
                 or item.input_fingerprint != digest
                 or item.plan_revision != digest
-                or item.plan != work_doc["context"]["plan"]
+                or item.plan.get("mandate_revision") != snapshot
+                or item.plan.get("mandate_approval_id") != approval_id
             ):
                 raise WorkError("work.idempotency_conflict")
             # Existing review must have its original atomic binding. Do not
