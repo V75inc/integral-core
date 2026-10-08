@@ -43,12 +43,14 @@ describe('full-page entry utilities', () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
-  it('uses a dock-aware drawer when the remaining page is too narrow', () => {
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 850, top: 100 } as DOMRect);
+  it('keeps desktop utilities nonmodal beside chat when the page is squeezed', () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 590, top: 100, right: window.innerWidth - 420 } as DOMRect);
     render(<EntryDetailPageChrome allowAssistantDock onClose={() => {}} panelTitle="Attachments" sidePanel={<p>Files</p>}><p>Record body</p></EntryDetailPageChrome>);
-    expect(screen.getByRole('dialog', { name: 'Attachments' })).toBeVisible();
-    expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('complementary', { name: 'Entry utilities' })).toBeVisible();
     expect(screen.getByText('Record body')).toBeVisible();
+    expect(screen.getByTestId('entry-page-utilities')).toHaveStyle({ right: '420px', width: '380px' });
+    expect(screen.getByTestId('entry-page-utilities').parentElement).toBe(document.body);
   });
 
   it('closes the desktop panel through its explicit close control', () => {

@@ -420,7 +420,7 @@ export function EntryMetaFields({
       className={`${variant === 'card' ? 'mt-2' : 'mt-4'} ${className}`.trim()}
       aria-label={variant === 'card' ? 'Entry details' : 'Entry fields'}
     >
-      <div className="grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
+      <div className="entry-meta-grid grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
         {rows.map((row, idx) => {
           const prev = idx > 0 ? rows[idx - 1] : undefined;
           const showGroupHeader = Boolean(row.group && row.group !== prev?.group);
