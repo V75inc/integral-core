@@ -5,7 +5,7 @@ Status: locally qualified release candidate; stable/hosted promotion remains sub
 
 ## Scope and ownership
 
-This assessment follows the agent-architecture-audit and browser-qa skills. It examines the resident Pydantic AI harness, Core skill overlay and tool discovery, substrate read/write authority, routines and worker boundaries, transcript/recovery state, model observations, browser projection, and distributable artifacts. Payroll is a reproduction fixture; App-specific planning is excluded from this report, as requested. Its package code and procedures are not changed. A copy of the external package is installed into a disposable, separate managed PostgreSQL installation with synthetic credentials and starter records; existing Business installations are not modified.
+This assessment follows the agent-architecture-audit and browser-qa skills. It examines the resident Pydantic AI harness, Core skill overlay and tool discovery, substrate read/write authority, routines and worker boundaries, transcript/recovery state, model observations, browser projection, and distributable artifacts. An external App supplies the reproduction fixture. App-specific planning and source receipts are maintained downstream; its package code and procedures are not changed by this audit. A copy of the external package is installed into a disposable, separate managed PostgreSQL installation with synthetic credentials and starter records; existing Business installations are not modified.
 
 The initial checkout contained another task's staged build-field-identity repairs. Those changes are outside this audit's ownership and were subsequently committed by that task as `3987b3b9`. Qualification operates on that base plus this audit's patch; publication must review the final combined source and its exact Git revision.
 
@@ -17,7 +17,7 @@ The release standard is evidence for explicit scenarios, not a claim that every 
 | --- | --- |
 | I-GRAPH-01 / I-GRAPH-02 | No persisted entity, node attachment, edge, or record model is introduced or demoted. Existing rooted sessions, runs, receipts and work items remain the persistence authority. |
 | I-CRUD-01 | Core service/broker paths remain the mutation boundary. Browser installation handling does not retry an uncertain write. |
-| I-EXT-01 / I-SUBSTRATE-01 | Repairs use generic tool identifiers, declaration effects and execution scope; no Payroll slug, employee schema, or business calculation is added to Core. |
+| I-EXT-01 / I-SUBSTRATE-01 | Repairs use generic tool identifiers, declaration effects and execution scope; no domain App slug, record schema, or business calculation is added to Core. |
 | I-WORK-01 / I-WORK-02 / I-WORK-03 | Worker leases, effect identity and atomic completion are unchanged. Fresh authorization contexts wrap those existing paths rather than replace them. |
 | I-WORK-04 / I-WORK-05 | Existing idempotency and approval bindings remain intact. Read classification does not grant write permission. Mutating App operations remain blocked under an explicit no-write request. |
 | I-WORK-06 / I-HARNESS-01 | PostgreSQL posture, encryption, and tenant/principal/thread/session bounds are retained. No unscoped or filesystem session fallback is added. |
@@ -58,7 +58,7 @@ Repair: determine read classification from the server-owned run snapshot, bound 
 
 ### F5 — Introspection returned the full App model and draft (high for large Apps)
 
-A full model result can contain large view/configuration/operation bodies. Active-turn history intentionally retains exact tool outcomes, so that payload is sent again on each subsequent request. The reproduced Payroll turn jumped from 16,886 input tokens to 83,803 after full model inspection.
+A full model result can contain large view/configuration/operation bodies. Active-turn history intentionally retains exact tool outcomes, so that payload is sent again on each subsequent request. The reproduced external App turn jumped from 16,886 input tokens to 83,803 after full model inspection.
 
 Repair: `integral_describe_model` defaults to an explicit bounded overview with resource identity, exact collection counts, bounded labels, and truncation markers. Full manifests/configuration remain available with `detail="full"`. Direct service calls retain their previous full default, preserving existing integrations. Core modeling skills explicitly request full detail before modifying schema. An overview cannot be mistaken for a complete authoring contract.
 
@@ -111,7 +111,7 @@ Repair: declare Python >=3.11 in Core metadata and the frozen lock, and align RE
 | Active recall | ConversationSearch and local capability embeddings | Search is conversation-scoped; local ranking does not invoke an unmetered auxiliary LLM. Cold catalog embedding latency remains distinct from provider tokens. |
 | Tool selection | Search, deferred schema preparation, procedure guards, dynamic choice | F1/F3/F4 repaired; approximate relevance cannot hide an explicitly addressed recovery tool. |
 | Tool execution | Shared broker, run snapshot, current declarations, approvals, worker effect fence | F2 repaired; no write is justified by skill loading or historical results. |
-| Interpretation | Error envelopes, no-match, App boundary refusals, counts/pagination | Refusal differs from empty data. Payroll's authoritative roster semantics remain its team's responsibility. |
+| Interpretation | Error envelopes, no-match, App boundary refusals, counts/pagination | Refusal differs from empty data. The App's authoritative record-selection semantics remain its team's responsibility. |
 | Answer shaping | Resource link enrichment and streamed response parts | Opaque IDs and broker URLs retained; unavailable cost is not a free-cost claim. |
 | Rendering | Managed wheel UI, login, install/readback, chat/debug, frontend tests | F10 repaired and rerun in the packaged browser; unit/build gates alone are insufficient. |
 | Hidden repair/retry | LiteLLM transport, provider SDK, scaffold correction | SDK retries disabled; physical requests observed separately. Bounded pre-effect design-input correction is explicit. Unknown writes/model outcomes are not silently replayed. |
@@ -119,9 +119,9 @@ Repair: declare Python >=3.11 in Core metadata and the frozen lock, and align RE
 
 ## Browser evidence and gates
 
-The preserved exhaustion evidence is in `core-foundation-evidence/payroll-exhaustion-summary.json`: 15 physical model requests, 20 tool steps, 621,301 reported input tokens, 4,621 output tokens, unavailable provider cost. The request was simply “How many employees are in Guyana Payroll? Use the current roster and do not change anything.” Full debug stays in the private disposable evidence directory rather than publishing synthetic installation credentials or full model configurations.
+The aggregate budget evidence is in `core-foundation-evidence/app-read-budget-summary.json`: 15 physical model requests, 20 tool steps, 621,301 reported input tokens, 4,621 output tokens, unavailable provider cost. The request asked for an authoritative record count with an explicit no-write constraint. Full debug stays in the private disposable evidence directory rather than publishing synthetic installation credentials or full model configurations.
 
-The same Payroll question on the repaired harness completed with a truthful refusal rather than exhausting: 10 requests, 11 tool steps and 126,850 input tokens (79.6% less in this observed pair). No full-model dump occurred. The App still does not expose a permitted roster query/operation, so this is recovery qualification, not proof that Payroll headcount now works. Functional App qualification remains outside this Core assessment.
+The same external App question on the repaired harness completed with a truthful refusal rather than exhausting: 10 requests, 11 tool steps and 126,850 input tokens (79.6% less in this observed pair). No full-model dump occurred. The App still does not expose a permitted count query/operation, so this is recovery qualification, not proof that its functional count now works. Functional App qualification remains outside this Core assessment.
 
 The earlier generic record lookup on the existing 9140 qualification installation used five requests and 47,853 input tokens. It is an observational baseline from a different installation, not a controlled cross-version benchmark.
 
@@ -165,7 +165,7 @@ Before a stable promotion, record the intended deployment mode, exact source rev
 
 | Requirement | Boundary and recommendation |
 | --- | --- |
-| Payroll functional headcount | Outside Core qualification; the observed failure/recovery evidence does not prove a working roster question. |
+| External App functional count | Outside Core qualification; the observed failure/recovery evidence does not prove a working count question. |
 | Deployment mode | Select direct or durable chat explicitly. This live browser qualification uses managed CLI direct mode; durable worker persistence/admission/recovery is tested on PostgreSQL. Qualify the selected hosted mode before promotion. |
 | BYOK/provider recovery and billing | Record live keys/routes, vendor errors, incomplete usage, provider-side process kill, unknown mutation reconciliation and partial-batch outcomes for the supported deployment matrix. Keep unavailable cost distinct from zero. |
 | Optional integrations | Atlas was unavailable without `ATLAS_TEST_URI`; this managed PostgreSQL server has no vector extension. Benchmarks and domain package tests are excluded by the documented broad gate. Do not claim those integrations qualified. |
@@ -180,4 +180,4 @@ The publication candidate combines audit revision `6e454147534c08164d0a2521ee6f0
 
 The earlier wheel hash and browser receipts above identify the original qualified audit snapshot. They do not identify a wheel containing this later launcher repair. The combined source passed `make verify` (including 278 frontend files / 1,581 tests and the full backend suite), the full isolated PostgreSQL lane, and a separate smoke run with local environment loading disabled. The wheel built twice byte-for-byte and imported outside the checkout. Combined-source fingerprints and gate results are recorded separately in `core-foundation-evidence/push-integration-summary.json`. PostgreSQL retained the previously documented optional-integration and historical localhost backup-test skips.
 
-App-specific recommendations and captured setup advice were removed before the audit commit was published. They remain local only. The retained App reproduction evidence records Core budget and refusal behavior; no Payroll plan or package change is included.
+App-specific recommendations and captured setup advice were excluded from the audit push. Domain-specific receipts and the implementation handoff are maintained in the downstream Business repository. Core retains only aggregate budget/refusal evidence and generic substrate findings.
