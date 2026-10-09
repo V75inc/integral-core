@@ -47,6 +47,19 @@ Use `integral up --apps /absolute/path/integral-apps` to discover external Apps.
 
 Private operator settings may be placed in the installation's `settings.env`. The launcher keeps storage, signing keys, loopback addresses, real auth, and production-mode flags authoritative. It loads this file explicitly rather than importing a source checkout's `.env`. Keep this directory private. Malformed or duplicate assignments in `settings.env` are rejected with their line number before startup; existing keys are preserved. Use one `NAME=value` assignment per setting.
 
+Managed installations also exclude model settings, provider keys, admin bootstrap
+credentials and other application settings inherited from a terminal or desktop
+process. Configure a model in Settings → AI Models, or place intentional server
+settings in this installation's `settings.env`, then stop and restart it. System
+paths, locale, proxy and certificate settings remain available. Hosted API and
+Docker deployments continue to use their explicit deployment environment.
+
+For `${NAME}` references in `settings.env`, define `NAME` earlier in the same file
+or use `${NAME:-default}`. System variables such as `${HOME}` are available;
+provider keys from the launching process are not. Missing references produce a
+line-numbered setup error rather than silently becoming empty credentials. Test
+authentication flags are rejected in managed settings.
+
 ## Authoring and client builds
 
 The managed launcher and App authoring commands serve different stages of development:
