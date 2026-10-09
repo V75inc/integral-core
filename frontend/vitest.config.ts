@@ -7,6 +7,9 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     passWithNoTests: true,
+    // Bound jsdom concurrency: host-wide CPU fan-out made the 101-row
+    // projection test exceed 5s; the same assertions take 417ms in isolation.
+    maxWorkers: 4,
     exclude: ['**/node_modules/**', '**/domain_apps/**'],
   },
 });

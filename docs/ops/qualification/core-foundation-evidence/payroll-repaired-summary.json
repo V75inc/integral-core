@@ -1,0 +1,32 @@
+{
+  "question": "How many employees are in Guyana Payroll? Use the current roster and do not change anything.",
+  "run_id": "5ed8417f-f1de-45a7-8146-d2142c9d45f5",
+  "status": {
+    "type": "complete",
+    "reason": "stop"
+  },
+  "physical_requests": 10,
+  "reported_input_tokens": 126850,
+  "reported_output_tokens": 4960,
+  "cost_sources": [
+    "unavailable"
+  ],
+  "answer": {
+    "text": "I couldn't verify a headcount from the live roster \u2014 the read is blocked, so I won't state a number.\n\n**What I confirmed**\n- The workspace has one app: [Guyana Payroll](/apps/n.WorkspaceApp.ff76a4b5edc84b1d9e3917e2) (active, v2.2.1), and you're acting as Super Admin.\n- Its tracks include [Guyana Payroll Employees](/tracks/n.Track.aac24b6033124db78a5d9a9d) (the app's standalone roster used when \"Sync employees from HRM\" is off or no HR App is installed) and [Guyana Settings](/tracks/n.Track.dbb2ba26e8b94c5ca62de07b) (which holds the `general.sync_from_hrm` toggle). No HR/HRM app is installed in this workspace, which points to the standalone roster \u2014 but I could not read the toggle or the roster to confirm.\n\n**Why no count**\n- Direct entry reads on those App tracks were refused by Core, which directed me to the App's declared queries.\n- `integral_describe_capabilities` exposes **no declared query or view** for this App \u2014 only operations. A Core open-entry query returned nothing because App-owned tracks are skipped (`app_domain_tracks_skipped: true`), and I hold no known record ID to resolve one employee directly.\n- The App's catalog does list a `sync_all_employees_from_hrm` operation, but I did not run it: its effects are labelled \"read\" while plainly write-oriented operations in the same catalog (e.g. `create_next_pay_run`) carry the same label, so the labels can't be trusted for a \"don't change anything\" request.\n\n**Result:** the current app exposes no permitted read that can enumerate the payroll roster, so the headcount is unverified. Nothing was created, updated, or deleted.",
+    "type": "text",
+    "excerpt_note": "Setup advice omitted; complete original response retained locally only."
+  },
+  "tool_names": [
+    "load_capability",
+    "search_capabilities",
+    "integral_whoami",
+    "integral_list_apps",
+    "integral_list_tracks",
+    "integral_query_entries",
+    "integral_query_entries",
+    "search_capabilities",
+    "integral_describe_capabilities",
+    "integral_governed_query",
+    "integral_describe_capabilities"
+  ]
+}

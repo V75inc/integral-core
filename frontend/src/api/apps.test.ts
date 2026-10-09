@@ -31,3 +31,13 @@ describe('appsApi.updateFromLibrary', () => {
     );
   });
 });
+
+describe('appsApi.batchInstall', () => {
+  it('allows schema installation longer than the ordinary read timeout without retries', async () => {
+    vi.clearAllMocks();
+    vi.mocked(apiClient.post).mockResolvedValue({ data: { installed: [] } });
+    await appsApi.batchInstall([{ library_cp_id: 'library' }], { include_seed_data: false });
+    expect(apiClient.post).toHaveBeenCalledTimes(1);
+    expect(apiClient.post).toHaveBeenCalledWith('/apps/batch-install', { items: [{ library_cp_id: 'library', include_seed_data: false }] }, { timeout: 120_000 });
+  });
+});

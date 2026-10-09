@@ -13,7 +13,7 @@ uv sync --frozen --extra dev --extra test
 .venv/bin/python -m app.main
 ```
 
-Run from this directory with private development settings configured. Python 3.10 or later is required. The source API uses port 4000. The frozen lock is authoritative; do not substitute requirements.txt or unrestricted package-index resolution.
+Run from this directory with private development settings configured. Python 3.11 or later is required. The source API uses port 4000. The frozen lock is authoritative; do not substitute requirements.txt or unrestricted package-index resolution.
 
 ## Navigate
 

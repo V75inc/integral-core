@@ -26,7 +26,7 @@ name = "integral-core"
 version = "0.1.1rc16"
 description = "Integral Foundation (open core) — substrate without commercial Apps"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = {text = "Apache-2.0"}
 authors = [
     {name = "V75 Inc."},
@@ -79,7 +79,7 @@ dependencies = [
     # Document Templates — PDF output fallback when WeasyPrint is not installed.
     "reportlab>=4.0.0",
     # Phase 3 D-07 — MCP-First Surface (streamable HTTP transport at /api/mcp).
-    # Requires Python >=3.10 (see requires-python above). The "cli" extra pulls
+    # Core uses Python 3.11 stdlib APIs (see requires-python above). The "cli" extra pulls
     # typer + rich for the dev-time `mcp dev` command; it is harmless at runtime.
     # Cap below 2.0: mcp 2.0 removed ``Server.list_tools`` (and the sibling
     # decorator hooks) that app/agentive/mcp/server.py registers against, so an
@@ -101,6 +101,11 @@ dependencies = [
     # Native Integral harness. Keep the 0.x capability API exact-pinned and
     # upgrade only with the native-harness compatibility/evaluation gates.
     "pydantic-ai-harness[skills]==0.36.0",
+    # The wheel must use the same typed capability/history API qualified by
+    # uv.lock. Harness alone permits future, unqualified Pydantic AI versions.
+    # Provider transport/SDK dependencies are supplied by Core's LiteLLM
+    # bridge below; the upstream openai extra selects a different SDK major.
+    "pydantic-ai-slim==2.54.0",
     # Shared provider routing and immutable usage observations.
     "litellm>=1.101.0,<1.102",
     # HTML extraction for the native standard skill library.

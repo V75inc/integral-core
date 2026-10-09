@@ -1,0 +1,208 @@
+{
+  "question": "How many employees are in Guyana Payroll? Use the current roster and do not change anything.",
+  "run_id": "0c142d05-f432-4448-8032-81d814f4fa43",
+  "status": {
+    "type": "incomplete",
+    "reason": "error",
+    "error": "This turn reached Integral's safe generation limit before it could finish. Start a new conversation with a shorter request and try again."
+  },
+  "physical_requests": 15,
+  "reported_input_tokens": 621301,
+  "reported_output_tokens": 4621,
+  "cost_sources": [
+    "unavailable"
+  ],
+  "tools": [
+    {
+      "name": "load_capability",
+      "arguments": {
+        "id": "guyana-payroll-employee-roster"
+      },
+      "error_code": null,
+      "result_bytes": 3972
+    },
+    {
+      "name": "search_capabilities",
+      "arguments": {
+        "query": "list apps list tracks query entries payroll roster headcount"
+      },
+      "error_code": null,
+      "result_bytes": 5505
+    },
+    {
+      "name": "integral_list_apps",
+      "arguments": {},
+      "error_code": null,
+      "result_bytes": 873
+    },
+    {
+      "name": "integral_list_tracks",
+      "arguments": {
+        "app_id": "n.WorkspaceApp.ff76a4b5edc84b1d9e3917e2",
+        "include_nav_hidden": true
+      },
+      "error_code": null,
+      "result_bytes": 2598
+    },
+    {
+      "name": "integral_query_entries",
+      "arguments": {
+        "limit": 10,
+        "query": "sync_from_hrm general",
+        "track_id": "n.Track.dbb2ba26e8b94c5ca62de07b"
+      },
+      "error_code": "app_domain",
+      "result_bytes": 1149
+    },
+    {
+      "name": "integral_query_entries",
+      "arguments": {
+        "limit": 50,
+        "track_id": "n.Track.aac24b6033124db78a5d9a9d"
+      },
+      "error_code": "app_domain",
+      "result_bytes": 1149
+    },
+    {
+      "name": "search_capabilities",
+      "arguments": {
+        "query": "describe capabilities declared query governed query for payroll app restricted read"
+      },
+      "error_code": null,
+      "result_bytes": 5922
+    },
+    {
+      "name": "search_capabilities",
+      "arguments": {
+        "limit": 5,
+        "query": "integral_describe_capabilities integral_governed_query declared_capability"
+      },
+      "error_code": null,
+      "result_bytes": 4745
+    },
+    {
+      "name": "integral_query",
+      "arguments": {
+        "query": "employees on the Guyana payroll roster",
+        "scope": "track:n.Track.aac24b6033124db78a5d9a9d",
+        "top_n": 30
+      },
+      "error_code": null,
+      "result_bytes": 569
+    },
+    {
+      "name": "search_capabilities",
+      "arguments": {
+        "limit": 10,
+        "query": "describe app declared capabilities schema for an app track"
+      },
+      "error_code": null,
+      "result_bytes": 6975
+    },
+    {
+      "name": "integral_get_track_schema",
+      "arguments": {
+        "track_id": "n.Track.aac24b6033124db78a5d9a9d"
+      },
+      "error_code": null,
+      "result_bytes": 19201
+    },
+    {
+      "name": "integral_describe_model",
+      "arguments": {
+        "detail": "full",
+        "space_id": "n.WorkspaceApp.ff76a4b5edc84b1d9e3917e2"
+      },
+      "error_code": null,
+      "result_bytes": 243542
+    },
+    {
+      "name": "search_capabilities",
+      "arguments": {
+        "limit": 6,
+        "query": "list workspace tools call workspace tool app declared read tool"
+      },
+      "error_code": null,
+      "result_bytes": 5025
+    },
+    {
+      "name": "search_capabilities",
+      "arguments": {
+        "limit": 8,
+        "query": "integral_call_workspace_tool integral_list_workspace_tools"
+      },
+      "error_code": null,
+      "result_bytes": 5791
+    },
+    {
+      "name": "integral_query_entries",
+      "arguments": {
+        "limit": 100,
+        "status": "active",
+        "track_id": "n.Track.aac24b6033124db78a5d9a9d",
+        "entry_type": "employee"
+      },
+      "error_code": "app_domain",
+      "result_bytes": 1149
+    },
+    {
+      "name": "integral_query_entries",
+      "arguments": {
+        "limit": 5,
+        "track_id": "n.Track.451cf896b8c7498ab341f55b"
+      },
+      "error_code": "app_domain",
+      "result_bytes": 1149
+    },
+    {
+      "name": "search_capabilities",
+      "arguments": {
+        "limit": 8,
+        "query": "integral_governed_query declared capability app record query"
+      },
+      "error_code": null,
+      "result_bytes": 6131
+    },
+    {
+      "name": "integral_query",
+      "arguments": {
+        "query": "Guyana payroll employee",
+        "top_n": 25
+      },
+      "error_code": null,
+      "result_bytes": 569
+    },
+    {
+      "name": "integral_count_entries",
+      "arguments": {
+        "group_by": "status",
+        "track_id": "n.Track.aac24b6033124db78a5d9a9d"
+      },
+      "error_code": "app_domain",
+      "result_bytes": 1149
+    },
+    {
+      "name": "integral_query_spec",
+      "arguments": {
+        "spec": {
+          "limit": 100,
+          "select": [
+            "title",
+            "track_id",
+            "status"
+          ],
+          "filters": [
+            {
+              "op": "eq",
+              "field": "track_id",
+              "value": "n.Track.aac24b6033124db78a5d9a9d"
+            }
+          ],
+          "resource": "entry"
+        }
+      },
+      "error_code": "query.invalid",
+      "result_bytes": 495
+    }
+  ]
+}

@@ -46,7 +46,7 @@ belongs in skill `integral-workspace`.
   so every EntryType / field / View you propose references a real,
   supported type — never invent a field/view type the substrate cannot
   materialize.
-- Always read `integral_describe_model` (or `integral_get_model_draft`)
+- Always read `integral_describe_model(detail="full")` (or `integral_get_model_draft`)
   before proposing modifications — never modify a profile you have not
   inspected this turn.
 - Describe profile shape using the user's vocabulary, not jvspatial

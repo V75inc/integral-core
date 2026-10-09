@@ -27,6 +27,8 @@ import os
 import time
 from typing import Any, Dict, Optional, Tuple
 
+from app.middleware.permissions_cache import live_permissions_required
+
 _TTL_SECONDS = float(os.getenv("PERMISSION_PROCESS_CACHE_TTL", "20"))
 _ENABLED = os.getenv("TESTING", "") != "1" and _TTL_SECONDS > 0
 
@@ -41,12 +43,12 @@ _generations: Dict[str, int] = {}
 
 def enabled() -> bool:
     """True when the process cache is active (not TESTING, TTL > 0)."""
-    return _ENABLED
+    return _ENABLED and not live_permissions_required()
 
 
 def get_cached(user_id: str, key: str) -> Optional[Any]:
     """Return the cached value for (user, key), or None on miss/expiry."""
-    if not _ENABLED or not user_id:
+    if not enabled() or not user_id:
         return None
     bucket = _store.get(user_id)
     if not bucket:
@@ -81,7 +83,7 @@ def set_cached(
     before starting and pass it here. A mismatched generation means a write
     happened while the read was in flight, so its result must not be cached.
     """
-    if not _ENABLED or not user_id:
+    if not enabled() or not user_id:
         return
     if expected_generation is not None and generation(user_id) != expected_generation:
         return
@@ -117,7 +119,7 @@ def resolve_role_cache_key(resource_type: str, resource_id: str) -> str:
 
 def get_resolve_role_cached(user_id: str, resource_type: str, resource_id: str) -> Any:
     """Return cached role, ``_ROLE_CACHE_MISS`` on miss/expiry."""
-    if not _ENABLED or not user_id:
+    if not enabled() or not user_id:
         return _ROLE_CACHE_MISS
     hit = get_cached(user_id, resolve_role_cache_key(resource_type, resource_id))
     if hit is None:

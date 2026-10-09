@@ -1021,6 +1021,13 @@ class PydanticAIProvider:
             task.cancel()
 
     async def _prepare(self, ctx: ChatTurnContext):
+        """Project this turn's skills and capabilities from current authority."""
+        from app.middleware.permissions_cache import isolated_permissions_cache
+
+        with isolated_permissions_cache():
+            return await self._prepare_current(ctx)
+
+    async def _prepare_current(self, ctx: ChatTurnContext):
         raw_work_context = (ctx.extra_data or {}).get("work_execution_context")
         work_execution_context = (
             WorkExecutionContext.model_validate(raw_work_context)
@@ -1185,15 +1192,20 @@ class PydanticAIProvider:
             from app.agentive.services.work_model_admission import WorkModelAdmission
 
             async def assert_model_authority() -> None:
-                current_role = await can_access_workspace(ctx.user_id, ctx.workspace_id)
-                if current_role == "none" or current_role != workspace_role:
-                    raise WorkError("work.permission_stale")
-                current_route = await resolve_native_model_route(
-                    workspace_id=ctx.workspace_id,
-                    default_model=os.getenv("INTEGRAL_NATIVE_MODEL", "").strip(),
-                )
-                if current_route != route:
-                    raise WorkError("work.model_route_stale")
+                from app.middleware.permissions_cache import isolated_permissions_cache
+
+                with isolated_permissions_cache():
+                    current_role = await can_access_workspace(
+                        ctx.user_id, ctx.workspace_id
+                    )
+                    if current_role == "none" or current_role != workspace_role:
+                        raise WorkError("work.permission_stale")
+                    current_route = await resolve_native_model_route(
+                        workspace_id=ctx.workspace_id,
+                        default_model=os.getenv("INTEGRAL_NATIVE_MODEL", "").strip(),
+                    )
+                    if current_route != route:
+                        raise WorkError("work.model_route_stale")
 
             model_admission = WorkModelAdmission(
                 context=work_execution_context,

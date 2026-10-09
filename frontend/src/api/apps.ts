@@ -205,7 +205,12 @@ export const appsApi = {
           item.include_seed_data ?? globalIncludeSeeds ?? true,
       })),
     };
-    const { data } = await apiClient.post('/apps/batch-install', payload);
+    // Installing several schemas, hooks and seed records can exceed the
+    // ordinary read deadline. A timeout is an unknown write outcome, never
+    // an instruction to replay this request automatically.
+    const { data } = await apiClient.post('/apps/batch-install', payload, {
+      timeout: 120_000,
+    });
     return data as BatchInstallResponse;
   },
 

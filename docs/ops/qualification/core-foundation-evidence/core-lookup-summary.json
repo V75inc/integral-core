@@ -1,0 +1,74 @@
+{
+  "question": "Find the task named Draft homepage copy in this track and quote its recorded body. Do not change anything.",
+  "run_id": "3925fe7c-c156-4279-9d1d-736115ac747b",
+  "status": {
+    "type": "complete",
+    "reason": "stop"
+  },
+  "model_requests": 5,
+  "reported_input_tokens": 67259,
+  "reported_output_tokens": 1047,
+  "tool_steps": 7,
+  "cost_sources": [
+    "unavailable"
+  ],
+  "tools": [
+    {
+      "tool": "search_capabilities",
+      "arguments": {
+        "query": "find entry by name in a track and quote its recorded body fields"
+      },
+      "error": false,
+      "result_bytes": 6319
+    },
+    {
+      "tool": "search_capabilities",
+      "arguments": {
+        "query": "chat linking markdown links for cited entries tracks apps"
+      },
+      "error": false,
+      "result_bytes": 5760
+    },
+    {
+      "tool": "load_capability",
+      "arguments": {
+        "id": "integral-entries"
+      },
+      "error": false,
+      "result_bytes": 19194
+    },
+    {
+      "tool": "load_capability",
+      "arguments": {
+        "id": "integral-navigation"
+      },
+      "error": false,
+      "result_bytes": 1935
+    },
+    {
+      "tool": "integral_query_entries",
+      "arguments": {
+        "query": "Draft homepage copy"
+      },
+      "error": false,
+      "result_bytes": 1399
+    },
+    {
+      "tool": "search_capabilities",
+      "arguments": {
+        "query": "integral_resolve_entry resolve single entry by id full body content"
+      },
+      "error": false,
+      "result_bytes": 4873
+    },
+    {
+      "tool": "integral_resolve_entry",
+      "arguments": {
+        "entry_id": "n.Entry.c47aa624205e40b2a2193907"
+      },
+      "error": false,
+      "result_bytes": 2304
+    }
+  ],
+  "answer": "Found it in the [Foundation Tasks](/tracks/n.Track.bbf320084e1d4c288ef46422) track \u2014 [Draft homepage copy](/tracks/n.Track.bbf320084e1d4c288ef46422?entry=n.Entry.c47aa624205e40b2a2193907) (type `post`, lifecycle status `active`, no tags, no comments).\n\nRecorded body, quoted verbatim:\n\n> Synthetic qualification task. Status: To do. Due date: 2026-10-09.\n\nNothing was changed \u2014 this was a read-only lookup."
+}

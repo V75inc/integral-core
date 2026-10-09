@@ -8,10 +8,12 @@ allowed-tools: integral_query_entries integral_resolve_entry integral_create_ent
 
 ## Workflow
 
-1. Identify the target track first. If the user names a track without
+1. For a create or change, identify the target track first. If the user names a track without
    giving an id, call `integral_list_tracks` (from the
    `integral-workspace` skill) to disambiguate before creating or
-   modifying entries.
+   modifying entries. For a record lookup by name or identifier, start with
+   `integral_query_entries` directly; it searches readable tracks by default.
+   Do not list tracks or load another skill just to repeat facts in that result.
 2. **View-aware creates** — when the user names a view tab (calendar,
    board, feed, table, …) or the UI has a focused view:
    - Call `integral_get_track_schema` for that track **before** staging.
@@ -54,7 +56,10 @@ allowed-tools: integral_query_entries integral_resolve_entry integral_create_ent
      first use `integral_get_track_schema` to get the exact field key, then
      filter or sort with `custom_fields.<key>`. Do
      not describe an unset field as any value, and do not generalize from a
-     filtered subset to every record. Never give up after one empty search.
+     filtered subset to every record. A successful exact-identifier search with
+     no matches is sufficient: report no matching readable record and stop.
+     Broaden a search only when the user or returned evidence supplies a
+     concrete alternative; do not invent spellings or repeat an empty query.
    - When you mention **any** entry by title in your reply — lists ("last 3
      entries"), singles, or search results — **always** format it as a
      markdown link. Use `action_url` from the tool result when present, or
@@ -233,8 +238,8 @@ from an old turn.
 - `integral_add_comment(entry_id, text)` posts a comment. `@mentions` in
   the text resolve to MENTIONS edges + notifications. A commenter-level
   role is enough. It stages the comment the user blesses.
-- To *read* existing comments, use `integral_resolve_entry` (comment
-  count + backlinks) until the dedicated `integral_list_comments` ships.
+- To *read* existing comments, use `integral_list_comments`; a comment count
+  from `integral_resolve_entry` does not establish the discussion's contents.
 
 ### Procedure — relations (link entries / anchor tracks)
 

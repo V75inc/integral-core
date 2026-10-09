@@ -1,0 +1,10 @@
+{
+  "mode": "scratch restore drill, disposable local database",
+  "server_version": "16.2",
+  "client": "bundled matching pgserver utilities; socket host explicitly supplied",
+  "counts_match": true,
+  "identity_match": true,
+  "complete": true,
+  "scratch_cleanup_reported": true,
+  "log_sha256": "96f55bb122663585be93ea7cf92a54dabf04b47d88589105bf065bc50672bc4a"
+}

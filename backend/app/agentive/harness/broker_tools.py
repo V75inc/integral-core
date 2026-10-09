@@ -151,12 +151,32 @@ def _make_handler(
     build_attempted = False
 
     async def invoke_tool(ctx: RunContext[Any], **arguments: Any) -> dict[str, Any]:
+        """Each tool call re-resolves access independently of previous reads."""
+        from app.middleware.permissions_cache import isolated_permissions_cache
+
+        with isolated_permissions_cache():
+            return await invoke_current_tool(ctx, **arguments)
+
+    async def invoke_current_tool(
+        ctx: RunContext[Any], **arguments: Any
+    ) -> dict[str, Any]:
         """Invoke the declared capability with server-bound identity."""
 
         nonlocal build_attempted
         call_state["attempted"] += 1
         arguments = normalize_tool_arguments(arguments, input_schema)
-        if no_workspace_writes and capability_op_class != "read":
+        effective_op_class = capability_op_class
+        if capability_name == "integral_invoke_app_operation":
+            from app.agentive.services.capability_broker import is_declared_app_read
+
+            if await is_declared_app_read(
+                principal_id=scope.principal_id,
+                workspace_id=scope.workspace_id,
+                run_id=scope.run_id,
+                arguments=arguments,
+            ):
+                effective_op_class = "read"
+        if no_workspace_writes and effective_op_class != "read":
             return {
                 "error": True,
                 "error_code": "user_no_workspace_writes",
@@ -237,7 +257,8 @@ def _make_handler(
                 "retryable": False,
             }
         if (
-            workflow_skills
+            effective_op_class != "read"
+            and workflow_skills
             and not workflow_skills.intersection(ctx.active_capability_ids)
             and not saved_design_build
         ):
@@ -603,7 +624,12 @@ def build_brokered_tools(
                 prepare=_prepare_capability_tool(
                     name,
                     _REQUIRED_SKILLS_BY_TOOL.get(name),
-                    frozenset(skill_owners.get(name, ())),
+                    (
+                        frozenset(skill_owners.get(name, ()))
+                        if op_class != "read"
+                        and name != "integral_invoke_app_operation"
+                        else frozenset()
+                    ),
                     call_state,
                 ),
                 defer_loading=name not in immediately_available,
@@ -625,7 +651,6 @@ def build_brokered_tools(
                     name for name in immediately_available if name in seen_names
                 ),
                 run_state=call_state,
-                skill_owned_tools=frozenset(skill_owners),
             )
         )
     return tools
@@ -662,13 +687,17 @@ def _prepare_capability_tool(
         # keeping the schema disclosed lets a stale call receive that precise
         # rejection instead of consuming unknown-tool validation retries.
         # Standard allowed-tools metadata binds a skill to its Core tools.
-        # Loading that skill reveals their schemas via the public preparation
-        # API; it does not widen authority or bypass the broker. Framework
+        # Loading that skill permits discovery of its protected writes; it
+        # does not eagerly disclose every schema or bypass the broker. Framework
         # capability state is restored from its own conversation history.
         if skill_owners:
             if not skill_owners.intersection(ctx.active_capability_ids):
                 return None
-            return replace(tool_def, defer_loading=False)
+            # Loading a procedure must not eagerly inject its entire schema
+            # catalog into every later request. Unified search records the
+            # matching tools in framework-owned disclosure history. Keep the
+            # others deferred; their procedure and broker authority stay intact.
+            return tool_def
         return tool_def
 
     return prepare

@@ -29,6 +29,9 @@ const MarkdownTextImpl = () => {
   const running = useAuiState((s) => s.message.status?.type === "running");
   return (
     <MarkdownTextPrimitive
+      // Rebuild the settled markdown tree from the authoritative part. Fenced
+      // blocks can retain a memoized animation prefix after live output ends.
+      key={running ? "live" : "settled"}
       // A settled response may arrive as one authoritative replacement.
       // Smooth only live output; an inactive/background tab must not retain
       // an interpolation prefix after the model and transport have finished.

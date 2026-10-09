@@ -365,7 +365,14 @@ export function AppManagerDialog({
       }
     } catch (err) {
       const denial = resolveInstallDenial(err);
-      if (denial) {
+      const code = (err as { code?: string })?.code;
+      if (code === 'ECONNABORTED' || code === 'ETIMEDOUT' || code === 'ERR_NETWORK') {
+        setSelectedInstall(new Map());
+        onChanged?.();
+        setError(
+          'The installation result is not confirmed. It may still complete. Check Installed Apps before starting another installation.',
+        );
+      } else if (denial) {
         setError(denial.message);
         setDenialAction(denial);
       } else {
