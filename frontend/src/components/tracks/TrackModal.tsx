@@ -1,8 +1,7 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
-import { createPortal } from 'react-dom';
+import { useState, useEffect, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Modal } from '../ui/Modal';
-import { AppSelect, Button, ColorPicker, VisibilityField } from '../ui';
+import { AppSelect, Button, VisibilityField } from '../ui';
 import type { VisibilityChoice } from '../ui';
 import { Input, Textarea } from '../../ui';
 import { FormDialog, StepDialog } from '../../templates';
@@ -18,7 +17,6 @@ import { useScope } from '../../context/ScopeContext';
 import type { OperationalModelNode, App, Track } from '../../types';
 import {
   manifestAppTracks,
-  parseTrackAccentHex,
 } from '../../utils';
 import { OperationalModelPicker } from '../library/OperationalModelPicker';
 import type { OperationalModelPickerItem } from '../library/OperationalModelPicker';
@@ -68,18 +66,6 @@ export function TrackModal({
   const [operationalModelChoice, setOperationalModelChoice] = useState('');
   const [chosenParentAppId, setChosenParentAppId] = useState('');
   const [parentAppOptions, setParentAppOptions] = useState<App[]>([]);
-  const [accentColor, setAccentColor] = useState<string | null>(null);
-  const [colorOpen, setColorOpen] = useState(false);
-  const colorBtnRef = useRef<HTMLButtonElement>(null);
-  const [popoverStyle, setPopoverStyle] = useState<{ top: number; left: number } | null>(null);
-
-  function toggleColorPicker() {
-    if (!colorOpen && colorBtnRef.current) {
-      const r = colorBtnRef.current.getBoundingClientRect();
-      setPopoverStyle({ top: r.bottom + 6, left: r.left });
-    }
-    setColorOpen(v => !v);
-  }
 
   type TrackModalStep = 'details' | 'profile';
   const [step, setStep] = useState<TrackModalStep>('profile');
@@ -126,7 +112,6 @@ export function TrackModal({
   useEffect(() => {
     if (open) {
       setStep('profile');
-      setColorOpen(false);
     }
   }, [open]);
 
@@ -202,15 +187,8 @@ export function TrackModal({
       setTitle(editTrack.title || '');
       setPurpose(editTrack.purpose || editTrack.description || '');
       setVisibilityChoice(normalizeTrackVisibility(editTrack.visibility));
-      const hex = parseTrackAccentHex(editTrack.accent_color);
-      setAccentColor(hex || null);
     }
   }, [editTrack]);
-
-  useEffect(() => {
-    if (!open) return;
-    if (!editTrack) setAccentColor(null);
-  }, [open, editTrack]);
 
   const inheritHint = appId
     ? "Matches this App's visibility."
@@ -232,22 +210,14 @@ export function TrackModal({
       showToast('Title required', 'error');
       return;
     }
-    if (accentColor && !parseTrackAccentHex(accentColor)) {
-      showToast('Accent color must be a #RGB or #RRGGBB hex value', 'error');
-      return;
-    }
     setLoading(true);
     try {
       let t: Track;
-      const resolvedAccent = accentColor
-        ? parseTrackAccentHex(accentColor) || ''
-        : '';
       if (isEdit && editTrack) {
         t = await tracksApi.update(editTrack.id, {
           title: title.trim(),
           purpose: purpose.trim(),
           visibility: visibilityChoice,
-          accent_color: resolvedAccent,
         });
       } else {
         const effectiveAppId = appId || chosenParentAppId || '';
@@ -256,7 +226,6 @@ export function TrackModal({
           purpose: purpose.trim(),
           ...(scope?.workspaceId ? { workspace_id: scope.workspaceId } : {}),
           ...(effectiveAppId ? { app_id: effectiveAppId } : {}),
-          ...(resolvedAccent ? { accent_color: resolvedAccent } : {}),
         };
         applyOperationalModelToBody(body);
         if (visibilityChoice !== 'inherit') {
@@ -294,42 +263,14 @@ export function TrackModal({
         <label htmlFor="track-name" className="text-sm font-medium text-[var(--text)] mb-1.5 block">
           Track Name *
         </label>
-        <div className="flex items-center gap-2.5">
-          <button
-            ref={colorBtnRef}
-            type="button"
-            aria-label="Identity color"
-            title={accentColor ? `Color: ${accentColor}` : 'Choose identity color'}
-            onClick={toggleColorPicker}
-            className="h-8 w-8 shrink-0 rounded-full border-2 border-[var(--panel-border)] cursor-pointer transition-transform duration-fast hover:scale-110 focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring-color)]"
-            style={{ backgroundColor: accentColor ?? 'var(--badge-muted-bg)' }}
-          />
-          <Input
-            id="track-name"
-            className="flex-1"
-            value={title}
-            onChange={e => setTitle(e.target.value)}
-            placeholder="e.g. Product Roadmap, Team Updates..."
-            autoFocus
-          />
-        </div>
-        {colorOpen && popoverStyle && createPortal(
-          <>
-            <div className="fixed inset-0 z-popover" onClick={() => setColorOpen(false)} />
-            <div
-              className="fixed z-popover rounded-[var(--radius-card)] border border-[var(--panel-border)] bg-[var(--panel)] p-3 shadow-[var(--shadow-lg)]"
-              style={popoverStyle}
-            >
-              <ColorPicker
-                value={accentColor}
-                onChange={c => { setAccentColor(c); setColorOpen(false); }}
-                size="sm"
-                allowClear
-              />
-            </div>
-          </>,
-          document.body
-        )}
+        <Input
+          id="track-name"
+          className="w-full"
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+          placeholder="e.g. Product Roadmap, Team Updates..."
+          autoFocus
+        />
       </div>
       <div>
         <label htmlFor="track-purpose" className="text-sm font-medium text-[var(--text)] mb-1.5 block">

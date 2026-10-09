@@ -719,7 +719,11 @@ export function AppDetailPage() {
           {!canAdmin ? (
             <>
               <span aria-hidden>·</span>
-              <span>You can view and comment. The owner or an admin manages tracks.</span>
+              <span>
+                {myRole === 'editor'
+                  ? 'You can create and edit entries. The owner or an admin manages tracks.'
+                  : 'You can view and comment. The owner or an admin manages tracks.'}
+              </span>
             </>
           ) : null}
           {uniqueCollabs.length > 0 ? (
@@ -857,7 +861,9 @@ export function AppDetailPage() {
               description={
                 canAdmin
                   ? 'Create a new track or link an existing one.'
-                  : 'Tracks in this App are managed by its owner or an admin. You can view and comment.'
+                  : myRole === 'editor'
+                    ? 'Tracks in this App are managed by its owner or an admin. Once tracks exist, you can add entries.'
+                    : 'Tracks in this App are managed by its owner or an admin. You can view and comment.'
               }
               action={
                 canAdmin ? (
@@ -1050,7 +1056,7 @@ export function AppDetailPage() {
                 Search for a user by name or email, then add them as a commenter on this App.
                 Workspace owners and admins can view Apps shared with the workspace, but a
                 Private App stays hidden until you add them. Add them here, then set Editor
-                or Admin if they should edit.
+                to allow editing entries in tracks, or Admin to manage tracks and app settings.
               </p>
               <UserSearchPicker
                 excludeIds={excludeCollabIds}
