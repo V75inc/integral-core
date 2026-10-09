@@ -113,7 +113,7 @@ class CreateConnectorRequest(BaseModel):
     fields, including a forged ``owner``.
     """
 
-    kind: AgentType = "jvagent"
+    kind: AgentType = "integral_native"
     auth_state: Dict[str, Any] = Field(default_factory=dict)
     sync_cursor: Optional[str] = None
     mapping_profile: Optional[str] = None

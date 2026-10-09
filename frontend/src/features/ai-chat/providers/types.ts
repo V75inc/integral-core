@@ -6,7 +6,7 @@ import type { ChatPageContextPayload } from "../../../types/chatPageContext";
  *
  * Adapters translate provider-native streams into a normalized event sequence
  * so the assistant-ui surface stays decoupled from any specific harness
- * (jvagent, OpenAI, LangGraph, etc.).
+ * (native provider, OpenAI, LangGraph, etc.).
  *
  * See `.planning/initiatives/ai-chat/SPEC.md` § 6.3 for the full envelope.
  */
@@ -50,7 +50,7 @@ export type NormalizedEvent =
   | { type: "error"; code: string; message: string }
   | { type: "interact-context"; payload: Record<string, unknown> }
   // Authoritative final answer for the turn, captured at end-of-stream (the
-  // jvagent `final` chunk). `content` = settled answer text; `payload` = the
+  // native provider `final` chunk). `content` = settled answer text; `payload` = the
   // full final chunk. Source-of-truth for the debug view's two panels.
   | {
       type: "final-content";
@@ -68,7 +68,7 @@ export type NormalizedEvent =
  * "ASSISTANT" tag.
  */
 export interface AgentDescriptor {
-  /** Provider-native id used in API calls and persistence. For jvagent
+  /** Provider-native id used in API calls and persistence. For native provider
    *  this is the agent alias (stable across deploys). */
   id: string;
   name: string;

@@ -19,12 +19,12 @@ Run from this directory with private development settings configured. Python 3.1
 
 `api/` handles transport, `schemas/` holds typed input/output, `models/` declares graph participants and edges, `services/` owns canonical mutations and lifecycle, and `agentive/` supplies harness bindings, MCP, skills, staging, and work. Domain packages remain behind public facade contracts.
 
-The agentive layer always loads. Default resident binding is Integral AI through Pydantic AI; jvagent is compatibility. Core-only filtering removes domain packages from catalog admission, not the resident layer.
+The agentive layer always loads. Default resident binding is Integral AI through Pydantic AI; Integral AI is the only resident harness. Core-only filtering removes domain packages from catalog admission, not the resident layer.
 
 Use the [backend reference](../docs/backend/README.md), [architecture](../docs/product/ARCHITECTURE.md), [invariants](../docs/INVARIANTS.md), and [deployment guide](../docs/ops/DEPLOY.md).
 
 ## jvspatial security compatibility
 
-Metadata pins jvspatial 0.1.1 and jvagent 0.1.8rc20. The lock uses PyPI for the former and explicit TestPyPI provenance for the latter. Production OAuth requires its encryption key, and production auth rate limits stay active. Repair duplicate model credentials before creating their unique index and test actual PostgreSQL duplicates.
+Metadata pins jvspatial 0.1.1 and pydantic-ai-harness 0.36.0. Runtime dependencies resolve from PyPI. Production OAuth requires its encryption key, and production auth rate limits stay active. Repair duplicate model credentials before creating their unique index and test actual PostgreSQL duplicates.
 
 `make verify` from the repository root is the broad local gate. PR smoke CI is narrower and runs without a developer .env. Database contracts and packaged-wheel checks provide separate evidence.

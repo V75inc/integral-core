@@ -88,7 +88,6 @@ def main() -> int:
     for name in (
         "DEBUG",
         "JVSPATIAL_DB_TYPE",
-        "JVAGENT_UPDATE_MODE",
         "INTEGRAL_AGENT_KEY_MODE",
         "INTEGRAL_AGENT_TURN_TIMEOUT_SECONDS",
     ):
@@ -112,7 +111,9 @@ def main() -> int:
     try:
         from importlib.metadata import version
 
-        print(f"\njvagent {version('jvagent')} | jvspatial {version('jvspatial')}")
+        print(
+            f"\nPydantic AI Harness {version('pydantic-ai-harness')} | jvspatial {version('jvspatial')}"
+        )
     except Exception:
         pass
     return 0

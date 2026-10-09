@@ -1,4 +1,4 @@
-"""Resolve per-turn jvagent model override from workspace owner BYOK."""
+"""Resolve the native per-turn model route from workspace owner BYOK."""
 
 from __future__ import annotations
 
@@ -153,7 +153,7 @@ async def resolve_agent_model_override(
     *,
     include_credential_identity: bool = False,
 ) -> Optional[Dict[str, Any]]:
-    """Return jvagent override dict (canonical ``slots`` map) for this turn."""
+    """Return the native model route dict (canonical ``slots`` map) for this turn."""
     mode = (settings.INTEGRAL_AGENT_KEY_MODE or "hybrid").strip().lower()
     if mode == "platform_only":
         return None
@@ -257,20 +257,6 @@ async def resolve_agent_model_override(
         override["credential_ref"] = (
             "user-model-generation:" + hashlib.sha256(identity.encode()).hexdigest()
         )
-
-    # Legacy flat keys — older jvagent builds still read these.
-    override["provider"] = "litellm"
-    override["model"] = litellm_model_id(default_provider, record.model)
-    if default_provider != "ollama_local" or default_key:
-        override["api_key"] = default_key
-    if record.light_model:
-        override["light_model"] = litellm_model_id(
-            record.light_provider or default_provider, record.light_model
-        )
-        override["light_provider"] = "litellm"
-        light_key = decrypt_credential_light_api_key(record)
-        if light_key != default_key and record.light_provider != "ollama_local":
-            override["light_api_key"] = light_key
 
     try:
         await touch_credential_last_used(record)

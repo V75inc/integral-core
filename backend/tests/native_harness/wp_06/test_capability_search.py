@@ -224,11 +224,7 @@ def test_mower_servicing_tracker_routes_to_scaffold_over_modeling(
 def test_single_item_added_to_existing_track_routes_to_entries() -> None:
     """An item create in a named existing list is record work, not scaffolding."""
     backend_root = Path(__file__).resolve().parents[3]
-    skill_library = (
-        backend_root
-        / "app/resident_harness/agents/integral/integral_agent/actions/integral/"
-        / "embedded_integral_action/skills"
-    )
+    skill_library = backend_root / "app/resident_harness/" / "skills"
     result = search_capabilities_for_turn(
         query=(
             "Add a mower to our Tools list. Call it QA Mower Alpha, "
@@ -355,11 +351,7 @@ async def test_real_scaffold_skill_search_finds_the_proposal_tool_first(
     from app.agentive.tooling.catalogue import build_tool_catalogue
 
     backend_root = Path(__file__).resolve().parents[3]
-    skill_library = (
-        backend_root
-        / "app/resident_harness/agents/integral/integral_agent/actions/integral/"
-        / "embedded_integral_action/skills"
-    )
+    skill_library = backend_root / "app/resident_harness/" / "skills"
     query = (
         "tool tracker for maintenance company record tool serial number "
         "condition storage place purchase date photo current holder"

@@ -45,7 +45,7 @@ async def test_connector_wire_responses_never_echo_tokens(
     """POST / GET / LIST / PATCH responses carry no token material."""
     r = await authenticated_client.post(
         "/api/agentive/connectors",
-        json={"kind": "jvagent", "auth_state": {**_SECRETS, **_PUBLIC}},
+        json={"kind": "custom", "auth_state": {**_SECRETS, **_PUBLIC}},
     )
     assert r.status_code in (200, 201), r.text
     created = r.json()
@@ -85,7 +85,7 @@ async def test_create_change_event_snapshot_carries_no_auth_state(
     """The connector.create ChangeEvent snapshot has no auth_state."""
     r = await authenticated_client.post(
         "/api/agentive/connectors",
-        json={"kind": "jvagent", "auth_state": {**_SECRETS, **_PUBLIC}},
+        json={"kind": "custom", "auth_state": {**_SECRETS, **_PUBLIC}},
     )
     assert r.status_code in (200, 201), r.text
     connector_id = r.json()["id"]

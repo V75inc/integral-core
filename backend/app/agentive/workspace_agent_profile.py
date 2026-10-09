@@ -1,8 +1,8 @@
-"""Per-workspace Agent Configuration Profile — workspace overlay for jvagent.
+"""Per-workspace Agent Configuration Profile — workspace overlay for Integral AI.
 
 Composes declarative skills from installed Apps in a workspace into
-jvagent-ready SOP documents (App-private skills follow App focus). The global base tier (integral_* filesystem
-skills + full tool manifest) is loaded by jvagent independently; this module
+declarative SOP documents (App-private skills follow App focus). The global base tier (integral_* filesystem
+skills + full tool manifest) is projected by the native skill source; this module
 only materializes the **workspace overlay**.
 """
 
@@ -50,7 +50,7 @@ class WorkspaceAppRef:
 
 @dataclass(frozen=True)
 class OverlaySkillDoc:
-    """jvagent-compatible SOP overlay (converted to SkillDoc at the provider)."""
+    """Declarative SOP overlay projected into native capabilities."""
 
     name: str
     description: str

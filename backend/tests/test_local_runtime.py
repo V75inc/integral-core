@@ -127,15 +127,21 @@ def test_managed_environment_excludes_checkout_dotenv(tmp_path):
     custom = tmp_path / "settings.env"
     custom.write_text("DEBUG=false\nADMIN_EMAIL=managed@example.test\n")
     env = dict(os.environ)
-    for name in ("DEBUG", "ADMIN_EMAIL"):
+    for name in (
+        "DEBUG",
+        "ADMIN_EMAIL",
+        "INTEGRAL_NATIVE_MODEL",
+        "INTEGRAL_NATIVE_HARNESS_ENABLED",
+    ):
         env.pop(name, None)
     env["INTEGRAL_ENV_FILE"] = str(custom)
     result = subprocess.run(
         [
             sys.executable,
             "-c",
-            "from app.config import settings; import os,json; "
-            "print(json.dumps({'debug':settings.DEBUG,'admin':os.getenv('ADMIN_EMAIL')}))",
+            "import pytest; from app.main import settings; import os,json; "
+            "print(json.dumps({'debug':settings.DEBUG,'admin':os.getenv('ADMIN_EMAIL'),"
+            "'model':os.getenv('INTEGRAL_NATIVE_MODEL'),'toggle':os.getenv('INTEGRAL_NATIVE_HARNESS_ENABLED')}))",
         ],
         env=env,
         cwd=Path(__file__).parents[1],
@@ -143,9 +149,11 @@ def test_managed_environment_excludes_checkout_dotenv(tmp_path):
         capture_output=True,
         text=True,
     )
-    assert json.loads(result.stdout) == {
+    assert json.loads(result.stdout.strip().splitlines()[-1]) == {
         "debug": False,
         "admin": "managed@example.test",
+        "model": None,
+        "toggle": None,
     }
 
 
@@ -182,3 +190,20 @@ def test_backup_preserves_external_apps_and_relocates_the_path(tmp_path):
     assert (
         restored / "integral-apps/definition.yaml"
     ).read_text() == "retained definition"
+
+
+@pytest.mark.parametrize("identity", [None, "jvagent"])
+def test_up_cannot_reopen_a_legacy_runtime(tmp_path, monkeypatch, identity):
+    monkeypatch.setattr(
+        runtime,
+        "status",
+        lambda _home: {"state": "ready", "harness_provider_id": identity},
+    )
+    with pytest.raises(runtime.RuntimeErrorDetail, match="pre-native Core"):
+        runtime.start(tmp_path, open_browser=False)
+
+
+def test_stopped_descriptor_identifies_builtin_native_default(tmp_path):
+    result = runtime.status(tmp_path)
+    assert result["default_harness_provider_id"] == "integral_native"
+    assert result["harness_provider_id"] is None

@@ -24,7 +24,7 @@ async def _register_personal_agent(client: AsyncClient) -> str:
 
 
 async def _create_connector(client: AsyncClient) -> str:
-    r = await client.post("/api/agentive/connectors", json={"kind": "jvagent"})
+    r = await client.post("/api/agentive/connectors", json={"kind": "custom"})
     assert r.status_code in (200, 201), r.text
     return r.json()["id"]
 

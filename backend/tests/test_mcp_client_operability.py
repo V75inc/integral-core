@@ -46,7 +46,7 @@ def _sc(kind: str = "mcp_tool_call", **payload: Any) -> StagedChange:
 
 
 def test_external_result_block_carries_the_payload():
-    """jvagent's history build reads utterance + response only — not tool
+    """native provider's history build reads utterance + response only — not tool
     results. Without this block the agent learned its Gmail search was
     approved and never received the threads, so gating a READ was equivalent
     to refusing it."""
@@ -87,31 +87,6 @@ def test_only_result_bearing_kinds_opt_in():
     assert "mcp_tool_call" in _RESULT_BEARING_KINDS
     assert "create_entry" not in _RESULT_BEARING_KINDS
     assert "delete_app" not in _RESULT_BEARING_KINDS
-
-
-@pytest.mark.asyncio
-async def test_failed_call_result_is_not_handed_back_as_data(monkeypatch):
-    """An error envelope is an outcome, not the data the agent asked for."""
-    from app.agentive import staging
-
-    saved: list = []
-
-    class _Interaction:
-        response = ""
-
-        @staticmethod
-        async def get(_id: str):
-            raise AssertionError("must not touch the interaction on an error")
-
-    monkeypatch.setitem(
-        __import__("sys").modules,
-        "jvagent.memory.interaction",
-        type("M", (), {"Interaction": _Interaction}),
-    )
-    await staging.record_external_result_for_agent(
-        _sc(), {"error": True, "message": "boom"}
-    )
-    assert saved == []
 
 
 # ---------------------------------------------------------------------------

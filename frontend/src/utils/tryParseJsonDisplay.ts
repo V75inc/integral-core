@@ -15,7 +15,7 @@ export function tryParseJsonDisplay(s: string | undefined | null): unknown | nul
 /**
  * Render a tool-call arg/result value as indented, display-ready text.
  *
- * jvagent tool results arrive in mixed shapes: a parsed object, OR a
+ * native provider tool results arrive in mixed shapes: a parsed object, OR a
  * JSON-encoded string (the streaming translator falls back to the raw
  * `content` / `tool_result` text). A JSON-encoded string printed verbatim is an
  * unindented one-line blob — so parse it first and pretty-print. Non-JSON

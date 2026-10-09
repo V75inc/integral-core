@@ -50,7 +50,7 @@ def _require_service_key(request: Request) -> None:
 async def register_agent(
     request: Request,
     scope: str = "personal",
-    agent_type: AgentType = "jvagent",
+    agent_type: AgentType = "integral_native",
     capabilities: Optional[List[str]] = None,
     uplink_url: str = "",
     persona: str = "",
@@ -243,23 +243,17 @@ async def unregister_agent(request: Request) -> Dict[str, Any]:
 )
 async def register_system_agent(
     request: Request,
-    agent_type: AgentType = "jvagent",
+    agent_type: AgentType = "integral_native",
     capabilities: Optional[List[str]] = None,
     uplink_url: str = "",
     persona: str = "",
     preferences: Optional[Dict[str, Any]] = None,
-    jvagent_agent_id: Optional[str] = None,
-    jvagent_base_url: Optional[str] = None,
 ) -> RegisterAgentResponse:
     """Register the deployment-wide agent. Service key only; no user context."""
     _require_service_key(request)
 
     capabilities = list(capabilities or [])
     preferences = dict(preferences or {})
-    if jvagent_agent_id:
-        preferences["jvagent_agent_id"] = jvagent_agent_id.strip()
-    if jvagent_base_url:
-        preferences["jvagent_base_url"] = jvagent_base_url.strip()
 
     # ``capabilities`` persists as inert descriptive metadata (ADR-003);
     # the former A2A catalogue-validation gate (I-A2A-01) was retired.

@@ -4,7 +4,7 @@
 
 ## Decision
 
-Use a singular resident mind per active harness binding, faceted by principal and scope. Default to Integral AI through Pydantic AI; retain jvagent as selectable compatibility. Core supplies the authority and execution perimeter.
+Use a singular resident mind per active harness binding, faceted by principal and scope. Default to Integral AI through Pydantic AI; use it as the only resident harness. Core supplies the authority and execution perimeter.
 
 ## Consequences
 

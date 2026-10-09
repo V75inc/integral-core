@@ -1,4 +1,4 @@
-import { createServerChatProvider } from "./JvAgentProvider";
+import { createServerChatProvider } from "./ServerChatProvider";
 
 /** Native Pydantic AI Harness routed through Integral's authenticated chat API. */
 export const IntegralNativeProvider = createServerChatProvider({

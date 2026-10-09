@@ -50,7 +50,7 @@ Use Python 3.10 or later. The frontend toolchain's Node engine requirement appli
 
 A Core wheel contains the web interface and CLI. Install the exact reviewed wheel, use `integral init` to create a distribution directory, and inspect `integral web --help` for supported serving options. An initialization without `--slug` leaves `integral-apps/` empty. An App package root is configured with `INTEGRAL_PACKAGE_PATHS`.
 
-Do not replace the frozen source lock with an unrestricted extra package index. The lock resolves jvspatial from PyPI and the pinned jvagent release candidate from its explicit TestPyPI source. Choose release artifacts from the reviewed release lane rather than inferring a publication from source metadata.
+Do not replace the frozen source lock with an unrestricted extra package index. Runtime dependencies resolve from PyPI, including the built-in native harness. Choose release artifacts from the reviewed release lane rather than inferring a publication from source metadata.
 
 ## Production setup
 
@@ -76,7 +76,7 @@ For a failed upgrade, inspect the schema and effect state before reverting an im
 
 ## jvspatial 0.1.1 release gate
 
-Current metadata pins `jvspatial==0.1.1` and `jvagent==0.1.8rc20`. Use `uv sync --frozen --extra dev --extra test`. Run `make verify`, the clean wheel gate, Core-only checks, and relevant PostgreSQL contracts.
+Current metadata pins `jvspatial==0.1.1` and `pydantic-ai-harness[skills]==0.36.0`. Use `uv sync --frozen --extra dev --extra test`. Run `make verify`, the clean wheel gate, Core-only checks, and relevant PostgreSQL contracts.
 
 When repairing duplicate UserModelCredential records, query through `GraphContext.find` before creating a unique index. Test with actual duplicates, then verify the repaired index rejects another duplicate. Production OAuth requires `JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY`. `RATE_LIMIT_DISABLED=1` bypass is restricted to pytest or DEBUG; it does not justify removing the production auth cap.
 

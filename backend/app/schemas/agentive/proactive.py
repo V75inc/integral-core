@@ -11,7 +11,7 @@ class ProactiveLogPushRequest(BaseModel):
     """Body for /proactive/log-push — logging-only intake.
 
     Per D-06: response is {accepted, logged_at}. Fields capture the proactive
-    intent payload jvagent's IntegralProactiveAction sends. Field names match
+    intent payload agent runtime's IntegralProactiveAction sends. Field names match
     the canonical test contract (channel, message_type, payload).
     """
 

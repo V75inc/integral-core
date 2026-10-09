@@ -39,7 +39,7 @@ async def test_mark_write_refuses_to_forge_an_approval(monkeypatch):
     from app.models.nodes import ChatThread
     from app.services import prompt_queue as pq
 
-    thread = await ChatThread.create(user_id="u-forge", provider_id="jvagent")
+    thread = await ChatThread.create(user_id="u-forge", provider_id="integral_native")
     thread.prompt_queue = {
         "status": pq.QUEUE_STATUS_OPEN,
         "opened_at": None,
@@ -82,7 +82,7 @@ async def test_mark_write_accepts_a_consumed_change(monkeypatch):
     from app.models.nodes import ChatThread
     from app.services import prompt_queue as pq
 
-    thread = await ChatThread.create(user_id="u-ok", provider_id="jvagent")
+    thread = await ChatThread.create(user_id="u-ok", provider_id="integral_native")
     thread.prompt_queue = {
         "status": pq.QUEUE_STATUS_OPEN,
         "opened_at": None,
@@ -124,7 +124,7 @@ async def test_mark_write_keeps_a_blessed_change_open_until_execution(monkeypatc
     from app.models.nodes import ChatThread
     from app.services import prompt_queue as pq
 
-    thread = await ChatThread.create(user_id="u-blessed", provider_id="jvagent")
+    thread = await ChatThread.create(user_id="u-blessed", provider_id="integral_native")
     thread.prompt_queue = {
         "status": pq.QUEUE_STATUS_OPEN,
         "opened_at": None,
@@ -170,7 +170,9 @@ async def test_mark_write_refuses_to_forge_a_rejection(monkeypatch):
     from app.models.nodes import ChatThread
     from app.services import prompt_queue as pq
 
-    thread = await ChatThread.create(user_id="u-forge-rej", provider_id="jvagent")
+    thread = await ChatThread.create(
+        user_id="u-forge-rej", provider_id="integral_native"
+    )
     thread.prompt_queue = {
         "status": pq.QUEUE_STATUS_OPEN,
         "opened_at": None,

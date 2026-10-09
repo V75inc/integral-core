@@ -86,6 +86,10 @@ class _DeltaHumanizer:
 # never leaves the process — it is logged with the stack; the browser gets a
 # stable code plus a sentence a person can act on.
 _ERROR_MESSAGES: Dict[str, str] = {
+    "model_setup_required": (
+        "Choose a model in Settings → AI Models to start using Integral AI. "
+        "You can connect a cloud provider or a local Ollama model."
+    ),
     "model_key_required": (
         "No model API key is configured for this workspace. "
         "Add one in Settings and try again."
@@ -191,7 +195,14 @@ def classify_turn_exception(
 ) -> Tuple[str, str]:
     """Map an exception raised mid-stream to ``(code, user_facing_message)``."""
     try:
-        from app.api.errors import ResourceConflictError
+        from app.api.errors import ResourceConflictError, ServiceUnavailableError
+
+        if (
+            isinstance(exc, ServiceUnavailableError)
+            and getattr(exc, "details", {}).get("reason")
+            == "native_model_not_configured"
+        ):
+            return "model_setup_required", _ERROR_MESSAGES["model_setup_required"]
 
         if isinstance(exc, ResourceConflictError):
             details = getattr(exc, "details", {})
@@ -437,7 +448,7 @@ async def generate_chat_turn_sse(
     # natural end. Anything else — client disconnect, /cancel, an exception,
     # the ASGI server cancelling us at a yield — leaves it False, and the
     # harness turn behind the iterator must then be cancelled explicitly:
-    # jvagent's walker runs as its own task and keeps calling the model and
+    # agent runtime's walker runs as its own task and keeps calling the model and
     # dispatching tools after the stream that fed it is gone.
     completed = False
     cancelled = False
@@ -449,7 +460,7 @@ async def generate_chat_turn_sse(
         )
 
         # ``aclosing`` runs the provider generator's ``finally`` blocks (the
-        # scope/focus ContextVar resets in jvagent_provider) in THIS task's
+        # scope/focus ContextVar resets in agent runtime_provider) in THIS task's
         # context when the loop exits early. Left to the event loop's
         # asyncgen finalizer they run in a different Context and
         # ``ContextVar.reset(token)`` raises.

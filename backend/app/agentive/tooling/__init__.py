@@ -8,7 +8,7 @@ the registry against the substrate's policy-action vocabulary and the staging
 executor registry.
 
 Downstream surfaces (``IntegralAction.get_tools()``, the external tool
-endpoints in ``app.agentive.api.agent_tools``, jvagent SKILL.md
+endpoints in ``app.agentive.api.agent_tools``, agent runtime SKILL.md
 ``allowed-tools``) bind to the parsed registry; nothing here invents
 capability the substrate cannot back.
 """

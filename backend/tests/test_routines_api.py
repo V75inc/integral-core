@@ -46,7 +46,7 @@ async def _bootstrap(email: str):
 
     thread = await create_thread(
         user_id=auth_user_id,
-        provider_id="jvagent",
+        provider_id="integral_native",
         title="Routines API thread",
         workspace_id=workspace_id,
     )

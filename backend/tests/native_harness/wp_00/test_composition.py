@@ -13,11 +13,7 @@ from pydantic_ai_harness.step_persistence import InMemoryStepStore, continue_run
 @pytest.mark.asyncio
 async def test_core_capabilities_compose_stream_and_persist_history() -> None:
     """Selected Harness surfaces work with TestModel and a standard Core skill."""
-    core_skills = (
-        Path(__file__).resolve().parents[4]
-        / "agent/agents/integral/integral_agent/actions/integral/"
-        "embedded_integral_action/skills"
-    )
+    core_skills = Path(__file__).resolve().parents[4] / "agent/skills"
     store = InMemoryStepStore()
     agent = Agent(
         TestModel(call_tools=[]),

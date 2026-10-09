@@ -13,7 +13,7 @@ A source feature, green CI, a built wheel, a healthy container, and an accepted 
 | Modeling | Authoring YAML v3, runtime schema v2, drafts and migrations | Test existing-record impact, interrupted migration, and failed-item retry |
 | Apps | Packages, lifecycle, active definitions, queries, operations, extensions | Test actual dependencies, trust policy, pause, upgrade, and uninstall |
 | Experience | Views, App Home, dashboards, files, conversation | Browser readback must agree with authorized query/record results |
-| Resident | Default Pydantic AI binding; jvagent compatibility | Qualify actual providers, BYOK modes, approvals, and tool outcomes |
+| Resident | Built-in Pydantic AI resident | Qualify actual providers, BYOK modes, approvals, and tool outcomes |
 | Native durable chat | Implemented rollout paths; off by default | Process interruption, event replay, cancellation, multi-client isolation |
 | Durable work | Leases, fencing, effect IDs, outbox and approvals | Production PostgreSQL contracts and external-effect reconciliation |
 | Work mandates | Reviewed contract and guarded foundations | Public admission/execution remains incomplete and non-runnable |

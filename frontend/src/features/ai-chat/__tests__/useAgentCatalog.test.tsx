@@ -25,8 +25,8 @@ function wrapper({ children }: { children: ReactNode }) {
 }
 
 const mockProvider: ChatProvider = {
-  id: "jvagent",
-  label: "jvagent",
+  id: "integral_native",
+  label: "integral_native",
   serverPersisted: true,
   capabilities: {
     reasoning: true,
@@ -64,7 +64,7 @@ describe("useAgentCatalog", () => {
 
   it("uses preference agent when one is set", async () => {
     (aiChatApi.getAgentPreference as any).mockResolvedValue({
-      provider_id: "jvagent",
+      provider_id: "integral_native",
       agent_id: "aiva",
     });
     const { result } = renderHook(
@@ -79,7 +79,7 @@ describe("useAgentCatalog", () => {
   it("switchAgent persists via setAgentPreference", async () => {
     (aiChatApi.getAgentPreference as any).mockResolvedValue(null);
     (aiChatApi.setAgentPreference as any).mockResolvedValue({
-      provider_id: "jvagent",
+      provider_id: "integral_native",
       agent_id: "aiva",
     });
     const { result } = renderHook(
@@ -93,7 +93,7 @@ describe("useAgentCatalog", () => {
     });
 
     expect(aiChatApi.setAgentPreference).toHaveBeenCalledWith("ws-1", {
-      provider_id: "jvagent",
+      provider_id: "integral_native",
       agent_id: "aiva",
     });
   });

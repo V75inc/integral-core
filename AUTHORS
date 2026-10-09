@@ -2,8 +2,8 @@ Integral — Authors & Maintainers
 ================================
 
 Integral is a conformable application substrate for agent
-queryability and human interfacing, built on jvspatial and
-integrating jvagent.
+queryability and human interfacing, built on jvspatial with
+the native Integral AI resident powered by Pydantic AI.
 
 Creator & Lead Maintainer
   Eldon Marks (@eldonm) — https://github.com/eldonm

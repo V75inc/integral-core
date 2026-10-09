@@ -3,7 +3,7 @@
 Per CONTEXT D-01 + D-10: ActorKind Literal lives here ONCE, used by both
 Provenance.source (PROV-01) AND ChangeEvent.actor.kind (PROV-03 — see Plan 02-02).
 Distinct from the Phase-1 AgentType Literal in app/agentive/types.py
-(`jvagent|mcp|skill_bundle|custom`) — ActorKind is the WHO axis, AgentType is the
+(`agent runtime|mcp|skill_bundle|custom`) — ActorKind is the WHO axis, AgentType is the
 WHICH-RUNTIME axis.
 """
 

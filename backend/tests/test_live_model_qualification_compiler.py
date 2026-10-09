@@ -44,7 +44,7 @@ def _manifest() -> Dict[str, Any]:
         "provider_configuration": {
             "provider_id": "openai",
             "model_id": "gpt-test",
-            "harness_binding": "embedded-jvagent",
+            "harness_binding": "integral_native",
             "credential_mode": "environment",
             "configuration_digest": "b" * 64,
         },

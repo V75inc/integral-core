@@ -21,7 +21,7 @@ handlers, we replicate the lightweight stub-request pattern from the
 bridge action rather than importing it (the bridge lives outside the
 backend package). The duplication is small and intentional — keeps
 the staging executor self-contained and importable from the API layer
-without crossing into the jvagent app's namespace.
+without crossing into the agent runtime app's namespace.
 """
 
 from __future__ import annotations

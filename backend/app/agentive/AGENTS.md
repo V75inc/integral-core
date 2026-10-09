@@ -67,7 +67,7 @@ The resident harnesses use a **two-tier** skill model:
 Implementation:
 
 - [`workspace_agent_profile.py`](workspace_agent_profile.py) — compose, cache, turn ContextVar
-- [`skill_bundle_provider.py`](skill_bundle_provider.py) — jvagent host provider registration
+- [`harness/skill_sources.py`](harness/skill_sources.py) — native capability/skill projection
 - [`services/skill_registry.py`](services/skill_registry.py) — graph persistence + private gate
 
 Full reference: [`docs/backend/workspace-agent-profile.md`](../../../docs/backend/workspace-agent-profile.md).

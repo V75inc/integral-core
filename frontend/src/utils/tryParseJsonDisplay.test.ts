@@ -16,7 +16,7 @@ describe("tryParseJsonDisplay", () => {
 });
 
 describe("formatToolValue", () => {
-  it("pretty-prints a JSON-encoded string (the jvagent tool-result case)", () => {
+  it("pretty-prints a JSON-encoded string (the native provider tool-result case)", () => {
     // Python json.dumps style: `": "` / `", "` separators, single line.
     const raw =
       '{"scope": "user", "scope_id": null, "workspace_id": "n.Workspace.dc7"}';

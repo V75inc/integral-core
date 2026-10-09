@@ -9,7 +9,7 @@ Plan 01-02 — Wave 2 trust-boundary hardening. Verifies:
       flag-off + unknown user → 404 + agentive.auth.user_node_missing
       flag-on  + unknown user → auto-create + INFO log with audit fields
   - The hardened middleware does NOT break the chat dispatch path —
-    a signed jvagent-style request reaches the typed connector and
+    a signed native provider-style request reaches the typed connector and
     returns the canonical ChatTurnResponse shape.
 
 Analog: backend/tests/test_agentive_whatsapp.py:28-78 (TestServiceAuthMiddleware).
@@ -262,10 +262,10 @@ def test_no_silent_except_in_service_auth():
 
 
 @pytest.mark.asyncio
-async def test_jvagent_round_trip_through_signed_path(
+async def test_custom_connector_round_trip_through_signed_path(
     signed_service_headers, monkeypatch, test_user
 ):
-    """Round-trip integration: simulated jvagent client signs → middleware
+    """Round-trip integration: simulated native provider client signs → middleware
     verifies → dispatch routes to a stubbed connector → typed
     ChatTurnResponse echoed back.
 
@@ -290,7 +290,7 @@ async def test_jvagent_round_trip_through_signed_path(
     monkeypatch.setattr(server._auth_config, "test_mode", True)
 
     class _FakeConn:
-        agent_type = "jvagent"
+        agent_type = "integral_native"
         config_id = "system-agent"
         scope = "system"
         preferences: dict = {}
@@ -320,14 +320,14 @@ async def test_jvagent_round_trip_through_signed_path(
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         r = await client.post(
             "/api/agentive/chat/message",
-            json={"message": "hello from jvagent"},
+            json={"message": "hello from native provider"},
             headers=headers,
         )
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["ok"] is True
     assert body["message"] == "round-trip ok"
-    assert body["agent_type"] == "jvagent"
+    assert body["agent_type"] == "integral_native"
 
 
 @pytest.mark.asyncio

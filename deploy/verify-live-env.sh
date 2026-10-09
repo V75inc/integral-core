@@ -22,12 +22,6 @@
 #
 # What this CANNOT see from outside, and how to check it over SSH:
 #
-#   * JVAGENT_UPDATE_MODE / observation budgets. Under `merge`, agent.yaml
-#     budget edits are ignored and boot logs a WARNING naming the stale keys:
-#         ssh <host> docker service logs <stack>_api 2>&1 | grep -i 'observation'
-#     No warning after a fresh deploy = budgets landed. Warning present = run
-#     the one-shot `source` boot (DEPLOY.md § Observation budgets) and re-check.
-#
 #   * The JWT secret's value. Post-#80 the boot guard REFUSES placeholder
 #     keys, so "the api service is running at all" is itself the check:
 #         ssh <host> docker service ps <stack>_api

@@ -6,6 +6,6 @@ Namespaced overlay keys separate package identities. Manifest descriptions match
 
 Tools and hooks remain package-owned lifecycle registrations. Their execution checks current resource access through ToolContext. Skill visibility is not a replacement for these execution checks.
 
-Binding changes, scope changes, pause/removal, and revocation must refresh the applicable overlay. Preserve the distinction between the default native binding and the jvagent compatibility implementation; the shared tenant boundary applies to both.
+Binding changes, scope changes, pause/removal, and revocation must refresh the applicable overlay. The native binding enforces the same tenant boundary for every turn.
 
 Test inaccessible Apps, a second workspace, pause, duplicate keys, missing skill files, stale cached profiles, and current-grant rechecks. See [resident architecture](../product/RESIDENT_HARNESS.md).

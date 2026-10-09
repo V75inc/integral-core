@@ -96,7 +96,6 @@ async def resolve_native_model_route(
     and platform-only modes LiteLLM resolves deployment credentials from its
     configured environment; Core does not copy those secrets into route state.
     """
-    provider = _provider_for_model(default_model)
     from app.services.model_credential_resolver import (
         resolve_agent_model_override,
     )
@@ -105,6 +104,18 @@ async def resolve_native_model_route(
         workspace_id, include_credential_identity=True
     )
     if not override:
+        if not default_model.strip():
+            from app.api.errors import ServiceUnavailableError
+
+            raise ServiceUnavailableError(
+                message=(
+                    "Integral AI needs a model. Add a model in Settings, or set "
+                    "INTEGRAL_NATIVE_MODEL and its provider credentials on the "
+                    "server. Integral does not fall back to another harness."
+                ),
+                details={"reason": "native_model_not_configured"},
+            )
+        provider = _provider_for_model(default_model)
         local_route = provider == "ollama"
         model = default_model
         api_base = None

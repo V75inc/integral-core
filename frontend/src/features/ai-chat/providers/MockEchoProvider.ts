@@ -5,7 +5,7 @@ import type { ChatProvider, NormalizedEvent, TurnContext } from "./types";
  * render so we can validate theming, streaming, and component wiring before
  * any backend exists.
  *
- * Replace with `JvAgentProvider` (P3) once the backend proxy lands.
+ * Replace with `IntegralNativeProvider` (P3) once the backend proxy lands.
  */
 export const MockEchoProvider: ChatProvider = {
   id: "mock-echo",
@@ -58,7 +58,7 @@ export const MockEchoProvider: ChatProvider = {
       }
 
       // One tool call: running → complete, so the tool-group disclosure shows
-      // its spinner then resolves (matches the live jvagent shape).
+      // its spinner then resolves (matches the live native provider shape).
       yield {
         type: "tool-call",
         toolCallId: "t1",

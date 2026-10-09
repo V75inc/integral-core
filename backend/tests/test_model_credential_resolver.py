@@ -51,11 +51,10 @@ async def test_resolver_uses_owner_byok(enc_key, test_user):
 
     override = await resolve_agent_model_override(workspace_id)
     assert override is not None
-    assert override["api_key"] == "sk-owner-key"
-    # The agent is LiteLLM-only: the stored provider travels inside the model
-    # id, and the slot provider routes to LiteLLMLanguageModelAction.
-    assert override["provider"] == "litellm"
-    assert override["model"] == "openai/gpt-4o-mini"
+    assert override["slots"]["default"]["api_key"] == "sk-owner-key"
+    # Provider routing remains explicit in the default model slot.
+    assert override["slots"]["default"]["provider"] == "litellm"
+    assert override["slots"]["default"]["model"] == "openai/gpt-4o-mini"
     assert override["slots"]["default"]["model"] == "openai/gpt-4o-mini"
     assert override["slots"]["default"]["provider"] == "litellm"
     assert "credential_ref" not in override
@@ -78,7 +77,7 @@ async def test_resolver_uses_owner_byok(enc_key, test_user):
         workspace_id, include_credential_identity=True
     )
     assert rotated["credential_ref"] != identity
-    assert rotated["api_key"] == "sk-rotated-key"
+    assert rotated["slots"]["default"]["api_key"] == "sk-rotated-key"
 
 
 @pytest.mark.asyncio
@@ -102,12 +101,12 @@ async def test_resolver_dual_provider_light_key(enc_key, test_user):
 
     override = await resolve_agent_model_override(workspace.id)
     assert override is not None
-    assert override["provider"] == "litellm"
-    assert override["model"] == "openai/o3-mini"
-    assert override["api_key"] == "sk-openai-heavy"
-    assert override["light_provider"] == "litellm"
-    assert override["light_model"] == "anthropic/claude-3-5-haiku-latest"
-    assert override["light_api_key"] == "sk-ant-light"
+    assert override["slots"]["default"]["provider"] == "litellm"
+    assert override["slots"]["default"]["model"] == "openai/o3-mini"
+    assert override["slots"]["default"]["api_key"] == "sk-openai-heavy"
+    assert override["slots"]["light"]["provider"] == "litellm"
+    assert override["slots"]["light"]["model"] == "anthropic/claude-3-5-haiku-latest"
+    assert override["slots"]["light"]["api_key"] == "sk-ant-light"
     # Each slot carries its own provider inside the id, so a dual-provider
     # credential still routes through the one LiteLLM action.
     assert override["slots"]["light"]["provider"] == "litellm"
@@ -185,7 +184,7 @@ async def test_resolver_composes_ollama_id_for_litellm(enc_key, test_user):
     assert override is not None
     assert override["slots"]["default"]["model"] == "ollama/glm-5.3:cloud"
     assert override["slots"]["default"]["provider"] == "litellm"
-    assert override["model"] == "ollama/glm-5.3:cloud"
+    assert override["slots"]["default"]["model"] == "ollama/glm-5.3:cloud"
 
 
 @pytest.mark.asyncio
@@ -203,8 +202,8 @@ async def test_resolver_omits_api_key_for_local_ollama(enc_key, test_user):
 
     override = await resolve_agent_model_override(workspace.id)
     assert override is not None
-    assert override["provider"] == "litellm"
-    assert override["model"] == "ollama/gemma4:e2b"
+    assert override["slots"]["default"]["provider"] == "litellm"
+    assert override["slots"]["default"]["model"] == "ollama/gemma4:e2b"
     assert "api_key" not in override
     assert override["slots"]["default"] == {
         "provider": "litellm",

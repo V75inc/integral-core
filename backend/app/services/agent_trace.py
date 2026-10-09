@@ -7,10 +7,10 @@ guessed a cause from that data and were wrong, because the deciding facts were
 never in the log: which protocol the turn spoke and why, which guard fired, how
 the loop ended.
 
-jvagent already records all of it. Each turn appends an ``orchestrator_activation``
+agent runtime already records all of it. Each turn appends an ``orchestrator_activation``
 event to ``interaction.observability_metrics``, and the final stream envelope
 carries that payload when the host is not in production mode. Nothing here asks
-jvagent for anything new; it reads what was always being sent and writes one
+agent runtime for anything new; it reads what was always being sent and writes one
 line a person can act on:
 
     agent-trace session=… protocol=native(auto:native) ticks=10 light=1 heavy=9
@@ -40,10 +40,10 @@ _ACTIVATION = "orchestrator_activation"
 _MODEL_CALL = "model_call"
 
 
-# Integral translates jvagent's stream into a UI vocabulary before the chat
+# Integral translates agent runtime's stream into a UI vocabulary before the chat
 # provider sees it, so the turn-ending event here is ``final-content`` carrying
-# the raw response under ``payload`` — not jvagent's own ``final``. Both are
-# accepted: the bare ``final`` shape is what jvagent emits natively, and reading
+# the raw response under ``payload`` — not agent runtime's own ``final``. Both are
+# accepted: the bare ``final`` shape is what agent runtime emits natively, and reading
 # only one of them is how the first version of this silently logged nothing.
 _TERMINAL_TYPES = ("final-content", "final")
 

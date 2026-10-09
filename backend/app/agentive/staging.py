@@ -112,7 +112,7 @@ class StagedChange:
     will splat into the underlying bridge action call once the token is
     blessed and consumed.
 
-    ``interaction_id`` is the jvagent Interaction node id that minted
+    ``interaction_id`` is the agent runtime Interaction node id that minted
     this token (the prepare-X turn). Used by the closure-recording
     path to update that specific interaction's ``response`` field with
     a ``[SYSTEM:STAGING-RESOLVED]`` marker when the token transitions
@@ -694,7 +694,7 @@ async def create_staged_change(
     immediately on the agent's next turn — but the frontend still
     renders the card so the user retains an undo before consume.
 
-    ``interaction_id`` should be the id of the jvagent Interaction
+    ``interaction_id`` should be the id of the agent runtime Interaction
     that minted this token (the prepare-X turn). When set, the closure
     record on consume/revoke updates THAT interaction's ``response``
     field with the marker instead of appending a new synthetic
@@ -787,13 +787,13 @@ async def create_staged_change(
     )
     # Push *also* on create. The original design assumed StagedChanges
     # would travel inline via tool-call events in the chat stream — but
-    # jvagent's cockpit currently emits ``thought_type=tool_progress``
+    # agent runtime's cockpit currently emits ``thought_type=tool_progress``
     # (just status text), not ``thought_type=tool_call|tool_result``,
     # so structured tool results never reach the SSE translator.
     # Pushing the StagedChange over /ws/agent-events lets the frontend
     # render an approval card via the PendingStagedChanges inbox
     # without depending on the cockpit emitting structured tool envelopes.
-    # When/if jvagent ships SPEC §7.3 and the chat stream carries
+    # When/if agent runtime ships SPEC §7.3 and the chat stream carries
     # tool results, the inbox path remains useful as a fallback /
     # cross-tab notifier.
     await _push_created_event(sc)
@@ -824,7 +824,7 @@ def _format_staging_closure_marker(sc: StagedChange) -> str:
         summary="<summary>"
 
     Single-line so it can be stored as assistant-side interaction context
-    in jvagent's history. The persona / skill prompts (see
+    in agent runtime's history. The persona / skill prompts (see
     ``embedded_integral_action/skills/integral-filing/SKILL.md`` and
     ``agent.yaml``) instruct the engine to treat any utterance
     starting with ``[SYSTEM:STAGING-RESOLVED]`` as authoritative
@@ -922,174 +922,11 @@ def _format_external_result_block(sc: StagedChange, execute_result: Any) -> str:
     )
 
 
-async def record_external_result_for_agent(
-    sc: StagedChange, execute_result: Any
-) -> None:
-    """Hand a blessed external call's output back to the agent.
-
-    Without this the payload lives only in ``execute_result`` on the HTTP
-    response and in the FE transcript envelope. jvagent's history build reads
-    ``interaction.utterance`` + ``interaction.response`` only — not tool calls,
-    tool results, or ``interaction.events`` — so the agent never saw it, and
-    gating a *read* was equivalent to refusing it.
-
-    Best-effort, like every other conversation-side write here.
-    """
-    if sc.kind not in _RESULT_BEARING_KINDS or not sc.interaction_id:
-        return
-    if isinstance(execute_result, dict) and execute_result.get("error"):
-        return
-    try:
-        from jvagent.memory.interaction import Interaction  # type: ignore
-    except Exception:  # noqa: BLE001
-        logger.debug(
-            "staging.result_skipped: jvagent.memory.interaction unavailable",
-            exc_info=True,
-        )
-        return
-    block = _format_external_result_block(sc, execute_result)
-    try:
-        interaction = await Interaction.get(sc.interaction_id)
-        if interaction is None:
-            return
-        existing = (interaction.response or "").rstrip()
-        if f"[SYSTEM:STAGING-RESULT] kind={sc.kind} tool=" in existing:
-            # One result block per prepare turn per tool — a retry or a
-            # duplicate push must not append it twice.
-            return
-        interaction.set_response(existing + ("\n" if existing else "") + block)
-        await interaction.save()
-        logger.info(
-            "staging.result_recorded interaction=%s token=%s kind=%s",
-            sc.interaction_id,
-            sc.token,
-            sc.kind,
-        )
-    except Exception:  # noqa: BLE001
-        logger.warning(
-            "staging.result_record_failed interaction=%s token=%s",
-            sc.interaction_id,
-            sc.token,
-            exc_info=True,
-        )
-
-
-async def _record_closure_in_conversation(sc: StagedChange) -> None:
-    """Update prepare-turn interaction with a staging-closure marker.
-
-    Adds ``[SYSTEM:STAGING-RESOLVED]`` to the interaction's ``response``
-    field so the cockpit engine sees the closure on its next history
-    read.
-
-    Why this exists: the cockpit's history-build (see
-    ``CockpitEngine._build_history`` in jvagent) reads from the
-    conversation's Interaction chain with ``formatted=True``, which
-    only surfaces ``role/content`` text pairs from
-    ``interaction.utterance`` + ``interaction.response``. Tool calls,
-    tool results, and ``interaction.events`` are NOT included. For
-    DIRECTIVE intents that route to staging skills, the agent's
-    ``interaction.response`` is empty (the StagedChange card is the
-    confirmation), so on the next turn the engine sees only the
-    user's prior utterance with no record of what was staged — and
-    reliably re-stages the same entity when the user provides
-    related new content.
-
-    Earlier iteration tried to append a new synthetic interaction to
-    the conversation. That landed the marker in the DB but
-    introduced a chain-fork: the cockpit's next turn fetched the
-    conversation with a stale ``last_interaction_id`` (the prepare
-    turn, not the closure marker we just added), so it connected
-    the new user interaction off the prepare turn directly,
-    bypassing the marker — and silently re-staged.
-
-    Updating the EXISTING prepare-turn interaction's ``response``
-    field avoids the chain-fork entirely: no structural change, just
-    a content edit on a node already in the chain. The cockpit's
-    next history read picks up the updated response on the same
-    interaction it would have read anyway.
-
-    Works for any channel sharing jvagent's conversation graph
-    (web, SMS, voice, email, etc.) since the marker lives on the
-    canonical Interaction node, not on any FE-specific surface.
-
-    Best-effort: catches all exceptions and only logs. The token's
-    state machine must remain correct even if the conversation
-    update fails (e.g. embed not bootstrapped, graph offline,
-    ``interaction_id`` not threaded through at mint time).
-    """
-    if not sc.interaction_id:
-        logger.debug(
-            "staging.closure_skipped: no interaction_id token=%s",
-            sc.token,
-        )
-        return
-    try:
-        # Lazy import — keeps the staging module importable in test
-        # environments that don't bootstrap jvagent.
-        from jvagent.memory.interaction import Interaction  # type: ignore
-    except Exception:  # noqa: BLE001
-        logger.debug(
-            "staging.closure_skipped: jvagent.memory.interaction unavailable",
-            exc_info=True,
-        )
-        return
-    marker = _format_staging_closure_marker(sc)
-    try:
-        interaction = await Interaction.get(sc.interaction_id)
-        if interaction is None:
-            logger.warning(
-                "staging.closure_skipped: interaction not found id=%s " "token=%s",
-                sc.interaction_id,
-                sc.token,
-            )
-            return
-        # Append marker to whatever the cockpit already wrote (usually
-        # empty for staging turns, but defensive in case a future
-        # change publishes prose alongside the card). One marker per
-        # token: a token can't transition through consumed AND revoked,
-        # so we never double-append for the same token. If multiple
-        # cards minted on the same prepare turn resolve at different
-        # times, each marker appends sequentially — the engine reads
-        # the union as the prepare turn's "assistant response".
-        existing = (interaction.response or "").rstrip()
-        if marker in existing:
-            # Idempotent: a duplicate WS push or retry shouldn't
-            # double-write the marker on the same response.
-            logger.debug(
-                "staging.closure_skipped: marker already in response "
-                "interaction=%s token=%s",
-                sc.interaction_id,
-                sc.token,
-            )
-            return
-        new_response = existing + ("\n" if existing else "") + marker
-        if sc.kind == "batch" and sc.state == "consumed" and not existing:
-            summary = (sc.summary or "the approved design").replace("\n", " ").strip()
-            new_response += f"\nBuilt: {summary}."
-        interaction.set_response(new_response)
-        await interaction.save()
-        logger.info(
-            "staging.closure_recorded interaction=%s session=%s state=%s " "kind=%s",
-            sc.interaction_id,
-            sc.session_id,
-            sc.state,
-            sc.kind,
-        )
-    except Exception:  # noqa: BLE001
-        logger.warning(
-            "staging.closure_record_failed interaction=%s session=%s " "token=%s",
-            sc.interaction_id,
-            sc.session_id,
-            sc.token,
-            exc_info=True,
-        )
-
-
 def _coerce_tool_result(result: Any) -> Tuple[Optional[Dict[str, Any]], bool]:
     """Return (parsed_dict, was_json_string) for a persisted tool-call result.
 
     The transcript stores a tool-call result as either a dict or a
-    JSON-encoded string (jvagent sometimes stringifies tool returns — the
+    JSON-encoded string (agent runtime sometimes stringifies tool returns — the
     FE mirrors this with ``coerceToolResult``). Returns ``(None, …)`` when
     the value isn't a staged-change envelope dict.
     """
@@ -1416,7 +1253,7 @@ async def _persist_terminal_state_in_transcript(sc: StagedChange) -> None:
 
 
 async def _push_state_and_record_closure(sc: StagedChange) -> None:
-    """Run WS push, jvagent closure record, and transcript-snapshot rewrite.
+    """Run WS push, agent runtime closure record, and transcript-snapshot rewrite.
 
     For a terminal staging transition: WS push live-updates the FE card,
     closure record gives the engine history signal, and the transcript
@@ -1440,7 +1277,6 @@ async def _push_state_and_record_closure(sc: StagedChange) -> None:
         # cards is handled by the transcript-snapshot rewrite below, not by the
         # store, which only holds still-actionable pending/blessed changes).
         await staging_store.remove(sc.token)
-        await _record_closure_in_conversation(sc)
         await _persist_terminal_state_in_transcript(sc)
 
 
@@ -1704,7 +1540,7 @@ async def consume_token(
         await _flush_decision_ledger()
     await _flush_expiry_closures()
     # Push outside the lock — same reasoning as bless_token. Also
-    # records a [SYSTEM:STAGING-RESOLVED] closure marker in jvagent's
+    # records a [SYSTEM:STAGING-RESOLVED] closure marker in agent runtime's
     # conversation so the engine sees the resolution on its next
     # history read (channel-agnostic — works for web/SMS/voice/etc).
     await _push_state_and_record_closure(sc)

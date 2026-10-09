@@ -1,7 +1,7 @@
 import { useMessageTiming, useAuiState } from "@assistant-ui/react";
 import type { ObservabilityStep } from "../useAIChatRuntime";
 
-/** jvagent final-payload usage block (interaction.usage). */
+/** native provider final-payload usage block (interaction.usage). */
 type FinalUsage = {
   prompt_tokens?: number;
   completion_tokens?: number;
@@ -10,7 +10,7 @@ type FinalUsage = {
   estimated_cost_usd?: number;
 };
 
-/** jvagent final-payload per-call metric (interaction.observability_metrics[]). */
+/** native provider final-payload per-call metric (interaction.observability_metrics[]). */
 type FinalMetric = {
   event_type?: string;
   data?: {
@@ -71,7 +71,7 @@ export function MessageObservability() {
   const customSteps = useAuiState(
     (s) => (s.message.metadata?.custom as { steps?: ObservabilityStep[] })?.steps,
   );
-  // Authoritative usage from jvagent's final payload (interaction.usage):
+  // Authoritative usage from native provider's final payload (interaction.usage):
   // {prompt_tokens, completion_tokens, total_tokens, ...}. This is the source
   // of truth for token spend — observability_metrics-derived steps can be
   // empty when the metric shape doesn't match the per-step extractor.
@@ -113,7 +113,7 @@ export function MessageObservability() {
   const hasTiming = (totalStreamMs ?? 0) > 0;
 
   // Prefer the final payload's authoritative total; fall back to summing the
-  // per-step usage (older turns / non-jvagent providers).
+  // per-step usage (older turns / non-native provider providers).
   const allInputReported = steps.length > 0 && steps.every((st) => st.usage?.inputTokens != null);
   const allOutputReported = steps.length > 0 && steps.every((st) => st.usage?.outputTokens != null);
   const totalIn =

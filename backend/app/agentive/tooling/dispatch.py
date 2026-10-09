@@ -123,7 +123,7 @@ class ToolResult:
     ``error_code`` and a human ``message``; ``data`` stays ``None``.
 
     ``next_tool`` names the tool the resident must call before it may reply,
-    set on refusals it can repair without the user. jvagent's directive
+    set on refusals it can repair without the user. agent runtime's directive
     contract enforces it, so "I'll fix that and retry" cannot end the turn.
     """
 
@@ -382,7 +382,7 @@ async def dispatch_tool(
             frontend inbox scopes the card to the right conversation. Approval
             remains specific to each staged change. The
             external MCP / consent dispatch surfaces omit it (default ``None``).
-        interaction_id: Optional jvagent Interaction id of the prepare-X turn
+        interaction_id: Optional agent runtime Interaction id of the prepare-X turn
             that minted the token. Threaded through so the closure-recording path
             updates THAT interaction's response with the
             ``[SYSTEM:STAGING-RESOLVED]`` marker. Omitted off the external

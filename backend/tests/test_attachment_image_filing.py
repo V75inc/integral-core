@@ -51,7 +51,7 @@ async def _seed_entry():
 
 async def _seed_thread_with_image(user_id: str, image_id: str = "img1"):
     thread = await chat_store.create_thread(
-        user_id=user_id, provider_id="jvagent", workspace_id="ws1"
+        user_id=user_id, provider_id="integral_native", workspace_id="ws1"
     )
     thread.provider_session_id = "sess-img"
     await thread.save()
@@ -149,7 +149,7 @@ async def test_stager_bakes_image_bytes_from_session():
 @pytest.mark.asyncio
 async def test_stager_errors_when_no_image():
     thread = await chat_store.create_thread(
-        user_id="u1", provider_id="jvagent", workspace_id="ws1"
+        user_id="u1", provider_id="integral_native", workspace_id="ws1"
     )
     thread.provider_session_id = "sess-noimg"
     await thread.save()

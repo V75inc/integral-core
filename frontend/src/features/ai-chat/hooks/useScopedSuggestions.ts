@@ -176,8 +176,8 @@ function pageContextSuggestions(
     case 'settings':
       return [
         {
-          label: 'Help me choose an AI assistant',
-          text: 'Explain the available AI assistant options in plain language and help me choose one for my work.',
+          label: 'Help me choose an AI model',
+          text: 'Integral AI is my built-in assistant. Explain how to connect an AI model in Settings → AI Models and help me choose a model for my work.',
         },
         {
           label: 'Help me get started',

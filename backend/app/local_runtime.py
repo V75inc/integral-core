@@ -129,12 +129,14 @@ def status(home: Path) -> dict[str, Any]:
     ready = alive and state.get("state") == "ready" and _identity(home, state)
     return {
         "contract_version": CONTRACT_VERSION,
+        "default_harness_provider_id": "integral_native",
         "installation_id": read_json(home / "installation.json").get("installation_id"),
         "state": "ready" if ready else ("starting" if alive else "stopped"),
         "home": str(home),
         "api_url": state.get("api_url"),
         "web_url": state.get("web_url"),
         "version": state.get("version"),
+        "harness_provider_id": state.get("harness_provider_id"),
         "pid": state.get("pid") if alive else None,
         "process_created": state.get("created") if alive else None,
         "database": "managed-postgresql",
@@ -210,6 +212,14 @@ def start(
     try:
         with lock.acquire(timeout=timeout):
             current = status(home)
+            if (
+                current["state"] != "stopped"
+                and current.get("harness_provider_id") != "integral_native"
+            ):
+                raise RuntimeErrorDetail(
+                    "This installation is running a pre-native Core runtime. "
+                    "Run integral stop, then integral up with the native Core release."
+                )
             launched = current["state"] == "stopped"
             config = read_json(home / "installation.json")
             desired_apps = str(apps.resolve()) if apps else config.get("apps_path")
@@ -423,6 +433,7 @@ def supervise(home: Path, port: int, apps: str | None = None) -> None:
             "api_url": f"http://127.0.0.1:{api_port}",
             "web_url": f"http://127.0.0.1:{web_port}",
             "version": core_version,
+            "harness_provider_id": "integral_native",
             "apps": apps,
         }
         private_json(home / "runtime.json", state)

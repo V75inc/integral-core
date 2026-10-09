@@ -12,7 +12,7 @@ async def test_append_message_creates_contains_edge():
     """append_message wires CONTAINS from thread to message."""
     thread = await chat_store.create_thread(
         user_id="u1",
-        provider_id="jvagent",
+        provider_id="integral_native",
         workspace_id="ws1",
     )
     message = await chat_store.append_message(
@@ -33,7 +33,7 @@ async def test_list_messages_via_edge_traversal():
     """list_messages reads from the CONTAINS edge, not the scalar."""
     thread = await chat_store.create_thread(
         user_id="u1",
-        provider_id="jvagent",
+        provider_id="integral_native",
         workspace_id="ws1",
     )
     for i in range(3):
@@ -51,7 +51,7 @@ async def test_list_messages_via_edge_traversal():
 async def test_delete_thread_messages_via_edge_traversal():
     thread = await chat_store.create_thread(
         user_id="u1",
-        provider_id="jvagent",
+        provider_id="integral_native",
         workspace_id="ws1",
     )
     for _ in range(2):
@@ -71,7 +71,7 @@ async def test_message_thread_id_scalar_still_set_as_cache():
     """thread_id scalar stays as denormalized cache for serialization."""
     thread = await chat_store.create_thread(
         user_id="u1",
-        provider_id="jvagent",
+        provider_id="integral_native",
         workspace_id="ws1",
     )
     message = await chat_store.append_message(

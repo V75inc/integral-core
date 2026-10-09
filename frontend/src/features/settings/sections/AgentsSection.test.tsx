@@ -109,20 +109,13 @@ beforeEach(() => {
 });
 
 describe('AgentsSection — existing provider listing', () => {
-  it('lists Integral AI first and selects it by default', async () => {
+  it('shows the built-in resident as always active without a harness selector', () => {
     renderPanel();
-    const options = await screen.findAllByRole('radio');
-    expect(options[0]).toHaveAccessibleName('Activate Integral AI assistant');
-    expect(options[0]).toBeChecked();
-  });
-
-  it('lists the native Integral Pydantic AI harness option when available', async () => {
-    renderPanel();
-    expect(
-      await screen.findByRole('radio', {
-        name: 'Activate Integral AI assistant',
-      }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Integral AI' })).toBeInTheDocument();
+    expect(screen.getByText('Always active')).toBeInTheDocument();
+    expect(screen.queryByRole('radio')).not.toBeInTheDocument();
+    expect(screen.queryByText('Echo')).not.toBeInTheDocument();
+    expect(mockedProviders).not.toHaveBeenCalled();
   });
 
   it('distinguishes harness provider IDs from settings routing keys', async () => {
@@ -131,8 +124,8 @@ describe('AgentsSection — existing provider listing', () => {
       await screen.findByRole('button', { name: /advanced · technical ids/i }),
     );
 
-    expect(await screen.findByText('provider_id: jvagent')).toBeInTheDocument();
-    expect(screen.getByText('settings_route: jvagent-embedded')).toBeInTheDocument();
+    expect(screen.queryByText('provider_id: jvagent')).not.toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: 'Activate jvagent assistant' })).not.toBeInTheDocument();
     expect(screen.getByText('provider_id: integral_native')).toBeInTheDocument();
     expect(screen.getByText('settings_route: pydantic-ai-native')).toBeInTheDocument();
   });
@@ -144,18 +137,12 @@ describe('AgentsSection — existing provider listing', () => {
     ).toBeInTheDocument();
   });
 
-  it('keeps the selected default visible and disabled when the backend reports it unavailable', async () => {
-    mockedProviders.mockResolvedValue([
-      { id: 'jvagent', available: true },
-      { id: 'integral_native', available: false },
-    ]);
+  it('does not mark the built-in resident unavailable when the old catalog reports false', () => {
+    mockedProviders.mockResolvedValue([{ id: 'integral_native', available: false }]);
     renderPanel();
-    const nativeOption = await screen.findByRole('radio', {
-      name: 'Activate Integral AI assistant',
-    });
-    await waitFor(() => expect(nativeOption).toBeDisabled());
-    expect(nativeOption).toBeChecked();
-    expect(screen.getByText('Unavailable')).toBeInTheDocument();
+    expect(screen.getByText('Always active')).toBeInTheDocument();
+    expect(screen.queryByText('Unavailable')).not.toBeInTheDocument();
+    expect(screen.queryByRole('radio')).not.toBeInTheDocument();
   });
 });
 

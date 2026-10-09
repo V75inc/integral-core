@@ -186,7 +186,7 @@ def _to_response(c: Any) -> ConnectorResponse:
 @endpoint("/agentive/connectors", methods=["POST"], auth=True, tags=["Agentive"])
 async def post_create_connector(
     request: Request,
-    kind: AgentType = "jvagent",
+    kind: AgentType = "integral_native",
     auth_state: Optional[Dict[str, Any]] = None,
     sync_cursor: Optional[str] = None,
     mapping_profile: Optional[str] = None,
@@ -1642,7 +1642,7 @@ async def _catalog_install_oauth(
     }
     connector = await create_connector(
         owner=user_id,
-        kind="jvagent",
+        kind="custom",
         auth_state=auth_state,
         capabilities=["connector.sync"],
         workspace_id=workspace_id,
@@ -1951,7 +1951,7 @@ async def _catalog_install_sync(
     }
     connector = await create_connector(
         owner=user_id,
-        kind="jvagent",
+        kind="custom",
         auth_state=auth_state,
         capabilities=["connector.sync"],
         workspace_id=workspace_id,

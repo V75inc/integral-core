@@ -287,20 +287,8 @@ async def _user_wants_new_app(
     text: str, *, workspace_id: Optional[str], agent_id: Optional[str]
 ) -> bool:
     """Light-model verdict. Failure answers False so a down model cannot block chat."""
-    from app.services.light_model_judge import light_model_json
-
-    try:
-        verdict = await light_model_json(
-            workspace_id=workspace_id,
-            agent_id=agent_id,
-            system=_NEW_APP_SYSTEM,
-            prompt=(text or "")[-2000:],
-            max_tokens=20,
-        )
-    except Exception:  # noqa: BLE001 — the note still covers a casual need
-        logger.debug("new-app judge failed", exc_info=True)
-        return False
-    return verdict.get("new_app") is True
+    # Workflow intent belongs to the primary native run, never a second judge.
+    return False
 
 
 async def _is_explicit_greenfield_design_request(
@@ -990,7 +978,7 @@ async def _resolve_workspace_agent_preference(
     Returns the stored ``agent_id`` when the edge exists AND its
     ``provider_id`` matches the active provider; otherwise ``None``.
     The preference is provider-scoped because each provider exposes
-    a distinct agent catalog — a jvagent preference is meaningless to
+    a distinct agent catalog — a agent runtime preference is meaningless to
     a hypothetical future ``openai`` provider.
     """
     if not workspace_id:
@@ -2233,7 +2221,7 @@ async def send_message(
     native_design_approval = native_turn
     if native_design_approval:
         # Native approval is interpreted inside the claimed, metered run.
-        # No lexical gate or JVAgent light-model inference before admission.
+        # No lexical gate or legacy harness light-model inference before admission.
         prior_design_body = (
             str(design_marker.get("proposal") or "")
             if isinstance(design_marker, dict)
@@ -2460,7 +2448,7 @@ async def _start_user_turn(
         extra_data["agent_id"] = thread.agent_id
 
     if images:
-        # Feed the vision reflex: jvagent reads visitor.data["image_urls"].
+        # Feed the vision reflex: agent runtime reads visitor.data["image_urls"].
         extra_data["image_urls"] = [
             {"base64": img.data, "mime_type": img.content_type} for img in images
         ]
@@ -2564,7 +2552,7 @@ async def _start_user_turn(
         ]
         # Keep host-generated approval state and instructions out of the
         # user-authored utterance. The signed system-context block is verified
-        # by JVAgent and added to the system prompt for this run.
+        # by legacy harness and added to the system prompt for this run.
         marker = format_staging_pending_marker(pending_writes)
         if marker:
             extra_data["pending_approvals_marker"] = marker

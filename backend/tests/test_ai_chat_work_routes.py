@@ -24,7 +24,7 @@ async def _owned_native_thread(
     thread_response = await client.post(
         "/api/chat/threads",
         headers={"X-Integral-Scope": f"ws:{workspace_id}"},
-        json={"provider_id": "jvagent", "agent_id": "aiva"},
+        json={"provider_id": "test-provider", "agent_id": "aiva"},
     )
     assert thread_response.status_code == 200, thread_response.text
     return workspace_id, thread_response.json()["id"]
@@ -54,6 +54,9 @@ def _install_work_item(
         return None
 
     monkeypatch.setattr(WorkItem, "get", classmethod(get_item))
+
+
+pytestmark = pytest.mark.usefixtures("standalone_chat_provider")
 
 
 @pytest.mark.asyncio

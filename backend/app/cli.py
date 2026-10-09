@@ -17,7 +17,7 @@ import shutil
 import subprocess
 import sys
 import time
-from importlib.metadata import PackageNotFoundError, requires, version
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 _SLUG_RE = re.compile(r"^[a-z][a-z0-9-]{0,62}$")
@@ -67,25 +67,14 @@ app:
 """
 
 
-def _package_pins() -> tuple[str, str]:
-    """Versions to print in the generated README. Fallbacks match this tree."""
+def _package_version() -> str:
     try:
-        core = version("integral-core")
+        return version("integral-core")
     except PackageNotFoundError:
-        core = "0.1.1rc15"
-    jvagent = "jvagent==0.1.8rc20"
-    try:
-        for req in requires("integral-core") or []:
-            pin = req.split(";", 1)[0].strip()
-            if pin.startswith("jvagent"):
-                jvagent = pin
-                break
-    except PackageNotFoundError:
-        pass
-    return core, jvagent
+        return "0.1.1rc16"
 
 
-def _readme(slug: str | None, name: str, core_version: str, jvagent_pin: str) -> str:
+def _readme(slug: str | None, name: str, core_version: str) -> str:
     if slug:
         included = f"This distro includes `{slug}`."
     else:
@@ -148,15 +137,13 @@ That serves the workspace at http://127.0.0.1:9006 and proxies `/api` and
 that directory's `.env`. `integral web --api http://127.0.0.1:4010` overrides
 the port.
 
-Optional `agent.override.yaml` in this directory can set `context.alias`,
-`context.role`, `context.interaction_limit`, and the orchestrator model
-and budget numbers. Other keys are rejected. It applies on restart when
-`JVAGENT_UPDATE_MODE=source` (the default).
+Integral AI is built in and always selected. Configure your model in Settings,
+or set `INTEGRAL_NATIVE_MODEL=provider/model` and provider credentials in the
+installation's `settings.env`. There is no alternate resident harness.
 
 ## Install the package
 
-`integral-core` pre-releases are on TestPyPI. Download only that wheel and
-the matching `jvagent` wheel, then install them with PyPI as the only index.
+`integral-core` pre-releases are on TestPyPI. Download only that wheel, then install it with PyPI as the only index.
 A general TestPyPI extra index makes pip select a broken `fastapi` sdist.
 
 ```bash
@@ -166,10 +153,10 @@ python3.12 -m venv .venv
   --index-url https://test.pypi.org/simple \\
   --no-deps \\
   --dest ./wheels \\
-  'integral-core=={core_version}' '{jvagent_pin}'
+  'integral-core=={core_version}'
 .venv/bin/pip install \\
   --index-url https://pypi.org/simple \\
-  ./wheels/integral_core-*.whl ./wheels/jvagent-*.whl
+  ./wheels/integral_core-*.whl
 ```
 """
 
@@ -239,25 +226,6 @@ ADMIN_NAME=Admin
 """
 
 
-def _agent_override_template() -> str:
-    """Commented example. Comments-only YAML does not change the shipped agent."""
-    return """# Optional resident-agent override. Uncomment a key to change it.
-# Unknown keys and extra actions are rejected. activation_budget is 20-40.
-# Applies on restart when JVAGENT_UPDATE_MODE=source (the default).
-#
-# context:
-#   alias: Integral Assistant
-#   role: Concise assistant for this install.
-#   interaction_limit: 20
-# actions:
-#   - action: jvagent/orchestrator
-#     context:
-#       model: openai/gpt-4.1
-#       model_temperature: 0.2
-#       activation_budget: 20
-"""
-
-
 def _gitignore() -> str:
     return """.env
 .venv/
@@ -280,15 +248,13 @@ def init_distro(
             "and must not start or end with a hyphen"
         )
     display = (name or "").strip() or (_title_from_slug(slug) if slug else "")
-    core_version, jvagent_pin = _package_pins()
+    core_version = _package_version()
     dest = dest.expanduser().resolve()
     apps = dest / "integral-apps"
     files = {
-        dest
-        / "README.md": _readme(slug, display or dest.name, core_version, jvagent_pin),
+        dest / "README.md": _readme(slug, display or dest.name, core_version),
         dest / ".gitignore": _gitignore(),
         dest / ".env": _env_file(apps, secrets.token_hex(32)),
-        dest / "agent.override.yaml": _agent_override_template(),
     }
     bundle = apps / slug if slug else None
     if bundle is not None:

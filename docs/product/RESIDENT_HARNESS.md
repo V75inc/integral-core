@@ -1,6 +1,8 @@
 # The resident harness
 
-Integral hosts one resident mind per active binding, faceted by principal and scope. The default binding is Integral AI through Pydantic AI. jvagent is a selectable compatibility harness; Echo is for development and smoke checks.
+Integral hosts one resident mind per active binding, faceted by principal and scope. The default binding is Integral AI through Pydantic AI. Integral AI is the only resident harness; There is no harness selector.
+
+The native resident is always registered, including when no model credentials have been configured yet. First-run model setup selects a model provider, not a different harness. There is no jvagent runtime, dependency, embedded HTTP surface, or selectable compatibility binding. Stored frontend settings that name a removed provider are normalized to Integral AI.
 
 ## Division of responsibility
 

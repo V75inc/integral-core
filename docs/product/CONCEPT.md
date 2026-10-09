@@ -29,6 +29,6 @@ A conversation begins the process. Authoring, permission, staging, installation,
 - Keep domain applications outside the foundation.
 - Report proposals, execution results, and uncertainty honestly.
 
-Integral uses one resident mind per active harness binding, faceted by principal and scope. External agents enter through MCP. The default is Integral AI through Pydantic AI; jvagent is a compatibility binding.
+Integral uses one resident mind per active harness binding, faceted by principal and scope. External agents enter through MCP. The default is Integral AI through Pydantic AI; Integral AI is the only resident binding.
 
 Read the [introduction](INTRODUCTION.md), [white paper](WHITE_PAPER.md), and [architecture](ARCHITECTURE.md) for progressively deeper explanations.

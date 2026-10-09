@@ -51,7 +51,7 @@ def _make_upload(content: bytes, filename: str, content_type: str):
 
 async def _seed_chat_attachment(user_id: str):
     thread = await chat_store.create_thread(
-        user_id=user_id, provider_id="jvagent", workspace_id="ws1"
+        user_id=user_id, provider_id="integral_native", workspace_id="ws1"
     )
     upload = _make_upload(b"quarterly numbers", "report.csv", "text/csv")
     result = await _persist_uploaded_chat_file(

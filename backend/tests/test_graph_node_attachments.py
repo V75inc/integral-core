@@ -701,7 +701,7 @@ async def _agent_config_user(uid: str) -> User:
 async def test_personal_agent_wires_has_agent_config():
     user = await _agent_config_user("u_personal_agent")
     cfg = await AgentConfig.create(
-        user_id=user.id, scope="personal", agent_type="jvagent", is_active=True
+        user_id=user.id, scope="personal", agent_type="integral_native", is_active=True
     )
     wired = await wire_agent_config_attachment_edge(cfg)
     assert wired is True
@@ -717,7 +717,7 @@ async def test_org_facing_agent_wires_has_org_agent():
     cfg = await AgentConfig.create(
         user_id="",
         scope="org_facing",
-        agent_type="jvagent",
+        agent_type="integral_native",
         workspace_id=workspace.id,
         is_active=True,
     )
@@ -731,7 +731,7 @@ async def test_org_facing_agent_wires_has_org_agent():
 @pytest.mark.asyncio
 async def test_system_agent_wires_has_system_agent():
     cfg = await AgentConfig.create(
-        user_id="", scope="system", agent_type="jvagent", is_active=True
+        user_id="", scope="system", agent_type="integral_native", is_active=True
     )
     wired = await wire_agent_config_attachment_edge(cfg)
     assert wired is True
@@ -757,7 +757,7 @@ async def test_app_bundled_agent_wires_contains():
     cfg = await AgentConfig.create(
         user_id="",
         scope="org_facing",  # any scope; app_id takes precedence
-        agent_type="jvagent",
+        agent_type="integral_native",
         workspace_id=workspace.id,
         app_id=app.id,
         is_active=True,
@@ -773,7 +773,7 @@ async def test_app_bundled_agent_wires_contains():
 async def test_ensure_helper_idempotent():
     user = await _agent_config_user("u_agent_idem")
     cfg = await AgentConfig.create(
-        user_id=user.id, scope="personal", agent_type="jvagent", is_active=True
+        user_id=user.id, scope="personal", agent_type="integral_native", is_active=True
     )
     assert (await wire_agent_config_attachment_edge(cfg)) is True
     assert (await wire_agent_config_attachment_edge(cfg)) is False  # second pass: no-op
@@ -785,7 +785,7 @@ async def test_backfill_agent_config_edges_repairs_orphan():
 
     user = await _agent_config_user("u_backfill_agent")
     cfg = await AgentConfig.create(
-        user_id=user.id, scope="personal", agent_type="jvagent", is_active=True
+        user_id=user.id, scope="personal", agent_type="integral_native", is_active=True
     )
     # Bare row — no edge wired.
     stats = await backfill_agent_config_edges(dry_run=False)
@@ -807,7 +807,7 @@ async def _conversation_context_user(uid: str) -> User:
 
 async def _conversation_context_agent_for(user: User) -> AgentConfig:
     cfg = await AgentConfig.create(
-        user_id=user.id, scope="personal", agent_type="jvagent", is_active=True
+        user_id=user.id, scope="personal", agent_type="integral_native", is_active=True
     )
     await wire_agent_config_attachment_edge(cfg)
     return cfg
@@ -821,7 +821,7 @@ async def test_context_wires_under_agent_config_when_resolvable():
 
     ctx = await get_or_create_conversation_context(
         user_id=user.id,
-        agent_type="jvagent",
+        agent_type="integral_native",
         agent_conversation_id="conv1",
         agent_config_id=cfg.id,
     )
@@ -856,7 +856,7 @@ async def test_backfill_conversation_context_edges_repairs_orphan():
     user = await _conversation_context_user("u_ctx_backfill")
     cfg = await _conversation_context_agent_for(user)
     bare = await ConversationContext.create(
-        agent_type="jvagent",
+        agent_type="integral_native",
         agent_conversation_id="bare1",
         user_id=user.id,
         agent_config_id=cfg.id,
@@ -880,7 +880,7 @@ async def test_backfill_conversation_context_edges_idempotent():
     cfg = await _conversation_context_agent_for(user)
     await get_or_create_conversation_context(
         user_id=user.id,
-        agent_type="jvagent",
+        agent_type="integral_native",
         agent_conversation_id="idem1",
         agent_config_id=cfg.id,
     )

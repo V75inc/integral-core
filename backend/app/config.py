@@ -209,51 +209,6 @@ class Settings(BaseSettings):
     # paths that mint a fixed resident principal). See Full Sweep S1.
     INTEGRAL_SERVICE_ALLOWED_USER_IDS: str = ""
 
-    # In-app chat → jvagent (server-side connector; browser never calls jvagent directly)
-    # Two delivery modes:
-    # - EMBED: jvagent runs in-process via jvagent.embed.bootstrap on startup
-    #   when agent/app.yaml exists. The active agent is picked by the user via
-    #   the /agent surface and persisted as the jvspatial Agent node id on the
-    #   ChatThread row.
-    # - HTTP: out-of-process jvagent server (single-agent only) reached via
-    # JVAGENT_BASE_URL + INTEGRAL_JVAGENT_AGENT_ID.
-    JVAGENT_BASE_URL: str = ""
-    INTEGRAL_JVAGENT_AGENT_ID: Optional[str] = None
-
-    # Wall-clock ceiling for one agent turn over the HTTP connector, which is a
-    # single blocking POST /interact for the whole turn. A reasoning model that
-    # plans, reads a schema, queries and writes runs for minutes, not seconds:
-    # measured turns on the resident harness reach ~8 minutes. The old 120s
-    # client timeout cut those off and reported "Could not reach the agent
-    # service" — a transport error for what was a healthy, still-running turn.
-    # The orchestrator bounds the turn itself (activation_budget,
-    # max_duration_seconds); this is only the backstop against a hung socket.
-    INTEGRAL_AGENT_TURN_TIMEOUT_SECONDS: float = 900.0
-
-    # jvagent embed bootstrap update mode (run | merge | source).
-    # - ``source`` (default): YAML is the source of truth. Every action node is
-    #   rebuilt from agent.yaml on each restart, so context.* overrides
-    #   (model, skills, prompts, response_mode, routing flags) always
-    #   propagate cleanly. Right default for development.
-    # - ``merge``: update action metadata + module_path in place but preserve
-    #   runtime property values. Right for production where API-driven drift
-    #   must survive restarts.
-    # - ``run``: skip existing actions entirely; only register new ones.
-    # NOTE: main.py reads this at startup via os.getenv() (see
-    # ``_jvagent_update_mode``) so test/env overrides apply immediately; this
-    # field is the documented declarative source-of-truth and default.
-    JVAGENT_UPDATE_MODE: str = "source"
-
-    # jvagent's embed ``Server.get_app()`` mounts jvagent's OWN HTTP surface on
-    # this app (``/api/agents/{id}/memory/...``, ``/api/actions/{id}``,
-    # ``/api/logs``, ``/api/graph``, ...) unless
-    # ``JVAGENT_EMBED_ENDPOINTS_DISABLED`` is truthy in the environment. None
-    # of it is used by Integral — the resident is reached through the chat
-    # surface and MCP only — and the ``auth=False`` interact routes live one
-    # import away in the same registration path. Default OFF: main.py sets
-    # the kill-switch env var before the Server is built unless this opts in.
-    JVAGENT_EMBED_ENDPOINTS_ENABLED: bool = False
-
     # ===== Agent model credentials (BYOK) =====
     # hybrid: use workspace owner's BYOK when configured, else platform env keys.
     # byo_strict: require owner BYOK — no platform-key fallback.
