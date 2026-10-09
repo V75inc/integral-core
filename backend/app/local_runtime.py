@@ -231,9 +231,16 @@ def database_python(home: Path) -> Path:
 
 def free_port(preferred: int) -> int:
     """Keep the familiar port when available; otherwise choose an unused one."""
+    # A wildcard IPv6 listener (including Docker port forwarding on macOS)
+    # can accept IPv4 traffic while a loopback bind still succeeds. Probe the
+    # endpoint first so startup cannot attach clients to another installation.
+    if preferred:
+        try:
+            with socket.create_connection(("127.0.0.1", preferred), timeout=0.2):
+                preferred = 0
+        except OSError:
+            pass
     with socket.socket() as sock:
-        if os.name != "nt":
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             sock.bind(("127.0.0.1", preferred))
         except OSError:

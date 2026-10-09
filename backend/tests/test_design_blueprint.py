@@ -752,3 +752,16 @@ def test_propose_design_tool_schema_embeds_the_blueprint_contract() -> None:
     assert "tracks" in blueprint["required"]
     assert "BlueprintTrack" in schema["$defs"]
     assert "Once a design has a blueprint" in blueprint["description"]
+
+
+def test_plan_fidelity_rejects_renaming_an_approved_field_key():
+    blueprint = _blueprint()
+    operations = [(item["tool"], item["args"]) for item in _plan()]
+    fields = operations[1][1]["entry_types"][0]["fields"]
+    due = next(field for field in fields if field["key"] == "due_date")
+    due["key"] = "target_date"
+    errors = plan_fidelity_errors(blueprint, operations, new_app=True)
+    assert any(
+        "must retain approved key 'due_date', not 'target_date'" in error
+        for error in errors
+    )
