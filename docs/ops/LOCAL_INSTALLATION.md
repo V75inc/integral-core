@@ -12,7 +12,7 @@ This checkout implements the launcher. Its version number alone does not establi
 
 ## First launch
 
-Integral AI is built in and selected automatically. No harness flag, agent identifier, companion package, or agent YAML is required. Create your account, open Settings → AI Models, and connect a provider/model. For a local Ollama model, choose Ollama and its local endpoint; no cloud API key is needed. A server can instead supply `INTEGRAL_NATIVE_MODEL=provider/model` and the corresponding provider credentials in `settings.env`. Without a model, Core still starts normally and directs chat users to model setup. It never switches harnesses.
+Integral AI is built in and selected automatically. No harness flag, agent identifier, companion package, or agent YAML is required. Create your account, open Settings → AI Models, and connect a provider/model. Choose Ollama Cloud and save its key to use the cloud endpoint automatically. Choose Ollama Local for a daemon on the backend machine; no cloud API key is needed. The daemon endpoint comes from the server's `OLLAMA_API_BASE`, defaulting to `http://localhost:11434`. A server can instead supply `INTEGRAL_NATIVE_MODEL=provider/model` and the corresponding provider credentials in `settings.env`. Without a model, Core still starts normally and directs chat users to model setup. It never switches harnesses.
 
 ## Try this checkout
 
@@ -45,7 +45,7 @@ Every lifecycle command accepts `--home`. `INTEGRAL_HOME` also selects a data di
 
 Use `integral up --apps /absolute/path/integral-apps` to discover external Apps. Core remembers this path for later launches. App discovery does not grant commercial entitlements or install Apps into a workspace. `integral init` remains the package-authoring command, and `integral web` remains available for connecting a packaged UI to an independently managed API.
 
-Private operator settings may be placed in the installation's `settings.env`. The launcher keeps storage, signing keys, loopback addresses, real auth, and production-mode flags authoritative. It loads this file explicitly rather than importing a source checkout's `.env`. Keep this directory private.
+Private operator settings may be placed in the installation's `settings.env`. The launcher keeps storage, signing keys, loopback addresses, real auth, and production-mode flags authoritative. It loads this file explicitly rather than importing a source checkout's `.env`. Keep this directory private. Malformed or duplicate assignments in `settings.env` are rejected with their line number before startup; existing keys are preserved. Use one `NAME=value` assignment per setting.
 
 ## Authoring and client builds
 

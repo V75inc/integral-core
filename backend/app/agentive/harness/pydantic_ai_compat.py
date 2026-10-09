@@ -465,6 +465,11 @@ def build_integral_history_compaction() -> IntegralHistorySummary:
 
 def classify_integral_harness_exception(exc: BaseException) -> str | None:
     """Translate Pydantic AI failures to Integral's stable error categories."""
+    from app.agentive.harness.model_errors import classified_model_error
+
+    model_code = classified_model_error(exc)
+    if model_code:
+        return model_code
     if isinstance(exc, UsageLimitExceeded):
         return "harness_usage_limit"
     exception_text = str(getattr(exc, "message", exc)).lower()
