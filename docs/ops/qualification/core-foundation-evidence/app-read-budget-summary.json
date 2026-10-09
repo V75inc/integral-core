@@ -1,0 +1,23 @@
+{
+  "fixture": "external App in a disposable synthetic workspace",
+  "scenario": "read-only authoritative record-count request",
+  "before": {
+    "physical_requests": 15,
+    "tool_steps": 20,
+    "reported_input_tokens": 621301,
+    "reported_output_tokens": 4621,
+    "outcome": "safe_generation_limit"
+  },
+  "after": {
+    "physical_requests": 10,
+    "tool_steps": 11,
+    "reported_input_tokens": 126850,
+    "reported_output_tokens": 4960,
+    "outcome": "completed with count unverified because no permitted App read contract was available",
+    "full_model_dump": false
+  },
+  "observed_input_token_reduction_percent": 79.6,
+  "cost_source": "unavailable",
+  "scope": "Core budget and refusal recovery only; App functional correctness is outside this qualification",
+  "provenance": "Aggregate of the original browser reproduction; domain-specific source receipts are maintained downstream."
+}
