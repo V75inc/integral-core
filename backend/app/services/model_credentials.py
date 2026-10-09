@@ -18,6 +18,10 @@ from app.services.credential_crypto import (
     encryption_available,
     encryption_unavailable_reason,
 )
+from app.services.model_provider_endpoints import (
+    OLLAMA_CLOUD_API_BASE,
+    OLLAMA_LOCAL_DEFAULT_API_BASE,
+)
 from app.utils.time import utc_now_iso
 
 logger = logging.getLogger(__name__)
@@ -30,8 +34,8 @@ SUPPORTED_PROVIDERS = frozenset(
 _OPENAI_VALIDATE_URL = "https://api.openai.com/v1/models"
 _ANTHROPIC_VALIDATE_URL = "https://api.anthropic.com/v1/models"
 _OPENROUTER_VALIDATE_URL = "https://openrouter.ai/api/v1/auth/key"
-_OLLAMA_VALIDATE_URL = "https://ollama.com/api/chat"
-_OLLAMA_LOCAL_DEFAULT_BASE_URL = "http://localhost:11434"
+_OLLAMA_VALIDATE_URL = f"{OLLAMA_CLOUD_API_BASE}/api/chat"
+_OLLAMA_LOCAL_DEFAULT_BASE_URL = OLLAMA_LOCAL_DEFAULT_API_BASE
 # Cloud model likely available on ollama.com; used only for key validation.
 _OLLAMA_VALIDATE_MODEL = "gpt-oss:120b"
 

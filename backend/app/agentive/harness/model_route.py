@@ -8,6 +8,24 @@ import os
 from typing import Any
 
 from app.agentive.harness.contracts import ResolvedModelRoute
+from app.services.model_provider_endpoints import OLLAMA_CLOUD_API_BASE
+
+
+async def resolve_native_model_route(
+    *, workspace_id: str, default_model: str
+) -> ResolvedModelRoute:
+    """Reject malformed operator settings with a safe, actionable reason."""
+    try:
+        return await _resolve_native_model_route(
+            workspace_id=workspace_id, default_model=default_model
+        )
+    except ValueError as exc:
+        from app.api.errors import ServiceUnavailableError
+
+        raise ServiceUnavailableError(
+            message="Integral AI model configuration is invalid. Review model setup.",
+            details={"reason": "native_model_configuration_invalid"},
+        ) from exc
 
 
 def _provider_for_model(model: str) -> str:
@@ -86,7 +104,7 @@ def _local_ollama_clear_thinking() -> bool | None:
     return raw in {"true", "1"}
 
 
-async def resolve_native_model_route(
+async def _resolve_native_model_route(
     *, workspace_id: str, default_model: str
 ) -> ResolvedModelRoute:
     """Resolve workspace BYOK or deployment LiteLLM route for one turn.
@@ -187,6 +205,12 @@ async def resolve_native_model_route(
     else:
         ollama_num_ctx = ollama_num_predict = None
         ollama_think = ollama_clear_thinking = None
+        if resolved_provider == "ollama":
+            # A saved Cloud credential was validated at ollama.com. Never let
+            # an unrelated host's local-daemon setting reroute that credential.
+            resolved_provider = "ollama_chat"
+            model = f"ollama_chat/{model.split('/', 1)[1]}"
+            api_base = OLLAMA_CLOUD_API_BASE
     return ResolvedModelRoute(
         provider=resolved_provider,
         model=model,

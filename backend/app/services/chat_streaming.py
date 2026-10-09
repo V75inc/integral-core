@@ -125,6 +125,26 @@ _ERROR_MESSAGES: Dict[str, str] = {
         "it can safely continue. Its work was not replayed. Start a new conversation "
         "for new work, or review the previous run before retrying here."
     ),
+    "model_configuration_invalid": (
+        "Integral AI's model configuration is invalid. Check Settings → AI Models. "
+        "For a server model, ask the administrator to review INTEGRAL_NATIVE_MODEL "
+        "and the Ollama settings in the active installation configuration, then restart."
+    ),
+    "model_authentication_failed": (
+        "The model provider rejected its credentials. Update the API key or model "
+        "access in Settings → AI Models. For a server model, ask the administrator "
+        "to check the provider credentials and restart."
+    ),
+    "model_endpoint_unreachable": (
+        "Integral AI could not reach the model provider. Check the connection. "
+        "For local Ollama, ensure it is running and the server's OLLAMA_API_BASE "
+        "points to a reachable address."
+    ),
+    "model_request_timeout": "The model provider took too long to respond. Check its availability before trying again.",
+    "model_rate_limited": "The model provider's usage limit was reached. Check the provider's quota or try again later.",
+    "model_unavailable": "The selected model is unavailable. Choose an available model in Settings → AI Models.",
+    "model_provider_unavailable": "The model provider is temporarily unavailable. Check its status before trying again.",
+    "model_request_rejected": "The model provider rejected this request. Check that the selected model supports chat and tools in Settings → AI Models.",
     "internal_error": "Something went wrong on our side. Please try again.",
     "scaffold_plan_invalid": (
         "The approved setup could not be built. Please try again."
@@ -213,6 +233,16 @@ def classify_turn_exception(
             == "native_model_not_configured"
         ):
             return "model_setup_required", _ERROR_MESSAGES["model_setup_required"]
+
+        if (
+            isinstance(exc, ServiceUnavailableError)
+            and getattr(exc, "details", {}).get("reason")
+            == "native_model_configuration_invalid"
+        ):
+            return (
+                "model_configuration_invalid",
+                _ERROR_MESSAGES["model_configuration_invalid"],
+            )
 
         if (
             isinstance(exc, ServiceUnavailableError)
