@@ -40,7 +40,7 @@ import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Literal, Optional, Set, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Literal, Optional, Set, Tuple
 
 from app.agentive import staging_store
 from app.agentive.services.approval_policy import effect_class
@@ -1655,6 +1655,102 @@ async def get_token(token: str) -> Optional[StagedChange]:
 
 
 # ---------------------------------------------------------------------------
+async def replace_partial_batch(
+    *,
+    original: StagedChange,
+    operations: List[Dict[str, Any]],
+    user_id: str,
+    session_id: str,
+    workspace_id: str,
+    bind_revision: Callable[[str], Awaitable[None]],
+) -> StagedChange:
+    """Replace approved unfinished input, preserving the immutable successful prefix.
+
+    The caller validates the newly approved design. I-WORK-03/05: token
+    replacement and the conversation binding commit together, or neither does.
+    This shares staging's single-process execution lock, never an active claim.
+    """
+    from app.services.app_operations.transaction_scope import postgres_graph_transaction
+
+    async with _lock:
+        current = await _get_or_load_locked(original.token)
+        if current is None or current is not original:
+            raise StagingError(
+                "partial_build_requires_repair", "The partial batch changed."
+            )
+        if (
+            current.user_id != user_id
+            or current.session_id != session_id
+            or current.workspace_id != workspace_id
+        ):
+            raise StagingError(
+                "wrong_user", "The partial batch belongs to another scope."
+            )
+        if (
+            current.kind != "batch"
+            or current.state != "blessed"
+            or current.is_expired()
+            or current.executing
+        ):
+            raise StagingError(
+                "partial_build_requires_repair",
+                "The partial batch is expired, closed or executing.",
+            )
+        old_ops = current.payload.get("operations") or []
+        progress = current.progress or {}
+        completed = progress.get("completed")
+        if (
+            type(completed) is not int
+            or not 0 < completed < len(old_ops)
+            or len(progress.get("results") or []) != completed
+            or len(operations) != len(old_ops)
+            or operations[:completed] != old_ops[:completed]
+        ):
+            raise StagingError(
+                "partial_build_requires_repair",
+                "A complete, unchanged successful cursor is required.",
+            )
+        for old_op, new_op in zip(old_ops[completed:], operations[completed:]):
+            if old_op == new_op:
+                continue
+            before, after = copy.deepcopy(old_op), copy.deepcopy(new_op)
+            if (
+                before.get("kind") != "create_entry"
+                or after.get("kind") != "create_entry"
+            ):
+                raise StagingError(
+                    "partial_build_requires_repair",
+                    "Only unfinished sample fields can be repaired.",
+                )
+            for op in (before, after):
+                op.get("payload", {}).pop("fields", None)
+                op.get("diff_machine", {}).pop("fields", None)
+            if before != after:
+                raise StagingError(
+                    "partial_build_requires_repair",
+                    "A repair cannot change operation identities.",
+                )
+        replacement = copy.deepcopy(current)
+        replacement.token = _new_token()
+        replacement.created_at = _now()
+        replacement.expires_at = _now() + timedelta(seconds=_DEFAULT_TTL_SECONDS)
+        replacement.blessed_at = _now()
+        replacement.last_error = None
+        replacement.payload["operations"] = copy.deepcopy(operations)
+        replacement.payload["supersedes_token"] = current.token
+        replacement.idempotency_key = f"partial-repair:{replacement.token}"
+        replacement.payload["idempotency_key"] = replacement.idempotency_key
+        replacement.diff_machine["operations"] = copy.deepcopy(operations)
+        async with postgres_graph_transaction():
+            await staging_store.replace_partial(current, replacement)
+            await bind_revision(replacement.token)
+        current.state = "revoked"
+        current.resolved_at = _now()
+        _tokens[replacement.token] = replacement
+    await _push_state_and_record_closure(current)
+    return replacement
+
+
 # Legacy session-autonomy compatibility surface (disabled in V1)
 # ---------------------------------------------------------------------------
 

@@ -1168,7 +1168,7 @@ domains:
         returns: { ok: bool, key: str, kind: str, version: int }
       - name: integral_get_artifact
         status: existing
-        op_class: propose
+        op_class: read
         priority: P2
         summary: Fetch one session artifact by key (full body). Does not stage a write.
         http: "(conversation context)"
@@ -1178,7 +1178,7 @@ domains:
         returns: { ok: bool, key: str, kind: str, title: str, body: str, version: int }
       - name: integral_list_artifacts
         status: existing
-        op_class: propose
+        op_class: read
         priority: P2
         summary: List session artifacts (metadata only), optionally filtered by kind. Does not stage a write.
         http: "(conversation context)"
@@ -2559,7 +2559,7 @@ summary:
   total_tools: 125
   existing_tools: 123    # status: existing
   gap_tools_proposed: 2  # status: gap (workspace_setup, onboard_user deferred)
-  by_op_class: { read: 51, propose: 72, execute: 2 }
+  by_op_class: { read: 53, propose: 70, execute: 2 }
   by_priority: { P0: 15, P1: 41, P2: 69 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"

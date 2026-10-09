@@ -52,7 +52,10 @@ async def pending_design_is_approved_for_reply(
         return False
     # Approval comes from the primary Pydantic AI run selecting the approved
     # build capability. This preflight must not run a second semantic judge.
-    return bool(marker.get("approved"))
+    # A prior turn's approval authorizes its saved revision, not a command to
+    # build on every later reply. Let the primary model select revision versus
+    # resume for this reply; freeze the design only after this run approves it.
+    return bool(marker.get("approved") and marker.get("affirm_run_id") == scope.run_id)
 
 
 async def authorize_pending_design_build(

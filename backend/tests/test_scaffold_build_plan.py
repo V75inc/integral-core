@@ -1289,6 +1289,7 @@ async def test_partial_design_resumes_original_cursor(approved, monkeypatch, sta
 
     approved.design_proposed["partial_build"] = {"batch_token": "original"}
     staged = SimpleNamespace(
+        token="original",
         kind="batch",
         user_id="user-1",
         session_id="thread-1",

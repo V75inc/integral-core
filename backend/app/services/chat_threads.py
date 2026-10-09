@@ -603,7 +603,11 @@ async def record_design_partial_build(
     marker = dict(getattr(thread, "design_proposed", None) or {})
     if not marker.get("approved") or marker.get("build_receipt") or not batch_token:
         return False
-    marker["partial_build"] = {"batch_token": batch_token, "failed_at": utc_now_iso()}
+    marker["partial_build"] = {
+        "batch_token": batch_token,
+        "failed_at": utc_now_iso(),
+        "blueprint": marker.get("blueprint"),
+    }
     thread.design_proposed = marker
     await thread.save()
     return True
@@ -1278,6 +1282,24 @@ async def record_design_proposed(
             ),
         }
 
+    if existing.get("partial_build"):
+        from app.services.scaffold_repair import validate_partial_revision
+
+        try:
+            if not canonical_blueprint or not existing.get("blueprint"):
+                raise ValueError(
+                    "A partial repair requires the original and revised typed blueprint."
+                )
+            await validate_partial_revision(
+                existing,
+                canonical_blueprint,
+                user_id=user_id,
+                session_id=session_id,
+                workspace_id=getattr(thread, "workspace_id", None),
+            )
+        except ValueError as exc:
+            return {"error": "partial_build_requires_repair", "detail": str(exc)}
+
     prior_proposal = _prior_proposal_excerpt(existing) if existing else ""
     replaced = bool(existing) and (
         (existing.get("summary") or "") != summary_text
@@ -1305,6 +1327,11 @@ async def record_design_proposed(
         "approved": False,
     }
     blueprint_fields: Dict[str, Any] = {}
+    if existing.get("partial_build"):
+        thread.design_proposed["partial_build"] = dict(existing["partial_build"])
+        thread.design_proposed["partial_build"].setdefault(
+            "blueprint", existing.get("blueprint")
+        )
     if canonical_blueprint is not None:
         from app.services.design_blueprint import blueprint_diff, blueprint_digest
 

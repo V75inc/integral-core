@@ -142,12 +142,14 @@ class _Session:
 @pytest.mark.parametrize("second_text", ["continue", ""])
 @pytest.mark.parametrize("staging_continuation", [False, True])
 @pytest.mark.parametrize("attachment_only", [False, True])
+@pytest.mark.parametrize("routine_output", ["", "answer", "quiet"])
 async def test_provider_persists_session_and_resumes_previous_run(
     monkeypatch: pytest.MonkeyPatch,
     token_limit: int,
     second_text: str,
     staging_continuation: bool,
     attachment_only: bool,
+    routine_output: str,
 ) -> None:
     """Two turns share a session while resuming separate durable runs."""
     from app.config import settings
@@ -174,8 +176,15 @@ async def test_provider_persists_session_and_resumes_previous_run(
 
     async def prepare(_ctx: Any) -> Any:
         scope = scopes.pop(0)
+        from app.services.scheduled_turn import SILENT_ROUTINE_OUTPUT
+
+        answer = (
+            SILENT_ROUTINE_OUTPUT
+            if scope.run_id == "run-b" and routine_output == "quiet"
+            else f"answer-{scope.run_id}"
+        )
         agent, store = build_native_runtime(
-            model=TestModel(custom_output_text=f"answer-{scope.run_id}"),
+            model=TestModel(custom_output_text=answer),
             instructions="",
             tools=[],
             step_store_backend=backend,
@@ -284,6 +293,7 @@ async def test_provider_persists_session_and_resumes_previous_run(
         extra_data={
             "staging_outcome_continuation": staging_continuation,
             "attachment_only_input": attachment_only,
+            "origin": "routine_task" if routine_output else "",
         },
     )
     second = [event async for event in provider.stream_turn(ctx)]
@@ -294,7 +304,16 @@ async def test_provider_persists_session_and_resumes_previous_run(
         ["thread-a"] if staging_continuation and not second_text else []
     )
     assert observed_instructions[-1] is None
-    if staging_continuation and not second_text:
+    if routine_output and not second_text:
+        from pydantic_ai.messages import SystemPromptPart
+
+        from app.services.scheduled_turn import ROUTINE_EVENT_INSTRUCTIONS
+
+        part = observed_histories[-1][-1].parts[0]
+        assert isinstance(part, SystemPromptPart)
+        assert part.content == ROUTINE_EVENT_INSTRUCTIONS + ctx.system_context
+        assert "Read current records" in part.content
+    elif staging_continuation and not second_text:
         from pydantic_ai.messages import SystemPromptPart
 
         part = observed_histories[-1][-1].parts[0]
@@ -316,9 +335,13 @@ async def test_provider_persists_session_and_resumes_previous_run(
         assert '<untrusted_data name="uploaded_file_references">' in part.content
         assert "new user upload" in part.content
     assert ctx.text == second_text
-    assert [event for event in second if event.get("type") == "text-delta"] == [
-        {"type": "text-delta", "delta": "answer-run-b"}
-    ]
+    if routine_output == "quiet":
+        assert not [event for event in second if event.get("type") == "text-delta"]
+        assert {"type": "routine-no-message"} in second
+    else:
+        assert [event for event in second if event.get("type") == "text-delta"] == [
+            {"type": "text-delta", "delta": "answer-run-b"}
+        ]
     assert observed_prompts == ["continue", second_text or None]
     assert len(observed_limits) == 2
     assert all(limit.request_limit == 20 for limit in observed_limits)

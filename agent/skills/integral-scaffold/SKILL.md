@@ -427,6 +427,13 @@ preflight errors have made no writes and need no second user approval. Do not
 switch to `integral_begin_batch` or author detached library models to work
 around a rejected fresh plan. If the tool reports a partial apply, inspect
 its receipt and repair only the unfinished portion of that existing App.
+If an unfinished sample needs different values, propose the complete revised
+blueprint with the same item IDs, changing only fields of unapplied samples.
+State the missing required values explicitly, retain all tracks, views and
+routines, and wait for approval of that revision. The approved build resumes
+the successful cursor; its operations cannot recreate completed resources.
+Expired or unavailable partial batches require inspecting the existing app
+and explaining what remains; never start another app to bypass recovery.
 
 The saved blueprint is the source of truth for build-plan details. A model-
 generated mismatch is plan repair, not a reason to ask the user to approve the

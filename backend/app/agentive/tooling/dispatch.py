@@ -1031,7 +1031,7 @@ async def _dispatch_service_read(
         if sig is not None and "workspace_id" in sig.parameters:
             kwargs["workspace_id"] = scope
 
-    if session_id and "session_id" not in kwargs:
+    if "session_id" not in kwargs:
         try:
             sig = inspect.signature(service_fn)
         except (TypeError, ValueError):

@@ -1563,6 +1563,15 @@ class PydanticAIProvider:
                 )
                 if (
                     not ctx.text
+                    and (ctx.extra_data or {}).get("origin") == "routine_task"
+                ):
+                    from app.services.scheduled_turn import ROUTINE_EVENT_INSTRUCTIONS
+
+                    host_outcome = ROUTINE_EVENT_INSTRUCTIONS + (
+                        ctx.system_context or ""
+                    )
+                if (
+                    not ctx.text
                     and not host_outcome
                     and (ctx.extra_data or {}).get("attachment_only_input")
                 ):
@@ -1636,7 +1645,14 @@ class PydanticAIProvider:
                 settled_event = settled_text.settled_event()
                 if settled_event is not None:
                     await _assert_work_output_authority_current(work_execution_context)
-                    yield settled_event
+                    from app.services.scheduled_turn import SILENT_ROUTINE_OUTPUT
+
+                    if (ctx.extra_data or {}).get("origin") == "routine_task" and str(
+                        settled_event.get("delta") or ""
+                    ).strip() == SILENT_ROUTINE_OUTPUT:
+                        yield {"type": "routine-no-message"}
+                    else:
+                        yield settled_event
 
             snapshot = await store.latest_snapshot(run_id=scope.run_id)
             if snapshot is None or not snapshot.idempotency_key:
