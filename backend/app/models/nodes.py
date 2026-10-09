@@ -32,13 +32,7 @@ class IntegralApp(Node):
     full analysis.
     """
 
-    # Decouple the persisted entity discriminator from the Python class name.
-    # jvagent's framework also defines a class literally named ``App`` (see
-    # ``jvagent.core.app.App``) that hangs off Root in the same jvspatial DB
-    # when AGENTIVE_ENABLED=1. Without this override, jvspatial's
-    # ``find_subclass_by_name(Node, "App")`` non-deterministically returns
-    # one class for both — causing jvagent's ``isinstance`` checks to miss
-    # its own previously-created App and spawn a fresh duplicate every boot.
+    # Explicit discriminator separates the deployment root from workspace Apps.
     __entity_name__ = "IntegralApp"
 
     name: str = "Integral"
@@ -374,10 +368,8 @@ class Invitation(Node):
 class App(Node):
     """Named grouping of tracks; access can cascade to contained tracks.
 
-    Set to ``"WorkspaceApp"`` to avoid collision with jvagent's own ``App``
-    node class (also a ``Node`` subclass; its discriminator defaults to the
-    class ``__name__`` ``"App"``).  DB rows migrated: ``"Space"`` → ``"App"``
-    → ``"WorkspaceApp"``.
+    The persisted discriminator ``WorkspaceApp`` distinguishes workspace Apps
+    from the deployment root ``IntegralApp``.
     """
 
     __entity_name__ = "WorkspaceApp"
@@ -810,7 +802,7 @@ class Notification(Node):
 class ChatThread(Node):
     """An AI chat conversation owned by a user.
 
-    Maps 1:1 to a provider-side conversation (e.g. jvagent Conversation via
+    Maps 1:1 to a provider-side conversation (through
     ``provider_session_id``). User → ChatThread via ``OWNS``;
     ChatThread → ChatMessage via ``CONTAINS``.
     """

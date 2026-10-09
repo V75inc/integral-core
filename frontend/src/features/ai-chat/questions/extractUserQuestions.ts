@@ -10,7 +10,7 @@ type Toolish = {
 /**
  * Collect clarifying-question envelopes from an assistant message's tool-call
  * parts. Same scan `extractStagedChangesFromParts` performs — the tool result
- * arrives JSON-stringified from jvagent's executor, so it needs coercing
+ * arrives JSON-stringified from native provider's executor, so it needs coercing
  * before the guard can see it.
  *
  * Deduped by `question_id`: a message can carry the same envelope in both

@@ -93,6 +93,8 @@ def test_serves_index_assets_and_spa_fallback(tmp_path: Path) -> None:
         index = web.get("/")
         assert index.status_code == 200
         assert "Integral" in index.text
+        assert index.headers["cache-control"] == "no-store"
+        assert web.get("/index.html").headers["cache-control"] == "no-store"
         asset = web.get("/assets/app.js")
         assert asset.status_code == 200
         assert "console.log" in asset.text
@@ -111,6 +113,7 @@ def test_serves_index_assets_and_spa_fallback(tmp_path: Path) -> None:
             spa = web.get(deep)
             assert spa.status_code == 200, deep
             assert "Integral" in spa.text, deep
+            assert spa.headers["cache-control"] == "no-store", deep
         health = web.get("/api/health")
         assert health.status_code == 200
         assert health.json()["ok"] is True

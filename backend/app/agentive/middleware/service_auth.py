@@ -2,7 +2,7 @@
 
 Validates the X-Integral-Service-Key header against INTEGRAL_SERVICE_KEY,
 then sets request.state.user to the user identified by X-Integral-User-Id.
-This allows jvagent's IntegralAction to call Integral's API on behalf of
+This allows agent runtime's IntegralAction to call Integral's API on behalf of
 a specific user without requiring a user JWT.
 
 D-01 (Plan 01-02): HMAC signature + timestamp are MANDATORY on every
@@ -27,7 +27,7 @@ per-route changes. The handoff token is tagged in the JWT payload
 (`svc_auth=True`, `caller_key_fp=<8-char fingerprint>`) for forensics.
 
 Security: INTEGRAL_SERVICE_KEY must be a strong secret shared between
-Integral and jvagent. Never expose it to clients. The raw key never
+Integral and agent runtime. Never expose it to clients. The raw key never
 appears in logs — `_key_fingerprint()` emits the first 8 chars of
 `sha256(service_key)` for operational identity without leakage.
 """

@@ -8,7 +8,11 @@ uvx --python 3.12 --from integral-core integral up
 
 With an installed package, run `integral up`. It prepares a private PostgreSQL database, starts Core and its packaged web interface, waits for both to be ready, and opens your browser. There is no separate Docker, database, Node, or frontend setup. The initial download requires internet access; later launches reuse the installed environments. AI provider access is configured separately in Settings → AI Models.
 
-This checkout implements the launcher. Its version number alone does not establish a public package release. The current jvagent prerequisite is still a TestPyPI release candidate; use reviewed local wheels until the stable publication lane is ready. Do not add TestPyPI as a general dependency index.
+This checkout implements the launcher. Its version number alone does not establish a public package release. Use a reviewed Core wheel until the stable publication lane is ready. Runtime dependencies resolve from PyPI; no companion agent package is required.
+
+## First launch
+
+Integral AI is built in and selected automatically. No harness flag, agent identifier, companion package, or agent YAML is required. Create your account, open Settings → AI Models, and connect a provider/model. For a local Ollama model, choose Ollama and its local endpoint; no cloud API key is needed. A server can instead supply `INTEGRAL_NATIVE_MODEL=provider/model` and the corresponding provider credentials in `settings.env`. Without a model, Core still starts normally and directs chat users to model setup. It never switches harnesses.
 
 ## Try this checkout
 
@@ -66,18 +70,19 @@ These are cold physical PostgreSQL backups for the same operating system, archit
 For a local release candidate:
 
 ```bash
-integral upgrade --wheel /artifacts/integral_core-VERSION-py3-none-any.whl \
-  --dependency-wheel /artifacts/jvagent-VERSION-py3-none-any.whl
+integral upgrade --wheel /artifacts/integral_core-VERSION-py3-none-any.whl
 ```
 
-The optional dependency wheel keeps candidate provenance explicit while normal dependencies resolve from PyPI. A successful upgrade selects its isolated interpreter for subsequent launches. A failed candidate leaves the pre-upgrade backup available; use the previous release to restore into a fresh directory. Core does not blindly roll back a database that may have undergone migrations.
+The reviewed Core wheel contains its native harness binding and skills; normal dependencies resolve from PyPI. A successful upgrade selects its isolated interpreter for subsequent launches. A failed candidate leaves the pre-upgrade backup available; use the previous release to restore into a fresh directory. Core does not blindly roll back a database that may have undergone migrations.
 
 ## Runtime and client contract
 
-The CLI's JSON descriptor has `contract_version: 1`, installation identity, state, home, API and web URLs, version, supervisor PID and process creation time, and database kind. It contains no tokens or encryption keys. `up` also returns `started`, determined while holding the installation lock. Clients wait for `state: ready`, consume `web_url`, and claim shutdown ownership only when `started` is true. Pass both `--if-pid` and `--if-created` to `stop` to avoid shutting down a replacement supervisor.
+The CLI's JSON descriptor has `contract_version: 1`, installation identity, state, home, API and web URLs, version, supervisor PID and process creation time, database kind, `default_harness_provider_id: integral_native`, and `harness_provider_id` for the running supervisor. It contains no tokens or encryption keys. `up` also returns `started`, determined while holding the installation lock. Clients wait for `state: ready`, consume `web_url`, and claim shutdown ownership only when `started` is true. Pass both `--if-pid` and `--if-created` to `stop` to avoid shutting down a replacement supervisor.
 
 Core owns the database helper, API, workspace and their supervisor. Lifecycle operations are locked per installation. PID checks include process creation time. A private authenticated readiness handshake verifies the served installation rather than trusting any process listening on a port.
 
 The PostgreSQL helper is pinned to pgserver 0.1.4 in a separate Python 3.12 environment. Available native wheels cover macOS Intel/Apple Silicon, Linux x86-64, and Windows x86-64. Linux ARM and other architectures are not qualified by this launcher. First-launch provisioning and native installers must be tested on each advertised platform before release.
 
 Electron belongs in Integral Business. It calls this public launcher contract and loads the same Core workspace over loopback HTTP; Core contains no Electron or commercial App imports. See [deployment](DEPLOY.md) for hosted environments and [qualification](QUALIFICATION.md) for the separate release gates.
+
+The packaged workspace serves HTML with `Cache-Control: no-store`, so upgrades do not reuse an old interface that names removed JavaScript assets. Business also clears its HTTP cache before opening a managed local workspace; account settings and saved model configuration remain in the installation.

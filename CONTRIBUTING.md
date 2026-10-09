@@ -1,6 +1,6 @@
 # Contributing to Integral
 
-Thank you for contributing. This repo is a monorepo (React frontend, Python/jvspatial backend, optional jvagent bundle).
+Thank you for contributing. This repo is a monorepo (React frontend, Python/jvspatial backend, and the built-in Integral AI resident).
 
 ## Getting started
 
@@ -13,11 +13,11 @@ Thank you for contributing. This repo is a monorepo (React frontend, Python/jvsp
 
 3. Follow [README.md](README.md) for backend and frontend setup.
 
-**jvagent pin:** pinned in `backend/pyproject.toml` and resolved through
-`backend/uv.lock`, which is the single source of truth — install with
-`uv sync --frozen --extra dev --extra test`. Release candidates are published
-to TestPyPI only; `pyproject.toml` carries a scoped `[tool.uv.index]` entry so
-`uv` can reach them without exposing the whole tree to that index.
+**Runtime dependencies:** `backend/pyproject.toml` and `backend/uv.lock`
+define the single supported runtime. Install with
+`uv sync --frozen --extra dev --extra test`. Integral AI is built in and always
+active; no harness selection or activation environment variable is required.
+Configure a model through Settings → AI Models.
 
 ## Development workflow
 

@@ -390,10 +390,10 @@ async def test_invalid_local_ollama_context_size_fails_closed(monkeypatch) -> No
 
 
 @pytest.mark.asyncio
-async def test_invalid_default_model_route_fails_before_credential_lookup(
+async def test_invalid_default_model_route_fails_when_no_workspace_override(
     monkeypatch,
 ) -> None:
-    """An untrusted or malformed model name is never sent to the resolver."""
+    """Workspace credentials take precedence; a malformed fallback still fails."""
     called = False
 
     async def resolve(workspace_id: str, *, include_credential_identity=False):
@@ -409,7 +409,7 @@ async def test_invalid_default_model_route_fails_before_credential_lookup(
         await resolve_native_model_route(
             workspace_id="workspace-1", default_model="gpt-4.1"
         )
-    assert called is False
+    assert called is True
 
 
 @pytest.mark.asyncio
@@ -451,3 +451,48 @@ async def test_native_local_and_byok_routes_bypass_platform_quota(monkeypatch, l
     )
     assert route.credential_source == ("local" if local else "workspace_byok")
     gate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_workspace_model_works_without_a_deployment_model(monkeypatch):
+    lookup = AsyncMock(
+        return_value={
+            "slots": {"default": {"model": "openai/gpt-test", "api_key": "synthetic"}},
+            "credential_ref": "test:v1",
+        }
+    )
+    monkeypatch.setattr(
+        "app.services.model_credential_resolver.resolve_agent_model_override", lookup
+    )
+    route = await resolve_native_model_route(
+        workspace_id="workspace-1", default_model=""
+    )
+    assert route.model == "openai/gpt-test"
+    assert route.credential_source == "workspace_byok"
+    lookup.assert_awaited_once_with("workspace-1", include_credential_identity=True)
+
+
+@pytest.mark.asyncio
+async def test_missing_model_produces_setup_error_without_harness_fallback(monkeypatch):
+    from app.api.errors import ServiceUnavailableError
+
+    monkeypatch.setattr(
+        "app.services.model_credential_resolver.resolve_agent_model_override",
+        AsyncMock(return_value=None),
+    )
+    with pytest.raises(ServiceUnavailableError, match="Integral AI needs a model"):
+        await resolve_native_model_route(workspace_id="workspace-1", default_model="")
+
+
+def test_unconfigured_native_model_has_actionable_chat_error():
+    from app.api.errors import ServiceUnavailableError
+    from app.services.chat_streaming import classify_turn_exception
+
+    error = ServiceUnavailableError(
+        message="private debug detail",
+        details={"reason": "native_model_not_configured"},
+    )
+    code, message = classify_turn_exception(error)
+    assert code == "model_setup_required"
+    assert "Settings" in message and "Ollama" in message
+    assert "private debug detail" not in message

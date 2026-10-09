@@ -82,10 +82,10 @@ bump is enough. A manual tag still publishes that commit.
      --index-url https://test.pypi.org/simple \
      --no-deps \
      --dest ./wheels \
-     'integral-core==0.1.1rc12' 'jvagent==0.1.8rc20'
+     'integral-core==<published-candidate>'
    pip install \
      --index-url https://pypi.org/simple \
-     ./wheels/integral_core-*.whl ./wheels/jvagent-*.whl
+     ./wheels/integral_core-*.whl
    integral init ./my-integral
    test -f ./my-integral/integral-apps/.gitkeep
    test ! -e ./my-integral/integral-apps/starter
@@ -94,10 +94,9 @@ bump is enough. A manual tag still publishes that commit.
    ```
 
    Do not add TestPyPI as a general extra index. Pip will then prefer a
-   broken `fastapi` sdist published there. Download only these two
-   pre-release wheels and resolve every other dependency from PyPI.
-   `jvagent` is a normal version pin. A direct wheel URL is rejected at
-   upload. `integral init` is on the wheel from `0.1.1rc4` (that cut writes
+   unrelated packages published there. Download only the Core candidate
+   wheel and resolve its runtime dependencies from PyPI. Substitute an actually
+   published candidate above; a locally built version is not publication proof. `integral init` is on the wheel from `0.1.1rc4` (that cut writes
    a starter App). From `0.1.1rc5`, `integral init` is blank unless
    `--slug` is passed, and `integral web` serves the workspace.
 

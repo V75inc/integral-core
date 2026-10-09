@@ -24,7 +24,7 @@ async def test_qualification_export_projects_only_safe_receipt_fields(
         run_id="run-1",
         user_id="user-1",
         workspace_id="workspace-1",
-        provider_id="jvagent",
+        provider_id="integral_native",
         agent_id="agent-1",
         status="succeeded",
         capability_version="tool-manifest-v1",
@@ -33,7 +33,7 @@ async def test_qualification_export_projects_only_safe_receipt_fields(
         capability_snapshot={"secret_declaration": "do-not-export"},
         metadata={
             "harness": {
-                "provider_id": "jvagent",
+                "provider_id": "integral_native",
                 "provider_label": "Resident",
                 "agent_id": "agent-1",
             },
@@ -146,7 +146,7 @@ async def test_qualification_export_endpoint_is_scope_bound(
             "run_id": run_id,
             "status": "succeeded",
             "provider_configuration": {
-                "provider_id": "jvagent",
+                "provider_id": "integral_native",
                 "provider_label": "Resident",
                 "agent_id": "",
                 "capability_version": "tool-manifest-v1",

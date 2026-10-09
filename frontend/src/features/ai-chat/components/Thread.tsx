@@ -753,11 +753,11 @@ function AssistantActionBar({ debugOnly = false }: { debugOnly?: boolean }) {
     (s) => (s.message.metadata?.custom as { steps?: unknown[] })?.steps,
   );
   const timing = useAuiState((s) => s.message.metadata?.timing);
-  // The assembled assistant message IS the server's response (jvagent streams
+  // The assembled assistant message IS the server's response (native provider streams
   // it back as deltas which the runtime accumulates into these parts).
   const responseContent = useAuiState((s) => s.message.content);
   const responseStatus = useAuiState((s) => s.message.status);
-  // Authoritative final answer captured at end-of-stream (jvagent `final`
+  // Authoritative final answer captured at end-of-stream (native provider `final`
   // chunk). `finalContent` = the settled answer text; `finalPayload` = the full
   // final chunk. This is jvchat's `debugData` equivalent — the debug view's
   // source-of-truth when present.

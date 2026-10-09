@@ -204,7 +204,7 @@ Use `type: member` to refer to an account. Materialize HAS_MEMBER_REF and valida
 
 ### I-CHAT-01 — No raw node id surfaces in human-facing chat or staging text
 
-**Scope:** `backend/app/services/id_resolver.py` (the resolver), and every surface that renders agent-authored or staging text to a person: `backend/app/services/chat_streaming.py`, `backend/app/api/ai_chat.py`, `backend/app/providers/jvagent_streaming.py`, `backend/app/agentive/staging.py`, `backend/app/agentive/api/staging.py`.
+**Scope:** `backend/app/services/id_resolver.py` (the resolver), and every surface that renders agent-authored or staging text to a person: `backend/app/services/chat_streaming.py`, `backend/app/api/ai_chat.py`, `backend/app/services/chat_providers/pydantic_ai_provider.py`, `backend/app/agentive/staging.py`, `backend/app/agentive/api/staging.py`.
 
 **Rule:** Text a person reads — assistant chat prose (live stream + persisted transcript) and staging-card `summary`/`diff_human` (including error messages and batch op previews) — MUST NOT contain a raw node id (`n.<Type>.<hex>`, `o.<Type>.<hex>`). Every such surface routes its text through `id_resolver.humanize_ids`, the single canonical pass that replaces each id with the node's human label. Resolution is schema-agnostic (any node type, via the discriminator-dispatching `Node.get`/`Object.get`), batched (`resolve_id_labels`, one `$in` query per collection), and best-effort (an unresolvable id degrades to `"<Type> …<last4>"`, never a raw id).
 

@@ -42,7 +42,6 @@ services:
       JVSPATIAL_HOST: 0.0.0.0
       JVSPATIAL_PORT: "4000"
       JVSPATIAL_DEBUG: "false"
-      INTEGRAL_NATIVE_HARNESS_ENABLED: "true"
       INTEGRAL_NATIVE_MODEL: ${INTEGRAL_NATIVE_MODEL:-ollama/deepseek-v4.1-flash:cloud}
       JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY: ${JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY:?run scripts/bootstrap_env.sh to generate the OAuth encryption key}
       JVSPATIAL_DB_TYPE: postgres
@@ -85,13 +84,6 @@ services:
       EMAIL_PROVIDER: console
       APP_BASE_URL: http://localhost:9006
       JVSPATIAL_CORS_ORIGINS: http://localhost:9006,http://127.0.0.1:9006,http://localhost:4002,http://127.0.0.1:4002
-      # Chat requires embedded jvagent (agent catalog + streaming). main.py resolves
-      # app_root as parents[2]/agent from backend/app/main.py → /agent in this image.
-      JVAGENT_UPDATE_MODE: source
-      # The local API mounts the jvagent checkout below. Put it ahead of the
-      # packaged dependency so the running stack exercises the enhanced harness
-      # source rather than the image's build-time wheel.
-      PYTHONPATH: /opt/jvagent-src
       # Local Ollama runs on the host by default. Override with
       # OLLAMA_API_BASE=https://ollama.com for Ollama Cloud deployments.
       OLLAMA_API_BASE: ${OLLAMA_API_BASE:-http://host.docker.internal:11434}
@@ -105,10 +97,6 @@ services:
     volumes:
       - integral_local_data:/app/integral_data
       - integral_local_files:/tmp/integral_files
-      - ./agent:/agent:ro
-      # Live local harness source; PYTHONPATH above makes this checkout win
-      # over the build-time wheel so browser testing covers the active jvagent.
-      - ../jv/jvagent:/opt/jvagent-src:ro
 
   web:
     build:

@@ -1,27 +1,7 @@
-"""Per-turn agent scope binding.
+"""Per-turn principal, workspace and focus bindings.
 
-The chat router sets ``current_scope_workspace_id`` once per request from
-the ``X-Integral-Scope`` header. The in-process agent action
-(``EmbeddedIntegralAction``) reads this ContextVar in ``_stub_request``
-and re-emits ``X-Integral-Scope: ws:<id>`` on every backend handler
-call so the agent's read/list tools (list_tracks, query_entries, etc.)
-filter by the workspace the user has selected in the UI rather than
-falling back to the user's Personal Workspace.
-
-Why a ContextVar (not a module attribute):
-- The chat runtime is multi-tenant; concurrent turns from different
-  users must not bleed into each other.
-- ``asyncio`` preserves ContextVar values across ``await``s within the
-  same Task, which matches the embed call graph (chat router →
-  jvagent.embed → InteractWalker → cockpit → skill execute → action).
-- A token-based ``set`` / ``reset`` keeps the binding strictly scoped
-  to one turn.
-
-Defined here (not on the action module) so both backend services and
-the agent-side action can import from a stable, well-known path. The
-action module ships under the jvagent app dir and is loaded via
-``spec_from_file_location``, so its import name is not stable enough
-to depend on from the backend side.
+ContextVars isolate concurrent native turns. The broker binds validated scope
+for every tool call; no model argument can replace the authenticated principal.
 """
 
 from __future__ import annotations

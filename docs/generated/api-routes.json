@@ -735,7 +735,7 @@
     ],
     "source": "backend/app/agentive/api/uplink.py",
     "handler": "agent_heartbeat_system",
-    "line": 357
+    "line": 351
   },
   {
     "path": "/agentive/uplink/register",
@@ -1095,7 +1095,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "list_providers",
-    "line": 845
+    "line": 833
   },
   {
     "path": "/chat/providers/{provider_id}/agents",
@@ -1104,7 +1104,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "list_provider_agents",
-    "line": 931
+    "line": 919
   },
   {
     "path": "/chat/runs/{run_id}/qualification-export",
@@ -1113,7 +1113,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "export_qualification_run",
-    "line": 857
+    "line": 845
   },
   {
     "path": "/chat/threads",
@@ -1122,7 +1122,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "list_threads",
-    "line": 956
+    "line": 944
   },
   {
     "path": "/chat/threads",
@@ -1131,7 +1131,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "create_thread",
-    "line": 1060
+    "line": 1048
   },
   {
     "path": "/chat/threads/{thread_id}",
@@ -1140,7 +1140,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "delete_thread",
-    "line": 1132
+    "line": 1120
   },
   {
     "path": "/chat/threads/{thread_id}",
@@ -1149,7 +1149,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "get_thread",
-    "line": 1105
+    "line": 1093
   },
   {
     "path": "/chat/threads/{thread_id}",
@@ -1158,7 +1158,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "rename_thread",
-    "line": 1117
+    "line": 1105
   },
   {
     "path": "/chat/threads/{thread_id}/agent-turn",
@@ -1167,7 +1167,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "agent_turn",
-    "line": 2892
+    "line": 2880
   },
   {
     "path": "/chat/threads/{thread_id}/cancel",
@@ -1176,7 +1176,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "cancel_thread",
-    "line": 3097
+    "line": 3085
   },
   {
     "path": "/chat/threads/{thread_id}/harness-sessions/{session_id}/export",
@@ -1185,7 +1185,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "export_harness_session_for_thread",
-    "line": 889
+    "line": 877
   },
   {
     "path": "/chat/threads/{thread_id}/messages",
@@ -1194,7 +1194,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "send_message",
-    "line": 1870
+    "line": 1858
   },
   {
     "path": "/chat/threads/{thread_id}/system-message",
@@ -1203,7 +1203,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "append_system_message",
-    "line": 3114
+    "line": 3102
   },
   {
     "path": "/chat/threads/{thread_id}/work-items/{work_item_id}/cancel",
@@ -1212,7 +1212,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "cancel_chat_turn",
-    "line": 778
+    "line": 766
   },
   {
     "path": "/chat/threads/{thread_id}/work-items/{work_item_id}/events",
@@ -1221,7 +1221,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "replay_chat_turn_events",
-    "line": 691
+    "line": 679
   },
   {
     "path": "/chat/threads/{thread_id}/work-items/{work_item_id}/stream",
@@ -1230,7 +1230,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "stream_chat_turn_events",
-    "line": 734
+    "line": 722
   },
   {
     "path": "/extension-view-frame",

@@ -9,8 +9,8 @@ vi.mock("../../useAgentCatalog", () => ({
 import { useAgentCatalog } from "../../useAgentCatalog";
 
 const mockProvider = {
-  id: "jvagent",
-  label: "jvagent",
+  id: "integral_native",
+  label: "integral_native",
   serverPersisted: true,
   capabilities: {
     reasoning: true,

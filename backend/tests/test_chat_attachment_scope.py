@@ -27,7 +27,7 @@ async def test_chat_attachment_wired_from_thread():
     """A chat-owned Attachment attaches to its ChatThread via HAS_ATTACHMENT."""
     thread = await chat_store.create_thread(
         user_id="u1",
-        provider_id="jvagent",
+        provider_id="integral_native",
         workspace_id="ws1",
     )
     attachment = await Attachment.create(
@@ -50,7 +50,7 @@ async def test_chat_attachment_reachable_from_thread_reverse_edge():
     """The attachment can find its owning thread by walking the edge in."""
     thread = await chat_store.create_thread(
         user_id="u1",
-        provider_id="jvagent",
+        provider_id="integral_native",
         workspace_id="ws1",
     )
     attachment = await Attachment.create(

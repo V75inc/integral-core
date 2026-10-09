@@ -1,114 +1,70 @@
-"""Tests for provider-side agent catalog discovery."""
-
-from unittest.mock import patch
+"""Native-only registration and fresh-install model setup contracts."""
 
 import pytest
-from httpx import AsyncClient
 
-from app.services.chat_providers.jvagent_provider import JvagentProvider
+from app.main import app as core_app
+from app.services.chat_providers.pydantic_ai_provider import PydanticAIProvider
+from app.services.chat_providers.registry import get_registry
 
 
-@pytest.mark.asyncio
-async def test_jvagent_list_agents_embed_path():
-    """Embed-mode list_agents() proxies jvagent.embed.list_agents()."""
-    provider = JvagentProvider()
-    fake_agents = [
-        {
-            "id": "agt-1",
-            "namespace": "ns",
-            "name": "Iris",
-            "alias": "iris",
-            "enabled": True,
-            "description": "Friendly assistant",
-        },
-        {
-            "id": "agt-2",
-            "namespace": "ns",
-            "name": "Aiva",
-            "alias": "aiva",
-            "enabled": True,
-            "description": "Sales associate",
-        },
-    ]
-    with (
-        patch.object(provider, "_embed_configured", return_value=True),
-        patch("jvagent.embed.list_agents", return_value=fake_agents),
-    ):
-        result = await provider.list_agents()
-
-    assert len(result) == 2
-    # id = jvspatial Agent node id (used directly by embed.interact_stream).
-    assert result[0]["id"] == "agt-1"
-    # name = alias (friendly display label).
-    assert result[0]["name"] == "iris"
-    assert result[0]["description"] == "Friendly assistant"
-    assert result[1]["id"] == "agt-2"
-    assert result[1]["name"] == "aiva"
+def test_native_is_the_only_registered_core_harness():
+    assert core_app is not None
+    registry = get_registry()
+    assert registry.default().id == "integral_native"
+    assert registry.get("jvagent") is None
+    assert [provider.id for provider in registry.list()] == ["integral_native"]
 
 
 @pytest.mark.asyncio
-async def test_jvagent_list_agents_disabled_returns_empty():
-    """When neither transport is wired, catalog is empty."""
-    provider = JvagentProvider()
-    with (
-        patch.object(provider, "_embed_configured", return_value=False),
-        patch.object(provider, "_http_configured", return_value=False),
-    ):
-        result = await provider.list_agents()
-    assert result == []
+async def test_native_catalog_exists_without_environment(monkeypatch):
+    monkeypatch.delenv("INTEGRAL_NATIVE_MODEL", raising=False)
+    monkeypatch.setenv("INTEGRAL_NATIVE_HARNESS_ENABLED", "false")
+    provider = PydanticAIProvider()
+    assert provider.is_available()
+    assert (await provider.list_agents())[0]["id"] == "integral_core"
 
 
 @pytest.mark.asyncio
-async def test_jvagent_list_agents_skips_disabled_agents():
-    """enabled=False agents are omitted from the catalog."""
-    provider = JvagentProvider()
-    fake_agents = [
-        {"id": "1", "name": "On", "alias": "on", "enabled": True, "description": ""},
-        {"id": "2", "name": "Off", "alias": "off", "enabled": False, "description": ""},
-    ]
-    with (
-        patch.object(provider, "_embed_configured", return_value=True),
-        patch("jvagent.embed.list_agents", return_value=fake_agents),
-    ):
-        result = await provider.list_agents()
-    # id = jvspatial node id; disabled entry omitted entirely.
-    assert [a["id"] for a in result] == ["1"]
-    assert [a["name"] for a in result] == ["on"]
-
-
-@pytest.mark.asyncio
-async def test_jvagent_list_agents_returns_empty_on_runtime_exception():
-    """If jvagent.embed.list_agents raises, catalog falls back to empty."""
-    provider = JvagentProvider()
-    with (
-        patch.object(provider, "_embed_configured", return_value=True),
-        patch("jvagent.embed.list_agents", side_effect=RuntimeError("boom")),
-    ):
-        result = await provider.list_agents()
-    assert result == []
-
-
-@pytest.mark.asyncio
-async def test_get_provider_agents_endpoint(authenticated_client: AsyncClient):
-    """Endpoint returns the provider's agent catalog."""
-    fake_agents = [
-        {"id": "iris", "name": "Iris", "description": "Friendly assistant"},
-    ]
-    with patch(
-        "app.services.chat_providers.jvagent_provider.JvagentProvider.list_agents",
-        return_value=fake_agents,
-    ):
-        response = await authenticated_client.get("/api/chat/providers/jvagent/agents")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["agents"][0]["id"] == "iris"
-
-
-@pytest.mark.asyncio
-async def test_get_provider_agents_unknown_provider_400(
-    authenticated_client: AsyncClient,
+async def test_retired_harness_cannot_create_threads_or_list_agents(
+    authenticated_client,
 ):
-    response = await authenticated_client.get(
-        "/api/chat/providers/no-such-provider/agents"
+    for path in ["/api/chat/providers/jvagent/agents"]:
+        response = await authenticated_client.get(path)
+        assert response.status_code == 400
+    response = await authenticated_client.post(
+        "/api/chat/threads", json={"provider_id": "jvagent"}
     )
     assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_native_can_create_thread_without_model_environment(
+    authenticated_client, monkeypatch
+):
+    monkeypatch.delenv("INTEGRAL_NATIVE_MODEL", raising=False)
+    monkeypatch.delenv("INTEGRAL_NATIVE_HARNESS_ENABLED", raising=False)
+    response = await authenticated_client.post(
+        "/api/chat/threads", json={"provider_id": "integral_native"}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["agent_id"] == "integral_core"
+
+
+def test_distributable_has_no_jvagent_dependency_or_runtime_import():
+    import ast
+    from importlib.metadata import requires
+    from pathlib import Path
+
+    assert not any(
+        item.lower().startswith("jvagent") for item in requires("integral-core") or []
+    )
+    app_root = Path(__file__).resolve().parents[1] / "app"
+    for path in app_root.rglob("*.py"):
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                assert all(
+                    not alias.name.startswith("jvagent") for alias in node.names
+                ), path
+            elif isinstance(node, ast.ImportFrom):
+                assert not (node.module or "").startswith("jvagent"), path

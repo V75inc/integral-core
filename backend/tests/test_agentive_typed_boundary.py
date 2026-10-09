@@ -17,12 +17,12 @@ def test_agent_type_literal_defined_once():
 
     AST-based per W3 revision: walks every .py file in app/agentive/ and counts
     Subscript nodes where the value is the name 'Literal' and the slice contains
-    exactly the four canonical strings ('jvagent', 'mcp', 'skill_bundle', 'custom')
+    exactly the four canonical strings ('integral_native', 'mcp', 'skill_bundle', 'custom')
     in any order. Black formatting / line breaks cannot defeat this check.
     """
     import ast
 
-    canonical = {"jvagent", "mcp", "skill_bundle", "custom"}
+    canonical = {"integral_native", "mcp", "skill_bundle", "custom"}
     repo_root = Path(__file__).resolve().parents[2]
     agentive_dir = repo_root / "backend" / "app" / "agentive"
     matches: list[str] = []
@@ -67,7 +67,7 @@ def test_agent_type_literal_defined_once():
 async def test_connector_node_capabilities_round_trip():
     """D-10: Connector.capabilities round-trips as List[str], not coerced."""
     c = await Connector.create(
-        kind="jvagent",
+        kind="custom",
         owner="user-test-1",
         capabilities=["filing", "query", "summarize"],
     )
@@ -99,20 +99,6 @@ async def test_connector_node_seven_fields_round_trip():
     assert fetched.owner == "user-test-2"
     assert fetched.permissions == ["read", "write"]
     assert fetched.capabilities == ["filing"]
-
-
-@pytest.mark.asyncio
-async def test_get_chat_connector_dispatches_by_agent_type():
-    """D-11 vendor-agnostic dispatch — registry routes correctly per agent_type."""
-    from app.agentive.connectors.jvagent_connector import JvAgentConnector
-    from app.agentive.connectors.mcp_stub_connector import McpStubConnector
-    from app.agentive.connectors.registry import get_chat_connector
-
-    assert isinstance(get_chat_connector("jvagent"), JvAgentConnector)
-    assert isinstance(get_chat_connector("mcp"), McpStubConnector)
-    # Alias normalization at the lookup boundary, not in _REGISTRY:
-    assert isinstance(get_chat_connector("integral_assistant"), JvAgentConnector)
-    assert isinstance(get_chat_connector(""), JvAgentConnector)
 
 
 def test_get_chat_connector_unknown_kind_raises():
@@ -151,17 +137,8 @@ async def test_mcp_stub_connector_no_network_call(monkeypatch):
     assert called["http"] is False
 
 
-def test_no_jvagent_dispatch_branches_outside_jvagent_connector():
-    """D-11 invariant (B2 revision): no `if x == "jvagent"` / `agent_type == "jvagent"` /
-    `match agent_type case "jvagent"` branches exist OUTSIDE the jvagent connector module.
-
-    AST-based per B2 revision: the prior grep approach false-positived on legitimate
-    side-effect imports like `from app.agentive.connectors import jvagent_connector` in
-    registry.py / __init__.py. We now walk the AST and look ONLY for actual dispatch
-    branches — Compare nodes with Eq op against Constant("jvagent") and match-case
-    patterns — which are the real vendor-coupling regression vector. Imports, type
-    aliases, comments, and docstrings are all naturally ignored.
-    """
+def test_no_jvagent_dispatch_branches_anywhere():
+    """The retired harness has no dispatch branches or special-case modules."""
     import ast
 
     repo_root = Path(__file__).resolve().parents[2]
@@ -170,12 +147,6 @@ def test_no_jvagent_dispatch_branches_outside_jvagent_connector():
 
     for py_path in agentive_dir.rglob("*.py"):
         rel = str(py_path.relative_to(repo_root))
-        # Allow: the jvagent connector module itself owns its name + branches.
-        if rel.endswith("connectors/jvagent_connector.py"):
-            continue
-        # Allow: types.py — declares the canonical Literal.
-        if rel.endswith("agentive/types.py"):
-            continue
         try:
             tree = ast.parse(py_path.read_text(encoding="utf-8"))
         except SyntaxError:
@@ -205,9 +176,8 @@ def test_no_jvagent_dispatch_branches_outside_jvagent_connector():
                 ):
                     offending.append(f"{rel}:{pat.value.lineno}: match case 'jvagent'")
 
-    assert not offending, (
-        "D-11 vendor-neutrality regression — jvagent dispatch branches found "
-        "outside jvagent_connector.py / types.py:\n" + "\n".join(offending)
+    assert not offending, "Retired harness dispatch branches found:\n" + "\n".join(
+        offending
     )
 
 

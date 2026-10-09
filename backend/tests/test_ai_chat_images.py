@@ -1,7 +1,7 @@
 """Chat image attachments (Slice A) — schema validation + vision injection.
 
 Images dropped in chat are sent inline as base64 and injected into the turn's
-``visitor.data["image_urls"]`` so the jvagent vision reflex can see them. These
+``visitor.data["image_urls"]`` so the native provider vision reflex can see them. These
 tests cover the ``SendMessageRequest`` schema and that ``send_message`` forwards
 ``image_urls`` to the provider via ``ctx.extra_data``.
 """
@@ -37,6 +37,9 @@ def test_accepts_image_only_message():
 def test_rejects_empty_text_and_no_images():
     with pytest.raises(ValueError):
         SendMessageRequest.model_validate({"text": "", "images": None})
+
+
+pytestmark = pytest.mark.usefixtures("standalone_chat_provider")
 
 
 @pytest.mark.parametrize(
@@ -109,7 +112,7 @@ async def test_send_message_injects_image_urls(
     create = await authenticated_client.post(
         "/api/chat/threads",
         headers=_scope_headers(workspace_id),
-        json={"provider_id": "jvagent", "agent_id": "aiva"},
+        json={"provider_id": "test-provider", "agent_id": "aiva"},
     )
     thread_id = create.json()["id"]
 
@@ -121,7 +124,7 @@ async def test_send_message_injects_image_urls(
             yield  # async generator, yields nothing
 
     with patch(
-        "app.services.chat_providers.jvagent_provider.JvagentProvider.stream_turn",
+        "tests.chat_provider_double.StandaloneTestProvider.stream_turn",
         new=fake_stream,
     ):
         resp = await authenticated_client.post(
@@ -142,7 +145,7 @@ async def test_host_policy_stays_out_of_user_utterance(
     create = await authenticated_client.post(
         "/api/chat/threads",
         headers=_scope_headers(workspace_id),
-        json={"provider_id": "jvagent", "agent_id": "aiva"},
+        json={"provider_id": "test-provider", "agent_id": "aiva"},
     )
     thread_id = create.json()["id"]
     user_text = (
@@ -157,7 +160,7 @@ async def test_host_policy_stays_out_of_user_utterance(
             yield
 
     with patch(
-        "app.services.chat_providers.jvagent_provider.JvagentProvider.stream_turn",
+        "tests.chat_provider_double.StandaloneTestProvider.stream_turn",
         new=fake_stream,
     ):
         resp = await authenticated_client.post(
@@ -193,7 +196,7 @@ async def test_prompt_sheet_resume_uses_host_context_without_user_utterance(
     create = await authenticated_client.post(
         "/api/chat/threads",
         headers=_scope_headers(workspace_id),
-        json={"provider_id": "jvagent", "agent_id": "aiva"},
+        json={"provider_id": "test-provider", "agent_id": "aiva"},
     )
     thread_id = create.json()["id"]
     thread = await ChatThread.get(thread_id)
@@ -220,7 +223,7 @@ async def test_prompt_sheet_resume_uses_host_context_without_user_utterance(
             yield
 
     with patch(
-        "app.services.chat_providers.jvagent_provider.JvagentProvider.stream_turn",
+        "tests.chat_provider_double.StandaloneTestProvider.stream_turn",
         new=fake_stream,
     ):
         resp = await authenticated_client.post(

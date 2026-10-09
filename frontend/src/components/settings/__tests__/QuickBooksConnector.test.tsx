@@ -101,7 +101,7 @@ describe('QuickBooksConnectorSettings', () => {
 
   const baseConnector = {
     id: 'conn-1',
-    kind: 'jvagent' as const,
+    kind: 'custom' as const,
     owner: 'u-1',
     auth_state: {
       realm_id: 'realm-1',

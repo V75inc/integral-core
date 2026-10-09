@@ -116,7 +116,7 @@ Composition and access can then remain aligned. A connection expresses a relatio
 
 ## 8. Resident intelligence
 
-The resident AI interprets intent and uses the environment. Its default binding is Integral AI through Pydantic AI. jvagent remains a compatibility harness; Echo supports development and smoke checks.
+The resident AI interprets intent and uses the environment. Its default binding is Integral AI through Pydantic AI. There is no harness selector.
 
 The design is one resident mind per active binding, faceted by principal and scope. Personal, organization-facing, and system facets describe context and authority. They are not a fleet of peer agents exchanging delegated work through another fabric.
 

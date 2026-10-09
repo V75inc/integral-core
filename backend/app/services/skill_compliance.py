@@ -526,18 +526,7 @@ def iter_core_skill_paths() -> List[Path]:
     """Return sorted paths to integral_* core agent SKILL.md files."""
     from app.agentive.resident_root import resident_agent_root
 
-    pattern = (
-        resident_agent_root()
-        / "agents"
-        / "integral"
-        / "integral_agent"
-        / "actions"
-        / "integral"
-        / "embedded_integral_action"
-        / "skills"
-        / "integral-*"
-        / "SKILL.md"
-    )
+    pattern = resident_agent_root() / "skills" / "integral-*" / "SKILL.md"
     return sorted(Path(p) for p in glob.glob(str(pattern)))
 
 

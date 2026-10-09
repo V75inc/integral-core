@@ -50,7 +50,6 @@ services:
       JVSPATIAL_HOST: 0.0.0.0
       JVSPATIAL_PORT: "4000"
       JVSPATIAL_DEBUG: "false"
-      INTEGRAL_NATIVE_HARNESS_ENABLED: "true"
       INTEGRAL_NATIVE_MODEL: ${INTEGRAL_NATIVE_MODEL:-ollama/deepseek-v4.1-flash:cloud}
       INTEGRAL_NATIVE_CREDENTIAL_REF: ${INTEGRAL_NATIVE_CREDENTIAL_REF:-}
       # Inside the compose network the service name "db" resolves; the

@@ -145,7 +145,7 @@ jobs:
           names = zipfile.ZipFile(sys.argv[1]).namelist()
           if not any(name.endswith("app/web/static/index.html") for name in names):
               raise SystemExit("wheel is missing the built frontend")
-          if not any(name.endswith("app/resident_harness/app.yaml") for name in names):
+          if not any(name.endswith("app/resident_harness/skills/integral-scaffold/SKILL.md") for name in names):
               raise SystemExit("wheel is missing the resident harness")
           PY
           INTEGRAL_WHEEL_PATH="$PWD/$WHEEL" make verify-artifact

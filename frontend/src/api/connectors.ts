@@ -16,7 +16,7 @@
  */
 import api from './client';
 
-export type AgentType = 'jvagent' | 'mcp' | 'open_claw' | 'skill_bundle' | 'custom';
+export type AgentType = 'integral_native' | 'mcp' | 'open_claw' | 'skill_bundle' | 'custom';
 
 export interface DiscoveredMcpTool {
   name: string;

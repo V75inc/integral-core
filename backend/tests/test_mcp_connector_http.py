@@ -130,7 +130,7 @@ async def test_refresh_emits_connector_update_change_event(
 async def test_refresh_rejects_non_mcp_connector(authenticated_client: AsyncClient):
     created = await authenticated_client.post(
         "/api/agentive/connectors",
-        json={"kind": "jvagent"},
+        json={"kind": "custom"},
     )
     assert created.status_code in (200, 201), created.text
     connector_id = created.json()["id"]

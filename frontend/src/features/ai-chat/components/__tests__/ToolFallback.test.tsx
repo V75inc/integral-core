@@ -1,6 +1,6 @@
 /**
  * Tool-call result/args rendering — the value must be pretty-printed JSON, not
- * a single-line blob. Regression for the jvagent case where a tool result
+ * a single-line blob. Regression for the native provider case where a tool result
  * arrives as a JSON-ENCODED STRING (Python `json.dumps`, `": "` / `", "`
  * separators) — rendered verbatim it's an unindented one-liner; ToolFallback
  * must parse-then-pretty it via `formatToolValue`.
@@ -22,7 +22,7 @@ const PRETTY = [
 ].join("\n");
 
 describe("ToolFallback result/args formatting", () => {
-  it("pretty-prints a JSON-ENCODED-STRING result (the jvagent case)", () => {
+  it("pretty-prints a JSON-ENCODED-STRING result (the native provider case)", () => {
     const raw =
       '{"scope": "user", "scope_id": null, "workspace_id": "n.Workspace.dc7"}';
     const { container } = render(<ToolFallbackResult result={raw} />);

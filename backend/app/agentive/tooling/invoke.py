@@ -1,11 +1,6 @@
 """In-process route invocation under a resolved principal + bound scope.
 
-Mirrors the established embedded-action pattern (the working reference lives in
-the jvagent app-dir at
-``agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/``
-— ``_stub_request`` / ``_resolve_user`` / ``_call_endpoint``). We reimplement
-it here in the backend so the manifest-driven tool surface does NOT depend on
-the agent app-dir.
+Used by the native capability broker and the authenticated MCP surface.
 
 The shape of the contract: synthesize a minimal request exposing
 ``request.state.user`` (read by :func:`app.api.utils.resolve_principal_id`)

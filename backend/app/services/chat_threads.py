@@ -759,41 +759,16 @@ def _prior_proposal_excerpt(marker: Dict[str, Any], *, limit: int = 6000) -> str
 async def _design_reply_affirms(
     text: str, *, workspace_id: Optional[str], agent_id: Optional[str]
 ) -> bool:
-    from app.services.light_model_judge import light_model_json
-
-    try:
-        verdict = await light_model_json(
-            workspace_id=workspace_id,
-            agent_id=agent_id,
-            system=_AFFIRM_SYSTEM,
-            prompt=text[-2000:],
-            max_tokens=20,
-        )
-    except Exception:  # noqa: BLE001 — a missed yes must not approve a build
-        logger.debug("design affirm judge failed", exc_info=True)
-        return False
-    return verdict.get("affirm") is True
+    """Retired compatibility path; native approval is fenced tool selection."""
+    return False
 
 
 async def _proposal_promises_unbuilt_effect(
     text: str, *, workspace_id: Optional[str], agent_id: Optional[str]
 ) -> str:
     """Short phrase for an outbound effect the build cannot perform, else ""."""
-    from app.services.light_model_judge import light_model_json
-
-    try:
-        verdict = await light_model_json(
-            workspace_id=workspace_id,
-            agent_id=agent_id,
-            system=_UNBUILT_EFFECT_SYSTEM,
-            prompt=text[-4000:],
-            max_tokens=30,
-        )
-    except Exception:  # noqa: BLE001 — a down model must not block every design
-        logger.debug("unbuilt-effect judge failed", exc_info=True)
-        return ""
-    effect = verdict.get("effect")
-    return effect.strip() if isinstance(effect, str) else ""
+    # Native proposal coverage validates typed operations in the primary run.
+    return ""
 
 
 # One verdict per reply on this turn. Gates must not re-ask the model.

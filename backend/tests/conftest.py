@@ -109,10 +109,9 @@ os.environ.setdefault("RATE_LIMIT_DISABLED", "1")
 # exercise the graceful-fallback path explicitly override this with
 # ``monkeypatch.setenv("EMBEDDING_STORE_DRIVER", "null")``.
 os.environ.setdefault("EMBEDDING_STORE_DRIVER", "test_in_memory")
-# Match production/default Integral posture before app.main import: jvagent's
+# Match production/default Integral posture before app.main import: native provider's
 # own HTTP surface stays off. Setting it here (not inside main via bare
 # ``os.environ[...] =``) keeps the env-leak autouse fixture quiet.
-os.environ.setdefault("JVAGENT_EMBED_ENDPOINTS_DISABLED", "1")
 
 
 # Register the in-process test driver before any other imports of
@@ -427,7 +426,6 @@ _UNIT_MODULES = frozenset(
         "test_integral_use_cases",
         "test_integral_skill_placement",
         "test_ai_chat_draft_boundary",
-        "test_jvagent_update_mode",
         "test_operational_model_plugins",
         "test_view_contract_catalog",
         "test_view_card_template",
@@ -1869,3 +1867,14 @@ def _offline_design_affirm(monkeypatch):
         return bool(_OFFLINE_BARE_AFFIRM.match(text) or _OFFLINE_AFFIRM.search(text))
 
     monkeypatch.setattr("app.services.chat_threads._design_reply_affirms", judge)
+
+
+@pytest.fixture
+def standalone_chat_provider(monkeypatch):
+    """Only opted-in generic API tests register this offline provider."""
+    from app.services.chat_providers.registry import get_registry
+    from tests.chat_provider_double import StandaloneTestProvider
+
+    provider = StandaloneTestProvider()
+    monkeypatch.setitem(get_registry()._providers, provider.id, provider)
+    return provider

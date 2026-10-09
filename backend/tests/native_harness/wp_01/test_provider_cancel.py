@@ -44,21 +44,3 @@ def test_pydantic_provider_cancel_hook_is_synchronous() -> None:
     turn.cancel()
 
     assert token.cancelled
-
-
-def test_legacy_jvagent_provider_keeps_cancel_fallback(monkeypatch) -> None:
-    """Legacy provider doubles still cancel embedded jvagent interactions."""
-    from app.providers import jvagent_embed
-
-    called = []
-    monkeypatch.setattr(
-        jvagent_embed, "cancel_interact", lambda *, thread_id: called.append(thread_id)
-    )
-    turn = _TurnHandle()
-
-    register_provider_cancel_hook(
-        turn, thread_id="thread-2", provider=SimpleNamespace(id="jvagent")
-    )
-    turn.cancel()
-
-    assert called == ["thread-2"]

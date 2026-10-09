@@ -39,7 +39,7 @@ status: "PRODUCTION — single source of truth"
 # -----------------------------------------------------------------------------
 conventions:
   naming: "integral_<verb>_<resource>  (CONTEXT D-06; mcp_adapter._name_from_path)"
-  tool_namespace_when_surfaced: "integral__<tool>  (jvagent ToolRegistry reserves action__/harness__/skill__/mcp__; integral_* names are collision-safe)"
+  tool_namespace_when_surfaced: "integral_<tool> (native broker and MCP use the canonical manifest name)"
   identity: "Acting principal resolved by resolve_principal_id(request); NEVER an argument. The single resident agent holds NO ambient authority."
   scope: "Workspace scope bound from X-Integral-Scope (request_scope.resolve_workspace_id_from_request). NO tool accepts a workspace_id that widens scope beyond the caller's bound, validated membership."
   errors: "JVSpatialAPIException subclasses (app/api/errors.py). Insufficient permission => fail-closed denial, never a partial leak."
@@ -94,8 +94,8 @@ privacy_contract:
     rule: "Agents with no Policy grant are denied (fail_closed_no_policy). Ambiguity resolves to denial, never disclosure."
     enforced_by: "policy_engine baseline-policy materialization"
   PC-7_per_user_sandbox:
-    rule: "claude-spec skill scripts and any file IO run in the caller's <agent_id>/<user_id>/ slice (jvagent.core.sandbox). No path escapes it (validate_relative_path rejects abs paths + `..`)."
-    enforced_by: "jvagent/core/sandbox.py; jvagent/action/code_execution"
+    rule: "File exports use the authenticated caller's user_id beneath INTEGRAL_SANDBOX_ROOT. Paths are validated and cannot escape that directory. Native App skills are declarative; they cannot enable filesystem execution."
+    enforced_by: "app/services/attachment_agent.py; app/agentive/harness/broker_tools.py"
   PC-8_audited:
     rule: "Every mutation emits a ChangeEvent with actor_kind=agent + actor_id."
     invariants: [I-APPROVAL-03]
@@ -168,7 +168,7 @@ skill_governance:
       specs_allowed: [jv, claude]
       may_bundle_code: true            # claude-spec scripts run in the per-user sandbox (PC-7)
       tool_references: "any manifest tool"
-      source: "jvagent/skills/*  (skills_source: library)"
+      source: "pydantic-ai-harness standard skill library"
     app_or_track_bundled:
       author: "app / bundle author (semi- or untrusted)"
       specs_allowed: [jv]              # claude-spec FORBIDDEN — no author-supplied code path
@@ -182,7 +182,7 @@ skill_governance:
     - "a non-standard SKILL.md frontmatter field"
   enforcement_layers:   # defense in depth — a bundled SOP cannot exceed the acting user
     - "registration validator (above) — blocks code + unknown-tool references at install time"
-    - "jvagent tool:* access control gates every dispatch"
+    - "Native capability policy and per-call Core authorization gate every dispatch"
     - "policy_engine.evaluate(subject, action, resource) as the ACTING USER on every tool call (PC-1..PC-8)"
   capability_growth_path: "Add a governed tool to this manifest (reviewed + policy-gated + scoped), OR declare a bundle tools[] entry under trust_tier=trusted reaching the substrate only via the ToolContext facade + a frozen hook binding. NEVER custom code inside a skill."
 

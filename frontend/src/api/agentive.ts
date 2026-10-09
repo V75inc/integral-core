@@ -26,8 +26,8 @@ export async function getAgentiveStatus(): Promise<AgentiveStatus> {
 // ── Chat (typed boundary mirroring backend Pydantic models) ────
 
 /** Canonical agent-kind enum. Mirrors `backend/app/agentive/types.py::AgentType`
- *  (Literal["jvagent","mcp","skill_bundle","custom"]) per D-09. */
-export type AgentType = 'jvagent' | 'mcp' | 'skill_bundle' | 'custom';
+ *  (Literal["integral_native","mcp","skill_bundle","custom"]) per D-09. */
+export type AgentType = 'integral_native' | 'mcp' | 'skill_bundle' | 'custom';
 
 /** Vendor-neutral chat-turn request. `email` is NEVER on this body — it comes from
  *  the authenticated session server-side. Client-supplied user identifiers are ignored. */
@@ -48,7 +48,7 @@ export interface ChatTurnRequest {
  *
  *  RESERVED FOR PHASE 6 (BYOA-AWARE UI): `agent_type` echoes which connector handled
  *  the turn. Phase 1 stores it on the message for telemetry; Phase 6 surfaces it in
- *  the UI ("via jvagent" / "via mcp"). */
+ *  the UI ("via native provider" / "via mcp"). */
 export interface ChatTurnResponse {
   ok: boolean;
   message: string;

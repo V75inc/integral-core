@@ -1,6 +1,6 @@
 schema_version: 1
 status: deterministic_contract_ready_live_qualification_pending
-skills_root: agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills
+skills_root: agent/skills
 ownership:
   - intent_class: unclear_first_use_or_workspace_orientation
     owner_skill: integral-onboard

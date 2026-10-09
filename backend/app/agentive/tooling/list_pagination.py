@@ -21,7 +21,7 @@ _AGENT_AUTO_PAGINATE: Dict[str, str] = {
 
 # Manifest tool name -> fields kept on each listed item.
 #
-# Auto-pagination above hands the agent every item, and jvagent then elides the
+# Auto-pagination above hands the agent every item, and agent runtime then elides the
 # result at ``observation_max_chars`` and tells the model to re-run the tool —
 # so breadth bought here was being spent on fields no caller reads. Measured on
 # the dev graph: a Track via ``export_node`` is 639 chars across 16 fields, an

@@ -109,7 +109,7 @@ async def _bootstrap_user_workspace_track_thread(email: str):
 
     thread = await create_thread(
         user_id=auth_user_id,
-        provider_id="jvagent",
+        provider_id="integral_native",
         title="Routine test thread",
         workspace_id=workspace_id,
     )

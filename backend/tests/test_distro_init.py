@@ -83,9 +83,8 @@ def test_init_without_slug_is_a_blank_distro(tmp_path: Path) -> None:
     assert list(apps.glob("*/operational-model.yaml")) == []
     assert f"INTEGRAL_PACKAGE_PATHS={apps}" in (dest / ".env").read_text()
     assert "No App is included" in (dest / "README.md").read_text()
-    override = (dest / "agent.override.yaml").read_text()
-    assert "activation_budget" in override
-    assert yaml_is_comments_only(override)
+    assert not (dest / "agent.override.yaml").exists()
+    assert "Integral AI" in (dest / "README.md").read_text()
 
 
 def yaml_is_comments_only(text: str) -> bool:

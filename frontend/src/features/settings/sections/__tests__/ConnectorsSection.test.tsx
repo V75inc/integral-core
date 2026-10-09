@@ -95,7 +95,7 @@ function makeConnector(
 ): ConnectorResponse {
   return {
     id: 'con-1',
-    kind: 'jvagent',
+    kind: 'custom',
     owner: 'u-1',
     auth_state: {},
     sync_cursor: null,
@@ -506,7 +506,7 @@ describe('<ConnectorsSection />', () => {
   it('Gmail settings live on the connected row, not on home until opened', async () => {
     mockedList.mockResolvedValue({
       connectors: [
-        makeConnector({ id: 'g-1', subclass_slug: 'gmail', kind: 'jvagent' }),
+        makeConnector({ id: 'g-1', subclass_slug: 'gmail', kind: 'custom' }),
       ],
       total: 1,
     });
@@ -550,7 +550,7 @@ describe('<ConnectorsSection />', () => {
     // Modal title appears
     await waitFor(() => {
       expect(
-        screen.getByText(/Edit connector — jvagent:con-1/i),
+        screen.getByText(/Edit connector — custom:con-1/i),
       ).toBeInTheDocument();
     });
   });

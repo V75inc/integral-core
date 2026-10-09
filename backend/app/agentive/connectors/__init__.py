@@ -1,4 +1,4 @@
-"""Pluggable agent chat connectors (jvagent, future: Claude, etc.)
+"""Pluggable agent chat connectors (agent runtime, future: Claude, etc.)
 + reference SyncConnector subclasses (Phase 5 — github_issues, …).
 
 Side-effect imports at the bottom register concrete SyncConnector subclasses

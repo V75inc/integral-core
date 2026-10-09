@@ -961,10 +961,12 @@ class PydanticAIProvider:
     }
 
     def is_available(self) -> bool:
-        """Require an explicit opt-in and trusted deployment model route."""
-        return os.getenv(
-            "INTEGRAL_NATIVE_HARNESS_ENABLED", ""
-        ).lower() == "true" and bool(os.getenv("INTEGRAL_NATIVE_MODEL", "").strip())
+        """The resident harness is built in; model setup is a per-turn concern.
+
+        Old opt-in flags cannot disable native or enable a legacy fallback.
+        Workspace BYOK can supply a route without deployment model env vars.
+        """
+        return True
 
     @staticmethod
     def classify_exception(exc: BaseException) -> str | None:
@@ -973,8 +975,6 @@ class PydanticAIProvider:
 
     async def list_agents(self) -> list[AgentDescriptor]:
         """Expose the resident Core harness as this provider's single agent."""
-        if not self.is_available():
-            return []
         return [
             {
                 "id": "integral_core",
@@ -1154,7 +1154,7 @@ class PydanticAIProvider:
 
         route = await resolve_native_model_route(
             workspace_id=ctx.workspace_id,
-            default_model=os.environ["INTEGRAL_NATIVE_MODEL"].strip(),
+            default_model=os.getenv("INTEGRAL_NATIVE_MODEL", "").strip(),
         )
         model_observer = (
             partial(
@@ -1174,7 +1174,7 @@ class PydanticAIProvider:
                     raise WorkError("work.permission_stale")
                 current_route = await resolve_native_model_route(
                     workspace_id=ctx.workspace_id,
-                    default_model=os.environ["INTEGRAL_NATIVE_MODEL"].strip(),
+                    default_model=os.getenv("INTEGRAL_NATIVE_MODEL", "").strip(),
                 )
                 if current_route != route:
                     raise WorkError("work.model_route_stale")

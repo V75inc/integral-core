@@ -119,7 +119,6 @@ async def test_provider_lists_one_resident_agent_when_available(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Expose one Integral Native agent when the harness is configured."""
-    monkeypatch.setenv("INTEGRAL_NATIVE_HARNESS_ENABLED", "true")
     monkeypatch.setenv("INTEGRAL_NATIVE_MODEL", "ollama/gemma4:26b")
 
     agents = await PydanticAIProvider().list_agents()
@@ -979,17 +978,12 @@ async def test_resume_blocks_unknown_physical_model_request(
         await _resume_history(_scope("next-run"), session, object())
 
 
-def test_provider_is_opt_in_and_requires_trusted_model_config(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The native provider cannot appear without explicit deployment config."""
+def test_provider_is_built_in_without_environment(monkeypatch):
     provider = PydanticAIProvider()
     monkeypatch.delenv("INTEGRAL_NATIVE_HARNESS_ENABLED", raising=False)
     monkeypatch.delenv("INTEGRAL_NATIVE_MODEL", raising=False)
-    assert not provider.is_available()
-    monkeypatch.setenv("INTEGRAL_NATIVE_HARNESS_ENABLED", "true")
-    assert not provider.is_available()
-    monkeypatch.setenv("INTEGRAL_NATIVE_MODEL", "openai/gpt-test")
+    assert provider.is_available()
+    monkeypatch.setenv("INTEGRAL_NATIVE_HARNESS_ENABLED", "false")
     assert provider.is_available()
 
 

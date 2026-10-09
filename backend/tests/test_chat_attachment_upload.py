@@ -33,7 +33,7 @@ def _make_upload(
 async def _make_thread():
     return await chat_store.create_thread(
         user_id="u1",
-        provider_id="jvagent",
+        provider_id="integral_native",
         workspace_id="ws1",
     )
 

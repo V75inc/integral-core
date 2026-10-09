@@ -33,7 +33,7 @@ Core-only mode and an empty App catalog do not disable agentive boot. `AGENTIVE_
 | `INTEGRAL_NATIVE_TURN_TOKEN_LIMIT` | 600000 | Aggregate turn token ceiling |
 | `INTEGRAL_NATIVE_TURN_REQUEST_LIMIT` | 20 | Model requests per turn |
 | `INTEGRAL_HARNESS_SESSION_RETENTION_DAYS` | 90 | Terminal private execution-record retention |
-| `JVAGENT_EMBED_ENDPOINTS_ENABLED` | false | Compatibility harness's separate HTTP surface |
+| `INTEGRAL_NATIVE_MODEL` | unset | Optional server model; workspace model setup works independently |
 
 Configure the model, route, and credential reference according to the selected binding. A default model identifier in Compose is not a supplied credential or a universal provider guarantee.
 

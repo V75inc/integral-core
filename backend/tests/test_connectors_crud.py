@@ -32,7 +32,7 @@ from httpx import AsyncClient
 
 
 async def _create_connector(
-    client: AsyncClient, kind: str = "jvagent", **extra: Any
+    client: AsyncClient, kind: str = "custom", **extra: Any
 ) -> dict:
     """POST /api/agentive/connectors and return the response JSON."""
     body = {"kind": kind, **extra}
@@ -65,7 +65,7 @@ async def test_list_connectors_owner_only(
     User A's LIST returns 2; user B's LIST returns 1. The owner-scope filter
     blocks cross-user enumeration (T-08-02-I01 + T-08-02-I02).
     """
-    a1 = await _create_connector(authenticated_client, kind="jvagent")
+    a1 = await _create_connector(authenticated_client, kind="custom")
     a2 = await _create_connector(authenticated_client, kind="mcp")
     b1 = await _create_connector(second_user_client, kind="custom")
 
@@ -136,7 +136,7 @@ async def test_list_includes_derived_conflict_policy(
     importlib.reload(gh_mod)  # re-fires @register_sync_connector("github_issues")
 
     # No subclass — conflict_policy is None.
-    c_none = await _create_connector(authenticated_client, kind="jvagent")
+    c_none = await _create_connector(authenticated_client, kind="custom")
     r = await authenticated_client.get(f"/api/agentive/connectors/{c_none['id']}")
     assert r.status_code == 200
     assert r.json()["conflict_policy"] is None
@@ -168,7 +168,7 @@ async def test_list_includes_derived_conflict_policy(
 @pytest.mark.asyncio
 async def test_patch_subclass_slug(authenticated_client: AsyncClient, test_user):
     """PATCH with subclass_slug → 200 + persisted + connector.update event in audit log."""
-    c = await _create_connector(authenticated_client, kind="jvagent")
+    c = await _create_connector(authenticated_client, kind="custom")
     r = await authenticated_client.patch(
         f"/api/agentive/connectors/{c['id']}",
         json={"subclass_slug": "github_issues"},
@@ -199,7 +199,7 @@ async def test_patch_sync_interval_seconds(
     authenticated_client: AsyncClient, test_user
 ):
     """PATCH with sync_interval_seconds → 200 + value persists."""
-    c = await _create_connector(authenticated_client, kind="jvagent")
+    c = await _create_connector(authenticated_client, kind="custom")
     r = await authenticated_client.patch(
         f"/api/agentive/connectors/{c['id']}",
         json={"sync_interval_seconds": 600},
@@ -225,7 +225,7 @@ async def test_patch_extra_field_rejected(authenticated_client: AsyncClient, tes
     parse the body manually via ``model_validate``) — what matters is that the
     field never lands.
     """
-    c = await _create_connector(authenticated_client, kind="jvagent")
+    c = await _create_connector(authenticated_client, kind="custom")
     r = await authenticated_client.patch(
         f"/api/agentive/connectors/{c['id']}",
         json={"owner": "spoofed-user-id"},
@@ -254,7 +254,7 @@ async def test_patch_cross_user_returns_404(
     No 403-vs-404 discrimination — both unknown-id and cross-owner return the
     canonical not-found envelope (T-01-04-02 / T-08-02-I01).
     """
-    c_a = await _create_connector(authenticated_client, kind="jvagent")
+    c_a = await _create_connector(authenticated_client, kind="custom")
     r_b = await second_user_client.patch(
         f"/api/agentive/connectors/{c_a['id']}",
         json={"sync_interval_seconds": 999},
@@ -270,7 +270,7 @@ async def test_patch_cross_user_returns_404(
 @pytest.mark.asyncio
 async def test_delete_emits_change_event(authenticated_client: AsyncClient, test_user):
     """DELETE → 204; subsequent GET → 404; connector.delete event present."""
-    c = await _create_connector(authenticated_client, kind="jvagent")
+    c = await _create_connector(authenticated_client, kind="custom")
     r = await authenticated_client.delete(f"/api/agentive/connectors/{c['id']}")
     assert r.status_code == 204, r.text
 
@@ -307,7 +307,7 @@ async def test_delete_cross_user_returns_404(
     second_user_client: AsyncClient,
 ):
     """User A creates a connector; user B deletes → 404 same envelope."""
-    c_a = await _create_connector(authenticated_client, kind="jvagent")
+    c_a = await _create_connector(authenticated_client, kind="custom")
     r_b = await second_user_client.delete(f"/api/agentive/connectors/{c_a['id']}")
     assert r_b.status_code == 404, r_b.text
 
@@ -331,7 +331,7 @@ async def test_single_emission_no_double_event(
     prevents double emission at the call-site level. This test exercises the
     actual emission path end-to-end.
     """
-    c = await _create_connector(authenticated_client, kind="jvagent")
+    c = await _create_connector(authenticated_client, kind="custom")
     r = await authenticated_client.patch(
         f"/api/agentive/connectors/{c['id']}",
         json={"sync_interval_seconds": 120},

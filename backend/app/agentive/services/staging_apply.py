@@ -19,7 +19,6 @@ from app.agentive.staging import (
     consume_token,
     persist_consumed_nav_in_transcript,
     record_execute_outcome,
-    record_external_result_for_agent,
     release_execution_claim,
     resolve_transcript_anchor_for_token,
 )
@@ -231,11 +230,10 @@ async def execute_blessed_change(
             response["staged_change"] = sc.to_dict()
             await persist_consumed_nav_in_transcript(sc, result)
             # Hand the output back to the agent. The transcript patch above
-            # feeds the FE card; jvagent's history build reads only
+            # feeds the FE card; agent runtime's history build reads only
             # utterance + response, so without this a blessed external READ
             # returned its data to the human and never to the model that
             # asked for it.
-            await record_external_result_for_agent(sc, result)
             from app.services.no_fit_route import maybe_file_preserve_after_structure
 
             follow = await maybe_file_preserve_after_structure(

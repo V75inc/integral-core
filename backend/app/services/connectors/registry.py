@@ -2,7 +2,7 @@
 
 Mirrors Phase 1 ``register_connector`` at app/agentive/connectors/registry.py
 verbatim, but renamed ``agent_type`` → ``slug``. Lives in core per locked
-decision #12 (CON-02 — reachable by non-jvagent MCP clients regardless of
+decision #12 (CON-02 — reachable by non-agent runtime MCP clients regardless of
 AGENTIVE_ENABLED).
 
 Test helpers (``reset_sync_registry``) mirror Phase 2's

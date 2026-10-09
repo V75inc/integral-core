@@ -334,7 +334,7 @@ async def attach_sandbox_file_to_entry(
 ) -> Dict[str, Any]:
     """Attach a sandbox-produced file to an entry.
 
-    Reads bytes from ``JVAGENT_SANDBOX_ROOT/<user_id>/<sandbox_path>`` when that
+    Reads bytes from ``INTEGRAL_SANDBOX_ROOT/<user_id>/<sandbox_path>`` when that
     root is configured (co-located agent runtime). Returns a structured error when
     the bridge is unavailable or the file is missing.
     """
@@ -366,13 +366,13 @@ async def attach_sandbox_file_to_entry(
             "message": "You do not have permission to add attachments to this entry",
         }
 
-    root = (os.environ.get("JVAGENT_SANDBOX_ROOT") or "").strip()
+    root = (os.environ.get("INTEGRAL_SANDBOX_ROOT") or "").strip()
     if not root:
         return {
             "error": True,
             "error_code": "sandbox_unavailable",
             "message": (
-                "Sandbox file bridge is not configured (JVAGENT_SANDBOX_ROOT unset)"
+                "Sandbox file bridge is not configured (INTEGRAL_SANDBOX_ROOT unset)"
             ),
         }
 

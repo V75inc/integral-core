@@ -63,7 +63,7 @@ Named relation, member, and file values resolve through authorized APIs. Raw IDs
 
 ## Intelligence perimeter
 
-The agentive layer is always loaded. `AGENTIVE_ENABLED` is not a supported boot gate. The default resident is Integral AI through Pydantic AI; jvagent is selectable compatibility and Echo is for smoke/development.
+The agentive layer is always loaded. `AGENTIVE_ENABLED` is not a supported boot gate. The default resident is Integral AI through Pydantic AI; Integral AI is the only resident harness; There is no harness selector.
 
 There is one resident per active binding, faceted by principal and scope. External agents use MCP. The retired A2A fabric is absent. Skills are instruction artifacts discovered progressively; active accessible Apps in the current workspace determine the overlay.
 

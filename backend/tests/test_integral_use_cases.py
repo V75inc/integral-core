@@ -3,19 +3,23 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
-from jvagent.testing.use_case_loader import discover_use_cases, load_use_case
+import yaml
+
+
+def discover_use_cases(root):
+    return sorted(Path(root).rglob("*.yaml"))
+
+
+def load_use_case(path):
+    return yaml.safe_load(Path(path).read_text())
+
 
 from tests.integral_agent_paths import INTEGRAL_AGENT_APP_ROOT
 
-_USE_CASES_ROOT = os.path.join(
-    INTEGRAL_AGENT_APP_ROOT,
-    "agents",
-    "integral",
-    "integral_agent",
-    "use-cases",
-)
+_USE_CASES_ROOT = os.path.join(INTEGRAL_AGENT_APP_ROOT, "use-cases")
 
 
 def test_integral_use_cases_discover_non_empty():
@@ -30,7 +34,7 @@ def test_integral_use_cases_discover_non_empty():
 )
 def test_integral_use_case_loads(path):
     doc = load_use_case(path)
-    assert doc["schema"] == "jvagent.use-case/v1"
+    assert doc["schema"] == "integral.use-case/v1"
     assert doc["turns"]
 
 

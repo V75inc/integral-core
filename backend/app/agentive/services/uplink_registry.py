@@ -62,16 +62,16 @@ class AgentConnection:
 
     Fields (all set at __init__):
         config_id (str):         AgentConfig graph node id this connection mirrors.
-        agent_type (str):        AgentType value (jvagent | mcp | skill_bundle | custom)
-                                 per D-09; default "jvagent" if upstream omits.
+        agent_type (str):        AgentType value (agent runtime | mcp | skill_bundle | custom)
+                                 per D-09; default "integral_native" if upstream omits.
         uplink_url (str):        Optional URL the host calls back to for proactive pushes.
         capabilities (list):     Capability tokens advertised at registration (D-10);
                                  stored as List[str], NOT enforced in Phase 1.
         scope (str):             "personal" | "system" | "org_facing".
         user_id (str):           User.id when scope='personal'; "" otherwise.
         workspace_id (str):   Workspace.id when scope='org_facing'; "" otherwise.
-        preferences (dict):      Vendor-specific config (e.g., jvagent_base_url for
-                                 scope='system' jvagent connections).
+        preferences (dict):      Vendor-specific config (e.g., agent runtime_base_url for
+                                 scope='system' agent runtime connections).
         last_heartbeat (datetime): tz-aware utc datetime of last register/heartbeat
                                    call. Compared against utc_now() to compute
                                    liveness in is_agent_connected and get_system_agent.
@@ -120,7 +120,8 @@ class AgentUplinkRegistry:
             prefs = {}
         conn = AgentConnection(
             config_id=config_id,
-            agent_type=_cfg_val(config, "agent_type", "jvagent") or "jvagent",
+            agent_type=_cfg_val(config, "agent_type", "integral_native")
+            or "integral_native",
             uplink_url=_cfg_val(config, "uplink_url", "") or "",
             capabilities=_cfg_val(config, "capabilities", []) or [],
             scope=_cfg_val(config, "scope", "personal") or "personal",
@@ -169,7 +170,7 @@ class AgentUplinkRegistry:
         return None
 
     async def get_system_agent(self) -> Optional[AgentConnection]:
-        """Deployment-wide agent (one connected jvagent / connector backend)."""
+        """Deployment-wide agent (one connected agent runtime / connector backend)."""
         for conn in self._agents.values():
             if conn.scope != "system" or not conn.connected:
                 continue
@@ -273,7 +274,7 @@ def _scheduler_available() -> bool:
 # ``routine_task_scheduler`` loop runs it like any user-created routine.
 # ---------------------------------------------------------------------------
 
-_SCHEDULE_THREAD_PROVIDER = "jvagent"
+_SCHEDULE_THREAD_PROVIDER = "integral_native"
 
 
 def _schedule_key(agent_key: str, index: int) -> str:
@@ -659,7 +660,7 @@ async def register_app_agent(
         user_id="",
         scope=legacy_scope,
         facet=legacy_scope,  # Full Sweep F1 — dual-write until facet collapse
-        agent_type="jvagent",
+        agent_type="integral_native",
         persona=persona,
         capabilities=list(parsed.capabilities or []),
         preferences={

@@ -43,7 +43,6 @@ services:
       HOST: 0.0.0.0
       PORT: "4000"
       DEBUG: "False"
-      # Runtime mode for jvspatial + jvagent: turns off jvagent dev-mode
       # response payloads (interaction/report) and dev-only CLI paths.
       JVSPATIAL_ENVIRONMENT: production
       ENABLE_HSTS: "1"
@@ -54,7 +53,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-integral}
       POSTGRES_HOST: ${POSTGRES_HOST:-db}
       POSTGRES_PORT: ${POSTGRES_PORT:-5432}
-      JVAGENT_UPDATE_MODE: ${JVAGENT_UPDATE_MODE:-merge}
       # Pinned, not ${...}: >1 uvicorn worker breaks chat (per-process turn
       # registry + WS fan-out, ADR-004) and the boot check only WARNS. The
       # api-env overlay also denies WEB_CONCURRENCY/WORKERS, so raising this

@@ -25,7 +25,7 @@ _FIELDS = {
 
 
 def _iter_paths(*, core_only: bool) -> list[Path]:
-    core = _REPO / "agent/agents/integral/integral_agent"
+    core = _REPO / "agent"
     paths = sorted(core.rglob("SKILL.md"))
     if not core_only:
         for root in (_REPO / "backend/app/packages", _REPO / "examples"):

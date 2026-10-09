@@ -4,7 +4,7 @@ vi.mock('../../../../api/client', () => ({ getActiveScopeHeader: () => 'ws:works
 vi.mock('../../../../api/aiChat', () => ({ aiChatApi: {} }));
 vi.mock('../../../../config', () => ({ getApiBaseURL: () => 'http://api.test' }));
 import { IntegralNativeProvider } from '../IntegralNativeProvider';
-import { JvAgentProvider } from '../JvAgentProvider';
+import { createServerChatProvider } from '../ServerChatProvider';
 function response(frames: string, accepted = false) {
   return new Response(frames, { headers: { 'Content-Type': 'text/event-stream', ...(accepted ? { 'X-Integral-Work-Item': 'chat-turn:saved' } : {}) } });
 }
@@ -55,10 +55,10 @@ describe('native committed response replay', () => {
     expect(fetchMock.mock.calls[0][1].body).toBeUndefined();
     expect(fetchMock.mock.calls[0][0]).toContain('/work-items/chat-turn%3Aowned/stream?after_sequence=0');
   });
-  it('does not reconnect jvagent with a receipt header', async () => {
+  it('does not reconnect a provider without receipt support with a receipt header', async () => {
     const fetchMock = vi.fn().mockResolvedValue(response(frame(1, 'Legacy'), true));
     vi.stubGlobal('fetch', fetchMock);
-    expect(await drain(JvAgentProvider)).toEqual([{ type: 'text-delta', delta: 'Legacy' }]);
+    expect(await drain(createServerChatProvider({ id: 'test-provider', label: 'Test', capabilities: IntegralNativeProvider.capabilities }))).toEqual([{ type: 'text-delta', delta: 'Legacy' }]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

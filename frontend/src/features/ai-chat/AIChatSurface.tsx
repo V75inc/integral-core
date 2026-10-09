@@ -67,7 +67,7 @@ export function useChatActivity() {
 export interface AIChatSurfaceProps {
   /**
    * Default = MockEchoProvider for safety. Real callers (page, popup) pass
-   * the provider they want — typically JvAgentProvider in production.
+   * the provider they want — typically IntegralNativeProvider in production.
    */
   provider?: ChatProvider;
   /** Hide the surface header chrome (e.g. when embedded in a dialog). */

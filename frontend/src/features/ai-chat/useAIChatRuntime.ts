@@ -121,7 +121,7 @@ type AssistantMessageDraft = {
   steps?: NonNullable<ThreadMessageLike["metadata"]>["steps"];
   customSteps?: ObservabilityStep[];
   interactPayload?: Record<string, unknown>;
-  // Authoritative final answer (jvagent `final` chunk): `finalContent` = the
+  // Authoritative final answer (native provider `final` chunk): `finalContent` = the
   // settled answer text, `finalPayload` = the full final chunk. Debug-view
   // source-of-truth.
   finalContent?: string;
@@ -2091,7 +2091,7 @@ function applyEvent(draft: AssistantMessageDraft, ev: NormalizedEvent) {
       return;
     default: {
       // Unknown event type — surface in devtools so newly-shipped
-      // jvagent event types don't silently vanish. The translator
+      // native provider event types don't silently vanish. The translator
       // emits side-channel envelopes (e.g. `_meta`) that the backend
       // strips before sending to the client; anything reaching this
       // path is genuinely unrecognised.
