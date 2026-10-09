@@ -398,15 +398,57 @@ def stop(
         return _stop(home)
 
 
+def _system_environment() -> dict[str, str]:
+    """Retain OS and network configuration, never another app's settings."""
+    names = {
+        "PATH",
+        "HOME",
+        "USER",
+        "USERNAME",
+        "LOGNAME",
+        "USERPROFILE",
+        "TMP",
+        "TEMP",
+        "TMPDIR",
+        "SYSTEMROOT",
+        "WINDIR",
+        "COMSPEC",
+        "PATHEXT",
+        "LOCALAPPDATA",
+        "APPDATA",
+        "PROGRAMDATA",
+        "LANG",
+        "TZ",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "REQUESTS_CA_BUNDLE",
+        "CURL_CA_BUNDLE",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+        "PYTHONUTF8",
+        "PYTHONIOENCODING",
+        "__CF_USER_TEXT_ENCODING",
+    }
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if key.upper() in names or key.startswith(("LC_", "XDG_"))
+    }
+
+
 def _operator_settings(home: Path) -> dict[str, str]:
     """Read one explicit settings file, rejecting ambiguous dotenv syntax."""
-    from dotenv import dotenv_values
     from dotenv.parser import parse_stream
+    from dotenv.variables import Variable, parse_variables
 
     path = home / "settings.env"
     if not path.exists():
         return {}
     seen: set[str] = set()
+    values: dict[str, str] = {}
+    context = _system_environment()
     try:
         with path.open(encoding="utf-8") as handle:
             for binding in parse_stream(handle):
@@ -416,17 +458,36 @@ def _operator_settings(home: Path) -> dict[str, str]:
                         "Use NAME=value, then restart this installation."
                     )
                 if binding.key:
+                    if binding.key in (
+                        "TESTING",
+                        "test_mode",
+                    ) or binding.key.startswith("PYTEST_"):
+                        raise RuntimeErrorDetail(
+                            f"Reserved test setting in settings.env at line {binding.original.line}. "
+                            "Remove it; managed installations always use real authentication."
+                        )
                     if binding.key in seen:
                         raise RuntimeErrorDetail(
                             f"Duplicate settings.env assignment at line {binding.original.line}. "
                             "Keep one assignment per setting, then restart this installation."
                         )
                     seen.add(binding.key)
-        return {
-            key: value
-            for key, value in dotenv_values(path).items()
-            if value is not None
-        }
+                    atoms = list(parse_variables(binding.value))
+                    for atom in atoms:
+                        if (
+                            isinstance(atom, Variable)
+                            and atom.name not in context
+                            and atom.default is None
+                        ):
+                            raise RuntimeErrorDetail(
+                                f"Unresolved settings.env reference at line {binding.original.line}. "
+                                "Define referenced settings earlier in this file, "
+                                "supply a ${NAME:-default}, or use a literal value."
+                            )
+                    value = "".join(atom.resolve(context) for atom in atoms)
+                    values[binding.key] = value
+                    context[binding.key] = value
+        return values
     except (OSError, UnicodeError) as exc:
         raise RuntimeErrorDetail(
             "The installation's settings.env could not be read. Check its encoding "
@@ -443,15 +504,13 @@ def _environment(
     apps: str | None,
 ) -> dict[str, str]:
     """Isolate managed settings from checkout/distro dotenv files and test flags."""
-    env = dict(os.environ)
-    for key in list(env):
-        if key.startswith("PYTEST_") or key in ("TESTING", "test_mode"):
-            env.pop(key)
+    env = _system_environment()
     env.update(_operator_settings(home))
     controlled = {
         "DEBUG": "false",
         "WORKERS": "1",
         "JVSPATIAL_DEBUG": "false",
+        "JVSPATIAL_AUTH_ENABLED": "true",
         "JVSPATIAL_HOST": "127.0.0.1",
         "JVSPATIAL_PORT": str(api_port),
         "JVSPATIAL_DB_TYPE": "postgres",

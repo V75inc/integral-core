@@ -1,0 +1,78 @@
+{
+  "audit_revision": "6e454147534c08164d0a2521ee6f0052f931bcd0",
+  "incoming_revision": "74a95b7adb922dc7eccae6e3f1893aeb3d66256c",
+  "source_base_revision": "3987b3b99d92762a92369fd4077cf31698a89fd1",
+  "combined_changed_source_files_sha256": {
+    "agent/skills/integral-entries/SKILL.md": "0322a046b11a632fc8b34c58a06ccf9b5032d3eb439716fd7c8349ed8e2618d1",
+    "agent/skills/integral-model/SKILL.md": "ab5e1c4b6d73ac4d7a588cc438d029dec7a3f23d822ba8c26c3db101ad19dab7",
+    "agent/skills/integral-models/SKILL.md": "5e3213e89a7989a4ba3477ac7146f130a47432c4f501f6fa0f44fa77c002a275",
+    "backend/README.md": "931d09638e532e8f0b553006f64e3a28003390efe30afc05ac1df1323eb67a68",
+    "backend/app/agentive/harness/broker_tools.py": "7eb567eb4f3328dc074fd744199ae136a08ef9684a7e922ecc313693a6433bf9",
+    "backend/app/agentive/harness/capability_search.py": "ef6637e66715e6d8130df726dbc029d2d2b09de1119c90b11853f3f80728f19a",
+    "backend/app/agentive/harness/pydantic_ai_compat.py": "be92c1f904dac55651dd0c9b2932902d8bfd8505ff40952f619afb94533cb015",
+    "backend/app/agentive/harness/runtime.py": "851f296900580bc947f561d7e37ff4f3e3a6c89a55dd80aaa115ed10f4cba51f",
+    "backend/app/agentive/services/capability_broker.py": "5d0039a50ffb88b25dcdd7d20a3ed93aa5008d3eda74eb0654c8ba27fee6974b",
+    "backend/app/agentive/services/work_worker.py": "3174d1cc42a065cb36ca8101e0c4e74f6c70969a5a96e59484bb6413cebcb74d",
+    "backend/app/agentive/tool_manifest.yaml": "637bf26ae8bc5a9603e11b4290a1547719829e2dd2ac5d6f1cf95a6a605b3ec7",
+    "backend/app/agentive/tooling/bindings.py": "82df9474a8e9d242f92c87756e19d04807f804b3e142ba5ac92e83ee10ca0607",
+    "backend/app/local_runtime.py": "c710f4c60cdab65bafe6ccceb62b6ca35b6ac53ebedf8d2863309b03ca52726d",
+    "backend/app/middleware/permissions_cache.py": "7c5a997d38b8cd67d5f0dcb83eaa08ef25dec6ce6764f7ed6bc3dfb68f7efdb2",
+    "backend/app/services/chat_providers/pydantic_ai_provider.py": "10fc51cc31e75b3ab06e3f7dcdb8acb35cd91dfbe9d5fcdf771e3af75db0e744",
+    "backend/app/services/operational_model_authoring.py": "4027132a08696378625efef683ae72a3d8e025bc2f7d7afe67854092d473432f",
+    "backend/app/services/permissions_process_cache.py": "0ac90dc613a084dad529a232a64338f3c0784c28def037f4dfd3dd1c9f4d89b3",
+    "backend/pyproject.toml": "2b245af9e75434ad7551cd0fe3ea68313d11bda808c4b4ce5cedcab6b32768b7",
+    "backend/tests/native_harness/wp_06/test_capability_search.py": "d4115e5d47e604955d6d05f0ea0e9e20f62d2986dd0140c1a8e6f026ec0ad96e",
+    "backend/tests/native_harness/wp_06/test_foundation_disclosure.py": "dda0c31064d76b56b141255bebb7f0baadbb23a690f2323c39011b00d0b34f5d",
+    "backend/tests/test_capability_broker.py": "723243655503d58ac57badeb3a073f594127de41112bb0185df4d3d5b1191abb",
+    "backend/tests/test_local_runtime.py": "ad2f0598074a043947f1043c353004c67136cd8286bd4739483e01d867207ad7",
+    "backend/tests/test_model_introspection_budget.py": "4459f453afaa874ebb1b71a9442530116ba0301147e6c447187f73355aeb5f53",
+    "backend/tests/test_policy_audit_emit.py": "49483da63bff6819f0202bde8b9da9b9b756d053a6fdddd9fd578c449651535d",
+    "backend/tests/test_work_worker.py": "e20c00c2ef0e1c613f4d5120f50a5af1678431fedcaa26edc9b42517390819b1",
+    "backend/uv.lock": "3bb8576aa8feebfa6d1132cf7588f2f461245b48276a4d8b68bf9ec066536b51",
+    "frontend/src/api/apps.test.ts": "ece55d08a3f75d9ee2cf512775dba0cc14f6760ed8da5c793166e362f7784b86",
+    "frontend/src/api/apps.ts": "f8bb0426122831355c1b127d8e900caf18522e1fa0d974d5a24afaed1912bbfb",
+    "frontend/src/components/apps/AppManagerDialog.test.tsx": "ba6b2692013c2023af76e20c2ee191c88cb27de820c383805af9a22ae74d8813",
+    "frontend/src/components/apps/AppManagerDialog.tsx": "63e8d11e7264269e652f49684dcdecea4124b05c5d44fbe0d4a08cbcfdbe52f8",
+    "frontend/src/components/views/__tests__/ChartRegionWidget.test.tsx": "d7a96b3aeb15f5d050c41fa242e3bff401c5430647266f30d133d597ac407766",
+    "frontend/src/features/ai-chat/components/MarkdownText.tsx": "cdf77b7c1a55e913650782c56bca5dbc7eac021fdebd49ee37883a0a5464aba5",
+    "frontend/src/features/ai-chat/components/__tests__/MarkdownText.streaming.test.tsx": "1d8b1576608d1aedfd72418f0966906d3f8aca94f5530e34d1413813e37be4e2",
+    "frontend/vitest.config.ts": "b5bda49baf11bcf1092eec345e42749df919e5ba7bb5da30bf4e551bc6adc067"
+  },
+  "gates": {
+    "make_verify": "passed",
+    "make_test_postgres": "passed",
+    "environment_free_ci_smoke": "passed"
+  },
+  "frontend": {
+    "files_passed": 278,
+    "tests_passed": 1581
+  },
+  "gate_wheel": {
+    "sha256": "8784d316dd79ce54efeef30c16a792db8819caea4b963b76a36489b60d9fee7e",
+    "source_date_epoch": 1791581190,
+    "byte_identical_rebuild": true,
+    "outside_checkout_import": true,
+    "scope": "combined-source build/import gate; earlier browser receipts identify the separate original audit wheel"
+  },
+  "private_log_fingerprints": {
+    "push-combined-verify.log": {
+      "sha256": "69010dee20d1e80ec5f7ed878763e6a217aca7629f6234e70569f055f4bbcd43",
+      "bytes": 966204,
+      "exit_code": 0
+    },
+    "push-combined-postgres.log": {
+      "sha256": "d1020a744512e90fbbce95ccfb72f393cc8c22a2912ff1dfd4e616667eeea147",
+      "bytes": 23865,
+      "exit_code": 0
+    },
+    "push-combined-ci-hermetic.log": {
+      "sha256": "3e8cad1da23545538974cb3bb09b921e3944dac62fe2dcb024cfc2bcda7a72ea",
+      "bytes": 4597,
+      "exit_code": 0
+    }
+  },
+  "app_planning_included": false,
+  "app_package_changes": false,
+  "publication_scope": "source update to existing PR #116; no package, tag or deployment publication",
+  "previous_remote_ci_postgres_failure": "Docker Hub unauthenticated pull rate limit before test execution; updated CI must be observed separately"
+}

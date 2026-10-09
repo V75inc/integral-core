@@ -1,7 +1,7 @@
 # Integral Core foundation and resident harness qualification
 
 Date: 2026-10-09. Original baseline: `fabca0c7`; current base: `3987b3b9`; package metadata: `0.1.1rc16`.
-Status: locally qualified release candidate; stable/hosted promotion remains subject to the explicit requirements below. No package, tag, push, PR, or deployment has been published by this audit.
+Status: locally qualified release candidate; stable/hosted promotion remains subject to the explicit requirements below. Source publication is authorized on `codex/pr-113-staging` / existing PR #116. No package, tag, or deployment has been published by this audit.
 
 ## Scope and ownership
 
@@ -172,4 +172,12 @@ Before a stable promotion, record the intended deployment mode, exact source rev
 | Backup/restore | The socket installation did not satisfy the historical localhost backup test. A separate matching PostgreSQL 16.2 client drill verified counts and identity and dropped its scratch database; retain that supplementary evidence. |
 | Prompt scale | Track physical calls and input tokens for representative warm conversations and larger installed catalogs. The repaired pair demonstrates a reduction; it does not establish a universal low-token bound. |
 | Existing architecture backlog | Wider principal facet journeys, facet-edge cleanup and agentive walker refactoring remain recorded work. This patch adds no new persisted graph entity and does not claim those migrations completed. |
-| Publication | Review this candidate and authorize push/PR, then inspect remote CI before release promotion. No hosted deployment or registry publication is inferred from local gates. |
+| Publication | Inspect the updated PR #116 CI before release promotion. No hosted deployment or registry publication is inferred from local gates. |
+
+## Push integration
+
+The publication candidate combines audit revision `6e454147534c08164d0a2521ee6f0052f931bcd0` with the remote managed-environment isolation repair `74a95b7adb922dc7eccae6e3f1893aeb3d66256c`. The merge required no conflict resolution. The incoming repair confines launcher settings to the installation, validates interpolation, preserves real authentication, and makes the heartbeat regression wait for an observed heartbeat. Its separate evidence is in `2026-10-09-managed-environment-isolation.md`.
+
+The earlier wheel hash and browser receipts above identify the original qualified audit snapshot. They do not identify a wheel containing this later launcher repair. The combined source passed `make verify` (including 278 frontend files / 1,581 tests and the full backend suite), the full isolated PostgreSQL lane, and a separate smoke run with local environment loading disabled. The wheel built twice byte-for-byte and imported outside the checkout. Combined-source fingerprints and gate results are recorded separately in `core-foundation-evidence/push-integration-summary.json`. PostgreSQL retained the previously documented optional-integration and historical localhost backup-test skips.
+
+App-specific recommendations and captured setup advice were removed before the audit commit was published. They remain local only. The retained App reproduction evidence records Core budget and refusal behavior; no Payroll plan or package change is included.
