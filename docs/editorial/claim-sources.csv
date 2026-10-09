@@ -1,0 +1,17 @@
+claim_area,source_paths,qualification_limit
+Package versions and sources,backend/pyproject.toml;backend/uv.lock;frontend/package.json,Repository metadata is not publication
+Always-on resident and selected binding,backend/app/main.py;backend/app/services/chat_providers/pydantic_ai_provider.py;backend/app/config.py,No AGENTIVE_ENABLED boot claim
+Rooted operational graph,backend/app/models/nodes.py;backend/app/models/edges.py;backend/tests/test_graph_contiguousness.py,Objects remain distinct from graph participants
+Scope and role semantics,backend/app/services/request_scope.py;backend/app/services/workspace_resolver.py;backend/app/services/permissions.py;backend/app/services/sharing.py,Public-read/share exceptions are narrow
+Package versions and signatures,backend/app/services/operational_model_loader.py;backend/app/services/operational_model_signature.py,YAML v3 compiles to runtime v2
+Public facade and operations,sdk/python/integral_sdk/context.py;sdk/python/integral_sdk/capabilities.py;backend/app/contracts/information.py,Types do not grant authority
+Hooks and scoped tools,backend/app/services/hooks/registry.py,Nine frozen points and collision checks
+App Home,backend/app/services/app_home.py;backend/tests/test_app_home.py,unavailable differs from empty
+Migrations,backend/app/services/operational_model_migrations.py;backend/app/services/migrations/runner.py,Manual/pending operation is not automatic migration
+Deterministic authoring,backend/app/services/operational_model_author.py,Catalog matching is distinct from resident reasoning
+Durable native execution,backend/app/config.py;backend/app/services/chat_turn_submissions.py;backend/app/services/chat_turn_worker_input.py,Off by default; requires qualification
+Bounded work,backend/app/schemas/agentive/work_mandate.py;backend/app/agentive/services/work_model_admission.py,Public admission is incomplete
+Skills and access,backend/app/agentive/workspace_agent_profile.py;backend/tests/test_skill_compliance.py;backend/tests/test_skill_access_scope.py,Instructions are not grants
+View palette,frontend/src/views/manifests/auto.ts,Discover actual registered configuration
+Files and scanning,backend/app/config.py;backend/tests/test_attachment_pipeline.py,Noop provides no malware assurance
+Qualification fixtures,backend/tests/test_qualification_contract.py;backend/tests/fixtures/qualification/contracts/wp-06-split-manifest.yaml,Synthetic/pending corpus is not live acceptance

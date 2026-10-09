@@ -18,6 +18,8 @@ from jvspatial.core.context import TransactionUnavailable as _JvTxnUnavailable
 from jvspatial.core.context import graph_transaction as _jv_graph_transaction
 from jvspatial.db import get_prime_database
 
+from app.middleware.permissions_cache import reset_permissions_cache
+
 _TRANSACTION_COUNT_PAGE_SIZE = 256
 
 
@@ -163,9 +165,16 @@ async def postgres_graph_transaction(
     )
     try:
         async with _jv_graph_transaction(adapter) as ctx:
+            # Memoized User nodes retain the GraphContext that loaded them.
+            # A pre-transaction node would read ownership through the pool and
+            # miss edges written on this transaction's uncommitted connection.
+            reset_permissions_cache()
             yield ctx.database
     except _JvTxnUnavailable as exc:
         raise OperationTransactionUnavailable(str(exc)) from exc
+    finally:
+        # Do not retain nodes bound to a completed or rolled-back transaction.
+        reset_permissions_cache()
 
 
 __all__ = [

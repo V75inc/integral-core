@@ -342,6 +342,15 @@ def invalidate_user_accessible_caches(user_id: str) -> None:
     if cache is not None:
         cache.pop(("accessible_tracks", user_id), None)
         cache.pop(("accessible_apps", user_id), None)
+        # Creation can memoize a denial before the ownership edge is wired.
+        for key in list(cache):
+            if (
+                isinstance(key, tuple)
+                and len(key) == 4
+                and key[0] == "rr"
+                and key[3] == user_id
+            ):
+                cache.pop(key, None)
 
 
 async def get_user_accessible_apps(user_id: str) -> List[App]:

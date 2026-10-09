@@ -1,9 +1,0 @@
-# WP-06.2 — Session continuity evidence
-
-`PydanticAIProvider` reads the ChatThread back from jvspatial and checks its principal, workspace, and provider ID before constructing scope. It requires current workspace membership. Core-generated `HarnessExecutionScope` binds the host `AgentRun.run_id` to the workspace tenant, user, thread, and durable Harness session. The run ID and capability snapshot fingerprint are verified against the host run before the Harness is constructed, allowing the existing broker to authorize and receipt each tool call. A membership/policy revision or capability snapshot change rotates the session; the capability broker continues to re-authorize every tool call.
-
-The session ID is the same value sent as the provider `_meta` event and passed as the Pydantic AI `conversation_id`. Integral's existing chat stream persists `_meta` to `ChatThread.provider_session_id` before downstream tools run. Each run gets an independent ID, encrypted StepStore namespace, and checkpoint. Subsequent turns load the prior complete snapshot and pass it as `message_history`. Core and workspace/App skills are caller-filtered, projected to per-run temporary files with only standard `name` and `description` frontmatter, and loaded through Pydantic AI Harness `Skills`. The skill profile digest participates in session rotation.
-
-Offline verification: `backend/.venv/bin/pytest backend/tests/native_harness/wp_06 -q` — passed. Tests use Pydantic AI `TestModel`, Pydantic AI Harness `StepPersistence`/`Skills`, and the in-memory test store; they make no model network request.
-
-This does not prove PostgreSQL transaction isolation, cross-worker session races, graph reachability, resource-level ACL revisioning, or interrupted-effect recovery. The implementation refuses to proceed when it sees unresolved effects or missing prior checkpoints.

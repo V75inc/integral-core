@@ -356,7 +356,7 @@ def test_scaffold_use_case_requires_preview_before_the_single_build_approval() -
 
 # ---------------------------------------------------------------------------
 # W0.1 drift regressions — one test per row of the skill ↔ implementation
-# drift table in docs/product/CORE_SUBSTRATE_IMPROVEMENT_PLAN.md §3.
+# drift table in docs/ops/QUALIFICATION.md §3.
 # ---------------------------------------------------------------------------
 
 _ROOT = Path(__file__).resolve().parents[2]

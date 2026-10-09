@@ -17,6 +17,11 @@ export function isInternalAppHref(href: string | undefined): boolean {
 function internalAppHref(href: string | undefined): string | undefined {
   if (!isSafeHref(href)) return undefined;
   const trimmed = href!.trim();
+  // Models sometimes add a second leading slash to a Core record path.
+  // Repair only typed Core IDs; ordinary protocol-relative hosts stay external.
+  if (/^\/\/(?:entries\/n\.Entry\.|tracks\/n\.Track\.|apps\/n\.WorkspaceApp\.)[^/\s?#]+(?:[?#].*)?$/.test(trimmed)) {
+    return trimmed.slice(1);
+  }
   if (trimmed.startsWith('/') && !trimmed.startsWith('//')) return trimmed;
 
   try {
@@ -49,6 +54,7 @@ export function IntegralMarkdownLink({
   href,
   children,
   className,
+  onClick,
   ...props
 }: IntegralMarkdownLinkProps) {
   const safeHref = sanitizeMarkdownHref(href);
@@ -59,7 +65,12 @@ export function IntegralMarkdownLink({
   const internalHref = internalAppHref(safeHref);
   if (internalHref) {
     return (
-      <Link to={internalHref} className={className ?? linkClassName} {...props}>
+      <Link
+        to={internalHref}
+        className={className ?? linkClassName}
+        {...props}
+        onClick={event => { event.stopPropagation(); onClick?.(event); }}
+      >
         {children}
       </Link>
     );
@@ -72,6 +83,7 @@ export function IntegralMarkdownLink({
       rel="noopener noreferrer"
       className={className ?? linkClassName}
       {...props}
+      onClick={event => { event.stopPropagation(); onClick?.(event); }}
     >
       {children}
     </a>

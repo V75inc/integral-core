@@ -78,6 +78,18 @@ def test_governed_query_rows_get_canonical_urls_without_mutating_receipts():
     assert "url" not in source["rows"][0]
 
 
+def test_app_query_items_receive_resource_links_without_mutating_receipts():
+    """App-defined query output can use items rather than rows."""
+    source = {
+        "items": [{"id": "n.Entry.smoke", "track_id": "n.Track.smoke"}],
+        "_receipt": {"state": "complete"},
+    }
+    result = _resource_links_for_model(source)
+    assert result["items"][0]["url"] == "/tracks/n.Track.smoke?entry=n.Entry.smoke"
+    assert "url" not in source["items"][0]
+    assert result["_receipt"] == source["_receipt"]
+
+
 def test_pending_write_resolution_tool_is_only_exposed_for_scoped_pending_items():
     """Expose the chat decision tool only when Core supplied pending items."""
     tools = build_brokered_tools(

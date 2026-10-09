@@ -1,6 +1,6 @@
 """Durable PromptQueue on ChatThread — sequester sheet source of truth.
 
-See ``docs/superpowers/specs/2026-09-08-prompt-sheet-design.md``.
+See ``docs/backend/prompt-queue.md``.
 """
 
 from __future__ import annotations

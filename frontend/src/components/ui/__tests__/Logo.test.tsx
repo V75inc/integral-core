@@ -42,7 +42,7 @@ describe('approved Integral logo', () => {
     expect(container.querySelectorAll('path')).toHaveLength(4);
   });
 
-  it('uses the same master geometry for every authentication backdrop wave', () => {
+  it('uses the master geometry for the stationary authentication outline', () => {
     const { container } = render(
       <MemoryRouter>
         <AuthPageLayout title="Welcome" description="Your workspace">
@@ -51,15 +51,15 @@ describe('approved Integral logo', () => {
       </MemoryRouter>,
     );
     const master = new DOMParser().parseFromString(logoMaster, 'image/svg+xml').documentElement;
-    const backdrop = container.querySelector('svg[data-animation-cycle]')!;
+    const backdrop = container.querySelector('svg.auth-ripple')!;
     expect(backdrop.getAttribute('viewBox')).toBe(master.getAttribute('viewBox'));
     const geometry = (paths: NodeListOf<SVGPathElement>) => Array.from(
       paths, path => [path.getAttribute('d'), path.getAttribute('transform')],
     );
-    for (const wave of backdrop.querySelectorAll('g')) {
-      expect(geometry(wave.querySelectorAll('path'))).toEqual(geometry(master.querySelectorAll('path')));
+    for (const outline of backdrop.querySelectorAll('g')) {
+      expect(geometry(outline.querySelectorAll('path'))).toEqual(geometry(master.querySelectorAll('path')));
     }
-    expect(backdrop.querySelectorAll('g')).toHaveLength(4);
+    expect(backdrop.querySelectorAll('g')).toHaveLength(1);
     expect(backdrop.querySelector('rect')).toBeNull();
   });
 });

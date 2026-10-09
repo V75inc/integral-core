@@ -2613,10 +2613,12 @@ async def _start_user_turn(
         partial_block = wrap_system_context(
             "approved_design_partial_build",
             "[SYSTEM:APPROVED-DESIGN-PARTIAL-BUILD]\n"
-            "An affirmed App build partially applied. Inspect the existing App "
-            "and its batch receipt, then repair only the failed remainder. "
-            "Do not start another App or replay the complete plan. Describe "
-            "completion only after the missing work has applied and been read back.",
+            "An affirmed App build partially applied. Call "
+            "integral_build_approved_design to resume the original approved batch "
+            "from its durable cursor, or reconcile its receipt if already applied. "
+            "Do not begin a new batch, restage operations, start another App, "
+            "or replay the complete plan. Then call integral_verify_build with "
+            "the returned receipt before claiming completion.",
         )
         system_context_blocks.append(partial_block)
     elif (

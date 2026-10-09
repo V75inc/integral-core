@@ -985,7 +985,7 @@
   }
 
   /* ── Auth page patterned background ──────────────────────────
-     AuthPageLayout uses a slow-pulsing square motif, with no color wash
+     AuthPageLayout uses a stationary square motif, with no color wash
      behind the copy. Decorative layers are aria-hidden and pointer-free. */
 
   .auth-page {
@@ -1033,43 +1033,22 @@
   .auth-ripple-circle:nth-child(2) { animation-delay: 2.3s; }
   .auth-ripple-circle:nth-child(3) { animation-delay: 4.6s; }
 
-  /* Auth pages use split-square waves that echo the frameless Integral mark. Start
-     each pulse close to the center so its outward movement reads clearly. */
+  /* Keep the split-square motif inside the hero column. The desktop row is
+     sized by the form, so its ornament cannot grow beyond the form's height. */
   .auth-ripple--auth {
+    width: 100%;
+    height: 100%;
     opacity: 0.14;
-  }
-  @media (min-width: 768px) {
-    .auth-ripple--auth {
-      left: 29%;
-      width: 58%;
-    }
   }
   .auth-ripple-mark {
     fill: none;
     stroke: var(--auth-accent, var(--brand-accent));
     stroke-width: 6;
-    vector-effect: non-scaling-stroke;
-    transform-origin: center;
-    transform-box: fill-box;
-    animation: auth-mark-ripple-pulse 12s linear infinite;
   }
   .auth-ripple-mark path { vector-effect: non-scaling-stroke; }
-  .auth-ripple-mark:nth-child(2) { animation-delay: 4s; }
-  .auth-ripple-mark:nth-child(3) { animation-delay: 8s; }
-  .auth-ripple-mark--base {
-    animation: none;
-  }
-
-  @media (min-width: 768px) {
-    .auth-hero-copy {
-      position: absolute;
-      top: 50%;
-      left: calc(29vw - max(20px, (100vw - 1120px) / 2) - min(29vw, 310px));
-      width: min(58vw, 620px);
-      max-width: none;
-      transform: translateY(-50%);
-      text-align: center;
-    }
+  .auth-hero-copy {
+    position: relative;
+    z-index: 1;
   }
 
   @keyframes auth-ripple-pulse {
@@ -1077,12 +1056,7 @@
     25%  { opacity: 0.55; }
     100% { transform: scale(1.0);  opacity: 0; }
   }
-  @keyframes auth-mark-ripple-pulse {
-    0%   { transform: scale(0.14); opacity: 0; stroke-width: 6; }
-    8%   { transform: scale(0.21); opacity: 0.9; stroke-width: 6; }
-    55%  { opacity: 0.62; stroke-width: 4.5; }
-    100% { transform: scale(1); opacity: 0; stroke-width: 1.2; }
-  }
+
 
   /* System notification bar — slide-down entrance.
      Uses CSS classes (not inline style) so React renders don't reset the

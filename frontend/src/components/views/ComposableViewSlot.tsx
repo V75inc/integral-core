@@ -150,13 +150,13 @@ export function ComposableViewSlot({
   const handleEntryCreate = useCallback(
     async (input: EntryCreateInput) => {
       if (!onEntryCreate) return;
-      const created = await onEntryCreate(input);
+      const created = await onEntryCreate({ ...input, track_id: trackId });
       if (created) {
         setEntries(prev => [...prev.filter(e => e.id !== created.id), created]);
       }
       return created;
     },
-    [onEntryCreate]
+    [onEntryCreate, trackId]
   );
 
   const handleViewUpdate = useCallback(

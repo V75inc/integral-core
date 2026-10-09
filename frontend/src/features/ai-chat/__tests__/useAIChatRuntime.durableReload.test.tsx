@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 import { useAIChatRuntime } from "../useAIChatRuntime";
@@ -101,4 +101,19 @@ describe("owned durable work after reload", () => {
     expect(stream).toHaveBeenCalledTimes(1);
     expect(aiChatApi.createThread).not.toHaveBeenCalled();
   });
+});
+
+
+it("waits for the selected transcript before enabling the composer", async () => {
+  __resetThreadSessionStoreForTests();
+  vi.mocked(aiChatApi.listThreads).mockResolvedValue([thread]);
+  let resolve!: (value: Awaited<ReturnType<typeof aiChatApi.getThread>>) => void;
+  vi.mocked(aiChatApi.getThread).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+  const provider = nativeProvider(async function* () {});
+  const { result } = renderHook(() => useAIChatRuntime(provider, { initialThreadId: "t1" }));
+  await waitFor(() => expect(result.current.activeThreadId).toBe("t1"));
+  expect(result.current.composerReady).toBe(false);
+  await act(async () => resolve({ ...thread, messages: [user, assistant] }));
+  await waitFor(() => expect(result.current.composerReady).toBe(true));
+  expect(result.current.runtime.thread.getState().messages.map(message => message.id)).toEqual(["accepted-user", "saved-assistant"]);
 });

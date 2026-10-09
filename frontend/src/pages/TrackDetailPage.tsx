@@ -1,3 +1,4 @@
+import type { EntryCreateInput } from '../views/types';
 /* patch:kanban-hire-intercept */
 import {
   useState,
@@ -1261,7 +1262,7 @@ export function TrackDetailPage() {
    *  constraints filter what the view *displays*, not what the user can
    *  post from the track composer. */
   const handleEntryCreate = useCallback(
-    async (input: { title: string; type?: string; custom_fields?: Record<string, unknown> }) => {
+    async (input: EntryCreateInput) => {
       if (!id) return;
       const allowed = new Set(
         entryTypeSlugs.map(s => slugifyKanbanColumnKey(s)).filter(Boolean)
@@ -1320,9 +1321,11 @@ export function TrackDetailPage() {
         typeFields,
         input.custom_fields
       );
-      if (missingRequired.length > 0 || disallowed.length > 0) {
+      // A calendar date click starts a draft. Creating first and opening an
+      // edit dialog would leave a placeholder record behind when canceled.
+      if (input.source === 'calendar' || missingRequired.length > 0 || disallowed.length > 0) {
         setComposeModal({
-          title: input.title,
+          title: input.source === 'calendar' && input.title === 'New event' ? '' : input.title,
           type: slug,
           custom_fields: input.custom_fields
         });

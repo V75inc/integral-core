@@ -821,7 +821,7 @@ export function useAIChatRuntime(
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const selectionKey = JSON.stringify([principalId, workspaceId, provider.id, activeAgentId]);
   const [settledSelectionKey, setSettledSelectionKey] = useState<string | null>(null);
-  const composerReady = selectionScopeReady && (!provider.serverPersisted || settledSelectionKey === selectionKey);
+  const selectionReady = selectionScopeReady && (!provider.serverPersisted || settledSelectionKey === selectionKey);
   const selectThread = useCallback((threadId: string) => {
     rememberFreshChat(freshChatScope, false);
     setActiveThreadId(threadId);
@@ -895,6 +895,11 @@ export function useAIChatRuntime(
     activeThreadId != null &&
     (streamingThreadIds.includes(activeThreadId) ||
       activeThreadId in remoteTurns);
+  const composerReady = selectionReady && (
+    !provider.serverPersisted || activeThreadId == null ||
+    activeThreadId.startsWith("local-") || isRunning ||
+    (activeSession?.lastLoadedAt ?? 0) > 0
+  );
   const activityText = isRunning ? (activeSession?.activityText ?? null) : null;
   // Not gated on `isRunning`: the errors worth showing are exactly the ones
   // that end the turn, and gating hid every one of them.

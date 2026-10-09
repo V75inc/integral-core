@@ -12,7 +12,7 @@ def test_phase0_manifest_covers_domains_negative_cases_and_evidence() -> None:
     yaml = pytest.importorskip("yaml")
     manifest_path = (
         Path(__file__).resolve().parents[2]
-        / "docs/product/evidence/phase-0-qualification-manifest.yaml"
+        / "backend/tests/fixtures/qualification/contracts/phase-0-qualification-manifest.yaml"
     )
     manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
 
