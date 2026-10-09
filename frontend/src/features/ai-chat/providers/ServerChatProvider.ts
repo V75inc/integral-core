@@ -2,6 +2,7 @@ import { aiChatApi } from "../../../api/aiChat";
 import { getActiveScopeHeader } from "../../../api/client";
 import { getAccessToken, refreshAccessToken } from "../../../api/session";
 import { getApiBaseURL } from "../../../config";
+import { randomUUID } from "../../../utils/randomUUID";
 import type { ChatProvider, NormalizedEvent, TurnContext } from "./types";
 
 const SCOPE_KEY = "integral.scope";
@@ -124,7 +125,17 @@ export function createServerChatProvider({
     const scopeHeader = getActiveScopeHeader() ?? readScopeHeader();
     // One opaque identity belongs to this logical send. Keep it outside
     // doFetch so an authentication refresh replays the same request ID.
-    const clientRequestId = crypto.randomUUID();
+    let clientRequestId: string;
+    try {
+      clientRequestId = randomUUID();
+    } catch (err) {
+      yield {
+        type: "error",
+        code: "request_id_unavailable",
+        message: err instanceof Error ? err.message : String(err),
+      };
+      return;
+    }
     const resumeWorkItemId = id === "integral_native" ? ctx.resumeWorkItemId : undefined;
 
     // This stream is a raw fetch (SSE), so it does NOT pass through the axios

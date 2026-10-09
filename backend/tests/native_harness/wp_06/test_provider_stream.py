@@ -551,6 +551,7 @@ async def test_prepare_uses_host_run_and_snapshot_as_broker_authority(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Harness tools use the same durable run that Core's chat router created."""
+    monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "a" * 32)
     from pathlib import Path
     from types import SimpleNamespace
 

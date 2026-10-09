@@ -739,20 +739,26 @@ def _install_test_dbs_from_graph_shell_template(
     *, prime_path: str, logs_path: str
 ) -> None:
     """Reset per-test JsonDB dirs by copying the session graph-shell snapshot."""
-    _ensure_graph_shell_template_built()
-    prime_t = _GRAPH_SHELL_TEMPLATE_ROOT / "prime"
-    logs_t = _GRAPH_SHELL_TEMPLATE_ROOT / "logs"
-    pp = Path(prime_path)
-    lp = Path(logs_path)
-    if pp.exists():
-        shutil.rmtree(pp)
-    if lp.exists():
-        shutil.rmtree(lp)
-    pp.mkdir(parents=True)
-    lp.mkdir(parents=True)
-    shutil.copytree(prime_t, pp, dirs_exist_ok=True)
-    shutil.copytree(logs_t, lp, dirs_exist_ok=True)
-    _swap_prime_and_log_dbs(prime_path=prime_path, logs_path=logs_path)
+    from filelock import FileLock
+
+    # A focused run and the broad gate can use the same worker-name cache.
+    # Hold the lock through the copy as well as rebuild: another process must
+    # not delete the master snapshot while this process is cloning it.
+    with FileLock(str(_GRAPH_SHELL_TEMPLATE_ROOT) + ".lock", timeout=60):
+        _ensure_graph_shell_template_built()
+        prime_t = _GRAPH_SHELL_TEMPLATE_ROOT / "prime"
+        logs_t = _GRAPH_SHELL_TEMPLATE_ROOT / "logs"
+        pp = Path(prime_path)
+        lp = Path(logs_path)
+        if pp.exists():
+            shutil.rmtree(pp)
+        if lp.exists():
+            shutil.rmtree(lp)
+        pp.mkdir(parents=True)
+        lp.mkdir(parents=True)
+        shutil.copytree(prime_t, pp, dirs_exist_ok=True)
+        shutil.copytree(logs_t, lp, dirs_exist_ok=True)
+        _swap_prime_and_log_dbs(prime_path=prime_path, logs_path=logs_path)
 
 
 def _test_uses_graph_shell_template(request) -> bool:
@@ -899,8 +905,20 @@ async def postgres_raw_db():
     from jvspatial.db.factory import create_database
 
     database = create_database(db_type="postgres")
-    yield database
-    await database.close()
+    from jvspatial.db import get_database_manager
+
+    manager = get_database_manager()
+    previous = manager.get_prime_database()
+    # Core commands use the registered prime store for durable receipts and
+    # outboxes. Keep it identical to the explicitly bound raw graph database,
+    # instead of silently opening a second, unowned pool on each test loop.
+    await _close_postgres_test_database(previous)
+    manager.set_prime_database(database)
+    try:
+        yield database
+    finally:
+        await database.close()
+        manager.set_prime_database(previous)
 
 
 @pytest.fixture(autouse=True)

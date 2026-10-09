@@ -240,9 +240,12 @@ async def test_connector_as_actor_in_every_emit():
         # return value (its only contract is "must not raise").
         return None
 
-    with patch(
-        "app.services.connectors.sync_runtime.emit_change_event",
-        side_effect=_spy,
+    with (
+        patch(
+            "app.services.connectors.sync_runtime.emit_change_event",
+            side_effect=_spy,
+        ),
+        patch("app.services.change_event.emit_change_event", side_effect=_spy),
     ):
         await sync_one_connector(connector)
 

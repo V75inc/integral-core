@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+from typing import Any
 from weakref import WeakValueDictionary
 
 from jvspatial.core.context import get_default_context, graph_transaction
@@ -14,6 +15,16 @@ _local_locks: WeakValueDictionary[tuple[int, int, str], asyncio.Lock] = (
 )
 
 
+def is_postgres_entry_transaction(database: Any) -> bool:
+    """Recognize both the public handle and Core's serialized transaction."""
+    concrete = database
+    seen: set[int] = set()
+    while getattr(concrete, "inner", None) is not None and id(concrete) not in seen:
+        seen.add(id(concrete))
+        concrete = concrete.inner
+    return isinstance(concrete, PostgresTransaction)
+
+
 @asynccontextmanager
 async def entry_write_scope(identity: str):
     """Join the caller's PG transaction or open an entry command transaction."""
@@ -21,7 +32,7 @@ async def entry_write_scope(identity: str):
     concrete = database
     while getattr(concrete, "inner", None) is not None:
         concrete = concrete.inner
-    if isinstance(concrete, PostgresTransaction):
+    if is_postgres_entry_transaction(database):
         # The caller's command or connector fence already owns this commit.
         yield get_default_context()
     elif all(

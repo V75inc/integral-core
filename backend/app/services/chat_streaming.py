@@ -86,6 +86,16 @@ class _DeltaHumanizer:
 # never leaves the process — it is logged with the stack; the browser gets a
 # stable code plus a sentence a person can act on.
 _ERROR_MESSAGES: Dict[str, str] = {
+    "storage_setup_required": (
+        "Integral's storage encryption is not configured correctly. Ask the "
+        "installation owner to check setup and the original storage encryption "
+        "key, then restart Integral. Existing keys must be preserved."
+    ),
+    "harness_storage_unreadable": (
+        "Integral could not read its saved AI state. Ask the installation owner "
+        "to verify the original storage encryption key and restore from a backup "
+        "if needed. No saved work was replayed."
+    ),
     "model_setup_required": (
         "Choose a model in Settings → AI Models to start using Integral AI. "
         "You can connect a cloud provider or a local Ollama model."
@@ -203,6 +213,13 @@ def classify_turn_exception(
             == "native_model_not_configured"
         ):
             return "model_setup_required", _ERROR_MESSAGES["model_setup_required"]
+
+        if (
+            isinstance(exc, ServiceUnavailableError)
+            and getattr(exc, "details", {}).get("reason")
+            == "native_storage_encryption_not_configured"
+        ):
+            return "storage_setup_required", _ERROR_MESSAGES["storage_setup_required"]
 
         if isinstance(exc, ResourceConflictError):
             details = getattr(exc, "details", {})

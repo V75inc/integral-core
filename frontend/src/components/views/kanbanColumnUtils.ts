@@ -9,6 +9,7 @@ import type {
   EntryTypeNode,
   SavedView,
 } from '../../types';
+import { randomUUID } from '../../utils/randomUUID';
 
 export const KANBAN_STAGE_KEY = '_kanban_stage';
 export const KANBAN_ORDER_KEY = '_kanban_order';
@@ -109,7 +110,7 @@ export function generateKanbanColumnKey(existingKeys: Iterable<string>): string 
   const taken = new Set(existingKeys);
   let key = '';
   do {
-    const suffix = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+    const suffix = randomUUID().replace(/-/g, '').slice(0, 12);
     key = `col_${suffix}`;
   } while (taken.has(key));
   return key;

@@ -8,6 +8,14 @@ import {
 import { resumeIfNeeded } from '../usePromptQueue';
 
 describe('prompt sheet resume display', () => {
+  it('retains the receipt without starting a second model run for a chat-owned decision', async () => {
+    const notes: string[] = [];
+    const runs: unknown[] = [];
+    const runtime = { getState: () => ({ messages: [] }), startRun: (config: unknown) => runs.push(config) };
+    await resumeIfNeeded(runtime as never, 'Updates applied', async (text) => { notes.push(text); return 'receipt'; }, () => true, false);
+    expect(notes).toEqual(['Updates applied']);
+    expect(runs).toEqual([]);
+  });
   it('renders the resolved review and starts a host continuation without a user message', async () => {
     const appended: Array<{ role: string; content: Array<{ type: string; text: string }> }> = [];
     const runs: unknown[] = [];

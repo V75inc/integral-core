@@ -51,3 +51,7 @@ The backend rerun completed with 4,951 passed and 282 skipped tests; the fronten
 Record commit and artifact identity, lockfile, non-secret settings, database adapter, provider routes, test commands/results, browser journeys, remaining defects, and rollback/restore method. Do not copy credentials into the record. Release approval should address this concrete evidence.
 
 The roadmap's wider ambitions are not substitutes for these checks. See [deployment](DEPLOY.md) and [security](SECURITY.md).
+
+## Native harness reliability review, 9 October 2026
+
+The [native harness qualification record](qualification/2026-10-09-native-harness.md) documents reproduced HTTP crypto failures and redundant approval continuation, setup key preservation, canonical PostgreSQL entry commands, and managed-installation backup/restore. Read its final gate results and limits alongside the earlier snapshot above.
