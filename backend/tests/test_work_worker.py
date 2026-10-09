@@ -130,14 +130,17 @@ async def test_supervised_heartbeat_during_long_handler(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     heartbeats = {"n": 0}
+    heartbeat_seen = asyncio.Event()
     real_hb = work_items.heartbeat_lease
 
     async def _counting_hb(*args, **kwargs):
+        result = await real_hb(*args, **kwargs)
         heartbeats["n"] += 1
-        return await real_hb(*args, **kwargs)
+        heartbeat_seen.set()
+        return result
 
     async def _slow(item, ctx) -> None:
-        await asyncio.sleep(0.35)
+        await asyncio.wait_for(heartbeat_seen.wait(), timeout=10)
 
     item = await work_items.enqueue_work_item(
         kind="routine_turn",
@@ -148,12 +151,14 @@ async def test_supervised_heartbeat_during_long_handler(
         input_payload={},
     )
     work_worker.register_test_handler(item.work_item_id, _slow)
-    # lease=0.6 → heartbeat interval 0.2; sleep 0.35 → at least one beat
+    # Observe a completed real heartbeat while the handler is blocked. Keep a
+    # normal lease so slow database writes cannot expire it during test setup.
     monkeypatch.setattr(work_items, "heartbeat_lease", _counting_hb)
+    monkeypatch.setattr(work_items, "recommended_heartbeat_interval", lambda _: 0.01)
     done = await work_worker.process_one_due_item(
         worker_id="w1",
         work_item_id=item.work_item_id,
-        lease_seconds=0.6,
+        lease_seconds=30,
     )
     assert done is not None
     assert done.status == "succeeded"
