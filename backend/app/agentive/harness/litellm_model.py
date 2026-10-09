@@ -32,6 +32,7 @@ from app.agentive.harness.contracts import (
     PhysicalModelRequest,
     ResolvedModelRoute,
 )
+from app.agentive.harness.model_errors import model_request_error
 from app.agentive.harness.pydantic_ai_compat import LiteLLMProvider, OpenAIChatModel
 from app.schemas.agentive.model_dispatch import ModelDispatchInput
 
@@ -457,6 +458,9 @@ class _LiteLLMStream(httpx.AsyncByteStream):
                     else _ModelStreamOutcome.UNKNOWN
                 )
                 await self._finish(self._accounting_response(), outcome)
+                classified = model_request_error(exc)
+                if classified is not None:
+                    raise classified from exc
             raise
 
     async def aclose(self) -> None:
@@ -697,13 +701,16 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
                 outcome="cancelled",
             )
             raise
-        except BaseException:
+        except BaseException as exc:
             await self._observe(
                 request_id=request_id,
                 request_context=request_context,
                 started_at=started_at,
                 outcome="outcome_unknown",
             )
+            classified = model_request_error(exc)
+            if classified is not None:
+                raise classified from exc
             raise
 
         if body.get("stream") is True:

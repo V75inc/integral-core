@@ -69,3 +69,23 @@ Speech and connector providers have their own settings and origins. Update all a
 ## Change discipline
 
 Review environment changes as deployment changes. Confirm effective non-secret settings, restart components that read them at boot, and verify the affected feature. Use bounded diagnostics that redact keys, tokens, stored credentials, and private conversation content.
+
+## Model setup without environment guesswork
+
+Integral AI is always active. Prefer **Settings → AI Models** for user model
+setup. Ollama Cloud credentials bind to `https://ollama.com` for both validation
+and chat; `OLLAMA_API_BASE` cannot reroute a saved cloud key to a local daemon.
+Ollama Local profiles use that operator-owned variable, defaulting to
+`http://localhost:11434` for a direct API and the host gateway in local Compose.
+
+Managed CLI/desktop installations read `<home>/settings.env`, not a repository
+`.env`. Use `integral status --home <home> --json` to confirm the installation.
+Restart after changing operator settings. Docker/manually hosted APIs use their
+explicit `.env` configuration. A deployment default model must use
+`provider/model`. No legacy harness opt-in flag is needed.
+
+Malformed model routes and Ollama generation settings produce a model setup
+message. Known outbound SDK authentication, connection, timeout, quota and model
+errors produce specific safe messages. Core persistence and authority errors
+remain distinct. These diagnostics neither expose provider secrets nor replay
+uncertain model requests; existing reconciliation and accounting apply.

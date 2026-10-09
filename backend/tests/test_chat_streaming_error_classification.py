@@ -97,3 +97,17 @@ def test_unrecognized_harness_conflict_logs_only_fixed_fallback(caplog) -> None:
     classify_turn_exception(exc)
     assert "harness_unclassified_conflict" in caplog.text
     assert "private" not in caplog.text
+
+
+def test_invalid_operator_config_has_a_safe_setup_message():
+    from app.api.errors import ServiceUnavailableError
+
+    exc = ServiceUnavailableError(
+        message="private-config",
+        details={"reason": "native_model_configuration_invalid"},
+    )
+    code, message = classify_turn_exception(exc)
+    assert code == "model_configuration_invalid"
+    assert "Settings" in message
+    assert "INTEGRAL_NATIVE_MODEL" in message
+    assert "private-config" not in message
