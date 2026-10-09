@@ -1,8 +1,7 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
-import { createPortal } from 'react-dom';
+import { useState, useEffect, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Modal } from '../ui/Modal';
-import { Button, ColorPicker, VisibilityField } from '../ui';
+import { Button, VisibilityField } from '../ui';
 import type { VisibilityChoice } from '../ui';
 import { Input, Textarea } from '../../ui';
 import { FormDialog, StepDialog } from '../../templates';
@@ -11,7 +10,6 @@ import { invalidateWorkspaceListCaches } from '../../queryKeys';
 import { useToast } from '../../context/ToastContext';
 import { useScope } from '../../context/ScopeContext';
 import type { OperationalModelNode, App } from '../../types';
-import { parseTrackAccentHex } from '../../utils';
 import { appPath } from '../../utils/resourcePaths';
 import { OperationalModelPicker } from '../library/OperationalModelPicker';
 import { IncludeSeedDataToggle } from './IncludeSeedDataToggle';
@@ -46,21 +44,7 @@ export function AppModal({ open, onClose, onSaved, editApp, mode }: AppModalProp
   const [visibilityChoice, setVisibilityChoice] = useState<VisibilityChoice>(() =>
     isEdit ? normalizeAppVisibility(editApp?.visibility) : 'inherit'
   );
-  const [accentColor, setAccentColor] = useState<string | null>(
-    editApp?.accent_color ? parseTrackAccentHex(editApp.accent_color) : null
-  );
-  const [colorOpen, setColorOpen] = useState(false);
-  const colorBtnRef = useRef<HTMLButtonElement>(null);
-  const [popoverStyle, setPopoverStyle] = useState<{ top: number; left: number } | null>(null);
   const [libraryPackageId, setLibraryPackageId] = useState('');
-
-  function toggleColorPicker() {
-    if (!colorOpen && colorBtnRef.current) {
-      const r = colorBtnRef.current.getBoundingClientRect();
-      setPopoverStyle({ top: r.bottom + 6, left: r.left });
-    }
-    setColorOpen(v => !v);
-  }
   const [libraryPackages, setLibraryPackages] = useState<OperationalModelNode[]>([]);
   const [saving, setSaving] = useState(false);
   const [includeSeedData, setIncludeSeedData] = useState(true);
@@ -81,7 +65,6 @@ export function AppModal({ open, onClose, onSaved, editApp, mode }: AppModalProp
   useEffect(() => {
     if (open) {
       setStep(isBlank ? 'details' : 'profile');
-      setColorOpen(false);
     }
   }, [open, isBlank]);
 
@@ -122,14 +105,10 @@ export function AppModal({ open, onClose, onSaved, editApp, mode }: AppModalProp
       setName(editApp.name || '');
       setDescription(editApp.description || '');
       setVisibilityChoice(normalizeAppVisibility(editApp.visibility));
-      setAccentColor(
-        editApp.accent_color ? parseTrackAccentHex(editApp.accent_color) : null
-      );
     } else {
       setName('');
       setDescription('');
       setVisibilityChoice('inherit');
-      setAccentColor(null);
       setLibraryPackageId('');
       setIncludeSeedData(true);
     }
@@ -148,22 +127,14 @@ export function AppModal({ open, onClose, onSaved, editApp, mode }: AppModalProp
       showToast('Name is required', 'error');
       return;
     }
-    if (accentColor && !parseTrackAccentHex(accentColor)) {
-      showToast('Identity color must be a #RGB or #RRGGBB hex value', 'error');
-      return;
-    }
     setSaving(true);
     try {
-      const resolvedAccent = accentColor
-        ? parseTrackAccentHex(accentColor) || ''
-        : '';
       let sp: App;
       if (isEdit && editApp) {
         sp = await appsApi.update(editApp.id, {
           name: name.trim(),
           description: description.trim(),
           visibility: visibilityChoice,
-          accent_color: resolvedAccent,
         });
       } else {
         sp = await appsApi.create({
@@ -177,7 +148,6 @@ export function AppModal({ open, onClose, onSaved, editApp, mode }: AppModalProp
                 include_seed_data: includeSeedData,
               }
             : {}),
-          ...(resolvedAccent ? { accent_color: resolvedAccent } : {}),
         });
       }
       void invalidateWorkspaceListCaches(queryClient);
@@ -205,42 +175,14 @@ export function AppModal({ open, onClose, onSaved, editApp, mode }: AppModalProp
     <>
       <div>
         <label htmlFor="app-name" className="text-sm font-medium block mb-1.5">Name *</label>
-        <div className="flex items-center gap-2.5">
-          <button
-            ref={colorBtnRef}
-            type="button"
-            aria-label="Identity color"
-            title={accentColor ? `Color: ${accentColor}` : 'Choose identity color'}
-            onClick={toggleColorPicker}
-            className="h-8 w-8 shrink-0 rounded-full border-2 border-[var(--panel-border)] cursor-pointer transition-transform duration-fast hover:scale-110 focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring-color)]"
-            style={{ backgroundColor: accentColor ?? 'var(--badge-muted-bg)' }}
-          />
-          <Input
-            id="app-name"
-            className="flex-1"
-            value={name}
-            onChange={e => setName(e.target.value)}
-            placeholder="Q4 Initiatives"
-            autoFocus
-          />
-        </div>
-        {colorOpen && popoverStyle && createPortal(
-          <>
-            <div className="fixed inset-0 z-popover" onClick={() => setColorOpen(false)} />
-            <div
-              className="fixed z-popover rounded-[var(--radius-card)] border border-[var(--panel-border)] bg-[var(--panel)] p-3 shadow-[var(--shadow-lg)]"
-              style={popoverStyle}
-            >
-              <ColorPicker
-                value={accentColor}
-                onChange={c => { setAccentColor(c); setColorOpen(false); }}
-                size="sm"
-                allowClear
-              />
-            </div>
-          </>,
-          document.body
-        )}
+        <Input
+          id="app-name"
+          className="w-full"
+          value={name}
+          onChange={e => setName(e.target.value)}
+          placeholder="Q4 Initiatives"
+          autoFocus
+        />
       </div>
       <div>
         <label htmlFor="app-description" className="text-sm font-medium block mb-1.5">Description</label>
