@@ -30,6 +30,7 @@ def test_concurrent_initialization_preserves_one_identity(tmp_path):
 def test_existing_empty_or_damaged_control_file_never_generates_new_keys(
     tmp_path, body
 ):
+    """Existing empty or damaged control file never generates new keys."""
     path = tmp_path / "installation.json"
     path.write_text(body)
     with pytest.raises(runtime.RuntimeErrorDetail):
@@ -49,6 +50,7 @@ def test_existing_empty_or_damaged_control_file_never_generates_new_keys(
     ],
 )
 def test_existing_incomplete_installation_refuses_without_replacing_keys(tmp_path, key):
+    """Existing incomplete installation refuses without replacing keys."""
     config = runtime.initialize(tmp_path)
     config.pop(key)
     runtime.private_json(tmp_path / "installation.json", config)
@@ -64,6 +66,7 @@ def test_existing_incomplete_installation_refuses_without_replacing_keys(tmp_pat
 def test_malformed_managed_encryption_key_is_actionable_and_never_rotated(
     tmp_path, key
 ):
+    """Malformed managed encryption key is actionable and never rotated."""
     config = runtime.initialize(tmp_path)
     config[key] = "malformed-key-that-must-never-be-printed"
     runtime.private_json(tmp_path / "installation.json", config)
@@ -241,6 +244,7 @@ def test_backup_preserves_external_apps_and_relocates_the_path(tmp_path):
 
 @pytest.mark.parametrize("identity", [None, "jvagent"])
 def test_up_cannot_reopen_a_legacy_runtime(tmp_path, monkeypatch, identity):
+    """Up cannot reopen a legacy runtime."""
     monkeypatch.setattr(
         runtime,
         "status",
@@ -251,6 +255,7 @@ def test_up_cannot_reopen_a_legacy_runtime(tmp_path, monkeypatch, identity):
 
 
 def test_stopped_descriptor_identifies_builtin_native_default(tmp_path):
+    """Stopped descriptor identifies builtin native default."""
     result = runtime.status(tmp_path)
     assert result["default_harness_provider_id"] == "integral_native"
     assert result["harness_provider_id"] is None
@@ -265,6 +270,7 @@ def test_stopped_descriptor_identifies_builtin_native_default(tmp_path):
     ],
 )
 def test_ambiguous_settings_fail_before_starting_or_changing_keys(tmp_path, content):
+    """Ambiguous settings fail before starting or changing keys."""
     config = runtime.initialize(tmp_path)
     original = (tmp_path / "installation.json").read_bytes()
     (tmp_path / "settings.env").write_text(content)
@@ -280,9 +286,10 @@ def test_ambiguous_settings_fail_before_starting_or_changing_keys(tmp_path, cont
 def test_managed_settings_are_authoritative_across_launch_environments(
     tmp_path, monkeypatch
 ):
+    """Managed settings are authoritative across launch environments."""
     config = runtime.initialize(tmp_path)
     (tmp_path / "settings.env").write_text(
-        "INTEGRAL_NATIVE_MODEL=ollama/my-model\nOLLAMA_API_BASE=http://127.0.0.1:11434\nDEBUG=true\nINTEGRAL_CREDENTIAL_ENC_KEY=wrong\n"
+        "INTEGRAL_NATIVE_MODEL=ollama/my-model\nOLLAMA_API_BASE=http://127.0.0.1:11434\nDEBUG=true\nINTEGRAL_CREDENTIAL_ENC_KEY=wrong\nJVSPATIAL_AUTH_ENABLED=false\n"
     )
     monkeypatch.setenv("INTEGRAL_NATIVE_MODEL", "openai/unrelated-terminal-model")
     env = runtime._environment(
@@ -292,6 +299,125 @@ def test_managed_settings_are_authoritative_across_launch_environments(
     assert env["OLLAMA_API_BASE"] == "http://127.0.0.1:11434"
     assert env["DEBUG"] == "false"
     assert env["INTEGRAL_CREDENTIAL_ENC_KEY"] == config["credential_key"]
+    assert env["JVSPATIAL_AUTH_ENABLED"] == "true"
+
+
+@pytest.mark.smoke
+def test_managed_runtime_does_not_inherit_another_installations_configuration(
+    tmp_path, monkeypatch
+):
+    """Managed runtime does not inherit another installations configuration."""
+    config = runtime.initialize(tmp_path)
+    poison = {
+        "INTEGRAL_NATIVE_MODEL": "openai/unrelated-model",
+        "INTEGRAL_NATIVE_TURN_TOKEN_LIMIT": "invalid",
+        "OLLAMA_API_BASE": "http://unrelated-daemon.invalid",
+        "OPENAI_API_KEY": "unrelated-private-key",
+        "INTEGRAL_HOST_EXTENSION_MODULE": "unrelated.extension",
+        "REGISTRATION_OPEN": "false",
+        "ADMIN_EMAIL": "unrelated@example.com",
+        "ADMIN_PASSWORD": "unrelated-private-password",
+        "SECRET_KEY": "unrelated-private-signing-key",
+        "JVSPATIAL_AUTH_ENABLED": "false",
+        "TESTING": "1",
+        "PYTEST_CURRENT_TEST": "unrelated-test",
+    }
+    for key, value in poison.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example:8080")
+    monkeypatch.setenv("SSL_CERT_FILE", "/custom/ca.pem")
+    monkeypatch.setenv("LC_ALL", "C.UTF-8")
+    env = runtime._environment(
+        tmp_path, config, "postgresql://private", 4000, 9006, None
+    )
+    for key in poison:
+        assert env.get(key) != poison[key]
+    assert env["OPENAI_API_KEY"] == ""
+    assert env["HTTPS_PROXY"] == "http://proxy.example:8080"
+    assert env["SSL_CERT_FILE"] == "/custom/ca.pem"
+    assert env["LC_ALL"] == "C.UTF-8"
+    assert env["PATH"] == os.environ["PATH"]
+    assert env["INTEGRAL_CREDENTIAL_ENC_KEY"] == config["credential_key"]
+
+
+@pytest.mark.smoke
+def test_explicit_settings_resolve_without_importing_terminal_provider_values(
+    tmp_path, monkeypatch
+):
+    """Explicit settings resolve without importing terminal provider values."""
+    monkeypatch.setenv("OPENAI_API_KEY", "unrelated-private-key")
+    monkeypatch.setenv("INTEGRAL_NATIVE_MODEL", "openai/unrelated-model")
+    (tmp_path / "settings.env").write_text(
+        "PROVIDER=ollama\n"
+        "INTEGRAL_NATIVE_MODEL=${PROVIDER}/chosen-model\n"
+        "OPENAI_API_KEY=${OPENAI_API_KEY:-}\n"
+        "OLLAMA_API_BASE=${OLLAMA_API_BASE:-http://127.0.0.1:11434}\n"
+    )
+    env = runtime._environment(
+        tmp_path, runtime.initialize(tmp_path), "postgresql://private", 4000, 9006, None
+    )
+    assert env["INTEGRAL_NATIVE_MODEL"] == "ollama/chosen-model"
+    assert env["OPENAI_API_KEY"] == ""
+    assert env["OLLAMA_API_BASE"] == "http://127.0.0.1:11434"
+
+
+@pytest.mark.smoke
+def test_unresolved_settings_reference_fails_before_launch_and_preserves_keys(
+    tmp_path, monkeypatch
+):
+    """Unresolved settings reference fails before launch and preserves keys."""
+    runtime.initialize(tmp_path)
+    original = (tmp_path / "installation.json").read_bytes()
+    monkeypatch.setenv("UNRELATED_API_KEY", "private-terminal-secret")
+    (tmp_path / "settings.env").write_text("OPENAI_API_KEY=${UNRELATED_API_KEY}\n")
+    with pytest.raises(runtime.RuntimeErrorDetail) as error:
+        runtime.start(tmp_path, open_browser=False)
+    assert "Unresolved settings.env reference at line 1" in str(error.value)
+    assert "private-terminal-secret" not in str(error.value)
+    assert (tmp_path / "installation.json").read_bytes() == original
+    assert not (tmp_path / "runtime.json").exists()
+
+
+@pytest.mark.smoke
+@pytest.mark.parametrize("key", ["TESTING", "test_mode", "PYTEST_CURRENT_TEST"])
+def test_operator_settings_cannot_enable_test_authentication(tmp_path, key):
+    """Operator settings cannot enable test authentication."""
+    runtime.initialize(tmp_path)
+    (tmp_path / "settings.env").write_text(f"{key}=1\n")
+    with pytest.raises(runtime.RuntimeErrorDetail, match="Reserved test setting"):
+        runtime.start(tmp_path, open_browser=False)
+    assert not (tmp_path / "runtime.json").exists()
+
+
+@pytest.mark.smoke
+def test_child_configuration_is_independent_of_terminal_and_working_directory(
+    tmp_path, monkeypatch
+):
+    """Child configuration is independent of terminal and working directory."""
+    monkeypatch.setenv("INTEGRAL_NATIVE_TURN_TOKEN_LIMIT", "invalid")
+    monkeypatch.setenv("REGISTRATION_OPEN", "false")
+    (tmp_path / ".env").write_text(
+        "REGISTRATION_OPEN=false\nINTEGRAL_NATIVE_TURN_TOKEN_LIMIT=invalid\n"
+    )
+    env = runtime._environment(
+        tmp_path, runtime.initialize(tmp_path), "postgresql://private", 4000, 9006, None
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from app.config import Settings; s = Settings(); "
+            "assert s.REGISTRATION_OPEN is True; "
+            "assert s.INTEGRAL_NATIVE_TURN_TOKEN_LIMIT == 600000; "
+            "assert s.DEBUG is False",
+        ],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.smoke
