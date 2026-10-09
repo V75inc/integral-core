@@ -210,6 +210,12 @@ def plan_fidelity_errors(
                 )
                 continue
             matched.add(id(hit))
+            if hit.get("key") != spec["key"]:
+                errors.append(
+                    f"Field {spec['name']!r} must retain approved key "
+                    f"{spec['key']!r}, not {hit.get('key')!r}. "
+                    "Copy the approved field key and update its references."
+                )
             if hit.get("type") and hit["type"] != spec["type"]:
                 errors.append(
                     f"Field {spec['key']} must be {spec['type']}, not {hit['type']}."

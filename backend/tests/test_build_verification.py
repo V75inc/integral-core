@@ -548,3 +548,120 @@ async def test_reader_denies_when_the_caller_has_no_role(monkeypatch):
     monkeypatch.setattr(bv, "resolve_role", _role)
     with pytest.raises(ReadDenied):
         await _Reader("user").read({"kind": "app", "object_id": "a1"})
+
+
+class _SchemaReader(_FakeReader):
+    """Exercise the production field lookup with permission-scoped schemas."""
+
+    def __init__(self, fields):
+        super().__init__()
+        self.fields = fields
+        self.tracks_read = []
+
+    async def _entry_types(self, track_id):
+        self.tracks_read.append(track_id)
+        return [SimpleNamespace(name="Job", form_schema={"fields": self.fields})]
+
+    async def read(self, locator):
+        if locator["kind"] == "field":
+            return await _Reader._field(self, locator)
+        return await super().read(locator)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "legacy,fields,expected_status,alias",
+    [
+        (
+            True,
+            [{"key": "client", "name": "Customer", "type": "text"}],
+            "present",
+            True,
+        ),
+        (
+            False,
+            [{"key": "client", "name": "Customer", "type": "text"}],
+            "missing",
+            False,
+        ),
+        (
+            True,
+            [{"key": "client", "name": "Customer", "type": "date"}],
+            "mismatch",
+            False,
+        ),
+        (
+            True,
+            [
+                {"key": "client", "name": "Customer", "type": "text"},
+                {"key": "other", "name": "Customer", "type": "text"},
+            ],
+            "missing",
+            False,
+        ),
+        (True, [], "missing", False),
+        (True, [{"name": "Customer", "type": "text"}], "missing", False),
+        (
+            True,
+            [{"key": "client", "name": "Customer", "type": "text", "required": True}],
+            "mismatch",
+            False,
+        ),
+        (
+            True,
+            [
+                {"key": "customer", "name": "Customer", "type": "date"},
+                {"key": "client", "name": "Customer", "type": "text"},
+            ],
+            "mismatch",
+            False,
+        ),
+    ],
+)
+async def test_legacy_field_key_reconciliation_is_scoped_and_fail_closed(
+    legacy, fields, expected_status, alias
+):
+    blueprint = _blueprint()
+    blueprint["tracks"][0]["entry_types"][0]["fields"].pop()
+    receipt = _receipt(blueprint)
+    assert receipt["schema_version"] == 2
+    if legacy:
+        receipt.pop("schema_version")
+    original_fields = [dict(field) for field in fields]
+    reader = _SchemaReader(fields)
+    result = await verify_loaded(
+        blueprint=blueprint,
+        design_id="d1",
+        design_revision=1,
+        receipt=receipt,
+        reader=reader,
+    )
+    item = next(item for item in result["items"] if item["id"] == "f.customer")
+    assert item["status"] == expected_status
+    assert (item.get("resolution") == "legacy_field_key_alias") is alias
+    if alias:
+        assert item["approved_field_key"] == "customer"
+        assert item["resolved_field_key"] == "client"
+    assert reader.tracks_read == ["t1"]
+    assert fields == original_fields
+
+
+@pytest.mark.asyncio
+async def test_duplicate_approved_labels_do_not_reconcile_to_one_live_field():
+    blueprint = _blueprint()
+    fields = blueprint["tracks"][0]["entry_types"][0]["fields"]
+    fields[1] = {"id": "f.other", "key": "other", "name": "Customer", "type": "text"}
+    receipt = _receipt(blueprint)
+    receipt.pop("schema_version")
+    result = await verify_loaded(
+        blueprint=blueprint,
+        design_id="d1",
+        design_revision=1,
+        receipt=receipt,
+        reader=_SchemaReader([{"key": "client", "name": "Customer", "type": "text"}]),
+    )
+    assert all(
+        item["status"] == "missing"
+        for item in result["items"]
+        if item["id"].startswith("f.")
+    )

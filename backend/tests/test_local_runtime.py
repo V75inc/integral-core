@@ -292,3 +292,43 @@ def test_managed_settings_are_authoritative_across_launch_environments(
     assert env["OLLAMA_API_BASE"] == "http://127.0.0.1:11434"
     assert env["DEBUG"] == "false"
     assert env["INTEGRAL_CREDENTIAL_ENC_KEY"] == config["credential_key"]
+
+
+@pytest.mark.smoke
+def test_free_port_rejects_accepting_listener_even_when_bind_would_succeed(monkeypatch):
+    """A wildcard/Docker listener must not share the native installation port."""
+    probes = []
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+    class BindableSocket(Connection):
+        def bind(self, address):
+            self.address = address
+
+        def getsockname(self):
+            return ("127.0.0.1", self.address[1] or 55000)
+
+        def setsockopt(self, *args):
+            pass
+
+    def accepting_connection(address, timeout):
+        probes.append(address)
+        return Connection()
+
+    monkeypatch.setattr(runtime.socket, "socket", BindableSocket)
+    monkeypatch.setattr(runtime.socket, "create_connection", accepting_connection)
+    assert runtime.free_port(4000) == 55000
+    assert probes == [("127.0.0.1", 4000)]
+
+
+@pytest.mark.smoke
+def test_free_port_keeps_an_unused_preferred_port():
+    with runtime.socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        preferred = sock.getsockname()[1]
+    assert runtime.free_port(preferred) == preferred
