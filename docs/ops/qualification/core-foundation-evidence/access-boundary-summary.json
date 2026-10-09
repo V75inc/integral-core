@@ -1,0 +1,26 @@
+[
+  {
+    "case": "bare scope rejected",
+    "status": 400
+  },
+  {
+    "case": "foreign scope rejected",
+    "status": 403
+  },
+  {
+    "case": "unauthenticated protected resource",
+    "status": 401
+  },
+  {
+    "case": "outsider tracks",
+    "status": 403
+  },
+  {
+    "case": "outsider tracks",
+    "status": 403
+  },
+  {
+    "case": "outsider entries",
+    "status": 403
+  }
+]

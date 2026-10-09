@@ -336,7 +336,7 @@ def _describe_operational_model_service_map(args: Dict[str, Any]) -> Dict[str, A
     correctly. ``space_id`` is accepted as an alias for ``app_id``.
     """
     src = args or {}
-    out: Dict[str, Any] = {}
+    out: Dict[str, Any] = {"detail": src.get("detail", "overview")}
     if src.get("track_id") is not None:
         out["track_id"] = src["track_id"]
     app_id = src.get("app_id", src.get("space_id"))

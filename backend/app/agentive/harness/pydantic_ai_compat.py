@@ -82,6 +82,8 @@ class IntegralToolDisclosure(ToolSearch):
     require_initial_search: bool = True
     pending_decision_tool: str | None = None
     continuation_tools: frozenset[str] = frozenset()
+    workflow_skill_ids: frozenset[str] = frozenset()
+    recovery_read_tools: frozenset[str] = frozenset({"integral_describe_capabilities"})
 
     def get_native_tools(self):
         return []
@@ -124,6 +126,35 @@ class IntegralToolDisclosure(ToolSearch):
                 ),
                 0,
             )
+            # A Core refusal can name its read-only recovery contract. Enforce
+            # that contract before another broad read; availability and live
+            # broker checks still apply. Never force an effect or replay a write.
+            recovery = None
+            for message in ctx.messages[turn_start:]:
+                if not isinstance(message, ModelRequest):
+                    continue
+                for part in message.parts:
+                    if not isinstance(part, ToolReturnPart):
+                        continue
+                    content = part.content
+                    if isinstance(content, dict) and content.get("error"):
+                        next_tool = content.get("next_tool")
+                        if next_tool in self.recovery_read_tools:
+                            recovery = next_tool
+                    elif part.tool_name == recovery:
+                        recovery = None
+            if recovery:
+                recovery_available: frozenset[str] = getattr(
+                    ctx, "available_tool_names", frozenset()
+                )
+                resolved["tool_choice"] = [
+                    (
+                        recovery
+                        if recovery in recovery_available
+                        else "search_capabilities"
+                    )
+                ]
+                return resolved
             if self.pending_decision_tool:
                 decided = any(
                     isinstance(part, ToolReturnPart)
@@ -171,12 +202,19 @@ class IntegralToolDisclosure(ToolSearch):
                     and item["load_with"].get("tool") == "load_capability"
                 }
                 candidates.discard(None)
-                if candidates and not candidates.intersection(
-                    ctx.active_capability_ids
+                if (
+                    candidates
+                    and not candidates.intersection(ctx.active_capability_ids)
+                    and not self.workflow_skill_ids.intersection(
+                        ctx.active_capability_ids
+                    )
                 ):
                     # The model chooses the fitting returned procedure. Core
-                    # metadata requires a procedure to be loaded, without
+                    # metadata requires an initial procedure to be loaded, without
                     # selecting it from user wording or assigning authority.
+                    # Once a workflow is active, discovering a missing read
+                    # must not force loading every skill that also owns it.
+                    # Write handlers still enforce their applicable procedure.
                     resolved["tool_choice"] = ["load_capability"]
             return resolved
 
@@ -280,6 +318,13 @@ def build_integral_run_instructions(
             "tools exactly. Do not split an ID, replace its dots with slashes, "
             "or invent a route. If no verified url is available, use a plain "
             "record label instead of a guessed link.",
+            "Integral read recovery: when Core refuses a read and returns "
+            "next_tool, search for that exact canonical tool name and follow "
+            "its permitted contract. A refusal is not an empty result or zero "
+            "count. Do not try other broad queries, schema dumps, or archive "
+            "searches to bypass it. Use only a verified matching declared "
+            "query or operation with read effects. If none exists, explain "
+            "that the current App exposes no permitted read for this question.",
         ]
         if active_ids:
             blocks.append(

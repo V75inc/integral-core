@@ -115,6 +115,7 @@ def build_native_runtime(
             IntegralToolDisclosure(
                 strategy=pydantic_tool_search_strategy,
                 max_results=8,
+                workflow_skill_ids=selected_skills,
                 require_initial_search=not any(
                     tool.name == "integral_resolve_pending_write"
                     or (

@@ -70,7 +70,7 @@ Then inspect:
    (`text`, `number`, `date`, `select`, `multi_select`, `relation`, `computed`,
    …) and view-palette key the substrate can actually render. Propose only from
    this set.
-2. **`integral_describe_model`** (or **`integral_get_track_schema`**) — the
+2. **`integral_describe_model(detail="full")`** (or **`integral_get_track_schema`**) — the
    profile **currently attached** to the track/app: its existing entry types,
    fields, tags, views, and any pending draft. This tells you what is already
    there so you propose a *delta*, not a duplicate.

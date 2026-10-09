@@ -369,4 +369,17 @@ describe('AppManagerDialog', () => {
       expect(screen.getByText('Needs settings')).toBeInTheDocument(),
     );
   });
+  it('reconciles an unknown install outcome without offering a blind retry', async () => {
+    const onChanged = vi.fn();
+    mockBatchInstall.mockRejectedValue({ code: 'ECONNABORTED' });
+    renderDialog({ onChanged });
+    const row = await screen.findByTestId('app-manager-row-hr-suite');
+    await act(async () => { fireEvent.click(row.querySelector('button')!); });
+    fireEvent.click(screen.getByTestId('app-manager-apply'));
+    expect(await screen.findByText(/installation result is not confirmed/)).toBeInTheDocument();
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('app-manager-apply')).toBeDisabled();
+    expect(mockBatchInstall).toHaveBeenCalledTimes(1);
+  });
+
 });

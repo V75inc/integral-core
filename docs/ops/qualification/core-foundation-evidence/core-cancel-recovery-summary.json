@@ -1,0 +1,12 @@
+{
+  "question": "Read Foundation Approval Smoke in this track and quote the recorded body. Do not change anything.",
+  "run_id": "d26b01f0-82f8-4d64-914f-a1b82124baa2",
+  "status": {
+    "type": "complete",
+    "reason": "stop"
+  },
+  "model_requests": 3,
+  "reported_input_tokens": 47091,
+  "tool_steps": 2,
+  "answer": "Read only \u2014 nothing changed.\n\n[Foundation Approval Smoke](/tracks/n.Track.bbf320084e1d4c288ef46422?entry=n.Entry.93e1077958e54b3fae1eb71e) in [Foundation Tasks](/tracks/n.Track.bbf320084e1d4c288ef46422) \u2014 a `post`, status active, record revision 1. Its recorded body, verbatim:\n\n```text\nSynthetic approval test\n```"
+}

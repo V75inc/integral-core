@@ -231,6 +231,14 @@ async def _persist_envelope(step: Any, result: CapabilityResult) -> None:
 
 async def invoke(inv: CapabilityInvocation) -> CapabilityResult:
     """Authorize, receipt, then execute one declared capability."""
+    from app.middleware.permissions_cache import isolated_permissions_cache
+
+    with isolated_permissions_cache():
+        return await _invoke_current(inv)
+
+
+async def _invoke_current(inv: CapabilityInvocation) -> CapabilityResult:
+    """Execute with current graph authority, including native and MCP callers."""
     started = time.perf_counter()
     run = await AgentRun.find_one({"run_id": inv.run_id})
     if run is None:
@@ -507,6 +515,42 @@ def infer_source_and_op_class(
         if item.get("name") == capability_key:
             return "core", str(item.get("op_class") or "read")
     return "core", "read"
+
+
+async def is_declared_app_read(
+    *,
+    principal_id: str,
+    workspace_id: str,
+    run_id: str,
+    arguments: Dict[str, Any],
+) -> bool:
+    """Classify a generic App call without granting execution authority.
+
+    Only the server-bound run snapshot can make a dispatcher call read-only.
+    The live broker still rechecks declaration, scope and policy on dispatch.
+    """
+    run = await AgentRun.find_one({"run_id": run_id})
+    if (
+        run is None
+        or str(run.user_id) != principal_id
+        or str(run.workspace_id) != workspace_id
+    ):
+        return False
+    invocation = CapabilityInvocation(
+        principal_id=principal_id,
+        workspace_id=workspace_id,
+        run_id=run_id,
+        origin="chat",
+        source="app",
+        op_class="read",
+        capability_key=str(arguments.get("operation_key") or ""),
+        app_id=str(arguments.get("app_id") or ""),
+        arguments={},
+    )
+    return (
+        resolve_from_snapshot(dict(run.capability_snapshot or {}), invocation)
+        is not None
+    )
 
 
 async def invoke_declared_capability(

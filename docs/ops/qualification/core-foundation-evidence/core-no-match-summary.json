@@ -1,0 +1,27 @@
+{
+  "question": "Find the task named Foundation Missing Record 9D73 in this track. Do not change anything. If there is no exact match, say so.",
+  "run_id": "33aecaf2-6a6b-4385-8441-69025406218f",
+  "status": {
+    "type": "complete",
+    "reason": "stop"
+  },
+  "model_requests": 2,
+  "reported_input_tokens": 33811,
+  "reported_output_tokens": 468,
+  "tool_steps": 1,
+  "cost_sources": [
+    "unavailable"
+  ],
+  "tools": [
+    {
+      "tool": "integral_query_entries",
+      "arguments": {
+        "track_id": "n.Track.bbf320084e1d4c288ef46422",
+        "query": "Foundation Missing Record 9D73"
+      },
+      "error": false,
+      "result_bytes": 783
+    }
+  ],
+  "answer": "No exact match. Searching the [Foundation Tasks](/tracks/n.Track.bbf320084e1d4c288ef46422) track for \"Foundation Missing Record 9D73\" returned 0 entries \u2014 there is no record with that title or identifier in that track.\n\nNothing was changed; this was a read-only lookup."
+}

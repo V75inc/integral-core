@@ -425,12 +425,15 @@ domains:
           track_id OR space_id (the app), not both. This shows what one resource HAS;
           integral_describe_substrate shows the global palette of what you COULD add,
           and integral_list_models lists reusable library packages.
+          Defaults to a bounded overview. For schema authoring or modification,
+          explicitly request detail=full to inspect fields and configurations.
         http: "(operational_models introspection)"
         policy_action: track.read
         params:
           track_id: {type: string, optional: true, desc: "Describe the Operational Model attached to this track (provide track_id OR space_id, not both)."}
           space_id: {type: string, optional: true, desc: "Describe the Operational Model attached to this app (the substrate's space). Provide track_id OR space_id, not both."}
-        returns: { manifest: object, draft_status: str, pending_changes: list }
+          detail: {type: string, optional: true, enum: [overview, full], default: overview, desc: "Bounded overview for discovery; full is required before schema modification."}
+        returns: { published: object, draft: "object|null", has_draft: bool }
       - name: integral_describe_capabilities
         status: existing
         op_class: read

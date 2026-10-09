@@ -1043,6 +1043,21 @@ async def execute_claimed_work(
     worker_id: str = "work-worker",
     lease_seconds: float = DEFAULT_LEASE_SECONDS,
 ) -> WorkItem:
+    """Execute one item with a fresh, task-local authorization memo."""
+    from app.middleware.permissions_cache import isolated_permissions_cache
+
+    with isolated_permissions_cache():
+        return await _execute_claimed_work(
+            item, worker_id=worker_id, lease_seconds=lease_seconds
+        )
+
+
+async def _execute_claimed_work(
+    item: WorkItem,
+    *,
+    worker_id: str,
+    lease_seconds: float,
+) -> WorkItem:
     """Run one leased WorkItem through the static handler table."""
     _maybe_crash("after_claim")
     kind = (item.kind or "").strip()

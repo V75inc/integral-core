@@ -1239,11 +1239,88 @@ async def describe_substrate() -> Dict[str, Any]:
     }
 
 
+def _model_overview(exported: Dict[str, Any]) -> Dict[str, Any]:
+    """Bound discovery payloads without pretending an outline is the full schema.
+
+    Configurations, expressions, views and draft patch bodies can dwarf a simple
+    lookup. Preserve resource identity and exact collection counts; declare every
+    clipped list. Full authoring contracts remain available explicitly.
+    """
+
+    def label(value: Any) -> str:
+        return str(value or "")[:80]
+
+    def collection(value: Any) -> list:
+        return value if isinstance(value, list) else []
+
+    def shape(block: Dict[str, Any]) -> Dict[str, Any]:
+        types = collection(block.get("entry_types"))
+        outlines = []
+        for entry_type in types[:16]:
+            if not isinstance(entry_type, dict):
+                continue
+            fields = collection(entry_type.get("fields"))
+            outlines.append(
+                {
+                    "key": label(entry_type.get("key")),
+                    "name": label(entry_type.get("name")),
+                    "field_count": len(fields),
+                    "fields": [
+                        {
+                            "key": label(field.get("key")),
+                            "type": label(field.get("type")),
+                        }
+                        for field in fields[:16]
+                        if isinstance(field, dict)
+                    ],
+                    "fields_truncated": len(fields) > 16,
+                }
+            )
+        return {
+            "entry_type_count": len(types),
+            "entry_types": outlines,
+            "entry_types_truncated": len(types) > 16,
+            "view_count": len(collection(block.get("views"))),
+        }
+
+    manifest = exported.get("manifest") or {}
+    outline = {"scope": label(manifest.get("scope"))}
+    track = manifest.get("track")
+    if isinstance(track, dict):
+        outline["track"] = shape(track)
+    app = manifest.get("app")
+    if isinstance(app, dict):
+        templates = collection(app.get("track_templates"))
+        outline["app"] = {
+            "track_template_count": len(templates),
+            "track_templates": [
+                {
+                    "key": label(template.get("key")),
+                    "name": label(template.get("name")),
+                    "entry_type_count": len(collection(template.get("entry_types"))),
+                }
+                for template in templates[:32]
+                if isinstance(template, dict)
+            ],
+            "track_templates_truncated": len(templates) > 32,
+            "view_count": len(collection(app.get("views"))),
+        }
+    return {
+        **{
+            key: exported[key]
+            for key in ("id", "name", "scope", "status", "version", "library_package")
+            if key in exported
+        },
+        "manifest_overview": outline,
+    }
+
+
 async def describe_operational_model(
     *,
     user_id: str,
     track_id: Optional[str] = None,
     app_id: Optional[str] = None,
+    detail: str = "full",
 ) -> Dict[str, Any]:
     """Return the published + draft state for a track or app's CP.
 
@@ -1259,6 +1336,8 @@ async def describe_operational_model(
     )
     from app.services.permissions import can_view_app, can_view_track
 
+    if detail not in {"overview", "full"}:
+        return {"error": "bad_request", "detail": "detail must be overview or full"}
     if not (track_id or app_id):
         return {"error": "bad_request", "detail": "track_id or app_id required"}
     if track_id and app_id:
@@ -1295,9 +1374,19 @@ async def describe_operational_model(
             "context.status": "draft",
         }
     )
+    published = await export_node(cp)
+    draft = await export_node(drafts[0]) if drafts else None
+    if detail == "overview":
+        return {
+            "detail": "overview",
+            "published": _model_overview(published),
+            "draft": _model_overview(draft) if draft else None,
+            "has_draft": bool(drafts),
+            "full_schema_available_with": {"detail": "full"},
+        }
     return {
-        "published": await export_node(cp),
-        "draft": await export_node(drafts[0]) if drafts else None,
+        "published": published,
+        "draft": draft,
         "has_draft": bool(drafts),
     }
 

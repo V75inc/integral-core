@@ -9,7 +9,7 @@ Integral = **AI-native knowledge platform** — singular, conformable substrate 
 Monorepo:
 
 - **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS (port 9006)
-- **Backend**: Python 3.9+ FastAPI powered by jvspatial (port 4000)
+- **Backend**: Python 3.11+ FastAPI powered by jvspatial (port 4000)
 
 Backend uses jvspatial graph-based data model — all entities are Nodes with explicit Edges for relationships. Integral is an **ops layer** on a pluggable harness: `backend/app/agentive/` is **always-on** and hosts staging, skills overlay, MCP perimeter, and the active harness binding (default Integral AI via Pydantic AI; Integral AI is the only resident harness; Echo is a test fixture, not a product option). Singular resident mind applies **per active binding**, faceted by principal (personal / org-facing / system) — not a peer-agent fleet. External agents connect via Integral's **MCP surface** only; there is **no agent-to-agent (A2A) fabric** (retired). See [docs/backend/adr/003-singular-resident-harness.md](docs/backend/adr/003-singular-resident-harness.md), [docs/product/RESIDENT_HARNESS.md](docs/product/RESIDENT_HARNESS.md). Architecture provisional (pre-1.0) — see [docs/product/ARCHITECTURE.md](docs/product/ARCHITECTURE.md) → "Vision-Aligned Architectural Directions".
 

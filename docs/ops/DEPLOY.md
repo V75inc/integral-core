@@ -44,7 +44,7 @@ npm ci
 npm run dev
 ```
 
-Use Python 3.10 or later. The frontend toolchain's Node engine requirement applies. Source development normally uses Vite's proxy to port 4000. Configure the appropriate development environment explicitly; `DEBUG` is false by default.
+Use Python 3.11 or later. The frontend toolchain's Node engine requirement applies. Source development normally uses Vite's proxy to port 4000. Configure the appropriate development environment explicitly; `DEBUG` is false by default.
 
 ## Packaged distribution
 
