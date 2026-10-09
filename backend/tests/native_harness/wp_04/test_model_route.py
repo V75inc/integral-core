@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.agentive.harness.model_route import resolve_native_model_route
+from app.api.errors import ServiceUnavailableError
 
 
 @pytest.fixture(autouse=True)
@@ -55,7 +56,7 @@ async def test_invalid_deployment_generation_fails_closed(monkeypatch, reference
         AsyncMock(return_value=None),
     )
     monkeypatch.setenv("INTEGRAL_NATIVE_CREDENTIAL_REF", reference)
-    with pytest.raises(ValueError):
+    with pytest.raises(ServiceUnavailableError, match="model configuration is invalid"):
         await resolve_native_model_route(
             workspace_id="workspace-1", default_model="ollama/gemma4:26b"
         )
@@ -328,7 +329,7 @@ async def test_local_ollama_clear_thinking_rejects_invalid_boolean(monkeypatch) 
         "app.services.model_credential_resolver.resolve_agent_model_override",
         resolve,
     )
-    with pytest.raises(ValueError, match="must be true or false"):
+    with pytest.raises(ServiceUnavailableError, match="model configuration is invalid"):
         await resolve_native_model_route(
             workspace_id="workspace-1", default_model="ollama/glm-5.3:cloud"
         )
@@ -347,7 +348,7 @@ async def test_local_ollama_context_must_leave_room_for_prompt(monkeypatch) -> N
         "app.services.model_credential_resolver.resolve_agent_model_override",
         resolve,
     )
-    with pytest.raises(ValueError, match="leave room for the prompt"):
+    with pytest.raises(ServiceUnavailableError, match="model configuration is invalid"):
         await resolve_native_model_route(
             workspace_id="workspace-1", default_model="ollama/gemma4:26b"
         )
@@ -365,7 +366,7 @@ async def test_invalid_local_ollama_output_budget_fails_closed(monkeypatch) -> N
         "app.services.model_credential_resolver.resolve_agent_model_override",
         resolve,
     )
-    with pytest.raises(ValueError, match="must be an integer"):
+    with pytest.raises(ServiceUnavailableError, match="model configuration is invalid"):
         await resolve_native_model_route(
             workspace_id="workspace-1", default_model="ollama/gemma4:26b"
         )
@@ -383,7 +384,7 @@ async def test_invalid_local_ollama_context_size_fails_closed(monkeypatch) -> No
         "app.services.model_credential_resolver.resolve_agent_model_override",
         resolve,
     )
-    with pytest.raises(ValueError, match="must be an integer"):
+    with pytest.raises(ServiceUnavailableError, match="model configuration is invalid"):
         await resolve_native_model_route(
             workspace_id="workspace-1", default_model="ollama/gemma4:26b"
         )
@@ -405,7 +406,7 @@ async def test_invalid_default_model_route_fails_when_no_workspace_override(
         "app.services.model_credential_resolver.resolve_agent_model_override",
         resolve,
     )
-    with pytest.raises(ValueError, match="provider/model"):
+    with pytest.raises(ServiceUnavailableError, match="model configuration is invalid"):
         await resolve_native_model_route(
             workspace_id="workspace-1", default_model="gpt-4.1"
         )
@@ -496,3 +497,35 @@ def test_unconfigured_native_model_has_actionable_chat_error():
     assert code == "model_setup_required"
     assert "Settings" in message and "Ollama" in message
     assert "private debug detail" not in message
+
+
+@pytest.mark.asyncio
+async def test_workspace_ollama_cloud_uses_cloud_even_with_local_server_env(
+    monkeypatch,
+):
+    monkeypatch.setenv("OLLAMA_API_BASE", "http://127.0.0.1:11434")
+    monkeypatch.setenv("INTEGRAL_NATIVE_OLLAMA_NUM_CTX", "invalid-local-setting")
+    monkeypatch.setattr(
+        "app.services.model_credential_resolver.resolve_agent_model_override",
+        AsyncMock(
+            return_value={
+                "slots": {
+                    "default": {
+                        "model": "ollama/gpt-oss:120b",
+                        "api_key": "synthetic-cloud-key",
+                    }
+                },
+                "credential_ref": "user-model-generation:cloud",
+            }
+        ),
+    )
+    route = await resolve_native_model_route(
+        workspace_id="workspace-1", default_model=""
+    )
+    assert route.provider == "ollama_chat"
+    assert route.model == "ollama_chat/gpt-oss:120b"
+    assert route.api_base == "https://ollama.com"
+    assert route.credential_source == "workspace_byok"
+    assert route.credential_ref == "user-model-generation:cloud"
+    assert route.api_key.get_secret_value() == "synthetic-cloud-key"
+    assert route.ollama_num_ctx is None

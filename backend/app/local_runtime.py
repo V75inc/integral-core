@@ -251,6 +251,7 @@ def start(
 ) -> dict[str, Any]:
     """Start once and wait for actual readiness, or attach to the same instance."""
     initialize(home)
+    _operator_settings(home)
     lock = FileLock(str(home / "command.lock"))
     try:
         with lock.acquire(timeout=timeout):
@@ -390,6 +391,42 @@ def stop(
         return _stop(home)
 
 
+def _operator_settings(home: Path) -> dict[str, str]:
+    """Read one explicit settings file, rejecting ambiguous dotenv syntax."""
+    from dotenv import dotenv_values
+    from dotenv.parser import parse_stream
+
+    path = home / "settings.env"
+    if not path.exists():
+        return {}
+    seen: set[str] = set()
+    try:
+        with path.open(encoding="utf-8") as handle:
+            for binding in parse_stream(handle):
+                if binding.error or (binding.key and binding.value is None):
+                    raise RuntimeErrorDetail(
+                        f"Invalid settings.env assignment at line {binding.original.line}. "
+                        "Use NAME=value, then restart this installation."
+                    )
+                if binding.key:
+                    if binding.key in seen:
+                        raise RuntimeErrorDetail(
+                            f"Duplicate settings.env assignment at line {binding.original.line}. "
+                            "Keep one assignment per setting, then restart this installation."
+                        )
+                    seen.add(binding.key)
+        return {
+            key: value
+            for key, value in dotenv_values(path).items()
+            if value is not None
+        }
+    except (OSError, UnicodeError) as exc:
+        raise RuntimeErrorDetail(
+            "The installation's settings.env could not be read. Check its encoding "
+            "and file permissions, then restart. Existing keys were not changed."
+        ) from exc
+
+
 def _environment(
     home: Path,
     config: dict[str, Any],
@@ -403,15 +440,7 @@ def _environment(
     for key in list(env):
         if key.startswith("PYTEST_") or key in ("TESTING", "test_mode"):
             env.pop(key)
-    from dotenv import dotenv_values
-
-    env.update(
-        {
-            key: value
-            for key, value in dotenv_values(home / "settings.env").items()
-            if value is not None
-        }
-    )
+    env.update(_operator_settings(home))
     controlled = {
         "DEBUG": "false",
         "WORKERS": "1",

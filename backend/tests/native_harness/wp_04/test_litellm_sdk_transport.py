@@ -1030,11 +1030,16 @@ async def test_bridge_fails_closed_when_dispatch_intent_cannot_be_recorded() -> 
         http_client=httpx.AsyncClient(transport=transport),
         max_retries=0,
     ) as client:
-        with pytest.raises(APIConnectionError):
+        with pytest.raises(APIConnectionError) as caught:
             await client.chat.completions.create(
                 model="anthropic/claude-sonnet",
                 messages=[{"role": "user", "content": "do not dispatch"}],
             )
+        from app.agentive.harness.pydantic_ai_compat import (
+            classify_integral_harness_exception,
+        )
+
+        assert classify_integral_harness_exception(caught.value) is None
 
     assert dispatched is False
 
@@ -1120,3 +1125,75 @@ def test_request_context_dimensions_are_content_free() -> None:
     )
     assert "private" not in dimensions.model_dump_json()
     assert "read_record" not in dimensions.model_dump_json()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure,code",
+    [
+        ("ContextWindowExceededError", "model_context_limit"),
+        ("AuthenticationError", "model_authentication_failed"),
+        ("APIConnectionError", "model_endpoint_unreachable"),
+        ("Timeout", "model_request_timeout"),
+        ("RateLimitError", "model_rate_limited"),
+        ("NotFoundError", "model_unavailable"),
+        ("ServiceUnavailableError", "model_provider_unavailable"),
+        ("BadRequestError", "model_request_rejected"),
+    ],
+)
+@pytest.mark.parametrize("stream", [False, True])
+async def test_sdk_failures_survive_client_wrapping_without_private_details(
+    monkeypatch, failure, code, stream
+):
+    monkeypatch.setenv("LITELLM_MODE", "PRODUCTION")
+    monkeypatch.setenv("TIKTOKEN_CACHE_DIR", "/tmp/integral-litellm-test-cache")
+    from types import SimpleNamespace
+
+    import litellm
+
+    from app.agentive.harness.pydantic_ai_compat import (
+        classify_integral_harness_exception,
+    )
+    from app.services.chat_streaming import classify_turn_exception
+
+    observations = []
+    error = getattr(litellm, failure)(
+        message="private-key-and-url", model="synthetic", llm_provider="openai"
+    )
+
+    async def chunks():
+        raise error
+        yield {}
+
+    async def completion(**kwargs):
+        if stream:
+            return chunks()
+        raise error
+
+    async def observer(item):
+        observations.append(item.outcome)
+
+    transport = LiteLLMSDKTransport(
+        route=_route(), scope=_scope(), observer=observer, completion=completion
+    )
+    async with AsyncOpenAI(
+        api_key="placeholder",
+        base_url="http://litellm-sdk.invalid/v1",
+        http_client=httpx.AsyncClient(transport=transport),
+        max_retries=0,
+    ) as client:
+        with pytest.raises(Exception) as caught:
+            response = await client.chat.completions.create(
+                model="anthropic/claude-sonnet",
+                messages=[{"role": "user", "content": "hello"}],
+                stream=stream,
+            )
+            if stream:
+                async for _ in response:
+                    pass
+    provider = SimpleNamespace(classify_exception=classify_integral_harness_exception)
+    actual, message = classify_turn_exception(caught.value, provider=provider)
+    assert actual == code
+    assert "private-key-and-url" not in message
+    assert "Something went wrong" not in message
+    assert observations == ["dispatch_intent", "outcome_unknown"]

@@ -254,3 +254,41 @@ def test_stopped_descriptor_identifies_builtin_native_default(tmp_path):
     result = runtime.status(tmp_path)
     assert result["default_harness_provider_id"] == "integral_native"
     assert result["harness_provider_id"] is None
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        'INTEGRAL_NATIVE_MODEL="unclosed\n',
+        "INTEGRAL_NATIVE_MODEL\n",
+        "INTEGRAL_NATIVE_MODEL=first\nINTEGRAL_NATIVE_MODEL=second\n",
+    ],
+)
+def test_ambiguous_settings_fail_before_starting_or_changing_keys(tmp_path, content):
+    config = runtime.initialize(tmp_path)
+    original = (tmp_path / "installation.json").read_bytes()
+    (tmp_path / "settings.env").write_text(content)
+    with pytest.raises(
+        runtime.RuntimeErrorDetail, match="settings.env assignment at line"
+    ):
+        runtime.start(tmp_path, open_browser=False)
+    assert (tmp_path / "installation.json").read_bytes() == original
+    assert config == runtime.initialize(tmp_path)
+    assert not (tmp_path / "runtime.json").exists()
+
+
+def test_managed_settings_are_authoritative_across_launch_environments(
+    tmp_path, monkeypatch
+):
+    config = runtime.initialize(tmp_path)
+    (tmp_path / "settings.env").write_text(
+        "INTEGRAL_NATIVE_MODEL=ollama/my-model\nOLLAMA_API_BASE=http://127.0.0.1:11434\nDEBUG=true\nINTEGRAL_CREDENTIAL_ENC_KEY=wrong\n"
+    )
+    monkeypatch.setenv("INTEGRAL_NATIVE_MODEL", "openai/unrelated-terminal-model")
+    env = runtime._environment(
+        tmp_path, config, "postgresql://private", 4000, 9006, None
+    )
+    assert env["INTEGRAL_NATIVE_MODEL"] == "ollama/my-model"
+    assert env["OLLAMA_API_BASE"] == "http://127.0.0.1:11434"
+    assert env["DEBUG"] == "false"
+    assert env["INTEGRAL_CREDENTIAL_ENC_KEY"] == config["credential_key"]
