@@ -169,6 +169,8 @@ def test_invalidate_user_accessible_caches_clears_both_layers(monkeypatch):
     per_req = permissions_cache_get()
     per_req[("accessible_tracks", "uX")] = ["stale"]
     per_req[("accessible_apps", "uX")] = ["stale"]
+    per_req[("rr", "app", "new-app", "uX")] = None
+    per_req[("rr", "app", "other-app", "other-user")] = "viewer"
 
     invalidate_user_accessible_caches("uX")
 
@@ -177,3 +179,5 @@ def test_invalidate_user_accessible_caches_clears_both_layers(monkeypatch):
     per_req_after = permissions_cache_get()
     assert ("accessible_tracks", "uX") not in per_req_after
     assert ("accessible_apps", "uX") not in per_req_after
+    assert ("rr", "app", "new-app", "uX") not in per_req_after
+    assert per_req_after[("rr", "app", "other-app", "other-user")] == "viewer"

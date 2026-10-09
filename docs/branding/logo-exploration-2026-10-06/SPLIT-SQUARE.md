@@ -1,5 +1,7 @@
-# Approved frameless split square
+# Frameless split-square geometry
 
-Removed the outer frame at the user request. The two halves retain their geometry, matching rounded ends and opposing -32/+32 offsets. They are now solid positive shapes, with a transparent diagonal gap. The square viewBox is cropped around the pair (58 58 604 604), ensuring it occupies the intended app size. App renderer and SVG/PNG/icon assets all use the same geometry.
+Use the approved two SVG paths and canonical coordinates in `geometry.json`. The split forms one recognizable square mark without an external frame.
 
-Approved as the canonical mark throughout the application on 7 October 2026. The auth backdrop uses outlines of the same two paths. Framed references have been retired from the active kit.
+Preserve path count, proportions, and negative space in small icons and large outlines. Color variants may change fill/stroke according to the surface, but must not redraw or enclose the shape.
+
+The master assets and generator are in this directory. Runtime assets should be checked against those masters rather than a screenshot approximation.

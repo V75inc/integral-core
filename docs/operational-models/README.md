@@ -1,53 +1,28 @@
 # Operational Models
 
-An **Operational Model** is the living definition of how an Integral App or
-Track represents and supports real work. It gives people and agents the same
-vocabulary for records, relationships, views, rules, and guidance.
+An Operational Model describes the record schema and composition attached to an App or Track. It gives information a useful shape without making Core domain-specific.
 
-For example, a car-rental Operational Model might define Cars, Customers,
-Rentals, service dates, an availability board, a “check out car” operation, and
-a resident skill that prepares a renewal reminder. The App Package distributes
-that model; an Installed App materializes it in one workspace.
+## Model deliberately
 
-## The vocabulary
+A Track holds a collection; an Entry represents one operational item. Use typed fields for validated values, relations for connected entities, member fields for accounts, and file fields for attachments. Keep independently governed entities out of nested JSON collections.
 
-| Term | What it is | Example |
-| --- | --- | --- |
-| Operational Model | The declarative definition of a domain | Car rental operations |
-| App Model | A model spanning related tracks | Cars, Customers, and Rentals together |
-| Track Model | The model for one record collection | The Cars track |
-| App Package | Immutable distributable containing a model and optional code/assets | `car-rental-desk-1.0.0.tar.gz` |
-| Model Listing | Discoverable catalog record | “Car Rental Desk” in the model library |
-| Installed App | A package applied to one workspace | Acme Rentals’ live Car Rental Desk |
-| Model Revision | A draft or published model version | “Add inspection due date” |
+Use sibling Tracks when collections have independent lifecycles. Use anchors when a record needs a template-provisioned related collection inside its workspace. Different audiences require separate resource boundaries rather than hidden fields.
 
-## Start here
+## Four complementary mechanisms
 
-1. **Describe the work.** Name the records people need to maintain, the
-   relationships between them, and the questions they need answered.
-2. **Model one Track at a time.** A Track is a typed table. Its entries are
-   records. Define entry types, fields, relations, and views.
-3. **Create an App Model when several Tracks work together.** Add shared rules,
-   cross-track relations, and App-level guidance only when the domain needs
-   them.
-4. **Add operations for governed actions.** Use a typed operation for a rule
-   that must hold regardless of whether a person, the resident, or an MCP
-   client invokes it.
-5. **Package only when it should be reusable.** An App Package is a delivery
-   form for an Operational Model; it is not the model itself.
+1. **Schema:** EntryTypes, field definitions, required values, and validation.
+2. **Views and composition:** registered views, declarative composites, and reusable regions.
+3. **Lifecycle:** attached models, drafts, publication, impact checks, and migrations.
+4. **Application extension:** packages can add declared queries, operations, tools, skills, and presentation through Core's perimeter.
 
-The example-led [App authoring guide](../developer/quickstart.md) walks through
-this with a Studio Equipment Desk. The same progression works for car rentals,
-client services, project delivery, or any other operational domain.
+Current package YAML uses `integral_operational_model_version: 3`; compiled manifests use `operational_model_schema_version: 2`. An Operational Model is not the entire installed App authority: the immutable active ApplicationDefinition also governs its capability contract.
 
-## Contract surface
+## Reading path
 
-The Operational Model contract is consistent through its persistence nodes,
-REST surface, package manifest, resident tools, and user routes. There is no
-legacy compatibility namespace.
+- [Composition patterns](COMPOSITION_PATTERNS.md)
+- [View palette](VIEW_PALETTE.md), [composites](COMPOSITES.md), and [regions](REGION_SYSTEM.md)
+- [Draft and publish](DRAFT_PUBLISH.md), then [migrations](MIGRATIONS.md)
+- [Agent authoring contract](AGENT_CONTRACT.md)
+- [UI components](UI_COMPONENTS_GUIDE.md), [packs](UI_PACKS.md), and [plugins](PLUGINS.md)
 
-- [Operational Model decision](../backend/adr/013-operational-model-vocabulary.md)
-- [App extension contract](../platform/extension-contract-v1.md)
-- [App bundle reference](../backend/app-bundles-v1.md)
-- [Agent contract](AGENT_CONTRACT.md)
-- [Model draft, publish, and migration lifecycle](DRAFT_PUBLISH.md)
+The [App quickstart](../developer/quickstart.md) provides the runnable package example. [Invariants](../INVARIANTS.md) preserve the substrate constraints.

@@ -9,10 +9,14 @@ from __future__ import annotations
 
 import argparse
 import base64
+import json
 import os
 import re
 import secrets
+import shutil
+import subprocess
 import sys
+import time
 from importlib.metadata import PackageNotFoundError, requires, version
 from pathlib import Path
 
@@ -98,7 +102,20 @@ name equals `package.slug`. {included}
 `tools/`, `skills/`, and `views/` are optional. A manifest-only App is enough
 for Core's table, board, feed, calendar, and gallery.
 
-## Start
+## Quick start
+
+With a launcher-enabled Core wheel:
+
+```bash
+integral up --apps ./integral-apps
+```
+
+Run from this distro directory, or provide its absolute App path. Core
+manages its own private PostgreSQL and web interface; no separate services
+are needed. Operator settings for this managed installation live in its
+`settings.env`, independently of the distro `.env` below.
+
+## Independently managed services
 
 Use the same Python environment that provides the `integral` command.
 Postgres must already be running. This file's `.env` defaults match the
@@ -302,6 +319,66 @@ def main(argv: list[str] | None = None) -> int:
     """Run the ``integral`` command-line interface."""
     parser = argparse.ArgumentParser(prog="integral")
     sub = parser.add_subparsers(dest="cmd", required=True)
+    for command, description in (
+        ("up", "Start your local installation and open the workspace"),
+        ("status", "Show local installation status"),
+        ("stop", "Stop the local installation without deleting data"),
+        ("logs", "Read local process logs"),
+        ("backup", "Stop and back up data, files and encryption keys"),
+        ("restore", "Restore a backup into an empty installation"),
+        ("upgrade", "Back up and switch to a chosen Core release"),
+    ):
+        lifecycle = sub.add_parser(command, help=description)
+        lifecycle.add_argument(
+            "--home", type=Path, help="Persistent installation directory"
+        )
+        if command != "logs":
+            lifecycle.add_argument(
+                "--json",
+                action="store_true",
+                help="Emit the public runtime contract as JSON",
+            )
+        if command == "up":
+            lifecycle.add_argument(
+                "--port",
+                type=int,
+                default=None,
+                help="Preferred web port (default: retained installation port, initially 9006)",
+            )
+            lifecycle.add_argument("--no-open", action="store_true")
+            lifecycle.add_argument(
+                "--apps", type=Path, help="External App discovery directory"
+            )
+        elif command == "logs":
+            lifecycle.add_argument(
+                "--service",
+                choices=("supervisor", "database", "api", "web"),
+                default="api",
+            )
+            lifecycle.add_argument("--lines", type=int, default=60)
+            lifecycle.add_argument("--follow", action="store_true")
+        elif command == "stop":
+            lifecycle.add_argument("--if-pid", type=int)
+            lifecycle.add_argument("--if-created", type=float)
+        elif command == "backup":
+            lifecycle.add_argument("--output", type=Path, required=True)
+        elif command == "restore":
+            lifecycle.add_argument("source", type=Path)
+        elif command == "upgrade":
+            choice = lifecycle.add_mutually_exclusive_group(required=True)
+            choice.add_argument("--version", dest="release")
+            choice.add_argument("--wheel", type=Path)
+            lifecycle.add_argument(
+                "--dependency-wheel",
+                action="append",
+                type=Path,
+                default=[],
+                help="Exact prerequisite wheel for a release candidate",
+            )
+    export = sub.add_parser(
+        "export-web", help="Export the packaged workspace for a client build"
+    )
+    export.add_argument("--output", type=Path, required=True)
     init = sub.add_parser(
         "init", help="Write an App distro (.env, README, integral-apps/)"
     )
@@ -338,6 +415,90 @@ def main(argv: list[str] | None = None) -> int:
         help="API origin to proxy /api and /ws to (default: from the distro, else :4000)",
     )
     args = parser.parse_args(argv)
+    if args.cmd == "export-web":
+        from app.web.server import web_static_dir
+
+        source = web_static_dir()
+        if source is None or args.output.exists():
+            print(
+                "integral export-web: packaged UI required and output must not exist",
+                file=sys.stderr,
+            )
+            return 1
+        shutil.copytree(source, args.output)
+        print(f"Exported workspace to {args.output.resolve()}")
+        return 0
+    if args.cmd in {"up", "status", "stop", "logs", "backup", "restore", "upgrade"}:
+        from app import local_runtime as runtime
+
+        home = (args.home or runtime.default_home()).expanduser().resolve()
+        try:
+            if args.cmd == "up":
+                if args.port is not None and not 0 <= args.port <= 65535:
+                    raise ValueError("--port must be between 0 and 65535")
+                if args.apps and not args.apps.is_dir():
+                    raise ValueError("--apps must be an existing directory")
+                result = runtime.start(
+                    home, port=args.port, open_browser=not args.no_open, apps=args.apps
+                )
+            elif args.cmd == "status":
+                result = runtime.status(home)
+            elif args.cmd == "stop":
+                if (args.if_pid is None) != (args.if_created is None):
+                    raise ValueError(
+                        "--if-pid and --if-created must be supplied together"
+                    )
+                result = runtime.stop(
+                    home, expected_pid=args.if_pid, expected_created=args.if_created
+                )
+            elif args.cmd == "backup":
+                path = runtime.backup(home, args.output.expanduser().resolve())
+                result = {"state": "stopped", "backup": str(path)}
+            elif args.cmd == "restore":
+                runtime.restore(home, args.source.expanduser().resolve())
+                result = {"state": "stopped", "home": str(home)}
+            elif args.cmd == "upgrade":
+                result = runtime.upgrade(
+                    home,
+                    release=args.release,
+                    wheel=args.wheel,
+                    dependency_wheels=args.dependency_wheel,
+                )
+            else:
+                path = home / "logs" / f"{args.service}.log"
+                if not path.is_file():
+                    raise ValueError(f"No {args.service} log exists at {home}")
+                if args.lines < 0:
+                    raise ValueError("--lines must be non-negative")
+                from collections import deque
+
+                with path.open(errors="replace") as log:
+                    print("".join(deque(log, maxlen=args.lines)), end="")
+                    while args.follow:
+                        chunk = log.read()
+                        if chunk:
+                            print(chunk, end="", flush=True)
+                        else:
+                            time.sleep(0.3)
+                return 0
+        except (
+            OSError,
+            ValueError,
+            runtime.RuntimeErrorDetail,
+            subprocess.CalledProcessError,
+        ) as exc:
+            print(f"integral {args.cmd}: {exc}", file=sys.stderr)
+            return 1
+        except KeyboardInterrupt:
+            return 130
+        if args.json:
+            print(json.dumps(result))
+        else:
+            print(f"Integral: {result['state']}")
+            for key in ("web_url", "home", "backup"):
+                if result.get(key):
+                    print(f"{key.replace('_', ' ').capitalize()}: {result[key]}")
+        return 0
     if args.cmd == "web":
         from app.web.server import serve_web
 
@@ -372,8 +533,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"App package: {dest / 'integral-apps' / slug}")
     else:
         print(f"Blank distro. Add an App under {dest / 'integral-apps'}/<slug>/")
-    print("Start the API from that directory: python -m app.main")
-    print("Then, in another terminal: integral web")
+    print(f'Start your workspace: integral up --apps "{dest / "integral-apps"}"')
     return 0
 
 

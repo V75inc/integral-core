@@ -1226,6 +1226,11 @@ function ComposerHostAccessory() {
 
 function Composer({ locked = false }: { locked?: boolean }) {
   const { blockedReason } = useAgentiveCapability();
+  const { composerReady = true } = useChatActivity();
+
+  if (!composerReady) {
+    return <div role="status" className="px-3 py-3 text-sm text-[var(--text-muted)]">Loading conversation…</div>;
+  }
 
   if (blockedReason === "model_key_required") {
     return (

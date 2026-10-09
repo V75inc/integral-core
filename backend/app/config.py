@@ -30,7 +30,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # launch-location independent.
 _BACKEND_DIR = Path(__file__).resolve().parents[1]
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_ENV_FILES = (_BACKEND_DIR / ".env", _REPO_ROOT / ".env")
+_MANAGED_ENV = os.environ.get("INTEGRAL_ENV_FILE")
+_ENV_FILES = (
+    (Path(_MANAGED_ENV),)
+    if _MANAGED_ENV
+    else (_BACKEND_DIR / ".env", _REPO_ROOT / ".env")
+)
 
 
 def load_integral_env_files() -> None:
@@ -51,6 +56,8 @@ def load_integral_env_files() -> None:
         if env_path.is_file():
             load_dotenv(env_path)
             loaded.add(env_path.resolve())
+    if _MANAGED_ENV:
+        return
     cwd_env = Path.cwd() / ".env"
     try:
         cwd_resolved = cwd_env.resolve()

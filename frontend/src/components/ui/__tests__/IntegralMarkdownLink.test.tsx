@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -33,6 +34,22 @@ describe('isInternalAppHref', () => {
 });
 
 describe('IntegralMarkdownLink', () => {
+  it('does not activate the surrounding entry card when a link is clicked', () => {
+    const openEntry = vi.fn();
+    const clickLink = vi.fn();
+    render(
+      <MemoryRouter>
+        <article onClick={openEntry}>
+          <IntegralMarkdownLink href="/apps/n.WorkspaceApp.smoke" onClick={clickLink}>
+            Open QA App
+          </IntegralMarkdownLink>
+        </article>
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('link', { name: 'Open QA App' }));
+    expect(clickLink).toHaveBeenCalledOnce();
+    expect(openEntry).not.toHaveBeenCalled();
+  });
   it('renders React Router link for internal paths', () => {
     const html = renderLink('/tracks/t-1', 'My track');
     expect(html).toContain('href="/tracks/t-1"');
@@ -45,6 +62,17 @@ describe('IntegralMarkdownLink', () => {
     expect(html).toContain('href="https://example.com/docs"');
     expect(html).toContain('target="_blank"');
     expect(html).toContain('rel="noopener noreferrer"');
+  });
+
+  it('repairs a double slash only for typed Core resource links', () => {
+    const html = renderLink('//entries/n.Entry.smoke', 'Saved record');
+    expect(html).toContain('href="/entries/n.Entry.smoke"');
+    expect(html).not.toContain('target="_blank"');
+    expect(isInternalAppHref('//tracks/n.Track.smoke?entry=n.Entry.smoke')).toBe(true);
+    expect(isInternalAppHref('//apps/n.WorkspaceApp.smoke')).toBe(true);
+    expect(isInternalAppHref('//entries.example.com/n.Entry.smoke')).toBe(false);
+    expect(isInternalAppHref('//entries/arbitrary-path')).toBe(false);
+    expect(renderLink('//example.com/docs')).toContain('target="_blank"');
   });
 
   it('keeps canonical-host record links in the current workspace', () => {

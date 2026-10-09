@@ -6,6 +6,62 @@ import pytest
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("rollback", [False, True])
+async def test_permission_nodes_do_not_cross_transaction_contexts(
+    monkeypatch, rollback
+):
+    from app.middleware.permissions_cache import permissions_cache_get
+    from app.services.app_operations.transaction_scope import postgres_graph_transaction
+
+    @asynccontextmanager
+    async def fake(database):
+        class Context:
+            database = "transaction"
+
+        yield Context()
+
+    monkeypatch.setattr(
+        "app.services.app_operations.transaction_scope._jv_graph_transaction", fake
+    )
+    permissions_cache_get()[("user_node", "principal")] = "parent-context-user"
+    try:
+        async with postgres_graph_transaction(object()):
+            assert permissions_cache_get() == {}
+            permissions_cache_get()[("user_node", "principal")] = "transaction-user"
+            if rollback:
+                raise ValueError("rollback")
+    except ValueError:
+        assert rollback
+    assert permissions_cache_get() == {}
+
+
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_new_app_ownership_is_visible_before_transaction_commit(
+    postgres_raw_db, monkeypatch
+):
+    from jvspatial.core.context import GraphContext, scoped_default_context_async
+
+    from app.models.edges import OWNS
+    from app.models.nodes import App, User
+    from app.services import permissions
+    from app.services.app_operations.transaction_scope import postgres_graph_transaction
+
+    monkeypatch.setattr(permissions, "_permission_memo_enabled", lambda: True)
+    async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+        user = await User.create(display_name="Transaction QA")
+        # The native chat loads this principal before entering its effect scope.
+        assert await permissions.get_user_node(user.id) is user
+        async with postgres_graph_transaction(postgres_raw_db):
+            app = await App.create(name="Transaction QA", visibility="private")
+            owner = await permissions.get_user_node(user.id)
+            await owner.connect(app, edge=OWNS, role="owner")
+            assert await permissions.can_admin_app(user.id, app.id)
+        # Subsequent requests must not retain a node on the closed connection.
+        assert await permissions.can_admin_app(user.id, app.id)
+
+
+@pytest.mark.asyncio
 async def test_omitted_database_uses_the_prime_store(monkeypatch):
     prime = object()
     seen = {}

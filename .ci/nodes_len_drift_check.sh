@@ -6,7 +6,7 @@
 # ``nodes_page`` / ``nodes(..., limit=)`` for bounded lists.
 #
 # Pattern mirrors the Phase A gate in
-# docs/superpowers/specs/2026-09-11-substrate-scale-remediation.md.
+# docs/backend/pagination.md.
 
 set -uo pipefail
 
@@ -37,7 +37,7 @@ if [ -n "$MATCHES" ]; then
   echo "FAIL: found len(await ….nodes(…)) — use count_nodes() / nodes_page / limit= instead:"
   echo "$MATCHES"
   echo ""
-  echo "See docs/superpowers/specs/2026-09-11-substrate-scale-remediation.md Phase A.4"
+  echo "See docs/backend/pagination.md"
   exit 1
 fi
 

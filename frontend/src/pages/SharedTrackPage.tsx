@@ -1686,7 +1686,7 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
                 []) as OperationalModelFieldSpec[]);
               const seeded = input.custom_fields ?? {};
               const missingRequired = getMissingRequiredFields(typeFields, seeded);
-              let routeToCompose = missingRequired.length > 0;
+              let routeToCompose = input.source === 'calendar' || missingRequired.length > 0;
               if (!routeToCompose && activeView?.type === 'kanban') {
                 const groupBy = resolveKanbanGroupBy(
                   (activeView.config as Record<string, unknown> | undefined)
@@ -1704,7 +1704,7 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
               }
               if (routeToCompose) {
                 if (targetType) setSelectedEntryType(targetType);
-                setFormTitle(input.title || '');
+                setFormTitle(input.source === 'calendar' && input.title === 'New event' ? '' : input.title || '');
                 setFormBody('');
                 setFormCustomFields({ ...seeded });
                 setCurrentStepIndex(0);

@@ -202,6 +202,25 @@ async def execute_blessed_change(
 
     if not result.get("error") and result.get("filed") is not False:
         try:
+            # A partial design resumed through the inbox must retain its
+            # design receipt before the terminal staging row is removed.
+            if sc.kind == "batch" and sc.session_id:
+                from app.services import chat_threads
+
+                thread = await chat_threads.get_thread_by_session(sc.session_id)
+                marker = getattr(thread, "design_proposed", None) or {}
+                if (marker.get("partial_build") or {}).get("batch_token") == sc.token:
+                    receipt = await chat_threads.record_design_build_receipt(
+                        session_id=sc.session_id,
+                        user_id=user_id,
+                        batch_token=sc.token,
+                        execute_result=result,
+                    )
+                    if not isinstance(receipt, dict):
+                        raise StagingError(
+                            "build_receipt_unavailable",
+                            "The batch applied but its design receipt could not be persisted.",
+                        )
             # Consume clears the execution claim.
             await consume_token(user_id=user_id, token=token, expected_kind=sc.kind)
             response["consumed"] = True

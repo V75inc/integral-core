@@ -1,0 +1,240 @@
+:root{
+color-scheme:light;
+--ink:#181818;
+--muted:#666666;
+--paper:#fafafa;
+--line:#dedede;
+--accent:#000000}
+*{
+box-sizing:border-box}
+body{
+margin:0;
+background:var(--paper);
+color:var(--ink);
+font:17px/1.75 system-ui,-apple-system,sans-serif}
+a{
+color:var(--accent);
+text-underline-offset:4px}
+header{
+background:#000000;
+color:#ffffff;
+padding:18px 5vw;
+display:flex;
+align-items:center;
+justify-content:space-between;
+gap:25px}
+header a{
+color:inherit;
+text-decoration:none}
+header img{
+width:28px;
+height:28px;
+vertical-align:middle;
+margin-right:12px}
+header .brand{
+font-size:23px;
+font-weight:650;
+letter-spacing:-.6px}
+header nav{
+display:flex;
+gap:24px;
+font-size:14px}
+main{
+display:grid;
+grid-template-columns:minmax(0,900px) 230px;
+gap:70px;
+max-width:1280px;
+padding:66px 42px 100px;
+margin:auto}
+.eyebrow{
+font-size:12px;
+letter-spacing:2px;
+text-transform:uppercase;
+color:var(--accent);
+font-weight:700}
+h1{
+font-size:clamp(36px,4.4vw,59px);
+line-height:1.08;
+letter-spacing:-2px;
+margin:18px 0 34px;
+font-weight:650}
+h2{
+font-size:29px;
+line-height:1.25;
+letter-spacing:-.7px;
+margin:58px 0 20px;
+padding-top:12px;
+scroll-margin-top:25px}
+h3{
+font-size:21px;
+line-height:1.4;
+margin:34px 0 12px}
+p{
+margin:0 0 20px}
+article>p:first-of-type{
+font-size:21px;
+line-height:1.6}
+strong{
+font-weight:650}
+blockquote{
+margin:30px 0;
+padding:20px 26px;
+background:#f0f0f0;
+border-left:3px solid #000000;
+font-size:20px}
+blockquote p:last-child{
+margin-bottom:0}
+li{
+margin:8px 0}
+pre{
+padding:23px;
+background:#000000;
+color:#eeeeee;
+overflow-x:auto;
+border-radius:12px;
+font-size:13px;
+line-height:1.7}
+code{
+font-family:ui-monospace,SFMono-Regular,monospace;
+font-size:.86em}
+p code,li code,td code{
+background:#eeeeee;
+padding:2px 5px;
+border-radius:4px}
+table{
+width:100%;
+border-collapse:collapse;
+font-size:14px;
+line-height:1.6;
+display:block;
+overflow-x:auto;
+margin:30px 0}
+th{
+text-align:left;
+background:#eeeeee;
+color:#222222}
+th,td{
+padding:14px 17px;
+border-bottom:1px solid var(--line);
+vertical-align:top}
+aside{
+align-self:start;
+position:sticky;
+top:30px;
+font-size:13px;
+line-height:1.45;
+max-height:88vh;
+overflow:auto}
+aside a{
+display:block;
+text-decoration:none;
+padding:8px 0;
+color:var(--muted)}
+aside a:hover{
+color:var(--accent)}
+aside h3{
+font-size:12px;
+text-transform:uppercase;
+letter-spacing:1.7px;
+margin:5px 0 20px}
+.diagram{
+margin:30px 0}
+.diagram svg{
+width:100%;
+height:auto}
+.diagram figcaption{
+font-size:12px;
+color:var(--muted);
+text-align:center;
+margin-top:10px}
+footer{
+border-top:1px solid var(--line);
+padding:32px 5vw;
+font-size:13px;
+color:var(--muted)}
+.cards{
+display:grid;
+grid-template-columns:repeat(3,1fr);
+gap:16px;
+margin:35px 0 50px}
+.card{
+border:1px solid var(--line);
+border-radius:14px;
+padding:25px;
+text-decoration:none;
+background:white;
+color:var(--ink)}
+.card b{
+display:block;
+font-size:21px;
+line-height:1.35;
+margin-bottom:10px}
+.card span{
+font-size:14px;
+color:var(--muted)}
+.book-note{
+font-size:13px;
+color:var(--muted);
+padding-bottom:22px;
+border-bottom:1px solid var(--line);
+margin-bottom:30px}
+img{
+max-width:100%}
+@media(max-width:1050px){
+main{
+grid-template-columns:minmax(0,1fr);
+gap:0;
+max-width:900px}
+aside{
+display:none}
+}
+@media(max-width:640px){
+header{
+padding:18px 22px}
+header nav{
+gap:13px;
+font-size:12px}
+header nav a:last-child{
+display:none}
+main{
+padding:38px 24px 60px}
+h1{
+letter-spacing:-1.2px}
+h2{
+font-size:26px}
+.cards{
+grid-template-columns:1fr}
+body{
+font-size:16px;
+line-height:1.75}
+pre{
+padding:16px}
+table{
+font-size:12px}
+th,td{
+padding:10px}
+article>p:first-of-type{
+font-size:19px}
+}
+@media print{
+header,aside,footer,.cards{
+display:none}
+main{
+display:block;
+max-width:none;
+padding:0}
+body{
+font-size:11pt;
+background:white}
+h1{
+font-size:30pt}
+h2{
+font-size:19pt;
+break-after:avoid}
+pre,table,figure{
+break-inside:avoid}
+a{
+color:inherit}
+h2{
+margin-top:28pt}
+}

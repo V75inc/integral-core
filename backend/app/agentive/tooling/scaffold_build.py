@@ -1097,6 +1097,93 @@ def _plan_binding_error(
     return None
 
 
+async def _resume_partial_design(
+    marker: Dict[str, Any], *, principal_id: str, session_id: str
+) -> ToolResult:
+    """Resume the original approved batch using its durable cursor."""
+    from app.agentive.services.staging_apply import execute_blessed_change
+    from app.agentive.staging import StagingError, get_token
+    from app.services.agent_scope import active_workspace_id
+    from app.services.chat_threads import record_design_build_receipt
+
+    token = str((marker.get("partial_build") or {}).get("batch_token") or "")
+    staged = await get_token(token) if token else None
+    workspace_id = active_workspace_id()
+    if (
+        staged is None
+        or staged.kind != "batch"
+        or staged.user_id != principal_id
+        or staged.session_id != session_id
+        or (workspace_id and staged.workspace_id != workspace_id)
+    ):
+        return _invalid(
+            "partial_build_requires_repair",
+            "The original approved batch is unavailable in this conversation and workspace. Do not create another App.",
+        )
+    if staged.state == "consumed":
+        progress = staged.progress or {}
+        total = len((staged.payload or {}).get("operations") or [])
+        if (
+            progress.get("completed") != total
+            or len(progress.get("results") or []) != total
+        ):
+            return _invalid(
+                "partial_build_requires_repair",
+                "The applied batch has no complete durable cursor; inspect the existing App.",
+            )
+        execution = {"completed": total, "total": total, "results": progress["results"]}
+    elif staged.state == "blessed":
+        try:
+            outcome = await execute_blessed_change(
+                user_id=principal_id, token=token, staged=staged
+            )
+        except StagingError as exc:
+            return _invalid(exc.code, str(exc))
+        execution = outcome.get("execute_result") or {}
+        if not outcome.get("consumed") or execution.get("error"):
+            return ToolResult(
+                is_error=True,
+                error_code=str(execution.get("error_code") or "batch_apply_failed"),
+                message=str(
+                    execution.get("message") or "The unfinished batch could not apply."
+                ),
+                data={
+                    "batch_token": token,
+                    "completed": execution.get("completed"),
+                    "total": execution.get("total"),
+                },
+            )
+    else:
+        return _invalid(
+            "partial_build_requires_repair",
+            "The original batch is no longer approved. Do not create another App.",
+        )
+    receipt = await record_design_build_receipt(
+        session_id=session_id,
+        user_id=principal_id,
+        batch_token=token,
+        execute_result=execution,
+    )
+    if not isinstance(receipt, dict):
+        return _invalid(
+            "build_receipt_unavailable",
+            "The batch applied but its design receipt could not be recorded. Read current state before claiming completion.",
+        )
+    return ToolResult(
+        data={
+            "_kind": "batch_applied",
+            "applied": True,
+            "batch_token": token,
+            "completed": execution.get("completed"),
+            "total": execution.get("total"),
+            "design_id": receipt.get("design_id"),
+            "design_revision": receipt.get("design_revision"),
+            "execution_receipt_id": receipt.get("id"),
+            "next": "Call integral_verify_build with this receipt before claiming completion. Do not build again.",
+        }
+    )
+
+
 async def build_approved_design(
     args: Dict[str, Any],
     *,
@@ -1135,15 +1222,14 @@ async def build_approved_design(
             "design_already_applied",
             "This approved design already has an applied build receipt.",
         )
-    if isinstance(marker, dict) and marker.get("partial_build"):
-        return _invalid(
-            "partial_build_requires_repair",
-            "This design has a partially applied batch. Inspect its existing App and repair the failed remainder; do not create another App.",
-        )
     if not isinstance(marker, dict) or not marker.get("approved"):
         return _invalid("design_approval_required", "The design is not approved.")
     if getattr(thread, "user_id", None) != principal_id:
         return _invalid("design_owner_mismatch", "The design belongs to another user.")
+    if marker.get("partial_build"):
+        return await _resume_partial_design(
+            marker, principal_id=principal_id, session_id=session_id
+        )
     existing_batch = peek_open_batch(principal_id, session_id)
     if existing_batch and existing_batch.get("op_count"):
         return _invalid(

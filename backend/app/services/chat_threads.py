@@ -564,8 +564,11 @@ async def record_design_build_receipt(
     if thread is None or getattr(thread, "user_id", None) != user_id:
         return False
     marker = dict(getattr(thread, "design_proposed", None) or {})
-    if not marker.get("approved") or marker.get("build_receipt") or not batch_token:
+    if not marker.get("approved") or not batch_token:
         return False
+    existing = marker.get("build_receipt")
+    if isinstance(existing, dict):
+        return existing if existing.get("batch_token") == batch_token else False
     from app.services.build_verification import make_execution_receipt
 
     design_id = str(marker.get("design_id") or "") or str(uuid.uuid4())

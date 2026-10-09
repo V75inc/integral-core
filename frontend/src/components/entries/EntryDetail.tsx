@@ -57,6 +57,7 @@ import { AttachmentRowList } from './attachments';
 import type { AttachmentRecord } from '../../api/attachments';
 import { EntryFormExpandedView, useEntryExpandedForm } from './EntryFormExpanded';
 import { EntryMetaFields } from './EntryMetaFields';
+import { EntryComposeModal, type EntryComposeSeed } from './EntryComposer';
 import {
   isViewDesignerEnabled,
   resolveDesignerTargetView,
@@ -908,11 +909,27 @@ export function EntryDetail({
     return saved;
   }, []);
 
+  const [embeddedViewsRevision, setEmbeddedViewsRevision] = useState(0);
+  const [embeddedCompose, setEmbeddedCompose] = useState<{ track: Track; seed: EntryComposeSeed } | null>(null);
+
   const handleEmbeddedEntryCreate = useCallback(
     async (input: EntryCreateInput) => {
-      if (!anchoredTrackId) return;
+      const targetTrackId = input.track_id || anchoredTrackId;
+      if (!targetTrackId) return;
+      if (input.source === 'calendar') {
+        const targetTrack = await tracksApi.get(targetTrackId);
+        setEmbeddedCompose({
+          track: targetTrack,
+          seed: {
+            title: input.title === 'New event' ? '' : input.title,
+            type: input.type,
+            custom_fields: input.custom_fields,
+          },
+        });
+        return;
+      }
       const created = await entriesApi.create({
-        track_id: anchoredTrackId,
+        track_id: targetTrackId,
         title: input.title,
         type: input.type || 'task',
         custom_fields: input.custom_fields,
@@ -925,6 +942,7 @@ export function EntryDetail({
   const primaryRelatedViewsNode =
     user && !parentEntry ? (
       <RelatedViewsSection
+        key={embeddedViewsRevision}
         entry={{ id: entry.id, custom_fields: entry.custom_fields }}
         entryTypeSpec={primaryRelatedViewsSchema}
         user={{ id: user.id }}
@@ -947,6 +965,7 @@ export function EntryDetail({
       {editContributionSlot}
       {user && !parentEntry ? (
         <RelatedViewsSection
+          key={embeddedViewsRevision}
           entry={{ id: entry.id, custom_fields: editForm.fieldValues }}
           entryTypeSpec={primaryRelatedViewsSchema}
           user={{ id: user.id }}
@@ -1997,6 +2016,7 @@ export function EntryDetail({
                   entirely when the entry type declares no related_views. */}
               {user && !parentEntry ? (
                 <RelatedViewsSection
+          key={embeddedViewsRevision}
                   entry={{ id: entry.id, custom_fields: entry.custom_fields }}
                   entryTypeSpec={relatedRelatedViewsSchema}
                   user={{ id: user.id }}
@@ -2026,6 +2046,19 @@ export function EntryDetail({
         </div>
 
     </Chrome>
+      {embeddedCompose && (
+        <EntryComposeModal
+          open
+          track={embeddedCompose.track}
+          seed={embeddedCompose.seed}
+          onClose={() => setEmbeddedCompose(null)}
+          onCreated={() => {
+            setEmbeddedViewsRevision(revision => revision + 1);
+            void queryClient.invalidateQueries({ queryKey: ['track', embeddedCompose.track.id, 'entries'] });
+            invalidateFeedCaches(queryClient);
+          }}
+        />
+      )}
       {previewImageUrl && (
         <div
           /* Image preview is already viewport-filling on every size;

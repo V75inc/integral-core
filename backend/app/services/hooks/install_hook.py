@@ -379,6 +379,20 @@ async def _heal_stripped_operational_layer(app_node: Any, cp: Any) -> bool:
     if views_stale:
         app_block["extension_views"] = lib_extension_views
     manifest["app"] = app_block
+    # Updated query contracts can invalidate an installed Home or view. A
+    # startup backfill must not strand the App before an explicit upgrade.
+    from app.exceptions import BadRequestError
+    from app.services.operational_model_runtime import compile_canonical_manifest
+
+    try:
+        compile_canonical_manifest(manifest=manifest)
+    except (BadRequestError, ValueError) as exc:
+        logger.warning(
+            "rehydrate: operational backfill for app %s requires a package upgrade: %s",
+            getattr(app_node, "id", "?"),
+            exc,
+        )
+        return False
     cp.manifest = manifest
     await cp.save()
     logger.info(
