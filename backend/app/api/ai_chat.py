@@ -2967,6 +2967,11 @@ async def agent_turn(
         prose is retained in the execution trace, while the conversation gets
         one deterministic status only after the commit receipt is terminal.
         """
+        if origin == "routine_task":
+            from app.services.scheduled_turn import is_silent_routine
+
+            if is_silent_routine(turn_events):
+                return end_index
         if origin != _SCAFFOLD_RECOVERY_ORIGIN:
             return await _persist_assistant_drafts(
                 draft_thread,

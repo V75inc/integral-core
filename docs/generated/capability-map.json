@@ -864,8 +864,8 @@
     "apps": 3,
     "by_op_class": {
       "execute": 2,
-      "propose": 70,
-      "read": 51
+      "propose": 68,
+      "read": 53
     },
     "core_skills": 16,
     "tools": 125
@@ -1647,9 +1647,9 @@
       },
       "domain": "C_entry_lifecycle",
       "http": null,
-      "mcp_min_scope": "integral:propose",
+      "mcp_min_scope": "integral:read",
       "name": "integral_get_artifact",
-      "op_class": "propose",
+      "op_class": "read",
       "policy_action": null,
       "skills": [
         "integral-artifacts",
@@ -1667,9 +1667,9 @@
       },
       "domain": "C_entry_lifecycle",
       "http": null,
-      "mcp_min_scope": "integral:propose",
+      "mcp_min_scope": "integral:read",
       "name": "integral_list_artifacts",
-      "op_class": "propose",
+      "op_class": "read",
       "policy_action": null,
       "skills": [
         "integral-artifacts",

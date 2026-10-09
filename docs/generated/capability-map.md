@@ -5,7 +5,7 @@ manifest, bindings, core skills, and App fixtures under `examples/`. Do
 not edit; `tests/test_capability_map.py` fails when this file is stale.
 The JSON beside it carries every field.
 
-123 of 125 manifest tools are advertised (51 read, 70 propose, 2 execute) across 16 core skills.
+123 of 125 manifest tools are advertised (53 read, 68 propose, 2 execute) across 16 core skills.
 
 ## Skills → tools
 
@@ -68,8 +68,8 @@ The JSON beside it carries every field.
 | `integral_set_focus` | propose | direct: `app.agentive.services.conversation_context.set_focus_for_dispatch` | — | `integral:propose` | — |
 | `integral_propose_design` | propose | intercept: `app.agentive.tooling.dispatch` | — | `integral:propose` | integral-onboard, integral-scaffold |
 | `integral_upsert_artifact` | propose | intercept: `app.agentive.tooling.dispatch` | — | `integral:propose` | integral-artifacts |
-| `integral_get_artifact` | propose | intercept: `app.agentive.tooling.dispatch` | — | `integral:propose` | integral-artifacts, integral-scaffold |
-| `integral_list_artifacts` | propose | intercept: `app.agentive.tooling.dispatch` | — | `integral:propose` | integral-artifacts, integral-scaffold |
+| `integral_get_artifact` | read | intercept: `app.agentive.tooling.dispatch` | — | `integral:read` | integral-artifacts, integral-scaffold |
+| `integral_list_artifacts` | read | intercept: `app.agentive.tooling.dispatch` | — | `integral:read` | integral-artifacts, integral-scaffold |
 | `integral_ask_user` | propose | intercept: `app.agentive.tooling.dispatch` | — | `integral:propose` | integral-scaffold |
 | `integral_begin_batch` | propose | intercept: `app.agentive.tooling.dispatch` | — | `integral:propose` | integral-attachments, integral-entries, integral-onboard, integral-organize, integral-scaffold |
 | `integral_build_approved_design` | propose | intercept: `app.agentive.tooling.dispatch` | — | `integral:propose` | integral-scaffold |

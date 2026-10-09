@@ -3971,8 +3971,14 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     "integral_propose_design": ToolBinding(stager=None),
     # Session artifacts: same interception pattern as propose_design.
     "integral_upsert_artifact": ToolBinding(stager=None),
-    "integral_get_artifact": ToolBinding(stager=None),
-    "integral_list_artifacts": ToolBinding(stager=None),
+    "integral_get_artifact": ToolBinding(
+        service_ref=_h("app.agentive.artifacts", "get_artifact"),
+        service_param_map=_pick("key"),
+    ),
+    "integral_list_artifacts": ToolBinding(
+        service_ref=_h("app.agentive.artifacts", "list_artifacts"),
+        service_param_map=_pick("kind"),
+    ),
     # integral_ask_user: same reason as integral_propose_design — it keys a
     # thread marker by provider_session_id, so it needs the dispatch-context
     # session_id that no binding ref carries. Intercepted by name in

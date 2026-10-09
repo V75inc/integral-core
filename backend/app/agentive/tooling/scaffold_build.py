@@ -1134,11 +1134,23 @@ async def _resume_partial_design(
         execution = {"completed": total, "total": total, "results": progress["results"]}
     elif staged.state == "blessed":
         try:
+            from app.services.scaffold_repair import apply_partial_revision
+
+            staged = await apply_partial_revision(
+                marker,
+                staged,
+                user_id=principal_id,
+                session_id=session_id,
+                workspace_id=workspace_id,
+            )
+            token = staged.token
             outcome = await execute_blessed_change(
                 user_id=principal_id, token=token, staged=staged
             )
         except StagingError as exc:
             return _invalid(exc.code, str(exc))
+        except (ValueError, RuntimeError) as exc:
+            return _invalid("partial_build_requires_repair", str(exc))
         execution = outcome.get("execute_result") or {}
         if not outcome.get("consumed") or execution.get("error"):
             return ToolResult(

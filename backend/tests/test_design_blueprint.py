@@ -278,6 +278,75 @@ async def _thread(session_id: str) -> ChatThread:
 
 
 @pytest.mark.asyncio
+async def test_partial_amendment_retains_cursor_and_requires_new_approval(monkeypatch):
+    from app.agentive import staging
+
+    thread = await _thread("partial-revision")
+    thread.provider_id = "integral_native"
+    prior = _canonical()
+    prior["seeds"] = [
+        {
+            "id": "seed.job",
+            "track": "track.jobs",
+            "title": "Repair sample",
+            "fields": {},
+            "tags": [],
+        }
+    ]
+    thread.design_proposed = {
+        "approved": True,
+        "design_id": "partial-design",
+        "blueprint": prior,
+        "blueprint_revision": 1,
+        "proposed_at_user_turn": 0,
+        "partial_build": {"batch_token": "original"},
+    }
+    await thread.save()
+    staged = SimpleNamespace(
+        kind="batch",
+        state="blessed",
+        executing=False,
+        user_id="u1",
+        session_id="partial-revision",
+        workspace_id=thread.workspace_id,
+        is_expired=lambda: False,
+        payload={
+            "operations": [
+                {"kind": "create_app", "payload": {}},
+                {
+                    "kind": "create_entry",
+                    "payload": {
+                        "title": "Repair sample",
+                        "track_id": "{{track.id:Jobs}}",
+                        "fields": {},
+                    },
+                },
+            ]
+        },
+        progress={"completed": 1, "results": [{"result": {"id": "existing-app"}}]},
+    )
+
+    async def get_token(_token):
+        return staged
+
+    monkeypatch.setattr(staging, "get_token", get_token)
+    revised = copy.deepcopy(prior)
+    revised["seeds"][0]["fields"] = {"status": "Queued"}
+    result = await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id="partial-revision",
+        summary="Repair the unfinished sample",
+        proposal=_PROPOSAL,
+        blueprint=revised,
+    )
+    assert result["ok"]
+    marker = (await ChatThread.get(thread.id)).design_proposed
+    assert marker["approved"] is False
+    assert marker["blueprint_revision"] == 2
+    assert marker["partial_build"] == {"batch_token": "original", "blueprint": prior}
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("approved", [False, True])
 async def test_native_amendment_replaces_typed_design_and_invalidates_old_approval(
     monkeypatch: pytest.MonkeyPatch, approved: bool
