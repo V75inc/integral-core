@@ -53,7 +53,11 @@ from app.agentive.harness.runtime import build_native_runtime
 from app.agentive.harness.skill_sources import (
     materialize_standard_skill_library,
 )
-from app.api.errors import InsufficientPermissionsError, ResourceConflictError
+from app.api.errors import (
+    InsufficientPermissionsError,
+    ResourceConflictError,
+    ServiceUnavailableError,
+)
 from app.models.nodes import ChatMessage, ChatThread, HarnessSession
 from app.schemas.agentive.work import WorkError, WorkExecutionContext
 from app.services.chat_providers.base import (
@@ -971,6 +975,10 @@ class PydanticAIProvider:
     @staticmethod
     def classify_exception(exc: BaseException) -> str | None:
         """Adapt framework errors to Integral's provider-neutral error codes."""
+        from app.agentive.harness.jvspatial_store import HarnessPersistenceError
+
+        if isinstance(exc, HarnessPersistenceError):
+            return "harness_storage_unreadable"
         return classify_integral_harness_exception(exc)
 
     async def list_agents(self) -> list[AgentDescriptor]:
@@ -1041,6 +1049,14 @@ class PydanticAIProvider:
         workspace_role = await can_access_workspace(ctx.user_id, ctx.workspace_id)
         if workspace_role == "none":
             raise InsufficientPermissionsError(message="Workspace access is required")
+
+        from app.services.credential_crypto import encryption_available
+
+        if not encryption_available():
+            raise ServiceUnavailableError(
+                message="Integral storage encryption requires installation setup",
+                details={"reason": "native_storage_encryption_not_configured"},
+            )
 
         from app.agentive.tooling.catalogue import build_tool_catalogue
 

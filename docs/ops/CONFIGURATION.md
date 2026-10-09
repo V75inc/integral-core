@@ -10,6 +10,8 @@ Place optional operator settings in that installation's private `settings.env`, 
 
 Configure provider credentials through Settings → AI Models. Keep `installation.json`, `settings.env`, and backups private: they contain the credentials needed to preserve access to this installation. Use `integral backup` to capture them together with records, files, and App definitions.
 
+The launcher validates its saved installation identity before starting. A missing, damaged, or invalid existing key stops setup with recovery guidance; rerunning `integral up` never replaces that key. Restore the original `installation.json` from this installation's backup before retrying. An empty or damaged existing file is not a fresh installation.
+
 ## Core and packages
 
 | Setting | Source default | Meaning |
@@ -40,6 +42,12 @@ Configure the model, route, and credential reference according to the selected b
 ## Secrets and credentials
 
 `JVSPATIAL_JWT_SECRET_KEY` is the signing authority. OAuth uses `JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY`. Model credentials use `INTEGRAL_CREDENTIAL_ENC_KEY`, with `INTEGRAL_CREDENTIAL_ENC_KEY_PREVIOUS` supporting the documented rotation path. Keep these stable, private, and recoverable with backups.
+
+For source and Docker setup, run `./scripts/bootstrap_env.sh .env .env.example` before starting. Bootstrap generates missing or explicitly placeholder keys once, preserves valid keys (including quoted assignments and inline comments), and refuses malformed or duplicate existing assignments without changing them. Root Compose also requires the storage key explicitly: the native harness encrypts its private checkpoints even when the selected model needs no API key.
+
+`DEBUG=true` alone does not provide a storage key. The local development fallback additionally requires `INTEGRAL_CREDENTIAL_ALLOW_DEBUG_DERIVE=1` and a signing secret. Prefer generated independent keys; changing a derived signing secret also changes the key needed to read previously saved state.
+
+If chat reports that storage encryption is not configured, correct the deployment configuration and restart. If saved AI state cannot be authenticated, verify the original key and backup before taking recovery action. Generating a replacement key cannot unlock existing ciphertext. Neither error should be treated as a pending user confirmation.
 
 `INTEGRAL_AGENT_KEY_MODE` defaults to `hybrid`; supported modes include `byo_strict` and `platform_only`. Inspect the binding's route resolver for precise workspace-owner and provider behavior. Never assume a browser-selected provider can override host policy.
 

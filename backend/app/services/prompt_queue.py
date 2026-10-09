@@ -84,6 +84,39 @@ def queue_is_open(thread: ChatThread) -> bool:
     return any(i.get("status") == STATUS_PENDING for i in q["items"])
 
 
+def _host_resume_required(queue: Dict[str, Any]) -> bool:
+    """A native chat decision already has an owning model continuation.
+
+    Only durable terminal decisions made through the chat adapter can suppress
+    another host run. Questions, card decisions and unavailable tokens retain
+    the usual continuation. This does not grant or replay any write authority.
+    """
+    items = queue.get("items") or []
+    return not (
+        items
+        and all(
+            item.get("kind") == ITEM_STAGED_WRITE
+            and item.get("status") in {STATUS_APPROVED, STATUS_REJECTED}
+            and item.get("decision_source") == "chat"
+            for item in items
+        )
+    )
+
+
+def _verified_decision_source(
+    staged: Any, *, user_id: str, thread: ChatThread
+) -> Optional[str]:
+    """Only this native conversation's durable decision owns continuation."""
+    if (
+        thread.provider_id == "integral_native"
+        and getattr(staged, "user_id", None) == user_id
+        and getattr(staged, "workspace_id", None) == thread.workspace_id
+        and getattr(staged, "session_id", None) == thread.id
+    ):
+        return getattr(staged, "decision_source", None)
+    return None
+
+
 def _ensure_open(queue: Dict[str, Any]) -> None:
     """Open a fresh sheet episode.
 
@@ -889,6 +922,9 @@ async def mark_write_item(
             }
         item["status"] = status
         item["resolved_at"] = utc_now_iso()
+        item["decision_source"] = _verified_decision_source(
+            sc, user_id=user_id, thread=thread
+        )
     if (
         status == STATUS_APPROVED
         and item.get("status") == STATUS_APPROVED
@@ -923,6 +959,7 @@ async def mark_write_item(
         "item": item,
         "queue": queue,
         "resume_text": resume,
+        "resume_required": _host_resume_required(queue),
         "closed": resume is not None,
     }
 
@@ -1075,6 +1112,9 @@ async def reconcile_staged_write_items(*, user_id: str, thread: ChatThread) -> d
             continue
         item["status"], item["terminal_reason"] = terminal
         item["resolved_at"] = utc_now_iso()
+        item["decision_source"] = _verified_decision_source(
+            staged, user_id=user_id, thread=thread
+        )
         if (
             item["status"] == STATUS_APPROVED
             and item.get("write_kind") == "propose_profile_revision"
@@ -1118,6 +1158,7 @@ async def reconcile_staged_write_items(*, user_id: str, thread: ChatThread) -> d
         "reconciled": True,
         "queue": queue,
         "resume_text": resume,
+        "resume_required": _host_resume_required(queue),
         "closed": resume is not None,
     }
 
@@ -1134,6 +1175,7 @@ async def get_open_queue_for_thread(*, user_id: str, thread: ChatThread) -> dict
         "open": open_,
         "queue": queue if open_ else empty_queue(),
         "resume_text": result.get("resume_text"),
+        "resume_required": result.get("resume_required", True),
         "closed": bool(result.get("closed")),
     }
 

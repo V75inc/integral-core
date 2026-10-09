@@ -73,8 +73,14 @@ def initialize(home: Path) -> dict[str, Any]:
     home.chmod(0o700)
     path = home / "installation.json"
     with FileLock(str(home / "initialize.lock")):
-        config = read_json(path)
-        if not config:
+        try:
+            config = read_json(path)
+        except (ValueError, OSError) as exc:
+            raise RuntimeErrorDetail(
+                "Installation configuration could not be read. Restore installation.json "
+                "from this installation's backup; existing keys were not changed."
+            ) from exc
+        if not path.exists():
             config = {
                 "contract_version": CONTRACT_VERSION,
                 "installation_id": secrets.token_hex(16),
@@ -85,10 +91,47 @@ def initialize(home: Path) -> dict[str, Any]:
                 "control_token": secrets.token_hex(32),
             }
             private_json(path, config)
-    if config.get("contract_version") != CONTRACT_VERSION:
+    if (
+        not isinstance(config, dict)
+        or config.get("contract_version") != CONTRACT_VERSION
+    ):
         raise RuntimeErrorDetail(
-            "Unsupported installation format; use its matching Core release."
+            "Unsupported installation format; use its matching Core release or "
+            "restore installation.json from this installation's backup."
         )
+    # Never repair installation secrets by generating replacements: persisted
+    # harness state, provider keys and login sessions depend on this identity.
+    from cryptography.fernet import Fernet
+
+    for key in (
+        "jwt_key",
+        "credential_key",
+        "oauth_key",
+        "database_password",
+        "control_token",
+        "installation_id",
+    ):
+        value = config.get(key)
+        valid = isinstance(value, str) and bool(value.strip())
+        if valid and key in {"jwt_key", "database_password", "control_token"}:
+            valid = len(value) >= 32
+        if valid and key == "credential_key":
+            try:
+                valid = (
+                    len(base64.b64decode(value, altchars=b"-_", validate=True)) == 32
+                )
+            except ValueError:
+                valid = False
+        if valid and key == "oauth_key":
+            try:
+                Fernet(value.encode("ascii"))
+            except ValueError:
+                valid = False
+        if not valid:
+            raise RuntimeErrorDetail(
+                f"Installation {key} is missing or invalid. Existing keys were not changed. "
+                "Restore installation.json from this installation's backup before starting."
+            )
     for directory in ("files", "logs", "integral-apps"):
         (home / directory).mkdir(exist_ok=True)
     return config

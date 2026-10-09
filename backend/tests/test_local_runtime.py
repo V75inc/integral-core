@@ -26,6 +26,53 @@ def test_concurrent_initialization_preserves_one_identity(tmp_path):
         assert (tmp_path / "installation.json").stat().st_mode & 0o777 == 0o600
 
 
+@pytest.mark.parametrize("body", ["{}", "", "[]", "not-json"])
+def test_existing_empty_or_damaged_control_file_never_generates_new_keys(
+    tmp_path, body
+):
+    path = tmp_path / "installation.json"
+    path.write_text(body)
+    with pytest.raises(runtime.RuntimeErrorDetail):
+        runtime.initialize(tmp_path)
+    assert path.read_text() == body
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "jwt_key",
+        "credential_key",
+        "oauth_key",
+        "database_password",
+        "control_token",
+        "installation_id",
+    ],
+)
+def test_existing_incomplete_installation_refuses_without_replacing_keys(tmp_path, key):
+    config = runtime.initialize(tmp_path)
+    config.pop(key)
+    runtime.private_json(tmp_path / "installation.json", config)
+    original = (tmp_path / "installation.json").read_bytes()
+    with pytest.raises(
+        runtime.RuntimeErrorDetail, match=f"Installation {key} is missing or invalid"
+    ):
+        runtime.initialize(tmp_path)
+    assert (tmp_path / "installation.json").read_bytes() == original
+
+
+@pytest.mark.parametrize("key", ["credential_key", "oauth_key"])
+def test_malformed_managed_encryption_key_is_actionable_and_never_rotated(
+    tmp_path, key
+):
+    config = runtime.initialize(tmp_path)
+    config[key] = "malformed-key-that-must-never-be-printed"
+    runtime.private_json(tmp_path / "installation.json", config)
+    with pytest.raises(runtime.RuntimeErrorDetail) as error:
+        runtime.initialize(tmp_path)
+    assert config[key] not in str(error.value)
+    assert runtime.read_json(tmp_path / "installation.json") == config
+
+
 def test_reused_pid_never_counts_as_our_runtime(tmp_path):
     """Reused pid never counts as our runtime."""
     process = psutil.Process()

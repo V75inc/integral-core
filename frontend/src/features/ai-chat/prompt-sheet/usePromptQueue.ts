@@ -19,6 +19,7 @@ export async function resumeIfNeeded(
   resumeText: string | null | undefined,
   appendAssistantNote: (text: string) => void | Promise<string | null>,
   stillCurrent: () => boolean = () => true,
+  resumeRequired = true,
 ) {
   if (!resumeText || !threadRuntime) return;
   try {
@@ -29,6 +30,7 @@ export async function resumeIfNeeded(
     // Use the persisted note id, never its optimistic client-only id.
     const noteId = await appendAssistantNote(resumeText);
     if (noteId === null || !stillCurrent()) return;
+    if (!resumeRequired) return;
     const messages = threadRuntime.getState().messages;
     const parentId = noteId ?? messages[messages.length - 1]?.id ?? null;
     threadRuntime.startRun({
@@ -63,6 +65,7 @@ export function usePromptQueue() {
     threadId: string;
     resumeText: string;
     resultQueue?: PromptQueue;
+    resumeRequired: boolean;
   } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -77,7 +80,7 @@ export function usePromptQueue() {
   const retryAt = useRef(0);
   const failures = useRef(0);
 
-  const resumeOnce = useCallback((threadId: string, text: string | null | undefined, resultQueue?: PromptQueue) => {
+  const resumeOnce = useCallback((threadId: string, text: string | null | undefined, resultQueue?: PromptQueue, resumeRequired = true) => {
     if (!text || live.current.activeThreadId !== threadId) return;
     if (live.current.isThreadStreaming(threadId)) {
       // A clear chat approval is applied before its ordinary native turn
@@ -85,7 +88,7 @@ export function usePromptQueue() {
       // second Prompt Sheet resume while its stream is active — and do not
       // mark the key consumed until we actually resume, or a mid-stream
       // poll permanently drops the continuation.
-      pendingResumeRef.current = { threadId, resumeText: text, resultQueue };
+      pendingResumeRef.current = { threadId, resumeText: text, resultQueue, resumeRequired };
       return;
     }
     pendingResumeRef.current = null;
@@ -97,7 +100,7 @@ export function usePromptQueue() {
     resumedRefreshes.current.add(key);
     if (resumedRefreshes.current.size > 64) resumedRefreshes.current.delete(resumedRefreshes.current.values().next().value!);
     void resumeIfNeeded(live.current.threadRuntime, text, live.current.appendAssistantNote,
-      () => live.current.activeThreadId === threadId && !live.current.isThreadStreaming(threadId));
+      () => live.current.activeThreadId === threadId && !live.current.isThreadStreaming(threadId), resumeRequired);
   }, []);
 
   const refresh = useCallback(async () => {
@@ -114,7 +117,7 @@ export function usePromptQueue() {
       retryAt.current = 0;
       setRefreshError(null);
       if (!res.open) {
-        resumeOnce(threadId, res.resume_text, res.queue as unknown as PromptQueue);
+        resumeOnce(threadId, res.resume_text, res.queue as unknown as PromptQueue, res.resume_required);
         setQueue(null);
         setOpen(false);
         return;
@@ -191,7 +194,7 @@ export function usePromptQueue() {
       return;
     }
     if (isThreadStreaming(pending.threadId)) return;
-    resumeOnce(pending.threadId, pending.resumeText, pending.resultQueue);
+    resumeOnce(pending.threadId, pending.resumeText, pending.resultQueue, pending.resumeRequired);
   }, [activeThreadId, isThreadStreaming, resumeOnce]);
 
   const scopeCurrent = queueScope === activeThreadId;
@@ -202,6 +205,7 @@ export function usePromptQueue() {
     (res: {
       queue?: PromptQueue;
       resume_text?: string | null;
+      resume_required?: boolean;
       closed?: boolean;
     }) => {
       if (live.current.activeThreadId !== activeThreadId) return;
@@ -209,7 +213,7 @@ export function usePromptQueue() {
       if (res.closed) {
         setOpen(false);
         setQueue(null);
-        resumeOnce(activeThreadId!, res.resume_text, res.queue);
+        resumeOnce(activeThreadId!, res.resume_text, res.queue, res.resume_required);
         return;
       }
       if (res.queue) {

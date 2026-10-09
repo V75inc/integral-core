@@ -27,7 +27,7 @@ def _b64url_encode(data: bytes) -> str:
 
 def _b64url_decode(s: str) -> bytes:
     padding = "=" * (-len(s) % 4)
-    return base64.urlsafe_b64decode(s + padding)
+    return base64.b64decode(s + padding, altchars=b"-_", validate=True)
 
 
 def _derive_key_from_jwt(jwt_secret: str) -> bytes:
@@ -43,7 +43,7 @@ def _normalize_key_bytes(raw: str) -> Optional[bytes]:
     if not raw:
         return None
     raw = raw.strip()
-    for decoder in (_b64url_decode, base64.b64decode):
+    for decoder in (_b64url_decode,):
         try:
             candidate = decoder(raw)
             if len(candidate) == 32:
@@ -71,7 +71,14 @@ _SET_BUT_INVALID = (
 _UNSET = (
     "INTEGRAL_CREDENTIAL_ENC_KEY is not set. Generate one with "
     "`openssl rand -base64 32` and add it to the repo-root .env, or set "
-    "DEBUG=true to derive a development key from SECRET_KEY."
+    "DEBUG=true and INTEGRAL_CREDENTIAL_ALLOW_DEBUG_DERIVE=1 to derive a "
+    "local development key from SECRET_KEY. Preserve existing installation keys."
+)
+_UNSET_DEBUG = (
+    "INTEGRAL_CREDENTIAL_ENC_KEY is not set. DEBUG does not generate a storage "
+    "key automatically. Run scripts/bootstrap_env.sh for source setup, or use "
+    "integral up for managed setup. For local development only, set "
+    "INTEGRAL_CREDENTIAL_ALLOW_DEBUG_DERIVE=1 to derive a key from SECRET_KEY."
 )
 _UNSET_NO_SECRET = (
     "INTEGRAL_CREDENTIAL_ENC_KEY is not set, and no SECRET_KEY is available to "
@@ -116,7 +123,8 @@ def _resolve_key() -> tuple[Optional[bytes], Optional[str]]:
                     "(INTEGRAL_CREDENTIAL_ALLOW_DEBUG_DERIVE=1)"
                 )
                 return _derive_key_from_jwt(jwt), None
-        return None, _UNSET_NO_SECRET
+            return None, _UNSET_NO_SECRET
+        return None, _UNSET_DEBUG
     return None, _UNSET
 
 

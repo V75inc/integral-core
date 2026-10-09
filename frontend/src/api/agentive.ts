@@ -414,6 +414,7 @@ export interface PromptQueueResponse {
     items: Array<Record<string, unknown>>;
   };
   resume_text?: string | null;
+  resume_required?: boolean;
   closed?: boolean;
 }
 

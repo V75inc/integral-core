@@ -22,7 +22,10 @@ from app.schemas.provenance import Provenance
 from app.services.app_invariant_guards import enforce_protected_field_write
 from app.services.change_event import emit_change_event
 from app.services.content_moderation import validate_no_profanity
-from app.services.entry_write_scope import entry_write_scope
+from app.services.entry_write_scope import (
+    entry_write_scope,
+    is_postgres_entry_transaction,
+)
 from app.services.hooks.entry_save_runtime import run_entry_save_hooks
 from app.services.migration_write_guard import assert_track_schema_writable
 from app.services.operational_model_compile import slug_manifest_key
@@ -61,6 +64,9 @@ async def update_entry_in_track(
     change_event_sink: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Entry:
     """Validate and update a caller-authorized record at its observed revision."""
+    from jvspatial.core.context import get_default_context
+
+    caller_context = get_default_context()
     outbox_id = None
     async with entry_write_scope(entry_id) as graph:
         entry = await Entry.get(entry_id)
@@ -257,9 +263,7 @@ async def update_entry_in_track(
         if change_event_sink is not None:
             change_event_sink(event)
         else:
-            from jvspatial.db.postgres import PostgresTransaction
-
-            if isinstance(graph.database, PostgresTransaction):
+            if is_postgres_entry_transaction(graph.database):
                 from app.services.app_operations.event_outbox import insert_entry_event
 
                 outbox_id = await insert_entry_event(
@@ -267,8 +271,11 @@ async def update_entry_in_track(
                     workspace_id=track.workspace_id,
                     event=event,
                 )
+    # A returned entity must not keep an owned, now-committed transaction.
+    # When joining an outer transaction, this is that same active context.
+    await entry.set_context(caller_context)
     if change_event_sink is None:
-        if outbox_id:
+        if outbox_id and graph is not caller_context:
             from app.services.app_operations.event_outbox import deliver_operation_event
 
             # Delivery failure leaves a durable pending fact for the sweep.
@@ -280,6 +287,6 @@ async def update_entry_in_track(
                 logging.getLogger(__name__).exception(
                     "Entry change event awaits recovery"
                 )
-        else:
+        elif not outbox_id:
             await emit_change_event(**event)
     return entry

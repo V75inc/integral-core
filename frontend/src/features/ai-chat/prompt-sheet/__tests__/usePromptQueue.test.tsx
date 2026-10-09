@@ -23,6 +23,15 @@ afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); });
 async function settled() { await act(async () => { await Promise.resolve(); }); }
 
 describe('approval queue refresh', () => {
+  it('closes a chat-resolved review and appends its receipt without another continuation', async () => {
+    const { result } = renderHook(() => usePromptQueue()); await settled();
+    vi.mocked(getPromptQueue).mockResolvedValueOnce({ ...closedQueue, resume_text: 'Updates applied', resume_required: false });
+    await act(async () => { await result.current.refresh(); });
+    await settled();
+    expect(result.current.open).toBe(false);
+    expect(state.append).toHaveBeenCalledTimes(1);
+    expect(state.startRun).not.toHaveBeenCalled();
+  });
   it('resumes a resolved review once across action/poll races, but permits identical wording for a new review', async () => {
     const { result } = renderHook(() => usePromptQueue()); await settled();
     vi.mocked(revokeStagingToken).mockResolvedValue({ ok: true });

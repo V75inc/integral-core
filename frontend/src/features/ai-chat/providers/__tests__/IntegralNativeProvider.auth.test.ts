@@ -51,6 +51,41 @@ describe('IntegralNativeProvider.streamTurn auth handling', () => {
     vi.clearAllMocks();
   });
 
+  it('sends and refreshes on HTTP without randomUUID, keeping one logical request ID', async () => {
+    const entropy = globalThis.crypto;
+    vi.stubGlobal('crypto', { getRandomValues: entropy.getRandomValues.bind(entropy) });
+    vi.mocked(getAccessToken).mockReturnValue('expired');
+    vi.mocked(refreshAccessToken).mockResolvedValue('fresh');
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('nope', { status: 401 }))
+      .mockResolvedValueOnce(sseResponse());
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const events = await drain(IntegralNativeProvider.streamTurn(ctx()));
+      const first = JSON.parse(fetchMock.mock.calls[0][1].body).client_request_id;
+      const second = JSON.parse(fetchMock.mock.calls[1][1].body).client_request_id;
+      expect(first).toMatch(/^[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/i);
+      expect(second).toBe(first);
+      expect(events).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('reports missing browser entropy without throwing or submitting a write', async () => {
+    vi.stubGlobal('crypto', undefined);
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      expect(await drain(IntegralNativeProvider.streamTurn(ctx()))).toEqual([
+        expect.objectContaining({ type: 'error', code: 'request_id_unavailable' }),
+      ]);
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('sends the token from the session module, not a raw localStorage read', async () => {
     vi.mocked(getAccessToken).mockReturnValue('access-1');
     const fetchMock = vi.fn().mockResolvedValue(sseResponse());

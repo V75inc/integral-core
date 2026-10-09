@@ -345,12 +345,16 @@ async def create_entry_in_track(
     change_event_sink: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Entry:
     """Canonical create; graph edges and its event fact share the PG commit."""
-    from jvspatial.db.postgres import PostgresTransaction
+    from jvspatial.core.context import get_default_context
 
-    from app.services.entry_write_scope import entry_write_scope
+    from app.services.entry_write_scope import (
+        entry_write_scope,
+        is_postgres_entry_transaction,
+    )
 
     events: List[Dict[str, Any]] = []
     outbox_id = None
+    caller_context = get_default_context()
     async with entry_write_scope(f"track:{track.id}") as graph:
         fresh_track = await Track.get(track.id)
         if fresh_track is None:
@@ -381,7 +385,7 @@ async def create_entry_in_track(
             skip_profanity=skip_profanity,
             change_event_sink=change_event_sink or events.append,
         )
-        if events and isinstance(graph.database, PostgresTransaction):
+        if events and is_postgres_entry_transaction(graph.database):
             from app.services.app_operations.event_outbox import insert_entry_event
 
             outbox_id = await insert_entry_event(
@@ -389,13 +393,17 @@ async def create_entry_in_track(
                 workspace_id=fresh_track.workspace_id,
                 event=events[0],
             )
-    if outbox_id:
+    # Callers may save provenance or connect a transformed record after this
+    # command returns. Its owned transaction has released the connection; a
+    # nested command must instead retain the caller's still-active context.
+    await entry.set_context(caller_context)
+    if outbox_id and graph is not caller_context:
         from app.services.app_operations.event_outbox import deliver_operation_event
 
         try:
             await deliver_operation_event(outbox_id=outbox_id)
         except Exception:
             logger.exception("Entry change event awaits recovery")
-    elif events:
+    elif events and not outbox_id:
         await emit_change_event(**events[0])
     return entry
