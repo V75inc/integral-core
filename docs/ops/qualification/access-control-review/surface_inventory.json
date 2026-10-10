@@ -73,7 +73,7 @@
     "backend/app/api/workspace_member_hire.py": "dd21d4b5a0b2e2eac4e9a71055491c9d7637f7ec73e3bd366665fb3e251b132f",
     "backend/app/api/workspaces.py": "95b4f4bcc64ebf161735c64ef3e3ad88c2a27c97b580a32e931111e344592326",
     "backend/app/services/app_operations/context.py": "b3fccdd91ebfc401a830b26dd5b497ef63bfb8bf01f598377be040c2b732174f",
-    "backend/app/services/hooks/registry.py": "c359164f47f08a79cfe05cf79bc52d138c4f500eac4c24da1a879151b2e92d53"
+    "backend/app/services/hooks/registry.py": "5a5a0790b27797875e8e7156b0963fefb6c7f1aa487cda984326b9980f33ef6d"
   },
   "surfaces": [
     {
@@ -4342,7 +4342,7 @@
     },
     {
       "kind": "facade_declaration",
-      "callable": "ToolContext.get_entry",
+      "callable": "ToolContext._resource_in_scope",
       "file": "backend/app/services/hooks/registry.py",
       "line": 212,
       "qualification": "unmapped",
@@ -4350,9 +4350,17 @@
     },
     {
       "kind": "facade_declaration",
+      "callable": "ToolContext.get_entry",
+      "file": "backend/app/services/hooks/registry.py",
+      "line": 222,
+      "qualification": "unmapped",
+      "evidence": []
+    },
+    {
+      "kind": "facade_declaration",
       "callable": "ToolContext.get",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 233,
+      "line": 239,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4360,7 +4368,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.query",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 254,
+      "line": 260,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4368,7 +4376,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.invoke",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 267,
+      "line": 276,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4376,7 +4384,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.find_entries",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 288,
+      "line": 297,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4384,7 +4392,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext._tracks_by_title",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 334,
+      "line": 323,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4392,7 +4400,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.find_entries_in_track_type",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 377,
+      "line": 356,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4400,7 +4408,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.find_track_id_by_title",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 426,
+      "line": 410,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4408,7 +4416,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.get_related_entries",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 439,
+      "line": 423,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4416,7 +4424,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.get_employee_compensation",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 498,
+      "line": 469,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4424,7 +4432,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.get_app_settings",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 528,
+      "line": 499,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4432,7 +4440,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.emit_audit",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 551,
+      "line": 529,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4440,7 +4448,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.get_entry_system",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 571,
+      "line": 549,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4448,7 +4456,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.update_entry_fields",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 586,
+      "line": 555,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4456,7 +4464,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.conditional_update_entry_fields",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 621,
+      "line": 590,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4464,7 +4472,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext._own_bundle_app",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 650,
+      "line": 627,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4472,7 +4480,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.own_bundle_view",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 689,
+      "line": 666,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4480,7 +4488,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.track_kind",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 725,
+      "line": 702,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4488,7 +4496,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.create_entry_in_own_bundle_track",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 748,
+      "line": 731,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4496,7 +4504,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.create_entry_in_workspace_bundle_track",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 868,
+      "line": 851,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4504,7 +4512,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.call_app_tool",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 989,
+      "line": 972,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4512,7 +4520,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.call_connector_tool",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 1047,
+      "line": 1030,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4520,7 +4528,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.notify",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 1132,
+      "line": 1115,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4528,7 +4536,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.put_attachment",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 1185,
+      "line": 1168,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4536,7 +4544,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.document_render",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 1254,
+      "line": 1239,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4544,7 +4552,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.read_entry_file",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 1286,
+      "line": 1271,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4552,7 +4560,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.rollup_plan",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 1318,
+      "line": 1317,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4560,7 +4568,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.clear_pending_onboarding_form_for_user",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 1331,
+      "line": 1330,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4568,7 +4576,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.is_workspace_administrator",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 1350,
+      "line": 1349,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4576,7 +4584,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.get_workspace_email_delivery_redacted",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 1358,
+      "line": 1357,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4584,7 +4592,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.upsert_workspace_email_delivery",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 1364,
+      "line": 1363,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4592,7 +4600,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.validate_workspace_email_delivery",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 1378,
+      "line": 1377,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4600,7 +4608,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.send_workspace_test_email",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 1394,
+      "line": 1393,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4608,7 +4616,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.send_workspace_transactional_email",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 1421,
+      "line": 1420,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4616,7 +4624,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.esign_vault_list",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 1456,
+      "line": 1455,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4624,7 +4632,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.esign_vault_save",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 1465,
+      "line": 1464,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4632,7 +4640,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.esign_vault_delete",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 1479,
+      "line": 1478,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4640,7 +4648,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.esign_vault_preview_b64",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 1488,
+      "line": 1487,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4648,7 +4656,7 @@
       "kind": "facade_declaration",
       "callable": "ToolContext.esign_contract_decision",
       "file": "backend/app/services/hooks/registry.py",
-      "line": 1512,
+      "line": 1511,
       "qualification": "unmapped",
       "evidence": []
     }

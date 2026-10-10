@@ -20,6 +20,7 @@ from app.middleware.permissions_cache import isolated_permissions_cache
 from app.models.edges import HAS_AUTHORIZATION_STATE
 from app.models.nodes import Workspace, WorkspaceAuthorizationState
 from app.services.app_operations.transaction_scope import postgres_graph_transaction
+from app.services.resource_location import locate_resource
 
 
 @dataclass(frozen=True)
@@ -57,7 +58,10 @@ async def authorization_scope(
             if workspace_row is None:
                 raise AuthorizationUnavailableError()
             workspace = await Workspace.find_one({"id": workspace_id})
-            if workspace is None:
+            if (
+                workspace is None
+                or await locate_resource("workspace", workspace_id) is None
+            ):
                 raise AuthorizationUnavailableError()
             state_id = authorization_state_id(workspace_id)
             state = await WorkspaceAuthorizationState.find_one({"id": state_id})

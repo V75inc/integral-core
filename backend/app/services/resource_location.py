@@ -40,6 +40,32 @@ class ResourceLocationWalker(Walker):
     track_id: str = ""
     valid: bool = True
 
+    async def check_workspace_root(self, workspace_id: str, context: Any) -> bool:
+        """Verify the named Root-to-Workspace catalog path from current facts."""
+        for model, node_id in (
+            (Root, "n.Root.root"),
+            (IntegralApp, APP_NODE_ID),
+            (Workspaces, WORKSPACES_REGISTRY_ID),
+        ):
+            if await model.find_one({"id": node_id}) is None:
+                return False
+        # all() cannot consume the async generator suggested by SIM111.
+        for source, target, edge in (  # noqa: SIM111
+            ("n.Root.root", APP_NODE_ID, Edge),
+            (APP_NODE_ID, WORKSPACES_REGISTRY_ID, Edge),
+            (WORKSPACES_REGISTRY_ID, workspace_id, CATALOGS),
+        ):
+            if not await context.find_edges_between(source, target, edge_class=edge):
+                return False
+        return True
+
+    @on_visit(Workspace)
+    async def on_workspace(self, here: Workspace) -> None:
+        if not await self.check_workspace_root(here.id, await here.get_context()):
+            self.valid = False
+            return
+        self.workspace_id = here.id
+
     async def check_workspace_catalog(self, node: Any, kind: str) -> bool:
         from app.services.app_graph import _workspace_branch_id
 
@@ -55,22 +81,22 @@ class ResourceLocationWalker(Walker):
         if workspace is None or branch is None or branch.workspace_id != workspace_id:
             return False
         context = await node.get_context()
-        for model, node_id in (
-            (Root, "n.Root.root"),
-            (IntegralApp, APP_NODE_ID),
-            (Workspaces, WORKSPACES_REGISTRY_ID),
-        ):
-            if await model.find_one({"id": node_id}) is None:
-                return False
-        for source, target, edge in (
-            ("n.Root.root", APP_NODE_ID, Edge),
-            (APP_NODE_ID, WORKSPACES_REGISTRY_ID, Edge),
-            (WORKSPACES_REGISTRY_ID, workspace_id, CATALOGS),
-        ):
-            if not await context.find_edges_between(source, target, edge_class=edge):
-                return False
+        if not await self.check_workspace_root(workspace_id, context):
+            return False
         if not await context.find_edges_between(
             workspace_id, branch_id, edge_class=CONTAINS
+        ):
+            return False
+        registries = await node.nodes(
+            edge=[CATALOGS], node=[registry_class], direction="in", limit=2
+        )
+        if len(registries) != 1 or registries[0].id != branch_id:
+            return False
+        workspace_parents = await node.nodes(
+            edge=[CONTAINS], node=[Workspace], direction="in", limit=2
+        )
+        if len(workspace_parents) > 1 or any(
+            parent.id != workspace_id for parent in workspace_parents
         ):
             return False
         if not await context.find_edges_between(
@@ -126,7 +152,9 @@ class ResourceLocationWalker(Walker):
 
 async def locate_resource(kind: str, resource_id: str) -> ResourceLocation | None:
     """Resolve live canonical scope; deny corrupt facts and surface read outages."""
-    model = {"entry": Entry, "track": Track, "app": App}.get(kind)
+    model = {"entry": Entry, "track": Track, "app": App, "workspace": Workspace}.get(
+        kind
+    )
     if model is None or not resource_id:
         return None
     try:
@@ -135,6 +163,11 @@ async def locate_resource(kind: str, resource_id: str) -> ResourceLocation | Non
             return None
         walker = ResourceLocationWalker()
         await walker.spawn(node)
+        if any(
+            isinstance(report, dict) and "hook_error" in report
+            for report in await walker.get_report()
+        ):
+            raise AuthorizationUnavailableError()
         if not walker.valid or not walker.workspace_id:
             return None
         return ResourceLocation(walker.workspace_id, walker.app_id, walker.track_id)

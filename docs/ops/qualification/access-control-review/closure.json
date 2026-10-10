@@ -65,9 +65,15 @@
       "status": "in_progress",
       "description": "**Point reads cross the bound workspace.** `ToolContext.get_entry/get` checks the user's resource role, but not the context's workspace or permitted App scope. A user authorized in workspaces A and B can read B through an A-bound facade; `get` labels the result as A. `hooks/registry.py:212,226`; inherited by `OperationContext`. Probe `test_facade_point_read_crosses_bound_workspace`. Resolve structural ownership and enforce execution workspace and App-declared reference authority for every facade method. This reproduces a scope breach for a principal authorized in both workspaces, not arbitrary-user access to B.",
       "implementation": [
-        "Canonical containment Walker on point-read facade; workspace and bound operation App checked"
+        "Canonical containment Walker on point-read facade; workspace and bound operation App checked",
+        "Canonical bound-App containment and fresh role checks added to system reads, discovery, relations, settings and files; query target gate runs before counts/pagination/handler selection",
+        "Generic conditional writes routed through typed schema/policy facade; exact action permits and remaining facade contracts still pending",
+        "Rollups refuse restricted dependencies and Walker hook-error reports; attachment scalar caches no longer grant file access",
+        "Remaining conditional-write source issues: normalized validation values are discarded and state-only CAS lacks an observed record-revision condition; protected action permits remain pending"
       ],
-      "verification": []
+      "verification": [
+        "90 JSON compatibility/scope cases and 43 PostgreSQL scope/fence cases passed; full make verify passed for this source; remaining boundaries explicitly unqualified"
+      ]
     },
     {
       "id": "AC-06",
@@ -129,7 +135,8 @@
       "status": "in_progress",
       "description": "**Missing scope anchors disable the workspace membership gate.** If workspace lookup returns None, resolution continues with direct/inherited grants. Default workspace deletion unlinks resources and clears `workspace_id`, manufacturing this condition; it also conflicts with rooted inclusion. `permissions.py:879,1017`; `workspace_lifecycle.py:72,104`; `api/workspaces.py:523`. Probe `test_missing_workspace_anchor_allows_direct_grant`. Corrupt/unresolved containment must fail closed. Delete/archive/explicitly rehome resources in a validated transaction; never create unscoped survivors.",
       "implementation": [
-        "Canonical/rooted containment required for facade point reads; generic resolver and legacy lifecycle cutover pending"
+        "Canonical/rooted containment required for facade point reads; generic resolver and legacy lifecycle cutover pending",
+        "Reject additional foreign registry/workspace parents; rooted Workspace required before authorization-state bootstrap; incomplete Walker reports unavailable"
       ],
       "verification": []
     },
@@ -282,11 +289,21 @@
       "id": "U07",
       "journey": "User has several workspaces",
       "requirement": "Explicit scope isolates reads, effects, cache, relations and receipts; A cannot bleed into B",
-      "status": "open",
-      "authorized_evidence": [],
-      "denied_evidence": [],
-      "surfaces": [],
-      "limits": []
+      "status": "in_progress",
+      "authorized_evidence": [
+        "test_resource_location.py::test_bound_facade_rejects_other_workspace_despite_legitimate_user_access (authorized own-workspace branch)",
+        "test_tool_context_find_entries_scope.py::test_find_entries_keeps_only_in_workspace (both legitimate workspace memberships)"
+      ],
+      "denied_evidence": [
+        "test_resource_location.py::test_bound_facade_rejects_other_workspace_despite_legitimate_user_access",
+        "test_tool_context_find_entries_scope.py::test_find_entries_keeps_only_in_workspace"
+      ],
+      "surfaces": [
+        "ToolContext/OperationContext point reads and Entry discovery"
+      ],
+      "limits": [
+        "HTTP/list/retrieval/worker/effect/receipt surface parity and shared release fence remain pending"
+      ]
     },
     {
       "id": "U08",
@@ -692,11 +709,21 @@
       "id": "U48",
       "journey": "User searches/counts/aggregates/exports",
       "requirement": "Authorized rows, fields, totals, labels and relation paths agree with direct reads",
-      "status": "open",
-      "authorized_evidence": [],
-      "denied_evidence": [],
-      "surfaces": [],
-      "limits": []
+      "status": "in_progress",
+      "authorized_evidence": [
+        "test_resource_location.py::test_bound_query_filters_before_count_and_pagination",
+        "test_resource_location.py::test_rollup_refuses_foreign_or_excluded_dependencies (authorized complete rollup)"
+      ],
+      "denied_evidence": [
+        "test_resource_location.py::test_bound_query_filters_before_count_and_pagination (foreign App does not influence count/cursor)",
+        "test_resource_location.py::test_rollup_refuses_foreign_or_excluded_dependencies"
+      ],
+      "surfaces": [
+        "Bound-App governed query; shared plan rollup"
+      ],
+      "limits": [
+        "Other aggregates, search, exports, relation projections and actual-output dependency release remain pending"
+      ]
     },
     {
       "id": "U49",
@@ -772,11 +799,20 @@
       "id": "U56",
       "journey": "App calls sibling tool or point-read facade",
       "requirement": "Declared installed capability/reference, user permission and bound workspace all required",
-      "status": "open",
-      "authorized_evidence": [],
-      "denied_evidence": [],
-      "surfaces": [],
-      "limits": []
+      "status": "in_progress",
+      "authorized_evidence": [
+        "test_resource_location.py::test_facade_discovery_relations_and_settings_stay_in_bound_app"
+      ],
+      "denied_evidence": [
+        "test_resource_location.py::test_facade_discovery_relations_and_settings_stay_in_bound_app",
+        "test_resource_location.py::test_bound_declared_query_rejects_foreign_handler_before_invocation"
+      ],
+      "surfaces": [
+        "System reads, discovery, relations, settings, Track identity, declared query target selection"
+      ],
+      "limits": [
+        "Positive declared sibling capability/reference contracts and remaining facade execution/action paths pending"
+      ]
     },
     {
       "id": "U57",
@@ -792,11 +828,22 @@
       "id": "U58",
       "journey": "Permission database/cache/network fails",
       "requirement": "Denied or unavailable; never broaden access; no fabricated empty success",
-      "status": "open",
-      "authorized_evidence": [],
-      "denied_evidence": [],
-      "surfaces": [],
-      "limits": []
+      "status": "in_progress",
+      "authorized_evidence": [
+        "test_resource_location.py::test_bound_facade_rejects_other_workspace_despite_legitimate_user_access (healthy canonical scope)",
+        "test_resource_location.py::test_rollup_refuses_foreign_or_excluded_dependencies (healthy rollup)"
+      ],
+      "denied_evidence": [
+        "test_resource_location.py::test_parent_visit_fault_cannot_return_a_partial_location",
+        "test_resource_location.py::test_rollup_relationship_fault_is_unavailable",
+        "test_resource_location.py::test_indeterminate_authority_does_not_activate_another_grant"
+      ],
+      "surfaces": [
+        "Canonical parent reads; rollup relationship reads; live authority fact reads"
+      ],
+      "limits": [
+        "All authority helpers, connector/lifecycle Walker reports, partition/release behavior and truthful unavailable UI remain pending"
+      ]
     },
     {
       "id": "U59",
@@ -842,11 +889,20 @@
       "id": "U63",
       "journey": "Malformed/omitted scope or inconsistent parent supplied",
       "requirement": "Supplied malformed scope rejected; omitted ordinary scope deliberately defaults personal; corrupt parent denies",
-      "status": "open",
-      "authorized_evidence": [],
-      "denied_evidence": [],
-      "surfaces": [],
-      "limits": []
+      "status": "in_progress",
+      "authorized_evidence": [
+        "test_resource_location.py::test_bound_facade_rejects_other_workspace_despite_legitimate_user_access"
+      ],
+      "denied_evidence": [
+        "test_resource_location.py::test_canonical_location_rejects_corrupt_or_inactive_containment",
+        "contract/test_authorization_scope_postgres.py::test_uncataloged_workspace_cannot_bootstrap_authorization_state"
+      ],
+      "surfaces": [
+        "Canonical execution containment and revision-state bootstrap"
+      ],
+      "limits": [
+        "Generic resolver strict cutover, legacy containment migration and complete scope surface mapping remain pending"
+      ]
     },
     {
       "id": "U64",
@@ -922,11 +978,19 @@
       "id": "U71",
       "journey": "User opens an attachment/download URL after revocation",
       "requirement": "Metadata, thumbnail, file bytes and external URL issuance all authorized; independently valid URL expiry/revocation bound is explicit",
-      "status": "open",
-      "authorized_evidence": [],
-      "denied_evidence": [],
-      "surfaces": [],
-      "limits": []
+      "status": "in_progress",
+      "authorized_evidence": [
+        "test_resource_location.py::test_file_relationship_is_authoritative_and_rechecked_after_storage (authorized relationship)"
+      ],
+      "denied_evidence": [
+        "test_resource_location.py::test_file_relationship_is_authoritative_and_rechecked_after_storage (forged scalar and revoked relationship)"
+      ],
+      "surfaces": [
+        "ToolContext file read"
+      ],
+      "limits": [
+        "HTTP metadata, thumbnail, download, external URL and shared release/expiry bounds pending"
+      ]
     },
     {
       "id": "U72",
@@ -1042,6 +1106,23 @@
         "Account-wide identity/policy ordering and every authority-helper path remain pending",
         "Restore from quarantine with independently retained current authorization checkpoint pending",
         "Complete M2 milestone, all finding closures and all use-case evidence remain open"
+      ]
+    },
+    {
+      "id": "M2-facade-scope-slice",
+      "status": "complete",
+      "evidence": [
+        "90 JSON targeted scope/facade/query/read-projection/file regressions passed",
+        "43 PostgreSQL canonical scope/fence cases passed, including unrooted-state bootstrap rejection",
+        "Passive index rebuilt: 384 REST + 45 facade declarations; all qualification remains explicitly unmapped",
+        "make verify passed: staged guards/hooks, pinned format/lint/types, reproducible clean wheel/import, no-env smoke/xdist, 1583 frontend tests and full backend suite",
+        "227 PostgreSQL spike/contract cases passed; restore rehearsal skipped for Docker/macOS network boundary",
+        "Supplementary 9 Core-only and 52 extension-contract cases passed; 227 PostgreSQL-only contract cases intentionally skipped in JSON lane and exercised separately on PostgreSQL"
+      ],
+      "limits": [
+        "Remaining facade administration, notification, personal-vault and provider dispatch paths pending",
+        "Shared ordering adoption, identity fences, exact action permits, schema affiliation and dependency release contracts pending",
+        "All finding and use-case closures remain open"
       ]
     }
   ],

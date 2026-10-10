@@ -13,6 +13,26 @@ from app.services.authorization_scope import authorization_scope, authorization_
 pytestmark = [pytest.mark.contract, pytest.mark.postgres, pytest.mark.asyncio]
 
 
+async def test_uncataloged_workspace_cannot_bootstrap_authorization_state(
+    postgres_raw_db,
+):
+    from app.exceptions import AuthorizationUnavailableError
+    from app.services.app_graph import ensure_integral_app_graph
+
+    async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+        await ensure_integral_app_graph(include_library=False)
+        workspace = await Workspace.create(name="Unrooted authorization QA")
+        with pytest.raises(AuthorizationUnavailableError):
+            async with authorization_scope(workspace.id):
+                pytest.fail("unrooted workspace accepted")
+        assert (
+            await WorkspaceAuthorizationState.find_one(
+                {"id": authorization_state_id(workspace.id)}
+            )
+            is None
+        )
+
+
 async def test_explicit_held_handles_join_and_caught_failure_rolls_back(
     postgres_raw_db,
 ):
