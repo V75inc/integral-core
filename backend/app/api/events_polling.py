@@ -32,13 +32,13 @@ from jvspatial.api import endpoint
 
 from app.api.errors import MissingAuthenticationError
 from app.api.utils import resolve_principal_id
-from app.schemas.policy import Resource, Subject
 from app.services.change_event_logger import (
     ChangeEventEnvelope,
     envelope_from_dblog,
     get_change_event_logger,
     is_change_event_enabled,
 )
+from app.services.event_access import can_release_event, scrub_event_credentials
 from app.services.pagination import build_paginated_response
 from app.services.policy_engine import evaluate as policy_evaluate
 
@@ -94,21 +94,14 @@ async def list_events_polling(
     # (track:/space:/user:) — verbatim replacement of the legacy decision tree.
     permitted: List[ChangeEventEnvelope] = []
     for ev in candidates:
-        decision = await policy_evaluate(
-            subject=Subject(kind="human", id=user_id),
-            action="event_feed.subscribe",
-            resource=Resource(
-                kind="change_event",
-                id=ev.id or "",
-                scope=ev.scope or "",
-            ),
-        )
-        if decision.allowed:
+        if await can_release_event(
+            user_id, ev, action="event_feed.subscribe", evaluate=policy_evaluate
+        ):
             permitted.append(ev)
 
     # ASC ordering — forward-stream (oldest first). Tie-break by id.
     permitted.sort(key=lambda e: (e.ts or "", e.id or ""))
 
     page, response = build_paginated_response(permitted, since, limit, _envelope_key)
-    response["events"] = [ev.to_wire_flat() for ev in page]
+    response["events"] = [scrub_event_credentials(ev.to_wire_flat()) for ev in page]
     return response

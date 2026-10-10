@@ -1309,7 +1309,7 @@ async def get_workspace_avatar(
         raise ResourceNotFoundError(message="Avatar not found")
 
     # Workspace access gate — caller must be able to read the workspace.
-    if not await can_access_workspace(caller_id, workspace_id):
+    if await can_access_workspace(caller_id, workspace_id) == "none":
         raise InsufficientPermissionsError(message="Access denied")
 
     variant = await _find_workspace_avatar_variant(workspace, size)

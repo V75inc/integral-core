@@ -44,6 +44,7 @@ ERR_EMAIL_INVALID = "invitation.email_invalid"
 ERR_USER_NOT_FOUND = "invitation.user_not_found"
 ERR_WORKSPACE_NOT_FOUND = "invitation.workspace_not_found"
 ERR_EMAIL_MISMATCH = "invitation.email_mismatch"
+ERR_EMAIL_UNVERIFIED = "invitation.email_unverified"
 ERR_GRANT_FAILED = "invitation.grant_failed"
 ERR_RESOURCE_NOT_FOUND = "invitation.resource_not_found"
 ERR_NOT_FOUND = "invitation.not_found"
@@ -132,21 +133,9 @@ async def _normalize_email(email: str) -> str:
 
 async def _auth_email_for_graph_user(user: User) -> Optional[str]:
     """Return normalized AuthUser email for a graph ``User``, if linked."""
-    auth_id = (getattr(user, "user_id", None) or "").strip()
-    if not auth_id:
-        return None
-    try:
-        from jvspatial.api.auth.models import User as AuthUser
+    from app.services.email_identity import current_account_email
 
-        auth_user = await AuthUser.get(auth_id)
-        if not auth_user:
-            return None
-        raw = (getattr(auth_user, "email", None) or "").strip()
-        if not raw:
-            return None
-        return await _normalize_email(raw)
-    except Exception:
-        return None
+    return await current_account_email(user)
 
 
 async def _invitee_email_matches_user(invitation: Invitation, user: User) -> bool:
@@ -158,7 +147,28 @@ async def _invitee_email_matches_user(invitation: Invitation, user: User) -> boo
     auth_email = await _auth_email_for_graph_user(user)
     if not auth_email:
         return False
-    return secrets.compare_digest(invite_email, auth_email)
+    return secrets.compare_digest(
+        invite_email.encode("utf-8"), auth_email.encode("utf-8")
+    )
+
+
+async def _verified_invitee_for_id(
+    invitation: Invitation, user_id: str
+) -> Tuple[Optional[User], Optional[str]]:
+    """An invitation ID supplies no mailbox proof, unlike its bearer token."""
+    from app.services.email_identity import verified_current_email
+
+    user = await User.get(user_id)
+    if not user:
+        return None, ERR_USER_NOT_FOUND
+    email = await verified_current_email(user)
+    if not email:
+        return user, ERR_EMAIL_UNVERIFIED
+    if not secrets.compare_digest(
+        email.encode("utf-8"), invitation.email.strip().casefold().encode("utf-8")
+    ):
+        return user, ERR_EMAIL_MISMATCH
+    return user, None
 
 
 async def _wire_invitation_edges(
@@ -521,6 +531,9 @@ async def accept_invitation_by_id(
     invitation = await Invitation.get(invitation_id)
     if not invitation:
         return None, ERR_NOT_FOUND
+    user, proof_error = await _verified_invitee_for_id(invitation, accepting_user_id)
+    if proof_error or user is None:
+        return invitation, proof_error
     if invitation.status == "accepted":
         if (
             invitation.invited_user_id
@@ -539,12 +552,6 @@ async def accept_invitation_by_id(
         preview_err = ERR_INVALID_TOKEN
     if preview_err:
         return invitation, preview_err
-
-    user = await User.get(accepting_user_id)
-    if not user:
-        return invitation, ERR_USER_NOT_FOUND
-    if not await _invitee_email_matches_user(invitation, user):
-        return invitation, ERR_EMAIL_MISMATCH
 
     return await _finalize_invitation_acceptance(
         invitation=invitation,
@@ -734,6 +741,9 @@ async def decline_invitation_by_id(
     invitation = await Invitation.get(invitation_id)
     if not invitation:
         return None, ERR_NOT_FOUND
+    user, proof_error = await _verified_invitee_for_id(invitation, declining_user_id)
+    if proof_error or user is None:
+        return invitation, proof_error
     if invitation.status == "declined":
         return invitation, ERR_DECLINED
     if invitation.status in ("revoked", "accepted", "expired"):
@@ -746,12 +756,6 @@ async def decline_invitation_by_id(
         return invitation, ERR_INVALID_TOKEN
     if _is_past(invitation.expires_at):
         return invitation, ERR_EXPIRED
-
-    user = await User.get(declining_user_id)
-    if not user:
-        return invitation, ERR_USER_NOT_FOUND
-    if not await _invitee_email_matches_user(invitation, user):
-        return invitation, ERR_EMAIL_MISMATCH
 
     return await _finalize_invitation_decline(
         invitation=invitation,

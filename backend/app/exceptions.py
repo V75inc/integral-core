@@ -5,6 +5,14 @@ from http import HTTPStatus
 from jvspatial.api.exceptions import JVSpatialAPIException
 
 
+class AuthorizationUnavailableError(JVSpatialAPIException):
+    """A required authorization fact could not be read; no allow is established."""
+
+    status_code = HTTPStatus.SERVICE_UNAVAILABLE
+    error_code = "authorization_unavailable"
+    default_message = "Access could not be established; please retry"
+
+
 class BadRequestError(JVSpatialAPIException):
     """Client error with HTTP 400 (e.g. invalid parameters)."""
 

@@ -117,6 +117,7 @@ def _audit_snapshot(connector: Any) -> Dict[str, Any]:
     AND by Task 3 bind/unbind handlers — single redaction surface.
     """
     return {
+        "owner": connector.owner,
         "kind": getattr(connector, "kind", None),
         "subclass_slug": getattr(connector, "subclass_slug", "") or "",
         "sync_interval_seconds": int(

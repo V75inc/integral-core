@@ -21,13 +21,13 @@ from jvspatial.api import endpoint
 
 from app.api.errors import MissingAuthenticationError
 from app.api.utils import resolve_principal_id
-from app.schemas.policy import Resource, Subject
 from app.services.change_event_logger import (
     ChangeEventEnvelope,
     envelope_from_dblog,
     get_change_event_logger,
     is_change_event_enabled,
 )
+from app.services.event_access import can_release_event, scrub_event_credentials
 from app.services.pagination import build_paginated_response
 from app.services.policy_engine import evaluate as policy_evaluate
 
@@ -104,21 +104,14 @@ async def list_audit_log(
     # (track:/space:/user:) — verbatim replacement of the legacy decision tree.
     permitted: List[ChangeEventEnvelope] = []
     for ev in candidates:
-        decision = await policy_evaluate(
-            subject=Subject(kind="human", id=user_id),
-            action="audit_log.read",
-            resource=Resource(
-                kind="change_event",
-                id=ev.id or "",
-                scope=ev.scope or "",
-            ),
-        )
-        if decision.allowed:
+        if await can_release_event(
+            user_id, ev, action="audit_log.read", evaluate=policy_evaluate
+        ):
             permitted.append(ev)
 
     # Sort by (ts, id) DESC for audit-log convention (most recent first).
     permitted.sort(key=lambda e: (e.ts or "", e.id or ""), reverse=True)
 
     page, response = build_paginated_response(permitted, cursor, limit, _envelope_key)
-    response["events"] = [ev.to_wire_flat() for ev in page]
+    response["events"] = [scrub_event_credentials(ev.to_wire_flat()) for ev in page]
     return response

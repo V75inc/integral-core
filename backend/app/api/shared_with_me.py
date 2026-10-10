@@ -46,6 +46,11 @@ def _raise_invitation_action_error(code: str) -> None:
         raise InsufficientPermissionsError(
             message="This invitation was sent to a different email address."
         )
+    if code == "invitation.email_unverified":
+        raise InsufficientPermissionsError(
+            message="Verify your current email address to use this invitation.",
+            details={"error_code": code},
+        )
     if code in (
         "invitation.token_expired",
         "invitation.revoked",
@@ -273,16 +278,11 @@ async def list_my_invitations(request: Request) -> Dict[str, Any]:
     if not user:
         return {"invitations": []}
 
-    # Email lookup via AuthUser bridge.
-    email = ""
-    try:
-        from jvspatial.api.auth.models import User as AuthUser
+    from app.services.email_identity import verified_current_email
 
-        auth_users = await AuthUser.find({"id": getattr(user, "user_id", "")})
-        if auth_users:
-            email = (getattr(auth_users[0], "email", "") or "").strip().casefold()
-    except Exception:
-        email = ""
+    email = await verified_current_email(user)
+    if not email:
+        return {"invitations": []}
 
     matches: List[Invitation] = []
     if email:
@@ -295,7 +295,7 @@ async def list_my_invitations(request: Request) -> Dict[str, Any]:
     )
     seen = {inv.id for inv in matches}
     for inv in by_uid:
-        if inv.id not in seen:
+        if inv.id not in seen and (inv.email or "").strip().casefold() == email:
             matches.append(inv)
             seen.add(inv.id)
 

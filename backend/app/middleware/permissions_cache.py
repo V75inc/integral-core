@@ -2,7 +2,7 @@
 
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any, Dict, Iterator, Optional, Tuple, Union
+from typing import Any, Dict, Iterator, Optional, Tuple
 
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -10,14 +10,8 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 #   ("user_node", user_id)                                          — Phase 0
 #   ("etr", uid, tid)                                               — Phase 0 effective track role
 #   ("rr", resource_type, resource_id, user_id)                     — Phase 1 resolve_role
-#   ("policy", subject_kind, subject_id, action, resource_kind, resource_id)
-#                                                                   — Phase 3 D-11 policy_engine.evaluate
-PermissionCacheKey = Union[
-    Tuple[str, str],
-    Tuple[str, str, str],
-    Tuple[str, str, str, str],
-    Tuple[str, str, str, str, str, str],
-]
+#   ("policy", subject_kind, subject_id, action, complete_resource_json)
+PermissionCacheKey = Tuple[str, ...]
 
 _permissions_cache_var: ContextVar[Optional[Dict[PermissionCacheKey, Any]]] = (
     ContextVar("integral_permissions_cache", default=None)
@@ -88,7 +82,7 @@ def policy_decision_clear_for_subject(subject_kind: str, subject_id: str) -> int
         for k in cache.keys()
         if (
             isinstance(k, tuple)
-            and len(k) == 6
+            and len(k) >= 3
             and k[0] == "policy"
             and k[1] == subject_kind
             and k[2] == subject_id

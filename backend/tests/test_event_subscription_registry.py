@@ -98,7 +98,9 @@ async def test_broadcast_track_scope_permission_filter(monkeypatch):
         register_subscription,
     )
 
-    async def fake_evaluate(*, subject, action, resource, _internal_actor=None):
+    async def fake_evaluate(
+        *, subject, action, resource, _internal_actor=None, _dry_run=False
+    ):
         return _Decision(
             allowed=(subject.id == "user-A"),
             reason="test_filter",
@@ -129,7 +131,9 @@ async def test_broadcast_space_scope_permission_filter(monkeypatch):
         register_subscription,
     )
 
-    async def fake_evaluate(*, subject, action, resource, _internal_actor=None):
+    async def fake_evaluate(
+        *, subject, action, resource, _internal_actor=None, _dry_run=False
+    ):
         return _Decision(
             allowed=(subject.id == "user-A"),
             reason="test_filter",
@@ -163,7 +167,11 @@ async def test_broadcast_user_scope_identity_check():
     await register_subscription("user-A", ws_a)
     await register_subscription("user-B", ws_b)
 
-    await broadcast_change_event(_new_change_event("user:user-A"))
+    event = _new_change_event("user:user-A", action="user.update")
+    event.resource_type = "User"
+    event.resource_id = "user-A"
+    event.after = {"id": "user-A", "display_name": "A"}
+    await broadcast_change_event(event)
 
     assert ws_a.send_text.await_count == 1
     assert ws_b.send_text.await_count == 0

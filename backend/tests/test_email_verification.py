@@ -34,12 +34,21 @@ def _now_utc():
 
 
 async def _make_user(suffix: str) -> User:
-    return await User.create(
-        user_id=f"ev-test-{suffix}",
+    from jvspatial.api.auth.models import User as AuthUser
+
+    from app.services.app_graph import catalog_user
+
+    identity = await AuthUser.create(
+        email="test@example.com", password_hash="test-fixture"
+    )
+    user = await User.create(
+        user_id=identity.id,
         display_name=f"EV Test {suffix}",
         created_at=_now_utc().isoformat(),
         updated_at=_now_utc().isoformat(),
     )
+    await catalog_user(user)
+    return user
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -139,6 +148,7 @@ async def test_consume_expired_code():
     # Write a slot with the correct hash but a past expiry.
     prefs = dict(user.preferences or {})
     prefs[_PREFS_KEY] = {
+        "email": "test@example.com",
         "hash": code_hash,
         "expires_at": (_now_utc() - timedelta(hours=1)).isoformat(),
         "attempts": 0,
@@ -156,6 +166,7 @@ async def test_consume_expired_code():
 async def test_consume_already_verified():
     user = await _make_user("consume-already")
     user.email_verified = True
+    user.verified_email = "test@example.com"
     await user.save()
 
     ok, err = await consume_verification_code(user, "123456")
@@ -199,6 +210,7 @@ async def test_verify_email_via_service_happy_path():
     code_hash = hashlib.sha256(code.encode()).hexdigest()
     prefs = dict(user.preferences or {})
     prefs[_PREFS_KEY] = {
+        "email": "test@example.com",
         "hash": code_hash,
         "expires_at": (_now_utc() + timedelta(minutes=15)).isoformat(),
         "attempts": 0,
@@ -225,6 +237,7 @@ async def test_verify_email_via_service_wrong_code():
     code_hash = hashlib.sha256(real_code.encode()).hexdigest()
     prefs = dict(user.preferences or {})
     prefs[_PREFS_KEY] = {
+        "email": "test@example.com",
         "hash": code_hash,
         "expires_at": (_now_utc() + timedelta(minutes=15)).isoformat(),
         "attempts": 0,

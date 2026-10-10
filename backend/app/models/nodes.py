@@ -254,6 +254,9 @@ class User(Node):
     # after the user becomes part of an org.
     active_workspace_id_explicit: bool = False
     email_verified: bool = False
+    # Server-owned mailbox binding. A legacy boolean alone grants no
+    # invitation-discovery authority; changed addresses require new proof.
+    verified_email: str = ""
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 

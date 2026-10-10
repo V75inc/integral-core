@@ -7,34 +7,54 @@
     {
       "id": "AC-01",
       "priority_and_review_evidence": "P0 / R, HTTP",
-      "status": "open",
+      "status": "in_progress",
       "description": "**Unverified email can claim invitations without the token.** Signup under an unverified address, then `/me/invitations` discovers invitations for that email; `/me/invitations/{id}/accept` accepts them, including workspace admin. Email equality is not mailbox proof. `api/shared_with_me.py:261,335`; `services/invitations.py:152,517`. Probe `test_unverified_email_can_discover_and_accept_invitation_without_token`. Require verified ownership of the current email for discovery/by-ID acceptance. A valid invitation token can authorize that specific invitation under a defined bearer/recipient contract; it must not automatically verify the account email, because the issuer also receives the acceptance URL. Keep ordinary login non-blocking.",
-      "implementation": [],
-      "verification": []
+      "implementation": [
+        "Bound server-owned verified_email and OTP delivery address to current AuthUser email",
+        "Gate by-ID invitation actions/discovery; token path does not verify account"
+      ],
+      "verification": [
+        "test_invitation_mailbox_proof.py: 9 HTTP/service cases; targeted selection passed"
+      ]
     },
     {
       "id": "AC-02",
       "priority_and_review_evidence": "P0 / R, service + broadcast",
-      "status": "open",
+      "status": "in_progress",
       "description": "**Entry exclusions do not protect event snapshots.** A Track viewer excluded from an Entry receives its `entry.update` event `after` payload. Broadcast authorizes only `track:<id>`. Audit and polling use the same scope-only policy dispatch, so they require equivalent repair. `event_subscription_registry.py:85,106`; `policy_engine.py:273`; `api/audit_log.py:104`; `api/events_polling.py:103`. Probe `test_entry_exclusion_does_not_filter_event_payload`. Authorize the affected resource and snapshot contents, including nested references; define deletion-event access without bypassing former exclusions.",
-      "implementation": [],
-      "verification": []
+      "implementation": [
+        "Per-message/per-row fresh read-only authorization on Entry/App/Track/View; comment/attachment parent Entry gates",
+        "Scrub nested verification/reset/password fields from wire snapshots",
+        "Unknown resource snapshots withheld pending declared audience contracts"
+      ],
+      "verification": [
+        "test_access_perimeter_regressions.py: live revocation with Track and account scopes, audit and polling",
+        "test_invitation_mailbox_proof.py: real account event OTP hash withholding"
+      ]
     },
     {
       "id": "AC-03",
       "priority_and_review_evidence": "P0 / R",
-      "status": "open",
+      "status": "in_progress",
       "description": "**Policy memoization omits inputs that change the decision.** Key contains subject/action/resource kind/id, but omits scope, entry type, tags, approval payload and policy revision. An allowed request can authorize another scope in the same context. The event subscription helper uses constant kind/id, so two Track scopes collide directly. `policy_engine.py:685`; `middleware/permissions_cache.py:15`; `event_subscription_registry.py:94`. Probes `test_policy_cache_ignores_scope_and_tags`, `test_event_subscription_decision_cache_crosses_track_scope`. Include complete immutable decision inputs; do not cache effect/approval creation. Start fresh, live authorization for each event.",
-      "implementation": [],
-      "verification": []
+      "implementation": [
+        "Complete serialized Resource cache identity; no payload/effect memoization"
+      ],
+      "verification": [
+        "Scope/tag/type variations and distinct write payloads tested"
+      ]
     },
     {
       "id": "AC-04",
       "priority_and_review_evidence": "P0 / R, injected storage fault",
-      "status": "open",
+      "status": "in_progress",
       "description": "**Exclusion read fails open.** `_is_excluded_from_resource` catches an exception and returns False; an excluded user then inherits editor. `permissions.py:817`. Probe `test_exclusion_storage_error_allows_inheritance`. An indeterminate denial lookup must produce denied/unavailable, not \u201cno exclusion.\u201d Review all authority helpers for equivalent exception/default behavior.",
-      "implementation": [],
-      "verification": []
+      "implementation": [
+        "Exclusion storage errors raise authorization_unavailable (503)"
+      ],
+      "verification": [
+        "Authorized inheritance, exclusion denial and injected exclusion lookup failure"
+      ]
     },
     {
       "id": "AC-05",
@@ -127,10 +147,14 @@
     {
       "id": "AC-16",
       "priority_and_review_evidence": "P2 / R, HTTP",
-      "status": "open",
+      "status": "in_progress",
       "description": "**Workspace avatar gate treats \u201cnone\u201d as truthy.** `if not await can_access_workspace(...)` does not deny the nonempty string `\"none\"`; a non-member can fetch the logo. `api/workspaces.py:1312`. Probe `test_avatar_non_member_truthiness`. Low-sensitivity payload, clear IDOR-style gate defect. Use typed decisions or explicit role comparisons; audit other truthiness callers.",
-      "implementation": [],
-      "verification": []
+      "implementation": [
+        "Compare WorkspaceRole to none before avatar storage reads"
+      ],
+      "verification": [
+        "Outsider denied without bytes read; authorized member bytes read"
+      ]
     },
     {
       "id": "AC-17",
@@ -159,10 +183,14 @@
     {
       "id": "AC-20",
       "priority_and_review_evidence": "P0 / R, read-operation dispatch; command replay S/Q",
-      "status": "open",
+      "status": "in_progress",
       "description": "**Operation replay can expose a now-excluded Entry.** A synthetic read handler checks the actual Entry permission and returns a validated Entry reference. After exclusion, a fresh operation invocation denies, but retrying the old idempotency key returns the original title/reference without rerunning the handler or reference authorization. App-level invocation permission still holds. `app_operations/dispatch.py::invoke_app_operation` returns `lookup_idempotent_result` before `build_result`; durable command replay similarly returns `execution.result`. Probe `test_read_operation_replays_entry_after_exclusion` exercises real policy, the warm in-process read-result cache and dispatch with only the App handler substituted. Clearing that cache did not reproduce persistent replay in this JsonDB fixture; do not infer cross-restart disclosure from this probe. Command/PostgreSQL replay is source-confirmed and still needs runtime qualification. Preserve effect idempotency while reauthorizing result disclosure; do not rerun an already committed mutation to regenerate its response.",
-      "implementation": [],
-      "verification": []
+      "implementation": [
+        "Revalidate stored Entry dependencies at read and command response replay without rerunning committed effects"
+      ],
+      "verification": [
+        "Warm read replay allowed before exclusion and denied afterward, handler count unchanged"
+      ]
     },
     {
       "id": "AC-21",
@@ -936,7 +964,7 @@
     }
   ],
   "qualification": {
-    "full_local_gate": "pending",
+    "full_local_gate": "M1 perimeter slice passed; goal-wide final gate pending",
     "postgres_multiprocess": "pending",
     "core_only_contract": "pending",
     "independent_artifacts": "pending",
@@ -957,8 +985,25 @@
       ],
       "limits": [
         "No runtime finding closed",
-        "Full backend baseline in progress",
+        "Optional baseline-only backend run stopped before runtime integration; no baseline full-suite pass claimed",
         "PostgreSQL, shipped-browser and migration qualification pending"
+      ]
+    },
+    {
+      "id": "M1-perimeter-slice",
+      "status": "complete",
+      "evidence": [
+        "115 targeted regressions passed in 26.91 seconds",
+        "make verify passed: all staged guards, pinned format/lint, types, reproducible wheel/import, no-env smoke/xdist, 1583 frontend tests and full backend suite",
+        "90 audience/perimeter/mailbox PostgreSQL cases passed in 39.77 seconds after final repairs",
+        "Supplementary lanes: 9 Core-only, 52 extension-contract, 221 PostgreSQL spike/contract tests passed; one restore rehearsal skipped"
+      ],
+      "limits": [
+        "Durable authorization epochs and arbitrary-output dependency completeness pending",
+        "Complete event resource/audience and tombstone contracts pending",
+        "Broader indeterminate containment/member fact tests pending",
+        "PostgreSQL command replay/race qualification pending",
+        "This completed repair slice is not closure of every finding assigned to M1; complete requirements remain in the finding and use-case rows"
       ]
     }
   ],
@@ -974,6 +1019,6 @@
     "ci_smoke_xdist_no_env": "passed",
     "frontend_node23": "1582 passed, 1 streaming test failed",
     "frontend_node24": "1583 passed, 279 files, 99.14 seconds",
-    "backend_full": "running"
+    "backend_full": "Optional baseline-only run stopped before runtime integration; no full-suite pass claimed. Full runtime milestone gate required."
   }
 }
