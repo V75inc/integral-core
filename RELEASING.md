@@ -8,12 +8,13 @@ the repo.
 | Pre-release (`v0.1.1rc1`, `aN`, `bN`) | [TestPyPI](https://test.pypi.org/project/integral-core/) | [`publish-testpypi.yml`](.github/workflows/publish-testpypi.yml) |
 | Final (`v0.1.1`) | [PyPI](https://pypi.org/project/integral-core/) | [`publish-pypi.yml`](.github/workflows/publish-pypi.yml) |
 
-Both workflows fire on a push to `main` and on a `v*` tag. Each one reads
-`backend/pyproject.toml`. A pre-release goes to TestPyPI. A final version
-goes to PyPI. The other workflow skips. If that version is already on the
-index, the run does not upload it again. After a successful publish, the
-workflow pushes `v<version>` when that tag is missing. A merge of a version
-bump is enough. A manual tag still publishes that commit.
+Both workflows start after successful CI on the exact `main` revision, or
+through manual workflow dispatch for a tag whose exact revision has passed CI.
+Each reads `backend/pyproject.toml`. A pre-release goes to TestPyPI; a final
+version goes to PyPI. The other workflow skips. If that version is already on
+the index, the run does not upload it again. After successful publication, the
+workflow records `v<version>` when that tag is missing. Merging a version bump
+is enough to start this sequence. Pushing a tag alone does not publish it.
 
 ## Versioning
 
