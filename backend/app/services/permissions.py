@@ -226,22 +226,17 @@ async def _is_workspace_owner_user(workspace: Workspace, user: User) -> bool:
     Uniform for both Personal and Organization — a Personal workspace
     always has exactly one such edge to its owning User.
     """
-    try:
-        ctx = await user.get_context()
-        edges = await ctx.find_edges_between(
-            user.id, workspace.id, edge_class=IS_MEMBER_OF
-        )
-        for e in edges:
-            role = getattr(e, "role", None)
-            if role is None:
-                rctx = getattr(e, "context", None) or {}
-                role = rctx.get("role") if isinstance(rctx, dict) else None
-            if str(role or "").strip().lower() == "owner":
-                return True
-    except Exception as exc:
-        logger.exception("workspace owner check failed")
-        raise AuthorizationUnavailableError() from exc
-    return False
+    from app.middleware.permissions_cache import isolated_permissions_cache
+    from app.services.workspace_permissions import _current_workspace_role
+
+    if live_permissions_required():
+        return await _current_workspace_role(user, workspace) == "owner"
+    with isolated_permissions_cache():
+        current_user = await get_user_node(user.id)
+        current_workspace = await Workspace.find_one({"id": workspace.id})
+        if current_user is None or current_workspace is None:
+            return False
+        return await _current_workspace_role(current_user, current_workspace) == "owner"
 
 
 async def can_create_app_under_workspace(user_id: str, workspace_id: str) -> bool:
@@ -847,13 +842,17 @@ async def _direct_role_on_resource(user: User, resource_id: str) -> Optional[str
         )
         if not collab_edges:
             return None
+        if len(collab_edges) != 1:
+            raise AuthorizationUnavailableError()
         edge = collab_edges[0]
         role_val = getattr(edge, "role", None)
         if role_val is None:
             rctx = getattr(edge, "context", None) or {}
             role_val = rctx.get("role") if isinstance(rctx, dict) else None
-        cand = str(role_val or "viewer").strip().lower()
-        return cand if cand in ROLE_RANK else "viewer"
+        cand = str(role_val or "").strip().lower()
+        if cand not in ROLE_RANK:
+            raise AuthorizationUnavailableError()
+        return cand
     except Exception as exc:
         logger.warning(
             "Error reading direct role on %s for %s: %s", resource_id, user.id, exc
@@ -1026,32 +1025,17 @@ async def resolve_role(
         # workApp role onto the owner/editor/commenter/viewer enum so
         # callers can use a single gate. WorkApp role does NOT cascade
         # to children (rule 2).
-        try:
-            ctx = await user.get_context()
-            edges = await ctx.find_edges_between(
-                user.id, resource_id, edge_class=IS_MEMBER_OF
-            )
-            for edge in edges:
-                role_val = getattr(edge, "role", None)
-                if role_val is None:
-                    rctx = getattr(edge, "context", None) or {}
-                    role_val = rctx.get("role") if isinstance(rctx, dict) else None
-                rv = str(role_val or "").strip().lower()
-                if rv == "owner":
-                    out = "owner"
-                elif rv in ("admin", "member"):
-                    out = "editor"
-                elif rv == "guest":
-                    out = "viewer"
-                else:
-                    continue
-                return _finish(out)
-        except Exception as exc:
-            logger.warning(
-                "Error reading workspace membership for %s: %s", user.id, exc
-            )
-            raise AuthorizationUnavailableError() from exc
-        return _finish(None)
+        from app.services.workspace_permissions import can_access_workspace
+
+        role = await can_access_workspace(user.id, resource_id)
+        return _finish(
+            {
+                "owner": "owner",
+                "admin": "editor",
+                "member": "editor",
+                "guest": "viewer",
+            }.get(role)
+        )
 
     # deviation: procedural cascade rather than a Walker. AGENTS.md names
     # Workspace->App->Track->Entry as the textbook Walker case, so this owes a

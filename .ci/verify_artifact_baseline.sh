@@ -90,6 +90,16 @@ assert dashboard_widget_types.get_spec("metric_card") is not None
 assert load_view_contract_catalog(), "view contracts missing from wheel"
 with zipfile.ZipFile(wheel) as archive:
     assert not any(name.startswith("app/packages/") for name in archive.namelist())
+    # AC-19: unsupported legacy list/generation paths must not ship in Core.
+    for retired in ("generate", "template_lifecycle", "document_type_lifecycle"):
+        assert f"app/services/documents/{retired}.py" not in archive.namelist()
+        assert importlib.util.find_spec(f"app.services.documents.{retired}") is None
+    from app.models.nodes import GeneratedDocument
+    from app.services.documents import list_document_fields
+    from app.services.document_render import render_document
+
+    assert GeneratedDocument._entity_name() == "GeneratedDocument"
+    assert callable(list_document_fields) and callable(render_document)
     skill_names = sorted(
         name
         for name in archive.namelist()

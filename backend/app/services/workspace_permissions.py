@@ -20,12 +20,26 @@ import logging
 from typing import Literal, Optional, Tuple
 
 from app.exceptions import AuthorizationUnavailableError
+from app.middleware.permissions_cache import isolated_permissions_cache
 from app.models.edges import IS_MEMBER_OF
 from app.models.nodes import App, Track, User, Workspace
 
 logger = logging.getLogger(__name__)
 
 WorkspaceRole = Literal["owner", "admin", "member", "guest", "none"]
+
+
+def _member_row_role(row: dict) -> Optional[str]:
+    """Read the canonical typed literal; unknown vocabulary grants no role."""
+    context = row.get("context")
+    role = (context.get("role") if isinstance(context, dict) else None) or row.get(
+        "role"
+    )
+    return (
+        role
+        if isinstance(role, str) and role in {"owner", "admin", "member", "guest"}
+        else None
+    )
 
 
 async def _read_member_edge_role(user: User, workspace_id: str) -> Optional[str]:
@@ -42,12 +56,7 @@ async def _read_member_edge_role(user: User, workspace_id: str) -> Optional[str]
         )
         if len(rows) != 1:
             return None
-        row = rows[0]
-        row_ctx = row.get("context") if isinstance(row, dict) else None
-        role = (row_ctx.get("role") if isinstance(row_ctx, dict) else None) or row.get(
-            "role"
-        )
-        return str(role or "").strip().lower() or None
+        return _member_row_role(rows[0])
     except Exception as exc:
         logger.exception(
             "_read_member_edge_role failed for %s → %s", user.id, workspace_id
@@ -55,55 +64,86 @@ async def _read_member_edge_role(user: User, workspace_id: str) -> Optional[str]
         raise AuthorizationUnavailableError() from exc
 
 
-async def get_workspace_owner_user_id(workspace_id: str) -> Optional[str]:
-    """Resolve the owner User node id via ``IS_MEMBER_OF{role:"owner"}``.
-
-    Works uniformly for Personal (sole member) and Organization (any
-    member with role="owner"). Returns ``None`` if the workspace has no
-    owner edge — a structural invariant violation that callers may
-    treat as an access-denied condition.
-    """
-    ws = await Workspace.find_one({"id": workspace_id})
-    if not ws:
+async def _canonical_owner_id(workspace: Workspace) -> Optional[str]:
+    """Resolve one owner from complete current membership facts."""
+    ctx = await workspace.get_context()
+    rows = await ctx.database.find(
+        "edge", {"target": workspace.id, "entity": IS_MEMBER_OF.__name__}
+    )
+    owners = []
+    for row in rows:
+        if _member_row_role(row) == "owner":
+            owners.append(str(row.get("source") or ""))
+    if len(owners) != 1 or not owners[0]:
         return None
+    if sum(row.get("source") == owners[0] for row in rows) != 1:
+        return None
+    from app.services.permissions import get_user_node
+
+    owner = await get_user_node(owners[0])
+    return owner.id if owner is not None and owner.id == owners[0] else None
+
+
+async def get_workspace_owner_user_id(workspace_id: str) -> Optional[str]:
+    """Return the unique live canonical owner, or None for ambiguous/missing facts."""
     try:
-        ctx = await ws.get_context()
+        with isolated_permissions_cache():
+            workspace = await Workspace.find_one({"id": workspace_id})
+            if workspace is None:
+                return None
+            return await _canonical_owner_id(workspace)
+    except Exception as exc:
+        logger.exception("get_workspace_owner_user_id failed for %s", workspace_id)
+        raise AuthorizationUnavailableError() from exc
+
+
+async def _current_workspace_role(user: User, workspace: Workspace) -> WorkspaceRole:
+    """Read authority for an already freshly checked principal and workspace."""
+    try:
+        ctx = await workspace.get_context()
+        # One store read gets both the caller's complete membership and the
+        # canonical owner candidates. Separate reads measured 33 feed trips
+        # against the unchanged budget of 32 (authority-facts regression).
         rows = await ctx.database.find(
             "edge",
-            {"target": workspace_id, "entity": IS_MEMBER_OF.__name__},
+            {
+                "target": workspace.id,
+                "entity": IS_MEMBER_OF.__name__,
+                "$or": [
+                    {"source": user.id},
+                    {"context.role": "owner"},
+                    {"role": "owner"},
+                ],
+            },
         )
-        for row in rows:
-            row_ctx = row.get("context") if isinstance(row, dict) else None
-            role = (
-                row_ctx.get("role") if isinstance(row_ctx, dict) else None
-            ) or row.get("role")
-            if str(role or "").strip().lower() == "owner":
-                source = row.get("source")
-                if source:
-                    return str(source)
-    except Exception:
-        logger.exception("get_workspace_owner_user_id failed for %s", workspace_id)
-    return None
+        memberships = [row for row in rows if row.get("source") == user.id]
+        if len(memberships) != 1:
+            return "none"
+        role = _member_row_role(memberships[0])
+        if role == "owner":
+            owners = [row for row in rows if _member_row_role(row) == "owner"]
+            if len(owners) != 1 or owners[0].get("source") != user.id:
+                return "none"
+        return role or "none"  # type: ignore[return-value]
+    except Exception as exc:
+        raise AuthorizationUnavailableError() from exc
 
 
 async def can_access_workspace(user_id: str, workspace_id: str) -> WorkspaceRole:
-    """Return the user's role within the given Workspace, or "none".
-
-    Edge-only resolution: reads ``IS_MEMBER_OF`` role for both kinds.
-    Returns one of {owner, admin, member, guest} or "none".
-    """
+    """Return current owner/admin/member/guest authority, or none."""
     from app.services.permissions import get_user_node
 
-    user = await get_user_node(user_id)
-    if not user:
-        return "none"
-    ws = await Workspace.find_one({"id": workspace_id})
-    if not ws:
-        return "none"
-    role = await _read_member_edge_role(user, ws.id)
-    if role in ("owner", "admin", "member", "guest"):
-        return role  # type: ignore[return-value]
-    return "none"
+    try:
+        with isolated_permissions_cache():
+            user = await get_user_node(user_id)
+            if user is None:
+                return "none"
+            workspace = await Workspace.find_one({"id": workspace_id})
+            if workspace is None:
+                return "none"
+            return await _current_workspace_role(user, workspace)
+    except Exception as exc:
+        raise AuthorizationUnavailableError() from exc
 
 
 async def user_in_workspace_member_pool(user_id: str, workspace_id: str) -> bool:
@@ -268,28 +308,35 @@ async def list_accessible_workspaces(user_id: str) -> list[Workspace]:
     list endpoint and by accessible-apps/tracks traversal in W5.
     """
     from app.services.permissions import get_user_node
-    from app.services.personal_workspace import _find_personal_workspace
 
-    user = await get_user_node(user_id)
-    if not user:
-        return []
-
-    out: dict[str, Workspace] = {}
-
-    # Personal workspace must be provisioned at signup (auth.py::signup).
-    # List does not lazy-create — legacy users without one are invisible
-    # until backfilled via ensure_personal_workspace migration script.
-    personal = await _find_personal_workspace(user)
-    if personal:
-        out[personal.id] = personal
-
-    # Organization-kind workspaces via IS_MEMBER_OF.
     try:
-        member_workspaces = await user.nodes(edge=["IS_MEMBER_OF"], node=["Workspace"])
-        for ws in member_workspaces:
-            if ws.id not in out:
-                out[ws.id] = ws
-    except Exception:
+        with isolated_permissions_cache():
+            user = await get_user_node(user_id)
+            if not user:
+                return []
+            out: dict[str, Workspace] = {}
+            cursor = None
+            seen_cursors = set()
+            while True:
+                page, cursor = await user.nodes_page(
+                    edge=[IS_MEMBER_OF],
+                    node=[Workspace],
+                    direction="out",
+                    limit=200,
+                    cursor=cursor,
+                )
+                for candidate in page:
+                    ws = await Workspace.find_one({"id": candidate.id})
+                    if (
+                        ws is not None
+                        and await _current_workspace_role(user, ws) != "none"
+                    ):
+                        out[ws.id] = ws
+                if not cursor:
+                    return list(out.values())
+                if cursor in seen_cursors:
+                    raise AuthorizationUnavailableError()
+                seen_cursors.add(cursor)
+    except Exception as exc:
         logger.exception("list_accessible_workspaces traversal failed")
-
-    return list(out.values())
+        raise AuthorizationUnavailableError() from exc

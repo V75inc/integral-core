@@ -264,10 +264,7 @@ async def test_c6_a13_populated_upgrade_fences_due_work_across_restart_and_unins
     )
     monkeypatch.syspath_prepend(str(SDK_ROOT))
 
-    workspace = await make_org_workspace("ws-c6-a13-lifecycle-fence")
-    await test_user.connect(
-        workspace, edge=IS_MEMBER_OF, role="owner", joined_at="2026-01-01T00:00:00Z"
-    )
+    workspace = await make_org_workspace("ws-c6-a13-lifecycle-fence", owner=test_user)
     library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
     installed = await install_app(
         workspace_id=workspace.id,
@@ -635,10 +632,7 @@ async def test_extracted_asset_register_read_operation_over_http(
     monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(extensions))
     monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
     monkeypatch.syspath_prepend(str(SDK_ROOT))
-    workspace = await make_org_workspace("ws-archive-http-operation")
-    await test_user.connect(
-        workspace, edge=IS_MEMBER_OF, role="owner", joined_at="2026-01-01T00:00:00Z"
-    )
+    workspace = await make_org_workspace("ws-archive-http-operation", owner=test_user)
     library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
     installed = await install_app(
         workspace_id=workspace.id,
@@ -681,10 +675,7 @@ async def test_declared_asset_query_matches_dashboard_http_resident_and_mcp(
     monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(extensions))
     monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
     monkeypatch.syspath_prepend(str(SDK_ROOT))
-    workspace = await make_org_workspace("ws-archive-query-parity")
-    await test_user.connect(
-        workspace, edge=IS_MEMBER_OF, role="owner", joined_at="2026-01-01T00:00:00Z"
-    )
+    workspace = await make_org_workspace("ws-archive-query-parity", owner=test_user)
     library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
     installed = await install_app(
         workspace_id=workspace.id,
@@ -806,10 +797,7 @@ async def test_extracted_asset_register_tool_runs_through_resident_dispatch(
     monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(extensions))
     monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
     monkeypatch.syspath_prepend(str(SDK_ROOT))
-    workspace = await make_org_workspace("ws-archive-resident-tool")
-    await test_user.connect(
-        workspace, edge=IS_MEMBER_OF, role="owner", joined_at="2026-01-01T00:00:00Z"
-    )
+    workspace = await make_org_workspace("ws-archive-resident-tool", owner=test_user)
     library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
     installed = await install_app(
         workspace_id=workspace.id,
@@ -855,9 +843,8 @@ async def test_extracted_asset_register_lifecycle_revokes_and_restores_resident_
     monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(extensions))
     monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
     monkeypatch.syspath_prepend(str(SDK_ROOT))
-    workspace = await make_org_workspace("ws-archive-resident-lifecycle")
-    await test_user.connect(
-        workspace, edge=IS_MEMBER_OF, role="owner", joined_at="2026-01-01T00:00:00Z"
+    workspace = await make_org_workspace(
+        "ws-archive-resident-lifecycle", owner=test_user
     )
     library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
     installed = await install_app(
@@ -905,10 +892,7 @@ async def test_extracted_asset_register_read_operation_over_mcp_dispatch(
     monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(extensions))
     monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
     monkeypatch.syspath_prepend(str(SDK_ROOT))
-    workspace = await make_org_workspace("ws-archive-mcp-operation")
-    await test_user.connect(
-        workspace, edge=IS_MEMBER_OF, role="owner", joined_at="2026-01-01T00:00:00Z"
-    )
+    workspace = await make_org_workspace("ws-archive-mcp-operation", owner=test_user)
     library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
     installed = await install_app(
         workspace_id=workspace.id,
@@ -1008,10 +992,7 @@ async def test_c6_a12_asset_write_reuses_one_receipt_across_transports(
     monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(extensions))
     monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
     monkeypatch.syspath_prepend(str(SDK_ROOT))
-    workspace = await make_org_workspace("ws-c6-a12-transport-replay")
-    await test_user.connect(
-        workspace, edge=IS_MEMBER_OF, role="owner", joined_at="2026-01-01T00:00:00Z"
-    )
+    workspace = await make_org_workspace("ws-c6-a12-transport-replay", owner=test_user)
     library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
     installed = await install_app(
         workspace_id=workspace.id,

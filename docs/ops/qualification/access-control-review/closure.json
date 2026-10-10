@@ -51,12 +51,14 @@
       "description": "**Exclusion read fails open.** `_is_excluded_from_resource` catches an exception and returns False; an excluded user then inherits editor. `permissions.py:817`. Probe `test_exclusion_storage_error_allows_inheritance`. An indeterminate denial lookup must produce denied/unavailable, not \u201cno exclusion.\u201d Review all authority helpers for equivalent exception/default behavior.",
       "implementation": [
         "Exclusion storage errors raise authorization_unavailable (503)",
-        "Deny existence uses typed relationship count, independent of malformed optional audit metadata; broader authority helper audit remains pending"
+        "Deny existence uses typed relationship count, independent of malformed optional audit metadata; broader authority helper audit remains pending",
+        "Workspace authority reads current membership facts, rejects ambiguous owners/unknown grant roles and refuses partial paginated inventory results"
       ],
       "verification": [
         "Authorized inheritance, exclusion denial and injected exclusion lookup failure",
         "Temporary JsonDB probe reproduced malformed optional deny metadata being skipped by hydration; typed count still sees the edge. Relationship-presence repair pending.",
-        "Malformed optional deny metadata remains denied through point/list/page/count projections; real PostgreSQL selection passed"
+        "Malformed optional deny metadata remains denied through point/list/page/count projections; real PostgreSQL selection passed",
+        "Five authority-fact regressions passed on JSON and PostgreSQL; make verify passed. Raw grant/lifecycle defaults, conflicting representations and generic canonical containment remain open."
       ]
     },
     {
@@ -83,10 +85,12 @@
       "implementation": [
         "HTTP bypasses process TTL role/inventory snapshots; primary live resource/principal reads",
         "Workspace-attached revision and joinable PostgreSQL fence; complete writer/release adoption remains pending",
-        "Live graph-profile aliases recheck linked AuthUser active state; connector effects use serialized transaction with safe I/O cleanup"
+        "Live graph-profile aliases recheck linked AuthUser active state; connector effects use serialized transaction with safe I/O cleanup",
+        "Authentication runtime stale whole-user save is an additional open revocation repair; primary permission reads alone do not close it"
       ],
       "verification": [
-        "Both aliases of missing or disabled linked identities denied; serialized connector and nested-handle proofs passed"
+        "Both aliases of missing or disabled linked identities denied; serialized connector and nested-handle proofs passed",
+        "Additional owned-JsonDB characterization: pinned AuthService validates a warmed user after raw-store disable and saves it active again; auth_identity_characterization.json preserves the unsafe observation, not acceptance"
       ]
     },
     {
@@ -198,10 +202,16 @@
     {
       "id": "AC-19",
       "priority_and_review_evidence": "P2 / S; module import and external reachability incomplete",
-      "status": "open",
+      "status": "closed",
       "description": "**The legacy generated-document list has the same truthiness pattern and insufficient row filtering.** `documents/generate.py:361` treats workspace role `\"none\"` as allowed. With no context Entry filter, the source returns all matching GeneratedDocument rows without per-document/context authorization; rows can contain resolved snapshots. Attempted service reproduction could not import the module because `template_lifecycle.py` imports missing `HAS_TEMPLATE_VERSION`. No external HTTP caller of this function was found. This is source-confirmed legacy debt, not a reproduced document-disclosure exploit. Reconcile/remove the inactive module, or repair its imports and authorization before exposing it. Treat this as a release blocker only if the affected module is included as a supported reachable surface; do not revive dead code merely to fix it.",
-      "implementation": [],
-      "verification": []
+      "implementation": [
+        "Removed three inactive, unsupported legacy document modules after whole-repository call-site inspection; retained GeneratedDocument records/registration and supported rendering/field contracts"
+      ],
+      "verification": [
+        "test_legacy_document_disposition.py: three retired-module absence cases and supported renderer/GeneratedDocument preservation case passed on JSON and PostgreSQL",
+        "make verify passed; clean working-tree wheel excludes all three modules and imports supported contracts outside the checkout; reproducible SHA-256 ff6830d547639b1482664f493d08d7ee97089d49935976f33d088cc52a97e1cc",
+        "Whole-repository call-site inspection found no supported HTTP/CLI/App/example caller; no stored records removed or migrated"
+      ]
     },
     {
       "id": "AC-20",
@@ -1044,7 +1054,7 @@
     }
   ],
   "qualification": {
-    "full_local_gate": "M1 perimeter slice passed; goal-wide final gate pending",
+    "full_local_gate": "M2 authority-facts/legacy-disposition slice passed make verify; final goal-wide gate pending",
     "postgres_multiprocess": "pending",
     "core_only_contract": "pending",
     "independent_artifacts": "pending",
@@ -1123,6 +1133,21 @@
         "Remaining facade administration, notification, personal-vault and provider dispatch paths pending",
         "Shared ordering adoption, identity fences, exact action permits, schema affiliation and dependency release contracts pending",
         "All finding and use-case closures remain open"
+      ]
+    },
+    {
+      "id": "M2-authority-facts-legacy-disposition",
+      "status": "complete",
+      "evidence": [
+        "55 final JSON targeted cases passed",
+        "52 PostgreSQL fact/disposition/scope/fence cases passed",
+        "make verify passed: guards/hooks, pinned format/lint/types, clean reproducible wheel/import, no-env smoke/xdist, 1583 frontend tests and full backend suite",
+        "9 Core-only, 52 extension-contract and 227 PostgreSQL cases passed; one explicit restore-rehearsal infrastructure skip"
+      ],
+      "limits": [
+        "Canonical owner transfer, strict generic containment and complete authority/release fence adoption pending",
+        "Authentication runtime stale whole-user save reproduction remains open under AC-06",
+        "Raw malformed/conflicting authority facts and hydration-skipped structural candidates remain open"
       ]
     }
   ],

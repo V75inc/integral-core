@@ -17,9 +17,12 @@ from app.services.app_graph import catalog_user, catalog_workspace
 from app.utils.time import utc_now_iso
 
 
-async def make_org_workspace(name: str = "WS Test", **overrides) -> Workspace:
+async def make_org_workspace(
+    name: str = "WS Test", *, owner: User | None = None, **overrides
+) -> Workspace:
     """Organization workspace with an owner, as production always has one.
 
+    ``owner`` selects the single canonical principal; omitted creates one.
     ``overrides`` passes through to ``Workspace.create`` for the few callers
     that need a different shape.
     """
@@ -35,7 +38,7 @@ async def make_org_workspace(name: str = "WS Test", **overrides) -> Workspace:
     fields.update(overrides)
     ws = await Workspace.create(**fields)
     await catalog_workspace(ws)
-    owner = await User.create(display_name=f"{name} owner")
+    owner = owner or await User.create(display_name=f"{name} owner")
     await catalog_user(owner)
     await owner.connect(ws, edge=IS_MEMBER_OF, role="owner", joined_at=now)
     return ws
