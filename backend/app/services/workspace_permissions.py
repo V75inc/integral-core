@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 from typing import Literal, Optional, Tuple
 
+from app.exceptions import AuthorizationUnavailableError
 from app.models.edges import IS_MEMBER_OF
 from app.models.nodes import App, Track, User, Workspace
 
@@ -39,19 +40,19 @@ async def _read_member_edge_role(user: User, workspace_id: str) -> Optional[str]
                 "entity": IS_MEMBER_OF.__name__,
             },
         )
-        if not rows:
+        if len(rows) != 1:
             return None
         row = rows[0]
         row_ctx = row.get("context") if isinstance(row, dict) else None
         role = (row_ctx.get("role") if isinstance(row_ctx, dict) else None) or row.get(
             "role"
         )
-        return str(role or "").strip().lower() or "member"
-    except Exception:
+        return str(role or "").strip().lower() or None
+    except Exception as exc:
         logger.exception(
             "_read_member_edge_role failed for %s → %s", user.id, workspace_id
         )
-        return None
+        raise AuthorizationUnavailableError() from exc
 
 
 async def get_workspace_owner_user_id(workspace_id: str) -> Optional[str]:
@@ -62,7 +63,7 @@ async def get_workspace_owner_user_id(workspace_id: str) -> Optional[str]:
     owner edge — a structural invariant violation that callers may
     treat as an access-denied condition.
     """
-    ws = await Workspace.get(workspace_id)
+    ws = await Workspace.find_one({"id": workspace_id})
     if not ws:
         return None
     try:
@@ -96,7 +97,7 @@ async def can_access_workspace(user_id: str, workspace_id: str) -> WorkspaceRole
     user = await get_user_node(user_id)
     if not user:
         return "none"
-    ws = await Workspace.get(workspace_id)
+    ws = await Workspace.find_one({"id": workspace_id})
     if not ws:
         return "none"
     role = await _read_member_edge_role(user, ws.id)
@@ -147,7 +148,7 @@ async def workspace_staff_implicit_resource_role(
     ``resolve_role`` drops this implicit role when effective visibility
     is ``private``.
     """
-    ws = await Workspace.get(workspace_id)
+    ws = await Workspace.find_one({"id": workspace_id})
     if not ws or getattr(ws, "kind", "") != "organization":
         return None
     role = await can_access_workspace(user_id, workspace_id)

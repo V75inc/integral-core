@@ -50,27 +50,38 @@
       "status": "in_progress",
       "description": "**Exclusion read fails open.** `_is_excluded_from_resource` catches an exception and returns False; an excluded user then inherits editor. `permissions.py:817`. Probe `test_exclusion_storage_error_allows_inheritance`. An indeterminate denial lookup must produce denied/unavailable, not \u201cno exclusion.\u201d Review all authority helpers for equivalent exception/default behavior.",
       "implementation": [
-        "Exclusion storage errors raise authorization_unavailable (503)"
+        "Exclusion storage errors raise authorization_unavailable (503)",
+        "Deny existence uses typed relationship count, independent of malformed optional audit metadata; broader authority helper audit remains pending"
       ],
       "verification": [
-        "Authorized inheritance, exclusion denial and injected exclusion lookup failure"
+        "Authorized inheritance, exclusion denial and injected exclusion lookup failure",
+        "Temporary JsonDB probe reproduced malformed optional deny metadata being skipped by hydration; typed count still sees the edge. Relationship-presence repair pending.",
+        "Malformed optional deny metadata remains denied through point/list/page/count projections; real PostgreSQL selection passed"
       ]
     },
     {
       "id": "AC-05",
       "priority_and_review_evidence": "P0 / R, facade",
-      "status": "open",
+      "status": "in_progress",
       "description": "**Point reads cross the bound workspace.** `ToolContext.get_entry/get` checks the user's resource role, but not the context's workspace or permitted App scope. A user authorized in workspaces A and B can read B through an A-bound facade; `get` labels the result as A. `hooks/registry.py:212,226`; inherited by `OperationContext`. Probe `test_facade_point_read_crosses_bound_workspace`. Resolve structural ownership and enforce execution workspace and App-declared reference authority for every facade method. This reproduces a scope breach for a principal authorized in both workspaces, not arbitrary-user access to B.",
-      "implementation": [],
+      "implementation": [
+        "Canonical containment Walker on point-read facade; workspace and bound operation App checked"
+      ],
       "verification": []
     },
     {
       "id": "AC-06",
       "priority_and_review_evidence": "P0 / R locally; S/Q across workers",
-      "status": "open",
+      "status": "in_progress",
       "description": "**Revocation is not reliable across all caches.** Transfer leaves the former owner's warmed process role at owner until TTL expiry, enabling owner-only gates to remain open. Process cache defaults to 20 seconds and invalidation is in-memory per process. `ownership_transfer.py:16,86`; `permissions_process_cache.py:32,36,94`; `permissions.py:939`. Probe `test_ownership_transfer_leaves_warm_owner_cache`. Audit visibility/parent/lifecycle changes too. Durable authorization revisions must fence every worker and effect; local invalidation is only an optimization.",
-      "implementation": [],
-      "verification": []
+      "implementation": [
+        "HTTP bypasses process TTL role/inventory snapshots; primary live resource/principal reads",
+        "Workspace-attached revision and joinable PostgreSQL fence; complete writer/release adoption remains pending",
+        "Live graph-profile aliases recheck linked AuthUser active state; connector effects use serialized transaction with safe I/O cleanup"
+      ],
+      "verification": [
+        "Both aliases of missing or disabled linked identities denied; serialized connector and nested-handle proofs passed"
+      ]
     },
     {
       "id": "AC-07",
@@ -115,9 +126,11 @@
     {
       "id": "AC-12",
       "priority_and_review_evidence": "P1 / R + S",
-      "status": "open",
+      "status": "in_progress",
       "description": "**Missing scope anchors disable the workspace membership gate.** If workspace lookup returns None, resolution continues with direct/inherited grants. Default workspace deletion unlinks resources and clears `workspace_id`, manufacturing this condition; it also conflicts with rooted inclusion. `permissions.py:879,1017`; `workspace_lifecycle.py:72,104`; `api/workspaces.py:523`. Probe `test_missing_workspace_anchor_allows_direct_grant`. Corrupt/unresolved containment must fail closed. Delete/archive/explicitly rehome resources in a validated transaction; never create unscoped survivors.",
-      "implementation": [],
+      "implementation": [
+        "Canonical/rooted containment required for facade point reads; generic resolver and legacy lifecycle cutover pending"
+      ],
       "verification": []
     },
     {
@@ -159,9 +172,12 @@
     {
       "id": "AC-17",
       "priority_and_review_evidence": "P1 / S + R; contract decision",
-      "status": "open",
+      "status": "in_progress",
       "description": "**Roles and helper behavior disagree.** Viewer authors can edit/delete their own Entry through the author shortcut; I-ROLE-01 says viewer cannot mutate. The comparison is against the supplied principal ID, making graph/auth aliases another consistency concern. Direct viewer overrides stronger parent editor; resource owner and canonical owner differ. `permissions.py:581,1030`; I-ROLE-01. Probes `test_viewer_author_can_edit_own_entry`, `test_direct_viewer_suppresses_inherited_editor`. Specify author rights as an explicit capability/condition, canonicalize identity, and make precedence explicit.",
-      "implementation": [],
+      "implementation": [
+        "Pool direct and inherited role candidates before strongest-role selection; exclusions keep direct candidate only",
+        "Viewer author edits denied; commenter author identity accepts graph/Auth forms"
+      ],
       "verification": []
     },
     {
@@ -1004,6 +1020,28 @@
         "Broader indeterminate containment/member fact tests pending",
         "PostgreSQL command replay/race qualification pending",
         "This completed repair slice is not closure of every finding assigned to M1; complete requirements remain in the finding and use-case rows"
+      ]
+    },
+    {
+      "id": "M2-scope-ordering-foundation",
+      "status": "complete",
+      "evidence": [
+        "22 PostgreSQL scope/transaction/location cases passed",
+        "4 PostgreSQL fence proofs passed including independent Python worker revocation ordering",
+        "102 compatibility cases passed",
+        "86 final JSON fact/performance/connector cases passed with one PostgreSQL-only skip; existing budgets unchanged",
+        "36 final PostgreSQL fact/connector/transaction cases passed, including explicit held-handle rollback",
+        "make verify passed: guards/hooks, pinned format/lint/types, reproducible clean wheel, no-env smoke/xdist, 1583 frontend tests and complete backend suite",
+        "Core-only, extension-contract and PostgreSQL supplementary lanes passed; one explicit restore-rehearsal skip",
+        "Passive source index: 384 REST + 44 facade declarations, qualification explicitly unmapped"
+      ],
+      "limits": [
+        "Fence adoption across all ACL/lifecycle/effect/release surfaces pending",
+        "Every facade method and App-declared reference contract pending",
+        "Legacy containment migration and generic resolver strict cutover pending",
+        "Account-wide identity/policy ordering and every authority-helper path remain pending",
+        "Restore from quarantine with independently retained current authorization checkpoint pending",
+        "Complete M2 milestone, all finding closures and all use-case evidence remain open"
       ]
     }
   ],

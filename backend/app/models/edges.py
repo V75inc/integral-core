@@ -28,6 +28,15 @@ class OWNS(Edge):
     bidirectional: bool = False
 
 
+class HasAuthorizationState(Edge):
+    """Workspace → its single authorization revision record."""
+
+    bidirectional: bool = False
+
+
+HAS_AUTHORIZATION_STATE = HasAuthorizationState
+
+
 class IS_MEMBER_OF(Edge):
     """Workspace membership: User → Workspace.
 

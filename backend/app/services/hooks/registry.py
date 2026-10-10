@@ -213,8 +213,15 @@ class ToolContext:
         """Fetch an Entry node by id (scoped to caller's workspace access)."""
         from app.models.nodes import Entry
         from app.services.permissions import resolve_role
+        from app.services.resource_location import locate_resource
 
-        ent = await Entry.get(entry_id)
+        location = await locate_resource("entry", entry_id)
+        if location is None or location.workspace_id != self.workspace_id:
+            return None
+        app_id = str(getattr(self, "app_id", "") or "").strip()
+        if app_id and location.app_id != app_id:
+            return None
+        ent = await Entry.find_one({"id": entry_id})
         if ent is None:
             return None
         # Standard access gate.
