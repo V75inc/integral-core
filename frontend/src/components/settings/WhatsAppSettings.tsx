@@ -21,11 +21,12 @@ interface ChannelIdentity {
   created_at?: string;
 }
 
-export function WhatsAppSettings() {
+export function WhatsAppSettings({ onChange }: { onChange?: () => void } = {}) {
   const { showToast } = useToast();
   const { enabled } = useAgentive();
   const [identities, setIdentities] = useState<ChannelIdentity[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [phone, setPhone] = useState('');
   const [otpCode, setOtpCode] = useState('');
   const [step, setStep] = useState<'idle' | 'enter_phone' | 'enter_otp'>('idle');
@@ -34,11 +35,13 @@ export function WhatsAppSettings() {
 
   const loadIdentities = useCallback(async () => {
     if (!enabled) { setLoading(false); return; }
+    setLoading(true);
+    setLoadError(false);
     try {
       const res = await listChannelIdentities();
       setIdentities(res.identities || []);
     } catch {
-      setIdentities([]);
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -56,6 +59,7 @@ export function WhatsAppSettings() {
         if (res.verified) {
           showToast('WhatsApp number already linked!', 'success');
           await loadIdentities();
+          onChange?.();
           setStep('idle');
           setPhone('');
         } else {
@@ -83,6 +87,7 @@ export function WhatsAppSettings() {
       if (res.verified) {
         showToast('WhatsApp number verified!', 'success');
         await loadIdentities();
+        onChange?.();
         setStep('idle');
         setPhone('');
         setOtpCode('');
@@ -101,6 +106,7 @@ export function WhatsAppSettings() {
       await unlinkChannelIdentity(id);
       showToast('WhatsApp number unlinked', 'success');
       await loadIdentities();
+      onChange?.();
     } catch {
       showToast('Failed to unlink', 'error');
     }
@@ -116,7 +122,7 @@ export function WhatsAppSettings() {
           WhatsApp
         </h2>
         <Text variant="body" tone="muted" as="p">
-          The agentive layer is not enabled. Contact your administrator to enable it.
+          WhatsApp is unavailable. Contact your administrator to check channel configuration.
         </Text>
       </div>
     );
@@ -131,14 +137,16 @@ export function WhatsAppSettings() {
     );
   }
 
+  if (loadError) return <div role="alert" className="app-card p-5"><Text as="p" variant="body-sm" tone="danger">Could not load WhatsApp numbers.</Text><Button variant="outline" size="sm" onClick={() => void loadIdentities()}>Try again</Button></div>;
+
   return (
     <div className="app-card p-5">
-      <h2 className="font-display text-xl font-bold text-[var(--text)] flex items-center gap-2 mb-4">
+      <h3 className="text-sm font-semibold flex items-center gap-2 mb-4">
         <IconWell size="sm" aria-hidden>
           <Phone size={16} strokeWidth={LINE_ICON_STROKE} />
         </IconWell>
         WhatsApp
-      </h2>
+      </h3>
 
       <p className="text-sm text-[var(--text-muted)] mb-4">
         Link your WhatsApp number to interact with Integral via WhatsApp messages.

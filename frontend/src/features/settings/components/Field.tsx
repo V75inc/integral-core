@@ -40,15 +40,23 @@ export function TextInput({
   placeholder,
   type = 'text',
   monospace = false,
+  id,
+  ...accessibility
 }: {
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   type?: 'text' | 'password' | 'url';
+  id?: string;
+  'aria-describedby'?: string;
+  'aria-invalid'?: boolean;
+  'aria-required'?: boolean;
   monospace?: boolean;
 }) {
   return (
     <Input
+      id={id}
+      {...accessibility}
       type={type}
       value={value}
       onChange={e => onChange(e.target.value)}

@@ -130,6 +130,8 @@ export const dashboardsApi = {
   ): Promise<Record<string, unknown>> {
     const { data } = await apiClient.get(
       `/apps/${appId}/dashboards/${dashboardId}/data`,
+      // A dashboard resolves several bounded queries in one request.
+      { timeout: 120_000 },
     );
     return (data?.widget_data ?? {}) as Record<string, unknown>;
   },

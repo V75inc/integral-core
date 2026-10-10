@@ -247,12 +247,16 @@ export function VoiceInputSection({
           />
         ) : configQuery.isLoading ? (
           <Skeleton className="h-24 w-full" />
+        ) : configQuery.isError ? (
+          <div role="alert"><Text as="p" variant="body-sm" tone="danger">Could not load the workspace voice provider.</Text><Button variant="secondary" size="sm" onClick={() => void configQuery.refetch()}>Retry provider status</Button></div>
         ) : null}
 
-        {!prefs ? (
+        {prefsQuery.isError ? (
+          <div role="alert"><Text as="p" variant="body-sm" tone="danger">Could not load voice preferences.</Text><Button variant="secondary" size="sm" onClick={() => void prefsQuery.refetch()}>Retry voice preferences</Button></div>
+        ) : !prefs ? (
           <Skeleton className="h-48 w-full" />
         ) : (
-          <Stack gap="sm">
+          <fieldset disabled={update.isPending} className="flex min-w-0 flex-col gap-3">
             <ToggleRow
               checked={prefs.enabled}
               onChange={enabled => save({ enabled })}
@@ -331,7 +335,7 @@ export function VoiceInputSection({
                 {browserNote}
               </Text>
             ) : null}
-          </Stack>
+          </fieldset>
         )}
 
         <MicTest />

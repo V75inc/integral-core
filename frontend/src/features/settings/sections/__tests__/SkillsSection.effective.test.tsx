@@ -159,7 +159,7 @@ describe('SkillsSection effective turn catalogue', () => {
     expect(await screen.findByText('Skills and tools available here')).toBeInTheDocument();
     expect(screen.getAllByText('Paused')).toHaveLength(1);
 
-    fireEvent.click(screen.getByRole('switch', { name: 'Disable skill' }));
+    fireEvent.click(screen.getByRole('switch', { name: /^Disable skill / }));
 
     await waitFor(() => {
       expect(updateMock).toHaveBeenCalledWith('skill-mutable', { enabled: false });

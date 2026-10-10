@@ -1,7 +1,7 @@
 /**
  * Phase 9 Plan 09-04 — Settings → Notifications section (NOTIF-03).
  *
- * Renders the 5-kind × 3-channel toggle matrix. Each cell PATCHes
+ * Renders the 6-kind × 3-channel toggle matrix. Each cell PATCHes
  * /api/users/me/notification-preferences with a deep partial that
  * scopes the change to the single (kind, channel) cell — preserving
  * every other cell's state.
@@ -10,8 +10,7 @@
  *   • whatsapp.opted_in_at === null →
  *       — every WhatsApp cell is `disabled` with `opacity-50`,
  *       — column header renders a "verify phone" pointer link
- *         (anchor to Connectors section; the OTP verify flow lives
- *         under the Connectors panel from 09-03a).
+ *         (the OTP flow is directly below the notification matrix).
  *   • whatsapp.opted_in_at set →
  *       — cells are interactive,
  *       — header shows a "verified" pill with the opt-in timestamp.
@@ -21,13 +20,16 @@
  * queries and axe-core scan both succeed. Plan 09-04 truths block
  * asserts this contract.
  *
- * The kinds rendered in the matrix are the five user-facing ones —
+ * The kinds rendered in the matrix are the six user-facing ones —
  * `whatsapp_welcome` is system-driven (fires once at opt-in) and is
  * intentionally NOT shown as a user toggle.
  */
 import { useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { WhatsAppSettings } from '../../../components/settings/WhatsAppSettings';
 
 import {
+  NOTIFICATION_PREFS_KEY,
   useNotificationPreferences,
   useUpdateNotificationPreferences,
   type ChannelName,
@@ -45,6 +47,11 @@ interface KindRow {
 }
 
 const KINDS: KindRow[] = [
+  {
+    id: 'entry_update',
+    label: 'Entry updates',
+    hint: 'An entry you follow is changed.',
+  },
   {
     id: 'mention',
     label: 'Mentions',
@@ -90,7 +97,8 @@ function cellChecked(
 }
 
 export function NotificationsSection() {
-  const { data: prefs, isLoading, isError, error } = useNotificationPreferences();
+  const qc = useQueryClient();
+  const { data: prefs, isLoading, isError, error, refetch } = useNotificationPreferences();
   const update = useUpdateNotificationPreferences();
   const waOptedIn = useMemo(
     () => Boolean(prefs?.whatsapp?.opted_in_at),
@@ -103,12 +111,9 @@ export function NotificationsSection() {
     value: boolean,
   ) {
     if (!prefs) return;
-    const currentMatrix = prefs.kinds[kind] ?? prefs.channels;
-    const nextMatrix = { ...currentMatrix, [channel]: value };
     update.mutate({
       kinds: {
-        ...prefs.kinds,
-        [kind]: nextMatrix,
+        [kind]: { [channel]: value },
       },
     });
   }
@@ -119,8 +124,7 @@ export function NotificationsSection() {
         <Text variant="heading-md" weight="semibold" as="h2">Notifications</Text>
         <Text variant="body" tone="muted" as="p" className="mt-1">
           Choose which channels deliver each notification kind. WhatsApp
-          requires phone verification under Connectors before it can be
-          enabled.
+          requires a verified phone number. Manage your number below.
         </Text>
       </div>
 
@@ -128,13 +132,13 @@ export function NotificationsSection() {
         title="Channels"
         description="Pick which channels deliver each kind of notification."
       >
-        {isLoading || !prefs ? (
-          <Skeleton className="h-32 w-full" />
-        ) : isError ? (
-          <p className="text-sm text-[var(--danger-fg)]">
+        {isError ? (
+          <div role="alert"><Text variant="body-sm" tone="danger" as="p">
             Failed to load preferences:{' '}
             {(error as Error | undefined)?.message ?? 'unknown error'}
-          </p>
+          </Text><button type="button" onClick={() => void refetch()} className="mt-2 underline">Try again</button></div>
+        ) : isLoading || !prefs ? (
+          <Skeleton className="h-32 w-full" />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -164,7 +168,8 @@ export function NotificationsSection() {
                           <span className="inline-flex flex-col items-center gap-0.5">
                             <span>WhatsApp</span>
                             <a
-                              href="#connectors"
+                              href="#notifications"
+                              onClick={e => { e.preventDefault(); const target = document.getElementById('whatsapp-settings'); target?.scrollIntoView({ behavior: 'auto', block: 'start' }); target?.querySelector<HTMLButtonElement>('button')?.focus(); }}
                               className="text-[10px] font-normal normal-case text-[var(--brand-accent)] underline"
                             >
                               verify phone
@@ -196,7 +201,7 @@ export function NotificationsSection() {
                     </td>
                     {CHANNELS.map(channel => {
                       const disabled =
-                        channel === 'whatsapp' && !waOptedIn;
+                        update.isPending || (channel === 'whatsapp' && !waOptedIn);
                       const checked = cellChecked(prefs, id, channel);
                       return (
                         <td
@@ -222,7 +227,9 @@ export function NotificationsSection() {
             </table>
           </div>
         )}
+        {update.isError && <div role="alert"><Text as="p" variant="body-sm" tone="danger">Could not save this preference. Please try again.</Text></div>}
       </SettingsSection>
+      <div id="whatsapp-settings" className="scroll-mt-20"><WhatsAppSettings onChange={() => void qc.invalidateQueries({ queryKey: NOTIFICATION_PREFS_KEY })} /></div>
     </div>
   );
 }
