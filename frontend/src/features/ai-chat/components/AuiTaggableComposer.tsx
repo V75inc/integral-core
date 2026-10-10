@@ -26,7 +26,7 @@ export function AuiTaggableComposer({
   "aria-label": ariaLabel,
 }: AuiTaggableComposerProps) {
   const aui = useAui();
-  const { activeThreadId } = useChatActivity();
+  const { activeThreadId, composerReady } = useChatActivity();
   const composerText = useAuiState((s) => s.composer.text ?? "");
   const [localValue, setLocalValue] = useState(composerText);
   // The composer is one box for the whole surface. Switching chats (including
@@ -34,8 +34,6 @@ export function AuiTaggableComposer({
   // previous draft, or the next message is glued onto it.
   const seenThread = useRef(activeThreadId);
   const [entityRefs, setEntityRefs] = useState<ChatEntityRef[]>([]);
-  const pendingDraftRef = useRef<{ text: string; threadId: string | null } | null>(null);
-  const pendingDraftTimerRef = useRef<number | null>(null);
   const submitAfterDictationRef = useRef(false);
   const entityRefsCtx = useChatEntityRefsOptional();
   const dictation = useComposerDictationActions();
@@ -55,42 +53,31 @@ export function AuiTaggableComposer({
     setEntityRefs([]);
     entityRefsCtx?.setPendingEntityRefs([]);
     aui.composer().setText("");
-    const pendingDraft = pendingDraftRef.current;
-    if (pendingDraft && pendingDraft.threadId !== activeThreadId) {
-      setLocalValue(pendingDraft.text);
-      aui.composer().setText(pendingDraft.text);
-      pendingDraftRef.current = null;
-      if (pendingDraftTimerRef.current != null) {
-        window.clearTimeout(pendingDraftTimerRef.current);
-        pendingDraftTimerRef.current = null;
-      }
-    }
   }, [activeThreadId, aui, entityRefsCtx]);
 
   useEffect(() => {
+    if (!composerReady) return;
+    let timer: number | null = null;
     const applyPendingDraft = () => {
-      const text = consumePendingChatDraft();
-      if (!text) return;
-      pendingDraftRef.current = { text, threadId: activeThreadId };
-      setLocalValue(text);
-      aui.composer().setText(text);
-      if (pendingDraftTimerRef.current != null) {
-        window.clearTimeout(pendingDraftTimerRef.current);
-      }
-      pendingDraftTimerRef.current = window.setTimeout(() => {
-        pendingDraftRef.current = null;
-        pendingDraftTimerRef.current = null;
-      }, 1000);
+      if (timer != null) window.clearTimeout(timer);
+      // Apply after the runtime has committed its selected-thread reset.
+      // Keep the storage handoff intact while scope/thread selection loads;
+      // a slow thread list must not silently consume the user's draft.
+      timer = window.setTimeout(() => {
+        timer = null;
+        const text = consumePendingChatDraft();
+        if (!text) return;
+        setLocalValue(text);
+        aui.composer().setText(text);
+      }, 0);
     };
     applyPendingDraft();
     window.addEventListener(OPEN_AI_CHAT_EVENT, applyPendingDraft);
     return () => {
       window.removeEventListener(OPEN_AI_CHAT_EVENT, applyPendingDraft);
-      if (pendingDraftTimerRef.current != null) {
-        window.clearTimeout(pendingDraftTimerRef.current);
-      }
+      if (timer != null) window.clearTimeout(timer);
     };
-  }, [activeThreadId, aui]);
+  }, [activeThreadId, aui, composerReady]);
 
   useEffect(() => {
     entityRefsCtx?.registerComposerEntityRefsReset(() => setEntityRefs([]));

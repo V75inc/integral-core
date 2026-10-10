@@ -8,7 +8,7 @@ fail-loud convention). Per CONTEXT D-02: Policy is core, attached to
 
 The agent / connector subject branches import their target Nodes
 conditionally — ``AgentConfig`` and ``Connector`` live under
-``app/agentive/`` and are only importable when ``AGENTIVE_ENABLED=1``.
+``app/agentive/`` and are loaded by the always-on agentive layer.
 Persistence of the Policy Node itself NEVER depends on the agentive
 layer (D-02 invariant).
 """
@@ -29,14 +29,14 @@ async def _resolve_subject_node(subject_kind: str, subject_id: str) -> Optional[
     """Resolve the subject Node to wire ``HAS_POLICY`` from.
 
     For ``"human"`` subjects: ``User``. For ``"agent"`` / ``"connector"``:
-    import-conditional on ``AGENTIVE_ENABLED`` (mirrors the conditional-import
+    imported lazily at the registry boundary (mirrors the lazy-import
     convention in ``connector_registry_node.py`` for graph reads spanning the
     agentive boundary).
 
     Returns ``None`` when:
       - the subject_kind is ``"system"`` (system subjects are evaluate-time
         bypasses; they don't carry attached Policies)
-      - the agentive layer is unavailable (AGENTIVE_ENABLED=0) for an agent /
+      - the required agentive node type cannot be imported for an agent /
         connector subject
       - the resolved Node id is missing in the graph
     """
@@ -141,7 +141,7 @@ async def list_policies_for_subject(subject_kind: str, subject_id: str) -> List[
     Walks the ``HAS_POLICY`` edge from the subject Node when it exists. Falls
     back to a ``Policy.find`` scan by ``(subject_kind, subject_id)`` when the
     subject Node lookup fails — covers the rare case where the edge was lost
-    or never wired (e.g. AGENTIVE_ENABLED=0 environment that nevertheless has
+    or never wired (e.g. a partial initialization that nevertheless has
     Policy rows referencing an agent_id).
 
     Filtering by ``is_active`` is the caller's responsibility — the engine

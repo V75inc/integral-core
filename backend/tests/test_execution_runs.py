@@ -45,14 +45,14 @@ async def test_start_run_records_integral_context(
         thread_id="thread-1",
         user_id="user-1",
         workspace_id="workspace-1",
-        provider_id="jvagent",
+        provider_id="integral_native",
         agent_id="agent-1",
     )
 
     assert run.status == "running"
     assert captured["thread_id"] == "thread-1"
     assert captured["workspace_id"] == "workspace-1"
-    assert captured["provider_id"] == "jvagent"
+    assert captured["provider_id"] == "integral_native"
     recorded_snapshot = captured["capability_snapshot"]
     assert recorded_snapshot["fingerprint"] == "snapshot-fingerprint"
     assert captured["run_id"]
@@ -138,7 +138,7 @@ async def test_model_steps_accumulate_redacted_token_summary_on_run(
     run = _Run(
         run_id="run-model-summary",
         metadata={
-            "harness": {"provider_id": "jvagent", "agent_id": "agent-1"},
+            "harness": {"provider_id": "integral_native", "agent_id": "agent-1"},
             "model_observability": {
                 "version": "v1",
                 "models": [],
@@ -301,7 +301,7 @@ def test_finalized_snapshot_records_declarations_deterministically() -> None:
         "environments": [
             {
                 "connector_id": "connector-z",
-                "kind": "jvagent",
+                "kind": "custom",
                 "subclass_slug": "calendar",
                 "capabilities": ["calendar.read"],
                 "permissions": ["calendar.read"],

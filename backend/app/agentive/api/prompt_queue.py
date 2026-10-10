@@ -1,7 +1,7 @@
 """HTTP endpoints for the Prompt Sheet queue.
 
 Durable sequester UI over the chat composer. See
-``docs/superpowers/specs/2026-09-08-prompt-sheet-design.md``.
+``docs/backend/prompt-queue.md``.
 """
 
 from typing import Any, Dict

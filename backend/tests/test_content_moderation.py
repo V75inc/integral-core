@@ -279,3 +279,112 @@ async def test_public_create_entry_blocks_profanity(
     finally:
         if auth_header:
             authenticated_client.headers["Authorization"] = auth_header
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "**Next test**: not yet designed.",
+        "**Short project brief**",
+        "*ordinary words*",
+        "***Next test***",
+        "__Next test__",
+        "**Next\ntest**",
+        "*Next **test** please*",
+        "[Next test](https://example.com)",
+    ],
+)
+def test_markdown_formatting_is_not_profanity(text):
+    assert contains_profanity(text) is False
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "**shit**",
+        "*fucking*",
+        "a **fucking terrible** idea",
+        "***shit***",
+        "__shit__",
+        "**shit\nhappens**",
+        "`shit`",
+        "```\nshit\n```",
+        "f*ck",
+        "[shit](https://example.com)",
+    ],
+)
+def test_markdown_formatting_never_hides_flagged_words(text):
+    assert contains_profanity(text) is True
+
+
+@pytest.mark.parametrize(
+    "text", ["**Next test**", "**shit**", "__shit__", "**shit\nhappens**"]
+)
+@pytest.mark.asyncio
+async def test_markdown_on_authenticated_create_update_comment_paths(
+    authenticated_client, text
+):
+    track = (
+        await authenticated_client.post(
+            "/api/tracks", json={"title": "Markdown moderation"}
+        )
+    ).json()["track"]["id"]
+    created = await authenticated_client.post(
+        "/api/entries", json={"track_id": track, "title": "Clean record", "body": text}
+    )
+    flagged = contains_profanity(text)
+    assert created.status_code == (400 if flagged else 200), created.text
+    clean = await authenticated_client.post(
+        "/api/entries",
+        json={"track_id": track, "title": "Other clean record", "body": "Original"},
+    )
+    entry = clean.json()["entry"]["id"]
+    update = await authenticated_client.put(
+        f"/api/entries/{entry}", json={"body": text}
+    )
+    assert update.status_code == (400 if flagged else 200), update.text
+    comment = await authenticated_client.post(
+        f"/api/entries/{entry}/comments", json={"text": text}
+    )
+    assert comment.status_code == (400 if flagged else 200), comment.text
+    if not flagged:
+        assert created.json()["entry"]["body"] == text
+
+
+@pytest.mark.parametrize(
+    "text", ["**Next test**", "**shit**", "__shit__", "**shit\nhappens**"]
+)
+@pytest.mark.asyncio
+async def test_markdown_on_public_create_update_comment_paths(
+    authenticated_client, shared_track_setup, text
+):
+    track, et, _ = shared_track_setup
+    token = await _enable_public_share(authenticated_client, track.id)
+    authorization = authenticated_client.headers.pop("Authorization", None)
+    try:
+        route = f"/api/public-share/track/{token}/entries"
+        created = await authenticated_client.post(
+            route, json={"title": "Clean record", "type_id": et.id, "body": text}
+        )
+        flagged = contains_profanity(text)
+        assert created.status_code == (400 if flagged else 200), created.text
+        clean = await authenticated_client.post(
+            route,
+            json={
+                "title": "Another clean record",
+                "type_id": et.id,
+                "body": "Original",
+            },
+        )
+        entry = clean.json()["entry"]["id"]
+        update = await authenticated_client.patch(
+            f"{route}/{entry}", json={"body": text}
+        )
+        assert update.status_code == (400 if flagged else 200), update.text
+        comment = await authenticated_client.post(
+            f"{route}/{entry}/comments", json={"text": text}
+        )
+        assert comment.status_code == (400 if flagged else 200), comment.text
+    finally:
+        if authorization:
+            authenticated_client.headers["Authorization"] = authorization

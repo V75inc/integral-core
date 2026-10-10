@@ -601,7 +601,11 @@ async def test_service_read_refusal_is_error_without_empty_rows(code, declared):
     assert result.is_error and result.error_code == code
     assert result.data is None
     assert "no records were queried" in result.message
-    assert result.next_tool == ("integral_governed_query" if declared else "")
+    assert result.next_tool == ("integral_describe_capabilities" if declared else "")
+    if declared:
+        assert "verified matching key" in result.message
+        assert "no available record query" in result.message
+        assert "Do not invent keys" in result.message
 
 
 @pytest.mark.parametrize(
@@ -634,4 +638,4 @@ async def test_route_read_refusal_is_error(
     )
     assert result.is_error and result.error_code == "app_domain"
     assert result.data is None
-    assert result.next_tool == "integral_governed_query"
+    assert result.next_tool == "integral_describe_capabilities"

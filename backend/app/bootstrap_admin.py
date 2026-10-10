@@ -105,6 +105,14 @@ async def _bootstrap_admin_once() -> None:
             auth_user_id,
         )
     else:
+        # Length gate only when minting a new account — an existing admin
+        # keeps its stored hash, and a short ADMIN_PASSWORD in .env must not
+        # abort the rest of startup (resident harness, chat, …).
+        if len(password) < 12:
+            raise ValueError(
+                "ADMIN_PASSWORD must be at least 12 characters; "
+                "admin bootstrap cannot complete"
+            )
         created = await auth_service.bootstrap_admin(email, password, display_name)
         if created is None:
             logger.info(
@@ -139,12 +147,6 @@ async def bootstrap_admin_if_needed() -> None:
         else:
             logger.info("Admin bootstrap skipped: set ADMIN_EMAIL and ADMIN_PASSWORD")
         return
-
-    if len(password) < 12:
-        raise ValueError(
-            "ADMIN_PASSWORD must be at least 12 characters; "
-            "admin bootstrap cannot complete"
-        )
 
     last_exc: Optional[BaseException] = None
     for attempt in range(1, _MAX_ATTEMPTS + 1):

@@ -11,6 +11,9 @@ async def _create_workspace(client: AsyncClient, name: str = "AP Test WS") -> st
     return resp.json()["workspace"]["id"]
 
 
+pytestmark = pytest.mark.usefixtures("standalone_chat_provider")
+
+
 @pytest.mark.asyncio
 async def test_get_preference_unset_returns_null(
     authenticated_client: AsyncClient,
@@ -32,10 +35,12 @@ async def test_put_preference_creates_and_reads_back(
     workspace_id = await _create_workspace(authenticated_client)
     put = await authenticated_client.put(
         f"/api/workspaces/{workspace_id}/agent-preference",
-        json={"provider_id": "jvagent", "agent_id": "iris"},
+        json={"provider_id": "test-provider", "agent_id": "iris"},
     )
     assert put.status_code == 200, put.text
-    assert put.json() == {"preference": {"provider_id": "jvagent", "agent_id": "iris"}}
+    assert put.json() == {
+        "preference": {"provider_id": "test-provider", "agent_id": "iris"}
+    }
 
     get = await authenticated_client.get(
         f"/api/workspaces/{workspace_id}/agent-preference"
@@ -53,11 +58,11 @@ async def test_put_preference_is_idempotent(
     workspace_id = await _create_workspace(authenticated_client)
     await authenticated_client.put(
         f"/api/workspaces/{workspace_id}/agent-preference",
-        json={"provider_id": "jvagent", "agent_id": "iris"},
+        json={"provider_id": "test-provider", "agent_id": "iris"},
     )
     await authenticated_client.put(
         f"/api/workspaces/{workspace_id}/agent-preference",
-        json={"provider_id": "jvagent", "agent_id": "aiva"},
+        json={"provider_id": "test-provider", "agent_id": "aiva"},
     )
     get = await authenticated_client.get(
         f"/api/workspaces/{workspace_id}/agent-preference"

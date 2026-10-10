@@ -36,6 +36,47 @@ ALLOWED_MIME_TYPES = frozenset(
         "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         "application/vnd.ms-excel",
         "application/vnd.ms-powerpoint",
+        # Business documents beyond the basics. All are stored and served as
+        # downloads or previews, never executed. Executables, scripts and
+        # active web content (html, js, exe, sh, bat, dll ...) stay refused.
+        "application/rtf",
+        "text/rtf",
+        "application/vnd.oasis.opendocument.text",
+        "application/vnd.oasis.opendocument.spreadsheet",
+        "application/vnd.oasis.opendocument.presentation",
+        "application/vnd.oasis.opendocument.graphics",
+        "application/epub+zip",
+        "application/xml",
+        "text/xml",
+        "application/yaml",
+        "text/tab-separated-values",
+        "text/calendar",
+        "text/vcard",
+        "message/rfc822",
+        "application/vnd.ms-outlook",
+        "application/vnd.ms-project",
+        "application/vnd.ms-publisher",
+        "application/onenote",
+        "application/vnd.visio",
+        "application/vnd.ms-visio.drawing",
+        "application/vnd.ms-word.document.macroenabled.12",
+        "application/vnd.ms-excel.sheet.macroenabled.12",
+        "application/vnd.ms-powerpoint.presentation.macroenabled.12",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.template",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.template",
+        "application/vnd.openxmlformats-officedocument.presentationml.template",
+        "application/vnd.apple.pages",
+        "application/vnd.apple.numbers",
+        "application/vnd.apple.keynote",
+        "application/postscript",
+        "image/vnd.dwg",
+        "image/vnd.dxf",
+        "image/vnd.adobe.photoshop",
+        "application/x-indesign",
+        "application/x-tar",
+        "application/gzip",
+        "application/x-7z-compressed",
+        "application/vnd.rar",
     }
 )
 
@@ -58,14 +99,90 @@ FILENAME_EXT_TO_MIME = {
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     ".ppt": "application/vnd.ms-powerpoint",
     ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".rtf": "application/rtf",
+    ".odt": "application/vnd.oasis.opendocument.text",
+    ".ods": "application/vnd.oasis.opendocument.spreadsheet",
+    ".odp": "application/vnd.oasis.opendocument.presentation",
+    ".odg": "application/vnd.oasis.opendocument.graphics",
+    ".epub": "application/epub+zip",
+    ".xml": "application/xml",
+    ".yaml": "application/yaml",
+    ".yml": "application/yaml",
+    ".tsv": "text/tab-separated-values",
+    ".log": "text/plain",
+    ".ics": "text/calendar",
+    ".vcf": "text/vcard",
+    ".eml": "message/rfc822",
+    ".msg": "application/vnd.ms-outlook",
+    ".mpp": "application/vnd.ms-project",
+    ".pub": "application/vnd.ms-publisher",
+    ".one": "application/onenote",
+    ".vsd": "application/vnd.visio",
+    ".vsdx": "application/vnd.ms-visio.drawing",
+    ".docm": "application/vnd.ms-word.document.macroenabled.12",
+    ".xlsm": "application/vnd.ms-excel.sheet.macroenabled.12",
+    ".pptm": "application/vnd.ms-powerpoint.presentation.macroenabled.12",
+    ".dotx": "application/vnd.openxmlformats-officedocument.wordprocessingml.template",
+    ".xltx": "application/vnd.openxmlformats-officedocument.spreadsheetml.template",
+    ".potx": "application/vnd.openxmlformats-officedocument.presentationml.template",
+    ".dot": "application/msword",
+    ".xlt": "application/vnd.ms-excel",
+    ".pot": "application/vnd.ms-powerpoint",
+    ".pages": "application/vnd.apple.pages",
+    ".numbers": "application/vnd.apple.numbers",
+    ".key": "application/vnd.apple.keynote",
+    ".ps": "application/postscript",
+    ".eps": "application/postscript",
+    ".dwg": "image/vnd.dwg",
+    ".dxf": "image/vnd.dxf",
+    ".psd": "image/vnd.adobe.photoshop",
+    ".indd": "application/x-indesign",
+    ".tar": "application/x-tar",
+    ".gz": "application/gzip",
+    ".7z": "application/x-7z-compressed",
+    ".rar": "application/vnd.rar",
 }
+
+# libmagic reports these when it can name a container or no type at all but not
+# the document inside (an OLE .msg / .vsd / .mpp, a zip-based .pages, a text
+# .yaml). Only then may the file extension decide the type. A specific binary
+# type (an executable) is never rescued by renaming the file.
+_GENERIC_SNIFFS = frozenset(
+    {
+        "",
+        "application/octet-stream",
+        "application/zip",
+        "application/x-zip-compressed",
+        "application/x-ole-storage",
+        "application/cdfv2",
+        "application/x-cfb",
+        "application/vnd.ms-office",
+        "application/x-empty",
+        "inode/x-empty",
+        "text/plain",
+        "text/xml",
+        "application/xml",
+        "application/gzip",
+        "application/x-gzip",
+    }
+)
 
 
 def is_mime_allowed(mime: str) -> bool:
     """Return True when ``mime`` matches the allow-list or an allowed prefix."""
-    return mime in ALLOWED_MIME_TYPES or any(
-        mime.startswith(p) for p in ALLOWED_MIME_PREFIXES
+    return (
+        mime in ALLOWED_MIME_TYPES
+        or mime in _extra_allowed_mimes()
+        or any(mime.startswith(p) for p in ALLOWED_MIME_PREFIXES)
     )
+
+
+def _extra_allowed_mimes() -> frozenset:
+    """Deployment additions (``ATTACHMENT_EXTRA_ALLOWED_MIME_TYPES``, comma list)."""
+    from app.config import settings
+
+    raw = getattr(settings, "ATTACHMENT_EXTRA_ALLOWED_MIME_TYPES", "") or ""
+    return frozenset(m.strip().lower() for m in raw.split(",") if m.strip())
 
 
 def fallback_mime_from_filename(filename: str) -> Optional[str]:
@@ -143,12 +260,21 @@ def resolve_effective_mime(
         )
 
     candidate = sniff.effective_mime or claim
+    # A document whose container libmagic can name but not the format inside
+    # (zip-based .pages, OLE .msg, plain-text .yaml): the extension decides,
+    # so the stored type is the document's, not the container's.
+    fallback = fallback_mime_from_filename(filename)
+    if (
+        fallback
+        and is_mime_allowed(fallback)
+        and (candidate or "").lower() in _GENERIC_SNIFFS
+    ):
+        return fallback
     if is_mime_allowed(candidate):
         return candidate
 
-    # Sniff/claim came back as the generic octet-stream — try the
-    # filename extension as a last resort. Same allow-list applies.
-    fallback = fallback_mime_from_filename(filename)
+    # Generic octet-stream — try the filename extension as a last resort.
+    # Same allow-list applies.
     if fallback and is_mime_allowed(fallback):
         return fallback
 

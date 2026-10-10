@@ -63,12 +63,12 @@ export function SystemNotificationBar() {
   // open=true → slide in; flipped 500ms after a notification appears.
   const [open, setOpen] = useState(false);
   const [busyActions, setBusyActions] = useState<Record<number, boolean>>({});
-  const innerRef = useRef<HTMLDivElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
   const currentId = current?.id ?? null;
 
   // Schedule open=true after the delay, once we have a notification.
-  // While open, an ObserverObserver keeps --system-bar-h in sync with
-  // the bar's natural height — so title/body/action edits after the
+  // While open, a ResizeObserver keeps --system-bar-h in sync with
+  // the bar's full height, including its border — so title/body/action edits after the
   // initial measurement don't leave the layout's padding-top stale.
   useEffect(() => {
     if (!currentId) {
@@ -78,7 +78,7 @@ export function SystemNotificationBar() {
     }
     let ro: ResizeObserver | null = null;
     const publishHeight = () => {
-      const h = innerRef.current?.getBoundingClientRect().height ?? 0;
+      const h = barRef.current?.getBoundingClientRect().height ?? 0;
       if (h > 0) {
         document.documentElement.style.setProperty(CSS_VAR, `${h}px`);
       }
@@ -86,9 +86,9 @@ export function SystemNotificationBar() {
     const t = window.setTimeout(() => {
       setOpen(true);
       publishHeight();
-      if (innerRef.current && typeof ResizeObserver !== 'undefined') {
+      if (barRef.current && typeof ResizeObserver !== 'undefined') {
         ro = new ResizeObserver(() => publishHeight());
-        ro.observe(innerRef.current);
+        ro.observe(barRef.current);
       }
     }, ENTER_DELAY);
     return () => {
@@ -111,10 +111,10 @@ export function SystemNotificationBar() {
   const dismissible = current.dismissible !== false;
 
   const linkCls = `
-    cursor-pointer font-medium underline underline-offset-4 decoration-[1.5px]
+    cursor-pointer font-medium whitespace-nowrap px-3 py-1.5
     hover:opacity-80 transition-opacity
     disabled:opacity-50 disabled:cursor-not-allowed
-    rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--system-bar-focus)]
+    rounded-[var(--radius-input)] hover:bg-[var(--system-bar-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--system-bar-focus)]
   `;
 
   const runAction = async (
@@ -135,6 +135,7 @@ export function SystemNotificationBar() {
 
   return (
     <div
+      ref={barRef}
       role="status"
       aria-live={isError ? 'assertive' : 'polite'}
       data-open={open ? 'true' : 'false'}
@@ -149,52 +150,34 @@ export function SystemNotificationBar() {
         borderColor: 'var(--system-bar-border)',
       }}
     >
-      <div ref={innerRef} className="relative w-full px-10 py-2.5 sm:px-12">
-        <div className="flex items-center justify-center gap-2.5 text-center">
-          <Icon
-            size={16}
-            strokeWidth={LINE_ICON_STROKE}
-            className="flex-shrink-0"
-            style={{ color: style.accentFg }}
-            aria-hidden
-          />
-          <p className="text-sm leading-tight">
-            <span className="font-medium">{current.title}</span>
-            {current.body && (
-              <>
-                <span className="mx-2 text-[var(--system-bar-muted)]">·</span>
-                <span>{current.body}</span>
-              </>
-            )}
-            {current.actions && current.actions.length > 0 && (
-              <>
-                {current.actions.map((action, i) => {
-                  const busy = action.busy || !!busyActions[i];
-                  return (
-                    <span key={i}>
-                      <span className="mx-1.5 text-[var(--system-bar-muted)]">
-                        {i === 0 ? '·' : 'or'}
-                      </span>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => runAction(i, action)}
-                        className={linkCls}
-                        style={{ color: style.accentFg }}
-                      >
-                        {busy ? 'Working…' : action.label}
-                      </button>
-                    </span>
-                  );
-                })}
-              </>
-            )}
-          </p>
+      <div className="relative w-full py-2 pl-4 pr-12 sm:pl-6 sm:pr-14">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-start gap-x-4 gap-y-2 sm:justify-center">
+          <div className="flex min-w-0 items-start gap-2.5 sm:items-center">
+            <Icon size={18} strokeWidth={LINE_ICON_STROKE} className="mt-0.5 shrink-0 sm:mt-0" style={{ color: style.accentFg }} aria-hidden />
+            <p className="min-w-0 text-sm leading-snug">
+              <span className="font-medium">{current.title}</span>
+              {current.body && <span className="mt-0.5 block sm:ml-3 sm:mt-0 sm:inline" style={{ color: 'var(--system-bar-muted)' }}>{' '}{current.body}</span>}
+            </p>
+          </div>
+          {current.actions && current.actions.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1 pl-7 sm:pl-0">
+              {current.actions.map((action, i) => {
+                const busy = action.busy || !!busyActions[i];
+                return (
+                  <button key={i} type="button" disabled={busy} onClick={() => runAction(i, action)}
+                    className={`${linkCls} ${i === 0 ? 'border' : 'border border-transparent'}`}
+                    style={{ color: style.accentFg, borderColor: i === 0 ? 'var(--system-bar-border)' : undefined }}>
+                    {busy ? 'Working…' : action.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
         {dismissible && (
           <button
             type="button"
-            onClick={() => dismiss(current.id)}
+            onClick={() => { current.onUserDismiss?.(); dismiss(current.id); }}
             aria-label="Dismiss notification"
             className="
               absolute right-2 top-1/2 -translate-y-1/2

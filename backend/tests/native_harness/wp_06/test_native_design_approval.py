@@ -135,6 +135,47 @@ async def test_preflight_does_not_run_a_second_approval_judge(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "approved_run,expected", [("older-run", False), ("run-a", True)]
+)
+async def test_previous_approval_does_not_freeze_later_repair(
+    monkeypatch, approved_run, expected
+):
+    thread = SimpleNamespace(
+        user_id="user-a",
+        workspace_id="workspace-a",
+        provider_id="integral_native",
+        design_proposed={
+            "design_id": "design-a",
+            "proposed_at_user_turn": 1,
+            "approved": True,
+            "affirm_run_id": approved_run,
+        },
+    )
+
+    async def get(_id):
+        return thread
+
+    async def count(_thread):
+        return 2
+
+    async def latest(_thread):
+        return "Please revise the missing sample statuses."
+
+    monkeypatch.setattr(design_approval.ChatThread, "get", get)
+    monkeypatch.setattr(design_approval.chat_threads, "count_user_turns", count)
+    monkeypatch.setattr(
+        design_approval.chat_threads, "latest_user_message_text", latest
+    )
+    assert (
+        await design_approval.pending_design_is_approved_for_reply(
+            scope=scope(), utterance=await latest(thread)
+        )
+        is expected
+    )
+
+
+@pytest.mark.asyncio
 async def test_foreign_thread_cannot_receive_build_authority(monkeypatch):
     """A thread owned by another principal cannot grant build authority."""
 

@@ -24,10 +24,9 @@ import reasoningSource from '../Reasoning.tsx?raw';
 
 describe('Thread.tsx — B-AGENT-01 guard (reasoning collapsed at rest)', () => {
   it('routes the thought trail through <WorkTrail', () => {
-    const match = threadSource.match(
-      /case "group-chainOfThought":[\s\S]*?<WorkTrail/,
-    );
-    expect(match, 'group-chainOfThought case does not render <WorkTrail').toBeTruthy();
+    expect(threadSource).toContain('<WorkTrail>{renderParts(true)}</WorkTrail>');
+    expect(threadSource).toContain('{renderParts(false)}');
+    expect(threadSource).not.toContain('return <WorkTrail>{children}</WorkTrail>');
   });
 
   it('WorkTrail stays closed unless the user opens it', () => {

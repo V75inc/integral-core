@@ -278,6 +278,75 @@ async def _thread(session_id: str) -> ChatThread:
 
 
 @pytest.mark.asyncio
+async def test_partial_amendment_retains_cursor_and_requires_new_approval(monkeypatch):
+    from app.agentive import staging
+
+    thread = await _thread("partial-revision")
+    thread.provider_id = "integral_native"
+    prior = _canonical()
+    prior["seeds"] = [
+        {
+            "id": "seed.job",
+            "track": "track.jobs",
+            "title": "Repair sample",
+            "fields": {},
+            "tags": [],
+        }
+    ]
+    thread.design_proposed = {
+        "approved": True,
+        "design_id": "partial-design",
+        "blueprint": prior,
+        "blueprint_revision": 1,
+        "proposed_at_user_turn": 0,
+        "partial_build": {"batch_token": "original"},
+    }
+    await thread.save()
+    staged = SimpleNamespace(
+        kind="batch",
+        state="blessed",
+        executing=False,
+        user_id="u1",
+        session_id="partial-revision",
+        workspace_id=thread.workspace_id,
+        is_expired=lambda: False,
+        payload={
+            "operations": [
+                {"kind": "create_app", "payload": {}},
+                {
+                    "kind": "create_entry",
+                    "payload": {
+                        "title": "Repair sample",
+                        "track_id": "{{track.id:Jobs}}",
+                        "fields": {},
+                    },
+                },
+            ]
+        },
+        progress={"completed": 1, "results": [{"result": {"id": "existing-app"}}]},
+    )
+
+    async def get_token(_token):
+        return staged
+
+    monkeypatch.setattr(staging, "get_token", get_token)
+    revised = copy.deepcopy(prior)
+    revised["seeds"][0]["fields"] = {"status": "Queued"}
+    result = await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id="partial-revision",
+        summary="Repair the unfinished sample",
+        proposal=_PROPOSAL,
+        blueprint=revised,
+    )
+    assert result["ok"]
+    marker = (await ChatThread.get(thread.id)).design_proposed
+    assert marker["approved"] is False
+    assert marker["blueprint_revision"] == 2
+    assert marker["partial_build"] == {"batch_token": "original", "blueprint": prior}
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("approved", [False, True])
 async def test_native_amendment_replaces_typed_design_and_invalidates_old_approval(
     monkeypatch: pytest.MonkeyPatch, approved: bool
@@ -623,7 +692,8 @@ async def test_build_with_dropped_field_fails_before_staging(
 
     assert result.error_code == "plan_differs_from_design"
     assert "omits approved field due_date (Due date)" in result.message
-    assert "revision 3" in result.message
+    assert "plan repair" in result.message
+    assert "not a request to re-approve the unchanged design" in result.message
     assert staged == []
 
 
@@ -682,3 +752,16 @@ def test_propose_design_tool_schema_embeds_the_blueprint_contract() -> None:
     assert "tracks" in blueprint["required"]
     assert "BlueprintTrack" in schema["$defs"]
     assert "Once a design has a blueprint" in blueprint["description"]
+
+
+def test_plan_fidelity_rejects_renaming_an_approved_field_key():
+    blueprint = _blueprint()
+    operations = [(item["tool"], item["args"]) for item in _plan()]
+    fields = operations[1][1]["entry_types"][0]["fields"]
+    due = next(field for field in fields if field["key"] == "due_date")
+    due["key"] = "target_date"
+    errors = plan_fidelity_errors(blueprint, operations, new_app=True)
+    assert any(
+        "must retain approved key 'due_date', not 'target_date'" in error
+        for error in errors
+    )

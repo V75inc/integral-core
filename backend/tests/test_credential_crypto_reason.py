@@ -90,3 +90,18 @@ def test_dev_mode_derives_a_key_when_opted_in(monkeypatch):
     monkeypatch.setenv("INTEGRAL_CREDENTIAL_ALLOW_DEBUG_DERIVE", "1")
 
     assert cc.encryption_unavailable_reason() is None
+
+
+def test_debug_reason_explains_missing_opt_in_instead_of_missing_secret(monkeypatch):
+    _set(monkeypatch, "", debug=True)
+    monkeypatch.setattr(settings, "SECRET_KEY", "present-development-secret")
+    monkeypatch.delenv("INTEGRAL_CREDENTIAL_ALLOW_DEBUG_DERIVE", raising=False)
+    reason = cc.encryption_unavailable_reason()
+    assert "DEBUG does not generate" in reason
+    assert "INTEGRAL_CREDENTIAL_ALLOW_DEBUG_DERIVE=1" in reason
+    assert "no SECRET_KEY" not in reason
+
+
+def test_base64_key_with_nonencoding_characters_is_rejected(monkeypatch):
+    _set(monkeypatch, base64.b64encode(b"a" * 32).decode() + "!junk!", debug=False)
+    assert not cc.encryption_available()

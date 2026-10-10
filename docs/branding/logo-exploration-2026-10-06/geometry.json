@@ -1,0 +1,12 @@
+{
+  "selected": "Approved frameless split square",
+  "viewBox": "58 58 604 604",
+  "outerRadius": 144,
+  "halfPath": "M144 90 H438.40097460 L229.45746019 585.95383638 A72 72 0 0 1 163.10549691 630 H162 A72 72 0 0 1 90 558 V144 A54 54 0 0 1 144 90Z",
+  "leftTransform": "translate(0 -32)",
+  "rightTransform": "translate(0 32) rotate(180 360 360)",
+  "sideWeight": 90,
+  "diagonalPerpendicularWeight": 90,
+  "frameRemoved": true,
+  "approved": "2026-10-07"
+}

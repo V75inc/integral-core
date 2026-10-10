@@ -113,7 +113,8 @@ def test_mcp_tool_call_kind_has_an_executor():
 
 
 @pytest.mark.asyncio
-async def test_resident_write_call_is_staged_not_invoked(monkeypatch):
+@pytest.mark.parametrize("canonical", [False, True])
+async def test_resident_write_call_is_staged_not_invoked(monkeypatch, canonical):
     """End-to-end at the dispatch seam: the call is staged, nothing leaves."""
     from app.agentive.tooling import dispatch
 
@@ -128,12 +129,32 @@ async def test_resident_write_call_is_staged_not_invoked(monkeypatch):
     )
 
     class _Conn:
+        id = "n.Connector.abc"
         auth_state = {"catalog_slug": "quickbooks_mcp", "display_name": "QuickBooks"}
 
     async def _get_conn(_id: str):
         return _Conn()
 
     monkeypatch.setattr("app.agentive.nodes.Connector.get", _get_conn, raising=False)
+
+    async def _resolve(**kwargs):
+        assert kwargs == {
+            "workspace_id": "n.Workspace.w1",
+            "slug": "quickbooks_mcp",
+            "principal_id": "u1",
+        }
+        return _Conn()
+
+    monkeypatch.setattr(
+        "app.agentive.connectors.connector_resolution.resolve_connector_row", _resolve
+    )
+
+    async def _membership(*args):
+        return "owner"
+
+    monkeypatch.setattr(
+        "app.services.workspace_permissions.can_access_workspace", _membership
+    )
 
     staged: dict = {}
 
@@ -170,9 +191,13 @@ async def test_resident_write_call_is_staged_not_invoked(monkeypatch):
         "app.services.prompt_queue.enqueue_staged_write", _fake_enqueue, raising=False
     )
 
-    result = await dispatch._maybe_stage_mcp_write(
+    spec = _spec("create_invoice")
+    if canonical:
+        spec.pop("_mcp_connector_id")
+        spec["_mcp_connector_slug"] = "quickbooks_mcp"
+    result = await dispatch._dispatch_bundle_tool(
         "mcp__abc__create_invoice",
-        _spec("create_invoice"),
+        spec,
         {"customer": "Acme"},
         principal_id="u1",
         scope="n.Workspace.w1",
@@ -188,4 +213,5 @@ async def test_resident_write_call_is_staged_not_invoked(monkeypatch):
     # workspace_id must come from the bound scope, never from model args.
     assert staged["payload"]["workspace_id"] == "n.Workspace.w1"
     assert staged["kind"] == "mcp_tool_call"
+    assert staged["payload"]["connector_id"] == "n.Connector.abc"
     assert enqueued, "the approver never sees the arguments without this"

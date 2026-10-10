@@ -29,8 +29,8 @@ from httpx import AsyncClient
 
 
 async def _create_connector(client: AsyncClient, **extra: Any) -> dict:
-    """POST /api/agentive/connectors with default jvagent kind."""
-    body = {"kind": "jvagent", **extra}
+    """POST /api/agentive/connectors with default native provider kind."""
+    body = {"kind": "custom", **extra}
     r = await client.post("/api/agentive/connectors", json=body)
     assert r.status_code in (200, 201), r.text
     return r.json()

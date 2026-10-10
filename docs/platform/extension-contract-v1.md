@@ -1,140 +1,31 @@
-# Extension Contract v1
+# The Integral App extension contract
 
-**Status:** F0 baseline
-**Date:** 2026-09-15
-**Companion:** [FOUNDATION_EXTENSION_SAAS.md](../product/FOUNDATION_EXTENSION_SAAS.md), [app-bundles-v1.md](../backend/app-bundles-v1.md)
+This contract defines how domain Apps use Core. The versioned filename denotes the extension boundary; it does not mean App authoring YAML is version 1. Current authoring YAML is version 3 and runtime manifests are schema version 2.
 
-This is the **product API for App authors**. It is intentionally smaller than
-Core's internal API. Breaking changes require a deprecation window (see
-[extension-contract-governance.md](extension-contract-governance.md)).
+## Core responsibilities
 
-## Vocabulary
+Core owns authenticated identity, workspace scope, resource access, schema validation, graph integrity, generic lifecycle, execution controls, transcripts, and receipts. Apps supply domain meaning through declarations and reviewed implementations. Pricing, checkout, hosting, and commercial account rules remain in the host or App.
 
-| Term | Meaning |
-| --- | --- |
-| Package artifact | Immutable, versioned, fingerprinted distributable (`bundle_fingerprint`) |
-| Installed App instance | Workspace-local materialization; records `installed_package_slug`, `installed_package_version`, `installed_artifact_fingerprint` |
-| Operational Model | Declarative schema and operational component — not synonymous with an App Package or Installed App |
-| Plugin | Executable extension (tool handler, view plugin) — not synonymous with an App |
+Core must not import `app.packages` or `app.plugins` from services, APIs, models, or schemas. It must not branch on App slug, EntryType name, or Track identity. Core-only boot must work without domain packages.
 
-`OperationalModel` and `operational_model` remain compatibility identifiers in the
-current implementation. See [ADR-013](../backend/adr/013-operational-model-vocabulary.md)
-for the terminology and migration boundary.
+## Information and capabilities
 
-## Surfaces
+The preferred facade supplies `get(object_ref)`, `query(query_spec)`, and `invoke(operation_key, payload)`. Query modes are `declared_capability` and `core_open`; mode selects a contract, never a permission bypass. Field and revision contracts distinguish base values, custom fields, relation definitions, and record/schema revisions.
 
-| Concern | Contract | Rule |
-| --- | --- | --- |
-| Data | Operational Model / App manifest (`docs/backend/app-bundles-v1.md`) | Rooted through Workspace → App → Track → Entry |
-| Information vocabulary | `integral_sdk` field/revision TypedDicts | App authors use stable field IDs and record/schema revisions; they do not import Core models |
-| Package class | `package.class`: `core_package` \| `community_app` \| `verified_app` \| `commercial_app` \| `private_org_app` | Core-seed defaults use `core_package` |
-| Operations | `app.tools[]`, `ToolContext`, optional `app.operations[]` | Tools reach Core only through the injected context; no `app.services` / `app.models` imports |
-| Queries | `app.queries[]` | Read-only App queries run with the caller's App permission and declared policy action. A query may opt into dashboard aggregation with an explicit complete-row contract. |
-| Hooks | Frozen catalog I-HOOK-01 | New hook points require a Decision Record |
-| Track aliases | `app.track_aliases[]` | Cross-app title/template_id aliases — never hardcoded in Core |
-| Skills | I-SKILL-01..04 | Overlay namespaced `{app_slug}__{skill_key}` |
-| Views | Generic view palette + declarative composition | **F2 Phase One:** App packages may ship ``view_types[]`` composites + ``views[]`` that resolve to Core palette widgets without editing Core frontend manifests (see `examples/reference-hello-app`). Domain-specific renderers belong to their owning App extension, not Core. Signed/dynamic App FE modules remain deferred. |
-| Lifecycle | `installing` → `awaiting_settings` → `active` ↔ `paused` → `uninstalled` / `failed` | Pause unregisters hooks/tools; uninstall deregisters + retains data policy stub |
-| Package roots | `INTEGRAL_PACKAGE_PATHS`, `INTEGRAL_CORE_ONLY` | Comma-separated parents. Each App is a child directory named `package.slug` with `operational-model.yaml` (one level; I-BUNDLE-04). `integral init` creates that parent empty; `--slug` adds one App. Core seeds stay in `backend/app/packages/` on a checkout. The published wheel does not include them. See the [quick start](../developer/quickstart.md). |
-| Bundle post-seed | `<bundle>/seeds/post_install.py` with `async def run(app, actor_id)` | Domain seed side-effects (e.g. CRM wiki handbook) live in the package, not Core |
+OperationContext is injected by Core. Its identity includes principal, workspace, scope, bundle slug, installed App, operation key, and optional idempotency/correlation keys. It offers validated create/update helpers, conditional updates, audit emission, deduplicated notifications, and the preferred facade. Raw private Core imports are forbidden.
 
-## ToolContext facade (semver boundary)
+## Declaration requirements
 
-Supported methods for trusted bundle tools (see `backend/app/services/hooks/registry.py`):
+Packages declare input/output schemas, operation policy and staging behavior, query shape, tools, hooks, skills, and presentation assets. Python implementations require their trust tier and signature posture. An installed App resolves the immutable active ApplicationDefinition before using its effective capability contract.
 
-- Entry / track reads and scoped finds
-- Scoped entry reads and updates through policy gates
-- `get_app_settings(app_key)`
-- `get_related_entries(entry_id, edge_type="REFERENCES", direction="out")` — permission and workspace scoped graph neighbours; Apps own field meaning and ordering
-- `get_employee_compensation(employee_id)` — deprecated compatibility shim for payroll consumers; remove after F1 consumer migration
-- Workspace-scoped helpers documented on the class
+The frozen hook catalog contains `entry.transform`, `entry.public_share`, `entry.precompute`, `entry.create`, `entry.validate`, `entry.update`, `connector.dedup`, `connector.auto_link`, and `email.sent`. A new point requires a reviewed decision and invariant update. Registration collisions fail rather than silently replacing another package's tool.
 
-Any required private import of Core internals is a **missing contract**, not an exception.
+## Presentation
 
-### Dashboard-enabled declared queries
+App-owned declarative composites use registered Core primitives. Sandboxed iframe extension views use declared assets, hosted paths, and the view handshake. This is an implemented extension surface; arbitrary remote React plugins or inline executable manifest code are not substitutes.
 
-An App query can opt into generic dashboard suggestions by declaring a
-`dashboard` block alongside an `output_schema`:
+Package App Home uses declared queries/actions under the active definition. Dashboards are instance projections. Unavailable data must remain distinguishable from empty results; action preparation does not silently submit a chat turn.
 
-```yaml
-queries:
-  - key: list_assets
-    name: Available assets
-    policy_action: app.read
-    tool: list_available_assets
-    input_schema:
-      type: object
-      properties:
-        limit: {type: integer}
-        offset: {type: integer}
-    output_schema:
-      type: object
-      properties:
-        assets:
-          type: array
-          items:
-            type: object
-            properties:
-              entry_id: {type: string}
-              category: {type: string}
-        total: {type: integer}
-    dashboard:
-      rows_path: assets
-      total_path: total
-      params: {limit: 5000, offset: 0}
-```
+## Evidence
 
-`rows_path` must identify an array of objects and `total_path` an integer in
-the declared output schema. `params` are checked against `input_schema` when
-the manifest compiles. On each dashboard read, Core invokes the declared
-query under its App policy, reads those rows and the exact total from the same
-response, and refuses the value if the total differs from the row count or
-exceeds the configured aggregate budget. The output paths and params are fixed
-by the compiled App declaration; dashboard configuration cannot replace them.
-Query handlers used this way must be read-only and return the complete result
-set for the supplied parameters.
-Core displays aggregate values only; it does not offer Entry drill-through
-for arbitrary App query rows.
-
-### OperationContext write capability
-
-Typed App operations receive `OperationContext`, which adds operation metadata
-and a typed `create_entry(...)` capability. It creates only in a Track contained
-by that installed App, requires the caller to retain an editing role, resolves
-the declared entry-type key, and follows Core's normal validation, graph wiring,
-hooks, and audit path. It returns `None` when the target, policy, or schema is
-not valid. App tools must surface a stable domain error rather than importing
-Core internals to bypass that boundary.
-
-## Lifecycle recoverability
-
-- Install saga checkpoints: `InstallAttempt` Object (I-GRAPH-02)
-- Upgrade: snapshot attached manifest before merge; restore on failure
-- Pause: unregister hooks/tools; data retained
-- Uninstall: deregister hooks/tools; scheduled jobs cancelled (when present)
-
-## Reference App
-
-`examples/reference-hello-app/` is the external contract proof. Install via:
-
-```bash
-INTEGRAL_PACKAGE_PATHS=examples make verify-contract
-```
-
-Core must not require this package to boot (`INTEGRAL_CORE_ONLY=1`).
-
-## Core release artifact
-
-Product image (default `docker build -f backend/Dockerfile .`): full
-`backend/app/packages/` tree for dogfood.
-
-Core image: `docker build --target core -f backend/Dockerfile .` — only
-`personal-context` + `agent-scratch` remain under `app/packages/`, with
-`INTEGRAL_CORE_ONLY=1`. Domain Apps are not on disk in that artifact.
-
-## Related invariants
-
-- I-SUBSTRATE-01 — no domain tokens in substrate
-- I-HOOK-01 / I-HOOK-02 — frozen hooks; operational layer survives merge
-- I-EXT-01 / I-EXT-02 — Core/App separation (see `docs/INVARIANTS.md`)
-- I-BUNDLE-01..05 — library package shape
+Use `examples/reference-hello-app/` and `backend/tests/contract/` for executable examples. Test Core-only isolation, input validation, current permissions, stale revisions, capability withdrawal, signature rejection, and browser readback. The [governance guide](extension-contract-governance.md) explains contract changes.

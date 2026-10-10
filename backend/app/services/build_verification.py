@@ -286,6 +286,7 @@ def make_execution_receipt(
             batch_token=batch_token,
         ),
         "batch_token": batch_token,
+        "schema_version": 2,
         "design_id": design_id,
         "design_revision": design_revision,
         "blueprint_digest": blueprint_digest,
@@ -328,6 +329,10 @@ def _field_matches(expected: Dict[str, Any], live: Optional[Dict[str, Any]]) -> 
     if not live:
         return False
     if _fold(live.get("type")) != _fold(expected.get("type")):
+        return False
+    if live.get("_legacy_field_alias") and bool(live.get("required")) != bool(
+        expected.get("required")
+    ):
         return False
     if not _relation_matches(expected.get("relation"), live.get("relation")):
         return False
@@ -453,6 +458,34 @@ def _overall(statuses: List[str]) -> str:
     return "verified"
 
 
+def verification_reply(result: Dict[str, Any]) -> str:
+    """One sentence the resident must use as the closing line."""
+    if result.get("error"):
+        detail = str(result.get("detail") or result.get("error"))
+        return f"Failed. {detail}"
+    status = str(result.get("status") or "")
+    if status == "verified":
+        return "Verified. The approved design is present."
+    lead = {
+        "partial": "Partial.",
+        "blocked": "Blocked.",
+        "failed": "Failed.",
+    }.get(status, "Failed.")
+    named = [
+        f"{item.get('id') or 'item'} ({item.get('status') or 'missing'})"
+        for item in result.get("items") or []
+        if isinstance(item, dict) and item.get("status") != "present"
+    ]
+    if named:
+        return f"{lead} Not present: " + "; ".join(named) + "."
+    return lead
+
+
+def _with_reply(result: Dict[str, Any]) -> Dict[str, Any]:
+    result["reply"] = verification_reply(result)
+    return result
+
+
 async def verify_loaded(
     *,
     blueprint: Dict[str, Any],
@@ -475,7 +508,19 @@ async def verify_loaded(
     app_spec = mapping.get((blueprint.get("app") or {}).get("id"))
     app_id = app_spec.get("object_id") if isinstance(app_spec, dict) else ""
 
-    for item_id, kind, expected in _constituents(blueprint):
+    constituents = list(_constituents(blueprint))
+    legacy_labels: Dict[Tuple[Any, str, str], int] = {}
+    for item_id, kind, expected in constituents:
+        locator = mapping.get(item_id) or {}
+        if kind == "field":
+            identity = (
+                locator.get("object_id"),
+                _fold(locator.get("entry_type")),
+                _fold(expected.get("name")),
+            )
+            legacy_labels[identity] = legacy_labels.get(identity, 0) + 1
+
+    for item_id, kind, expected in constituents:
         if kind == "platform_default":
             if _slug(expected.get("kind")) != "feed":
                 items.append(
@@ -513,6 +558,22 @@ async def verify_loaded(
             continue
         if kind == "skill" and isinstance(locator, dict):
             locator = {**locator, "authorized_app_id": app_id}
+        if (
+            kind == "field"
+            and receipt.get("schema_version", 1) == 1
+            and legacy_labels.get(
+                (
+                    locator.get("object_id"),
+                    _fold(locator.get("entry_type")),
+                    _fold(expected.get("name")),
+                )
+            )
+            == 1
+        ):
+            # Before v2, plan fidelity accepted a field by label even when the
+            # planner changed its key. Reconcile only that legacy shape, within
+            # its recorded Track/type; never change the design or live schema.
+            locator = {**locator, "legacy_field_name": expected.get("name")}
         try:
             snap = await reader.read(locator)
         except ReadDenied:
@@ -538,7 +599,12 @@ async def verify_loaded(
         if kind == "skill" and isinstance(snap, dict):
             snap = {**snap, "authorized_app_id": app_id}
         if _matches(kind, expected, snap):
-            items.append({"id": item_id, "status": "present"})
+            present = {"id": item_id, "status": "present"}
+            if kind == "field" and snap.get("_legacy_field_alias"):
+                present["resolution"] = "legacy_field_key_alias"
+                present["approved_field_key"] = expected.get("key")
+                present["resolved_field_key"] = snap["key"]
+            items.append(present)
             # Navigation comes from the receipt's actual object, after its
             # permission-checked readback. Blueprint item ids are references,
             # never routes. Reuse this read instead of making the agent discover
@@ -567,14 +633,16 @@ async def verify_loaded(
             items.append({"id": item_id, "status": "mismatch"})
 
     statuses = [item["status"] for item in items]
-    return {
-        "design_id": design_id,
-        "design_revision": design_revision,
-        "execution_receipt_id": receipt.get("id"),
-        "status": _overall(statuses),
-        "items": items,
-        "resources": resources,
-    }
+    return _with_reply(
+        {
+            "design_id": design_id,
+            "design_revision": design_revision,
+            "execution_receipt_id": receipt.get("id"),
+            "status": _overall(statuses),
+            "items": items,
+            "resources": resources,
+        }
+    )
 
 
 def _revision(value: Any) -> Optional[int]:
@@ -611,10 +679,12 @@ async def verify_build(
     """
     revision = _revision(design_revision)
     if not str(design_id or "").strip() or revision is None:
-        return {
-            "error": "invalid_verification_request",
-            "detail": "design_id and design_revision are required.",
-        }
+        return _with_reply(
+            {
+                "error": "invalid_verification_request",
+                "detail": "design_id and design_revision are required.",
+            }
+        )
     _thread, marker = await _find_design(user_id, str(design_id).strip())
     # Tool dispatch injects workspace_id from its authenticated scope. Being
     # the same principal in another workspace does not admit that workspace's
@@ -623,25 +693,31 @@ async def verify_build(
         workspace_id is not None
         and getattr(_thread, "workspace_id", None) != workspace_id
     ):
-        return {
-            "error": "design_not_found",
-            "detail": "No design with that id is on a conversation you own in this scope.",
-        }
+        return _with_reply(
+            {
+                "error": "design_not_found",
+                "detail": "No design with that id is on a conversation you own in this scope.",
+            }
+        )
     blueprint = marker.get("blueprint")
     if not isinstance(blueprint, dict):
-        return {
-            "error": "blueprint_required",
-            "detail": "This design has no typed blueprint to verify.",
-        }
+        return _with_reply(
+            {
+                "error": "blueprint_required",
+                "detail": "This design has no typed blueprint to verify.",
+            }
+        )
     stored_revision = _revision(marker.get("blueprint_revision"))
     if stored_revision != revision:
-        return {
-            "error": "revision_mismatch",
-            "detail": (
-                f"The design is at revision {stored_revision}. "
-                "Verify that revision; an older one is not the approved build."
-            ),
-        }
+        return _with_reply(
+            {
+                "error": "revision_mismatch",
+                "detail": (
+                    f"The design is at revision {stored_revision}. "
+                    "Verify that revision; an older one is not the approved build."
+                ),
+            }
+        )
     receipt = marker.get("build_receipt")
     if (
         not isinstance(receipt, dict)
@@ -649,14 +725,16 @@ async def verify_build(
         or receipt.get("design_id") != design_id
         or _revision(receipt.get("design_revision")) != revision
     ):
-        return {
-            "error": "receipt_mismatch",
-            "detail": (
-                "That execution receipt is not the apply recorded for this "
-                "design revision. Do not build again; verify the receipt from "
-                "the apply that just finished, or apply the current revision first."
-            ),
-        }
+        return _with_reply(
+            {
+                "error": "receipt_mismatch",
+                "detail": (
+                    "That execution receipt is not the apply recorded for this "
+                    "design revision. Do not build again; verify the receipt from "
+                    "the apply that just finished, or apply the current revision first."
+                ),
+            }
+        )
     # Existing-App extension receipts predate (or may have been written by)
     # versions that mapped only objects created by the batch. Resolve the
     # approved target from the same design marker; never accept an App id from
@@ -777,6 +855,7 @@ class _Reader:
     async def _field(self, locator: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         want_type = _fold(locator.get("entry_type"))
         want_key = str(locator.get("field_key") or "")
+        aliases = []
         for entry_type in await self._entry_types(str(locator.get("object_id") or "")):
             if want_type and _fold(getattr(entry_type, "name", "")) != want_type:
                 continue
@@ -790,8 +869,20 @@ class _Reader:
             ):
                 return {"key": "name", "type": "text", "name": "Name"}
             for field in schema.get("fields") or []:
-                if isinstance(field, dict) and str(field.get("key") or "") == want_key:
+                if not isinstance(field, dict):
+                    continue
+                if str(field.get("key") or "") == want_key:
                     return field
+                legacy_name = _fold(locator.get("legacy_field_name"))
+                if (
+                    legacy_name
+                    and isinstance(field.get("key"), str)
+                    and field["key"]
+                    and _fold(field.get("name")) == legacy_name
+                ):
+                    aliases.append(field)
+        if len(aliases) == 1:
+            return {**aliases[0], "_legacy_field_alias": True}
         return None
 
     async def _tag_names(self, track_id: str) -> List[str]:

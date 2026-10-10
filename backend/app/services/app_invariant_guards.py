@@ -86,8 +86,8 @@ async def enforce_protected_field_write(
         return
     raise BadRequestError(
         message=(
-            "Protected App fields cannot be written through generic Entry updates; "
-            "use the App's typed operation"
+            "This record is managed by its App and can't be created or edited "
+            "directly. Use the App's own actions instead."
         ),
         details={
             "error_code": "protected_field_write",

@@ -3,7 +3,7 @@
 Route awareness: ``integral/ui_route_interact_action`` reads
 ``visitor.data["page_context"]`` and contributes an orchestration parameter
 (messenger pattern). Full snapshot stays for ``integral_get_page_context``.
-No utterance preamble; no jvagent schema for Integral fields.
+No utterance preamble; no agent runtime schema for Integral fields.
 """
 
 from __future__ import annotations
@@ -70,7 +70,7 @@ def sanitize_user_text(text: str) -> str:
     return _SYSTEM_MARKER_RE.sub("[", text)
 
 
-# Host closure / carry-forward markers that land on jvagent Interaction
+# Host closure / carry-forward markers that land on agent runtime Interaction
 # responses for next-turn history. Integral chat bubbles must not show them —
 # the FE already has staging cards + residual notes for people.
 _STAGING_RESULT_BLOCK_RE = re.compile(
@@ -94,7 +94,7 @@ _HOST_SYSTEM_LINE_RE = re.compile(
 def strip_host_markers_for_display(text: str) -> str:
     """Remove host-only markers from assistant text shown in Integral chat.
 
-    Markers remain on the jvagent Interaction for agent history; this runs on
+    Markers remain on the agent runtime Interaction for agent history; this runs on
     the Integral ``final-content`` / persisted bubble path only.
     """
     if not text:

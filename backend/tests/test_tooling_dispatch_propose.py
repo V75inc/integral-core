@@ -175,17 +175,18 @@ async def test_update_entry_propose_returns_staged_token(
     """
     from app.agentive.staging import get_token
 
-    auth_user_id, workspace_id, _track_id = await _bootstrap_principal_and_track()
+    auth_user_id, workspace_id, track_id = await _bootstrap_principal_and_track()
+    entry_id = await _seed_entry(auth_user_id, workspace_id, track_id)
 
     r = await dispatch_tool(
         "integral_update_entry",
-        {"entry_id": "n.Entry.abc123", "title": "New title", "status": "done"},
+        {"entry_id": entry_id, "title": "New title", "status": "done"},
         principal_id=auth_user_id,
         scope=workspace_id,
     )
     _assert_staged(r, kind="update_entry")
     dm = r.data["diff_machine"]
-    assert dm.get("entry_id") == "n.Entry.abc123", dm
+    assert dm.get("entry_id") == entry_id, dm
     assert dm.get("title") == "New title", dm
     assert dm.get("status") == "done", dm
     # The status reaches the staged payload (what the executor splats), not just
@@ -1991,3 +1992,55 @@ async def test_file_content_track_hint_stages_active_workspace_contacts(
     assert sc is not None
     assert sc.payload.get("track_id") == org_track_id
     assert sc.payload.get("track_id") != personal_track
+
+
+@pytest.mark.asyncio
+async def test_propose_allowed_while_prompt_queue_open(
+    bind_fresh_graph_context_for_async_tests, monkeypatch
+):
+    """While a Prompt Sheet is open, propose tools still stage; execute does not.
+
+    Multi-delete / multi-create needs sheet items 1/N…N/N in one turn. The
+    sequester gate used to refuse every non-read tool with prompt_queue_open,
+    so the second delete never entered the sheet.
+    """
+    from app.agentive.tooling.dispatch import _registry
+    from app.services import prompt_queue
+
+    async def _open(_session_id):
+        return True
+
+    monkeypatch.setattr(prompt_queue, "session_queue_is_open", _open)
+
+    auth_user_id, workspace_id, track_id = await _bootstrap_principal_and_track()
+
+    first = await dispatch_tool(
+        "integral_create_entry",
+        {"track_id": track_id, "title": "Sheet item 1", "text": "a"},
+        principal_id=auth_user_id,
+        scope=workspace_id,
+        session_id="sess-open-sheet",
+    )
+    _assert_staged(first, kind="create_entry")
+
+    second = await dispatch_tool(
+        "integral_create_entry",
+        {"track_id": track_id, "title": "Sheet item 2", "text": "b"},
+        principal_id=auth_user_id,
+        scope=workspace_id,
+        session_id="sess-open-sheet",
+    )
+    _assert_staged(second, kind="create_entry")
+    assert first.data["token"] != second.data["token"]
+
+    execute_tools = [s.name for s in _registry().values() if s.op_class == "execute"]
+    if execute_tools:
+        blocked = await dispatch_tool(
+            execute_tools[0],
+            {},
+            principal_id=auth_user_id,
+            scope=workspace_id,
+            session_id="sess-open-sheet",
+        )
+        assert blocked.is_error
+        assert blocked.error_code == "prompt_queue_open"

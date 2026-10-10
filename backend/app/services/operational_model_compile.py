@@ -22,6 +22,11 @@ from app.exceptions import (
 )
 from app.services import operational_model_field_types as field_type_registry
 from app.services import operational_model_wizard_steps as wizard_step_registry
+from app.services.computed_fields import (
+    attach_computed_expression,
+    bind_computed_fields,
+    expression_source,
+)
 from app.services.operational_model_field_types import FieldTypeSpec
 from app.views import operational_model_view_types as view_type_registry
 from app.views.operational_model_view_types import ViewTypeSpec
@@ -64,6 +69,8 @@ _VALID_SETTINGS_WIDGETS = {
     "tag_picker",
     "number",
     "date",
+    "password",
+    "secret",
 }
 
 # Default upper bound for ``files`` fields when the manifest omits
@@ -123,9 +130,9 @@ def _current_view_composites() -> Dict[str, ViewTypeSpec]:
     return val if val is not None else {}
 
 
-def _current_extension_view_keys() -> Set[str]:
-    val = _active_extension_view_keys.get()
-    return val if val is not None else set()
+def _current_extension_view_keys() -> Optional[Set[str]]:
+    """None is a standalone compile; an empty set is authoritative App scope."""
+    return _active_extension_view_keys.get()
 
 
 def _field_type_known(type_: str) -> bool:
@@ -257,20 +264,16 @@ def _normalize_field_spec(field: Dict[str, Any]) -> Dict[str, Any]:
     field_id = str(field.get("id") or field.get("field_id") or "").strip()
     if not key:
         raise BadRequestError(message="field.key is required")
+    # The resident sends calculated amounts as number fields with an
+    # expression (and often computed: true). That is a computed field.
+    marked_computed = field.get("computed") is True or str(
+        field.get("computed") or ""
+    ).strip().lower() in {"true", "1", "yes"}
+    if expression_source(field.get("expression")) or marked_computed:
+        ftype = "computed"
     if not _field_type_known(ftype):
         raise BadRequestError(
             message=f"Unsupported field type '{ftype}' for field '{key}'"
-        )
-    if ftype == "computed":
-        # A computed field must be backed by a deterministic evaluator and a
-        # read-only projection contract. The runtime currently has only the
-        # attachment metadata projection, so accepting arbitrary computed
-        # fields here would create a schema clients can write but Core cannot
-        # calculate. Fail at authoring time until that evaluator exists.
-        raise BadRequestError(
-            message=(
-                f"Computed field '{key}' is not supported by the current " "runtime"
-            )
         )
     composites = _current_field_composites()
     composite_meta: Optional[Dict[str, Any]] = None
@@ -301,6 +304,11 @@ def _normalize_field_spec(field: Dict[str, Any]) -> Dict[str, Any]:
         # field is also `required: true` elsewhere, can block creation
         # entirely before the hook ever gets a chance to run.
         "hide_on_create": bool(field.get("hide_on_create", False)),
+        # Never shown in forms or on the entry's field list. For bookkeeping an
+        # App's tools and agent write (external ids, hashes, versions) that a
+        # person has no reason to see or edit. The value is still stored and
+        # readable through the API.
+        "hidden": bool(field.get("hidden", False)),
         "default": field.get("default"),
         "enum": _as_list(field.get("enum"), where=f"field '{key}' enum"),
         "widget": field.get("widget"),
@@ -313,6 +321,11 @@ def _normalize_field_spec(field: Dict[str, Any]) -> Dict[str, Any]:
         ),
         "index": bool(field.get("index", False)),
     }
+    # Prefill from the parent App's settings at compose/create time
+    # (e.g. Finance ``currency`` ← ``default_currency``). Empty string omitted.
+    default_from_setting = str(field.get("default_from_setting") or "").strip()
+    if default_from_setting:
+        out["default_from_setting"] = default_from_setting
     if composite_meta is not None:
         out["composite"] = composite_meta
     relation = _as_dict(field.get("relation"), where=f"field '{key}' relation")
@@ -540,6 +553,11 @@ def _normalize_field_spec(field: Dict[str, Any]) -> Dict[str, Any]:
             "max_count": max_count,
             "expose_metadata": expose_metadata,
         }
+    if ftype == "computed":
+        if out["required"]:
+            raise BadRequestError(message=f"Computed field '{key}' cannot be required")
+        out["readonly"] = True
+        out["expression"] = attach_computed_expression(key, field.get("expression"))
     return out
 
 
@@ -605,6 +623,7 @@ def _normalize_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
         _normalize_field_spec(_as_dict(f, where=f"entry type '{name}' field"))
         for f in _as_list(spec.get("fields"), where=f"entry type '{name}' fields")
     ]
+    bind_computed_fields(fields)
 
     # Phase 3.1 Plan 03.1-04 (ANC-06) — ``related_views`` additive slot.
     # Each related view: ``{view: <view_ref>, bind: <Dict[str, Any]>}``.
@@ -633,6 +652,11 @@ def _normalize_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
             position = "related"
         related_views.append({"view": view_ref, "bind": bind, "position": position})
 
+    ui_contributions = _normalize_ui_contributions(
+        spec.get("ui_contributions"),
+        where=f"entry type '{name}' ui_contributions",
+    )
+
     return {
         "key": key or _slug(name),
         "name": name,
@@ -647,10 +671,16 @@ def _normalize_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
             )
         ],
         "related_views": related_views,
+        "ui_contributions": ui_contributions,
         # Opt-in: entries of this type open as a dedicated full page
         # (EntryPage.tsx) instead of the default modal overlay. Defaults to
         # False so every existing entry type's behavior is unchanged.
         "open_as_page": bool(spec.get("open_as_page", False)),
+        # Opt-in: the entry page shows a live file pane beside the entry, fed
+        # by one file field. None when unset. See _normalize_canvas.
+        "canvas": _normalize_canvas(
+            spec.get("canvas"), where=f"entry type '{name}' canvas"
+        ),
         # Opt-in: at most one entry of this type may exist per track (e.g.
         # a "settings-shaped" employer-identity record a bundle wants to
         # exist exactly once). Enforced generically at create time in
@@ -670,6 +700,114 @@ def _normalize_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
             spec.get("create_wizard"), where=f"entry type '{name}' create_wizard"
         ),
     }
+
+
+def _normalize_canvas(raw: Any, *, where: str) -> Optional[Dict[str, Any]]:
+    """Normalize an entry type's opt-in ``canvas`` block.
+
+    ``canvas: {file_field: <key>, editor: body}`` makes the entry page
+    (``open_as_page``) show the entry's file beside its fields: the attachment
+    named by that file field, or the newest attachment when it is empty. With
+    ``editor: body`` the pane also has a Document tab: a rich-text editor on the
+    entry body. ``None`` when unset, so every entry type without it is
+    unchanged.
+    """
+    if raw is None or raw is False:
+        return None
+    if raw is True:
+        raw = {}
+    if not isinstance(raw, dict):
+        raise BadRequestError(message=f"{where} must be an object")
+    file_field = str(raw.get("file_field") or "").strip()
+    # ``editor: body`` adds a document editor tab bound to the entry body.
+    editor = str(raw.get("editor") or "").strip()
+    if editor and editor != "body":
+        raise BadRequestError(message=f"{where}.editor must be 'body' when set")
+    return {"file_field": file_field, "editor": editor}
+
+
+_VALID_UI_CONTRIBUTION_PLACEMENTS = frozenset({"entry_compose", "entry_detail"})
+
+
+def _normalize_ui_contributions(raw: Any, *, where: str) -> List[Dict[str, Any]]:
+    """Normalize optional ``ui_contributions[]`` for entry compose/detail slots.
+
+    Each contribution is one of two exclusive shapes:
+
+    - ``extension_view_key`` — App package iframe via ``AppExtensionViewHost``
+      (ADR-011 escape hatch).
+    - ``view`` (saved view key on the host track) and/or ``view_type`` (+
+      optional inline ``config``) — Core React region via the view palette.
+
+    Exactly one of the two shapes is required. ``layout`` (e.g. ``wide``)
+    remains optional on both.
+    """
+    items = _as_list(raw, where=where)
+    if not items:
+        return []
+    out: List[Dict[str, Any]] = []
+    for idx, item in enumerate(items):
+        ed = _as_dict(item, where=f"{where}[{idx}]")
+        placement = str(ed.get("placement") or "").strip().lower()
+        if placement not in _VALID_UI_CONTRIBUTION_PLACEMENTS:
+            raise BadRequestError(
+                message=(
+                    f"{where}[{idx}].placement must be one of "
+                    f"{sorted(_VALID_UI_CONTRIBUTION_PLACEMENTS)}"
+                )
+            )
+        ext_key = str(ed.get("extension_view_key") or "").strip()
+        view_key = str(ed.get("view") or "").strip()
+        view_type = str(ed.get("view_type") or "").strip()
+        has_ext = bool(ext_key)
+        has_native = bool(view_key or view_type)
+        if has_ext and has_native:
+            raise BadRequestError(
+                message=(
+                    f"{where}[{idx}] must set either extension_view_key "
+                    f"(iframe) or view/view_type (Core region), not both"
+                )
+            )
+        if not has_ext and not has_native:
+            raise BadRequestError(
+                message=(
+                    f"{where}[{idx}] requires extension_view_key or " f"view/view_type"
+                )
+            )
+        contrib: Dict[str, Any] = {"placement": placement}
+        if has_ext:
+            contrib["extension_view_key"] = ext_key
+        else:
+            if view_key:
+                contrib["view"] = view_key
+            if view_type:
+                contrib["view_type"] = view_type
+            cfg = ed.get("config")
+            if isinstance(cfg, dict) and cfg:
+                contrib["config"] = dict(cfg)
+        layout = str(ed.get("layout") or "").strip().lower()
+        if layout:
+            contrib["layout"] = layout
+        if ed.get("owns_form") is True or str(
+            ed.get("owns_form") or ""
+        ).strip().lower() in (
+            "true",
+            "1",
+            "yes",
+        ):
+            contrib["owns_form"] = True
+        title_from = ed.get("title_from_fields")
+        if isinstance(title_from, list):
+            keys = [str(x).strip() for x in title_from if str(x).strip()]
+            if keys:
+                contrib["title_from_fields"] = keys
+        elif isinstance(title_from, str) and title_from.strip():
+            # Allow comma-separated shorthand in YAML.
+            keys = [p.strip() for p in title_from.split(",") if p.strip()]
+            if keys:
+                contrib["title_from_fields"] = keys
+        out.append(contrib)
+    return out
 
 
 def _normalize_create_wizard(raw: Any, *, where: str) -> Optional[Dict[str, Any]]:
@@ -1208,13 +1346,22 @@ def _normalize_view_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
     if composite_meta is not None:
         out["composite"] = composite_meta
     if view_type == "extension_view":
+        # Accept top-level or config-nested key — attached manifests often
+        # retain only ``config.extension_view_key`` after an earlier normalize.
+        cfg_evk = ""
+        raw_cfg = spec.get("config")
+        if isinstance(raw_cfg, dict):
+            cfg_evk = str(raw_cfg.get("extension_view_key") or "").strip()
         evk = str(
-            spec.get("extension_view_key") or spec.get("extension_view") or ""
+            spec.get("extension_view_key")
+            or spec.get("extension_view")
+            or cfg_evk
+            or ""
         ).strip()
         if not evk:
             raise BadRequestError(message="extension_view requires extension_view_key")
         known = _current_extension_view_keys()
-        if known and evk not in known:
+        if known is not None and evk not in known:
             raise OperationalModelValidationError(
                 message=(
                     f"view references unknown extension_view_key {evk!r}; "
@@ -1560,11 +1707,38 @@ PUBLIC_SHARE_PERMISSION_KEYS = (
 )
 
 
+def _normalize_public_share_extensions(
+    block: Dict[str, Any], *, where: str
+) -> Dict[str, str]:
+    """Opaque string map for onboarding / hire flows (not public-share permissions)."""
+    ext_raw = block.get("extensions")
+    if ext_raw is None:
+        return {}
+    ext_dict = _as_dict(ext_raw, where=f"{where}.extensions")
+    out: Dict[str, str] = {}
+    for key, value in ext_dict.items():
+        k = str(key or "").strip()
+        if not k:
+            continue
+        if value is None:
+            out[k] = ""
+        elif isinstance(value, (str, int, float, bool)):
+            out[k] = str(value).strip()
+        else:
+            raise BadRequestError(
+                message=f"{where}.extensions.{k} must be a scalar string value"
+            )
+    return out
+
+
 def _normalize_public_share_spec(spec: Any, *, where: str) -> Optional[Dict[str, Any]]:
     """Validate a track spec's ``public_share`` block.
 
-    Returns ``None`` when absent or explicitly disabled, so the compiled spec
-    carries the key only when a track genuinely asks to be publicly shared.
+    Returns ``None`` when absent, or when disabled with no ``extensions``.
+
+    When ``enabled: false`` but ``extensions`` are present (e.g. member onboarding
+    with ``contract_review_document_type``), the block is retained so authenticated
+    flows can read manifest metadata without minting a public share link.
 
     This declares INTENT only. Provisioning never mints a link from it — see
     ``services/operational_model_merge.provision_prescribed_tracks_from_app_manifest``
@@ -1574,12 +1748,11 @@ def _normalize_public_share_spec(spec: Any, *, where: str) -> Optional[Dict[str,
     if spec is None:
         return None
     block = _as_dict(spec, where=where)
+    extensions = _normalize_public_share_extensions(block, where=where)
 
     enabled_raw = block.get("enabled", False)
     if not isinstance(enabled_raw, bool):
         raise BadRequestError(message=f"{where}.enabled must be boolean")
-    if not enabled_raw:
-        return None
 
     perms_raw = _as_dict(block.get("permissions"), where=f"{where}.permissions")
     unknown = sorted(set(perms_raw) - set(PUBLIC_SHARE_PERMISSION_KEYS))
@@ -1597,7 +1770,15 @@ def _normalize_public_share_spec(spec: Any, *, where: str) -> Optional[Dict[str,
             raise BadRequestError(message=f"{where}.permissions.{key} must be boolean")
         permissions[key] = value
 
-    return {"enabled": True, "permissions": permissions}
+    if not enabled_raw:
+        if not extensions:
+            return None
+        return {"enabled": False, "permissions": permissions, "extensions": extensions}
+
+    out: Dict[str, Any] = {"enabled": True, "permissions": permissions}
+    if extensions:
+        out["extensions"] = extensions
+    return out
 
 
 def _normalize_taxonomy(taxonomy: Dict[str, Any]) -> Dict[str, Any]:
@@ -2150,6 +2331,7 @@ _VALID_HOOK_POINTS = frozenset(
         "entry.update",  # DR-32-01
         "connector.dedup",
         "connector.auto_link",
+        "email.sent",
     }
 )
 _VALID_HOOK_MODES = frozenset({"declarative", "tool"})
@@ -2849,6 +3031,18 @@ def _parse_manifest_tools(
             # tools (finalize / generate payslips) so chat cannot invoke them
             # even via the generic ``integral_call_workspace_tool`` path.
             "agent_callable": bool(ed.get("agent_callable", True)),
+            # Opt-in: other installed apps' tools may call this one through
+            # ``ToolContext.call_app_tool``. Off unless the bundle says so.
+            "exported": bool(ed.get("exported", False)),
+            # Opt-in, exact allowlist of connector tools this tool may WRITE through
+            # ``ToolContext.call_connector_tool(..., write=True)``, as "slug.tool" strings.
+            # Only honoured for a tool that is itself a write tool (so an assistant runs it
+            # behind an approval card; a button click is the person's own approval).
+            "connector_writes": [
+                str(x).strip()
+                for x in (ed.get("connector_writes") or [])
+                if str(x).strip()
+            ],
         }
         out.append(spec)
     return out
@@ -2937,6 +3131,25 @@ def _parse_manifest_hooks(
                 ed.get("tool_input") or {},
                 where=f"{where}[{key!r}].tool_input",
             )
+        read_time_fields = ed.get("read_time_fields")
+        if read_time_fields is not None:
+            if point != "entry.precompute" or mode != "tool":
+                raise OperationalModelValidationError(
+                    message=f"{where}[{key!r}].read_time_fields requires a tool precompute hook"
+                )
+            if (
+                not isinstance(read_time_fields, list)
+                or not read_time_fields
+                or len(read_time_fields) > 32
+                or any(
+                    not isinstance(f, str) or not f.strip() for f in read_time_fields
+                )
+                or len(set(read_time_fields)) != len(read_time_fields)
+            ):
+                raise OperationalModelValidationError(
+                    message=f"{where}[{key!r}].read_time_fields must contain 1-32 unique field keys"
+                )
+            binding["read_time_fields"] = list(read_time_fields)
         out.append(binding)
     return out
 
@@ -3508,7 +3721,7 @@ def compile_canonical_manifest(
 
     field_token = _active_field_composites.set(field_composites)
     view_token = _active_view_composites.set(view_composites)
-    extension_view_keys: Set[str] = set()
+    extension_view_keys: Optional[Set[str]] = None
     if scope == "app":
         app_node_early = _as_dict(base.get("app"), where="app")
         extension_view_keys = {
@@ -3715,6 +3928,12 @@ def compile_canonical_manifest(
                             "must be boolean"
                         )
                     )
+                if "nav_visible" in td and not isinstance(td.get("nav_visible"), bool):
+                    raise BadRequestError(
+                        message=(
+                            f"app_node.tracks[{tname!r}].nav_visible must be boolean"
+                        )
+                    )
                 public_share = _normalize_public_share_spec(
                     td.get("public_share"),
                     where=f"app.tracks[{tname!r}].public_share",
@@ -3728,6 +3947,9 @@ def compile_canonical_manifest(
                             "provision_on_create": bool(
                                 td.get("provision_on_create", True)
                             ),
+                            # When false, Track is provisioned / addressable but
+                            # omitted from default App nav lists (see Track.nav_visible).
+                            "nav_visible": bool(td.get("nav_visible", True)),
                             # Declared intent only — never auto-minted. The
                             # owner's explicit enable mints the token.
                             **({"public_share": public_share} if public_share else {}),
@@ -3835,6 +4057,12 @@ def compile_canonical_manifest(
                 app_node.get("queries"),
                 where="app.queries",
             )
+            from app.services.app_home_contract import normalize_app_home
+
+            try:
+                app_home = normalize_app_home(app_node.get("home"), app_queries)
+            except ValueError as exc:
+                raise BadRequestError(message=str(exc)) from exc
             operation_keys = {str(item.get("key") or "") for item in app_operations}
             query_keys = {str(item.get("key") or "") for item in app_queries}
             duplicate_capability_keys = sorted(operation_keys & query_keys)
@@ -3879,6 +4107,7 @@ def compile_canonical_manifest(
                     for r in _as_list(app_node.get("relations"), where="app.relations")
                 ],
                 "defaults": app_defaults,
+                **({"home": app_home} if app_home is not None else {}),
                 # v2 operational layer (Plan 10-03 MANIFEST-V2-01)
                 "skills": app_skills,
                 "agents": app_agents,
@@ -4039,6 +4268,7 @@ def normalize_entry_type_form_schema(
         _normalize_field_spec(_as_dict(f, where="entry_type.form_schema.fields[]"))
         for f in _as_list(raw.get("fields"), where="entry_type.form_schema.fields")
     ]
+    bind_computed_fields(fields)
     related_views_raw = _as_list(
         raw.get("related_views"), where="entry_type.form_schema.related_views"
     )
@@ -4060,6 +4290,10 @@ def normalize_entry_type_form_schema(
         if position not in ("primary", "related"):
             position = "related"
         related_views.append({"view": view_ref, "bind": bind, "position": position})
+    ui_contributions = _normalize_ui_contributions(
+        raw.get("ui_contributions"),
+        where="entry_type.form_schema.ui_contributions",
+    )
     out: Dict[str, Any] = {
         "fields": fields,
         "base_fields": _normalize_entry_type_base_fields(raw.get("base_fields")),
@@ -4071,9 +4305,13 @@ def normalize_entry_type_form_schema(
             )
         ],
         "related_views": related_views,
+        "ui_contributions": ui_contributions,
         "open_as_page": bool(raw.get("open_as_page", False)),
         "singleton": bool(raw.get("singleton", False)),
     }
+    canvas = raw.get("canvas")
+    if canvas is not None:
+        out["canvas"] = _normalize_canvas(canvas, where="entry_type.form_schema.canvas")
     manifest_key = str(raw.get("_manifest_entry_type_key") or "").strip()
     if manifest_key:
         out["_manifest_entry_type_key"] = manifest_key
@@ -4308,48 +4546,53 @@ def materialize_view_config_from_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
     return normalize_view_config(view_type, merged)
 
 
-def _scan_seeded_libraries_for_view_key(
-    manifest_view_key: str,
-) -> Optional[Dict[str, Any]]:
-    """Find a view spec across registered seeded libraries by manifest key.
+# Built once from the process-cached library specs. Opening a track used to
+# reparse every package for each view that lacked entry-type keys.
+_SEEDED_VIEW_INDEX: Optional[Dict[str, Dict[str, Any]]] = None
+_SEEDED_VIEW_INDEX_TOKEN: Optional[int] = None
 
-    Used as fallback when the persisted profile manifest was written before
-    ``entry_types`` existed on view specs. The seeded library source is the
-    authoritative declaration for built-in templates.
+
+def reset_seeded_library_view_index() -> None:
+    """Drop the view-key index. Tests reset this with the library spec cache."""
+    global _SEEDED_VIEW_INDEX, _SEEDED_VIEW_INDEX_TOKEN
+    _SEEDED_VIEW_INDEX = None
+    _SEEDED_VIEW_INDEX_TOKEN = None
+
+
+def warm_seeded_library_view_index() -> Dict[str, Dict[str, Any]]:
+    """Index seeded view specs by key, parsing library packages once per process.
+
+    Safe to call from a worker thread. The disk parse lives in
+    ``load_library_operational_models_with_issues_cached``; this only walks
+    the already-parsed manifests.
     """
-    if not manifest_view_key:
-        return None
-    try:
-        from app.services.operational_model_loader import (
-            load_library_operational_models,
-        )
-    except Exception:
-        return None
+    global _SEEDED_VIEW_INDEX, _SEEDED_VIEW_INDEX_TOKEN
+    from app.services.operational_model_library_sync import (
+        load_library_operational_models_with_issues_cached,
+    )
 
-    target = _slug(str(manifest_view_key))
+    specs, _issues = load_library_operational_models_with_issues_cached()
+    token = id(specs)
+    if _SEEDED_VIEW_INDEX is not None and _SEEDED_VIEW_INDEX_TOKEN == token:
+        return _SEEDED_VIEW_INDEX
 
-    def _walk_tier(tier: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        for v in _as_list(tier.get("views"), where="seed.views") or []:
-            if not isinstance(v, dict):
+    index: Dict[str, Dict[str, Any]] = {}
+
+    def _remember(tier: Dict[str, Any]) -> None:
+        for view in _as_list(tier.get("views"), where="seed.views") or []:
+            if not isinstance(view, dict):
                 continue
-            k = _slug(str(v.get("key") or ""))
-            if k == target:
-                return v
-        return None
-
-    try:
-        specs = load_library_operational_models()
-    except Exception:
-        return None
+            key = _slug(str(view.get("key") or ""))
+            if key and key not in index:
+                index[key] = view
 
     for pkg in specs:
         manifest = pkg.manifest if isinstance(pkg.manifest, dict) else {}
         scope = str(manifest.get("scope") or "")
         if scope == "track":
             tier = manifest.get("track") or {}
-            hit = _walk_tier(tier if isinstance(tier, dict) else {})
-            if hit:
-                return hit
+            if isinstance(tier, dict):
+                _remember(tier)
         elif scope == "app":
             app_node = manifest.get("app") or {}
             tracks_list = (
@@ -4359,10 +4602,29 @@ def _scan_seeded_libraries_for_view_key(
                 )
                 or []
             )
-            for t in tracks_list:
-                if not isinstance(t, dict):
-                    continue
-                hit = _walk_tier(t)
-                if hit:
-                    return hit
-    return None
+            for track_spec in tracks_list:
+                if isinstance(track_spec, dict):
+                    _remember(track_spec)
+
+    _SEEDED_VIEW_INDEX = index
+    _SEEDED_VIEW_INDEX_TOKEN = token
+    return index
+
+
+def _scan_seeded_libraries_for_view_key(
+    manifest_view_key: str,
+) -> Optional[Dict[str, Any]]:
+    """Find a view spec across registered seeded libraries by manifest key.
+
+    Used as fallback when the persisted profile manifest was written before
+    ``entry_types`` existed on view specs. The seeded library source is the
+    authoritative declaration for built-in templates. The package parse is
+    process-cached; this is a dict lookup after the first call.
+    """
+    if not manifest_view_key:
+        return None
+    target = _slug(str(manifest_view_key))
+    try:
+        return warm_seeded_library_view_index().get(target)
+    except Exception:
+        return None

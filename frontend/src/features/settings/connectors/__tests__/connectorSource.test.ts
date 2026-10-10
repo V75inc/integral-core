@@ -25,7 +25,7 @@ function connector(
 ): ConnectorResponse {
   return {
     id: 'con-1',
-    kind: 'jvagent',
+    kind: 'custom',
     owner: 'u-1',
     auth_state: {},
     sync_cursor: null,

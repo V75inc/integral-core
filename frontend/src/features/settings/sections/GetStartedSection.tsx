@@ -72,17 +72,17 @@ export function GetStartedSection({
       </SettingsSection>
 
       <SettingsSection
-        title="Choose your agent"
-        description="Choose the AI assistant for this workspace. You can change it later."
+        title="Connect your AI model"
+        description="Integral AI is already active. Connect a cloud provider or local Ollama model to start working with it."
       >
         <Button
           type="button"
           variant="secondary"
           size="sm"
           icon={<Bot size={14} strokeWidth={LINE_ICON_STROKE} />}
-          onClick={() => navigateToSection?.('agents')}
+          onClick={() => navigateToSection?.('ai-models')}
         >
-          Choose an assistant
+          Connect a model
         </Button>
       </SettingsSection>
     </div>

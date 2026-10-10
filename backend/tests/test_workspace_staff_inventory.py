@@ -4,7 +4,7 @@ from datetime import datetime
 
 import pytest
 
-from app.models.edges import CONTAINS, IS_MEMBER_OF
+from app.models.edges import COLLABORATES_ON, CONTAINS, IS_MEMBER_OF
 from app.models.nodes import App, Track, User, Workspace
 from app.services.app_graph import (
     catalog_app,
@@ -23,7 +23,7 @@ from app.services.workspace_permissions import collect_org_workspace_staff_inven
 
 
 async def _org_workspace_with_inventory(
-    *, owner: User
+    *, owner: User, visibility: str = "private"
 ) -> tuple[Workspace, App, Track, Track]:
     """Org workspace with one app, one app-nested track, one standalone track."""
     now = datetime.now().isoformat()
@@ -49,6 +49,7 @@ async def _org_workspace_with_inventory(
         name_fold="bundle app",
         owner_user_id=owner.id,
         workspace_id=ws.id,
+        visibility=visibility,
         lifecycle_state="active",
         created_at=now,
         updated_at=now,
@@ -71,6 +72,7 @@ async def _org_workspace_with_inventory(
         title_fold="standalone track",
         owner_id=owner.id,
         workspace_id=ws.id,
+        visibility=visibility,
         created_at=now,
         updated_at=now,
     )
@@ -94,7 +96,9 @@ async def test_collect_org_workspace_staff_inventory_includes_apps_and_tracks():
 async def test_workspace_admin_sees_full_inventory_without_collaborator_edges():
     await ensure_integral_app_graph(include_library=False)
     owner = await User.create(user_id="staff_owner2", display_name="Owner")
-    ws, app, nested, standalone = await _org_workspace_with_inventory(owner=owner)
+    ws, app, nested, standalone = await _org_workspace_with_inventory(
+        owner=owner, visibility="workspace"
+    )
 
     admin = await User.create(user_id="staff_admin", display_name="Admin")
     await admin.connect(
@@ -163,6 +167,7 @@ async def test_staff_inventory_includes_apps_missing_branch_catalog_edge():
         name_fold="legacy app",
         owner_user_id=owner.id,
         workspace_id=ws.id,
+        visibility="workspace",
         lifecycle_state="active",
         created_at=now,
         updated_at=now,
@@ -172,6 +177,7 @@ async def test_staff_inventory_includes_apps_missing_branch_catalog_edge():
         title_fold="legacy standalone",
         owner_id=owner.id,
         workspace_id=ws.id,
+        visibility="workspace",
         created_at=now,
         updated_at=now,
     )
@@ -210,7 +216,9 @@ async def test_workspace_admin_implicit_role_is_commenter_on_inventory_resources
     """
     await ensure_integral_app_graph(include_library=False)
     owner = await User.create(user_id="staff_owner5", display_name="Owner")
-    ws, app, nested, standalone = await _org_workspace_with_inventory(owner=owner)
+    ws, app, nested, standalone = await _org_workspace_with_inventory(
+        owner=owner, visibility="workspace"
+    )
 
     admin = await User.create(user_id="staff_admin5", display_name="Admin")
     await admin.connect(
@@ -229,3 +237,35 @@ async def test_workspace_admin_implicit_role_is_commenter_on_inventory_resources
     # ...and the management gate is now closed without a direct grant.
     assert await can_admin_track(admin.id, nested.id) is False
     assert await can_admin_track(admin.id, standalone.id) is False
+
+
+@pytest.mark.asyncio
+async def test_invited_admin_cannot_open_private_app_without_a_direct_grant():
+    """Private means the owner and people they add, not every workspace admin."""
+    await ensure_integral_app_graph(include_library=False)
+    owner = await User.create(user_id="staff_owner6", display_name="Owner")
+    ws, _shared, _nested, _standalone = await _org_workspace_with_inventory(owner=owner)
+    now = datetime.now().isoformat()
+    private_app = await App.create(
+        name="Private App",
+        name_fold="private app",
+        owner_user_id=owner.id,
+        workspace_id=ws.id,
+        visibility="private",
+        lifecycle_state="active",
+        created_at=now,
+        updated_at=now,
+    )
+    await catalog_app(private_app)
+    await wire_app_owner(private_app, owner.id, workspace_id=ws.id)
+
+    admin = await User.create(user_id="staff_admin6", display_name="Admin")
+    await admin.connect(ws, edge=IS_MEMBER_OF, role="admin", joined_at=now)
+
+    assert await resolve_role(owner.id, "app", private_app.id) == "owner"
+    assert await resolve_role(admin.id, "app", private_app.id) is None
+    admin_apps = await get_user_accessible_apps(admin.id)
+    assert private_app.id not in {a.id for a in admin_apps}
+
+    await admin.connect(private_app, edge=COLLABORATES_ON, role="editor")
+    assert await resolve_role(admin.id, "app", private_app.id) == "editor"

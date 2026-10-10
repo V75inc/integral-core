@@ -49,6 +49,17 @@ _PREVIEWABLE_VIA_LIBREOFFICE = frozenset(
         "application/msword",
         "application/rtf",
         "text/rtf",
+        # Modern Word (the format the document renderer produces) and the
+        # other office formats LibreOffice can turn into a PDF faithfully.
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.template",
+        "application/vnd.ms-word.document.macroenabled.12",
+        "application/vnd.ms-powerpoint.presentation.macroenabled.12",
+        "application/vnd.openxmlformats-officedocument.presentationml.template",
+        "application/vnd.oasis.opendocument.graphics",
+        "application/vnd.ms-visio.drawing",
+        "application/vnd.visio",
+        "application/vnd.ms-publisher",
     }
 )
 

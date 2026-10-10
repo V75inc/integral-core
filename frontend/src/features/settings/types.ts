@@ -6,15 +6,8 @@
  * are the single source of truth for the UI.
  */
 
-/** Active AI harness routing. Surfaced as a radio toggle on the Agents
- *  panel. Exactly one value is current at a time. */
-export type HarnessProviderId =
-  /** Default. Native Pydantic AI harness hosted by Integral Core. */
-  | 'pydantic-ai-native'
-  /** Compatibility harness: in-process jvagent embedded in the backend. */
-  | 'jvagent-embedded'
-  /** Mock echo provider — for layout / theming work without a live agent. */
-  | 'mock-echo';
+/** Fixed resident identity; model provider selection lives in AI Models. */
+export type HarnessProviderId = 'pydantic-ai-native';
 
 export interface ProvidersSettings {
   /** Active harness routing. Default ``pydantic-ai-native``. */
@@ -25,6 +18,12 @@ export interface AppearanceSettings {
   /** Reserved — theme already lives in ThemeContext, mirrored here for the
    *  settings UI; switching here updates the context too. */
   theme: 'light' | 'dark';
+  /**
+   * When true, entry detail modals open at workspace-max width (and stay
+   * that size until the user restores). Toggled from the modal header or
+   * Appearance settings.
+   */
+  entryDialogExpanded: boolean;
 }
 
 /** Global retrieval (search) mode applied to every search surface. */
@@ -43,12 +42,13 @@ export interface SettingsSnapshot {
 }
 
 export const DEFAULT_SETTINGS: SettingsSnapshot = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   providers: {
     defaultProviderId: 'pydantic-ai-native',
   },
   appearance: {
     theme: 'light',
+    entryDialogExpanded: false,
   },
   retrieval: {
     mode: 'semantic',

@@ -88,9 +88,9 @@ def main() -> int:
     for name in (
         "DEBUG",
         "JVSPATIAL_DB_TYPE",
-        "JVAGENT_UPDATE_MODE",
         "INTEGRAL_AGENT_KEY_MODE",
-        "INTEGRAL_AGENT_TURN_TIMEOUT_SECONDS",
+        "INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS",
+        "INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS",
     ):
         # Not every var is a Settings field — jvspatial reads some (e.g.
         # JVSPATIAL_DB_TYPE) straight from the environment.
@@ -112,7 +112,9 @@ def main() -> int:
     try:
         from importlib.metadata import version
 
-        print(f"\njvagent {version('jvagent')} | jvspatial {version('jvspatial')}")
+        print(
+            f"\nPydantic AI Harness {version('pydantic-ai-harness')} | jvspatial {version('jvspatial')}"
+        )
     except Exception:
         pass
     return 0

@@ -8,22 +8,21 @@ from app.agentive.tooling.bindings import _stage_create_dashboard
 
 
 @pytest.mark.asyncio
-async def test_stage_create_dashboard_raises_on_unknown_widget_type():
-    """Staging create raises a helpful error for an unknown widget type."""
-    with pytest.raises(ValueError, match="unknown type 'bogus_widget'"):
-        await _stage_create_dashboard(
-            {
-                "app_id": "app-1",
-                "name": "Test board",
-                "widgets": [
-                    {
-                        "id": "w1",
-                        "type": "bogus_widget",
-                        "title": "Bad",
-                    }
-                ],
-            }
-        )
+async def test_stage_create_dashboard_discloses_starter_fallback_for_unknown_widget():
+    """Unknown widget requests are replaced visibly before user approval."""
+    staged = await _stage_create_dashboard(
+        {
+            "app_id": "app-1",
+            "name": "Test board",
+            "widgets": [{"id": "w1", "type": "bogus_widget", "title": "Bad"}],
+        }
+    )
+
+    assert "starter dashboard" in staged["diff_human"]
+    assert len(staged["payload"]["widgets"]) > 0
+    assert all(
+        widget["type"] != "bogus_widget" for widget in staged["payload"]["widgets"]
+    )
 
 
 @pytest.mark.asyncio
@@ -164,3 +163,74 @@ async def test_dashboard_business_fields_require_visible_published_schema(monkey
         await service.validate_dashboard_field_bindings(
             user_id="u1", app_id="app-1", widgets=valid
         )
+
+
+@pytest.mark.asyncio
+async def test_new_app_dashboard_defers_binding_check_until_planned_app_exists(
+    monkeypatch,
+):
+    from unittest.mock import AsyncMock
+
+    from app.agentive.tooling import bindings
+    from app.services import dashboard_service
+
+    monkeypatch.setattr(bindings, "_batch_creates_app", lambda: True)
+    validate = AsyncMock()
+    monkeypatch.setattr(
+        dashboard_service, "validate_dashboard_field_bindings", validate
+    )
+    token = bindings._propose_principal.set("user-1")
+    try:
+        staged = await bindings._stage_create_dashboard(
+            {
+                "app_id": "{{app.id}}",
+                "name": "Repair Shop",
+                "widgets": [
+                    {
+                        "id": "open-jobs",
+                        "type": "metric_card",
+                        "title": "Open jobs",
+                        "data_source": {"kind": "count"},
+                    }
+                ],
+            }
+        )
+    finally:
+        bindings._propose_principal.reset(token)
+
+    assert staged["payload"]["app_id"] == "{{app.id}}"
+    validate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_existing_app_dashboard_still_validates_field_bindings(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from app.agentive.tooling import bindings
+    from app.services import dashboard_service
+
+    monkeypatch.setattr(bindings, "_batch_creates_app", lambda: False)
+    validate = AsyncMock()
+    monkeypatch.setattr(
+        dashboard_service, "validate_dashboard_field_bindings", validate
+    )
+    token = bindings._propose_principal.set("user-1")
+    try:
+        await bindings._stage_create_dashboard(
+            {
+                "app_id": "n.App.existing",
+                "name": "Repair Shop",
+                "widgets": [
+                    {
+                        "id": "open-jobs",
+                        "type": "metric_card",
+                        "title": "Open jobs",
+                        "data_source": {"kind": "count"},
+                    }
+                ],
+            }
+        )
+    finally:
+        bindings._propose_principal.reset(token)
+
+    validate.assert_awaited_once()

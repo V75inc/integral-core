@@ -51,7 +51,7 @@ def test_class_app_exists_with_correct_discriminator() -> None:
     """``App`` is importable and ``App.__entity_name__ == "WorkspaceApp"``.
 
     The discriminator is "WorkspaceApp" (not "App") to avoid collision with
-    jvagent's own ``App`` node class. DB rows were migrated Space → App →
+    native provider's own ``App`` node class. DB rows were migrated Space → App →
     WorkspaceApp. The discriminator must NOT be changed to "App" without a
     DB migration.
     """
@@ -59,7 +59,7 @@ def test_class_app_exists_with_correct_discriminator() -> None:
 
     assert App.__entity_name__ == "WorkspaceApp", (
         f"App.__entity_name__ == {App.__entity_name__!r}; "
-        'expected "WorkspaceApp" — discriminator collision avoidance with jvagent '
+        'expected "WorkspaceApp" — discriminator collision avoidance with native provider '
         "(see nodes.py App class docstring). Do not change without a DB migration."
     )
 

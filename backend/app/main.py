@@ -4,17 +4,9 @@ import asyncio
 import importlib
 import logging as std_logging
 import os
-import re
 import sys
 from pathlib import Path
-from typing import Any, Optional
-
-try:
-    from dotenv import load_dotenv
-
-    load_dotenv()
-except ImportError:
-    pass
+from typing import Optional
 
 from app.config import settings
 
@@ -278,116 +270,7 @@ from jvspatial.api.config_groups import (
     RateLimitConfig,
 )
 
-
-def _jvagent_update_mode() -> Optional[str]:
-    """Resolve the jvagent embed bootstrap ``update_mode`` from env.
-
-    Reads ``JVAGENT_UPDATE_MODE`` (default ``source``). Accepts ``run``,
-    ``merge``, ``source`` case-insensitively; anything else falls back to
-    ``source`` with a warning. ``run`` maps to ``None`` because that is the
-    bootstrap "skip existing actions" sentinel. Read here via os.getenv so a
-    ``.env`` value or test monkeypatch applies at startup; the declarative
-    default lives on ``Settings.JVAGENT_UPDATE_MODE``.
-    """
-    raw = os.getenv("JVAGENT_UPDATE_MODE", "source").strip().lower()
-    if raw not in ("run", "merge", "source"):
-        std_logging.getLogger("app.agentive").warning(
-            "Invalid JVAGENT_UPDATE_MODE %r; falling back to 'source'", raw
-        )
-        raw = "source"
-    return None if raw == "run" else raw
-
-
-# Resident-action class id-prefixes retired by forward-only renames. jvspatial
-# encodes the class in a node id (``n.<Class>.<uuid>``), so renaming the
-# resident action class strands the previously-persisted action node under the
-# OLD prefix. The dead class can no longer be resolved by the ORM, so jvagent's
-# ``register_action`` cannot find that node to reuse/replace — it then collides
-# on the ``(agent_id, label)`` unique index
-# (``node_context_agent_id_context_label_uniq`` → "duplicate key value") and
-# fails to register, breaking agentive startup. Add a retired prefix here
-# whenever the resident action class is renamed again.
-_DEAD_RESIDENT_ACTION_ID_PREFIXES = ("n.IntegralEmbeddedAction.",)
-# The resident action's stable ``context.label`` (unchanged across the class
-# rename) — scopes the orphan sweep to just the resident-action nodes.
-_RESIDENT_ACTION_LABEL = "embedded_integral_action"
-
-
-async def _purge_dead_resident_action_orphans() -> None:
-    """Drop resident-action nodes orphaned by a forward-only class rename.
-
-    Runs once before the jvagent embed bootstrap. A fresh or already-clean DB
-    has no orphans (no-op). The action node is rebuilt from ``agent.yaml`` on
-    every ``source``-mode bootstrap, so removing a stale-class orphan (and its
-    edges) is non-destructive. Best-effort: any failure here is logged and
-    swallowed so it can never block startup. Backend-agnostic — uses the
-    jvspatial DB facade (``find``/``delete`` on the ``node``/``edge``
-    collections), no raw SQL.
-    """
-    logger = std_logging.getLogger("app.agentive")
-    try:
-        from jvspatial.db import get_database_manager
-
-        db = get_database_manager().get_prime_database()
-        find = getattr(db, "find", None)
-        delete = getattr(db, "delete", None)
-        if find is None or delete is None:
-            return
-
-        # Scope by the stable label, then keep only ids under a retired
-        # (dead-class) prefix — this can never match the live current-class
-        # node, so it cannot delete the in-use action.
-        rows = await find("node", {"context.label": _RESIDENT_ACTION_LABEL})
-        for row in rows or []:
-            nid = (row or {}).get("id") or ""
-            if not any(nid.startswith(p) for p in _DEAD_RESIDENT_ACTION_ID_PREFIXES):
-                continue
-            # Remove edges referencing the orphan (source or target) first so no
-            # dangling edge survives. Two equality queries (not ``$or``) for the
-            # widest backend portability; dedup by edge id.
-            edge_ids: set[str] = set()
-            for side in ("source", "target"):
-                try:
-                    side_edges = await find("edge", {side: nid})
-                except Exception:
-                    side_edges = []
-                for edge in side_edges or []:
-                    eid = (edge or {}).get("id")
-                    if eid:
-                        edge_ids.add(eid)
-            for eid in edge_ids:
-                try:
-                    await delete("edge", eid)
-                except Exception:
-                    pass
-            try:
-                await delete("node", nid)
-                logger.warning(
-                    "purged orphaned resident-action node left by a class rename: "
-                    "%s (rebuilt from agent.yaml on bootstrap)",
-                    nid,
-                )
-            except Exception:
-                logger.debug("failed to delete orphan node %s", nid, exc_info=True)
-    except Exception:
-        logger.debug("dead-resident-action orphan purge skipped", exc_info=True)
-
-
-# Drop-in Server class: use jvagent.embed.Server when available so its
-# overridden get_app() auto-registers jvagent's HTTP routes on this server
-# before FastAPI snapshots the endpoint router.
-try:
-    from jvagent.embed import Server  # type: ignore[assignment]
-except ImportError as _exc:  # noqa: F841 — message includes exc
-    import logging as _std_logging
-
-    _std_logging.getLogger("app.agentive").warning(
-        "jvagent.embed.Server import failed (%s); "
-        "falling back to plain jvspatial.api.Server. jvagent HTTP routes "
-        "will not be available.",
-        _exc,
-    )
-    Server = _BaseServer  # type: ignore[assignment, misc]
+Server = _BaseServer
 
 from jvspatial.env import env, parse_bool, parse_csv
 from jvspatial.logging import configure_standard_logging, initialize_logging_database
@@ -473,6 +356,7 @@ from app.models.nodes import (
     Dashboards,
     Entry,
     EntryType,
+    GeneratedDocument,
     HarnessSession,
     Invitation,
     Invitations,
@@ -566,48 +450,18 @@ async def _ensure_atlas_search_index() -> None:
 
 
 async def _bootstrap_resident_harness() -> None:
-    """Start the optional resident harness without blocking Core availability."""
-    from app.agentive.agent_override import prepare_resident_app_root
-    from app.agentive.resident_root import resident_agent_root
+    """Qualify native skill assets; no vendor runtime or YAML bootstrap."""
+    from app.agentive.services.agent_skills import list_core_skills
     from app.modules.intelligence import (
         mark_intelligence_available,
         mark_intelligence_unavailable,
     )
 
-    agent_root = prepare_resident_app_root(resident_agent_root())
-    if not (agent_root / "app.yaml").exists():
-        mark_intelligence_unavailable("configuration_missing")
-        std_logging.getLogger("app.agentive").warning(
-            "%s/app.yaml not found; resident harness unavailable", agent_root
-        )
-        return
-    try:
-        from jvagent import embed as jvagent_embed
-
-        update_mode = _jvagent_update_mode()
-        await _purge_dead_resident_action_orphans()
-        await jvagent_embed.bootstrap(
-            app_root=agent_root,
-            update_mode=update_mode,
-            ensure_admin=False,
-        )
-        from app.agentive.skill_bundle_provider import (
-            install_skill_provider_into_jvagent,
-        )
-
-        install_skill_provider_into_jvagent()
-    except Exception as exc:  # noqa: BLE001 — Core stays available without a harness
-        mark_intelligence_unavailable("bootstrap_failed")
-        std_logging.getLogger("app.agentive").exception(
-            "resident harness unavailable; Core will continue: %s", exc
-        )
-        return
+    if not list_core_skills():
+        mark_intelligence_unavailable("skills_missing")
+        raise RuntimeError("Integral AI's packaged skills are missing")
     mark_intelligence_available()
-    std_logging.getLogger("app.agentive").info(
-        "resident harness bootstrap completed (app_root=%s, update_mode=%s)",
-        agent_root,
-        update_mode or "run",
-    )
+    std_logging.getLogger("app.agentive").info("Integral AI native harness ready")
 
 
 # Module-level handle for every background task spawned at startup
@@ -784,6 +638,18 @@ async def _startup() -> None:
     if os.getenv("PYTEST_CURRENT_TEST") or os.getenv("TESTING"):
         return
 
+    # Track opens fall back to seeded view specs. Parse those packages once
+    # here, off the event loop, so the first click after boot does not stall
+    # the only worker.
+    from app.services.operational_model_compile import warm_seeded_library_view_index
+
+    try:
+        await asyncio.to_thread(warm_seeded_library_view_index)
+    except Exception:
+        std_logging.getLogger("app.main").warning(
+            "seeded library view index warm failed", exc_info=True
+        )
+
     # RET-02 eager warm — runs after the TESTING gate so test boots stay
     # fast; tests that want to exercise the warmup invoke
     # ``_warm_embedding_model`` directly.
@@ -799,6 +665,9 @@ async def _startup() -> None:
     from app.services.app_graph import ensure_integral_app_graph
 
     await ensure_integral_app_graph()
+    from app.agentive.staging import restore_open_batches
+
+    await restore_open_batches()
     await bootstrap_admin_if_needed()
 
     await _bootstrap_resident_harness()
@@ -1111,14 +980,6 @@ async def _shutdown() -> None:
             )
     _background_tasks.clear()
 
-    # Stop background services started by the embedded jvagent runtime.
-    try:
-        from jvagent import embed as _jvagent_embed
-
-        await _jvagent_embed.shutdown()
-    except Exception:
-        pass
-
     # Close ALL registered database connections (prime + extras such as the
     # jvspatial logging DB), not just prime.
     #
@@ -1181,8 +1042,7 @@ from app.api import agent_preferences as _agent_preferences_endpoint  # noqa: E4
 # Pragmatism Clause — jvspatial's @endpoint does not support WebSocket).
 from app.api.events_ws import router as events_ws_router  # noqa: E402
 
-# Server configuration follows the jvagent pattern (see
-# ``jvagent/cli/server_config.py``): read JVSPATIAL_* env vars directly
+# Server configuration reads JVSPATIAL_* env vars directly
 # via ``jvspatial.env.env``, build typed config-group objects, and pass
 # them to ``Server(...)``. No legacy-name bridge, no setdefault shims —
 # the env var IS the source of truth, and integral's defaults appear
@@ -1298,14 +1158,6 @@ if _db_type in ("postgres", "postgresql"):
 else:
     _server_db_type = _db_type
 
-# jvagent's embed ``Server.get_app()`` mounts jvagent's own admin / memory /
-# graph / logs routes on this app unless ``JVAGENT_EMBED_ENDPOINTS_DISABLED``
-# is truthy (see ``jvagent/embed/bootstrap.py::_should_register_endpoints``).
-# Integral never uses them, and the ``auth=False`` interact routes register
-# through the same path. Off unless explicitly opted in via Settings.
-# Use setdefault so an explicit env (and pytest's env-leak guard) is preserved.
-if not settings.JVAGENT_EMBED_ENDPOINTS_ENABLED:
-    os.environ.setdefault("JVAGENT_EMBED_ENDPOINTS_DISABLED", "1")
 
 server = Server(
     title="Integral API",
@@ -1441,6 +1293,7 @@ server = Server(
         Entry,
         EntryType,
         Comment,
+        GeneratedDocument,
         Attachment,
         Tag,
         View,
@@ -1496,42 +1349,9 @@ if not server.disable_auth_endpoint("/register"):  # pragma: no cover - boot gua
     )
 
 app = server.get_app()
-app.add_exception_handler(RequestValidationError, _unify_request_validation_error)
-
-_JVAGENT_INTERACT_ROUTE_RE = re.compile(r"^/api/agents/[^/]+/interact(?:/|$)")
-
-
-def _jvagent_interact_routes(target_app: Any) -> list[str]:
-    """Paths on ``target_app`` that expose jvagent's raw interact surface.
-
-    jvagent's ``/agents/{id}/interact*`` endpoints are ``auth=False`` and
-    bypass Integral's principal / workspace / staging path entirely. They
-    are not mounted today, but they live in the same registration path as
-    the admin routes, one import away. Boot refuses if any appear.
-    """
-    found: list[str] = []
-    for route in getattr(target_app, "routes", []) or []:
-        path = getattr(route, "path", "") or ""
-        if _JVAGENT_INTERACT_ROUTE_RE.match(path):
-            found.append(path)
-    return found
-
-
-_leaked_interact_routes = _jvagent_interact_routes(app)
-if _leaked_interact_routes:
-    raise RuntimeError(
-        "jvagent's unauthenticated interact routes are mounted on the Integral "
-        f"app: {_leaked_interact_routes}. The resident is reachable through "
-        "/api/chat and MCP only; set JVAGENT_EMBED_ENDPOINTS_DISABLED=1 (the "
-        "default when JVAGENT_EMBED_ENDPOINTS_ENABLED is false)."
-    )
-
-# EVT-01: register the core /api/events WS router. Per D-13 this is core
-# infrastructure — registered BEFORE the AGENTIVE_ENABLED block so /api/events
-# is available regardless of agentive availability. Plan 06-05: WebSocket is
-# the documented carve-out from @endpoint (jvspatial framework limitation);
-# events_ws_router is still an explicit include.
+# WebSocket is the documented jvspatial endpoint exception.
 app.include_router(events_ws_router)
+app.add_exception_handler(RequestValidationError, _unify_request_validation_error)
 
 # Plan 06-05 — ai_chat, policies, conflicts, connectors (core sync) routes all
 # self-register via @endpoint side-effect import in app.api.__init__.py. No
@@ -1541,9 +1361,6 @@ app.include_router(events_ws_router)
 # module directly — everything routes through this registry. To swap or add
 # a harness: implement ChatBackendProvider, register it here.
 from app.services.chat_providers import get_registry  # noqa: E402
-from app.services.chat_providers.jvagent_provider import (  # noqa: E402
-    jvagent_provider,
-)
 
 registry = get_registry()
 
@@ -1551,11 +1368,9 @@ from app.services.chat_providers.pydantic_ai_provider import (  # noqa: E402
     pydantic_ai_provider,
 )
 
-if pydantic_ai_provider.is_available():
-    registry.register(pydantic_ai_provider, default=True)
-    registry.register(jvagent_provider)
-else:
-    registry.register(jvagent_provider, default=True)
+# Harness identity is unconditional. Model configuration is resolved per scoped
+# native turn; missing configuration must not select a different executor.
+registry.register(pydantic_ai_provider, default=True)
 
 
 # ---------------------------------------------------------------------------

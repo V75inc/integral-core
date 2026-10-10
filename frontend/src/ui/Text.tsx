@@ -131,8 +131,12 @@ export interface TextProps {
   className?: string;
   /** HTML id (e.g. for `aria-labelledby`). */
   id?: string;
+  /** Label association when rendering with `as="label"`. */
+  htmlFor?: string;
   /** Optional title attr — tooltip on truncated text. */
   title?: string;
+  /** Test hook for meaningful text content. */
+  'data-testid'?: string;
 }
 
 /**
@@ -182,7 +186,9 @@ export function Text({
   truncate = false,
   className,
   id,
+  htmlFor,
   title,
+  'data-testid': testId,
 }: TextProps) {
   const Element = (as ?? defaultElement(variant)) as ElementType;
   const resolvedTone = tone ?? defaultTone(variant);
@@ -198,7 +204,13 @@ export function Text({
     .join(' ');
 
   return (
-    <Element id={id} title={title} className={classes}>
+    <Element
+      id={id}
+      htmlFor={htmlFor}
+      title={title}
+      className={classes}
+      data-testid={testId}
+    >
       {children}
     </Element>
   );

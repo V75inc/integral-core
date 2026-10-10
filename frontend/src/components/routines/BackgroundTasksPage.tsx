@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { PageHeading, PageShell, PageSection } from '../ui';
-import { Select } from '../../ui';
+import { Select, Text } from '../../ui';
+import { useScopeOptional } from '../../context/ScopeContext';
+import { WorkItemsSection } from './WorkItemsSection';
 import { useSetCrumbs } from '../../context/CrumbsContext';
 import {
   listRoutines,
@@ -13,6 +15,7 @@ type StatusFilter = RoutineStatus | 'all';
 
 export function BackgroundTasksPage() {
   useSetCrumbs([{ label: 'Background Tasks' }]);
+  const workspaceId = useScopeOptional()?.scope?.workspaceId;
 
   const [rows, setRows] = useState<RoutineResponse[]>([]);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -48,9 +51,9 @@ export function BackgroundTasksPage() {
         <header className="mb-8 md:mb-10 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
             <PageHeading>Background Tasks</PageHeading>
-            <div className="mt-3 md:mt-3.5 flex flex-wrap items-center gap-x-4 md:gap-x-6 gap-y-2 text-sm text-[var(--text-subtle)]">
+            <Text as="div" variant="meta" tone="subtle" className="mt-3 md:mt-3.5 flex flex-wrap items-center gap-x-4 md:gap-x-6 gap-y-2">
               <span>
-                {rows.length} {rows.length === 1 ? 'task' : 'tasks'}
+                {rows.length} {rows.length === 1 ? 'scheduled routine' : 'scheduled routines'}
               </span>
               <span aria-hidden>·</span>
               <span>
@@ -60,10 +63,10 @@ export function BackgroundTasksPage() {
                     : `${activeCount} active`
                   : `Showing ${statusFilter}`}
               </span>
-            </div>
+            </Text>
           </div>
           <label className="flex items-center gap-2 text-sm shrink-0">
-            <span className="text-[var(--text-muted)]">Status</span>
+            <Text as="span" tone="subtle" variant="meta">Status</Text>
             <Select
               size="sm"
               value={statusFilter}
@@ -81,9 +84,13 @@ export function BackgroundTasksPage() {
         </header>
       </PageSection>
 
+      {workspaceId && <PageSection className="mb-8">
+        <WorkItemsSection key={workspaceId} workspaceId={workspaceId} />
+      </PageSection>}
       <PageSection.Separator />
 
       <PageSection className="mt-8">
+        <Text as="h2" weight="medium" className="mb-3">Scheduled routines</Text>
         <RoutinesListBody
           rows={rows}
           loading={loading}

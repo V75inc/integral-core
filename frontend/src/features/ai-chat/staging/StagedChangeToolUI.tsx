@@ -53,9 +53,9 @@ export function pickCardForKind(
  * Coerce the tool-call ``result`` into a plain object suitable for
  * the ``isStagedChange`` shape check.
  *
- * jvagent's ``ToolExecutor`` JSON-stringifies any non-string return
+ * native provider's ``ToolExecutor`` JSON-stringifies any non-string return
  * value before storing it on ``ToolResult.content`` (see
- * ``jvagent/tooling/tool_executor.py:189``), so what arrives here
+ * ``native provider/tooling/tool_executor.py:189``), so what arrives here
  * is typically a JSON string like ``'{"_kind":"staged_change",...}'``
  * — not the dict itself. This helper parses that back to an object
  * and is also tolerant of the case where the value is already an

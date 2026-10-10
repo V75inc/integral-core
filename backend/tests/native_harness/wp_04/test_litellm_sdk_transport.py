@@ -56,6 +56,9 @@ def test_usage_calculates_cost_when_litellm_returns_tokens_without_cost(
     # LiteLLM initializes its tokenizer cache path on import. Keep that
     # process-level setting contained by pytest's environment restoration.
     monkeypatch.setenv("TIKTOKEN_CACHE_DIR", "/tmp/integral-litellm-test-cache")
+    # Offline import must not discover developer .env files and mutate the
+    # rest of this pytest worker. LiteLLM loads dotenv only in DEV mode.
+    monkeypatch.setenv("LITELLM_MODE", "PRODUCTION")
     import litellm
 
     response = {
@@ -594,6 +597,11 @@ async def test_bridge_streams_deltas_and_final_usage_chunk() -> None:
     assert observations[1].usage.input_tokens == 10
     assert observations[1].usage.output_tokens == 1
     assert observations[1].usage.complete is True
+    assert all(item.credential_source == "workspace_byok" for item in observations)
+    assert all(item.credential_ref == "credential-1" for item in observations)
+    assert all(
+        "workspace-key-test" not in item.model_dump_json() for item in observations
+    )
 
 
 @pytest.mark.asyncio
@@ -1022,11 +1030,16 @@ async def test_bridge_fails_closed_when_dispatch_intent_cannot_be_recorded() -> 
         http_client=httpx.AsyncClient(transport=transport),
         max_retries=0,
     ) as client:
-        with pytest.raises(APIConnectionError):
+        with pytest.raises(APIConnectionError) as caught:
             await client.chat.completions.create(
                 model="anthropic/claude-sonnet",
                 messages=[{"role": "user", "content": "do not dispatch"}],
             )
+        from app.agentive.harness.pydantic_ai_compat import (
+            classify_integral_harness_exception,
+        )
+
+        assert classify_integral_harness_exception(caught.value) is None
 
     assert dispatched is False
 
@@ -1085,3 +1098,102 @@ async def test_interrupted_stream_records_one_unknown_outcome() -> None:
         "dispatch_intent",
         "outcome_unknown",
     ]
+
+
+def test_request_context_dimensions_are_content_free() -> None:
+    from app.agentive.harness.litellm_model import _request_context
+
+    body = {
+        "messages": [
+            {"role": "system", "content": "catalogue and loaded instructions"},
+            {"role": "user", "content": "private user content"},
+            {"role": "tool", "content": "private record content"},
+        ],
+        "tools": [{"type": "function", "function": {"name": "read_record"}}],
+    }
+    dimensions = _request_context(body)
+    assert dimensions.message_count == 3
+    assert dimensions.visible_tool_count == 1
+    assert dimensions.instruction_chars > 0
+    assert dimensions.conversation_chars > 0
+    assert dimensions.tool_result_chars > 0
+    assert dimensions.tool_schema_chars > 0
+    assert len(dimensions.tool_schema_fingerprint) == 64
+    assert (
+        dimensions.tool_schema_fingerprint
+        == _request_context(body).tool_schema_fingerprint
+    )
+    assert "private" not in dimensions.model_dump_json()
+    assert "read_record" not in dimensions.model_dump_json()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure,code",
+    [
+        ("ContextWindowExceededError", "model_context_limit"),
+        ("AuthenticationError", "model_authentication_failed"),
+        ("APIConnectionError", "model_endpoint_unreachable"),
+        ("Timeout", "model_request_timeout"),
+        ("RateLimitError", "model_rate_limited"),
+        ("NotFoundError", "model_unavailable"),
+        ("ServiceUnavailableError", "model_provider_unavailable"),
+        ("BadRequestError", "model_request_rejected"),
+    ],
+)
+@pytest.mark.parametrize("stream", [False, True])
+async def test_sdk_failures_survive_client_wrapping_without_private_details(
+    monkeypatch, failure, code, stream
+):
+    monkeypatch.setenv("LITELLM_MODE", "PRODUCTION")
+    monkeypatch.setenv("TIKTOKEN_CACHE_DIR", "/tmp/integral-litellm-test-cache")
+    from types import SimpleNamespace
+
+    import litellm
+
+    from app.agentive.harness.pydantic_ai_compat import (
+        classify_integral_harness_exception,
+    )
+    from app.services.chat_streaming import classify_turn_exception
+
+    observations = []
+    error = getattr(litellm, failure)(
+        message="private-key-and-url", model="synthetic", llm_provider="openai"
+    )
+
+    async def chunks():
+        raise error
+        yield {}
+
+    async def completion(**kwargs):
+        if stream:
+            return chunks()
+        raise error
+
+    async def observer(item):
+        observations.append(item.outcome)
+
+    transport = LiteLLMSDKTransport(
+        route=_route(), scope=_scope(), observer=observer, completion=completion
+    )
+    async with AsyncOpenAI(
+        api_key="placeholder",
+        base_url="http://litellm-sdk.invalid/v1",
+        http_client=httpx.AsyncClient(transport=transport),
+        max_retries=0,
+    ) as client:
+        with pytest.raises(Exception) as caught:
+            response = await client.chat.completions.create(
+                model="anthropic/claude-sonnet",
+                messages=[{"role": "user", "content": "hello"}],
+                stream=stream,
+            )
+            if stream:
+                async for _ in response:
+                    pass
+    provider = SimpleNamespace(classify_exception=classify_integral_harness_exception)
+    actual, message = classify_turn_exception(caught.value, provider=provider)
+    assert actual == code
+    assert "private-key-and-url" not in message
+    assert "Something went wrong" not in message
+    assert observations == ["dispatch_intent", "outcome_unknown"]

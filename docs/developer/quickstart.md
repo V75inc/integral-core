@@ -1,586 +1,86 @@
-# Author your first Integral App
+# Build your first Integral App
 
-This guide builds a small **Studio Equipment Desk**: a place to register
-cameras and lights, see whether they are available, and check one out to a
-team member.
+Start with the external Reference Hello App. It is small enough to inspect and proves the public package boundary without adding domain code to Core.
 
-The point is not the equipment. It is to show how a business idea becomes an
-Integral App without changing Integral Core. Replace cameras with rental cars,
-client cases, inspection items, clinic rooms, or whatever your operation needs.
+## 1. Prepare Core
 
-By the end, you will have a package that gives a workspace:
+Follow the [source setup](../../README.md#run-from-source). Keep your dependency lock and use a development database. Set up private environment keys with the root bootstrap utility. Do not expose the demo configuration as production.
 
-- an **Equipment** track with an **Equipment item** record type;
-- an inventory table and an availability board;
-- a safe **Check out equipment** action; and
-- a named skill the resident harness can use in the right workspace context.
+The reference package lives at `examples/reference-hello-app/`. It contains an authoring manifest, a Python tool, a skill, and a sandboxed iframe view. Its directory name matches `package.slug`.
 
-## What you are making
+## 2. Create an external package root
 
-An Integral App is a folder that describes a domain model and, where useful,
-adds small pieces of domain behaviour. Core owns the graph, permissions,
-validation, audit, views, and agent perimeter. Your App owns the language and
-rules of the operation.
-
-| If you need… | Put it in… | Example |
-| --- | --- | --- |
-| A record somebody will work with | A track and entry type | An equipment item with a serial number |
-| A field or relationship | The entry type schema | Availability, category, current holder |
-| A way to see the work | A Core view declaration | Inventory table or availability board |
-| A business action | A typed operation and handler | Check out an available camera |
-| Guidance for the resident | A declarative skill | “Find equipment available for a shoot” |
-| A specialised visual panel | An optional extension view | A compact equipment-detail panel |
-
-Start declaratively. Many useful Apps need only a manifest: tracks, fields,
-views, and skills. Add Python only when the operation has a rule that cannot be
-expressed as ordinary data entry, such as “only equipment in the available
-state can be checked out.”
-
-## Before you begin
-
-Use a directory outside Core for your own packages. That keeps the extension
-boundary visible from the first day. Two ways to get a running Core:
-
-**Released package.** Python 3.12. Install from TestPyPI the way the
-[repository README](../../README.md#install-a-released-core) describes, then
-create a blank distro. Install the published `0.1.1rc12`. That cut ships
-the resident harness, `integral init` (including `agent.override.yaml`), and
-`integral web`. `0.1.1rc6` has the harness but rejects a `#` mention and
-does not write the override file. `0.1.1rc5` looks for `agent/app.yaml`
-outside the install, so chat stays unavailable on that cut.
+From the repository root:
 
 ```bash
-integral init ../my-integral
-cd ../my-integral
-python -m app.main
-```
-
-In a second terminal, `integral web`. The workspace is
-http://127.0.0.1:9006 and proxies `/api` and `/ws` to the API on port 4000.
-Start the API from the distro directory so its `.env` loads. Postgres must
-already be running. The generated `.env` points `INTEGRAL_PACKAGE_PATHS` at
-`integral-apps/` and sets `INTEGRAL_CORE_ONLY=0`. That directory is empty
-until you add an App.
-
-Pass `--slug` when you want the App folder created for you:
-
-```bash
-integral init ../my-integral --slug studio-equipment --name "Studio Equipment Desk"
-```
-
-That adds `integral-apps/studio-equipment/` with `operational-model.yaml`,
-`tools/`, `skills/`, and `views/`.
-
-**Source checkout.** From the Integral Core repository:
-
-```bash
-./scripts/bootstrap_env.sh .env .env.example
-docker compose up -d db
-
+mkdir -p integral-apps
+cp -R examples/reference-hello-app integral-apps/
+app_root="$PWD/integral-apps"
 cd backend
-uv sync --frozen --extra dev --extra test
+INTEGRAL_PACKAGE_PATHS="$app_root" INTEGRAL_CORE_ONLY=0 .venv/bin/python -m app.main
 ```
 
-The UI for a checkout is `cd frontend && npm install && npm run dev`, not
-`integral web`. `integral web` serves the build shipped in the wheel.
+`INTEGRAL_PACKAGE_PATHS` points to a parent of package directories. Core-only filtering must be off to admit this community App. Use trusted Python packages only in an appropriate development/trust configuration; production may require a signature.
 
-From a checkout, the same App shape written by hand starts here:
+Open the UI, select a workspace, inspect the library entry, and install the App through the library installation flow. A catalog entry alone is not an installed App.
 
-```bash
-mkdir -p ../integral-apps
-cp -R examples/reference-hello-app ../integral-apps/studio-equipment
-```
+## 3. Understand the manifest
 
-Your starting point should look like this:
-
-```text
-integral-apps/
-└── studio-equipment/
-    ├── operational-model.yaml             # schema, views, tools, operations, skills
-    ├── tools/
-    │   ├── __init__.py
-    │   └── equipment.py         # only needed for custom behaviour
-    └── skills/
-        └── find_available/
-            └── SKILL.md
-```
-
-Delete the copied `views/` directory if you do not need a package-owned panel.
-Core’s table, board, feed, calendar, and gallery views need no frontend code.
-
-### Several Apps in one distro
-
-A custom distro is one parent directory. Each App is a sibling directory under that parent. Core reads `*/operational-model.yaml` and nothing deeper, so a nested folder is not an App.
-
-The directory name must equal `package.slug`. A mismatch is skipped at startup (I-BUNDLE-04).
-
-```text
-integral-apps/
-├── studio-equipment/
-│   └── operational-model.yaml
-├── client-delivery/
-│   ├── operational-model.yaml
-│   └── skills/
-│       └── weekly_review/
-│           └── SKILL.md
-└── warranty-desk/
-    ├── operational-model.yaml
-    └── tools/
-        └── warranties.py
-```
-
-Point Core at that parent. `INTEGRAL_CORE_ONLY=0` keeps community, commercial, and private Apps in the library. A source checkout also loads seed packages from `backend/app/packages/`. A published wheel does not ship that directory, so the path above is the whole library. Do not copy these directories into the installed Core package.
-
-`integral init` writes both variables into the distro `.env`. A process
-started from that directory loads the file. Process environment wins over
-the file, then `backend/.env` and a repo-root `.env` when those exist, then
-the current directory. Source the file when you need the shell itself to
-see the values:
-
-```bash
-set -a
-. ./.env
-set +a
-```
-
-From a checkout that is not using that file, export them yourself:
-
-```bash
-export INTEGRAL_PACKAGE_PATHS="$PWD/../integral-apps"
-export INTEGRAL_CORE_ONLY=0
-```
-
-More than one tree is a comma-separated list of parents, each with the same one-level layout:
-
-```bash
-export INTEGRAL_PACKAGE_PATHS="/opt/integral-apps,/opt/partner-apps"
-```
-
-### Resident agent override
-
-The resident agent is one per install. Its shipped descriptor is
-`agent/agents/integral/integral_agent/agent.yaml` in a checkout, and a copy
-of that tree inside the wheel from `0.1.1rc6`. You do not edit that file to
-change the voice or the model for your distro.
-
-Put `agent.override.yaml` next to `.env`. Start the API from that directory
-so the file is found. `INTEGRAL_AGENT_OVERLAY` can point at it when the
-process starts somewhere else. No file means the shipped agent is used as-is.
-
-```yaml
-context:
-  alias: Desk Assistant
-  role: Concise assistant for this studio install.
-  interaction_limit: 20
-actions:
-  - action: jvagent/orchestrator
-    context:
-      model: openai/gpt-4.1
-      model_temperature: 0.2
-      activation_budget: 30
-```
-
-The allowlist is small:
-
-| Place | Keys |
-| --- | --- |
-| `context` | `alias`, `role`, `interaction_limit` (1–100) |
-| `actions` → `jvagent/orchestrator` → `context` | `model`, `model_temperature`, `model_max_tokens`, `light_model`, `light_model_temperature`, `light_model_max_tokens`, `activation_budget` (20–40), `history_limit`, `max_concurrent_tools`, `observation_max_chars`, `stale_observation_max_chars`, `observation_full_recent` |
-
-Anything else fails boot and the harness stays down: an unknown key, a
-second action, or a new `action:` name. The shipped action list stays
-intact. Skills, tools, and `skills_source` stay on the shipped agent.
-An App under `integral-apps/` cannot carry this file.
-
-Restart to apply it. `JVAGENT_UPDATE_MODE=source` (the default) rebuilds
-the orchestrator from the merged file. `merge` keeps the context already
-stored on the action node, and boot logs a warning. Set `source` for one
-restart when you need the override to land, then you can return to `merge`.
-
-`INTEGRAL_AGENT_ROOT` is the other path: point it at a full copy of the
-`agent/` tree when you need to replace skills or actions, not just these
-knobs.
-
-`integral init` writes `agent.override.yaml` as comments only. Uncomment a
-key to use it. The filename is `agent.override.yaml`.
-
-## Distro smoke
-
-Run this against a TestPyPI install and a scratch Postgres database, not
-the developer database named `integral`.
-
-1. Fresh venv. Download only the `integral-core` and `jvagent` wheels from
-   TestPyPI, then install them from PyPI.
-2. `integral init ./my-integral`. Confirm `integral-apps/` is empty except
-   `.gitkeep`, and `agent.override.yaml` is present and commented out.
-3. Point `.env` at the scratch database (`POSTGRES_HOST=localhost`, the
-   published port). Start the API from `my-integral`.
-4. `integral web --api http://127.0.0.1:<api-port>`. Open `/signup`.
-5. Create an account. Personal workspace exists. App library total is 0.
-6. Send a plain chat message. It streams a reply.
-7. Send `Please delete the #Some App` using the `#` picker. The turn starts.
-   It must not return "Request validation failed".
-8. Ask for a new App whose records in one track point at records in
-   another. The reply must treat that relation as allowed
-   (`allow_cross_track` with `target_track_types`). It must not say
-   relation fields are same-track only.
-9. After an approved design, a reply that reports an error or asks a
-   question must not add "A build receipt is required before claiming
-   completion." That line appears only when the reply claims the build
-   finished and no receipt exists.
-10. Uncomment `alias` in `agent.override.yaml`, restart the API, and
-    confirm boot applied the override (`JVAGENT_UPDATE_MODE=source`).
-
-## 1. Give the App a clear name and one useful track
-
-Open `../integral-apps/studio-equipment/operational-model.yaml` and replace its contents
-with the following minimal manifest. The names shown here become the words
-people see in Integral, so write them as your team speaks.
+Current disk authoring begins with:
 
 ```yaml
 integral_operational_model_version: 3
 scope: app
-
 package:
-  name: Studio Equipment Desk
-  slug: studio-equipment
+  name: Reference Hello
+  slug: reference-hello-app
   class: community_app
-  version: 0.1.0
+  version: 1.1.0
   trust_tier: trusted
-  publisher: Your organization
-  description: Keep studio equipment, availability, and handovers in one place.
-
-app:
-  description: A small equipment register for a production team.
-  defaults:
-    provision_prescribed_tracks: true
-    default_track: equipment
-    default_view: equipment_table
-  tracks:
-  - key: equipment
-    name: Equipment
-    description: One record for each camera, lens, light, or accessory.
-    provision_on_create: true
-    entry_types:
-    - key: equipment_item
-      name: Equipment item
-      icon: camera
-      fields:
-      - key: asset_tag
-        name: Asset tag
-        type: text
-        required: true
-        index: true
-      - key: category
-        name: Category
-        type: select
-        enum: [camera, lens, light, audio, grip, other]
-        required: true
-      - key: availability
-        name: Availability
-        type: select
-        enum: [available, checked_out, maintenance]
-        required: true
-        index: true
-      - key: serial_number
-        name: Serial number
-        type: text
-      - key: current_holder
-        name: Current holder
-        type: text
-      base_fields:
-        title:
-          label: Equipment name
-          order: 0
-        body:
-          label: Notes
-          order: 1000
-    views:
-    - key: equipment_table
-      name: Inventory
-      view_type: table
-      entry_type_keys: [equipment_item]
-      default_entry_type: equipment_item
-      is_default: true
-    - key: availability_board
-      name: Availability
-      view_type: kanban
-      entry_type_keys: [equipment_item]
-      default_entry_type: equipment_item
-      group_by: custom_fields.availability
-      kanban_columns:
-      - key: available
-        label: Available
-      - key: checked_out
-        label: Checked out
-      - key: maintenance
-        label: Maintenance
 ```
 
-This alone creates a usable App. A member can install it, add “Sony FX3”, set
-its tag to `CAM-014`, choose `available`, and then use the Inventory or
-Availability view. Core validates required fields and persists the records in
-the workspace graph.
+This is an excerpt, not a complete package. The checked-in reference is the runnable example. The loader compiles YAML to canonical runtime schema version 2.
 
-### Choose stable keys
+`app.tracks` defines the Notes Track and its Note EntryType. `app.tools` declares the echo handler and input schema. `app.hooks` binds an entry-create hook. `app.operations` exposes a read operation with `policy_action: app.read`. `app.skills` points to its on-disk SKILL.md. `view_types` defines a composite and `app.extension_views` declares the iframe asset.
 
-The `key` values are the App’s durable vocabulary. Users can rename “Equipment”
-to “Kit” later, but changing `equipment`, `equipment_item`, or `availability`
-after data exists is a schema migration. Use short, specific, lowercase keys
-and treat them as API names.
+Do not add a new Core conditional for your slug. If a domain behavior needs an operation, tool, or hook, declare it in the package and implement it through the public facade.
 
-## 2. Run Core with your App visible
+## 4. Use the scoped facade
 
-Stop and restart the API after the App directory exists. Discovery runs at
-startup.
-
-If the API was started from an `integral init` distro, `INTEGRAL_PACKAGE_PATHS`
-is already in that `.env`. Restart `python -m app.main` from the distro
-directory, then run `integral web` and open
-[http://127.0.0.1:9006](http://127.0.0.1:9006).
-
-From a source checkout, start the API in `backend/` with the package root
-exported:
-
-```bash
-export INTEGRAL_PACKAGE_PATHS="$PWD/../../integral-apps"
-export INTEGRAL_CORE_ONLY=0
-.venv/bin/python -m app.main
-```
-
-The exact path depends on where you made `integral-apps`. From the repository
-root it would be:
-
-```bash
-export INTEGRAL_PACKAGE_PATHS="$PWD/../integral-apps"
-```
-
-Then open [http://localhost:9006](http://localhost:9006) (`integral web` for a
-pip install, or `npm run dev` on a checkout), sign in, select the
-workspace where you want the App, and use **Apps** to install **Studio
-Equipment Desk**. Installation materializes its Equipment track, schema, and
-views in that workspace. If it does not appear in the library, check the
-terminal that started Core: package discovery reports invalid manifests there.
-
-For an API-driven install, first get the library Operational Model id from the
-library response. The current compatibility query field remains
-`library_operational_model_id`:
-
-```http
-POST /api/workspaces/{workspace_id}/apps/install?library_operational_model_id={library_operational_model_id}
-```
-
-Core returns the installed `app_id`. Keep it: typed App operations address the
-installed App instance, not its package slug.
-
-## 3. Add a real business action
-
-Ordinary entry creation is enough for most work. Add an operation when you
-need a rule to hold even if the action comes from the UI, the resident harness,
-or an MCP client.
-
-For Studio Equipment Desk, “check out” should only work when the item is
-currently available. Add this to `app:` in `operational-model.yaml`:
-
-```yaml
-  tools:
-  - key: check_out_equipment
-    name: Check out equipment
-    description: Mark available equipment as checked out to a named holder.
-    handler_ref: tools.equipment:check_out_equipment
-    parameters_schema:
-      type: object
-      properties:
-        equipment_id:
-          type: string
-        holder:
-          type: string
-      required: [equipment_id, holder]
-
-  operations:
-  - key: check_out_equipment
-    kind: execute
-    name: Check out equipment
-    description: Move available equipment into a checked-out state.
-    policy_action: entry.create
-    staging_level: none
-    idempotency_key: supported
-    tool: check_out_equipment
-    input_schema:
-      type: object
-      properties:
-        equipment_id:
-          type: string
-        holder:
-          type: string
-      required: [equipment_id, holder]
-```
-
-Create `tools/equipment.py` with the handler:
+Prefer `get`, `query`, and `invoke` over raw graph entities:
 
 ```python
-from typing import Any
-
-from integral_sdk import OperationContext
-
-
-async def check_out_equipment(
-    input: dict[str, Any], ctx: OperationContext
-) -> dict[str, Any]:
-    equipment_id = str(input["equipment_id"])
-    holder = str(input["holder"]).strip()
-
-    if not holder:
-        return {"ok": False, "error_code": "invalid_input", "message": "holder is required"}
-
-    changed, reason = await ctx.conditional_update_entry_fields(
-        equipment_id,
-        state_field="availability",
-        expected_state="available",
-        updates={"availability": "checked_out", "current_holder": holder},
-    )
-    if not changed:
-        return {
-            "ok": False,
-            "error_code": reason or "state_conflict",
-            "message": "Equipment is no longer available",
-        }
-
-    await ctx.emit_audit(
-        "studio_equipment.checked_out",
-        {"equipment_id": equipment_id, "holder": holder},
-    )
-    return {"ok": True, "equipment_id": equipment_id, "holder": holder}
+async def inspect_record(ctx, object_ref: dict):
+    record = await ctx.get(object_ref)
+    return {"record": record}
 ```
 
-The handler imports only `integral_sdk`. It cannot reach around Core’s
-permission, schema, graph-wiring, audit, or workspace-scope rules. The
-conditional update also protects against two people trying to check out the
-same camera at once.
+This is a handler fragment; use the actual reference tool's signature and declaration as your implementation pattern. Core supplies the authenticated principal and workspace. Never accept a payload's user or workspace as authority.
 
-Restart the API so the changed package is discovered. Then invoke the action
-against the **installed** App:
+OperationContext additionally exposes the installed App, operation key, idempotency/correlation identity, validated create/update helpers, conditional update, audit, and deduplicated notifications. `expected_record_revision` supports stale-update detection. Check the returned result rather than assuming a write occurred.
 
-```http
-POST /api/extensions/{app_id}/operations/check_out_equipment
-Idempotency-Key: studio-checkout-001
-Content-Type: application/json
+## 5. Give the App useful behavior
 
-{
-  "input": {
-    "equipment_id": "{entry_id}",
-    "holder": "Maya Singh"
-  }
-}
-```
+Declare queries with bounded inputs and explicit outputs. A Home widget expecting rows and totals needs both. Declare operations with policy and staging requirements. Keep read operations free of hidden writes.
 
-A successful response returns `ok: true`. Repeat the same request with a new
-idempotency key: it should return a state conflict because the item is already
-checked out. This is a useful first proof that your operational rule, rather
-than only the screen, is doing the work.
+Use a `member` field for an account reference, a `relation` for an operational entity, and `file`/`files` for attachments. Sensitive data needs a separate resource boundary rather than a hidden field.
 
-## 4. Help the resident use the App well
+Write skills in the standard Agent Skills format. Required frontmatter is name and description; disk names use lowercase hyphens. Skills instruct the resident and do not grant permission. Runtime overlay names are scoped and namespaced independently of disk names.
 
-A declarative skill gives the resident contextual guidance without shipping
-executable code. Add this to `app:`:
+## 6. Validate and install
 
-```yaml
-  skills:
-  - key: find_available
-    name: Find available equipment
-    kind: declarative
-    description: Help a producer find suitable equipment that is ready to use.
-    prompt_template: skills/find_available/SKILL.md
-```
-
-Then create `skills/find_available/SKILL.md`:
-
-```markdown
----
-name: find_available
-description: Find studio equipment that is currently available.
-spec: jv
-requires-actions: [EmbeddedIntegralAction]
-extends: action:integral/embedded_integral_action
-allowed-tools: []
----
-
-# Find available equipment
-
-When someone asks for studio equipment, first clarify the category and date.
-Search the Equipment track for items whose availability is `available`.
-Present the asset tag, name, and notes. Do not promise a checkout: offer to
-prepare one for the user to review.
-```
-
-The resident sees this guidance only in the App’s workspace context. Its
-writes still pass through Integral’s normal staging and policy controls.
-
-## 5. Test the experience a person will actually have
-
-Use this short acceptance run after every meaningful change:
-
-1. Install the App into a fresh workspace.
-2. Create an equipment item in the Inventory view: “Sony FX3”, `CAM-014`,
-   category `camera`, availability `available`.
-3. Open the Availability board and confirm the card appears in **Available**.
-4. Call **Check out equipment** with that item and a holder.
-5. Refresh the board and confirm it has moved to **Checked out** and shows the
-   holder on the record.
-6. Try the same action again. Confirm it is refused instead of creating a
-   second checkout.
-7. Ask the resident, “What cameras are available?” Confirm it uses the
-   Equipment vocabulary and does not claim a checkout has happened without a
-   proposed or authorised action.
-
-Platform checks are still valuable, but they prove the contract rather than
-your particular workflow:
+Run the existing reference contract tests from the backend environment:
 
 ```bash
-make verify-contract
-make verify-core-only
-make verify-independent-artifacts
+.venv/bin/pytest tests/contract/test_reference_hello_app.py
 ```
 
-Use `make build-asset-register` and
-`examples/asset-register/` as the reference when you are ready to package a
-larger App with multiple tracks, relations, read operations, and durable
-lifecycle behaviour.
+When changing registered tools, core skills, bindings, or example Apps, regenerate the capability map with `make capability-map` from the repository root. Use `make verify` for the broad gate before committing a finished change.
 
-## When to add more
+Verify in the browser: install, open Notes, create and reload a Note, render its views, discover the operation, inspect scoped results, and confirm pause/removal withdraws the applicable capabilities. Include a principal without access. Test signatures separately for production packages.
 
-| Need | Add next |
-| --- | --- |
-| One kind of record and a few views | Stay manifest-only |
-| A cross-record rule or state transition | A typed operation using `OperationContext` |
-| A repeated resident workflow | A declarative skill |
-| A highly tailored detail panel | An `extension_view` with a sandboxed package asset |
-| Several related lists | More tracks and relation fields |
-| A distributable package | Build, checksum, and sign the archive as described in [bundle signing](../ops/OPERATIONAL_MODEL_SIGNING.md) |
+## 7. Evolve the package
 
-Avoid creating a custom view or Python handler merely because a conventional
-screen or endpoint exists elsewhere. First use the graph schema and Core view
-palette. This keeps the App smaller, makes it work for people and agents, and
-preserves the public extension boundary.
+Change package identity only when creating a different App; its directory and slug must agree. Increment versions deliberately. Review installed-definition changes, schema impact, migrations, dependencies, and customizations before upgrade. A new library version does not automatically rewrite every installed instance.
 
-## Common mistakes
-
-| Symptom | Likely cause | Fix |
-| --- | --- | --- |
-| The App is absent from the library | Package path was not set when the API started | Restart with `INTEGRAL_PACKAGE_PATHS` and `INTEGRAL_CORE_ONLY=0` |
-| The package is rejected | YAML indentation, duplicate keys, or an invalid manifest reference | Read the API startup log and compare with `examples/reference-hello-app/operational-model.yaml` |
-| An operation cannot find a record | It used an id from another workspace or App | Resolve records through the injected context and keep the operation App-scoped |
-| A handler needs `app.models` or `app.services` | The public facade is missing a needed capability | Do not import Core internals; document the missing capability and propose an extension-contract addition |
-| A change seems ignored | The API process is still running the previous package contents | Restart the API during local package development |
-
-## Where to go next
-
-- [Extension Contract v1](../platform/extension-contract-v1.md) defines the
-  public compatibility boundary.
-- [App bundles v1](../backend/app-bundles-v1.md) is the full manifest and
-  lifecycle reference.
-- [Asset Register](../../examples/asset-register/operational-model.yaml) is the working
-  multi-track example.
-- `scripts/run_ac13_quickstart_trial.py` records the repeatable external-package
-  proof procedure.
-- [Core README](../../README.md) covers deployment and repository verification.
+Use [Operational Models](../operational-models/README.md), [bundle architecture](../backend/app-bundles-v1.md), [extension contracts](../platform/extension-contract-v1.md), and [qualification](../ops/QUALIFICATION.md) as the next references.

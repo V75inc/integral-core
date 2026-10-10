@@ -260,6 +260,12 @@ async def test_fallback_revoke_preserves_real_manual_grant_interleaving(test_use
     Does not mock ``_cas_update_entitlement_if_source``.
     """
     workspace = await ensure_personal_workspace(test_user)
+    from app.services.entitlements import _probe_store
+
+    _database, native_atomic, _concrete = await _probe_store()
+    if native_atomic:
+        pytest.skip("This interleaving exercises the non-atomic store fallback")
+
     provider = await grant_entitlement(
         workspace_id=workspace.id,
         entitlement_key="crm-real-race",

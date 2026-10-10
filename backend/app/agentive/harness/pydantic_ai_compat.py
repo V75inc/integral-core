@@ -9,6 +9,7 @@ at this seam and qualified by adapter contract tests.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 from pydantic_ai import (
@@ -33,17 +34,25 @@ from pydantic_ai import (
 )
 from pydantic_ai.capabilities import Instrumentation, ToolSearch
 from pydantic_ai.messages import (
+    LoadCapabilityCallPart,
+    LoadCapabilityReturnPart,
     ModelMessagesTypeAdapter,
     ModelRequest,
     ModelResponse,
+    SystemPromptPart,
+    ToolAvailabilityDeltaPart,
     ToolReturn,
     ToolReturnPart,
     UserPromptPart,
+    post_compaction_window,
 )
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.litellm import LiteLLMProvider
 from pydantic_ai_harness import Planning, Skills, StepPersistence
-from pydantic_ai_harness.compaction import ClearToolResults
+from pydantic_ai_harness.compaction import (
+    ClearToolResults,
+    SummarizingCompaction,
+)
 from pydantic_ai_harness.conversation_search import (
     ConversationSearch,
     SnapshotHistorySource,
@@ -73,6 +82,8 @@ class IntegralToolDisclosure(ToolSearch):
     require_initial_search: bool = True
     pending_decision_tool: str | None = None
     continuation_tools: frozenset[str] = frozenset()
+    workflow_skill_ids: frozenset[str] = frozenset()
+    recovery_read_tools: frozenset[str] = frozenset({"integral_describe_capabilities"})
 
     def get_native_tools(self):
         return []
@@ -80,9 +91,9 @@ class IntegralToolDisclosure(ToolSearch):
     def get_model_settings(self):
         """Require initial discovery through the library's dynamic tool choice.
 
-        Framework-recorded discovery in the current user turn permits normal
-        choice thereafter. An old search cannot select a new workflow. No user-text intent
-        classifier or second planning loop participates in this decision.
+        Reuse framework-restored availability under the current Core catalogue
+        and session revision. Fresh runs discover first; warm runs can use their
+        loaded workflow or search for another. No user-text classifier participates.
         """
         inherited = super().get_model_settings()
 
@@ -115,6 +126,35 @@ class IntegralToolDisclosure(ToolSearch):
                 ),
                 0,
             )
+            # A Core refusal can name its read-only recovery contract. Enforce
+            # that contract before another broad read; availability and live
+            # broker checks still apply. Never force an effect or replay a write.
+            recovery = None
+            for message in ctx.messages[turn_start:]:
+                if not isinstance(message, ModelRequest):
+                    continue
+                for part in message.parts:
+                    if not isinstance(part, ToolReturnPart):
+                        continue
+                    content = part.content
+                    if isinstance(content, dict) and content.get("error"):
+                        next_tool = content.get("next_tool")
+                        if next_tool in self.recovery_read_tools:
+                            recovery = next_tool
+                    elif part.tool_name == recovery:
+                        recovery = None
+            if recovery:
+                recovery_available: frozenset[str] = getattr(
+                    ctx, "available_tool_names", frozenset()
+                )
+                resolved["tool_choice"] = [
+                    (
+                        recovery
+                        if recovery in recovery_available
+                        else "search_capabilities"
+                    )
+                ]
+                return resolved
             if self.pending_decision_tool:
                 decided = any(
                     isinstance(part, ToolReturnPart)
@@ -140,7 +180,11 @@ class IntegralToolDisclosure(ToolSearch):
                 for part in message.parts
             )
             if not searched:
-                resolved["tool_choice"] = ["search_capabilities"]
+                available: frozenset[str] = getattr(
+                    ctx, "available_tool_names", frozenset()
+                )
+                if not any(name.startswith("integral_") for name in available):
+                    resolved["tool_choice"] = ["search_capabilities"]
             else:
                 candidates = {
                     item.get("load_with", {}).get("id")
@@ -158,12 +202,19 @@ class IntegralToolDisclosure(ToolSearch):
                     and item["load_with"].get("tool") == "load_capability"
                 }
                 candidates.discard(None)
-                if candidates and not candidates.intersection(
-                    ctx.active_capability_ids
+                if (
+                    candidates
+                    and not candidates.intersection(ctx.active_capability_ids)
+                    and not self.workflow_skill_ids.intersection(
+                        ctx.active_capability_ids
+                    )
                 ):
                     # The model chooses the fitting returned procedure. Core
-                    # metadata requires a procedure to be loaded, without
+                    # metadata requires an initial procedure to be loaded, without
                     # selecting it from user wording or assigning authority.
+                    # Once a workflow is active, discovering a missing read
+                    # must not force loading every skill that also owns it.
+                    # Write handlers still enforce their applicable procedure.
                     resolved["tool_choice"] = ["load_capability"]
             return resolved
 
@@ -191,30 +242,7 @@ class IntegralToolDisclosure(ToolSearch):
                 return True
             if not definition.name.startswith("integral_"):
                 return True
-            turn_start = next(
-                (
-                    index
-                    for index in range(len(ctx.messages) - 1, -1, -1)
-                    if isinstance(ctx.messages[index], ModelRequest)
-                    and any(
-                        isinstance(part, UserPromptPart)
-                        for part in ctx.messages[index].parts
-                    )
-                ),
-                0,
-            )
-            searched = any(
-                isinstance(part, ToolReturnPart)
-                and part.tool_name == "search_capabilities"
-                and not (isinstance(part.content, dict) and part.content.get("error"))
-                for message in ctx.messages[turn_start:]
-                if isinstance(message, ModelRequest)
-                for part in message.parts
-            )
-            if not searched:
-                return False
-
-            # A successful catalog search is not permission to disclose the full
+            # Restored discovery is not permission to disclose the full
             # Integral tool catalogue. Ask the framework whether this concrete
             # definition is available: it accounts for both search discovery and
             # deferred Skills ownership, including the required load-before-call
@@ -270,9 +298,34 @@ def build_integral_run_instructions(
     adapter boundary so they can continue with the already-loaded procedure.
     """
 
+    # Capture once for this invocation. Resumed/new runs build fresh instructions;
+    # model requests within the run share a stable, server-owned date.
+    run_started_at = datetime.now(timezone.utc)
+
     def instructions(ctx: RunContext[Any]) -> str:
         active_ids = sorted(ctx.active_capability_ids)
-        blocks = [base_instructions]
+        blocks = [
+            base_instructions,
+            "Integral trusted clock: this invocation started at "
+            f"{run_started_at.isoformat()}; current UTC date is "
+            f"{run_started_at.date().isoformat()}. Use this date for today's "
+            "recorded actions unless the user specifies an event date or a "
+            "verified timezone requires another local date. Historical record "
+            "dates and model memory do not establish today's date. Do not "
+            "invent a user timezone or shift the date without a verified basis.",
+            "Integral navigation: resource IDs are opaque. When linking saved "
+            "Apps, Tracks or Entries, copy the canonical url returned by Core "
+            "tools exactly. Do not split an ID, replace its dots with slashes, "
+            "or invent a route. If no verified url is available, use a plain "
+            "record label instead of a guessed link.",
+            "Integral read recovery: when Core refuses a read and returns "
+            "next_tool, search for that exact canonical tool name and follow "
+            "its permitted contract. A refusal is not an empty result or zero "
+            "count. Do not try other broad queries, schema dumps, or archive "
+            "searches to bypass it. Use only a verified matching declared "
+            "query or operation with read effects. If none exists, explain "
+            "that the current App exposes no permitted read for this question.",
+        ]
         if active_ids:
             blocks.append(
                 "Integral runtime state: these capabilities are already loaded and "
@@ -310,32 +363,158 @@ def build_integral_run_instructions(
     return instructions
 
 
-def build_integral_context_compaction() -> ClearToolResults:
-    """Construct the adapter-owned context policy for Integral tool turns.
+@dataclass
+class IntegralToolResultCompaction(ClearToolResults):
+    """Clear completed-turn payloads without erasing the active task's inputs.
 
-    Preserve the recent working set: filing needs the source, destination,
-    schema and duplicate check together before proposing its writes. A fixed
-    12k trigger retaining one result discarded those inputs during ordinary
-    receipt filing. Let the library resolve the model's context window and
-    compact older work only when the request approaches that window. Use a
-    conservative fallback for routes absent from the library's model registry.
-    Keep capability-load parts intact because the Harness derives active skill
-    state from them.
+    A five-pair window cannot retain a task that needs several record reads
+    plus destination schemas before staging. Clearing those reads mid-turn
+    causes the model to repeat them instead of completing the task. Keep the
+    active user turn exact; the native run's usage and tool limits still bound
+    it. Completed turns retain only the library's bounded recent window.
     """
-    return ClearToolResults(
-        max_fraction=0.7,
-        fallback_context_window=32_768,
-        # Keep the active decision window while releasing old tool payloads early.
-        # Scaffold turns can carry large blueprint checks; eight retained pairs
-        # multiplied that payload across each subsequent model request.
+
+    async def compact(self, messages, ctx):
+        turn_start = next(
+            (
+                index
+                for index in range(len(messages) - 1, -1, -1)
+                if isinstance(messages[index], ModelRequest)
+                and any(
+                    isinstance(part, UserPromptPart) for part in messages[index].parts
+                )
+            ),
+            None,
+        )
+        if turn_start is None:
+            return await super().compact(messages, ctx)
+        history = await super().compact(messages[:turn_start], ctx)
+        return [*history, *messages[turn_start:]]
+
+
+def build_integral_context_compaction() -> ClearToolResults:
+    """Bound completed-turn payloads while preserving active task grounding."""
+    return IntegralToolResultCompaction(
+        max_tokens=16_384,
         keep_pairs=5,
         exclude_tools=frozenset({"load_capability"}),
         clear_tool_inputs=True,
     )
 
 
+@dataclass
+class IntegralHistorySummary(SummarizingCompaction):
+    """Keep typed disclosure evidence when the library summarizes prose.
+
+    Capability activation is derived from completed typed load pairs, not from
+    a summary saying a skill was loaded. Preserve one pair per current skill
+    and a bounded tool-availability delta using public message types. The
+    library still owns summarization, pairing, execution and checkpointing;
+    current registration and the broker remain the authorization boundary.
+    """
+
+    max_history_bytes: int = 96_000
+
+    async def before_model_request(self, ctx, request_context):
+        # Pydantic AI 2.10 makes request_context.messages request-only.
+        # Persist compaction through the documented RunContext.messages seam
+        # so StepPersistence and later turns receive the same working history.
+        before = list(request_context.messages)
+        processed = await super().before_model_request(ctx, request_context)
+        if processed.messages != before:
+            ctx.messages[:] = processed.messages
+        return processed
+
+    async def compact(self, messages, ctx):
+        # Keep the active user request and its tool sequence exact. Summarizing
+        # it mid-batch can erase a queued effect receipt and provoke restaging.
+        # ClearToolResults still bounds older payloads; the library usage limits
+        # bound a long active turn. Summarization owns completed-turn history.
+        turn_start = next(
+            (
+                index
+                for index in range(len(messages) - 1, -1, -1)
+                if isinstance(messages[index], ModelRequest)
+                and any(
+                    isinstance(part, UserPromptPart) for part in messages[index].parts
+                )
+            ),
+            0,
+        )
+        history, active_turn = messages[:turn_start], messages[turn_start:]
+        if (
+            len(history) <= self.keep_messages
+            and len(ModelMessagesTypeAdapter.dump_json(history))
+            <= self.max_history_bytes
+        ):
+            return messages
+        compacted = await super().compact(history, ctx)
+        if compacted == history:
+            return messages
+        calls = {}
+        pairs = {}
+        names = set()
+        for message in post_compaction_window(messages):
+            for part in message.parts:
+                if isinstance(part, LoadCapabilityCallPart):
+                    calls[part.tool_call_id] = part
+                elif isinstance(part, LoadCapabilityReturnPart):
+                    call = calls.get(part.tool_call_id)
+                    if call and call.capability_id in ctx.active_capability_ids:
+                        pairs[call.capability_id] = (call, part)
+                elif isinstance(part, ToolAvailabilityDeltaPart):
+                    names.update(name for name in part.tools_added if name in ctx.tools)
+        retained = {
+            part.tool_call_id
+            for message in compacted
+            for part in message.parts
+            if isinstance(part, LoadCapabilityReturnPart)
+        }
+        evidence = []
+        for call, result in pairs.values():
+            if result.tool_call_id not in retained:
+                evidence.extend(
+                    [ModelResponse(parts=[call]), ModelRequest(parts=[result])]
+                )
+        if names:
+            evidence.append(
+                ModelRequest(
+                    parts=[ToolAvailabilityDeltaPart(tools_added=sorted(names))]
+                )
+            )
+        # A summary is a leading system request; attach state after it and
+        # before the retained current task. No execution is replayed.
+        return [compacted[0], *evidence, *compacted[1:], *active_turn]
+
+
+def build_integral_history_compaction() -> IntegralHistorySummary:
+    """Summarize old prose after the separate cheap result-clearing pass.
+
+    The populated browser chat retained 112k conversation characters after
+    clearing. Provider usage anchors and heuristic reclaim can understate the
+    remaining context when reasoning was not sent back to the provider. A
+    library message-count trigger supplies an independent bound, alongside
+    the token trigger. Preserve recent user constraints and task data; scoped
+    checkpoints remain searchable. Summary requests share model accounting.
+    """
+    return IntegralHistorySummary(
+        max_messages=40,
+        max_tokens=24_576,
+        keep_messages=20,
+        keep_tokens=8_192,
+        keep_user_messages=True,
+        receipts=True,
+        model_settings={"max_tokens": 2048},
+    )
+
+
 def classify_integral_harness_exception(exc: BaseException) -> str | None:
     """Translate Pydantic AI failures to Integral's stable error categories."""
+    from app.agentive.harness.model_errors import classified_model_error
+
+    model_code = classified_model_error(exc)
+    if model_code:
+        return model_code
     if isinstance(exc, UsageLimitExceeded):
         return "harness_usage_limit"
     exception_text = str(getattr(exc, "message", exc)).lower()
@@ -349,6 +528,7 @@ __all__ = [
     "AgentRunResultEvent",
     "CancellationToken",
     "ClearToolResults",
+    "build_integral_history_compaction",
     "ContinuableSnapshot",
     "ConversationSearch",
     "FunctionToolCallEvent",
@@ -376,6 +556,7 @@ __all__ = [
     "StepEvent",
     "StepPersistence",
     "StepStore",
+    "SystemPromptPart",
     "TaskStatus",
     "TextPart",
     "TextPartDelta",

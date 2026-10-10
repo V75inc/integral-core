@@ -46,7 +46,7 @@ describe('isUserQuestion', () => {
 
 describe('extractUserQuestionsFromParts', () => {
   it('reads the envelope whether it arrives as an object or JSON string', () => {
-    // jvagent's executor stringifies non-string tool returns, so the string
+    // native provider's executor stringifies non-string tool returns, so the string
     // form is the one that actually shows up in production.
     const fromObject = extractUserQuestionsFromParts([part(QUESTION)], undefined);
     const fromString = extractUserQuestionsFromParts(

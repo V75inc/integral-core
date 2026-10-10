@@ -13,7 +13,10 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def test_skill_ownership_contract_resolves_to_unique_core_skill_descriptions() -> None:
     yaml = pytest.importorskip("yaml")
-    contract_path = ROOT / "docs/product/evidence/skill-routing-contract.yaml"
+    contract_path = (
+        ROOT
+        / "backend/tests/fixtures/qualification/contracts/skill-routing-contract.yaml"
+    )
     contract = yaml.safe_load(contract_path.read_text(encoding="utf-8"))
     skills_root = ROOT / contract["skills_root"]
 
@@ -34,14 +37,16 @@ def test_skill_ownership_contract_resolves_to_unique_core_skill_descriptions() -
 def test_skill_routing_cases_are_present_in_phase0_qualification_inventory() -> None:
     yaml = pytest.importorskip("yaml")
     contract = yaml.safe_load(
-        (ROOT / "docs/product/evidence/skill-routing-contract.yaml").read_text(
-            encoding="utf-8"
-        )
+        (
+            ROOT
+            / "backend/tests/fixtures/qualification/contracts/skill-routing-contract.yaml"
+        ).read_text(encoding="utf-8")
     )
     manifest = yaml.safe_load(
-        (ROOT / "docs/product/evidence/phase-0-qualification-manifest.yaml").read_text(
-            encoding="utf-8"
-        )
+        (
+            ROOT
+            / "backend/tests/fixtures/qualification/contracts/phase-0-qualification-manifest.yaml"
+        ).read_text(encoding="utf-8")
     )
     fixtures = {fixture["id"]: fixture for fixture in manifest["fixtures"]}
 

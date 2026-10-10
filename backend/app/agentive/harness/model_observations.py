@@ -6,10 +6,13 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from decimal import Decimal
+from typing import Any
 
 from app.agentive.harness.contracts import (
     HarnessExecutionScope,
+    ModelRouteIdentity,
     PhysicalModelRequest,
+    ResolvedModelRoute,
     RunUsageSummary,
 )
 from app.agentive.harness.jvspatial_store import HarnessPersistenceError
@@ -96,13 +99,100 @@ async def persist_model_request_observation(
                 "Model request transition ID is already bound to different evidence"
             )
 
-    if work_execution_context is None:
+    if work_execution_context is not None and observation.outcome != "dispatch_intent":
+        # Accounting evidence describes an already-authorized dispatch. It must
+        # remain appendable after Stop/lease loss; this grants no tool, output,
+        # checkpoint, or additional model-dispatch authority. Bind it to the
+        # encrypted original intent, rather than accepting a new scoped fact.
+        intent_id = _record_id(
+            _scope_key(observation.scope), observation.request_id, "dispatch_intent"
+        )
+        intent_record = await HarnessModelRequestRecord.get(intent_id)
+        intent = _decode(intent_record) if intent_record is not None else None
+        if intent is None or (
+            intent.scope != observation.scope
+            or intent.provider != observation.provider
+            or intent.model != observation.model
+            or intent.credential_source != observation.credential_source
+            or intent.credential_ref != observation.credential_ref
+            or intent.attempt != observation.attempt
+            or intent.dispatched_at != observation.dispatched_at
+            or observation.scope.principal_id != work_execution_context.principal_id
+            or observation.scope.workspace_id != work_execution_context.workspace_id
+            or observation.scope.thread_id != work_execution_context.thread_id
+            or observation.scope.run_id != work_execution_context.run_id
+        ):
+            raise HarnessPersistenceError(
+                "Model outcome does not match an authorized dispatch intent"
+            )
+        await persist()
+    elif work_execution_context is None:
         await persist()
     else:
         from app.agentive.services.work_items import authorized_work_item_effect
 
         async with authorized_work_item_effect(work_execution_context):
             await persist()
+
+
+async def load_bound_model_request_observation(
+    *,
+    scope: HarnessExecutionScope,
+    request_id: str,
+    outcome: str,
+    expected_route: ResolvedModelRoute | ModelRouteIdentity,
+) -> PhysicalModelRequest:
+    """Read exact encrypted intent/outcome evidence for a host-selected route.
+
+    The caller must authorize the owning run. This is evidence lookup, not
+    dispatch authority or a cost settlement: source cost may still be unknown
+    or estimated. Historical records lacking credential attribution cannot
+    establish an exact reviewed billing route. No latest-session substitution
+    or caller-supplied cost/receipt payload is accepted.
+    """
+    if (
+        not request_id
+        or request_id != request_id.strip()
+        or outcome not in {"responded", "failed", "cancelled", "outcome_unknown"}
+        or not expected_route.credential_ref
+    ):
+        raise HarnessPersistenceError("Exact model request route evidence required")
+    scope_key = _scope_key(scope)
+    observations = []
+    for transition in ("dispatch_intent", outcome):
+        record_id = _record_id(scope_key, request_id, transition)
+        record = await HarnessModelRequestRecord.get(record_id)
+        if record is None:
+            raise HarnessPersistenceError("Model request receipt is incomplete")
+        observation = _decode(record)
+        if (
+            record.id != record_id
+            or record.scope_key != scope_key
+            or record.run_key != scope.run_id
+            or record.request_key != request_id
+            or record.transition_key != f"{request_id}:{transition}"
+            or record.outcome != transition
+            or observation.scope != scope
+            or observation.request_id != request_id
+            or observation.outcome != transition
+            or observation.provider != expected_route.provider
+            or observation.model != expected_route.model
+            or observation.credential_source != expected_route.credential_source
+            or observation.credential_ref != expected_route.credential_ref
+        ):
+            raise HarnessPersistenceError("Model request receipt route mismatch")
+        observations.append(observation)
+    intent, terminal = observations
+    if (
+        intent.attempt != terminal.attempt
+        or intent.dispatched_at != terminal.dispatched_at
+        or intent.dispatched_at.utcoffset() is None
+        or terminal.observed_at is None
+        or terminal.observed_at.utcoffset() is None
+        or terminal.observed_at < intent.dispatched_at
+    ):
+        raise HarnessPersistenceError("Model outcome does not match dispatch intent")
+    return terminal
 
 
 async def list_model_request_observations(
@@ -121,6 +211,28 @@ async def list_model_request_observations(
             item.outcome,
         ),
     )
+
+
+async def list_run_model_request_observations(
+    *, run_id: str, principal_id: str, workspace_id: str, thread_id: str
+) -> list[PhysicalModelRequest]:
+    """Load accounting for an already-authorized Core run, including late facts.
+
+    The caller must authorize the owning run first. Validate its immutable
+    identity against every encrypted observation before projecting any data;
+    never resolve through the thread's possibly newer active session.
+    """
+    records = await HarnessModelRequestRecord.find({"run_key": run_id})
+    observations = [_decode(record) for record in records]
+    for item in observations:
+        if (
+            item.scope.run_id != run_id
+            or item.scope.principal_id != principal_id
+            or item.scope.workspace_id != workspace_id
+            or item.scope.thread_id != thread_id
+        ):
+            raise HarnessPersistenceError("Model accounting does not match its run")
+    return observations
 
 
 def unsettled_model_request_ids(
@@ -152,6 +264,70 @@ def unsettled_model_request_ids(
         if latest.outcome in {"dispatch_intent", "outcome_unknown"}:
             unsettled.append(request_id)
     return sorted(unsettled)
+
+
+def summarize_model_context(
+    observations: list[PhysicalModelRequest],
+) -> list[dict[str, Any]]:
+    """Content-free diagnostics for unique physical attempts, including late facts.
+
+    Repeated schema characters are serialized input, not estimated billed
+    tokens. Provider cache counts and cost remain nullable source observations.
+    This does not create billable requests or infer a missing provider outcome.
+    """
+    grouped: dict[str, list[PhysicalModelRequest]] = {}
+    for item in observations:
+        grouped.setdefault(item.request_id, []).append(item)
+    seen_schemas: set[str] = set()
+    rows = []
+    for request_id, transitions in sorted(
+        grouped.items(), key=lambda pair: (pair[1][0].dispatched_at, pair[0])
+    ):
+        ordered = sorted(
+            transitions, key=lambda item: item.observed_at or item.dispatched_at
+        )
+        latest = ordered[-1]
+        context = next(
+            (
+                item.request_context
+                for item in reversed(ordered)
+                if item.request_context is not None
+            ),
+            None,
+        )
+        usage: dict[str, Any] = {}
+        for item in ordered:
+            if item.usage is not None:
+                usage.update(item.usage.model_dump(mode="json", exclude_none=True))
+        row = {
+            "request_id": request_id,
+            "model": latest.model,
+            "attempt": latest.attempt,
+            "outcome": latest.outcome,
+            "elapsed_ms": (
+                max(
+                    0,
+                    round(
+                        (latest.observed_at - latest.dispatched_at).total_seconds()
+                        * 1000
+                    ),
+                )
+                if latest.observed_at is not None
+                else None
+            ),
+            "usage": usage or None,
+            **(context.model_dump(mode="json") if context is not None else {}),
+        }
+        fingerprint = context.tool_schema_fingerprint if context is not None else None
+        row["repeated_tool_schema_chars"] = (
+            context.tool_schema_chars
+            if context is not None and fingerprint in seen_schemas
+            else 0
+        )
+        if fingerprint:
+            seen_schemas.add(fingerprint)
+        rows.append(row)
+    return rows
 
 
 def summarize_model_usage(
@@ -188,28 +364,59 @@ def summarize_model_usage(
             unresolved += 1
             token_complete = False
             cost_complete = False
-            continue
+        else:
+            completed += 1
 
-        completed += 1
-        usage = response.usage
-        if usage is None:
+        # Observations are cumulative facts about ONE physical request, not
+        # independently billable calls. Prefer a complete response, otherwise
+        # the latest known value for each field. A close/cancel observation
+        # without usage must not erase earlier provider facts.
+        usage_observations = sorted(
+            (item for item in transitions if item.usage is not None),
+            key=lambda item: (
+                item.outcome == "responded" and bool(item.usage.complete),
+                item.observed_at or item.dispatched_at,
+                item.outcome == "responded",
+            ),
+            reverse=True,
+        )
+
+        def known(field, observations=usage_observations):
+            return next(
+                (
+                    getattr(item.usage, field)
+                    for item in observations
+                    if getattr(item.usage, field) is not None
+                ),
+                None,
+            )
+
+        known_input = known("input_tokens")
+        known_output = known("output_tokens")
+        known_cost = known("provider_cost_usd")
+        if known_input is not None:
+            input_tokens += known_input
+        if known_output is not None:
+            output_tokens += known_output
+        if (
+            response is None
+            or response.usage is None
+            or not response.usage.complete
+            or known_input is None
+            or known_output is None
+        ):
             token_complete = False
+        if known_cost is None:
             cost_complete = False
-            continue
-        if usage.input_tokens is not None:
-            input_tokens += usage.input_tokens
         else:
-            token_complete = False
-        if usage.output_tokens is not None:
-            output_tokens += usage.output_tokens
-        else:
-            token_complete = False
-        if not usage.complete:
-            token_complete = False
-        if usage.provider_cost_usd is None:
-            cost_complete = False
-        else:
-            known_costs.append(usage.provider_cost_usd)
+            known_costs.append(known_cost)
+            cost_evidence = next(
+                item
+                for item in usage_observations
+                if item.usage.provider_cost_usd is not None
+            )
+            if cost_evidence.outcome != "responded" or not cost_evidence.usage.complete:
+                cost_complete = False
 
     if unresolved:
         token_complete = False

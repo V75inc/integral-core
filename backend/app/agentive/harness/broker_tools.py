@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Collection, Sequence
@@ -21,6 +20,7 @@ from app.agentive.harness.pydantic_ai_compat import (
 )
 from app.agentive.harness.tool_argument_adapter import normalize_tool_arguments
 from app.schemas.agentive.work import WorkExecutionContext
+from app.services.notification_paths import entry_path
 
 # Fallback visibility for broker fixtures or runtimes without a projected skill
 # catalogue. A resident run with skills configured starts with unified
@@ -39,7 +39,6 @@ _ALWAYS_AVAILABLE_TOOLS = frozenset(
         "integral_verify_build",
     }
 )
-_MAX_BROKERED_CALLS_PER_RUN = 24
 # App setup is one declared proposal/build contract. Its implementation still
 # invokes these authorized primitives through Core, but exposing them as
 # separate model tools bypasses the saved blueprint and opens redundant
@@ -51,11 +50,6 @@ _BUILD_IMPLEMENTATION_TOOLS = frozenset(
         "integral_register_track_template",
     }
 )
-_MAX_TOOL_CALLS_PER_RUN = {
-    "integral_check_design_coverage": 3,
-    "integral_propose_design": 2,
-    "integral_verify_build": 1,
-}
 _REQUIRED_SKILLS_BY_TOOL = {
     "integral_check_design_coverage": "integral-scaffold",
     "integral_propose_design": "integral-scaffold",
@@ -81,13 +75,23 @@ def _resource_links_for_model(payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(item, dict) or not isinstance(item.get("id"), str):
             return item
         identifier = item["id"]
+        track_id = item.get("track_id")
+        if (
+            identifier.startswith("n.Entry.")
+            and isinstance(track_id, str)
+            and track_id.strip()
+        ):
+            # Chat copies ``url`` exactly. The product deep link opens the
+            # entry on its track; ``/entries/{id}`` is only the full-page
+            # fallback when the parent track is unknown.
+            return {**item, "url": entry_path(identifier, track_id.strip())}
         for prefix, path in paths.items():
             if identifier.startswith(prefix):
                 return {**item, "url": f"/{path}/{quote(identifier, safe='')}"}
         return item
 
     enriched = resource(payload)
-    for collection in ("apps", "tracks", "entries"):
+    for collection in ("apps", "tracks", "entries", "rows", "items"):
         items = payload.get(collection)
         if isinstance(items, list):
             enriched = {**enriched, collection: [resource(item) for item in items]}
@@ -98,6 +102,32 @@ def _idempotency_key(run_id: str, tool_call_id: str | None, tool_name: str) -> s
     identity = "\0".join((run_id, tool_call_id or "", tool_name))
     digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
     return f"native:{digest}"
+
+
+def _tool_work_context(
+    parent: WorkExecutionContext, tool_call_id: str | None, tool_name: str
+) -> WorkExecutionContext:
+    """Bind a persisted model call to its own durable logical effect slot.
+
+    A replayed call keeps its slot across WorkItem attempts. Distinct calls
+    never share the parent turn's slot, even when they invoke the same tool.
+    Authority fields remain host-owned and unchanged.
+    """
+    from app.agentive.services.work_execution import effect_key
+    from app.schemas.agentive.work import WorkError
+
+    if not tool_call_id:
+        raise WorkError("work.logical_step_missing", "tool call identity is required")
+    identity = "\0".join((parent.logical_step_key, tool_call_id, tool_name))
+    logical_step = "tool:" + hashlib.sha256(identity.encode("utf-8")).hexdigest()
+    return parent.model_copy(
+        update={
+            "logical_step_key": logical_step,
+            "effect_key": effect_key(
+                work_item_id=parent.work_item_id, logical_step_key=logical_step
+            ),
+        }
+    )
 
 
 def _make_handler(
@@ -121,23 +151,32 @@ def _make_handler(
     build_attempted = False
 
     async def invoke_tool(ctx: RunContext[Any], **arguments: Any) -> dict[str, Any]:
+        """Each tool call re-resolves access independently of previous reads."""
+        from app.middleware.permissions_cache import isolated_permissions_cache
+
+        with isolated_permissions_cache():
+            return await invoke_current_tool(ctx, **arguments)
+
+    async def invoke_current_tool(
+        ctx: RunContext[Any], **arguments: Any
+    ) -> dict[str, Any]:
         """Invoke the declared capability with server-bound identity."""
 
         nonlocal build_attempted
         call_state["attempted"] += 1
         arguments = normalize_tool_arguments(arguments, input_schema)
-        if call_state["attempted"] > _MAX_BROKERED_CALLS_PER_RUN:
-            return {
-                "error": True,
-                "error_code": "harness_tool_call_limit",
-                "message": (
-                    "This turn reached Integral's brokered tool-call limit. "
-                    "Stop calling tools and respond with the information already "
-                    "verified, or explain what remains unknown."
-                ),
-                "retryable": False,
-            }
-        if no_workspace_writes and capability_op_class != "read":
+        effective_op_class = capability_op_class
+        if capability_name == "integral_invoke_app_operation":
+            from app.agentive.services.capability_broker import is_declared_app_read
+
+            if await is_declared_app_read(
+                principal_id=scope.principal_id,
+                workspace_id=scope.workspace_id,
+                run_id=scope.run_id,
+                arguments=arguments,
+            ):
+                effective_op_class = "read"
+        if no_workspace_writes and effective_op_class != "read":
             return {
                 "error": True,
                 "error_code": "user_no_workspace_writes",
@@ -218,7 +257,8 @@ def _make_handler(
                 "retryable": False,
             }
         if (
-            workflow_skills
+            effective_op_class != "read"
+            and workflow_skills
             and not workflow_skills.intersection(ctx.active_capability_ids)
             and not saved_design_build
         ):
@@ -234,41 +274,9 @@ def _make_handler(
                 ),
                 "retryable": False,
             }
-        capability_calls = call_state["capability_calls"]
-        capability_calls[capability_name] = capability_calls.get(capability_name, 0) + 1
-        max_calls = _MAX_TOOL_CALLS_PER_RUN.get(capability_name)
-        if max_calls is not None and capability_calls[capability_name] > max_calls:
-            return {
-                "error": True,
-                "error_code": "capability_call_limit",
-                "message": (
-                    f"{capability_name} reached Integral's per-turn limit of "
-                    f"{max_calls} calls. Use the results already returned and "
-                    "finish the turn without repeating this capability."
-                ),
-                "retryable": False,
-            }
-        if capability_op_class == "read":
-            signature = json.dumps(
-                [capability_name, arguments],
-                sort_keys=True,
-                separators=(",", ":"),
-                default=str,
-            )
-            seen_reads = call_state["read_signatures"]
-            if signature in seen_reads:
-                return {
-                    "error": True,
-                    "error_code": "repeated_read_suppressed",
-                    "message": (
-                        "This exact read was already performed in this turn. "
-                        "Use the earlier result; do not repeat this call. If it "
-                        "did not answer the request, search for a more relevant "
-                        "capability once, then stop and explain the limitation."
-                    ),
-                    "retryable": False,
-                }
-            seen_reads.add(signature)
+        # Pydantic AI UsageLimits owns bounded execution. Reads must remain
+        # retryable after a failed attempt and fresh after a mutation; attempt
+        # signatures and per-tool quotas are not a correctness-preserving cache.
         if capability_name == "integral_build_approved_design":
             if not call_state.get("approved_design_ready"):
                 if call_state.get("pending_design"):
@@ -322,6 +330,14 @@ def _make_handler(
             # repeated batch (and repeated full-plan context) in the same run.
             build_attempted = True
 
+        tool_work_context = (
+            _tool_work_context(
+                work_execution_context, ctx.tool_call_id, capability_name
+            )
+            if work_execution_context is not None
+            else None
+        )
+
         async def dispatch() -> Any:
             return await invoke_declared(
                 principal_id=scope.principal_id,
@@ -332,6 +348,7 @@ def _make_handler(
                 op_class=capability_op_class,
                 arguments=arguments,
                 run_id=scope.run_id,
+                work_execution_context=tool_work_context,
                 idempotency_key=_idempotency_key(
                     scope.run_id, ctx.tool_call_id, capability_name
                 ),
@@ -347,25 +364,49 @@ def _make_handler(
             from app.agentive.services.work_items import authorized_work_item_effect
 
             async with authorized_work_item_effect(work_execution_context):
+                if capability_name == "integral_get_attachment_text":
+                    from app.agentive.work_models import WorkItem
+                    from app.services.chat_turn_attachments import (
+                        assert_chat_attachment_read_inputs,
+                    )
+
+                    item = await WorkItem.get(
+                        f"o.WorkItem.{work_execution_context.work_item_id}"
+                    )
+                    await assert_chat_attachment_read_inputs(item=item)
                 result = await dispatch()
         model_result = _resource_links_for_model(result.for_model())
         if capability_name == "integral_build_approved_design":
             call_state["build_succeeded"] = bool(result.ok)
             if not result.ok and result.error_code in {
                 "invalid_scaffold_plan",
+                "plan_differs_from_design",
                 "scaffold_plan_validation_failed",
             }:
                 # These Core errors are returned only before any substrate
                 # effect (including cancellation of the staging-only batch).
-                # Let Pydantic AI own bounded argument correction. Applied,
-                # partial, authorization and unknown outcomes stay one-shot.
+                # Let Pydantic AI own bounded argument correction against the
+                # already-approved blueprint. Plan drift is a compiler-input
+                # defect, not a reason to ask the user to approve the same
+                # design again. Applied, partial, authorization and unknown
+                # outcomes stay one-shot.
                 build_attempted = False
-                raise ModelRetry(result.message)
+                raise ModelRetry(
+                    result.message
+                    + " Correct the generated operation plan to match the saved, "
+                    "approved design and retry in this turn. Do not ask the user "
+                    "to repeat approval. If the approved design itself cannot be "
+                    "built without a material change, present only that specific "
+                    "change and ask for approval of the change."
+                )
         if capability_name == "integral_verify_build":
             call_state["verification_status"] = model_result.get("status")
             call_state["verification_succeeded"] = bool(
                 result.ok and model_result.get("status") == "verified"
             )
+            reply = model_result.get("reply")
+            if isinstance(reply, str) and reply.strip():
+                call_state["verification_reply"] = reply.strip()
         if capability_name == "integral_propose_design" and result.ok:
             call_state["proposal_succeeded"] = True
             call_state["approved_design_ready"] = bool(model_result.get("approved"))
@@ -420,8 +461,6 @@ def build_brokered_tools(
     seen_names: set[str] = set()
     call_state = run_state if run_state is not None else {}
     call_state.setdefault("attempted", 0)
-    call_state.setdefault("capability_calls", {})
-    call_state.setdefault("read_signatures", set())
     call_state.setdefault("scaffold_coverage_attempted", False)
     call_state.setdefault("proposal_attempted", False)
     call_state.setdefault("proposal_succeeded", False)
@@ -543,6 +582,10 @@ def build_brokered_tools(
         seen_names.add(name)
         description = str(item.get("description") or "")
         source, op_class = infer_source_and_op_class(name)
+        if source == "connector":
+            # Generated from the vetted catalog by connector_tools, never
+            # remote readOnlyHint. Unknown classifications remain writes.
+            op_class = "read" if item.get("op_class") == "read" else "execute"
         immutable_skill_allowlist = tuple(skill_tools_required)
 
         invoke_tool = _make_handler(
@@ -581,7 +624,12 @@ def build_brokered_tools(
                 prepare=_prepare_capability_tool(
                     name,
                     _REQUIRED_SKILLS_BY_TOOL.get(name),
-                    frozenset(skill_owners.get(name, ())),
+                    (
+                        frozenset(skill_owners.get(name, ()))
+                        if op_class != "read"
+                        and name != "integral_invoke_app_operation"
+                        else frozenset()
+                    ),
                     call_state,
                 ),
                 defer_loading=name not in immediately_available,
@@ -603,7 +651,6 @@ def build_brokered_tools(
                     name for name in immediately_available if name in seen_names
                 ),
                 run_state=call_state,
-                skill_owned_tools=frozenset(skill_owners),
             )
         )
     return tools
@@ -623,12 +670,6 @@ def _prepare_capability_tool(
             or (call_state or {}).get("pending_design")
         )
         if (
-            not saved_design_build
-            and (call_state or {}).get("capability_search_required")
-            and not (call_state or {}).get("capability_search_completed")
-        ):
-            return None
-        if (
             required_skill
             and required_skill not in ctx.active_capability_ids
             and not saved_design_build
@@ -646,13 +687,17 @@ def _prepare_capability_tool(
         # keeping the schema disclosed lets a stale call receive that precise
         # rejection instead of consuming unknown-tool validation retries.
         # Standard allowed-tools metadata binds a skill to its Core tools.
-        # Loading that skill reveals their schemas via the public preparation
-        # API; it does not widen authority or bypass the broker. Framework
+        # Loading that skill permits discovery of its protected writes; it
+        # does not eagerly disclose every schema or bypass the broker. Framework
         # capability state is restored from its own conversation history.
         if skill_owners:
             if not skill_owners.intersection(ctx.active_capability_ids):
                 return None
-            return replace(tool_def, defer_loading=False)
+            # Loading a procedure must not eagerly inject its entire schema
+            # catalog into every later request. Unified search records the
+            # matching tools in framework-owned disclosure history. Keep the
+            # others deferred; their procedure and broker authority stay intact.
+            return tool_def
         return tool_def
 
     return prepare

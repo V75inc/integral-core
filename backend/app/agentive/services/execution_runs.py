@@ -71,6 +71,17 @@ class AgentRun(Object):
     work_item_id: str = ""
     deadline_at: str = ""
 
+    @classmethod
+    async def find_one(
+        cls, query: Optional[Dict[str, Any]] = None, **kwargs: Any
+    ) -> Optional["AgentRun"]:
+        """Use the public query operation supported by shared-store transactions."""
+        # jvspatial 0.1.1 Object.find_one calls database.find_one, which its
+        # PostgresTransaction does not implement. Keep receipt lookups inside
+        # the worker's current transaction using Object.find's public contract.
+        matches = await cls.find(query, **kwargs)
+        return matches[0] if matches else None
+
 
 class RunStep(Object):
     """Authoritative capability receipt for one execution boundary."""
@@ -105,6 +116,14 @@ class RunStep(Object):
     duration_ms: Optional[float] = None
     result_json: str = ""
     work_item_id: str = ""
+
+    @classmethod
+    async def find_one(
+        cls, query: Optional[Dict[str, Any]] = None, **kwargs: Any
+    ) -> Optional["RunStep"]:
+        """Resolve a receipt through the transaction-compatible public query."""
+        matches = await cls.find(query, **kwargs)
+        return matches[0] if matches else None
 
 
 async def start_run(
@@ -218,6 +237,36 @@ def _finalize_snapshot(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _connector_tool_keys(connector: Any, discovered: Any) -> list:
+    """Every workspace tool key an MCP connector's discovered tools can be called by.
+
+    Two key families exist for one remote tool: the row-addressed key
+    (``mcp__<short connector id>__<tool>``) and, for a catalog connector such as
+    Google Drive, the slug-addressed canonical key (``mcp__google_drive__<tool>``)
+    that the assistant actually invokes. The snapshot used to list only the first,
+    so every canonical tool call was refused as ``capability.not_in_snapshot``.
+    """
+    if not isinstance(discovered, list):
+        return []
+    from app.agentive.connectors.mcp_mount import (
+        canonical_mcp_tool_key,
+        catalog_slug_for_connector,
+        tool_key_for,
+    )
+
+    connector_id = str(getattr(connector, "id", ""))
+    names = [
+        str(item.get("name") or "")
+        for item in discovered
+        if isinstance(item, dict) and item.get("name")
+    ]
+    keys = {tool_key_for(connector_id, name) for name in names}
+    slug = catalog_slug_for_connector(connector)
+    if slug:
+        keys |= {canonical_mcp_tool_key(slug, name) for name in names}
+    return sorted(keys)
+
+
 async def build_capability_snapshot(workspace_id: str) -> Dict[str, Any]:
     """Record persisted App and connector declarations available to a run.
 
@@ -325,18 +374,7 @@ async def build_capability_snapshot(workspace_id: str) -> Dict[str, Any]:
         discovered = (
             auth_state.get("discovered_tools") if isinstance(auth_state, dict) else None
         )
-        tool_keys = []
-        if isinstance(discovered, list):
-            from app.agentive.connectors.mcp_mount import tool_key_for
-
-            connector_id = str(getattr(connector, "id", ""))
-            tool_keys = sorted(
-                {
-                    tool_key_for(connector_id, str(item.get("name") or ""))
-                    for item in discovered
-                    if isinstance(item, dict) and item.get("name")
-                }
-            )
+        tool_keys = _connector_tool_keys(connector, discovered)
         snapshot["environments"].append(
             {
                 "connector_id": str(getattr(connector, "id", "")),
@@ -486,6 +524,50 @@ async def export_qualification_run(
     metadata = dict(getattr(run, "metadata", None) or {})
     harness = dict(metadata.get("harness") or {})
     observability = dict(metadata.get("model_observability") or {})
+    from app.agentive.harness.model_observations import (
+        list_run_model_request_observations,
+        summarize_model_context,
+        summarize_model_usage,
+    )
+
+    observations = await list_run_model_request_observations(
+        run_id=run_id,
+        principal_id=user_id,
+        workspace_id=workspace_id,
+        thread_id=str(getattr(run, "thread_id", "") or ""),
+    )
+    observed_usage = None
+    if observations:
+        # Stream events are a UI projection, not accounting authority. Stop
+        # fences them, and later reconciliation may enrich the physical ledger.
+        # Read that ledger on every authorized export instead of reporting zero
+        # usage for a cancelled run or freezing its cost at stream termination.
+        usage = summarize_model_usage(observations)
+        observed_usage = usage.model_dump(mode="json")
+        routes: Dict[str, list[Any]] = {}
+        for observation in observations:
+            model_id = observation.model
+            if not model_id.startswith(f"{observation.provider}/"):
+                model_id = f"{observation.provider}/{model_id}"
+            routes.setdefault(model_id, []).append(observation)
+        observed_models = []
+        for model_id, transitions in sorted(routes.items()):
+            route_usage = summarize_model_usage(transitions)
+            observed_models.append(
+                {
+                    "model_id": model_id,
+                    "calls": route_usage.request_count,
+                    "input_tokens": route_usage.reported_input_tokens,
+                    "output_tokens": route_usage.reported_output_tokens,
+                    "finish_reasons": [],
+                }
+            )
+        observability.update(
+            context_requests=summarize_model_context(observations),
+            models=observed_models,
+            total_input_tokens=usage.reported_input_tokens,
+            total_output_tokens=usage.reported_output_tokens,
+        )
     models = [
         {
             "model_id": str(item.get("model_id") or "unknown"),
@@ -522,6 +604,8 @@ async def export_qualification_run(
             tool_names=tool_names,
         ),
         "models": models,
+        "context_requests": list(observability.get("context_requests") or []),
+        "observed_usage": observed_usage,
         "redacted_trace_ref": f"agent-run:{getattr(run, 'run_id', '')}",
         "steps": safe_steps,
     }
@@ -693,6 +777,18 @@ async def _record_model_observability(
             ),
         }
     )
+    context = event.get("requestContext")
+    if isinstance(context, dict):
+        from app.agentive.harness.contracts import ModelRequestContextObservation
+
+        # Validate content-free dimensions before adding them to the public
+        # qualification report. Provider token usage remains the billing source.
+        dimensions = ModelRequestContextObservation.model_validate(context)
+        requests = list(summary.get("context_requests") or [])
+        requests.append(
+            {"request_id": str(event.get("requestId") or ""), **dimensions.model_dump()}
+        )
+        summary["context_requests"] = requests
     metadata["model_observability"] = summary
     run.metadata = metadata
     await run.save()

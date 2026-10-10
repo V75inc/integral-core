@@ -13,7 +13,9 @@ import {
   Search,
   ClipboardList,
   GripVertical,
-  LayoutDashboard
+  LayoutDashboard,
+  Home,
+  Settings2
 } from 'lucide-react';
 import {
   DndContext,
@@ -46,6 +48,7 @@ import {
 } from '../components/collab/CollaboratorRow';
 import { TrackModal } from '../components/tracks/TrackModal';
 import { AppModal } from '../components/apps/AppModal';
+import { AppSettingsModal } from '../components/apps/AppSettingsModal';
 import {
   Avatar,
   Button,
@@ -65,12 +68,14 @@ import {
 } from '../components/ui';
 import { Modal } from '../components/ui/Modal';
 import { dedupeCollaborators, isSamePrincipal, resolveIdentityColor } from '../utils';
+import { isTrackNavVisible } from '../utils/trackNav';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm, type ConfirmOptions } from '../context/ConfirmContext';
 import { useToast } from '../context/ToastContext';
 import { useSetCrumbs } from '../context/CrumbsContext';
 import { useChatPageFocus } from '../context/ChatPageFocusContext';
 import { AppDashboardPanel } from '../features/app-dashboards/AppDashboardPanel';
+import { AppHomePanel } from '../features/app-dashboards/AppHomePanel';
 import { dashboardsApi } from '../api/dashboards';
 import { useScope } from '../context/ScopeContext';
 import { useWorkspaceCrumbPrefix } from '../hooks/useWorkspaceCrumbPrefix';
@@ -78,6 +83,7 @@ import { useRecents } from '../hooks/useRecents';
 import { useWorkspaceCreationRights } from '../hooks/useWorkspaceCreationRights';
 import { WorkspaceCreationRightsNotice } from '../components/collab/WorkspaceCreationRightsNotice';
 import type { App, OperationalModelNode, Track, User } from '../types';
+import { resolveDocumentTemplatesTrackHref } from '../features/documents/documentTemplatesRouting';
 import { Text } from '../ui';
 import {
   readAppDetailSection,
@@ -117,6 +123,7 @@ export function AppDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [showTrackModal, setShowTrackModal] = useState(false);
   const [showEditAppModal, setShowEditAppModal] = useState(false);
+  const [showAppSettingsModal, setShowAppSettingsModal] = useState(false);
   const [linkModal, setLinkModal] = useState(false);
   const [linkModalSearch, setLinkModalSearch] = useState('');
   const [anchorExpanded, setAnchorExpanded] = useState(false);
@@ -152,6 +159,15 @@ export function AppDetailPage() {
     enabled: !!appId
   });
   const dashboardCount = dashboardsQuery.data?.length ?? 0;
+  const homeQuery = useQuery({
+    queryKey: ['app-home-definition', appId],
+    queryFn: () => dashboardsApi.home(appId!, false),
+    enabled: Boolean(appId),
+  });
+  const hasHome = Boolean(homeQuery.data?.home);
+  useEffect(() => {
+    if (appId && homeQuery.data) setAppSection(readAppDetailSection(appId, hasHome ? 'home' : 'tracks'));
+  }, [appId, homeQuery.data, hasHome]);
 
   // Publish breadcrumb trail to the TopBar.
   // When the App is workspace-scoped, lead the trail with the {WorkspaceName}
@@ -249,11 +265,10 @@ export function AppDetailPage() {
 
   const filteredTracks = useMemo(() => {
     const q = trackSearch.trim().toLowerCase();
-    // Settings are surfaced through the app's Settings Hub, not as duplicate
-    // top-level tracks. Other internal track kinds remain visible unless an
-    // app explicitly gives them their own landing surface.
+    // Settings + nav_visible=false (e.g. document line tracks) stay out of
+    // App track nav; they remain addressable via direct URL / pins.
     const visibleTracks = tracks
-      .filter(t => t.kind !== 'settings')
+      .filter(isTrackNavVisible)
       .sort((a, b) => {
         const ap = typeof a.position === 'number' ? a.position : Number.MAX_SAFE_INTEGER;
         const bp = typeof b.position === 'number' ? b.position : Number.MAX_SAFE_INTEGER;
@@ -276,7 +291,7 @@ export function AppDetailPage() {
     }
     if (appSection === 'dashboards') return;
     setPageContext({
-      pageKind: 'app_detail',
+      pageKind: appSection === 'home' ? 'app_home' : 'app_detail',
       focusedAppId: appId,
       visibleData: {
         tracks: filteredTracks.map(t => ({
@@ -340,6 +355,10 @@ export function AppDetailPage() {
   const isAdminInCollab = myRole === 'admin';
   const canAdmin = isAppOwner || isAdminInCollab;
   const canManageCollaborators = canAdmin;
+  // Adding or linking a track is app.update, not the workspace create flag.
+  // A workspace owner can open this App as a commenter and still holds
+  // canCreateTracks; showing New track in that case returns 403.
+  const canAddTrackToThisApp = canAdmin && canCreateTracks;
   const canEditDashboard =
     isAppOwner ||
     ['admin', 'editor'].includes(myRole);
@@ -614,7 +633,19 @@ export function AppDetailPage() {
                 Edit
               </Button>
             ) : null}
-            {canCreateTracks ? (
+            {canAdmin ? (
+              <Button
+                variant="outline"
+                size="sm"
+                icon={<Settings2 size={14} strokeWidth={LINE_ICON_STROKE} />}
+                onClick={() => setShowAppSettingsModal(true)}
+                aria-label="App settings"
+                data-testid="app-settings-button"
+              >
+                Settings
+              </Button>
+            ) : null}
+            {canAddTrackToThisApp ? (
               <Button
                 variant="primary"
                 size="sm"
@@ -625,15 +656,20 @@ export function AppDetailPage() {
                 New track
               </Button>
             ) : null}
+            {canAdmin || isAppOwner ? (
             <KebabMenu
               ariaLabel="More app actions"
               items={[
-                {
-                  key: 'link-track',
-                  label: 'Link existing track',
-                  icon: <Link2 size={13} strokeWidth={LINE_ICON_STROKE} />,
-                  onClick: () => setLinkModal(true)
-                },
+                ...(canAdmin
+                  ? [
+                      {
+                        key: 'link-track',
+                        label: 'Link existing track',
+                        icon: <Link2 size={13} strokeWidth={LINE_ICON_STROKE} />,
+                        onClick: () => setLinkModal(true)
+                      },
+                    ]
+                  : []),
                 ...(canAdmin
                   ? [
                       {
@@ -668,6 +704,7 @@ export function AppDetailPage() {
                   : []),
               ]}
             />
+            ) : null}
           </div>
         </div>
         <WorkspaceCreationRightsNotice
@@ -679,6 +716,16 @@ export function AppDetailPage() {
           <span>
             {tracks.length} {tracks.length === 1 ? 'track' : 'tracks'}
           </span>
+          {!canAdmin ? (
+            <>
+              <span aria-hidden>·</span>
+              <span>
+                {myRole === 'editor'
+                  ? 'You can create and edit entries. The owner or an admin manages tracks.'
+                  : 'You can view and comment. The owner or an admin manages tracks.'}
+              </span>
+            </>
+          ) : null}
           {uniqueCollabs.length > 0 ? (
             <>
               <span aria-hidden>·</span>
@@ -694,7 +741,7 @@ export function AppDetailPage() {
             {app.description}
           </p>
         ) : null}
-        {defaultTrack ? (
+        {defaultTrack && !hasHome ? (
           <div className="mt-5 flex flex-col gap-3 rounded-[var(--radius-card)] border border-[var(--border-subtle)] bg-[var(--surface-raised)] p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
             <div className="min-w-0">
               <p className="text-xs font-medium uppercase tracking-wide text-[var(--text-subtle)]">
@@ -758,12 +805,13 @@ export function AppDetailPage() {
         ) : null}
       </header>
 
-      <ViewTabs<'tracks' | 'dashboards'>
+      <ViewTabs<AppDetailSection>
         className="mt-6"
         ariaLabel="App sections"
         value={appSection}
         onChange={selectAppSection}
         options={[
+          ...(hasHome ? [{ value: 'home' as const, label: 'Home', icon: <Home size={15} strokeWidth={LINE_ICON_STROKE} /> }] : []),
           {
             value: 'tracks',
             label: 'Tracks',
@@ -783,7 +831,11 @@ export function AppDetailPage() {
 
       <PageSection.Separator />
 
-      {appSection === 'tracks' ? (
+      {appSection === 'home' && hasHome ? (
+        <PageSection className={filterBar.sectionTop}>
+          <AppHomePanel appId={appId} workspaceId={app?.workspace_id || ''} />
+        </PageSection>
+      ) : appSection === 'tracks' ? (
       <PageSection className={filterBar.sectionTop}>
 
       {/* Search — right-anchored utility row matching FeedPage / TrackDetail. */}
@@ -806,8 +858,15 @@ export function AppDetailPage() {
                 </IconWell>
               }
               title="No tracks in this App"
-              description="Create a new track or link an existing one."
+              description={
+                canAdmin
+                  ? 'Create a new track or link an existing one.'
+                  : myRole === 'editor'
+                    ? 'Tracks in this App are managed by its owner or an admin. Once tracks exist, you can add entries.'
+                    : 'Tracks in this App are managed by its owner or an admin. You can view and comment.'
+              }
               action={
+                canAdmin ? (
                 <div className="flex flex-wrap justify-center gap-2">
                   <Button
                     variant="outline"
@@ -817,7 +876,7 @@ export function AppDetailPage() {
                   >
                     Link track
                   </Button>
-                  {canCreateTracks ? (
+                  {canAddTrackToThisApp ? (
                     <Button
                       variant="primary"
                       size="sm"
@@ -828,6 +887,7 @@ export function AppDetailPage() {
                     </Button>
                   ) : null}
                 </div>
+                ) : undefined
               }
             />
           ) : filteredTracks.length === 0 ? (
@@ -847,6 +907,7 @@ export function AppDetailPage() {
                   tracks={primaryTracks}
                   canAdmin={canAdmin}
                   appId={appId || ''}
+                  app={app}
                   confirm={confirm}
                   showToast={showToast}
                   onReordered={(next) => {
@@ -906,6 +967,7 @@ export function AppDetailPage() {
                           isAnchor
                           canAdmin={canAdmin}
                           appId={appId || ''}
+                          app={app}
                           confirm={confirm}
                           showToast={showToast}
                           onChanged={load}
@@ -951,6 +1013,18 @@ export function AppDetailPage() {
         }}
       />
 
+      {appId && app ? (
+        <AppSettingsModal
+          open={showAppSettingsModal}
+          appId={appId}
+          appName={app.name}
+          onClose={() => setShowAppSettingsModal(false)}
+          onSaved={() => {
+            showToast('Settings saved', 'success');
+          }}
+        />
+      ) : null}
+
       {/* Plan 08-04 — Derive library package from this App (SET-05). */}
       <DeriveLibraryPackageModal
         open={deriveModalOpen}
@@ -980,6 +1054,9 @@ export function AppDetailPage() {
               </h3>
               <p className="text-xs text-[var(--text-muted)]">
                 Search for a user by name or email, then add them as a commenter on this App.
+                Workspace owners and admins can view Apps shared with the workspace, but a
+                Private App stays hidden until you add them. Add them here, then set Editor
+                to allow editing entries in tracks, or Admin to manage tracks and app settings.
               </p>
               <UserSearchPicker
                 excludeIds={excludeCollabIds}
@@ -990,7 +1067,8 @@ export function AppDetailPage() {
           ) : (
             <p className="rounded-[var(--radius-input)] border border-[var(--panel-border)] bg-[var(--panel-2)] px-3 py-2 text-xs text-[var(--text-muted)]">
               Only the <span className="font-medium text-[var(--text)]">app owner or an admin</span>{' '}
-              can add or remove collaborators. You can still view who has access below.
+              can add people or change roles. A Private App stays hidden from workspace
+              owners and admins until they are added. This dialog cannot grant that to you.
             </p>
           )}
 
@@ -1143,6 +1221,7 @@ function AppTrackRow({
   isAnchor,
   canAdmin,
   appId,
+  app,
   confirm,
   showToast,
   onChanged,
@@ -1152,6 +1231,7 @@ function AppTrackRow({
   isAnchor: boolean;
   canAdmin: boolean;
   appId: string;
+  app?: App | null;
   confirm: (opts: ConfirmOptions) => Promise<boolean>;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   onChanged: () => void;
@@ -1160,6 +1240,7 @@ function AppTrackRow({
   const { activeWorkspace } = useScope();
   const canDrag = !!sortable && canAdmin;
   const workspaceAccentColor = activeWorkspace?.accent_color;
+  const trackHref = resolveDocumentTemplatesTrackHref(track, app ?? track.app ?? null);
   return (
     <li
       ref={sortable?.setNodeRef}
@@ -1167,7 +1248,7 @@ function AppTrackRow({
       className={`group/row relative ${sortable?.isDragging ? 'opacity-60' : ''}`}
     >
       <Link
-        to={`/tracks/${track.id}`}
+        to={trackHref}
         className="
           grid grid-cols-[auto_minmax(0,1fr)_auto] gap-x-[18px] py-4 px-4
           border-b border-[var(--border-subtle)]
@@ -1284,6 +1365,7 @@ function SortableTrackList({
   tracks,
   canAdmin,
   appId,
+  app,
   confirm,
   showToast,
   onReordered,
@@ -1292,6 +1374,7 @@ function SortableTrackList({
   tracks: Track[];
   canAdmin: boolean;
   appId: string;
+  app?: App | null;
   confirm: (opts: ConfirmOptions) => Promise<boolean>;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   onReordered: (next: Track[]) => void;
@@ -1322,6 +1405,7 @@ function SortableTrackList({
             isAnchor={false}
             canAdmin={canAdmin}
             appId={appId}
+            app={app}
             confirm={confirm}
             showToast={showToast}
             onChanged={onChanged}
@@ -1345,6 +1429,7 @@ function SortableTrackList({
               track={t}
               canAdmin={canAdmin}
               appId={appId}
+              app={app}
               confirm={confirm}
               showToast={showToast}
               onChanged={onChanged}
@@ -1360,6 +1445,7 @@ function SortableAppTrackRow({
   track,
   canAdmin,
   appId,
+  app,
   confirm,
   showToast,
   onChanged
@@ -1367,6 +1453,7 @@ function SortableAppTrackRow({
   track: Track;
   canAdmin: boolean;
   appId: string;
+  app?: App | null;
   confirm: (opts: ConfirmOptions) => Promise<boolean>;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   onChanged: () => void;
@@ -1384,6 +1471,7 @@ function SortableAppTrackRow({
       isAnchor={false}
       canAdmin={canAdmin}
       appId={appId}
+      app={app}
       confirm={confirm}
       showToast={showToast}
       onChanged={onChanged}

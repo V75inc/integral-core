@@ -1,3 +1,5 @@
+import type { EntryCreateInput } from '../views/types';
+/* patch:kanban-hire-intercept */
 import {
   useState,
   useEffect,
@@ -6,7 +8,7 @@ import {
   useRef,
   type CSSProperties,
 } from 'react';
-import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, Link, useNavigate, useSearchParams, Navigate } from 'react-router-dom';
 import {
   Sparkles,
 } from 'lucide-react';
@@ -28,6 +30,9 @@ import {
   viewsForTrackQueryKey
 } from '../queryKeys';
 import { errorMessageFromAxios } from '../api/helpers';
+import { interceptKanbanHireStageChange } from '../features/kanbanHire/kanbanHirePrompt';
+import { resolveDocumentTemplatesTrackRedirect } from '../features/documents/documentTemplatesRouting';
+import { pathAfterTrackDelete } from '../utils/pathAfterTrackDelete';
 import type { TrackDetailBundle, TrackEntriesPage } from '../api/tracks';
 import {
   EntryComposeModal,
@@ -50,6 +55,7 @@ import {
   filterBar,
 } from '../components/ui';
 import type { ViewTabOption } from '../components/ui';
+import { savedViewTabs } from '../utils/savedViewTabs';
 import {
   mergeDedupedTrackEntryPages,
   useTrackDetailRightRail,
@@ -100,6 +106,7 @@ import type {
 } from '../types';
 import { slugTagProfileKey } from '../utils/tagProfile';
 import { Text } from '../ui';
+import { isViewDesignerEnabled, ViewDesignerShell } from '../features/view-designer';
 
 export function TrackDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -131,6 +138,7 @@ export function TrackDetailPage() {
 
   const [track, setTrack] = useState<Track | null>(null);
   const [activeView, setActiveView] = useState<SavedView | null>(null);
+  const [layoutTarget, setLayoutTarget] = useState<{ trackId: string; viewId: string } | null>(null);
   const [entryModal, setEntryModal] = useState<{
     entry: Entry;
     focusComments?: boolean;
@@ -318,6 +326,12 @@ export function TrackDetailPage() {
     queryClient.setQueryData(entryTypesForTrackQueryKey(id), d.entry_types);
     queryClient.setQueryData(viewsForTrackQueryKey(id), d.views as SavedView[]);
   }, [id, queryClient, trackDetailQuery.data]);
+
+  const documentTemplatesRedirect = useMemo(
+    () =>
+      track ? resolveDocumentTemplatesTrackRedirect(track, searchParams) : null,
+    [track, searchParams],
+  );
 
   // Track + collaborators (separate from entry types / views so that
   // schema mutations from TrackConfigPanel invalidate ONLY the
@@ -581,35 +595,11 @@ export function TrackDetailPage() {
     return Array.from(seen.values());
   }, [entryTypesQuery.data]);
 
-  // De-dupe saved views by (type + entry_type_keys) so the tab strip
-  // never shows two literally-identical "Kanban" tabs, BUT entry-type
-  // slice views ("Accounts" / "Leads" / "Partners" tables that share
-  // `type: table` but constrain on different `entry_type_keys`) each
-  // keep their own tab. Default views win when there's a tie. The
-  // canonical-per-(type+slice) result drives the horizontal tab strip
-  // (Feed / Kanban / Gallery / Calendar / each Table slice).
-  const dedupedTabViews = useMemo<SavedView[]>(() => {
-    const byKey = new Map<string, SavedView>();
-    for (const v of savedViews) {
-      const keys = Array.isArray(v.entry_type_keys)
-        ? [...v.entry_type_keys].map(s => String(s).toLowerCase().trim()).sort()
-        : [];
-      const dedupeKey = `${v.type}::${keys.join(',')}`;
-      const existing = byKey.get(dedupeKey);
-      if (!existing) {
-        byKey.set(dedupeKey, v);
-      } else if (v.is_default && !existing.is_default) {
-        byKey.set(dedupeKey, v);
-      } else if (
-        v.is_default === existing.is_default &&
-        v.name &&
-        !existing.name
-      ) {
-        byKey.set(dedupeKey, v);
-      }
-    }
-    return Array.from(byKey.values());
-  }, [savedViews]);
+  // Different names/configurations represent different user-defined views,
+  // including extensions sharing one renderer and entry-type slice.
+  const dedupedTabViews = useMemo(
+    () => savedViewTabs(savedViews), [savedViews],
+  );
 
   const viewTabOptions = useMemo<ViewTabOption[]>(
     () =>
@@ -938,6 +928,7 @@ export function TrackDetailPage() {
       variant: 'danger'
     });
     if (!ok) return;
+    const destination = pathAfterTrackDelete(track);
     try {
       await tracksApi.delete(track.id);
       // Refresh Mission Control's per-workspace track aggregation and
@@ -946,7 +937,7 @@ export function TrackDetailPage() {
       void invalidateWorkspaceListCaches(queryClient);
       void invalidateFeedCaches(queryClient);
       showToast('Track deleted', 'success');
-      navigate('/tracks');
+      navigate(destination);
     } catch {
       showToast('Failed to delete track', 'error');
     }
@@ -1080,6 +1071,27 @@ export function TrackDetailPage() {
    *  commonly used as kanban/board axes. */
   const handleEntryPersist = useCallback(
     async (u: Entry) => {
+      let previous: Entry | undefined;
+      patchEntriesCache(p => {
+        previous = p.entries.find(e => e.id === u.id);
+        return p;
+      });
+      if (
+        previous &&
+        interceptKanbanHireStageChange(previous, u, {
+          appId: u.app?.id || track?.app?.id,
+          workspaceId:
+            track?.app?.workspace_id ||
+            track?.workspace_id ||
+            u.track?.workspace_id,
+        })
+      ) {
+        patchEntriesCache(p => ({
+          ...p,
+          entries: p.entries.map(e => (e.id === previous!.id ? previous! : e)),
+        }));
+        return;
+      }
       patchEntriesCache(p => ({
         ...p,
         entries: p.entries.map(e => (e.id === u.id ? u : e))
@@ -1100,8 +1112,8 @@ export function TrackDetailPage() {
           entries: p.entries.map(e => (e.id === updated.id ? updated : e))
         }));
         return updated;
-      } catch {
-        showToast('Failed to save changes', 'error');
+      } catch (err) {
+        showToast(errorMessageFromAxios(err, 'Failed to save changes'), 'error');
         invalidateTrackEntries();
       }
     },
@@ -1250,7 +1262,7 @@ export function TrackDetailPage() {
    *  constraints filter what the view *displays*, not what the user can
    *  post from the track composer. */
   const handleEntryCreate = useCallback(
-    async (input: { title: string; type?: string; custom_fields?: Record<string, unknown> }) => {
+    async (input: EntryCreateInput) => {
       if (!id) return;
       const allowed = new Set(
         entryTypeSlugs.map(s => slugifyKanbanColumnKey(s)).filter(Boolean)
@@ -1309,9 +1321,11 @@ export function TrackDetailPage() {
         typeFields,
         input.custom_fields
       );
-      if (missingRequired.length > 0 || disallowed.length > 0) {
+      // A calendar date click starts a draft. Creating first and opening an
+      // edit dialog would leave a placeholder record behind when canceled.
+      if (input.source === 'calendar' || missingRequired.length > 0 || disallowed.length > 0) {
         setComposeModal({
-          title: input.title,
+          title: input.source === 'calendar' && input.title === 'New event' ? '' : input.title,
           type: slug,
           custom_fields: input.custom_fields
         });
@@ -1395,6 +1409,8 @@ export function TrackDetailPage() {
     canManageCollaborators,
     canComment
   } = useTrackPermissions(track);
+  const canEditViewLayout = isViewDesignerEnabled() && !isPagesView &&
+    Boolean(activeView) && (canAdminTrack || canCreateEntryByRole);
   const canManageCollabRows = canManageCollaborators;
 
   // A singleton entry type (e.g. Company Profile — "one record per
@@ -1727,6 +1743,10 @@ export function TrackDetailPage() {
       </div>
     );
 
+  if (documentTemplatesRedirect) {
+    return <Navigate to={documentTemplatesRedirect} replace />;
+  }
+
   return (
     <PageShell>
       <TrackDetailHeader
@@ -1772,7 +1792,13 @@ export function TrackDetailPage() {
         viewTabOptions={viewTabOptions}
         activeView={activeView}
         dedupedTabViews={dedupedTabViews}
-        onChangeView={setActiveView}
+        onChangeView={next => {
+          setLayoutTarget(null);
+          setActiveView(next);
+        }}
+        onEditLayout={canEditViewLayout && id && activeView
+          ? () => setLayoutTarget({ trackId: id, viewId: activeView.id })
+          : undefined}
         canViewTrackConfig={canViewTrackConfig}
         trackConfigOpen={trackConfigOpen}
         trackActivityOpen={trackActivityOpen}
@@ -1852,6 +1878,19 @@ export function TrackDetailPage() {
           />
         ) : null}
       </PageSection>
+
+      {canEditViewLayout && activeView && layoutTarget?.trackId === id &&
+        layoutTarget?.viewId === activeView.id ? (
+        <ViewDesignerShell
+          key={`${id}:${activeView.id}`}
+          open
+          onClose={() => setLayoutTarget(null)}
+          trackId={track.id}
+          view={activeView}
+          previewEntries={filteredEntries}
+          onSaved={handleViewUpdate}
+        />
+      ) : null}
 
       {entryModal && (
         <EntryDetail

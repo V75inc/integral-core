@@ -5,7 +5,7 @@ Verifies:
 - trigger condition — entry.create event with tags containing "summarize-me"
 - recursion guard — auto-drafted summary has empty tags AND consumer ignores its own writes
 - consumer's own write also emits a ChangeEvent (D-05 loop closure)
-- consumer is NOT loaded when AGENTIVE_ENABLED=0 (D-11)
+- sample consumer is opt-in within the always-on agentive layer
 
 Tests directly exercise the consumer's `on_change_event` callback (synchronously
 in the same event loop) — this is the same dispatch path that
@@ -15,9 +15,14 @@ broadcast_change_event uses, but skips the WS subscriber overhead.
 from __future__ import annotations
 
 import asyncio
-import importlib
 
 import pytest
+
+
+async def _declared_tag(client, track_id, name):
+    response = await client.post("/api/tags", json={"track_id": track_id, "name": name})
+    assert response.status_code == 200, response.text
+    return response.json()["tag"]["id"]
 
 
 @pytest.mark.asyncio
@@ -59,7 +64,9 @@ async def test_consumer_enabled_drafts_summary(
         json={
             "track_id": track_id,
             "title": "Original Article",
-            "tags": ["summarize-me"],
+            "tags": [
+                await _declared_tag(authenticated_client, track_id, "summarize-me")
+            ],
         },
     )
     assert entry_resp.status_code in (200, 201), entry_resp.text
@@ -114,7 +121,11 @@ async def test_consumer_ignores_non_trigger_tag(
     track_id = track_resp.json()["track"]["id"]
     await authenticated_client.post(
         "/api/entries",
-        json={"track_id": track_id, "title": "Untagged thing", "tags": ["other"]},
+        json={
+            "track_id": track_id,
+            "title": "Untagged thing",
+            "tags": [await _declared_tag(authenticated_client, track_id, "other")],
+        },
     )
     await asyncio.sleep(0.1)
 
@@ -145,7 +156,9 @@ async def test_consumer_no_recursion(authenticated_client, test_user, monkeypatc
         json={
             "track_id": track_id,
             "title": "Source",
-            "tags": ["summarize-me"],
+            "tags": [
+                await _declared_tag(authenticated_client, track_id, "summarize-me")
+            ],
         },
     )
     # Allow consumer write + any recursive hook dispatches a chance to run.
@@ -182,7 +195,9 @@ async def test_consumer_emit_appears_in_audit_log(
         json={
             "track_id": track_id,
             "title": "Source",
-            "tags": ["summarize-me"],
+            "tags": [
+                await _declared_tag(authenticated_client, track_id, "summarize-me")
+            ],
         },
     )
     await asyncio.sleep(0.2)
@@ -260,4 +275,4 @@ def test_consumer_recursion_guard_in_source():
     # consumer never re-triggers itself).
     assert "CONSUMER_ID" in src
     # Closes the D-05 loop — consumer's own write also emits.
-    assert "emit_change_event" in src
+    assert "create_entry_in_track" in src

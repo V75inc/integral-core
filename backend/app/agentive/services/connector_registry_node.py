@@ -173,7 +173,7 @@ async def attach_connector_to_workspace(
 async def create_connector(
     *,
     owner: str,
-    kind: AgentType = "jvagent",
+    kind: AgentType = "integral_native",
     auth_state: Optional[dict] = None,
     sync_cursor: Optional[str] = None,
     mapping_profile: Optional[str] = None,

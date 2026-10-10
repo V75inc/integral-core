@@ -144,7 +144,7 @@ def test_to_mount_request_refuses_stdio_regardless_of_the_flag(monkeypatch, flag
     operator enabled a setting and then got "connector has no vetted
     catalog_slug" from the discovery step.
     """
-    monkeypatch.setattr(client.settings, "MCP_REGISTRY_ENABLE_STDIO_INSTALL", flag)
+    monkeypatch.setenv("MCP_REGISTRY_ENABLE_STDIO_INSTALL", str(flag).lower())
     entry = client.normalize_registry_entry(STDIO_PACKAGE_ENTRY)
     with pytest.raises(ValueError, match="catalog"):
         client.to_mount_request(entry)

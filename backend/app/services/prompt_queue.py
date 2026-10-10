@@ -1,6 +1,6 @@
 """Durable PromptQueue on ChatThread — sequester sheet source of truth.
 
-See ``docs/superpowers/specs/2026-09-08-prompt-sheet-design.md``.
+See ``docs/backend/prompt-queue.md``.
 """
 
 from __future__ import annotations
@@ -33,6 +33,9 @@ STATUS_SKIPPED = "skipped"
 STATUS_APPROVED = "approved"
 STATUS_REJECTED = "rejected"
 STATUS_CANCELLED = "cancelled"
+
+# Bound sheet spam for "delete everything" style multi-propose turns.
+MAX_PENDING_STAGED_WRITES = 20
 
 _RESOLVED = frozenset(
     {
@@ -79,6 +82,39 @@ def queue_is_open(thread: ChatThread) -> bool:
     if q["status"] != QUEUE_STATUS_OPEN:
         return False
     return any(i.get("status") == STATUS_PENDING for i in q["items"])
+
+
+def _host_resume_required(queue: Dict[str, Any]) -> bool:
+    """A native chat decision already has an owning model continuation.
+
+    Only durable terminal decisions made through the chat adapter can suppress
+    another host run. Questions, card decisions and unavailable tokens retain
+    the usual continuation. This does not grant or replay any write authority.
+    """
+    items = queue.get("items") or []
+    return not (
+        items
+        and all(
+            item.get("kind") == ITEM_STAGED_WRITE
+            and item.get("status") in {STATUS_APPROVED, STATUS_REJECTED}
+            and item.get("decision_source") == "chat"
+            for item in items
+        )
+    )
+
+
+def _verified_decision_source(
+    staged: Any, *, user_id: str, thread: ChatThread
+) -> Optional[str]:
+    """Only this native conversation's durable decision owns continuation."""
+    if (
+        thread.provider_id == "integral_native"
+        and getattr(staged, "user_id", None) == user_id
+        and getattr(staged, "workspace_id", None) == thread.workspace_id
+        and getattr(staged, "session_id", None) == thread.id
+    ):
+        return getattr(staged, "decision_source", None)
+    return None
 
 
 def _ensure_open(queue: Dict[str, Any]) -> None:
@@ -567,19 +603,6 @@ def prompt_sheet_agent_residual(text: str) -> str:
     return body.strip()
 
 
-def extract_legacy_resume_directive(text: str) -> Optional[str]:
-    """Pull the body of a legacy ``INTEGRAL_AGENT_DIRECTIVE`` comment, if any."""
-    match = re.search(
-        r"<!--\s*INTEGRAL_AGENT_DIRECTIVE\s*([\s\S]*?)-->",
-        text or "",
-        re.IGNORECASE,
-    )
-    if not match:
-        return None
-    body = (match.group(1) or "").strip()
-    return body or None
-
-
 def _maybe_close(queue: Dict[str, Any], *, reason: str) -> Optional[str]:
     """Close when no pending items remain. Returns resume summary or None."""
     if any(i.get("status") == STATUS_PENDING for i in queue["items"]):
@@ -688,6 +711,22 @@ async def enqueue_staged_write(
     for item in queue["items"]:
         if item.get("kind") == ITEM_STAGED_WRITE and item.get("token") == token:
             return
+
+    pending_writes = sum(
+        1
+        for item in queue.get("items") or []
+        if item.get("kind") == ITEM_STAGED_WRITE
+        and item.get("status") == STATUS_PENDING
+    )
+    if pending_writes >= MAX_PENDING_STAGED_WRITES:
+        logger.warning(
+            "prompt_queue: refusing enqueue — %s pending staged writes already "
+            "(cap=%s) session=%s",
+            pending_writes,
+            MAX_PENDING_STAGED_WRITES,
+            session_id,
+        )
+        return
 
     _ensure_open(queue)
     queue["items"].append(
@@ -870,6 +909,9 @@ async def mark_write_item(
             }
         item["status"] = status
         item["resolved_at"] = utc_now_iso()
+        item["decision_source"] = _verified_decision_source(
+            sc, user_id=user_id, thread=thread
+        )
     if (
         status == STATUS_APPROVED
         and item.get("status") == STATUS_APPROVED
@@ -904,6 +946,7 @@ async def mark_write_item(
         "item": item,
         "queue": queue,
         "resume_text": resume,
+        "resume_required": _host_resume_required(queue),
         "closed": resume is not None,
     }
 
@@ -1056,6 +1099,9 @@ async def reconcile_staged_write_items(*, user_id: str, thread: ChatThread) -> d
             continue
         item["status"], item["terminal_reason"] = terminal
         item["resolved_at"] = utc_now_iso()
+        item["decision_source"] = _verified_decision_source(
+            staged, user_id=user_id, thread=thread
+        )
         if (
             item["status"] == STATUS_APPROVED
             and item.get("write_kind") == "propose_profile_revision"
@@ -1099,6 +1145,7 @@ async def reconcile_staged_write_items(*, user_id: str, thread: ChatThread) -> d
         "reconciled": True,
         "queue": queue,
         "resume_text": resume,
+        "resume_required": _host_resume_required(queue),
         "closed": resume is not None,
     }
 
@@ -1115,6 +1162,7 @@ async def get_open_queue_for_thread(*, user_id: str, thread: ChatThread) -> dict
         "open": open_,
         "queue": queue if open_ else empty_queue(),
         "resume_text": result.get("resume_text"),
+        "resume_required": result.get("resume_required", True),
         "closed": bool(result.get("closed")),
     }
 

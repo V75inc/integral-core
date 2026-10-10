@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
-import { entryTypesForTrackQueryKey, invalidateFeedCaches } from '../../queryKeys';
+import { Link, useNavigate } from 'react-router-dom';
+import { entryTypesForTrackQueryKey, invalidateFeedCaches, viewsForTrackQueryKey } from '../../queryKeys';
 import {
   Edit2,
+  X,
   Trash2,
   File,
   CornerUpLeft,
@@ -15,31 +16,40 @@ import {
   Paperclip,
   Activity,
   Rocket,
+  LayoutTemplate,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import { isSamePrincipal, formatRelativeTime, entryTypeColor } from '../../utils';
-import { appPath } from '../../utils/resourcePaths';
+import { appPath, entryPagePath } from '../../utils/resourcePaths';
 import {
   attachmentsApi,
   commentsApi,
   entriesApi,
   entryTypesApi,
   tracksApi,
+  trackViewsApi,
 } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { useScope } from '../../context/ScopeContext';
 import { useChatPageContext } from '../../context/ChatPageFocusContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useToast } from '../../context/ToastContext';
+import { useSettings } from '../../features/settings/store';
 import { Avatar, LINE_ICON_STROKE, MarkdownContent, Pill } from '../ui';
 import { Modal } from '../ui/Modal';
 import { EntryDetailPageChrome } from './EntryDetailPageChrome';
+import { EntryCanvasPane } from './EntryCanvasPane';
 import { AddToEntryControl } from './AddToEntryControl';
 import { CommentsPanel, COMMENT_FOOTER_CLASS } from './comments/CommentsPanel';
 import { CommentComposer } from './comments/CommentComposer';
-import { RelatedViewsSection } from './RelatedViewsSection';
+import {
+  RelatedViewsSection,
+  splitRelatedViewsByPosition,
+} from './RelatedViewsSection';
 import { ViewTabs, type ViewTabOption } from '../ui/ViewTabs';
 import { EmptyState } from '../ui/EmptyState';
-import { IconButton } from '../../ui';
+import { IconButton, Text } from '../../ui';
 import { useSidePanelRoom } from '../../hooks/useSidePanelRoom';
 import { COMMENT_REFETCH_EVENT } from '../../services/graphMutationInvalidation';
 import { EntrySocialActions } from './EntrySocialActions';
@@ -47,6 +57,20 @@ import { AttachmentRowList } from './attachments';
 import type { AttachmentRecord } from '../../api/attachments';
 import { EntryFormExpandedView, useEntryExpandedForm } from './EntryFormExpanded';
 import { EntryMetaFields } from './EntryMetaFields';
+import { EntryComposeModal, type EntryComposeSeed } from './EntryComposer';
+import {
+  isViewDesignerEnabled,
+  resolveDesignerTargetView,
+  viewMissingManifestKey,
+  ViewDesignerShell,
+} from '../../features/view-designer';
+import { useTrackViews } from '../../hooks/useTrackViews';
+import {
+  EntryContributionSlot,
+  contributionOwnsForm,
+  resolveEntryContribution,
+  type EntryContributionSlotHandle,
+} from './EntryContributionSlot';
 import { ProvenanceBadge } from './ProvenanceBadge';
 import { EntryAgentUndoButton } from './EntryAgentUndoButton';
 import { ImproveThisButton } from '../tracks/ImproveThisButton';
@@ -65,6 +89,7 @@ import type {
   Entry,
   EntryTypeNode,
   Reaction,
+  SavedView,
   StoredLinkPreview,
   Track
 } from '../../types';
@@ -138,6 +163,7 @@ export function EntryDetail({
   workflowEnumLabels,
   variant
 }: EntryDetailProps) {
+  const navigateToEntryPage = useNavigate();
   const { user } = useAuth();
   const { activeWorkspace } = useScope();
   const trackId = initialEntry.track_id || '';
@@ -158,6 +184,8 @@ export function EntryDetail({
   const queryClient = useQueryClient();
   const { showToast, showPendingToast, resolveToast } = useToast();
   const { setDialogContext, clearDialogContext } = useChatPageContext();
+  const [settings, updateSettings] = useSettings();
+  const entryDialogExpanded = Boolean(settings.appearance.entryDialogExpanded);
 
   const { data: watchersData, refetch: refetchWatchers } = useQuery({
     queryKey: ['entry', initialEntry.id, 'watchers'],
@@ -180,37 +208,6 @@ export function EntryDetail({
       showToast('Failed to update watch status', 'error');
     }
   };
-  // ESC closes the entry detail modal. Modal's built-in ESC handler is
-  // disabled via `disableEscape` (below) because EntryDetail hosts inline
-  // editors (entry edit form, comment compose) that should consume ESC
-  // for their own cancel path BEFORE the dialog closes. We re-implement
-  // ESC at the document level with that focus-aware skip.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      const target = e.target as HTMLElement | null;
-      if (target) {
-        const tag = target.tagName;
-        if (
-          tag === 'INPUT' ||
-          tag === 'TEXTAREA' ||
-          target.isContentEditable ||
-          // No [aria-modal="true"] qualifier: this dialog opts into
-          // allowAssistantDock, which (correctly) omits aria-modal — the old
-          // selector silently stopped matching and the inner-editor skip died.
-          target.closest('[role="dialog"]')?.querySelector(
-            '[data-entry-detail-editing="true"]',
-          )
-        ) {
-          // Inner editor owns ESC.
-          return;
-        }
-      }
-      onClose();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
   const [entry, setEntry] = useState(initialEntry);
   const [parentEntry, setParentEntry] = useState<Entry | null>(null);
   const canEdit = useCanEditEntry(entry, {
@@ -221,6 +218,12 @@ export function EntryDetail({
     // Parent surface's canEditProp must not apply to a drilled-in child entry.
     explicitCanEdit: parentEntry ? undefined : canEditProp,
   });
+  const [layoutDesignerOpen, setLayoutDesignerOpen] = useState(false);
+  const [designerView, setDesignerView] = useState<SavedView | null>(null);
+  const designerEnabled = isViewDesignerEnabled();
+  const trackViewsQuery = useTrackViews(
+    designerEnabled && canEdit ? entry.track_id : undefined
+  );
 
   useEffect(() => {
     setEntry(initialEntry);
@@ -470,14 +473,17 @@ export function EntryDetail({
   );
   const commentsAnchorRef = useRef<HTMLDivElement>(null);
   const didFocusComments = useRef(false);
+  // Dialogs start with their companion panel; pages start at full reading width.
   // Comments are part of the dialog, always shown. An earlier version derived
   // this from the thread length — open when the entry had comments, closed
   // when it did not — which read as the panel popping open by itself, because
   // the state flipped after the fetch resolved rather than at open. A column
   // that is simply always there is predictable; the header toggle is for
   // hiding it deliberately, and that choice lasts until the dialog closes.
-  const [commentsPanelOpen, setCommentsPanelOpen] = useState(true);
-  const [panelTab, setPanelTab] = useState<PanelTabKey>('comments');
+  const [commentsPanelOpen, setCommentsPanelOpen] = useState(variant !== 'page');
+  const pagePanelTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const panelRecordRef = useRef({ id: initialEntry.id, variant });
+  const [panelTab, setPanelTab] = useState<PanelTabKey>(variant === 'page' ? 'attachments' : 'comments');
   /* Below `sm` the dialog is full-bleed, so there is no "beside" to render
      into — the panel moves into the body instead of vanishing, which is what
      it did when it was `hidden sm:flex` with no fallback: comments,
@@ -485,16 +491,63 @@ export function EntryDetail({
   const showSideColumn = useSidePanelRoom();
 
   useEffect(() => {
+    // Initial state already matches this record; do not erase an early utility click.
+    if (panelRecordRef.current.id === initialEntry.id && panelRecordRef.current.variant === variant) return;
+    panelRecordRef.current = { id: initialEntry.id, variant };
     didFocusComments.current = false;
-    setCommentsPanelOpen(true);
-    // A new record starts on the discussion, not on whichever tab the last
-    // one happened to be left on.
-    setPanelTab('comments');
-  }, [initialEntry.id]);
+    setCommentsPanelOpen(variant !== 'page');
+    // Reset utilities for each record: page files, dialog discussion.
+    setPanelTab(variant === 'page' ? 'attachments' : 'comments');
+  }, [initialEntry.id, variant]);
+
+  // ESC closes the entry detail modal. Modal's built-in ESC handler is
+  // disabled via `disableEscape` (below) because EntryDetail hosts inline
+  // editors (entry edit form, comment compose) that should consume ESC
+  // for their own cancel path BEFORE the dialog closes. We re-implement
+  // ESC at the document level with that focus-aware skip.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      // The page stays open. Nested drawers/viewers own their own dismissal.
+      if (variant === 'page') {
+        if ((e.target as HTMLElement | null)?.closest('[role="dialog"]')) return;
+        if (commentsPanelOpen && !(e.target as HTMLElement | null)?.isContentEditable &&
+          !['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement | null)?.tagName ?? '')) {
+          setCommentsPanelOpen(false);
+          pagePanelTriggerRef.current?.focus();
+        }
+        return;
+      }
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (
+          tag === 'INPUT' ||
+          tag === 'TEXTAREA' ||
+          target.isContentEditable ||
+          // No [aria-modal="true"] qualifier: this dialog opts into
+          // allowAssistantDock, which (correctly) omits aria-modal — the old
+          // selector silently stopped matching and the inner-editor skip died.
+          target.closest('[role="dialog"]')?.querySelector(
+            '[data-entry-detail-editing="true"]',
+          )
+        ) {
+          // Inner editor owns ESC.
+          return;
+        }
+      }
+      onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose, variant, commentsPanelOpen]);
 
   // Opening from a "Comments" affordance should land on that tab.
   useEffect(() => {
-    if (initialFocusComments) setPanelTab('comments');
+    if (initialFocusComments) {
+      setPanelTab('comments');
+      setCommentsPanelOpen(true);
+    }
   }, [initialFocusComments, initialEntry.id]);
 
   useEffect(() => {
@@ -546,6 +599,7 @@ export function EntryDetail({
     };
   }, [entry, entryTypeSlug]);
 
+  const editContributionApiRef = useRef<EntryContributionSlotHandle | null>(null);
   const editForm = useEntryExpandedForm({
     mode: 'edit',
     enabled: isEditing,
@@ -554,7 +608,9 @@ export function EntryDetail({
     needsTrackPicker: false,
     initialEntry: initialEntryForForm,
     workflowEnumLabels,
-    showToast
+    showToast,
+    contributionApiRef: editContributionApiRef,
+    contributionPlacement: 'entry_detail',
   });
 
   // Canonical entry-type cache for this track. Schema edits in the
@@ -563,7 +619,7 @@ export function EntryDetail({
   // related_views) without needing a modal close/reopen.
   const entryTypesQuery = useQuery({
     queryKey: entryTypesForTrackQueryKey(entry.track_id),
-    enabled: !isEditing && Boolean(entry.track_id),
+    enabled: Boolean(entry.track_id),
     queryFn: () => entryTypesApi.list({ track_id: entry.track_id }),
     // Rematerialize may add fields (e.g. Task.sprint) — always revalidate
     // when reopening so stale cached schemas without new fields do not stick.
@@ -572,7 +628,7 @@ export function EntryDetail({
   });
 
   const matchedEntryType = useMemo(() => {
-    if (isEditing || entryTypesQuery.isPending || entryTypesQuery.isError) {
+    if (entryTypesQuery.isPending || entryTypesQuery.isError) {
       return null;
     }
     const typeList = (entryTypesQuery.data ?? []) as EntryTypeNode[];
@@ -582,7 +638,6 @@ export function EntryDetail({
       ) ?? null
     );
   }, [
-    isEditing,
     entry.type,
     entryTypesQuery.data,
     entryTypesQuery.isPending,
@@ -592,23 +647,157 @@ export function EntryDetail({
   const dynamicFields = useMemo((): OperationalModelFieldSpec[] => {
     if (!matchedEntryType) return [];
     return sortFieldsByOrder(
-      (matchedEntryType.form_schema?.fields ?? []) as OperationalModelFieldSpec[]
+      ((matchedEntryType.form_schema?.fields ?? []) as OperationalModelFieldSpec[]).filter(
+        field => !field.hidden
+      )
     );
   }, [matchedEntryType]);
 
   // Phase 3.1 Plan 03.1-04 (ANC-06) — retain related_views for RelatedViewsSection.
   const entryTypeFormSchema = matchedEntryType?.form_schema ?? null;
 
-  // ``position: 'primary'`` related_views (e.g. a filing's employee-line
-  // table + action bar) render as the entry's main content, before
-  // Comments — everything else keeps today's placement (after Comments).
-  // Two pre-filtered schema objects rather than editing RelatedViewsSection
-  // itself, which stays untouched.
-  const relatedRelatedViewsSchema = useMemo(() => {
-    const all = entryTypeFormSchema?.related_views ?? [];
-    const related = all.filter(rv => rv.position !== 'primary');
-    return { ...entryTypeFormSchema, related_views: related };
+  // Entry canvas (entry type ``canvas`` + page variant): keep the file beside
+  // the entry current. A tool or the assistant can render a new file or change
+  // the entry while this page is open, so refetch on graph / staging events and
+  // on a slow timer while the tab is visible.
+  const canvasConfig =
+    variant === 'page' ? (entryTypeFormSchema?.canvas ?? null) : null;
+  const canvasEntryId = entry.id;
+  useEffect(() => {
+    if (!canvasConfig) return undefined;
+    let cancelled = false;
+    let busy = false;
+    const refresh = async () => {
+      if (busy || cancelled || document.visibilityState === 'hidden') return;
+      busy = true;
+      try {
+        const [nextAttachments, nextEntry] = await Promise.all([
+          attachmentsApi.listForEntry(canvasEntryId),
+          entriesApi.get(canvasEntryId),
+        ]);
+        if (cancelled) return;
+        setAttachments(prev =>
+          prev.length === nextAttachments.length &&
+          prev.every((a, i) => a.id === nextAttachments[i]?.id)
+            ? prev
+            : nextAttachments
+        );
+        // Compare the fields too: a tool that renders a file updates
+        // custom_fields without always moving updated_at.
+        setEntry(prev =>
+          prev.updated_at === nextEntry.updated_at &&
+          JSON.stringify(prev.custom_fields) === JSON.stringify(nextEntry.custom_fields)
+            ? prev
+            : nextEntry
+        );
+      } catch {
+        /* keep showing what we have */
+      } finally {
+        busy = false;
+      }
+    };
+    const onEvent = () => void refresh();
+    window.addEventListener('integral:graph-changed', onEvent);
+    window.addEventListener('integral:staging-state-changed', onEvent);
+    const timer = window.setInterval(onEvent, 4000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener('integral:graph-changed', onEvent);
+      window.removeEventListener('integral:staging-state-changed', onEvent);
+    };
+  }, [canvasConfig, canvasEntryId]);
+
+  const contributionViewKey = useMemo(() => {
+    const schema = editForm.entryTypeFormSchema || entryTypeFormSchema;
+    const contrib =
+      resolveEntryContribution(schema, 'entry_detail') ||
+      resolveEntryContribution(schema, 'entry_compose');
+    return contrib?.view?.trim() || null;
+  }, [editForm.entryTypeFormSchema, entryTypeFormSchema]);
+
+  const detailOwnsForm = contributionOwnsForm(
+    editForm.entryTypeFormSchema || entryTypeFormSchema,
+    'entry_detail'
+  );
+
+  const designerTargetView = useMemo((): SavedView | null => {
+    return resolveDesignerTargetView(
+      trackViewsQuery.data ?? [],
+      contributionViewKey
+    );
+  }, [contributionViewKey, trackViewsQuery.data]);
+
+  const showLayoutDesignerButton =
+    Boolean(canEdit && designerEnabled) &&
+    Boolean(contributionViewKey || designerTargetView);
+
+  const openLayoutDesigner = useCallback(async () => {
+    let target = designerTargetView;
+    if (!target) {
+      showToast(
+        'No layout view found on this track. Open Config → Views → Design layout.',
+        'error'
+      );
+      return;
+    }
+    // Heal wiped _manifest_view_key so contributions keep resolving after prior saves.
+    if (contributionViewKey && viewMissingManifestKey(target)) {
+      try {
+        const healed = await trackViewsApi.update(target.id, {
+          config: {
+            ...(target.config || {}),
+            _manifest_view_key: contributionViewKey,
+          },
+        });
+        target = { ...target, ...healed };
+        queryClient.setQueryData(
+          viewsForTrackQueryKey(entry.track_id),
+          (old: SavedView[] | undefined) =>
+            old?.map(v => (v.id === target!.id ? { ...v, ...target! } : v)) ?? old
+        );
+      } catch {
+        /* still open designer with best-effort match */
+      }
+    }
+    setDesignerView(target);
+    setLayoutDesignerOpen(true);
+  }, [
+    contributionViewKey,
+    designerTargetView,
+    entry.track_id,
+    queryClient,
+    showToast,
+  ]);
+
+  const editContributionSlot = (
+    <EntryContributionSlot
+      ref={editContributionApiRef}
+      placement="entry_detail"
+      appId={track?.app?.id || entry.track?.app?.id || editForm.appId}
+      formSchema={editForm.entryTypeFormSchema || entryTypeFormSchema}
+      trackId={entry.track_id}
+      entryId={entry.id}
+      entryTypeKey={entry.type}
+      mode="edit"
+      customFields={editForm.fieldValues}
+      onDraftPatch={patch => editForm.applyContributionPatch(patch)}
+    />
+  );
+
+  // ``position: 'primary'`` related_views render as the entry's main content
+  // (after fields, before Comments). Non-primary keep placement after social.
+  const { primaryRelatedViewsSchema, relatedRelatedViewsSchema } = useMemo(() => {
+    const { primary, related } = splitRelatedViewsByPosition(
+      entryTypeFormSchema?.related_views
+    );
+    return {
+      primaryRelatedViewsSchema: { ...entryTypeFormSchema, related_views: primary },
+      relatedRelatedViewsSchema: { ...entryTypeFormSchema, related_views: related },
+    };
   }, [entryTypeFormSchema]);
+  const relatedViewAppId =
+    trackContext?.app?.id || entry.track?.app?.id || '';
 
   useEffect(() => {
     setIsEditing(Boolean(initialEditMode && canEdit));
@@ -720,11 +909,27 @@ export function EntryDetail({
     return saved;
   }, []);
 
+  const [embeddedViewsRevision, setEmbeddedViewsRevision] = useState(0);
+  const [embeddedCompose, setEmbeddedCompose] = useState<{ track: Track; seed: EntryComposeSeed } | null>(null);
+
   const handleEmbeddedEntryCreate = useCallback(
     async (input: EntryCreateInput) => {
-      if (!anchoredTrackId) return;
+      const targetTrackId = input.track_id || anchoredTrackId;
+      if (!targetTrackId) return;
+      if (input.source === 'calendar') {
+        const targetTrack = await tracksApi.get(targetTrackId);
+        setEmbeddedCompose({
+          track: targetTrack,
+          seed: {
+            title: input.title === 'New event' ? '' : input.title,
+            type: input.type,
+            custom_fields: input.custom_fields,
+          },
+        });
+        return;
+      }
       const created = await entriesApi.create({
-        track_id: anchoredTrackId,
+        track_id: targetTrackId,
         title: input.title,
         type: input.type || 'task',
         custom_fields: input.custom_fields,
@@ -732,6 +937,52 @@ export function EntryDetail({
       return created;
     },
     [anchoredTrackId]
+  );
+
+  const primaryRelatedViewsNode =
+    user && !parentEntry ? (
+      <RelatedViewsSection
+        key={embeddedViewsRevision}
+        entry={{ id: entry.id, custom_fields: entry.custom_fields }}
+        entryTypeSpec={primaryRelatedViewsSchema}
+        user={{ id: user.id }}
+        currentTrackId={initialEntry.track_id}
+        anchoredTrackId={anchoredTrackId}
+        fields={anchoredTaskFields.length ? anchoredTaskFields : dynamicFields}
+        entryTypes={(anchoredEntryTypes ?? []) as EntryTypeNode[]}
+        onEntryOpen={handleEmbeddedEntryOpen}
+        onEntryPersist={canEdit ? handleEmbeddedEntryPersist : undefined}
+        onEntryCreate={canEdit ? handleEmbeddedEntryCreate : undefined}
+        isEditor={canEdit}
+        appId={relatedViewAppId}
+        heading={null}
+        testId="primary-related-views-section"
+      />
+    ) : null;
+
+  const editComposeExtraSection = (
+    <>
+      {editContributionSlot}
+      {user && !parentEntry ? (
+        <RelatedViewsSection
+          key={embeddedViewsRevision}
+          entry={{ id: entry.id, custom_fields: editForm.fieldValues }}
+          entryTypeSpec={primaryRelatedViewsSchema}
+          user={{ id: user.id }}
+          currentTrackId={initialEntry.track_id}
+          anchoredTrackId={anchoredTrackId}
+          fields={anchoredTaskFields.length ? anchoredTaskFields : dynamicFields}
+          entryTypes={(anchoredEntryTypes ?? []) as EntryTypeNode[]}
+          onEntryOpen={handleEmbeddedEntryOpen}
+          onEntryPersist={canEdit ? handleEmbeddedEntryPersist : undefined}
+          onEntryCreate={canEdit ? handleEmbeddedEntryCreate : undefined}
+          isEditor={canEdit}
+          appId={relatedViewAppId}
+          heading={null}
+          testId="primary-related-views-section"
+        />
+      ) : null}
+    </>
   );
 
   useEffect(() => {
@@ -826,9 +1077,9 @@ export function EntryDetail({
     try {
       const uploaded: AttachmentRecord[] = [];
       if (files.length === 1) {
-        uploaded.push(await attachmentsApi.uploadForEntry(entry.id, files[0]));
+        uploaded.push(await attachmentsApi.smartUploadForEntry(entry.id, files[0]));
       } else {
-        const result = await attachmentsApi.batchUploadForEntry(entry.id, files);
+        const result = await attachmentsApi.uploadManyForEntry(entry.id, files);
         result.results.forEach(r => {
           if ('attachment' in r) uploaded.push(r.attachment);
         });
@@ -1256,21 +1507,23 @@ export function EntryDetail({
 
   const panelNode = (
     <>
-      <ViewTabs
+      {variant !== 'page' && <ViewTabs
         options={panelTabOptions}
         value={panelTab}
         onChange={setPanelTab}
         ariaLabel="Entry details"
         size="sm"
         className="shrink-0 px-2"
-      />
+      />}
       <div
         ref={commentsAnchorRef}
         id="entry-panel-body"
-        role="tabpanel"
+        role={variant === 'page' ? 'region' : 'tabpanel'}
         aria-label={PANEL_TABS.find(t => t.key === panelTab)?.label}
         className={
-          showSideColumn
+          variant === 'page'
+            ? 'flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-3'
+            : showSideColumn
             ? 'flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-3'
             : 'px-1 py-3'
         }
@@ -1399,11 +1652,61 @@ export function EntryDetail({
           trackId={trackId}
         />
       ) : null}
+      {/* Enlarge / restore — modal chrome only (page variant is already full width).
+          Persists as appearance.entryDialogExpanded so the next open remembers. */}
+      {variant !== 'page' ? (
+        <IconButton
+          label={entryDialogExpanded ? 'Exit full size' : 'Expand dialog'}
+          title={entryDialogExpanded ? 'Exit full size' : 'Expand dialog'}
+          size="md"
+          onClick={() =>
+            updateSettings(prev => ({
+              ...prev,
+              appearance: {
+                ...prev.appearance,
+                entryDialogExpanded: !prev.appearance.entryDialogExpanded,
+              },
+            }))
+          }
+          aria-pressed={entryDialogExpanded}
+          data-testid="entry-dialog-expand"
+        >
+          {entryDialogExpanded ? (
+            <Minimize2 size={16} strokeWidth={LINE_ICON_STROKE} aria-hidden />
+          ) : (
+            <Maximize2 size={16} strokeWidth={LINE_ICON_STROKE} aria-hidden />
+          )}
+        </IconButton>
+      ) : null}
+      {variant !== 'page' && !isEditing ? (
+        <IconButton label="Open full page" title="Open full page" size="md"
+          data-testid="entry-open-full-page"
+          onClick={() => navigateToEntryPage(entryPagePath(entry.id))}>
+          <ArrowUpRight size={16} strokeWidth={LINE_ICON_STROKE} aria-hidden />
+        </IconButton>
+      ) : null}
       {/* Panel toggle — desktop only. Below `sm` the panel is part of the
           body and always present, so a show/hide control there would toggle
           nothing the user cannot already see. Icon swaps with state
           (PanelRightOpen/Close), matching the track activity-rail toggle. */}
-      {showSideColumn && (
+      {variant === 'page' ? (
+        <>
+          {panelTabOptions.map(option => {
+            const selected = commentsPanelOpen && panelTab === option.value;
+            return <IconButton key={option.value}
+              label={`${selected ? 'Hide' : 'Show'} ${option.value}`}
+              title={`${option.label}${option.count != null ? ` (${option.count})` : ''}`}
+              size="md" aria-expanded={selected} aria-controls="entry-panel-body"
+              onClick={event => {
+                pagePanelTriggerRef.current = event.currentTarget;
+                setPanelTab(option.value);
+                setCommentsPanelOpen(!selected);
+              }}>
+              {option.icon}
+            </IconButton>;
+          })}
+        </>
+      ) : showSideColumn && (
         <IconButton
           label={commentsPanelOpen ? 'Hide details panel' : 'Show details panel'}
           title={commentsPanelOpen ? 'Hide details panel' : 'Show details panel'}
@@ -1426,9 +1729,27 @@ export function EntryDetail({
         isWatching={!!watchersData?.is_watching}
         onToggle={handleToggleWatch}
       />
-      {canEdit && !isEditing ? (
+      {canEdit && designerEnabled && showLayoutDesignerButton ? (
+        <button
+          type="button"
+          onClick={() => void openLayoutDesigner()}
+          className="
+            inline-flex items-center justify-center
+            w-10 h-10 sm:w-8 sm:h-8 rounded-md
+            text-[var(--text-subtle)]
+            hover:text-[var(--text)] hover:bg-[var(--panel-2)]
+            transition-colors duration-fast
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]
+          "
+          aria-label="Edit layout"
+          title="Edit layout"
+        >
+          <LayoutTemplate size={14} strokeWidth={LINE_ICON_STROKE} />
+        </button>
+      ) : null}
+      {canEdit ? (
         <>
-          {showStartProject ? (
+          {!isEditing && showStartProject ? (
             <button
               type="button"
               onClick={() => void handleStartDeliveryProject()}
@@ -1452,7 +1773,7 @@ export function EntryDetail({
           ) : null}
           <button
             type="button"
-            onClick={() => setIsEditing(true)}
+            onClick={() => setIsEditing(editing => !editing)}
             className="
               inline-flex items-center justify-center
               w-10 h-10 sm:w-8 sm:h-8 rounded-md
@@ -1461,11 +1782,12 @@ export function EntryDetail({
               transition-colors duration-fast
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]
             "
-            aria-label="Edit entry"
+            aria-label={isEditing ? 'Cancel edit' : 'Edit entry'}
+            title={isEditing ? 'Cancel edit' : 'Edit entry'}
           >
-            <Edit2 size={14} strokeWidth={LINE_ICON_STROKE} />
+            {isEditing ? <X size={14} strokeWidth={LINE_ICON_STROKE} /> : <Edit2 size={14} strokeWidth={LINE_ICON_STROKE} />}
           </button>
-          {onDelete ? (
+          {!isEditing && onDelete ? (
             <button
               type="button"
               onClick={() => void handleDeleteEntry()}
@@ -1496,10 +1818,34 @@ export function EntryDetail({
       onClose={onClose}
       title={titleSlot}
       headerActions={headerActions}
-      sidePanel={showSideColumn && commentsPanelOpen ? panelNode : undefined}
+      sidePanel={commentsPanelOpen && (variant === 'page' || showSideColumn) ? panelNode : undefined}
+      {...(variant === 'page' ? {
+        panelTitle: PANEL_TABS.find(t => t.key === panelTab)?.label,
+        onPanelClose: () => {
+          setCommentsPanelOpen(false);
+          pagePanelTriggerRef.current?.focus();
+        },
+      } : {})}
       /* The panel is part of this surface even when it is hidden or stacked
          into the body, so the dialog keeps its height either way. */
       hasCompanionPanel
+      {...(canvasConfig
+        ? {
+            canvas: (
+              <EntryCanvasPane
+                entry={entry}
+                attachments={attachments}
+                fileField={canvasConfig.file_field || undefined}
+                editable={canvasConfig.editor === 'body'}
+                canEdit={canEdit}
+                onBodySaved={updated => {
+                  setEntry(updated);
+                  onUpdate?.(updated);
+                }}
+              />
+            ),
+          }
+        : {})}
       disableEscape
       /* This dialog publishes its entry as the agent's context on open
          (`pageKind: "entry_dialog"` above), so the assistant is primed to
@@ -1507,11 +1853,20 @@ export function EntryDetail({
          while it is open. Opt-in per dialog: a confirm prompt gets the
          normal full-viewport scrim. */
       allowAssistantDock
+      width={
+        variant !== 'page' && entryDialogExpanded
+          ? 'max-w-dialog-workspace-max'
+          : undefined
+      }
+      tall={variant !== 'page' && entryDialogExpanded}
     >
       <div className="px-4 sm:px-6 py-4 sm:py-5">
           {isEditing ? (
             <EntryFormExpandedView
               {...editForm}
+              mode="edit"
+              composeExtraSection={editComposeExtraSection}
+              workflowEnumLabels={workflowEnumLabels}
               primaryLabel="Save"
               onNavigate={onClose}
               navContext={{
@@ -1543,11 +1898,37 @@ export function EntryDetail({
             <>
               {metaRow}
               {backlinksRow}
+              <div
+                className="mt-4"
+                key={`contrib-detail-${entry.track_id}-${(
+                  designerTargetView?.updated_at ||
+                  designerTargetView?.id ||
+                  contributionViewKey ||
+                  'none'
+                )}`}
+              >
+                <EntryContributionSlot
+                  placement="entry_detail"
+                  appId={track?.app?.id || trackContext?.app?.id || entry.track?.app?.id}
+                  formSchema={entryTypeFormSchema}
+                  trackId={entry.track_id}
+                  entryId={entry.id}
+                  entryTypeKey={entry.type}
+                  mode="detail"
+                  customFields={(entry.custom_fields || {}) as Record<string, unknown>}
+                />
+              </div>
+              {!detailOwnsForm ? (
               <div className="mt-4">
+                {Object.values(entry.read_time_fields?.status || {}).includes('unavailable') ? (
+                  <div role="status"><Text as="p" variant="body-sm" tone="muted">Some live fields could not be checked. Their values are unknown.</Text></div>
+                ) : null}
                 <EntryMetaFields
                   fields={dynamicFields}
+                  readOnlyKeys={Object.keys(entry.read_time_fields?.values || {})}
                   values={{
                     ...((entry.custom_fields || {}) as Record<string, unknown>),
+                    ...(entry.read_time_fields?.values || {}),
                     ...(entryTypeSlug === 'sprint'
                       ? {
                           tasks: Array.isArray((entry.custom_fields || {}).tasks)
@@ -1570,7 +1951,8 @@ export function EntryDetail({
                   onCommitField={canEdit ? commitCustomField : undefined}
                 />
               </div>
-              {entry.body ? (
+              ) : null}
+              {entry.body && canvasConfig?.editor !== 'body' ? (
                 <div className="mt-4 text-[15px] text-[var(--text)] leading-[1.55]">
                   <MarkdownContent>{entry.body}</MarkdownContent>
                 </div>
@@ -1616,6 +1998,7 @@ export function EntryDetail({
                   </div>
                 </a>
               ) : null}
+              {primaryRelatedViewsNode}
               <EntrySocialActions
                 entryId={entry.id}
                 trackId={entry.track_id}
@@ -1633,6 +2016,7 @@ export function EntryDetail({
                   entirely when the entry type declares no related_views. */}
               {user && !parentEntry ? (
                 <RelatedViewsSection
+          key={embeddedViewsRevision}
                   entry={{ id: entry.id, custom_fields: entry.custom_fields }}
                   entryTypeSpec={relatedRelatedViewsSchema}
                   user={{ id: user.id }}
@@ -1644,6 +2028,7 @@ export function EntryDetail({
                   onEntryPersist={canEdit ? handleEmbeddedEntryPersist : undefined}
                   onEntryCreate={canEdit ? handleEmbeddedEntryCreate : undefined}
                   isEditor={canEdit}
+                  appId={relatedViewAppId}
                 />
               ) : null}
 
@@ -1651,7 +2036,7 @@ export function EntryDetail({
                   desktop column — chosen, never duplicated — so comments,
                   attachments and activity stay reachable on a phone instead
                   of disappearing with the side column. */}
-              {!showSideColumn && (
+              {!showSideColumn && variant !== 'page' && (
                 <section className="mt-6 border-t border-[var(--panel-border)] pt-2">
                   {panelNode}
                 </section>
@@ -1661,6 +2046,19 @@ export function EntryDetail({
         </div>
 
     </Chrome>
+      {embeddedCompose && (
+        <EntryComposeModal
+          open
+          track={embeddedCompose.track}
+          seed={embeddedCompose.seed}
+          onClose={() => setEmbeddedCompose(null)}
+          onCreated={() => {
+            setEmbeddedViewsRevision(revision => revision + 1);
+            void queryClient.invalidateQueries({ queryKey: ['track', embeddedCompose.track.id, 'entries'] });
+            invalidateFeedCaches(queryClient);
+          }}
+        />
+      )}
       {previewImageUrl && (
         <div
           /* Image preview is already viewport-filling on every size;
@@ -1689,6 +2087,23 @@ export function EntryDetail({
           />
         </div>
       )}
+      {designerEnabled && designerView ? (
+        <ViewDesignerShell
+          open={layoutDesignerOpen}
+          onClose={() => {
+            setLayoutDesignerOpen(false);
+            setDesignerView(null);
+          }}
+          trackId={entry.track_id}
+          view={designerView}
+          previewFields={
+            (entry.custom_fields || {}) as Record<string, unknown>
+          }
+          entryId={entry.id}
+          appId={track?.app?.id || entry.track?.app?.id}
+          entryTypeKey={entry.type}
+        />
+      ) : null}
     </>
   );
 }

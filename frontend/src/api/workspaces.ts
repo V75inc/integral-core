@@ -77,6 +77,17 @@ export function workspaceAccessLabel(
   return 'Member';
 }
 
+/** Explicit membership role for org workspace chrome (Guest / Member / Admin / Owner). */
+export function workspaceMembershipRoleLabel(
+  workspace?: Pick<Workspace, 'your_role'> | null,
+): string {
+  const role = workspace?.your_role;
+  if (role === 'owner') return 'Owner';
+  if (role === 'admin') return 'Admin';
+  if (role === 'guest') return 'Guest';
+  return 'Member';
+}
+
 /** Summary of app-bundle provisioning during workspace create (Manage-Apps
  *  semantics): ``installed`` = active now, ``awaiting_settings`` = paused until
  *  finalized in Manage apps, ``failed`` = e.g. unmet hard dependency. */
@@ -88,6 +99,8 @@ export interface WorkspaceProvisioningSummary {
   /** Hard app dependencies auto-pulled into the install set (not explicitly
    *  selected by the user). Included in ``installed`` when they activate. */
   auto_dependencies: number;
+  /** Safe per-App denial identity; raw install exceptions are not returned. */
+  failures?: { library_cp_id: string; name: string; error_code: string }[];
 }
 
 export interface WorkspaceMember {

@@ -9,8 +9,8 @@ vi.mock("../../useAgentCatalog", () => ({
 import { useAgentCatalog } from "../../useAgentCatalog";
 
 const mockProvider = {
-  id: "jvagent",
-  label: "jvagent",
+  id: "integral_native",
+  label: "integral_native",
   serverPersisted: true,
   capabilities: {
     reasoning: true,
@@ -24,6 +24,30 @@ const mockProvider = {
 } as const;
 
 describe("AgentSwitcher", () => {
+  it("uses the approved mark for Integral AI while keeping custom avatars", () => {
+    const agent = { id: "integral_core", name: "Integral AI", role_label: "Resident harness" };
+    (useAgentCatalog as any).mockReturnValue({
+      agents: [agent], activeAgent: agent, switchAgent: vi.fn(),
+    });
+    const provider = { ...mockProvider, id: "integral_native" };
+    const { container, rerender } = render(
+      <AgentSwitcher provider={provider as any} workspaceId="w1" />,
+    );
+    expect(container.querySelector('svg path[fill="currentColor"]')).not.toBeNull();
+    const trigger = screen.getByRole('button', { name: /active agent/i });
+    expect(trigger).toHaveTextContent('Integral AIYour workspace assistant');
+    expect(screen.getAllByText('Your workspace assistant')).toHaveLength(1);
+    expect(screen.queryByText('Resident harness')).not.toBeInTheDocument();
+    expect(trigger).toHaveClass('items-center');
+    const custom = { ...agent, avatar_url: "/custom-agent.png" };
+    (useAgentCatalog as any).mockReturnValue({
+      agents: [custom], activeAgent: custom, switchAgent: vi.fn(),
+    });
+    rerender(<AgentSwitcher provider={provider as any} workspaceId="w1" />);
+    expect(container.querySelector('svg path[fill="currentColor"]')).toBeNull();
+    expect(container.querySelector('img')?.getAttribute('src')).toBe('/custom-agent.png');
+  });
+
   it("renders nothing when catalog is empty", () => {
     (useAgentCatalog as any).mockReturnValue({
       agents: [],
@@ -67,7 +91,7 @@ describe("AgentSwitcher", () => {
     fireEvent.click(screen.getByRole("button", { name: /active agent/i }));
     expect(screen.getByText("Aiva")).toBeInTheDocument();
     expect(screen.getByText("Sales")).toBeInTheDocument();
-    expect(screen.getByText(/Your workspace assistant/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Your workspace assistant/i)).not.toBeInTheDocument();
   });
 
   it("calls switchAgent when a different agent is picked", () => {

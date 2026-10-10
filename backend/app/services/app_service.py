@@ -206,6 +206,12 @@ async def create_app_for_user(
 
     await wire_app_owner(sp, user_id, workspace_id=resolved_workspace_id)
     await catalog_app(sp)
+    # Same as package install: ownership edges do not hit collaboration
+    # invalidation hooks, so drop the accessible-apps aggregate immediately
+    # or the next GET /apps (and change-event refresh) can omit this App.
+    from app.services.app_lifecycle import _invalidate_app_access_caches
+
+    await _invalidate_app_access_caches(sp)
     attached_profile = await get_app_attached_operational_model(sp)
     if attached_profile is None:
         raise BadRequestError(

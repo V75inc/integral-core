@@ -1,439 +1,95 @@
-# Integral Core
+# Integral
 
-**Integral Core is the open-source operational substrate for people and AI to work from the same knowledge.**
+**Give people and AI a shared place to understand work, shape software, and act together.**
 
-It gives an individual, team, or organization one queryable graph for its
-operational knowledge; one access model across that graph; a configurable
-schema and view layer; and an always-on resident harness that works through
-the same policy gates as its users. It is the foundation for applications
-rather than a prebuilt vertical product.
+A decision lives in a conversation. Its supporting facts live in a spreadsheet. The work it creates lives in another application. An AI assistant can help with each piece, yet still struggle to carry the whole thing forward.
 
-Core contains the reusable platform:
+Integral brings those pieces into one connected operational environment. People and AI work with the same records, relationships, application definitions, and permissions. A team can start with a few notes, give its work a structure, and develop that structure into an App with views, tools, skills, and governed actions.
 
-- **Knowledge graph and access policy** — workspaces, Apps, tracks, entries,
-  relationships, collaboration, sharing, audit, and permission resolution.
-- **Conformable operational models** — Operational Models declare entry types,
-  fields, tags, views, relations, and lifecycle rules, then materialize them
-  into a workspace.
-- **Human work surfaces** — a React workspace with feed, table, board,
-  calendar, gallery, and composable views over the same records an agent uses.
-- **Resident harness and MCP perimeter** — one active, pluggable resident
-  harness per deployment, faceted by principal. It stages proposed writes for
-  approval, uses the published tool catalogue, and exposes the same governed
-  surface to external agents through MCP.
-- **A public App contract** — independently built packages can provide
-  domain-specific profiles, tools, operations, skills, schedules, and
-  declarative views without importing Core internals.
+The result is software that can grow around the work it serves.
 
-Core deliberately does **not** contain commercial or domain-specific Apps.
-Those are modular extensions loaded through the published contract and
-`INTEGRAL_PACKAGE_PATHS`.
+## Start here
 
-For the product thesis and architecture, start with
-[the concept](docs/product/CONCEPT.md),
-[the resident-harness specification](docs/product/RESIDENT_HARNESS.md), and
-[the architecture](docs/product/ARCHITECTURE.md).
+- [Meet Integral](docs/product/INTRODUCTION.md): a plain-language introduction to the experience and its possibilities.
+- [The Integral white paper](docs/product/WHITE_PAPER.md): the extended guide to the concept, substrate, layers, and architecture of generative software.
+- [Use Integral](docs/user-guide/README.md): workspaces, Apps, records, views, sharing, AI, and approvals.
+- [Build an App](docs/developer/quickstart.md): from a package manifest to an installed application.
+- [Explore the architecture](docs/product/ARCHITECTURE.md): implementation boundaries and current contracts.
+- [Run Integral](docs/ops/DEPLOY.md): configuration, deployment, and qualification.
 
-## Choose a path
+## What you can do
 
-| Goal | Start here |
-| --- | --- |
-| Run a self-contained Core locally | [Docker quick start](#docker-quick-start) |
-| Install a published Core and a blank distro | [Install a released Core](#install-a-released-core) |
-| Work on Core from source | [Source development](#source-development) |
-| Build a reusable App | [App developer quick start](docs/developer/quickstart.md) |
-| Understand the extension boundary | [Extension Contract v1](docs/platform/extension-contract-v1.md) |
-| Deploy or operate Core | [Deployment guide](docs/ops/DEPLOY.md) |
-| Verify a change before contributing | [Verification](#verification) |
+**Organize connected work.** Apps and Tracks collect typed records, link related information, attach files, and support collaboration without creating a separate data island for every workflow.
 
-## Prerequisites
+**Shape the application.** Operational Models describe record types, fields, relationships, tags, views, and reusable composition. App packages can add declared queries, operations, skills, tools, extensions, and an App Home.
 
-| Path | Requirements |
-| --- | --- |
-| Docker quick start | Docker Desktop or Docker Engine with Compose |
-| Released Core (`integral init`, `integral web`) | Python 3.12 and Postgres (this repo's Compose database is enough) |
-| Source development | Docker, Python 3.10+, [uv](https://docs.astral.sh/uv/), and Node 18+ |
-| App development | A released Core or the source-development requirements, plus the App package’s own tools |
+**Work with a resident AI.** Ask questions grounded in accessible information, prepare changes, and review proposed actions. The default resident uses Integral's Pydantic AI harness. Core governs identity, access, execution, approvals, transcripts, and receipts around that harness.
 
-Postgres with pgvector is the supported default datastore. The supplied Compose
-stack starts it for you.
+**Connect agents and systems.** External agents use Integral's MCP surface. Connectors provide declared integration paths. Both remain subject to the relevant scope and policy; instructions alone cannot grant access.
 
-## Docker quick start
+**Keep applications separate from the foundation.** Core provides the domain-neutral substrate and extension contracts. Domain Apps, commercial packaging, pricing, checkout, and hosted offerings belong outside Core.
 
-From a fresh clone, create a local environment file first. The bootstrap
-script copies the example when needed and generates local signing,
-credential-encryption, and OAuth Fernet secrets. It preserves generated keys
-on later runs; keep the OAuth key stable because existing OAuth credentials
-cannot be decrypted after it changes.
+## Run your own Integral
 
-### Linux / macOS
+With the launcher installed, run:
+
+```bash
+integral up
+```
+
+It starts a private PostgreSQL database, the API and the web interface, then opens your browser. Data and keys survive restarts. Use `integral status`, `logs`, `stop`, `backup`, `restore` and `upgrade` to manage it. The [local installation guide](docs/ops/LOCAL_INSTALLATION.md) covers the source preview, supported platforms and the future PyPI discovery command.
+
+## Run from source
+
+Integral is pre-1.0. The checked-in backend version is `0.1.1rc15`; a repository version does not establish that a matching package has been published. Use the frozen lock for source development.
+
+Prerequisites: Python 3.11 or later, [uv](https://docs.astral.sh/uv/), and a Node.js version supported by the checked-in Vite release. Use the project lockfiles.
+
+```bash
+uv sync --directory backend --frozen --extra dev --extra test
+./.ci/bundle_web_assets.sh
+backend/.venv/bin/integral up
+```
+
+The UI build needs Node only on the source checkout. An installed wheel already contains it. The launcher creates the local database and private keys, uses production-mode auth, and opens the workspace. The [development guide](docs/developer/CONTRIBUTING.md) covers running Vite while editing the frontend.
+
+When the launcher release and its dependencies are published, `pip install integral-core` installs the console command. Until then, use the source preview or exact reviewed wheels as described in the [installation guide](docs/ops/LOCAL_INSTALLATION.md). `integral init` creates an external App distribution; without a slug it leaves `integral-apps/` empty. `integral web` can serve the packaged UI against an independently managed API.
+
+For a local container stack:
 
 ```bash
 ./scripts/bootstrap_env.sh .env .env.example
-docker compose up --build
+docker compose up --build -d
 ```
 
-### Windows (PowerShell)
+The bootstrap generates private keys including `JVSPATIAL_JWT_SECRET_KEY`. Keep `.env` private and retain those keys across upgrades. Review configuration before exposing the installation; the [deployment runbook](docs/ops/DEPLOY.md) covers containers and hosted environments.
 
-```powershell
-python scripts/bootstrap_env.py .env .env.docker.example
-docker compose up --build
+## How it fits together
+
+```mermaid
+flowchart TB
+    People[People: views, records, conversation] --> Core
+    Resident[Resident AI: selected harness] --> Core
+    External[External agents: MCP] --> Core
+    Packages[App packages: models, queries, operations, skills] --> Core
+    Core[Core: scope, policy, graph services, execution, receipts] --> Graph[Connected knowledge graph]
+    Core --> Stores[Persistence, files, transcripts, usage facts]
 ```
 
-The same bootstrap command can be run from PowerShell or a Unix shell.
+The backend uses Python, jvspatial, and FastAPI. The frontend uses React and TypeScript. Graph participants use rooted Nodes and explicit Edges; log-shaped records use Object persistence where appropriate. The [white paper](docs/product/WHITE_PAPER.md) explains why those choices matter.
 
-Open these surfaces once the stack is healthy:
-
-| Surface | Address |
-| --- | --- |
-| Integral workspace | [http://localhost:9006](http://localhost:9006) |
-| API reference | [http://localhost:4000/docs](http://localhost:4000/docs) |
-| Postgres | `localhost:5433`, database `integral` |
-
-Create an account in the workspace to begin. A personal workspace is
-provisioned for the account automatically.
-
-The default Compose image runs **Core-only mode**
-(`INTEGRAL_CORE_ONLY=1`). It is suitable for evaluating the substrate,
-creating workspaces and models, and using the built-in agentive layer. Load an
-external App package only when you intentionally configure an extension path,
-as described in the [App developer quick start](docs/developer/quickstart.md).
-
-The API persists attachment bytes under `/data/files` in the `integral_db`
-volume. Existing installs that used this volume at `/app/integral_data` must
-stop the API and repair ownership on the existing volume before writing
-attachments with the current image; see the [deployment backup and restore
-notes](docs/ops/DEPLOY.md#restore-and-the-drill).
-
-To stop the local stack:
-
-```bash
-docker compose down
-```
-
-To discard all local data and start again, remove the volumes:
-
-```bash
-docker compose down -v
-```
-
-That second command is destructive. It deletes the local Postgres and runtime
-volumes.
-
-## Install a released Core
-
-For an evaluation or deployment that starts from a published artifact rather
-than this repository, install the Core package into an isolated environment:
-
-Use Python 3.12. Pre-releases are on TestPyPI. Download only the Core wheel
-and the matching `jvagent` wheel, then install those files with PyPI as the
-only index. A general TestPyPI extra index makes pip select a broken
-`fastapi` sdist.
-
-```bash
-python3.12 -m venv .venv
-.venv/bin/pip install -U pip
-.venv/bin/pip download \
-  --index-url https://test.pypi.org/simple \
-  --no-deps \
-  --dest ./wheels \
-  'integral-core==0.1.1rc12' 'jvagent==0.1.8rc20'
-.venv/bin/pip install \
-  --index-url https://pypi.org/simple \
-  ./wheels/integral_core-*.whl ./wheels/jvagent-*.whl
-```
-
-Do not add TestPyPI as a general extra index. That index has published a
-broken `fastapi` sdist, and pip will prefer it over the real package.
-Download only the two pre-release wheels, then resolve every other
-dependency from PyPI. `0.1.1rc12` is the published cut to install.
-It includes the resident harness, `integral web`, a blank `integral init` that writes
-`agent.override.yaml`, `#` mention tokens, and cross-track relation
-lookups. `0.1.1rc6` has the harness but not those chat and init fixes.
-`0.1.1rc5` looks for `agent/app.yaml` outside the install, so chat stays
-unavailable. `0.1.1rc4` writes a starter App and has no UI command.
-`jvagent` stays a version pin (`0.1.8rc20`) because a direct wheel URL is
-rejected at upload.
-
-Generate a blank distro. This writes `.env` (JWT secret filled in, Postgres
-defaults for host port 5433), `.gitignore`, a README, and an empty
-`integral-apps/`. A released Core contains only the generic substrate. Add
-Apps through `INTEGRAL_PACKAGE_PATHS`; do not copy an App into the installed
-package.
-
-```bash
-.venv/bin/integral init ./my-integral
-```
-
-Pass `--slug` and `--name` to also write one App. The directory name is
-`package.slug`.
-
-```bash
-.venv/bin/integral init ./my-integral --slug studio-equipment --name "Studio Equipment Desk"
-```
-
-A custom distro is a parent directory of sibling App directories. Core loads
-`*/operational-model.yaml` under each path in that variable (one level only).
-The directory name must equal `package.slug`. Set `INTEGRAL_CORE_ONLY=0` so
-those Apps stay in the library. The published wheel does not include
-`app/packages/`, so a pip install has no seed Apps until this path is set.
-A source checkout still loads `backend/app/packages/` as well. The
-[App developer quick start](docs/developer/quickstart.md) shows the layout.
-
-A process started from the distro directory loads that `.env`. Values already
-set in the process environment still win. `integral init` fills the JWT
-secret and `INTEGRAL_CREDENTIAL_ENC_KEY`. Settings → AI Models can save a
-key only when that encryption key is set. `INTEGRAL_AGENT_KEY_MODE=hybrid`
-uses a key saved in Settings when one exists, and otherwise
-`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `OPENROUTER_API_KEY`.
-Postgres is the database Core expects. `POSTGRES_HOST` defaults to the
-Compose hostname `db`, so a process on the host must set `localhost` (and
-the published port, `5433` for this repo's Compose database). If
-`POSTGRES_PASSWORD` is set, Core builds `JVSPATIAL_POSTGRES_DSN` from the
-`POSTGRES_*` variables and ignores a DSN you also wrote.
-
-```text
-.venv/                         # the environment that installed integral-core
-wheels/
-my-integral/                   # integral init ./my-integral
-├── .env
-├── .gitignore
-├── README.md
-└── integral-apps/             # empty until an App is added
-    └── .gitkeep
-```
-
-An App is a child of `integral-apps/` whose directory name equals
-`package.slug`:
-
-```text
-my-integral/integral-apps/
-├── studio-equipment/
-│   └── operational-model.yaml
-└── client-delivery/
-    └── operational-model.yaml
-```
-
-```bash
-# my-integral/.env
-JVSPATIAL_JWT_SECRET_KEY=   # openssl rand -hex 32  (at least 32 characters)
-JVSPATIAL_DB_TYPE=postgres
-POSTGRES_USER=integral
-POSTGRES_PASSWORD=integral
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5433
-POSTGRES_DB=integral
-INTEGRAL_PACKAGE_PATHS=/absolute/path/to/my-integral/integral-apps
-INTEGRAL_CORE_ONLY=0
-DEBUG=true
-INTEGRAL_CREDENTIAL_ENC_KEY=   # openssl rand -base64 32; integral init fills this
-INTEGRAL_AGENT_KEY_MODE=hybrid
-# Optional. The API boots and serves workspaces without a model key.
-# OPENAI_API_KEY=
-# ANTHROPIC_API_KEY=
-# OPENROUTER_API_KEY=
-```
-
-Optional `agent.override.yaml` next to `.env` can change the resident
-agent's alias, role, interaction limit, and the orchestrator model and
-budget numbers (`activation_budget` stays 20–40). Unknown keys and extra
-actions are rejected. Restart the API to apply it. `JVAGENT_UPDATE_MODE=source`
-(the default) writes those values onto the agent. `merge` keeps the
-context already stored.
-
-`DEBUG=true` is the local switch. Leave it unset on a public host, and set
-`OAUTH_ISSUER_URL` and `FRONTEND_ORIGIN` to the public `https://` origins.
-The defaults `http://localhost:4000` and `http://localhost:9006` are accepted
-only because they are loopback.
-
-Postgres must already be running. From `my-integral/`, start the API with
-the venv created above. The process loads `.env` because it was started in
-that directory. Values already set in the process environment still win, so
-source the file first when the shell should adopt every value in it.
-
-```bash
-cd my-integral
-../.venv/bin/python -m app.main
-```
-
-That listens on port 4000. Set `JVSPATIAL_PORT` in `.env` when that port is
-taken, then point `integral web` at the same origin. In a second terminal,
-from the directory that contains `.venv` (the parent of `my-integral`):
-
-```bash
-.venv/bin/integral web ./my-integral
-```
-
-That path is the distro directory. `JVSPATIAL_PORT` in its `.env` selects
-the API. `--api http://127.0.0.1:4010` overrides it. With no path, the
-current directory is used and the API defaults to port 4000. The
-workspace is at http://127.0.0.1:9006. The browser talks only to that port.
-`/api` and `/ws` are proxied to the API, including WebSocket upgrade.
-`FRONTEND_ORIGIN` can stay `http://localhost:9006`.
-
-A Core checkout still uses `npm run dev` in `frontend/` when you want hot
-reload. Compose `web` remains the deploy path. `integral web` is the UI for
-a pip-installed Core.
-
-### Local configuration
-
-`.env` is local-only and must never be committed. The bootstrap command
-creates valid values for:
-
-- `JVSPATIAL_JWT_SECRET_KEY`, used to sign sessions and API tokens.
-- `INTEGRAL_CREDENTIAL_ENC_KEY`, used when encrypted user credentials are
-  enabled.
-
-Set a model-provider key such as `OPENAI_API_KEY` only when you want the
-resident harness to make model-backed turns. The platform can still start and
-serve its normal workspace and API surfaces without a provider key. See
-[model credentials and BYOK](docs/backend/model-credentials-byok.md) for the
-provider and workspace-key modes.
-
-For an optional bootstrap administrator, set `ADMIN_EMAIL`,
-`ADMIN_PASSWORD`, and `ADMIN_NAME` in `.env` (see
-[.env.example](.env.example); `integral init` writes the same keys empty).
-Core creates that platform admin on first launch when both email and
-password are set and none exists yet; later UI signups stay non-admin.
-Leave them empty to skip. For console-email and other local knobs, use
-[.env.example](.env.example). The Compose example
-[.env.docker.example](.env.docker.example) is a convenience starting point
-for a local Docker-only configuration, not a production secret source.
-
-## Source development
-
-Use two terminals after preparing the environment and database.
-
-```bash
-# Terminal 1: prepare dependencies and start the API
-./scripts/bootstrap_env.sh .env .env.example
-docker compose up -d db
-
-cd backend
-uv sync --frozen --extra dev --extra test
-INTEGRAL_CORE_ONLY=1 .venv/bin/python -m app.main
-```
-
-```bash
-# Terminal 2: start the React workspace
-cd frontend
-npm install
-npm run dev
-```
-
-The frontend is available at [http://localhost:9006](http://localhost:9006)
-and proxies API requests to the backend on port 4000.
-
-For a parallel Core sandbox on ports 9007, 4002, and 5435, use:
-
-```bash
-./scripts/sandbox-up.sh
-# Open http://localhost:9007
-./scripts/sandbox-down.sh
-```
-
-## Install and develop an App
-
-Apps are independent packages. They declare their schema and capabilities in a
-manifest and access Core only through the public `integral_sdk` and injected
-contexts. They must not import `app.models` or `app.services`.
-
-To run the included external reference Apps while developing Core, set the
-package path **before** starting the API:
-
-```bash
-export INTEGRAL_PACKAGE_PATHS="$PWD/examples"
-export INTEGRAL_CORE_ONLY=0
-cd backend
-.venv/bin/python -m app.main
-```
-
-The repository includes:
-
-- `examples/reference-hello-app/` — a small contract example.
-- `examples/asset-register/` — a fuller independent-App proof covering
-  package installation, typed operations, MCP dispatch, resident dispatch,
-  lifecycle, and durable mutations.
-
-Build the portable Asset Register package with:
-
-```bash
-make build-asset-register
-```
-
-Continue with the [App developer quick start](docs/developer/quickstart.md)
-for package layout, signing, API installation, operation invocation, custom
-views, and standalone SDK use. The
-[Extension Contract v1](docs/platform/extension-contract-v1.md) is the stable
-boundary that App authors target.
-
-## Verification
-
-`make verify` is the normal local quality gate. It runs repository guards,
-pinned formatters, frontend type checks, frontend and backend tests, and the
-CI-faithful backend smoke lane.
+## Development and quality
 
 ```bash
 make verify
+make verify-ci
+make verify-core-only
 ```
 
-Useful focused commands:
+`make verify` is the broad local gate. PR CI runs a narrower smoke suite with testing enabled and no developer `.env`; green local tests do not establish green CI. Read the [contributor guide](docs/developer/CONTRIBUTING.md) and [invariants](docs/INVARIANTS.md) before changing Core.
 
-```bash
-make verify-ci                    # PR backend job reproduction
-make verify-core-only             # Core with no domain packages
-make verify-contract              # external App contract tests
-make test-frontend                # React/Vitest suite
-make test-postgres                # backend suite against local Compose Postgres
-make verify-independent-artifacts # isolated Core, SDK, and App artifact proof
-```
-
-Start the database with `docker compose up -d db` before
-`make test-postgres`. The independent-artifact proof resolves packages in
-temporary environments and may need network access.
-
-## Architecture at a glance
-
-```text
-Humans and external agents
-          │
-          ├── React workspace / REST API
-          └── MCP
-                  │
-        Resident harness + staging + skills
-                  │
-     one policy engine and public tool boundary
-                  │
-Workspace → App → Track → Entry graph
-                  │
-      Operational Models and view palette
-                  │
-           PostgreSQL + pgvector
-```
-
-Every human, resident, and external-agent operation is intended to resolve
-against the same workspace scope and permission rules. External agents connect
-through MCP; Integral does not provide a separate agent-to-agent fabric. Read
-[ADR-003](docs/backend/adr/003-singular-resident-harness.md) for the
-resident-harness decision and [BYOA](docs/product/BYOA.md) for the
-external-agent surface.
-
-## Documentation
-
-The [documentation index](docs/README.md) groups the maintained material by
-product, platform, backend, and operations concerns. The most useful references
-for a contributor are:
-
-- [AGENTS.md](AGENTS.md) — repository conventions, graph invariants, and the
-  required pre-commit checks.
-- [Contributing](CONTRIBUTING.md) — contribution workflow.
-- [Operational Models](docs/operational-models/README.md) — schema, view, and operational-rule model.
-- [App bundles v1](docs/backend/app-bundles-v1.md) — package manifest and
-  lifecycle reference.
-- [Core finish status](docs/product/CORE_FINISH_STATUS.md) — implemented
-  evidence, remaining proof, and the ordered program to the finished state.
-- [Releasing](RELEASING.md) — package release procedure.
+The [qualification record](docs/ops/QUALIFICATION.md) separates implementation from deployment evidence and remaining release work. Native durable chat is configuration-gated. Bounded work mandates are not a qualified public path to unattended execution.
 
 ## License
 
-[Apache License 2.0](LICENSE).
+Integral Core uses [Apache 2.0](LICENSE). App packages and dependencies have their own licensing and trust requirements.

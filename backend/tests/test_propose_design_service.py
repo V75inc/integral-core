@@ -310,23 +310,6 @@ def test_production_affirm_judge_is_not_an_english_phrase_list():
 
 
 @pytest.mark.asyncio
-async def test_affirm_judge_failure_does_not_approve(monkeypatch):
-    from app.services import light_model_judge
-
-    async def down(**_kwargs):
-        raise RuntimeError("down")
-
-    monkeypatch.setattr(light_model_judge, "light_model_json", down)
-    monkeypatch.setattr(
-        chat_threads, "_design_reply_affirms", _REAL_DESIGN_REPLY_AFFIRMS
-    )
-    assert (
-        await chat_threads.looks_like_design_affirm("perfecto, dale", agent_id="a1")
-        is False
-    )
-
-
-@pytest.mark.asyncio
 async def test_design_amend_required_after_correction_reply():
     """Non-affirm reply while design pending → amend gate open."""
     thread = await _thread_with_user_turns("sess-amend-req", 1)

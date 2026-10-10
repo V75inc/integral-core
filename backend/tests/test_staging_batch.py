@@ -723,3 +723,131 @@ async def test_cancel_fails_closed_when_durable_snapshot_cannot_be_removed(
     assert caught.value.code == "durability_unavailable"
     assert is_batch_open("u-cancel", "s-cancel")
     assert len(await batches_for_test_user()) == 1
+
+
+@pytest.mark.asyncio
+async def test_retried_revision_bound_update_reuses_step_reference():
+    await open_batch(user_id="u-retry", session_id="s-retry", label="Contact and job")
+    contact = {
+        "kind": "update_entry",
+        "payload": {
+            "entry_id": "contact",
+            "expected_record_revision": 1,
+            "fields": {"phone": "600-0123"},
+        },
+    }
+    job = {
+        "kind": "update_entry",
+        "payload": {
+            "entry_id": "job",
+            "expected_record_revision": 1,
+            "fields": {"promised_date": "2026-10-13"},
+        },
+    }
+    assert (
+        await append_to_batch(user_id="u-retry", session_id="s-retry", op=contact) == 1
+    )
+    assert await append_to_batch(user_id="u-retry", session_id="s-retry", op=job) == 2
+    assert (
+        await append_to_batch(
+            user_id="u-retry",
+            session_id="s-retry",
+            op=contact | {"summary": "Reworded preview"},
+        )
+        == 1
+    )
+    assert await append_to_batch(user_id="u-retry", session_id="s-retry", op=job) == 2
+    assert peek_open_batch("u-retry", "s-retry")["op_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_batch_does_not_collapse_creates_or_changed_revision_bound_edits():
+    await open_batch(
+        user_id="u-sequence", session_id="s-sequence", label="Distinct effects"
+    )
+    create = {
+        "kind": "create_entry",
+        "payload": {"title": "Identical requested record"},
+    }
+    assert (
+        await append_to_batch(user_id="u-sequence", session_id="s-sequence", op=create)
+        == 1
+    )
+    assert (
+        await append_to_batch(user_id="u-sequence", session_id="s-sequence", op=create)
+        == 2
+    )
+    update = {
+        "kind": "update_entry",
+        "payload": {
+            "entry_id": "entry",
+            "expected_record_revision": 1,
+            "fields": {"name": "A"},
+        },
+    }
+    assert (
+        await append_to_batch(user_id="u-sequence", session_id="s-sequence", op=update)
+        == 3
+    )
+    different = update | {"payload": update["payload"] | {"fields": {"name": "B"}}}
+    assert (
+        await append_to_batch(
+            user_id="u-sequence", session_id="s-sequence", op=different
+        )
+        == 4
+    )
+    assert (
+        await append_to_batch(user_id="u-sequence", session_id="s-sequence", op=update)
+        == 5
+    )
+    revised = update | {"payload": update["payload"] | {"expected_record_revision": 2}}
+    assert (
+        await append_to_batch(user_id="u-sequence", session_id="s-sequence", op=revised)
+        == 6
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "reference", ["{{step_1.id}}", "{{entry.id:Receipt}}", "$batch.0.id"]
+)
+async def test_pending_entry_target_uses_existing_backward_reference_contract(
+    reference,
+):
+    await open_batch(user_id="owner", session_id="chat", label="File receipt")
+    await append_to_batch(
+        user_id="owner",
+        session_id="chat",
+        op={
+            "kind": "create_entry",
+            "payload": {"track_id": "track", "title": "Receipt"},
+        },
+    )
+    target = await staging.pending_entry_creation(
+        user_id="owner",
+        session_id="chat",
+        reference=reference,
+    )
+    assert target == {"track_id": "track", "title": "Receipt"}
+    assert (
+        await staging.pending_entry_creation(
+            user_id="other",
+            session_id="chat",
+            reference=reference,
+        )
+        is None
+    )
+    assert (
+        await staging.pending_entry_creation(
+            user_id="owner",
+            session_id="other-chat",
+            reference=reference,
+        )
+        is None
+    )
+    with pytest.raises(StagingError):
+        await staging.pending_entry_creation(
+            user_id="owner",
+            session_id="chat",
+            reference="{{step_2.id}}",
+        )

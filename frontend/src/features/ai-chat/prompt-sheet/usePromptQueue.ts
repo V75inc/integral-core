@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useThreadRuntime } from '@assistant-ui/react';
 
 import {
@@ -14,18 +14,25 @@ import { useConfirm } from '../../../context/ConfirmContext';
 import { useChatActivity } from '../AIChatSurface';
 import type { PromptItem, PromptQueue } from './types';
 
-export function resumeIfNeeded(
+export async function resumeIfNeeded(
   threadRuntime: ReturnType<typeof useThreadRuntime> | null,
   resumeText: string | null | undefined,
-  appendAssistantNote: (text: string) => void,
+  appendAssistantNote: (text: string) => void | Promise<string | null>,
+  stillCurrent: () => boolean = () => true,
+  resumeRequired = true,
 ) {
   if (!resumeText || !threadRuntime) return;
   try {
     // Keep the resolved review visible as an assistant note. The runtime
     // continuation starts separately and never appends a user utterance.
-    appendAssistantNote(resumeText);
+    // The note write bumps the stored thread revision. Starting admission in
+    // parallel races that write and can report a false thread-busy conflict.
+    // Use the persisted note id, never its optimistic client-only id.
+    const noteId = await appendAssistantNote(resumeText);
+    if (noteId === null || !stillCurrent()) return;
+    if (!resumeRequired) return;
     const messages = threadRuntime.getState().messages;
-    const parentId = messages[messages.length - 1]?.id ?? null;
+    const parentId = noteId ?? messages[messages.length - 1]?.id ?? null;
     threadRuntime.startRun({
       parentId,
       sourceId: null,
@@ -43,56 +50,110 @@ export function usePromptQueue() {
   const confirm = useConfirm();
   const [queue, setQueue] = useState<PromptQueue | null>(null);
   const [open, setOpen] = useState(false);
+  const [queueScope, setQueueScope] = useState(activeThreadId);
   // Read inside the poll interval without making it a dependency (which would
   // tear down and rebuild the listeners on every open/close).
   const openRef = useRef(false);
-  openRef.current = open;
+  useLayoutEffect(() => { openRef.current = open; }, [open]);
   const [index, setIndex] = useState(0);
   const resumedRefreshes = useRef(new Set<string>());
+  const reviewEpisode = useRef<{ threadId: string; queue: PromptQueue } | null>(null);
+  // Resume we saw while a stream was active — retry once it settles.
+  // getPromptQueue only returns resume_text on the reconcile that closes the
+  // sheet, so a mid-stream miss cannot be recovered from a later poll alone.
+  const pendingResumeRef = useRef<{
+    threadId: string;
+    resumeText: string;
+    resultQueue?: PromptQueue;
+    resumeRequired: boolean;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const live = useRef({ activeThreadId, appendAssistantNote, isThreadStreaming, threadRuntime, queueScope });
+  useLayoutEffect(() => {
+    live.current = { activeThreadId, appendAssistantNote, isThreadStreaming, threadRuntime, queueScope };
+  }, [activeThreadId, appendAssistantNote, isThreadStreaming, threadRuntime, queueScope]);
+  const generation = useRef(0);
+  const fetching = useRef<string | null>(null);
+  const retryAt = useRef(0);
+  const failures = useRef(0);
+
+  const resumeOnce = useCallback((threadId: string, text: string | null | undefined, resultQueue?: PromptQueue, resumeRequired = true) => {
+    if (!text || live.current.activeThreadId !== threadId) return;
+    if (live.current.isThreadStreaming(threadId)) {
+      // A clear chat approval is applied before its ordinary native turn
+      // continues. The continuation belongs to that run; do not launch a
+      // second Prompt Sheet resume while its stream is active — and do not
+      // mark the key consumed until we actually resume, or a mid-stream
+      // poll permanently drops the continuation.
+      pendingResumeRef.current = { threadId, resumeText: text, resultQueue, resumeRequired };
+      return;
+    }
+    pendingResumeRef.current = null;
+    const episode = resultQueue?.items.length ? resultQueue
+      : reviewEpisode.current?.threadId === threadId ? reviewEpisode.current.queue : undefined;
+    // Deduplicate one resolved review, not identical wording across new reviews.
+    const key = JSON.stringify([threadId, episode?.opened_at, episode?.items.map((item) => item.id), text]);
+    if (resumedRefreshes.current.has(key)) return;
+    resumedRefreshes.current.add(key);
+    if (resumedRefreshes.current.size > 64) resumedRefreshes.current.delete(resumedRefreshes.current.values().next().value!);
+    void resumeIfNeeded(live.current.threadRuntime, text, live.current.appendAssistantNote,
+      () => live.current.activeThreadId === threadId && !live.current.isThreadStreaming(threadId), resumeRequired);
+  }, []);
+
   const refresh = useCallback(async () => {
-    if (!activeThreadId) {
-      setQueue(null);
-      setOpen(false);
-      return;
-    }
-    const res = await getPromptQueue(activeThreadId);
-    if (!res?.open) {
-      const resumeKey = `${activeThreadId}:${res?.resume_text ?? ''}`;
-      if (res?.resume_text && !resumedRefreshes.current.has(resumeKey)) {
-        resumedRefreshes.current.add(resumeKey);
-        // A clear chat approval is applied before its ordinary native turn
-        // continues. The continuation belongs to that run; do not launch a
-        // second Prompt Sheet resume while its stream is active.
-        if (!isThreadStreaming(activeThreadId)) {
-          resumeIfNeeded(threadRuntime, res.resume_text, appendAssistantNote);
-        }
+    const threadId = activeThreadId;
+    if (!threadId || fetching.current === threadId || Date.now() < retryAt.current) return;
+    fetching.current = threadId;
+    const requestGeneration = generation.current;
+    try {
+      const res = await getPromptQueue(threadId);
+      if (live.current.activeThreadId !== threadId || generation.current !== requestGeneration) return;
+      if (live.current.queueScope !== threadId) { setError(null); setIndex(0); }
+      setQueueScope(threadId);
+      failures.current = 0;
+      retryAt.current = 0;
+      setRefreshError(null);
+      if (!res.open) {
+        resumeOnce(threadId, res.resume_text, res.queue as unknown as PromptQueue, res.resume_required);
+        setQueue(null);
+        setOpen(false);
+        return;
       }
-      setQueue(null);
-      setOpen(false);
-      return;
+      const q = res.queue as unknown as PromptQueue;
+      reviewEpisode.current = { threadId, queue: q };
+      setQueue(q);
+      setOpen(true);
+      setIndex((i) => {
+        const items = q.items || [];
+        const currentItem = items[i];
+        if (currentItem && currentItem.status === 'pending') return i;
+        const pendingIdx = items.findIndex((it) => it.status === 'pending');
+        return pendingIdx >= 0 ? pendingIdx : Math.min(i, Math.max(0, items.length - 1));
+      });
+    } catch (failure: unknown) {
+      if (live.current.activeThreadId !== threadId || generation.current !== requestGeneration) return;
+      if (live.current.queueScope !== threadId) {
+        setQueue(null); setOpen(false); setError(null); setQueueScope(threadId);
+      }
+      failures.current += 1;
+      const retryAfter = Number((failure as { response?: { headers?: Record<string, unknown> } })?.response?.headers?.['retry-after']);
+      const backoffSeconds = Math.min(60, 5 * 2 ** Math.min(failures.current, 4));
+      retryAt.current = Date.now() + Math.max(backoffSeconds, Number.isFinite(retryAfter) ? retryAfter : 0) * 1000;
+      setRefreshError('Could not refresh approval status. Your current review is kept; retrying shortly.');
+    } finally {
+      if (fetching.current === threadId) fetching.current = null;
     }
-    const q = res.queue as unknown as PromptQueue;
-    setQueue(q);
-    setOpen(true);
-    setIndex((i) => {
-      const items = q.items || [];
-      const pendingIdx = items.findIndex((it) => it.status === 'pending');
-      // Only move the user. This ran on every 2s poll and snapped to the first
-      // pending item unconditionally, so paging forward to review prompt 3
-      // while prompt 1 was still open bounced them back to 1 within two
-      // seconds. Stay put while the item under the cursor is still actionable.
-      const currentItem = items[i];
-      if (currentItem && currentItem.status === 'pending') return i;
-      if (pendingIdx >= 0) return pendingIdx;
-      return Math.min(i, Math.max(0, (items.length || 1) - 1));
-    });
-  }, [activeThreadId, appendAssistantNote, isThreadStreaming, threadRuntime]);
+  }, [activeThreadId, resumeOnce]);
 
   useEffect(() => {
-    void refresh();
+    generation.current += 1;
+    retryAt.current = 0;
+    failures.current = 0;
+    let stopped = false;
+    queueMicrotask(() => { if (!stopped) void refresh(); });
     const onStaging = () => {
       void refresh();
     };
@@ -110,33 +171,49 @@ export function usePromptQueue() {
     // Back off when there is no sheet: the fast cadence only earns its keep
     // while the user is looking at one, but some polling has to continue so a
     // queue opened without a WS event is still noticed.
-    const t = window.setInterval(
-      () => {
-        void refresh();
-      },
-      openRef.current ? 2000 : 10000,
-    );
+    let timer: ReturnType<typeof window.setTimeout>;
+    const poll = async () => {
+      await refresh();
+      if (!stopped) timer = window.setTimeout(poll, document.hidden ? 30000 : openRef.current ? 5000 : 20000);
+    };
+    timer = window.setTimeout(poll, 5000);
     return () => {
       window.removeEventListener('staging-state-changed', onStaging);
       window.removeEventListener('integral:staging-state-changed', onStaging);
       window.removeEventListener('integral:staging-created', onStaging);
-      window.clearInterval(t);
+      stopped = true;
+      generation.current += 1;
+      window.clearTimeout(timer);
     };
   }, [refresh]);
 
-  const items = queue?.items ?? [];
+  // Flush a resume that was deferred because a stream was already active.
+  useEffect(() => {
+    const pending = pendingResumeRef.current;
+    if (!pending || !activeThreadId || pending.threadId !== activeThreadId) {
+      return;
+    }
+    if (isThreadStreaming(pending.threadId)) return;
+    resumeOnce(pending.threadId, pending.resumeText, pending.resultQueue, pending.resumeRequired);
+  }, [activeThreadId, isThreadStreaming, resumeOnce]);
+
+  const scopeCurrent = queueScope === activeThreadId;
+  const items = scopeCurrent ? queue?.items ?? [] : [];
   const current: PromptItem | null = items[index] ?? null;
 
   const applyQueueResult = useCallback(
     (res: {
       queue?: PromptQueue;
       resume_text?: string | null;
+      resume_required?: boolean;
       closed?: boolean;
     }) => {
+      if (live.current.activeThreadId !== activeThreadId) return;
+      setQueueScope(activeThreadId);
       if (res.closed) {
         setOpen(false);
         setQueue(null);
-        resumeIfNeeded(threadRuntime, res.resume_text, appendAssistantNote);
+        resumeOnce(activeThreadId!, res.resume_text, res.queue, res.resume_required);
         return;
       }
       if (res.queue) {
@@ -146,7 +223,7 @@ export function usePromptQueue() {
         if (pendingIdx >= 0) setIndex(pendingIdx);
       }
     },
-    [threadRuntime],
+    [activeThreadId, resumeOnce],
   );
 
   const answerQuestion = useCallback(
@@ -215,20 +292,55 @@ export function usePromptQueue() {
             })
           : false;
         if (requiresStrongConfirmation && !strongConfirmation) return;
-        const result = await blessStagingToken(current.token, {
+        const blessRes = await blessStagingToken(current.token, {
           strongConfirmation,
         });
-        if (!result.ok) throw new Error(result.message || 'Approval failed.');
-        const execution = result.execute_result;
-        if (execution?.error || execution?.filed === false || execution?.skipped === true) {
-          throw new Error(
-            typeof execution.message === 'string' ? execution.message :
-            typeof execution.detail === 'string' ? execution.detail :
-            'Your approval was recorded, but the change could not be applied. Review the error before retrying.',
-          );
+        if (!blessRes.ok) {
+          throw new Error(blessRes.message || 'Approval failed.');
         }
-        if (!execution) {
-          throw new Error('Your approval was recorded. Application is still pending; refresh to check its result.');
+        const exec = blessRes.execute_result as
+          | (Record<string, unknown> & {
+              error?: unknown;
+              filed?: boolean;
+              skipped?: boolean;
+              message?: unknown;
+            })
+          | undefined;
+        const execFailed =
+          !!exec &&
+          (!!exec.error || exec.filed === false || exec.skipped === true);
+        if (execFailed) {
+          const msg =
+            typeof exec?.message === 'string' && exec.message.trim()
+              ? exec.message
+              : 'The change was approved but the write was refused.';
+          setError(msg);
+          window.dispatchEvent(new Event('staging-state-changed'));
+          return;
+        }
+        if (!exec) {
+          setError(
+            'Approval was recorded. Application is still pending; refresh to check its result.',
+          );
+          window.dispatchEvent(new Event('staging-state-changed'));
+          return;
+        }
+        // mark-write only when the executor consumed the token — a merely
+        // blessed card must stay in the sheet (state_mismatch → 422).
+        const stagedState = (blessRes.staged_change as { state?: string } | undefined)
+          ?.state;
+        if (stagedState && stagedState !== 'consumed') {
+          const lastErr = (
+            blessRes.staged_change as {
+              last_error?: { message?: string } | null;
+            }
+          )?.last_error;
+          setError(
+            lastErr?.message?.trim() ||
+              'Approved, but the write has not completed yet.',
+          );
+          window.dispatchEvent(new Event('staging-state-changed'));
+          return;
         }
         const res = await markPromptWrite({
           threadId: activeThreadId,
@@ -238,11 +350,17 @@ export function usePromptQueue() {
         if (res.error) throw new Error(res.detail || 'The change has not finished applying.');
         applyQueueResult(res as never);
         window.dispatchEvent(new Event('staging-state-changed'));
-      } catch (error) {
+      } catch (err: unknown) {
+        const detail =
+          err && typeof err === 'object' && 'response' in err
+            ? (err as { response?: { data?: { message?: string; detail?: string } } })
+                .response?.data
+            : undefined;
         setError(
-          error instanceof Error
-            ? error.message
-            : 'Could not approve that write.',
+          detail?.message ||
+            detail?.detail ||
+            (err instanceof Error ? err.message : '') ||
+            'Could not approve that write.',
         );
       } finally {
         setBusy(false);
@@ -300,13 +418,13 @@ export function usePromptQueue() {
   );
 
   return {
-    open,
-    queue,
+    open: scopeCurrent && open,
+    queue: scopeCurrent ? queue : null,
     current,
     items,
     page,
     busy,
-    error,
+    error: scopeCurrent ? error ?? refreshError : null,
     refresh,
     answerQuestion,
     skipQuestion,

@@ -335,3 +335,28 @@ async def test_native_model_tool_approval_cannot_cross_workspace(monkeypatch):
 
     assert outcome == {"ok": False, "error_code": "pending_item_changed"}
     assert (await get_token(sc.token)).state == "pending"
+
+
+@pytest.mark.asyncio
+async def test_resumed_design_receipt_is_saved_before_consumption(monkeypatch):
+    from app.services import chat_threads
+
+    sc = await _mint(kind="batch")
+    saved = []
+
+    async def thread(_session):
+        return SimpleNamespace(
+            design_proposed={"partial_build": {"batch_token": sc.token}}
+        )
+
+    async def receipt(**kwargs):
+        assert (await get_token(sc.token)).state == "blessed"
+        saved.append(kwargs["batch_token"])
+        return {"id": "receipt", "batch_token": sc.token}
+
+    monkeypatch.setattr(chat_threads, "get_thread_by_session", thread)
+    monkeypatch.setattr(chat_threads, "record_design_build_receipt", receipt)
+    _fake_executor(monkeypatch, result={"completed": 2, "total": 2, "results": []})
+    result = await staging_apply.bless_and_execute(user_id="u1", token=sc.token)
+    assert result["consumed"] is True
+    assert saved == [sc.token]

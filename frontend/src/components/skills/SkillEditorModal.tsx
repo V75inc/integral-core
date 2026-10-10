@@ -405,7 +405,7 @@ export function SkillEditorModal({
                 </Surface>
                 <Field
                   label="When should the agent use this?"
-                  hint="Discovery description from SKILL.md frontmatter (jvagent / Anthropic contract)."
+                  hint="Discovery description from standard SKILL.md frontmatter."
                 >
                   <Textarea
                     rows={3}

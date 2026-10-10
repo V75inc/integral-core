@@ -334,7 +334,7 @@ async def attach_sandbox_file_to_entry(
 ) -> Dict[str, Any]:
     """Attach a sandbox-produced file to an entry.
 
-    Reads bytes from ``JVAGENT_SANDBOX_ROOT/<user_id>/<sandbox_path>`` when that
+    Reads bytes from ``INTEGRAL_SANDBOX_ROOT/<user_id>/<sandbox_path>`` when that
     root is configured (co-located agent runtime). Returns a structured error when
     the bridge is unavailable or the file is missing.
     """
@@ -366,13 +366,13 @@ async def attach_sandbox_file_to_entry(
             "message": "You do not have permission to add attachments to this entry",
         }
 
-    root = (os.environ.get("JVAGENT_SANDBOX_ROOT") or "").strip()
+    root = (os.environ.get("INTEGRAL_SANDBOX_ROOT") or "").strip()
     if not root:
         return {
             "error": True,
             "error_code": "sandbox_unavailable",
             "message": (
-                "Sandbox file bridge is not configured (JVAGENT_SANDBOX_ROOT unset)"
+                "Sandbox file bridge is not configured (INTEGRAL_SANDBOX_ROOT unset)"
             ),
         }
 
@@ -534,12 +534,15 @@ async def attach_image_bytes_to_entry(
     return {"attachment": item, "entry_id": entry.id}
 
 
-async def validate_chat_attachment_for_entry(
-    *, user_id: str, attachment_id: str, entry_id: str
+async def validate_chat_attachment_source(
+    *,
+    user_id: str,
+    attachment_id: str,
+    thread_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
 ) -> tuple[Any, Any, Optional[Dict[str, Any]]]:
-    """Shared read-only preflight; execution repeats it at the write boundary."""
+    """Validate an uploaded source independently of a future batch target."""
     from app.models.nodes import ChatThread
-    from app.schemas.policy import Resource, Subject
 
     attachment = await Attachment.get(attachment_id)
     if not attachment or not is_visible_to_user(attachment):
@@ -565,9 +568,16 @@ async def validate_chat_attachment_for_entry(
             },
         )
 
-    owners = await attachment.nodes(edge=["HAS_ATTACHMENT"], direction="in")
+    owners = await attachment.nodes(
+        edge=["HAS_ATTACHMENT"], node=["ChatThread"], direction="in", limit=2
+    )
     thread = next((o for o in owners if isinstance(o, ChatThread)), None)
-    if thread is None or thread.user_id != user_id:
+    if (
+        thread is None
+        or thread.user_id != user_id
+        or (thread_id is not None and thread.id != thread_id)
+        or (workspace_id is not None and thread.workspace_id != workspace_id)
+    ):
         return (
             None,
             None,
@@ -578,6 +588,23 @@ async def validate_chat_attachment_for_entry(
             },
         )
 
+    return attachment, thread, None
+
+
+async def validate_chat_attachment_for_entry(
+    *, user_id: str, attachment_id: str, entry_id: str
+) -> tuple[Any, Any, Optional[Dict[str, Any]]]:
+    """Shared read-only preflight; execution repeats it at the write boundary."""
+    from app.services.agent_scope import active_workspace_id, current_chat_thread_id
+
+    attachment, _thread, error = await validate_chat_attachment_source(
+        user_id=user_id,
+        attachment_id=attachment_id,
+        workspace_id=active_workspace_id(),
+        thread_id=current_chat_thread_id.get(),
+    )
+    if error:
+        return None, None, error
     entry = await Entry.get(entry_id)
     if not entry:
         return (

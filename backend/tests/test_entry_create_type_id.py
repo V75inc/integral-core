@@ -143,7 +143,7 @@ async def test_generic_create_rejects_protected_app_field_before_persistence():
     app_id = "app-protected-create-test"
     register_protected_fields(track.workspace_id, app_id, {"post": ["lifecycle_state"]})
     try:
-        with pytest.raises(BadRequestError, match="Protected App fields"):
+        with pytest.raises(BadRequestError) as ei:
             await create_entry_in_track(
                 track=track,
                 user_id=user_id,
@@ -152,6 +152,7 @@ async def test_generic_create_rejects_protected_app_field_before_persistence():
                 custom_fields={"lifecycle_state": "checked_out"},
                 workspace_id=track.workspace_id,
             )
+        assert ei.value.details.get("error_code") == "protected_field_write"
     finally:
         unregister_protected_fields(track.workspace_id, app_id)
 

@@ -49,11 +49,37 @@ _FLAT_RELATION_KEYS = (
 )
 _MAX_OPERATIONS = 64
 _MAX_RAW_OPERATIONS = 128
-_FIELDS_ASSERTION = re.compile(r"^(.+?) track with fields:\s*(.+)$", re.IGNORECASE)
+_FIELDS_ASSERTION = re.compile(r"^(.+?)\s+track with fields:\s*(.+)$", re.IGNORECASE)
+_QUOTED_FIELDS_ASSERTION = re.compile(
+    r'^Track\s+"([^"]+)"\s+with fields:\s*(.+)$', re.IGNORECASE
+)
 _TRACK_HEADING = re.compile(r"^#{3,4}\s*\d+\.\s*(.+?)(?:\s+Track)?\s*$", re.IGNORECASE)
 _NAMED_TRACK_HEADING = re.compile(r"^#{2,4}\s*(.+?)\s+Track\s*$", re.IGNORECASE)
+_TRACK_COLON_HEADING = re.compile(r"^#{2,4}\s+Track:\s*(.+?)\s*$", re.IGNORECASE)
+_QUOTED_TRACK_LINE = re.compile(r'^#{0,4}\s*Track\s+"([^"]+)"\s*$', re.IGNORECASE)
 _NEW_TRACK_LABEL = re.compile(r"^\*\*New Track:\*\*\s*(.+?)\s*$", re.IGNORECASE)
-_DESIGN_FIELD = re.compile(r"^\s*-\s+(.+?)\s*\([^)]*\)\s*$")
+_DESIGN_FIELD = re.compile(
+    r"^(\s*)-\s+(?:\*\*)?(.+?)(?:\*\*)?\s*\(\s*([A-Za-z][\w-]*)",
+)
+_FIELDS_BULLET = re.compile(r"^(\s*)-\s+(?:\*\*)?fields:(?:\*\*)?\s*$", re.IGNORECASE)
+_FIELD_TYPES = frozenset(
+    {
+        "text",
+        "number",
+        "boolean",
+        "date",
+        "datetime",
+        "markdown",
+        "json",
+        "select",
+        "multi_select",
+        "relation",
+        "computed",
+        "file",
+        "files",
+        "member",
+    }
+)
 _OPERATOR_ALIASES = {
     "=": "eq",
     "==": "eq",
@@ -138,48 +164,88 @@ def _coalesce_plan_operations(raw: list[Any]) -> list[Any]:
     return [item for item in result if item is not None]
 
 
+def _checklist_field_names(blob: str) -> set[str]:
+    names: set[str] = set()
+    for label in blob.split(","):
+        cleaned = re.sub(r"\s*\([^)]*\)", "", label).strip().strip("*").strip("\"'")
+        if cleaned:
+            names.add(cleaned.casefold())
+    return names
+
+
+def _typed_field_name(line: str) -> Optional[str]:
+    """Label before the first parenthesis, when that parenthesis is a field type."""
+    match = _DESIGN_FIELD.match(line)
+    if not match:
+        return None
+    type_name = match.group(3).casefold().replace("-", "_")
+    if type_name not in _FIELD_TYPES:
+        return None
+    label = match.group(2).strip().strip("*").strip()
+    return label.casefold() if label else None
+
+
+def _track_heading_name(line: str) -> Optional[str]:
+    stripped = line.strip()
+    match = (
+        _TRACK_HEADING.match(stripped)
+        or _NAMED_TRACK_HEADING.match(stripped)
+        or _TRACK_COLON_HEADING.match(stripped)
+        or _QUOTED_TRACK_LINE.match(stripped)
+        or _NEW_TRACK_LABEL.match(stripped)
+    )
+    if not match:
+        return None
+    name = match.group(1).strip().strip("*").strip("\"'")
+    return name.casefold() if name else None
+
+
 def _approved_field_requirements(marker: Dict[str, Any]) -> Dict[str, set[str]]:
-    """Read concrete field promises from the persisted design assertions."""
+    """Read concrete field promises from the checklist, then from typed prose.
+
+    Typed field lines in the proposal replace the checklist for that track.
+    A checklist is the backup when the prose names no typed fields.
+    """
     required: Dict[str, set[str]] = {}
     for assertion in marker.get("acceptance_assertions") or []:
-        match = _FIELDS_ASSERTION.match(str(assertion).strip())
+        text = str(assertion).strip()
+        match = _QUOTED_FIELDS_ASSERTION.match(text) or _FIELDS_ASSERTION.match(text)
         if not match:
             continue
-        required[match.group(1).strip().casefold()] = {
-            re.sub(r"\s*\([^)]*\)", "", label).strip().casefold()
-            for label in match.group(2).split(",")
-            if label.strip()
-        }
+        required[match.group(1).strip().casefold()] = _checklist_field_names(
+            match.group(2)
+        )
     proposal_fields: Dict[str, set[str]] = {}
     track_name: str | None = None
     in_fields = False
+    fields_indent = 0
     for line in str(marker.get("proposal") or "").splitlines():
-        heading = (
-            _TRACK_HEADING.match(line.strip())
-            or _NAMED_TRACK_HEADING.match(line.strip())
-            or _NEW_TRACK_LABEL.match(line.strip())
-        )
+        heading = _track_heading_name(line)
         if heading:
-            track_name = heading.group(1).strip().casefold()
+            track_name = heading
             in_fields = False
             continue
         if line.lstrip().startswith("#"):
             in_fields = False
             track_name = None
             continue
-        section = line.strip().casefold()
-        if re.match(r"^-\s+(?:\*\*)?fields:(?:\*\*)?", section):
-            in_fields = bool(track_name)
+        fields_bullet = _FIELDS_BULLET.match(line)
+        if fields_bullet and track_name:
+            in_fields = True
+            fields_indent = len(fields_bullet.group(1))
             continue
-        if in_fields and re.match(r"^-\s+(?:\*\*)?views:(?:\*\*)?", section):
+        if not in_fields or not track_name:
+            continue
+        if re.match(r"^\s*-\s+(?:\*\*)?views:(?:\*\*)?", line, re.IGNORECASE):
             in_fields = False
             continue
-        if in_fields and track_name:
-            field = _DESIGN_FIELD.match(line)
-            if field:
-                proposal_fields.setdefault(track_name, set()).add(
-                    field.group(1).strip().casefold()
-                )
+        bullet = re.match(r"^(\s*)-\s+", line)
+        if bullet and len(bullet.group(1)) <= fields_indent:
+            in_fields = False
+            continue
+        field_name = _typed_field_name(line)
+        if field_name:
+            proposal_fields.setdefault(track_name, set()).add(field_name)
     # Prose assertions may compress several concrete fields ("last/next
     # service", "rental start/end"). Where the approved proposal spells out
     # the fields, its exact labels replace that compressed set.
@@ -200,6 +266,25 @@ def _track_declared_field_names(params: Dict[str, Any]) -> set[str]:
         for field in fields
         if isinstance(field, dict)
     }
+
+
+def _is_unlabelled_title_line(line: str, labels: Dict[str, Any]) -> bool:
+    """True when ``line`` names a record and is not a broken ``Field: value`` row.
+
+    A line that begins with a declared field name but omits the colon stays
+    invalid. A name such as ``Berghotel Grosse Scheidegg`` does not.
+    """
+    if ":" in line:
+        return False
+    folded = line.strip().casefold()
+    if not folded:
+        return False
+    for label in labels:
+        if not label:
+            continue
+        if folded == label or folded.startswith(f"{label} "):
+            return False
+    return True
 
 
 def _structured_seed(
@@ -239,6 +324,14 @@ def _structured_seed(
         for field in specs
         if isinstance(field, dict) and field.get("key")
     }
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if len(lines) == 1 and _is_unlabelled_title_line(lines[0], labels):
+        # The user named the record and supplied no field labels. File the
+        # line as the title instead of rejecting it as a malformed field row.
+        if not str(entry.get("title") or "").strip():
+            entry["title"] = lines[0]
+        entry.pop("text", None)
+        return entry
     values: Dict[str, Any] = {}
     for line in text.splitlines():
         label, separator, raw_value = line.partition(":")
@@ -1004,6 +1097,105 @@ def _plan_binding_error(
     return None
 
 
+async def _resume_partial_design(
+    marker: Dict[str, Any], *, principal_id: str, session_id: str
+) -> ToolResult:
+    """Resume the original approved batch using its durable cursor."""
+    from app.agentive.services.staging_apply import execute_blessed_change
+    from app.agentive.staging import StagingError, get_token
+    from app.services.agent_scope import active_workspace_id
+    from app.services.chat_threads import record_design_build_receipt
+
+    token = str((marker.get("partial_build") or {}).get("batch_token") or "")
+    staged = await get_token(token) if token else None
+    workspace_id = active_workspace_id()
+    if (
+        staged is None
+        or staged.kind != "batch"
+        or staged.user_id != principal_id
+        or staged.session_id != session_id
+        or (workspace_id and staged.workspace_id != workspace_id)
+    ):
+        return _invalid(
+            "partial_build_requires_repair",
+            "The original approved batch is unavailable in this conversation and workspace. Do not create another App.",
+        )
+    if staged.state == "consumed":
+        progress = staged.progress or {}
+        total = len((staged.payload or {}).get("operations") or [])
+        if (
+            progress.get("completed") != total
+            or len(progress.get("results") or []) != total
+        ):
+            return _invalid(
+                "partial_build_requires_repair",
+                "The applied batch has no complete durable cursor; inspect the existing App.",
+            )
+        execution = {"completed": total, "total": total, "results": progress["results"]}
+    elif staged.state == "blessed":
+        try:
+            from app.services.scaffold_repair import apply_partial_revision
+
+            staged = await apply_partial_revision(
+                marker,
+                staged,
+                user_id=principal_id,
+                session_id=session_id,
+                workspace_id=workspace_id,
+            )
+            token = staged.token
+            outcome = await execute_blessed_change(
+                user_id=principal_id, token=token, staged=staged
+            )
+        except StagingError as exc:
+            return _invalid(exc.code, str(exc))
+        except (ValueError, RuntimeError) as exc:
+            return _invalid("partial_build_requires_repair", str(exc))
+        execution = outcome.get("execute_result") or {}
+        if not outcome.get("consumed") or execution.get("error"):
+            return ToolResult(
+                is_error=True,
+                error_code=str(execution.get("error_code") or "batch_apply_failed"),
+                message=str(
+                    execution.get("message") or "The unfinished batch could not apply."
+                ),
+                data={
+                    "batch_token": token,
+                    "completed": execution.get("completed"),
+                    "total": execution.get("total"),
+                },
+            )
+    else:
+        return _invalid(
+            "partial_build_requires_repair",
+            "The original batch is no longer approved. Do not create another App.",
+        )
+    receipt = await record_design_build_receipt(
+        session_id=session_id,
+        user_id=principal_id,
+        batch_token=token,
+        execute_result=execution,
+    )
+    if not isinstance(receipt, dict):
+        return _invalid(
+            "build_receipt_unavailable",
+            "The batch applied but its design receipt could not be recorded. Read current state before claiming completion.",
+        )
+    return ToolResult(
+        data={
+            "_kind": "batch_applied",
+            "applied": True,
+            "batch_token": token,
+            "completed": execution.get("completed"),
+            "total": execution.get("total"),
+            "design_id": receipt.get("design_id"),
+            "design_revision": receipt.get("design_revision"),
+            "execution_receipt_id": receipt.get("id"),
+            "next": "Call integral_verify_build with this receipt before claiming completion. Do not build again.",
+        }
+    )
+
+
 async def build_approved_design(
     args: Dict[str, Any],
     *,
@@ -1042,15 +1234,14 @@ async def build_approved_design(
             "design_already_applied",
             "This approved design already has an applied build receipt.",
         )
-    if isinstance(marker, dict) and marker.get("partial_build"):
-        return _invalid(
-            "partial_build_requires_repair",
-            "This design has a partially applied batch. Inspect its existing App and repair the failed remainder; do not create another App.",
-        )
     if not isinstance(marker, dict) or not marker.get("approved"):
         return _invalid("design_approval_required", "The design is not approved.")
     if getattr(thread, "user_id", None) != principal_id:
         return _invalid("design_owner_mismatch", "The design belongs to another user.")
+    if marker.get("partial_build"):
+        return await _resume_partial_design(
+            marker, principal_id=principal_id, session_id=session_id
+        )
     existing_batch = peek_open_batch(principal_id, session_id)
     if existing_batch and existing_batch.get("op_count"):
         return _invalid(
@@ -1518,9 +1709,11 @@ async def build_approved_design(
         if fidelity:
             return _invalid(
                 "plan_differs_from_design",
-                " ".join(fidelity) + " Build exactly the approved blueprint (revision "
-                f"{marker.get('blueprint_revision')}); retry now without asking "
-                "the user again.",
+                " ".join(fidelity)
+                + " Correct the generated operation plan to match the saved "
+                "approved blueprint; remove unapproved additions and restore "
+                "omitted approved items. This is plan repair, not a request to "
+                "re-approve the unchanged design.",
             )
     # Each Track this plan creates opens on its most useful specific view, not
     # the substrate Feed: the design's choice, else the plan's, else the first
@@ -1771,12 +1964,10 @@ async def build_approved_design(
         "next": (
             "Call integral_verify_build now with the design_id, design_revision, "
             "and execution_receipt_id in this result. It only reads; do not build "
-            "again. If status is verified, tell the user in plain words that their "
-            "App is ready and what they can do with it, naming its main parts, and "
-            "say whether sample records were added. If partial, say what is missing "
-            "and repair only that. If blocked or failed, say you could not check "
-            "and do not claim it is ready. Do not list field keys, view types or "
-            "ids, do not ask for approval again, and do not end on the system marker."
+            "again. Use its reply field as the closing line, word for word. "
+            "If status is not verified, do not open with a completion claim. "
+            "Do not list field keys, view types or ids, do not ask for approval "
+            "again, and do not end on the system marker."
         ),
     }
     if blueprint:

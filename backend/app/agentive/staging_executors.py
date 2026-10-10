@@ -21,7 +21,7 @@ handlers, we replicate the lightweight stub-request pattern from the
 bridge action rather than importing it (the bridge lives outside the
 backend package). The duplication is small and intentional — keeps
 the staging executor self-contained and importable from the API layer
-without crossing into the jvagent app's namespace.
+without crossing into the agent runtime app's namespace.
 """
 
 from __future__ import annotations
@@ -164,14 +164,9 @@ async def _x_create_entry(user_id: str, payload: Dict[str, Any]) -> Dict[str, An
     and ``custom_fields`` (not ``fields``). Skill payloads use the
     user-friendlier ``entry_type`` (a NAME) and ``fields``; we
     translate them here. ``entry_type`` resolves to ``type_id`` via a
-    lookup against the track's operational model; if the lookup fails
-    (or the agent didn't provide a name), we drop it and let the
-    handler pick the track's default entry type.
-
-    Resilience: if custom_fields validation fails (e.g. entry type has
-    an empty field schema so any key is rejected), we retry without
-    custom_fields. Better to create the entry without structured fields
-    than to fail entirely — the body text still carries the content.
+    lookup against the track's operational model. An explicit unresolved
+    type fails closed; only an omitted type uses the track's default.
+    Rejected structured fields fail the approved write without a retry.
     """
     from app.api.entries import create_entry as handler
 
@@ -210,8 +205,13 @@ async def _x_create_entry(user_id: str, payload: Dict[str, Any]) -> Dict[str, An
         type_id = await _resolve_entry_type_id(payload["track_id"], entry_type_name)
         if type_id:
             body["type_id"] = type_id
-        # If we can't resolve, omit type_id — the handler picks the
-        # track's default entry type rather than erroring.
+        else:
+            return {
+                "error": True,
+                "status_code": 400,
+                "error_code": "entry_type_unresolved",
+                "message": "The requested entry type could not be resolved on the destination Track. Nothing was created.",
+            }
     result = await _call_endpoint(handler, user_id, **body)
 
     # A rejected field is not applied. Do not create the entry without it and
@@ -259,13 +259,16 @@ async def _resolve_entry_type_id(
             return None
         types = await cp.nodes(edge=["CONTAINS"], node=["EntryType"])
         target = entry_type_name.casefold()
-        # Agents most often pass the entry-type KEY (e.g. "time_off_request")
-        # as surfaced by describe_operational_model, but EntryType nodes only store the
-        # display NAME (e.g. "Time-off request"). Normalize both to a slug-key
-        # so a key matches its type — without this the create silently fell
-        # back to the track's default ("Post"), making every typed field
-        # invalid and dropped.
         target_key = _entry_type_key(entry_type_name)
+        # Manifest keys need not resemble display names. Resolve the stored
+        # canonical key before legacy name matching, within this Track only.
+        for et in types:
+            schema = getattr(et, "form_schema", None) or {}
+            manifest_key = schema.get("_manifest_entry_type_key")
+            if et.id == entry_type_name or (
+                manifest_key and _entry_type_key(str(manifest_key)) == target_key
+            ):
+                return et.id
         for et in types:
             name = (getattr(et, "name", "") or "").casefold()
             if name == target or _entry_type_key(name) == target_key:
@@ -2228,18 +2231,46 @@ async def _x_delete_app(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]
 async def _x_link_entries(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     """Wire a relation field on the source entry → materializes the edge.
 
-    Sets ``custom_fields[field_key] = target_id`` via the ``update_entry`` handler,
-    whose ``sync_relation_edges`` materializes ``REFERENCES`` (field target=entry)
-    or ``ANCHORS`` (field target=track) with ``field_key`` (I-GRAPH-01) — a scalar
-    foreign key is never written without the edge.
+    Uses the canonical relation cardinality: single targets are assigned;
+    many targets are appended without replacing existing links. The update
+    endpoint retains policy, validation, audit and graph-edge materialization.
     """
     from app.api.entries import update_entry as handler
+    from app.models.nodes import Entry, EntryType, Track
+    from app.services.operational_model_entry_fields import resolve_entry_type_spec
+    from app.services.operational_model_runtime import resolve_track_runtime_profile
 
+    target = payload["target_id"]
+    source = await Entry.get(payload["source_entry_id"])
+    entry_type = (
+        await EntryType.get(source.type_id) if source and source.type_id else None
+    )
+    track = await Track.get(source.track_id) if source and source.track_id else None
+    if source and entry_type and track:
+        _, runtime_tier, _ = await resolve_track_runtime_profile(track)
+        spec = resolve_entry_type_spec(entry_type, runtime_tier)
+        field: Dict[str, Any] = next(
+            (f for f in spec.get("fields", []) if f.get("key") == payload["field_key"]),
+            {},
+        )
+        if field.get("type") == "relation" and (field.get("relation") or {}).get(
+            "many"
+        ):
+            existing = (source.custom_fields or {}).get(payload["field_key"]) or []
+            if not isinstance(existing, list):
+                from app.api.errors import BadRequestError
+
+                raise BadRequestError(
+                    message="Existing many-relation value must be a list"
+                )
+            target = list(existing)
+            if payload["target_id"] not in target:
+                target.append(payload["target_id"])
     return await _call_endpoint(
         handler,
         user_id,
         entry_id=payload["source_entry_id"],
-        custom_fields={payload["field_key"]: payload["target_id"]},
+        custom_fields={payload["field_key"]: target},
     )
 
 

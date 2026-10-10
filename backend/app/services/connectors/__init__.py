@@ -1,7 +1,7 @@
 """CON-02 — sync-connector authoring contract (core).
 
 Mirrors Phase 1 ``app/agentive/connectors/`` chat-connector idiom but lives in
-core per locked decision #12 (reachable by non-jvagent MCP clients regardless
+core per locked decision #12 (reachable by non-agent runtime MCP clients regardless
 of AGENTIVE_ENABLED).
 
 Public surface:

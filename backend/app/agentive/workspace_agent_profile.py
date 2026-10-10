@@ -1,8 +1,8 @@
-"""Per-workspace Agent Configuration Profile — workspace overlay for jvagent.
+"""Per-workspace Agent Configuration Profile — workspace overlay for Integral AI.
 
 Composes declarative skills from installed Apps in a workspace into
-jvagent-ready SOP documents (App-private skills follow App focus). The global base tier (integral_* filesystem
-skills + full tool manifest) is loaded by jvagent independently; this module
+declarative SOP documents (App-private skills follow App focus). The global base tier (integral_* filesystem
+skills + full tool manifest) is projected by the native skill source; this module
 only materializes the **workspace overlay**.
 """
 
@@ -50,7 +50,7 @@ class WorkspaceAppRef:
 
 @dataclass(frozen=True)
 class OverlaySkillDoc:
-    """jvagent-compatible SOP overlay (converted to SkillDoc at the provider)."""
+    """Declarative SOP overlay projected into native capabilities."""
 
     name: str
     description: str
@@ -242,6 +242,13 @@ def _resolve_prompt_body(
 
     resolved_tools = list(tools_required)
     if bundle_meta is not None:
+        # The same standard metadata used by Core skills must survive App
+        # overlay materialization, or load_capability reveals instructions
+        # without disclosing their declared tools. Body overrides cannot
+        # add tools; broker authority still governs every call.
+        disk_tools = bundle_meta.get("allowed_tools") or []
+        if disk_tools:
+            resolved_tools = list(disk_tools)
         return domain_body, resolved_tools
 
     return domain_body, resolved_tools

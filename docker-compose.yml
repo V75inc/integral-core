@@ -50,8 +50,8 @@ services:
       JVSPATIAL_HOST: 0.0.0.0
       JVSPATIAL_PORT: "4000"
       JVSPATIAL_DEBUG: "false"
-      INTEGRAL_NATIVE_HARNESS_ENABLED: "true"
       INTEGRAL_NATIVE_MODEL: ${INTEGRAL_NATIVE_MODEL:-ollama/deepseek-v4.1-flash:cloud}
+      INTEGRAL_NATIVE_CREDENTIAL_REF: ${INTEGRAL_NATIVE_CREDENTIAL_REF:-}
       # Inside the compose network the service name "db" resolves; the
       # service listens on its own :5432 here (container port, not the
       # :5433 host mapping).
@@ -68,6 +68,7 @@ services:
       # OAuth credentials are encrypted at rest. Generate once with
       # scripts/bootstrap_env.sh and retain this key with the deployment.
       JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY: ${JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY:?run scripts/bootstrap_env.sh to generate the OAuth encryption key}
+      INTEGRAL_CREDENTIAL_ENC_KEY: ${INTEGRAL_CREDENTIAL_ENC_KEY:?run scripts/bootstrap_env.sh to generate the storage encryption key}
       JVSPATIAL_CORS_ORIGINS: http://localhost:9006,http://127.0.0.1:9006,http://localhost:4000,http://127.0.0.1:4000
       APP_BASE_URL: http://localhost:9006
       EMAIL_PROVIDER: console

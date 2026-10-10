@@ -5,6 +5,7 @@ import {
   listWorkspaceOperationalModels,
   workspacesApi,
   workspaceAccessLabel,
+  workspaceMembershipRoleLabel,
 } from '../workspaces';
 import * as client from '../client';
 
@@ -83,5 +84,12 @@ describe('workspace ownership labels', () => {
     const personal = { kind: 'personal' as const, your_role: 'owner' as const };
     expect(isOwnedPersonalWorkspace(personal)).toBe(true);
     expect(workspaceAccessLabel(personal)).toBe('Personal');
+  });
+
+  it('exposes explicit membership roles for org workspace chrome', () => {
+    expect(workspaceMembershipRoleLabel({ your_role: 'guest' })).toBe('Guest');
+    expect(workspaceMembershipRoleLabel({ your_role: 'admin' })).toBe('Admin');
+    expect(workspaceMembershipRoleLabel({ your_role: 'owner' })).toBe('Owner');
+    expect(workspaceMembershipRoleLabel({ your_role: 'member' })).toBe('Member');
   });
 });

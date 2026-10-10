@@ -1,0 +1,4223 @@
+[
+  {
+    "path": "/agentive/skills",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/agent_skills.py",
+    "handler": "list_skills",
+    "line": 82
+  },
+  {
+    "path": "/agentive/skills",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/agent_skills.py",
+    "handler": "create_skill",
+    "line": 239
+  },
+  {
+    "path": "/agentive/skills/effective",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/agent_skills.py",
+    "handler": "effective_skill_context",
+    "line": 103
+  },
+  {
+    "path": "/agentive/skills/tool-catalogue",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/agent_skills.py",
+    "handler": "tool_catalogue",
+    "line": 95
+  },
+  {
+    "path": "/agentive/skills/{skill_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/agentive/api/agent_skills.py",
+    "handler": "delete_skill",
+    "line": 356
+  },
+  {
+    "path": "/agentive/skills/{skill_id}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/agent_skills.py",
+    "handler": "get_skill",
+    "line": 228
+  },
+  {
+    "path": "/agentive/skills/{skill_id}",
+    "methods": [
+      "PATCH"
+    ],
+    "source": "backend/app/agentive/api/agent_skills.py",
+    "handler": "patch_skill",
+    "line": 274
+  },
+  {
+    "path": "/agentive/skills/{skill_id}/reset",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/agent_skills.py",
+    "handler": "reset_skill",
+    "line": 322
+  },
+  {
+    "path": "/agentive/tools",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/agent_tools.py",
+    "handler": "list_tools",
+    "line": 25
+  },
+  {
+    "path": "/agentive/tools/{tool_name}",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/agent_tools.py",
+    "handler": "execute_tool_endpoint",
+    "line": 32
+  },
+  {
+    "path": "/agentive/channels/identities",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/channels.py",
+    "handler": "list_channel_identities",
+    "line": 60
+  },
+  {
+    "path": "/agentive/channels/identities",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/channels.py",
+    "handler": "create_channel_identity",
+    "line": 80
+  },
+  {
+    "path": "/agentive/channels/identities/resolve",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/channels.py",
+    "handler": "resolve_identity",
+    "line": 243
+  },
+  {
+    "path": "/agentive/channels/identities/{identity_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/agentive/api/channels.py",
+    "handler": "delete_channel_identity",
+    "line": 159
+  },
+  {
+    "path": "/agentive/channels/identities/{identity_id}/verify",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/channels.py",
+    "handler": "verify_channel_identity",
+    "line": 193
+  },
+  {
+    "path": "/agentive/channels/identities/{identity_id}/verify-link-token",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/channels.py",
+    "handler": "verify_link_token",
+    "line": 395
+  },
+  {
+    "path": "/agentive/channels/whatsapp/verify-initiate",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/channels.py",
+    "handler": "whatsapp_verify_initiate",
+    "line": 282
+  },
+  {
+    "path": "/agentive/channels/whatsapp/verify-otp",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/channels.py",
+    "handler": "whatsapp_verify_otp",
+    "line": 308
+  },
+  {
+    "path": "/agentive/chat/message",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/chat.py",
+    "handler": "post_agentive_chat_message",
+    "line": 50
+  },
+  {
+    "path": "/agentive/connectors",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/connectors.py",
+    "handler": "list_connectors",
+    "line": 560
+  },
+  {
+    "path": "/agentive/connectors",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/connectors.py",
+    "handler": "post_create_connector",
+    "line": 187
+  },
+  {
+    "path": "/agentive/connectors/catalog",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/connectors.py",
+    "handler": "list_connector_catalog_endpoint",
+    "line": 237
+  },
+  {
+    "path": "/agentive/connectors/catalog/{slug}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/connectors.py",
+    "handler": "get_connector_catalog_entry_endpoint",
+    "line": 263
+  },
+  {
+    "path": "/agentive/connectors/catalog/{slug}/install",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/connectors.py",
+    "handler": "install_connector_from_catalog_endpoint",
+    "line": 289
+  },
+  {
+    "path": "/agentive/connectors/gmail/oauth/callback",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/connectors.py",
+    "handler": "post_gmail_oauth_callback",
+    "line": 2920
+  },
+  {
+    "path": "/agentive/connectors/gmail/oauth/start",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/connectors.py",
+    "handler": "post_gmail_oauth_start",
+    "line": 2884
+  },
+  {
+    "path": "/agentive/connectors/mcp/mount",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/connectors.py",
+    "handler": "mount_mcp_connector_endpoint",
+    "line": 842
+  },
+  {
+    "path": "/agentive/connectors/mcp/registry/mount",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/connectors.py",
+    "handler": "mount_mcp_from_registry_endpoint",
+    "line": 2244
+  },
+  {
+    "path": "/agentive/connectors/mcp/registry/preview",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/connectors.py",
+    "handler": "preview_mcp_registry_mount_endpoint",
+    "line": 2214
+  },
+  {
+    "path": "/agentive/connectors/mcp/registry/search",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/connectors.py",
+    "handler": "search_mcp_registry_endpoint",
+    "line": 2152
+  },
+  {
+    "path": "/agentive/connectors/mcp/registry/servers",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/connectors.py",
+    "handler": "get_mcp_registry_server_endpoint",
+    "line": 2190
+  },
+  {
+    "path": "/agentive/connectors/quickbooks/authorize",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/connectors.py",
+    "handler": "post_quickbooks_authorize",
+    "line": 2649
+  },
+  {
+    "path": "/agentive/connectors/quickbooks/callback",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/connectors.py",
+    "handler": "post_quickbooks_callback",
+    "line": 2698
+  },
+  {
+    "path": "/agentive/connectors/{connector_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/agentive/api/connectors.py",
+    "handler": "delete_connector_by_id",
+    "line": 748
+  },
+  {
+    "path": "/agentive/connectors/{connector_id}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/connectors.py",
+    "handler": "get_connector_by_id",
+    "line": 458
+  },
+  {
+    "path": "/agentive/connectors/{connector_id}",
+    "methods": [
+      "PATCH"
+    ],
+    "source": "backend/app/agentive/api/connectors.py",
+    "handler": "patch_connector",
+    "line": 639
+  },
+  {
+    "path": "/agentive/connectors/{connector_id}/bindings",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/connectors.py",
+    "handler": "list_bindings",
+    "line": 2499
+  },
+  {
+    "path": "/agentive/connectors/{connector_id}/bindings",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/connectors.py",
+    "handler": "post_create_binding",
+    "line": 2356
+  },
+  {
+    "path": "/agentive/connectors/{connector_id}/bindings/{track_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/agentive/api/connectors.py",
+    "handler": "delete_binding",
+    "line": 2561
+  },
+  {
+    "path": "/agentive/connectors/{connector_id}/gmail/labels",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/connectors.py",
+    "handler": "get_gmail_labels",
+    "line": 3020
+  },
+  {
+    "path": "/agentive/connectors/{connector_id}/gmail/labels",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/connectors.py",
+    "handler": "post_gmail_set_labels",
+    "line": 3073
+  },
+  {
+    "path": "/agentive/connectors/{connector_id}/health",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/connectors.py",
+    "handler": "get_mcp_connector_health",
+    "line": 1251
+  },
+  {
+    "path": "/agentive/connectors/{connector_id}/mcp/reauthorize",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/connectors.py",
+    "handler": "reauthorize_mcp_connector_endpoint",
+    "line": 1087
+  },
+  {
+    "path": "/agentive/connectors/{connector_id}/mcp/refresh",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/connectors.py",
+    "handler": "refresh_mcp_connector_endpoint",
+    "line": 1017
+  },
+  {
+    "path": "/agentive/connectors/{connector_id}/tools",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/connectors.py",
+    "handler": "list_connector_tools",
+    "line": 1313
+  },
+  {
+    "path": "/agentive/conversations/context",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/conversations.py",
+    "handler": "create_conversation_context",
+    "line": 35
+  },
+  {
+    "path": "/agentive/conversations/context/{context_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/agentive/api/conversations.py",
+    "handler": "delete_conversation_context",
+    "line": 144
+  },
+  {
+    "path": "/agentive/conversations/context/{context_id}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/conversations.py",
+    "handler": "get_conversation_context",
+    "line": 79
+  },
+  {
+    "path": "/agentive/conversations/context/{context_id}",
+    "methods": [
+      "PATCH"
+    ],
+    "source": "backend/app/agentive/api/conversations.py",
+    "handler": "patch_conversation_context",
+    "line": 102
+  },
+  {
+    "path": "/agentive/connectors/mcp/oauth/callback",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/mcp_connectors.py",
+    "handler": "post_mcp_oauth_callback",
+    "line": 40
+  },
+  {
+    "path": "/agentive/proactive/digest",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/proactive.py",
+    "handler": "get_user_digest",
+    "line": 86
+  },
+  {
+    "path": "/agentive/proactive/log-push",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/proactive.py",
+    "handler": "proactive_log_push",
+    "line": 284
+  },
+  {
+    "path": "/agentive/proactive/preferences",
+    "methods": [
+      "PATCH"
+    ],
+    "source": "backend/app/agentive/api/proactive.py",
+    "handler": "update_proactive_preferences",
+    "line": 210
+  },
+  {
+    "path": "/agentive/proactive/push",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/proactive.py",
+    "handler": "proactive_push_deprecated_redirect",
+    "line": 263
+  },
+  {
+    "path": "/agentive/proactive/reminders",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/proactive.py",
+    "handler": "get_user_reminders",
+    "line": 127
+  },
+  {
+    "path": "/agentive/proactive/users-needing-digest",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/proactive.py",
+    "handler": "get_users_needing_digest",
+    "line": 347
+  },
+  {
+    "path": "/agentive/prompt-queue",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/prompt_queue.py",
+    "handler": "get_prompt_queue_endpoint",
+    "line": 82
+  },
+  {
+    "path": "/agentive/prompt-queue/cancel-all",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/prompt_queue.py",
+    "handler": "cancel_all_endpoint",
+    "line": 186
+  },
+  {
+    "path": "/agentive/prompt-queue/mark-write",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/prompt_queue.py",
+    "handler": "mark_write_endpoint",
+    "line": 148
+  },
+  {
+    "path": "/agentive/prompt-queue/resolve-question",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/prompt_queue.py",
+    "handler": "resolve_question_endpoint",
+    "line": 104
+  },
+  {
+    "path": "/agentive/questions/answer",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/questions.py",
+    "handler": "answer_question_endpoint",
+    "line": 76
+  },
+  {
+    "path": "/agentive/questions/pending",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/questions.py",
+    "handler": "pending_question_endpoint",
+    "line": 144
+  },
+  {
+    "path": "/agentive/routines",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/routines.py",
+    "handler": "list_routines",
+    "line": 44
+  },
+  {
+    "path": "/agentive/routines/{routine_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/agentive/api/routines.py",
+    "handler": "delete_routine",
+    "line": 165
+  },
+  {
+    "path": "/agentive/routines/{routine_id}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/routines.py",
+    "handler": "get_routine",
+    "line": 69
+  },
+  {
+    "path": "/agentive/routines/{routine_id}",
+    "methods": [
+      "PATCH"
+    ],
+    "source": "backend/app/agentive/api/routines.py",
+    "handler": "patch_routine",
+    "line": 85
+  },
+  {
+    "path": "/agentive/routines/{routine_id}/activity",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/routines.py",
+    "handler": "get_routine_activity",
+    "line": 194
+  },
+  {
+    "path": "/agentive/routines/{routine_id}/cancel",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/routines.py",
+    "handler": "cancel_routine",
+    "line": 138
+  },
+  {
+    "path": "/agentive/speech/config",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/speech.py",
+    "handler": "get_speech_config",
+    "line": 65
+  },
+  {
+    "path": "/agentive/speech/session",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/speech.py",
+    "handler": "create_speech_session",
+    "line": 73
+  },
+  {
+    "path": "/agentive/staging/bless-token",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/staging.py",
+    "handler": "bless_token_endpoint",
+    "line": 82
+  },
+  {
+    "path": "/agentive/staging/pending",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/staging.py",
+    "handler": "pending_endpoint",
+    "line": 240
+  },
+  {
+    "path": "/agentive/staging/render-pending",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/staging.py",
+    "handler": "render_pending_endpoint",
+    "line": 356
+  },
+  {
+    "path": "/agentive/staging/render/{token}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/staging.py",
+    "handler": "render_token_endpoint",
+    "line": 313
+  },
+  {
+    "path": "/agentive/staging/revoke-token",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/staging.py",
+    "handler": "revoke_token_endpoint",
+    "line": 129
+  },
+  {
+    "path": "/agentive/staging/rollback-status/{token}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/staging.py",
+    "handler": "rollback_status_endpoint",
+    "line": 161
+  },
+  {
+    "path": "/agentive/staging/rollback-token",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/staging.py",
+    "handler": "rollback_token_endpoint",
+    "line": 179
+  },
+  {
+    "path": "/agentive/staging/text-approve",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/staging.py",
+    "handler": "text_approve_endpoint",
+    "line": 397
+  },
+  {
+    "path": "/agentive/staging/token/{token}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/staging.py",
+    "handler": "token_state_endpoint",
+    "line": 261
+  },
+  {
+    "path": "/agentive/status",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/status.py",
+    "handler": "get_agentive_status",
+    "line": 20
+  },
+  {
+    "path": "/agentive/uplink/heartbeat",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/uplink.py",
+    "handler": "agent_heartbeat",
+    "line": 185
+  },
+  {
+    "path": "/agentive/uplink/heartbeat-system",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/uplink.py",
+    "handler": "agent_heartbeat_system",
+    "line": 351
+  },
+  {
+    "path": "/agentive/uplink/register",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/uplink.py",
+    "handler": "register_agent",
+    "line": 50
+  },
+  {
+    "path": "/agentive/uplink/register-system",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/uplink.py",
+    "handler": "register_system_agent",
+    "line": 244
+  },
+  {
+    "path": "/agentive/uplink/unregister",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/uplink.py",
+    "handler": "unregister_agent",
+    "line": 209
+  },
+  {
+    "path": "/apps/{app_id}/access",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/access.py",
+    "handler": "get_space_access",
+    "line": 196
+  },
+  {
+    "path": "/apps/{app_id}/exclusions",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/access.py",
+    "handler": "add_space_exclusion",
+    "line": 55
+  },
+  {
+    "path": "/apps/{app_id}/exclusions/{user_id_to_restore}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/access.py",
+    "handler": "remove_space_exclusion",
+    "line": 73
+  },
+  {
+    "path": "/entries/{entry_id}/access",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/access.py",
+    "handler": "get_entry_access",
+    "line": 220
+  },
+  {
+    "path": "/entries/{entry_id}/collaborators",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/access.py",
+    "handler": "add_entry_collaborator",
+    "line": 95
+  },
+  {
+    "path": "/entries/{entry_id}/collaborators/{collaborator_user_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/access.py",
+    "handler": "remove_entry_collaborator",
+    "line": 115
+  },
+  {
+    "path": "/entries/{entry_id}/collaborators/{collaborator_user_id}",
+    "methods": [
+      "PATCH"
+    ],
+    "source": "backend/app/api/access.py",
+    "handler": "update_entry_collaborator_role",
+    "line": 132
+  },
+  {
+    "path": "/entries/{entry_id}/exclusions",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/access.py",
+    "handler": "add_entry_exclusion",
+    "line": 156
+  },
+  {
+    "path": "/entries/{entry_id}/exclusions/{user_id_to_restore}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/access.py",
+    "handler": "remove_entry_exclusion",
+    "line": 174
+  },
+  {
+    "path": "/tracks/{track_id}/access",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/access.py",
+    "handler": "get_track_access",
+    "line": 208
+  },
+  {
+    "path": "/admin/packages",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/admin_packages.py",
+    "handler": "list_loaded_profiles",
+    "line": 151
+  },
+  {
+    "path": "/admin/packages/rescan",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/admin_packages.py",
+    "handler": "rescan_packages",
+    "line": 47
+  },
+  {
+    "path": "/admin/packages/{slug}/installed",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/admin_packages.py",
+    "handler": "list_workspaces_with_bundle",
+    "line": 196
+  },
+  {
+    "path": "/admin/overview",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/admin_users.py",
+    "handler": "admin_overview",
+    "line": 40
+  },
+  {
+    "path": "/admin/users",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/admin_users.py",
+    "handler": "admin_list_users",
+    "line": 48
+  },
+  {
+    "path": "/admin/users",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/admin_users.py",
+    "handler": "admin_create_user",
+    "line": 69
+  },
+  {
+    "path": "/admin/users/{user_id}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/admin_users.py",
+    "handler": "admin_get_user",
+    "line": 98
+  },
+  {
+    "path": "/admin/users/{user_id}",
+    "methods": [
+      "PATCH"
+    ],
+    "source": "backend/app/api/admin_users.py",
+    "handler": "admin_patch_user",
+    "line": 106
+  },
+  {
+    "path": "/admin/users/{user_id}/deactivate",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/admin_users.py",
+    "handler": "admin_deactivate_user",
+    "line": 145
+  },
+  {
+    "path": "/admin/users/{user_id}/delete",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/admin_users.py",
+    "handler": "admin_delete_user",
+    "line": 284
+  },
+  {
+    "path": "/admin/users/{user_id}/deletion-preview",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/admin_users.py",
+    "handler": "admin_user_deletion_preview",
+    "line": 267
+  },
+  {
+    "path": "/admin/users/{user_id}/demote-admin",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/admin_users.py",
+    "handler": "admin_demote_user",
+    "line": 238
+  },
+  {
+    "path": "/admin/users/{user_id}/promote-admin",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/admin_users.py",
+    "handler": "admin_promote_user",
+    "line": 209
+  },
+  {
+    "path": "/admin/users/{user_id}/reactivate",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/admin_users.py",
+    "handler": "admin_reactivate_user",
+    "line": 180
+  },
+  {
+    "path": "/admin/users/{user_id}/send-password-reset",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/admin_users.py",
+    "handler": "admin_send_password_reset",
+    "line": 328
+  },
+  {
+    "path": "/admin/apps",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/admin_workspaces.py",
+    "handler": "admin_list_apps",
+    "line": 165
+  },
+  {
+    "path": "/admin/apps/{app_id}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/admin_workspaces.py",
+    "handler": "admin_get_app",
+    "line": 184
+  },
+  {
+    "path": "/admin/tracks",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/admin_workspaces.py",
+    "handler": "admin_list_tracks",
+    "line": 200
+  },
+  {
+    "path": "/admin/tracks/{track_id}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/admin_workspaces.py",
+    "handler": "admin_get_track",
+    "line": 192
+  },
+  {
+    "path": "/admin/workspaces",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/admin_workspaces.py",
+    "handler": "admin_list_workspaces",
+    "line": 29
+  },
+  {
+    "path": "/admin/workspaces/{workspace_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/admin_workspaces.py",
+    "handler": "admin_delete_workspace",
+    "line": 108
+  },
+  {
+    "path": "/admin/workspaces/{workspace_id}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/admin_workspaces.py",
+    "handler": "admin_get_workspace",
+    "line": 50
+  },
+  {
+    "path": "/admin/workspaces/{workspace_id}",
+    "methods": [
+      "PATCH"
+    ],
+    "source": "backend/app/api/admin_workspaces.py",
+    "handler": "admin_patch_workspace",
+    "line": 63
+  },
+  {
+    "path": "/admin/workspaces/{workspace_id}/members",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/admin_workspaces.py",
+    "handler": "admin_list_workspace_members",
+    "line": 146
+  },
+  {
+    "path": "/workspaces/{workspace_id}/agent-preference",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/agent_preferences.py",
+    "handler": "get_agent_preference",
+    "line": 60
+  },
+  {
+    "path": "/workspaces/{workspace_id}/agent-preference",
+    "methods": [
+      "PUT"
+    ],
+    "source": "backend/app/api/agent_preferences.py",
+    "handler": "put_agent_preference",
+    "line": 89
+  },
+  {
+    "path": "/chat/providers",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/ai_chat.py",
+    "handler": "list_providers",
+    "line": 833
+  },
+  {
+    "path": "/chat/providers/{provider_id}/agents",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/ai_chat.py",
+    "handler": "list_provider_agents",
+    "line": 919
+  },
+  {
+    "path": "/chat/runs/{run_id}/qualification-export",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/ai_chat.py",
+    "handler": "export_qualification_run",
+    "line": 845
+  },
+  {
+    "path": "/chat/threads",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/ai_chat.py",
+    "handler": "list_threads",
+    "line": 944
+  },
+  {
+    "path": "/chat/threads",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/ai_chat.py",
+    "handler": "create_thread",
+    "line": 1048
+  },
+  {
+    "path": "/chat/threads/{thread_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/ai_chat.py",
+    "handler": "delete_thread",
+    "line": 1120
+  },
+  {
+    "path": "/chat/threads/{thread_id}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/ai_chat.py",
+    "handler": "get_thread",
+    "line": 1093
+  },
+  {
+    "path": "/chat/threads/{thread_id}",
+    "methods": [
+      "PATCH"
+    ],
+    "source": "backend/app/api/ai_chat.py",
+    "handler": "rename_thread",
+    "line": 1105
+  },
+  {
+    "path": "/chat/threads/{thread_id}/agent-turn",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/ai_chat.py",
+    "handler": "agent_turn",
+    "line": 2880
+  },
+  {
+    "path": "/chat/threads/{thread_id}/cancel",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/ai_chat.py",
+    "handler": "cancel_thread",
+    "line": 3085
+  },
+  {
+    "path": "/chat/threads/{thread_id}/harness-sessions/{session_id}/export",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/ai_chat.py",
+    "handler": "export_harness_session_for_thread",
+    "line": 877
+  },
+  {
+    "path": "/chat/threads/{thread_id}/messages",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/ai_chat.py",
+    "handler": "send_message",
+    "line": 1858
+  },
+  {
+    "path": "/chat/threads/{thread_id}/system-message",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/ai_chat.py",
+    "handler": "append_system_message",
+    "line": 3102
+  },
+  {
+    "path": "/chat/threads/{thread_id}/work-items/{work_item_id}/cancel",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/ai_chat.py",
+    "handler": "cancel_chat_turn",
+    "line": 766
+  },
+  {
+    "path": "/chat/threads/{thread_id}/work-items/{work_item_id}/events",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/ai_chat.py",
+    "handler": "replay_chat_turn_events",
+    "line": 679
+  },
+  {
+    "path": "/chat/threads/{thread_id}/work-items/{work_item_id}/stream",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/ai_chat.py",
+    "handler": "stream_chat_turn_events",
+    "line": 722
+  },
+  {
+    "path": "/extension-view-frame",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/app_extensions.py",
+    "handler": "extension_view_frame_route",
+    "line": 46
+  },
+  {
+    "path": "/extensions/{app_id}/operations",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/app_extensions.py",
+    "handler": "list_operations",
+    "line": 64
+  },
+  {
+    "path": "/extensions/{app_id}/operations/{operation_key}",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/app_extensions.py",
+    "handler": "invoke_operation",
+    "line": 100
+  },
+  {
+    "path": "/extensions/{app_id}/views",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/app_extensions.py",
+    "handler": "list_extension_views_route",
+    "line": 198
+  },
+  {
+    "path": "/extensions/{app_id}/views/{view_key}/handshake",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/app_extensions.py",
+    "handler": "extension_view_handshake_route",
+    "line": 222
+  },
+  {
+    "path": "/extensions/{app_id}/views/{view_key}/{asset_path:path}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/app_extensions.py",
+    "handler": "serve_extension_view_asset_route",
+    "line": 255
+  },
+  {
+    "path": "/approvals",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/approvals.py",
+    "handler": "list_approvals",
+    "line": 85
+  },
+  {
+    "path": "/approvals/{approval_id}/approve",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/approvals.py",
+    "handler": "approve_approval",
+    "line": 153
+  },
+  {
+    "path": "/approvals/{approval_id}/reject",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/approvals.py",
+    "handler": "reject_approval_endpoint",
+    "line": 232
+  },
+  {
+    "path": "/apps",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "list_apps",
+    "line": 91
+  },
+  {
+    "path": "/apps",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "create_app",
+    "line": 180
+  },
+  {
+    "path": "/apps/{app_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "delete_app",
+    "line": 542
+  },
+  {
+    "path": "/apps/{app_id}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "get_app",
+    "line": 263
+  },
+  {
+    "path": "/apps/{app_id}",
+    "methods": [
+      "PUT"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "update_app",
+    "line": 448
+  },
+  {
+    "path": "/apps/{app_id}/collaborators",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "list_app_collaborators",
+    "line": 901
+  },
+  {
+    "path": "/apps/{app_id}/collaborators",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "add_app_collaborator",
+    "line": 964
+  },
+  {
+    "path": "/apps/{app_id}/collaborators/{collaborator_user_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "remove_app_collaborator",
+    "line": 994
+  },
+  {
+    "path": "/apps/{app_id}/collaborators/{collaborator_user_id}",
+    "methods": [
+      "PATCH"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "update_app_collaborator_role",
+    "line": 1019
+  },
+  {
+    "path": "/apps/{app_id}/definition",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "get_app_definition",
+    "line": 305
+  },
+  {
+    "path": "/apps/{app_id}/definition/preview",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "preview_app_definition",
+    "line": 394
+  },
+  {
+    "path": "/apps/{app_id}/definition/verify",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "verify_app_definition",
+    "line": 338
+  },
+  {
+    "path": "/apps/{app_id}/export",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "export_app",
+    "line": 430
+  },
+  {
+    "path": "/apps/{app_id}/install/settings",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "finalize_install_endpoint",
+    "line": 1983
+  },
+  {
+    "path": "/apps/{app_id}/operational-model",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "get_app_operational_model",
+    "line": 1255
+  },
+  {
+    "path": "/apps/{app_id}/operational-model",
+    "methods": [
+      "PATCH"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "patch_app_operational_model",
+    "line": 1283
+  },
+  {
+    "path": "/apps/{app_id}/operational-model/apply",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "apply_app_operational_model_library",
+    "line": 1480
+  },
+  {
+    "path": "/apps/{app_id}/operational-model/merge-library",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "merge_library_into_app_operational_model",
+    "line": 1351
+  },
+  {
+    "path": "/apps/{app_id}/operational-model/preview",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "preview_app_operational_model_merge",
+    "line": 1445
+  },
+  {
+    "path": "/apps/{app_id}/operational-model/track-templates",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "list_app_track_templates",
+    "line": 1570
+  },
+  {
+    "path": "/apps/{app_id}/operational-model/track-templates",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "create_app_track_template",
+    "line": 1599
+  },
+  {
+    "path": "/apps/{app_id}/operational-model/track-templates/{template_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "delete_app_track_template",
+    "line": 1653
+  },
+  {
+    "path": "/apps/{app_id}/operational-model/track-templates/{template_id}/apply-to-track",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "apply_track_template_to_track",
+    "line": 1700
+  },
+  {
+    "path": "/apps/{app_id}/operational-model/track-templates/{template_id}/entry-types",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "create_track_template_entry_type",
+    "line": 1757
+  },
+  {
+    "path": "/apps/{app_id}/operational-model/track-templates/{template_id}/tags",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "create_track_template_tag",
+    "line": 1810
+  },
+  {
+    "path": "/apps/{app_id}/operational-model/track-templates/{template_id}/views",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "create_track_template_view",
+    "line": 1860
+  },
+  {
+    "path": "/apps/{app_id}/pause",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "pause_app_endpoint",
+    "line": 2125
+  },
+  {
+    "path": "/apps/{app_id}/resume",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "resume_app_endpoint",
+    "line": 2153
+  },
+  {
+    "path": "/apps/{app_id}/settings",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "get_app_settings",
+    "line": 2021
+  },
+  {
+    "path": "/apps/{app_id}/settings",
+    "methods": [
+      "PATCH"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "patch_app_settings",
+    "line": 2055
+  },
+  {
+    "path": "/apps/{app_id}/tracks",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "list_app_tracks",
+    "line": 609
+  },
+  {
+    "path": "/apps/{app_id}/tracks",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "add_track_to_app",
+    "line": 706
+  },
+  {
+    "path": "/apps/{app_id}/tracks/order",
+    "methods": [
+      "PATCH"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "reorder_app_tracks",
+    "line": 762
+  },
+  {
+    "path": "/apps/{app_id}/tracks/{track_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "remove_track_from_app",
+    "line": 845
+  },
+  {
+    "path": "/apps/{app_id}/transfer-ownership",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "post_transfer_app_ownership",
+    "line": 1051
+  },
+  {
+    "path": "/apps/{app_id}/uninstall",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "uninstall_app_endpoint",
+    "line": 2215
+  },
+  {
+    "path": "/apps/{app_id}/uninstall-preflight",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "uninstall_preflight_endpoint",
+    "line": 2181
+  },
+  {
+    "path": "/apps/{app_id}/update-from-library",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "update_from_library_endpoint",
+    "line": 2091
+  },
+  {
+    "path": "/workspaces/{workspace_id}/apps/install",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/apps.py",
+    "handler": "install_app_endpoint",
+    "line": 1943
+  },
+  {
+    "path": "/apps/batch-install",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/apps_batch_install.py",
+    "handler": "batch_install_apps",
+    "line": 38
+  },
+  {
+    "path": "/apps/{app_id}/dashboards",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/apps_dashboards.py",
+    "handler": "list_app_dashboards",
+    "line": 75
+  },
+  {
+    "path": "/apps/{app_id}/dashboards",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/apps_dashboards.py",
+    "handler": "create_app_dashboard",
+    "line": 87
+  },
+  {
+    "path": "/apps/{app_id}/dashboards/suggest",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/apps_dashboards.py",
+    "handler": "suggest_app_dashboard",
+    "line": 133
+  },
+  {
+    "path": "/apps/{app_id}/dashboards/{dashboard_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/apps_dashboards.py",
+    "handler": "delete_app_dashboard",
+    "line": 227
+  },
+  {
+    "path": "/apps/{app_id}/dashboards/{dashboard_id}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/apps_dashboards.py",
+    "handler": "get_app_dashboard",
+    "line": 150
+  },
+  {
+    "path": "/apps/{app_id}/dashboards/{dashboard_id}",
+    "methods": [
+      "PATCH"
+    ],
+    "source": "backend/app/api/apps_dashboards.py",
+    "handler": "patch_app_dashboard",
+    "line": 171
+  },
+  {
+    "path": "/apps/{app_id}/dashboards/{dashboard_id}/data",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/apps_dashboards.py",
+    "handler": "get_app_dashboard_data",
+    "line": 267
+  },
+  {
+    "path": "/apps/{app_id}/dashboards/{dashboard_id}/drill-through",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/apps_dashboards.py",
+    "handler": "get_dashboard_widget_result_set",
+    "line": 295
+  },
+  {
+    "path": "/apps/{app_id}/home",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/apps_dashboards.py",
+    "handler": "get_app_home",
+    "line": 45
+  },
+  {
+    "path": "/dashboard-widget-substrate",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/apps_dashboards.py",
+    "handler": "get_dashboard_widget_substrate",
+    "line": 452
+  },
+  {
+    "path": "/apps/{slug}/skills",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/apps_skills.py",
+    "handler": "list_app_skills",
+    "line": 41
+  },
+  {
+    "path": "/attachments/{attachment_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/attachments.py",
+    "handler": "delete_attachment",
+    "line": 1580
+  },
+  {
+    "path": "/attachments/{attachment_id}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/attachments.py",
+    "handler": "download_attachment",
+    "line": 790
+  },
+  {
+    "path": "/attachments/{attachment_id}/download",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/attachments.py",
+    "handler": "stream_attachment",
+    "line": 839
+  },
+  {
+    "path": "/attachments/{attachment_id}/preview",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/attachments.py",
+    "handler": "stream_attachment_preview",
+    "line": 1014
+  },
+  {
+    "path": "/attachments/{attachment_id}/reprocess",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/attachments.py",
+    "handler": "reprocess_attachment_metadata",
+    "line": 901
+  },
+  {
+    "path": "/attachments/{attachment_id}/thumb",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/attachments.py",
+    "handler": "stream_attachment_thumbnail",
+    "line": 955
+  },
+  {
+    "path": "/chat/threads/{thread_id}/attachments",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/attachments.py",
+    "handler": "upload_chat_attachment",
+    "line": 612
+  },
+  {
+    "path": "/entries/{entry_id}/attachments",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/attachments.py",
+    "handler": "list_entry_attachments",
+    "line": 728
+  },
+  {
+    "path": "/entries/{entry_id}/attachments",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/attachments.py",
+    "handler": "upload_attachment",
+    "line": 300
+  },
+  {
+    "path": "/entries/{entry_id}/attachments/batch",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/attachments.py",
+    "handler": "upload_attachments_batch",
+    "line": 346
+  },
+  {
+    "path": "/entries/{entry_id}/attachments/download-all",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/attachments.py",
+    "handler": "download_entry_attachments_zip",
+    "line": 1495
+  },
+  {
+    "path": "/entries/{entry_id}/attachments/url",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/attachments.py",
+    "handler": "create_url_attachment",
+    "line": 652
+  },
+  {
+    "path": "/entries/{entry_id}/uploads",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/attachments.py",
+    "handler": "start_chunked_upload",
+    "line": 1091
+  },
+  {
+    "path": "/uploads/{session_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/attachments.py",
+    "handler": "cancel_chunked_upload",
+    "line": 1284
+  },
+  {
+    "path": "/uploads/{session_id}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/attachments.py",
+    "handler": "get_chunked_upload_session",
+    "line": 1140
+  },
+  {
+    "path": "/uploads/{session_id}/chunks/{chunk_index}",
+    "methods": [
+      "PUT"
+    ],
+    "source": "backend/app/api/attachments.py",
+    "handler": "append_chunked_upload_part",
+    "line": 1171
+  },
+  {
+    "path": "/uploads/{session_id}/complete",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/attachments.py",
+    "handler": "complete_chunked_upload",
+    "line": 1210
+  },
+  {
+    "path": "/audit-log",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/audit_log.py",
+    "handler": "list_audit_log",
+    "line": 43
+  },
+  {
+    "path": "/auth/complete-assigned-form",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/auth.py",
+    "handler": "complete_assigned_form",
+    "line": 675
+  },
+  {
+    "path": "/auth/complete-onboarding-form",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/auth.py",
+    "handler": "complete_onboarding_form",
+    "line": 689
+  },
+  {
+    "path": "/auth/forgot-password",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/auth.py",
+    "handler": "forgot_password",
+    "line": 703
+  },
+  {
+    "path": "/auth/me",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/auth.py",
+    "handler": "get_current_user",
+    "line": 232
+  },
+  {
+    "path": "/auth/resend-verification",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/auth.py",
+    "handler": "resend_verification",
+    "line": 541
+  },
+  {
+    "path": "/auth/reset-password",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/auth.py",
+    "handler": "reset_password",
+    "line": 747
+  },
+  {
+    "path": "/auth/signup",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/auth.py",
+    "handler": "register_user",
+    "line": 333
+  },
+  {
+    "path": "/auth/update-password",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/auth.py",
+    "handler": "update_password",
+    "line": 576
+  },
+  {
+    "path": "/auth/update-profile",
+    "methods": [
+      "PUT"
+    ],
+    "source": "backend/app/api/auth.py",
+    "handler": "update_profile",
+    "line": 285
+  },
+  {
+    "path": "/auth/verify-email",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/auth.py",
+    "handler": "verify_email",
+    "line": 497
+  },
+  {
+    "path": "/auth/ws-ticket",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/auth.py",
+    "handler": "mint_websocket_ticket",
+    "line": 266
+  },
+  {
+    "path": "/capabilities",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/capabilities.py",
+    "handler": "list_capabilities",
+    "line": 26
+  },
+  {
+    "path": "/extensions/{app_id}/queries",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/capabilities.py",
+    "handler": "list_extension_queries",
+    "line": 95
+  },
+  {
+    "path": "/extensions/{app_id}/queries/{query_key}",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/capabilities.py",
+    "handler": "invoke_extension_query",
+    "line": 118
+  },
+  {
+    "path": "/query",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/capabilities.py",
+    "handler": "post_query",
+    "line": 67
+  },
+  {
+    "path": "/comments/{comment_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/comments.py",
+    "handler": "delete_comment",
+    "line": 317
+  },
+  {
+    "path": "/comments/{comment_id}",
+    "methods": [
+      "PUT"
+    ],
+    "source": "backend/app/api/comments.py",
+    "handler": "update_comment",
+    "line": 241
+  },
+  {
+    "path": "/entries/{entry_id}/comments",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/comments.py",
+    "handler": "get_entry_comments",
+    "line": 30
+  },
+  {
+    "path": "/entries/{entry_id}/comments",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/comments.py",
+    "handler": "create_comment",
+    "line": 94
+  },
+  {
+    "path": "/conflicts",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/conflicts.py",
+    "handler": "list_all",
+    "line": 76
+  },
+  {
+    "path": "/conflicts/{conflict_id}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/conflicts.py",
+    "handler": "get_one",
+    "line": 97
+  },
+  {
+    "path": "/conflicts/{conflict_id}/resolve",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/conflicts.py",
+    "handler": "resolve",
+    "line": 117
+  },
+  {
+    "path": "/connectors/{connector_id}/sync",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/connectors.py",
+    "handler": "sync_connector",
+    "line": 40
+  },
+  {
+    "path": "/entitlements",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/entitlements.py",
+    "handler": "get_list_entitlements",
+    "line": 59
+  },
+  {
+    "path": "/entitlements/grant",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/entitlements.py",
+    "handler": "post_grant_entitlement",
+    "line": 78
+  },
+  {
+    "path": "/entitlements/revoke",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/entitlements.py",
+    "handler": "post_revoke_entitlement",
+    "line": 112
+  },
+  {
+    "path": "/entries",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/entries.py",
+    "handler": "list_entries",
+    "line": 343
+  },
+  {
+    "path": "/entries",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/entries.py",
+    "handler": "create_entry",
+    "line": 388
+  },
+  {
+    "path": "/entries/{entry_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/entries.py",
+    "handler": "delete_entry",
+    "line": 722
+  },
+  {
+    "path": "/entries/{entry_id}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/entries.py",
+    "handler": "get_entry",
+    "line": 498
+  },
+  {
+    "path": "/entries/{entry_id}",
+    "methods": [
+      "PUT"
+    ],
+    "source": "backend/app/api/entries.py",
+    "handler": "update_entry",
+    "line": 544
+  },
+  {
+    "path": "/entries/{entry_id}/reactions",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/entries.py",
+    "handler": "add_reaction",
+    "line": 921
+  },
+  {
+    "path": "/entries/{entry_id}/reactions/{emoji}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/entries.py",
+    "handler": "remove_reaction",
+    "line": 984
+  },
+  {
+    "path": "/entries/{entry_id}/tags",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/entries.py",
+    "handler": "add_tag_to_entry",
+    "line": 782
+  },
+  {
+    "path": "/entries/{entry_id}/tags/{tag_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/entries.py",
+    "handler": "remove_tag_from_entry",
+    "line": 855
+  },
+  {
+    "path": "/entries/{entry_id}/unwatch",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/entries.py",
+    "handler": "unwatch_entry",
+    "line": 1120
+  },
+  {
+    "path": "/entries/{entry_id}/watch",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/entries.py",
+    "handler": "watch_entry",
+    "line": 1090
+  },
+  {
+    "path": "/entries/{entry_id}/watchers",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/entries.py",
+    "handler": "get_entry_watchers",
+    "line": 1042
+  },
+  {
+    "path": "/entries/{entry_id}/precompute",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/entries_precompute.py",
+    "handler": "precompute_entry",
+    "line": 39
+  },
+  {
+    "path": "/entries/{entry_id}/public-share",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/entries_public_share.py",
+    "handler": "mint_public_share",
+    "line": 73
+  },
+  {
+    "path": "/portfolio/shared/{token}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/entries_public_share.py",
+    "handler": "get_public_share_legacy_alias",
+    "line": 162
+  },
+  {
+    "path": "/public-share/{token}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/entries_public_share.py",
+    "handler": "get_public_share",
+    "line": 156
+  },
+  {
+    "path": "/entries/{entry_id}/transform",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/entries_transform.py",
+    "handler": "transform_entry",
+    "line": 49
+  },
+  {
+    "path": "/entry-lookup",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/entry_lookup.py",
+    "handler": "relation_target_lookup",
+    "line": 40
+  },
+  {
+    "path": "/entries/{entry_id}/related",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/entry_relations.py",
+    "handler": "list_entry_relations",
+    "line": 110
+  },
+  {
+    "path": "/entries/{entry_id}/related/link",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/entry_relations.py",
+    "handler": "link_entry_relation",
+    "line": 398
+  },
+  {
+    "path": "/entries/{entry_id}/related/{source_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/entry_relations.py",
+    "handler": "unlink_entry_relation",
+    "line": 464
+  },
+  {
+    "path": "/entry-types",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/entry_types.py",
+    "handler": "list_entry_types",
+    "line": 36
+  },
+  {
+    "path": "/entry-types",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/entry_types.py",
+    "handler": "create_entry_type",
+    "line": 111
+  },
+  {
+    "path": "/entry-types/{entry_type_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/entry_types.py",
+    "handler": "delete_entry_type",
+    "line": 261
+  },
+  {
+    "path": "/entry-types/{entry_type_id}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/entry_types.py",
+    "handler": "get_entry_type",
+    "line": 146
+  },
+  {
+    "path": "/entry-types/{entry_type_id}",
+    "methods": [
+      "PUT"
+    ],
+    "source": "backend/app/api/entry_types.py",
+    "handler": "update_entry_type",
+    "line": 174
+  },
+  {
+    "path": "/events",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/events_polling.py",
+    "handler": "list_events_polling",
+    "line": 61
+  },
+  {
+    "path": "/feed",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/feed.py",
+    "handler": "get_feed",
+    "line": 25
+  },
+  {
+    "path": "/feed_entries",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/feed.py",
+    "handler": "get_feed_entries",
+    "line": 103
+  },
+  {
+    "path": "/feed_entries",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/feed.py",
+    "handler": "create_feed_entry",
+    "line": 125
+  },
+  {
+    "path": "/feed_entries/{entry_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/feed.py",
+    "handler": "delete_feed_entry",
+    "line": 165
+  },
+  {
+    "path": "/feed_entries/{entry_id}",
+    "methods": [
+      "PUT"
+    ],
+    "source": "backend/app/api/feed.py",
+    "handler": "update_feed_entry",
+    "line": 147
+  },
+  {
+    "path": "/apps/{app_id}/invitations",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/invitations.py",
+    "handler": "post_create_space_invitation",
+    "line": 574
+  },
+  {
+    "path": "/entries/{entry_id}/invitations",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/invitations.py",
+    "handler": "post_create_entry_invitation",
+    "line": 610
+  },
+  {
+    "path": "/invitations/{invitation_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/invitations.py",
+    "handler": "delete_resource_invitation",
+    "line": 325
+  },
+  {
+    "path": "/invitations/{token}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/invitations.py",
+    "handler": "get_invitation_preview",
+    "line": 389
+  },
+  {
+    "path": "/invitations/{token}/accept",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/invitations.py",
+    "handler": "post_accept_invitation",
+    "line": 419
+  },
+  {
+    "path": "/invitations/{token}/decline",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/invitations.py",
+    "handler": "post_decline_invitation",
+    "line": 456
+  },
+  {
+    "path": "/tracks/{track_id}/invitations",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/invitations.py",
+    "handler": "post_create_track_invitation",
+    "line": 591
+  },
+  {
+    "path": "/workspaces/{workspace_id}/invitations",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/invitations.py",
+    "handler": "list_invitations",
+    "line": 250
+  },
+  {
+    "path": "/workspaces/{workspace_id}/invitations",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/invitations.py",
+    "handler": "post_create_invitation",
+    "line": 172
+  },
+  {
+    "path": "/workspaces/{workspace_id}/invitations/{invitation_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/invitations.py",
+    "handler": "delete_invitation",
+    "line": 285
+  },
+  {
+    "path": "/link-preview",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/link_preview.py",
+    "handler": "get_link_preview",
+    "line": 180
+  },
+  {
+    "path": "/me/assigned-form",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/me_assigned_form.py",
+    "handler": "get_me_assigned_form",
+    "line": 20
+  },
+  {
+    "path": "/me/assigned-form",
+    "methods": [
+      "PATCH"
+    ],
+    "source": "backend/app/api/me_assigned_form.py",
+    "handler": "patch_me_assigned_form",
+    "line": 25
+  },
+  {
+    "path": "/me/assigned-form/attachments",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/me_assigned_form.py",
+    "handler": "upload_me_assigned_form_attachment",
+    "line": 59
+  },
+  {
+    "path": "/me/assigned-form/contract",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/me_assigned_form.py",
+    "handler": "download_me_assigned_form_contract",
+    "line": 79
+  },
+  {
+    "path": "/me/assigned-form/contract/decision",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/me_assigned_form.py",
+    "handler": "decide_me_assigned_form_contract",
+    "line": 89
+  },
+  {
+    "path": "/me/assigned-form/contract/generate",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/me_assigned_form.py",
+    "handler": "generate_me_assigned_form_contract",
+    "line": 69
+  },
+  {
+    "path": "/me/assigned-form/policies",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/me_assigned_form.py",
+    "handler": "list_me_assigned_form_policies",
+    "line": 35
+  },
+  {
+    "path": "/me/assigned-form/policies/{policy_entry_id}/document",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/me_assigned_form.py",
+    "handler": "download_me_assigned_form_policy_document",
+    "line": 45
+  },
+  {
+    "path": "/me/onboarding-form",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/me_onboarding_form.py",
+    "handler": "get_me_onboarding_form",
+    "line": 120
+  },
+  {
+    "path": "/me/onboarding-form",
+    "methods": [
+      "PATCH"
+    ],
+    "source": "backend/app/api/me_onboarding_form.py",
+    "handler": "patch_me_onboarding_form",
+    "line": 158
+  },
+  {
+    "path": "/me/onboarding-form/attachments",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/me_onboarding_form.py",
+    "handler": "upload_me_onboarding_attachment",
+    "line": 432
+  },
+  {
+    "path": "/me/onboarding-form/contract",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/me_onboarding_form.py",
+    "handler": "download_me_onboarding_contract",
+    "line": 529
+  },
+  {
+    "path": "/me/onboarding-form/contract/decision",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/me_onboarding_form.py",
+    "handler": "decide_me_onboarding_contract",
+    "line": 555
+  },
+  {
+    "path": "/me/onboarding-form/contract/generate",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/me_onboarding_form.py",
+    "handler": "generate_me_onboarding_contract",
+    "line": 502
+  },
+  {
+    "path": "/me/onboarding-form/onboarding-policies",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/me_onboarding_form.py",
+    "handler": "list_me_onboarding_policies",
+    "line": 316
+  },
+  {
+    "path": "/me/onboarding-form/onboarding-policies/{policy_entry_id}/document",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/me_onboarding_form.py",
+    "handler": "download_me_onboarding_policy_document",
+    "line": 387
+  },
+  {
+    "path": "/health/ready",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/meta.py",
+    "handler": "readiness",
+    "line": 19
+  },
+  {
+    "path": "/meta/build",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/meta.py",
+    "handler": "build_meta",
+    "line": 73
+  },
+  {
+    "path": "/meta/colors",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/meta.py",
+    "handler": "get_color_palettes",
+    "line": 236
+  },
+  {
+    "path": "/meta/entry-type-icons",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/meta.py",
+    "handler": "get_entry_type_icons",
+    "line": 162
+  },
+  {
+    "path": "/meta/templates",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/meta.py",
+    "handler": "get_templates",
+    "line": 86
+  },
+  {
+    "path": "/me/mission-control",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/mission_control.py",
+    "handler": "get_mission_control_snapshot",
+    "line": 27
+  },
+  {
+    "path": "/users/me/model-credentials",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/model_credentials.py",
+    "handler": "delete_my_model_credential",
+    "line": 135
+  },
+  {
+    "path": "/users/me/model-credentials",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/model_credentials.py",
+    "handler": "get_my_model_credential",
+    "line": 64
+  },
+  {
+    "path": "/users/me/model-credentials",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/model_credentials.py",
+    "handler": "upsert_my_model_credential",
+    "line": 79
+  },
+  {
+    "path": "/users/me/model-credentials/validate",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/model_credentials.py",
+    "handler": "validate_my_model_credential",
+    "line": 163
+  },
+  {
+    "path": "/users/me/notification-preferences",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/notification_preferences.py",
+    "handler": "get_notification_preferences",
+    "line": 73
+  },
+  {
+    "path": "/users/me/notification-preferences",
+    "methods": [
+      "PATCH"
+    ],
+    "source": "backend/app/api/notification_preferences.py",
+    "handler": "patch_notification_preferences",
+    "line": 107
+  },
+  {
+    "path": "/notifications",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/notifications.py",
+    "handler": "get_notifications",
+    "line": 37
+  },
+  {
+    "path": "/notifications",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/notifications.py",
+    "handler": "create_notification",
+    "line": 329
+  },
+  {
+    "path": "/notifications/mark-all-read",
+    "methods": [
+      "PUT"
+    ],
+    "source": "backend/app/api/notifications.py",
+    "handler": "mark_all_notifications_as_read",
+    "line": 169
+  },
+  {
+    "path": "/notifications/{notification_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/notifications.py",
+    "handler": "delete_notification",
+    "line": 418
+  },
+  {
+    "path": "/notifications/{notification_id}/read",
+    "methods": [
+      "PUT"
+    ],
+    "source": "backend/app/api/notifications.py",
+    "handler": "mark_notification_as_read",
+    "line": 111
+  },
+  {
+    "path": "/notifications/{notification_id}/respond",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/notifications.py",
+    "handler": "respond_to_notification",
+    "line": 237
+  },
+  {
+    "path": "/oauth/consent",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/oauth_consent.py",
+    "handler": "get_consent",
+    "line": 106
+  },
+  {
+    "path": "/oauth/consent/approve",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/oauth_consent.py",
+    "handler": "approve_consent",
+    "line": 143
+  },
+  {
+    "path": "/apps/{app_id}/operational-model/detach-library",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/operational_models.py",
+    "handler": "detach_library_from_space_profile",
+    "line": 1378
+  },
+  {
+    "path": "/apps/{app_id}/operational-model/revert-customizations",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/operational_models.py",
+    "handler": "revert_space_profile_customizations",
+    "line": 1464
+  },
+  {
+    "path": "/operational-model-substrate",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/operational_models.py",
+    "handler": "get_operational_model_substrate",
+    "line": 2060
+  },
+  {
+    "path": "/operational-models",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/operational_models.py",
+    "handler": "list_library_operational_models",
+    "line": 144
+  },
+  {
+    "path": "/operational-models",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/operational_models.py",
+    "handler": "publish_operational_model",
+    "line": 248
+  },
+  {
+    "path": "/operational-models/author",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/operational_models.py",
+    "handler": "author_operational_model",
+    "line": 2257
+  },
+  {
+    "path": "/operational-models/from-app/{app_id}",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/operational_models.py",
+    "handler": "derive_library_profile_from_space",
+    "line": 1138
+  },
+  {
+    "path": "/operational-models/from-track/{track_id}",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/operational_models.py",
+    "handler": "derive_library_profile_from_track",
+    "line": 1038
+  },
+  {
+    "path": "/operational-models/import",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/operational_models.py",
+    "handler": "import_operational_model",
+    "line": 2572
+  },
+  {
+    "path": "/operational-models/validate",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/operational_models.py",
+    "handler": "validate_operational_model_manifest",
+    "line": 471
+  },
+  {
+    "path": "/operational-models/{operational_model_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/operational_models.py",
+    "handler": "deprecate_library_operational_model",
+    "line": 425
+  },
+  {
+    "path": "/operational-models/{operational_model_id}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/operational_models.py",
+    "handler": "get_library_operational_model",
+    "line": 198
+  },
+  {
+    "path": "/operational-models/{operational_model_id}",
+    "methods": [
+      "PUT"
+    ],
+    "source": "backend/app/api/operational_models.py",
+    "handler": "update_library_operational_model",
+    "line": 336
+  },
+  {
+    "path": "/operational-models/{operational_model_id}/diff",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/operational_models.py",
+    "handler": "diff_operational_model",
+    "line": 1875
+  },
+  {
+    "path": "/operational-models/{operational_model_id}/discard-draft",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/operational_models.py",
+    "handler": "discard_operational_model_draft",
+    "line": 2024
+  },
+  {
+    "path": "/operational-models/{operational_model_id}/draft",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/operational_models.py",
+    "handler": "fork_operational_model_draft",
+    "line": 1774
+  },
+  {
+    "path": "/operational-models/{operational_model_id}/migration-status",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/operational_models.py",
+    "handler": "get_operational_model_migration_status",
+    "line": 1661
+  },
+  {
+    "path": "/operational-models/{operational_model_id}/modify",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/operational_models.py",
+    "handler": "modify_operational_model",
+    "line": 2391
+  },
+  {
+    "path": "/operational-models/{operational_model_id}/preview-update",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/operational_models.py",
+    "handler": "preview_update_operational_model",
+    "line": 1996
+  },
+  {
+    "path": "/operational-models/{operational_model_id}/publish",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/operational_models.py",
+    "handler": "publish_operational_model_draft",
+    "line": 1802
+  },
+  {
+    "path": "/operational-models/{operational_model_id}/retry-migration",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/operational_models.py",
+    "handler": "retry_operational_model_migration",
+    "line": 1685
+  },
+  {
+    "path": "/tracks/{track_id}/operational-model/detach-library",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/operational_models.py",
+    "handler": "detach_library_from_track_profile",
+    "line": 819
+  },
+  {
+    "path": "/tracks/{track_id}/operational-model/entry-types",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/operational_models.py",
+    "handler": "add_entry_type_to_track_profile",
+    "line": 505
+  },
+  {
+    "path": "/tracks/{track_id}/operational-model/entry-types/{entry_type_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/operational_models.py",
+    "handler": "remove_entry_type_from_track_profile",
+    "line": 594
+  },
+  {
+    "path": "/tracks/{track_id}/operational-model/revert-customizations",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/operational_models.py",
+    "handler": "revert_track_profile_customizations",
+    "line": 900
+  },
+  {
+    "path": "/tracks/{track_id}/operational-model/views",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/operational_models.py",
+    "handler": "add_view_to_track_profile",
+    "line": 657
+  },
+  {
+    "path": "/tracks/{track_id}/operational-model/views/{view_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/operational_models.py",
+    "handler": "remove_view_from_track_profile",
+    "line": 756
+  },
+  {
+    "path": "/workspaces/{workspace_id}/operational-models",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/operational_models.py",
+    "handler": "list_workspace_operational_models",
+    "line": 221
+  },
+  {
+    "path": "/policies",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/policies.py",
+    "handler": "list_policies",
+    "line": 262
+  },
+  {
+    "path": "/policies",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/policies.py",
+    "handler": "post_create_policy",
+    "line": 180
+  },
+  {
+    "path": "/policies/explain",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/policies.py",
+    "handler": "explain_action",
+    "line": 521
+  },
+  {
+    "path": "/policies/{policy_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/policies.py",
+    "handler": "delete_policy_by_id",
+    "line": 457
+  },
+  {
+    "path": "/policies/{policy_id}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/policies.py",
+    "handler": "get_policy_by_id",
+    "line": 319
+  },
+  {
+    "path": "/policies/{policy_id}",
+    "methods": [
+      "PATCH"
+    ],
+    "source": "backend/app/api/policies.py",
+    "handler": "patch_policy",
+    "line": 368
+  },
+  {
+    "path": "/query-spec",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/query_spec.py",
+    "handler": "execute_query_spec_endpoint",
+    "line": 19
+  },
+  {
+    "path": "/retrieval/config",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/retrieval_config.py",
+    "handler": "get_retrieval_config",
+    "line": 97
+  },
+  {
+    "path": "/retrieve",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/retrieve.py",
+    "handler": "retrieve",
+    "line": 107
+  },
+  {
+    "path": "/me/invitations",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/shared_with_me.py",
+    "handler": "list_my_invitations",
+    "line": 262
+  },
+  {
+    "path": "/me/invitations/{invitation_id}/accept",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/shared_with_me.py",
+    "handler": "post_accept_my_invitation",
+    "line": 340
+  },
+  {
+    "path": "/me/invitations/{invitation_id}/decline",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/shared_with_me.py",
+    "handler": "post_decline_my_invitation",
+    "line": 384
+  },
+  {
+    "path": "/me/shared",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/shared_with_me.py",
+    "handler": "list_shared_with_me",
+    "line": 131
+  },
+  {
+    "path": "/me/sharing-overview",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/shared_with_me.py",
+    "handler": "get_sharing_overview",
+    "line": 466
+  },
+  {
+    "path": "/apps/{app_id}/shares",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/shares.py",
+    "handler": "list_space_links",
+    "line": 129
+  },
+  {
+    "path": "/apps/{app_id}/shares",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/shares.py",
+    "handler": "mint_space_link",
+    "line": 82
+  },
+  {
+    "path": "/entries/{entry_id}/shares",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/shares.py",
+    "handler": "list_entry_links",
+    "line": 153
+  },
+  {
+    "path": "/entries/{entry_id}/shares",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/shares.py",
+    "handler": "mint_entry_link",
+    "line": 110
+  },
+  {
+    "path": "/shares/redeem",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/shares.py",
+    "handler": "redeem_link",
+    "line": 187
+  },
+  {
+    "path": "/shares/{share_link_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/shares.py",
+    "handler": "revoke_link",
+    "line": 170
+  },
+  {
+    "path": "/tracks/{track_id}/shares",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/shares.py",
+    "handler": "list_track_links",
+    "line": 141
+  },
+  {
+    "path": "/tracks/{track_id}/shares",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/shares.py",
+    "handler": "mint_track_link",
+    "line": 96
+  },
+  {
+    "path": "/users/me/speech-preferences",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/speech_preferences.py",
+    "handler": "get_my_speech_preferences",
+    "line": 33
+  },
+  {
+    "path": "/users/me/speech-preferences",
+    "methods": [
+      "PATCH"
+    ],
+    "source": "backend/app/api/speech_preferences.py",
+    "handler": "patch_my_speech_preferences",
+    "line": 50
+  },
+  {
+    "path": "/tags",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/tags.py",
+    "handler": "list_tags",
+    "line": 127
+  },
+  {
+    "path": "/tags",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/tags.py",
+    "handler": "create_tag",
+    "line": 227
+  },
+  {
+    "path": "/tags/{tag_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/tags.py",
+    "handler": "delete_tag",
+    "line": 388
+  },
+  {
+    "path": "/tags/{tag_id}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/tags.py",
+    "handler": "get_tag",
+    "line": 276
+  },
+  {
+    "path": "/tags/{tag_id}",
+    "methods": [
+      "PUT"
+    ],
+    "source": "backend/app/api/tags.py",
+    "handler": "update_tag",
+    "line": 291
+  },
+  {
+    "path": "/tags/{tag_id}/children",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/tags.py",
+    "handler": "list_tag_children",
+    "line": 441
+  },
+  {
+    "path": "/tags/{tag_id}/tree",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/tags.py",
+    "handler": "get_tag_tree",
+    "line": 457
+  },
+  {
+    "path": "/tools/{tool_key}",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/tools.py",
+    "handler": "call_tool",
+    "line": 28
+  },
+  {
+    "path": "/tracks",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/tracks.py",
+    "handler": "list_tracks",
+    "line": 74
+  },
+  {
+    "path": "/tracks",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/tracks.py",
+    "handler": "create_track",
+    "line": 186
+  },
+  {
+    "path": "/tracks/{target_track_id}/promote-scratch-entry",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/tracks.py",
+    "handler": "post_promote_scratch_entry",
+    "line": 1401
+  },
+  {
+    "path": "/tracks/{track_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/tracks.py",
+    "handler": "delete_track",
+    "line": 608
+  },
+  {
+    "path": "/tracks/{track_id}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/tracks.py",
+    "handler": "get_track",
+    "line": 294
+  },
+  {
+    "path": "/tracks/{track_id}",
+    "methods": [
+      "PUT"
+    ],
+    "source": "backend/app/api/tracks.py",
+    "handler": "update_track",
+    "line": 523
+  },
+  {
+    "path": "/tracks/{track_id}/collaborators",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/tracks.py",
+    "handler": "list_collaborators",
+    "line": 765
+  },
+  {
+    "path": "/tracks/{track_id}/collaborators",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/tracks.py",
+    "handler": "add_collaborator",
+    "line": 739
+  },
+  {
+    "path": "/tracks/{track_id}/collaborators/{collaborator_user_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/tracks.py",
+    "handler": "remove_collaborator",
+    "line": 1213
+  },
+  {
+    "path": "/tracks/{track_id}/collaborators/{collaborator_user_id}",
+    "methods": [
+      "PATCH"
+    ],
+    "source": "backend/app/api/tracks.py",
+    "handler": "update_collaborator_role",
+    "line": 1238
+  },
+  {
+    "path": "/tracks/{track_id}/detail",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/tracks.py",
+    "handler": "get_track_detail_bundle",
+    "line": 319
+  },
+  {
+    "path": "/tracks/{track_id}/entries",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/tracks.py",
+    "handler": "get_track_entries",
+    "line": 657
+  },
+  {
+    "path": "/tracks/{track_id}/exclusions",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/tracks.py",
+    "handler": "add_exclusion",
+    "line": 1272
+  },
+  {
+    "path": "/tracks/{track_id}/exclusions/{user_id_to_restore}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/tracks.py",
+    "handler": "remove_exclusion",
+    "line": 1307
+  },
+  {
+    "path": "/tracks/{track_id}/mention-candidates",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/tracks.py",
+    "handler": "list_mention_candidates",
+    "line": 992
+  },
+  {
+    "path": "/tracks/{track_id}/operational-model",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/tracks.py",
+    "handler": "get_track_operational_model",
+    "line": 361
+  },
+  {
+    "path": "/tracks/{track_id}/operational-model",
+    "methods": [
+      "PATCH"
+    ],
+    "source": "backend/app/api/tracks.py",
+    "handler": "patch_track_operational_model",
+    "line": 395
+  },
+  {
+    "path": "/tracks/{track_id}/operational-model/merge-library",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/tracks.py",
+    "handler": "merge_library_into_track_operational_model",
+    "line": 470
+  },
+  {
+    "path": "/tracks/{track_id}/transfer-ownership",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/tracks.py",
+    "handler": "post_transfer_track_ownership",
+    "line": 1337
+  },
+  {
+    "path": "/tracks/{track_id}/unwatch",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/tracks.py",
+    "handler": "unwatch_track",
+    "line": 1520
+  },
+  {
+    "path": "/tracks/{track_id}/watch",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/tracks.py",
+    "handler": "watch_track",
+    "line": 1489
+  },
+  {
+    "path": "/tracks/{track_id}/watchers",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/tracks.py",
+    "handler": "get_track_watchers",
+    "line": 1438
+  },
+  {
+    "path": "/public-share/track/{token}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/tracks_public_share.py",
+    "handler": "get_public_track",
+    "line": 402
+  },
+  {
+    "path": "/public-share/track/{token}/apply",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/tracks_public_share.py",
+    "handler": "get_public_track_apply_context",
+    "line": 491
+  },
+  {
+    "path": "/public-share/track/{token}/entries",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/tracks_public_share.py",
+    "handler": "get_public_track_entries",
+    "line": 530
+  },
+  {
+    "path": "/public-share/track/{token}/entries",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/tracks_public_share.py",
+    "handler": "create_public_track_entry",
+    "line": 687
+  },
+  {
+    "path": "/public-share/track/{token}/entries/{entry_id}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/tracks_public_share.py",
+    "handler": "get_public_track_entry",
+    "line": 774
+  },
+  {
+    "path": "/public-share/track/{token}/entries/{entry_id}",
+    "methods": [
+      "PATCH"
+    ],
+    "source": "backend/app/api/tracks_public_share.py",
+    "handler": "update_public_track_entry",
+    "line": 871
+  },
+  {
+    "path": "/public-share/track/{token}/entries/{entry_id}/attachments",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/tracks_public_share.py",
+    "handler": "upload_public_track_entry_attachment",
+    "line": 815
+  },
+  {
+    "path": "/public-share/track/{token}/entries/{entry_id}/comments",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/tracks_public_share.py",
+    "handler": "get_public_track_entry_comments",
+    "line": 1071
+  },
+  {
+    "path": "/public-share/track/{token}/entries/{entry_id}/comments",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/tracks_public_share.py",
+    "handler": "create_public_track_entry_comment",
+    "line": 1102
+  },
+  {
+    "path": "/public-share/track/{token}/entries/{entry_id}/reactions",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/tracks_public_share.py",
+    "handler": "add_public_track_entry_reaction",
+    "line": 1164
+  },
+  {
+    "path": "/public-share/track/{token}/entries/{entry_id}/reactions/{emoji}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/tracks_public_share.py",
+    "handler": "remove_public_track_entry_reaction",
+    "line": 1227
+  },
+  {
+    "path": "/public-share/track/{token}/relation-options",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/tracks_public_share.py",
+    "handler": "get_public_track_relation_options",
+    "line": 592
+  },
+  {
+    "path": "/tracks/{track_id}/public-share",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/tracks_public_share.py",
+    "handler": "get_public_track_share_settings",
+    "line": 136
+  },
+  {
+    "path": "/tracks/{track_id}/public-share",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/tracks_public_share.py",
+    "handler": "update_public_track_share_settings",
+    "line": 207
+  },
+  {
+    "path": "/tracks/{track_id}/public-share/notify",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/tracks_public_share.py",
+    "handler": "notify_public_track_share",
+    "line": 336
+  },
+  {
+    "path": "/public-share/track/{token}/entries/{entry_id}/attachments",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/tracks_public_share_onboarding.py",
+    "handler": "list_public_track_entry_attachments",
+    "line": 245
+  },
+  {
+    "path": "/public-share/track/{token}/entries/{entry_id}/contract",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/tracks_public_share_onboarding.py",
+    "handler": "download_public_onboarding_contract",
+    "line": 319
+  },
+  {
+    "path": "/public-share/track/{token}/entries/{entry_id}/contract/decision",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/tracks_public_share_onboarding.py",
+    "handler": "decide_public_onboarding_contract",
+    "line": 347
+  },
+  {
+    "path": "/public-share/track/{token}/entries/{entry_id}/contract/generate",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/tracks_public_share_onboarding.py",
+    "handler": "generate_public_onboarding_contract",
+    "line": 288
+  },
+  {
+    "path": "/public-share/track/{token}/onboarding-policies",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/tracks_public_share_onboarding.py",
+    "handler": "list_public_onboarding_policies",
+    "line": 112
+  },
+  {
+    "path": "/public-share/track/{token}/onboarding-policies/{policy_entry_id}/document",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/tracks_public_share_onboarding.py",
+    "handler": "download_public_onboarding_policy_document",
+    "line": 191
+  },
+  {
+    "path": "/me/signatures",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/user_signatures.py",
+    "handler": "api_list_my_signatures",
+    "line": 37
+  },
+  {
+    "path": "/me/signatures",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/user_signatures.py",
+    "handler": "api_save_my_signature",
+    "line": 51
+  },
+  {
+    "path": "/me/signatures/{attachment_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/user_signatures.py",
+    "handler": "api_delete_my_signature",
+    "line": 75
+  },
+  {
+    "path": "/me/signatures/{attachment_id}/download",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/user_signatures.py",
+    "handler": "api_download_my_signature",
+    "line": 103
+  },
+  {
+    "path": "/users",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/users.py",
+    "handler": "list_users",
+    "line": 45
+  },
+  {
+    "path": "/users",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/users.py",
+    "handler": "create_user",
+    "line": 164
+  },
+  {
+    "path": "/users/me/account-deletion-preview",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/users.py",
+    "handler": "get_account_deletion_preview_endpoint",
+    "line": 365
+  },
+  {
+    "path": "/users/me/connected-agents",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/users.py",
+    "handler": "list_connected_agents",
+    "line": 958
+  },
+  {
+    "path": "/users/me/connected-agents/{client_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/users.py",
+    "handler": "revoke_connected_agent",
+    "line": 1027
+  },
+  {
+    "path": "/users/me/pinned",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/users.py",
+    "handler": "get_my_pinned",
+    "line": 776
+  },
+  {
+    "path": "/users/me/pinned",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/users.py",
+    "handler": "toggle_my_pin",
+    "line": 788
+  },
+  {
+    "path": "/users/me/scope",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/users.py",
+    "handler": "get_my_scope",
+    "line": 850
+  },
+  {
+    "path": "/users/me/scope",
+    "methods": [
+      "PUT"
+    ],
+    "source": "backend/app/api/users.py",
+    "handler": "set_my_scope",
+    "line": 896
+  },
+  {
+    "path": "/users/{user_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/users.py",
+    "handler": "delete_user",
+    "line": 378
+  },
+  {
+    "path": "/users/{user_id}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/users.py",
+    "handler": "get_user",
+    "line": 127
+  },
+  {
+    "path": "/users/{user_id}",
+    "methods": [
+      "PUT"
+    ],
+    "source": "backend/app/api/users.py",
+    "handler": "update_user",
+    "line": 254
+  },
+  {
+    "path": "/users/{user_id}/avatar",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/users.py",
+    "handler": "get_avatar",
+    "line": 673
+  },
+  {
+    "path": "/users/{user_id}/avatar",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/users.py",
+    "handler": "upload_avatar",
+    "line": 563
+  },
+  {
+    "path": "/tracks/{track_id}/views",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/views.py",
+    "handler": "list_track_views",
+    "line": 257
+  },
+  {
+    "path": "/tracks/{track_id}/views",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/views.py",
+    "handler": "create_view",
+    "line": 291
+  },
+  {
+    "path": "/views/{view_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/views.py",
+    "handler": "delete_view",
+    "line": 577
+  },
+  {
+    "path": "/views/{view_id}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/views.py",
+    "handler": "get_view",
+    "line": 392
+  },
+  {
+    "path": "/views/{view_id}",
+    "methods": [
+      "PUT"
+    ],
+    "source": "backend/app/api/views.py",
+    "handler": "update_view",
+    "line": 415
+  },
+  {
+    "path": "/work-items",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/work_items.py",
+    "handler": "get_work_items",
+    "line": 19
+  },
+  {
+    "path": "/work-items/{work_item_id}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/work_items.py",
+    "handler": "get_work_item",
+    "line": 36
+  },
+  {
+    "path": "/workspaces/{workspace_id}/members/provision",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/workspace_member_hire.py",
+    "handler": "provision_workspace_member_route",
+    "line": 34
+  },
+  {
+    "path": "/workspaces/{workspace_id}/members/{member_user_id}/assigned-form-prompt",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/workspace_member_hire.py",
+    "handler": "set_member_assigned_form_prompt_route",
+    "line": 172
+  },
+  {
+    "path": "/workspaces/{workspace_id}/members/{member_user_id}/onboarding-form-prompt",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/workspace_member_hire.py",
+    "handler": "set_member_onboarding_form_prompt_route",
+    "line": 186
+  },
+  {
+    "path": "/library/workspace-models",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/workspaces.py",
+    "handler": "list_workspace_operational_models",
+    "line": 238
+  },
+  {
+    "path": "/workspaces",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/workspaces.py",
+    "handler": "list_workspaces",
+    "line": 216
+  },
+  {
+    "path": "/workspaces",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/workspaces.py",
+    "handler": "create_workspace",
+    "line": 276
+  },
+  {
+    "path": "/workspaces/{workspace_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/workspaces.py",
+    "handler": "delete_workspace",
+    "line": 523
+  },
+  {
+    "path": "/workspaces/{workspace_id}",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/workspaces.py",
+    "handler": "get_workspace",
+    "line": 266
+  },
+  {
+    "path": "/workspaces/{workspace_id}",
+    "methods": [
+      "PATCH"
+    ],
+    "source": "backend/app/api/workspaces.py",
+    "handler": "update_workspace",
+    "line": 471
+  },
+  {
+    "path": "/workspaces/{workspace_id}/apps",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/workspaces.py",
+    "handler": "list_workspace_spaces",
+    "line": 583
+  },
+  {
+    "path": "/workspaces/{workspace_id}/apps/order",
+    "methods": [
+      "PATCH"
+    ],
+    "source": "backend/app/api/workspaces.py",
+    "handler": "reorder_workspace_apps",
+    "line": 1331
+  },
+  {
+    "path": "/workspaces/{workspace_id}/avatar",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/workspaces.py",
+    "handler": "get_workspace_avatar",
+    "line": 1283
+  },
+  {
+    "path": "/workspaces/{workspace_id}/avatar",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/workspaces.py",
+    "handler": "upload_workspace_avatar",
+    "line": 1168
+  },
+  {
+    "path": "/workspaces/{workspace_id}/members",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/workspaces.py",
+    "handler": "list_workspace_members",
+    "line": 663
+  },
+  {
+    "path": "/workspaces/{workspace_id}/members",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/workspaces.py",
+    "handler": "add_workspace_member",
+    "line": 720
+  },
+  {
+    "path": "/workspaces/{workspace_id}/members/{member_user_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/workspaces.py",
+    "handler": "remove_workspace_member",
+    "line": 909
+  },
+  {
+    "path": "/workspaces/{workspace_id}/members/{member_user_id}",
+    "methods": [
+      "PATCH"
+    ],
+    "source": "backend/app/api/workspaces.py",
+    "handler": "patch_workspace_member",
+    "line": 779
+  },
+  {
+    "path": "/workspaces/{workspace_id}/membership",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/workspaces.py",
+    "handler": "leave_workspace",
+    "line": 958
+  },
+  {
+    "path": "/workspaces/{workspace_id}/storage-usage",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/workspaces.py",
+    "handler": "get_workspace_storage_usage",
+    "line": 1010
+  },
+  {
+    "path": "/workspaces/{workspace_id}/storage-usage/recalculate",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/workspaces.py",
+    "handler": "recalculate_workspace_storage_usage",
+    "line": 1032
+  },
+  {
+    "path": "/workspaces/{workspace_id}/tracks",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/workspaces.py",
+    "handler": "list_workspace_tracks",
+    "line": 611
+  }
+]

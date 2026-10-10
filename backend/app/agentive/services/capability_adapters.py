@@ -14,7 +14,7 @@ async def dispatch_capability(inv: CapabilityInvocation, cap: Dict[str, Any]) ->
     """Run the existing Core, App, or connector implementation."""
     try:
         arguments = dict(inv.arguments or {})
-        # jvagent's JSON tool protocol may wrap a declared tool's fields in
+        # agent runtime's JSON tool protocol may wrap a declared tool's fields in
         # ``action_input``. The Core/App capability contracts expose those
         # fields directly, so unwrap only the unambiguous single-key envelope;
         # preserving any sibling fields avoids silently discarding caller data.

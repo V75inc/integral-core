@@ -1,6 +1,6 @@
 """Lean projection for agent list tools.
 
-Auto-pagination hands the agent every track/app, and jvagent then elides the
+Auto-pagination hands the agent every track/app, and native provider then elides the
 result at ``observation_max_chars`` and tells the model to re-run the tool. The
 breadth was being spent on fields no caller reads: a Track serialized by
 ``export_node`` is 639 chars across 16 fields, an App 944 across 22. Projecting

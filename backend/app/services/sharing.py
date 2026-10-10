@@ -182,6 +182,44 @@ async def ensure_guest_membership(
     )
 
 
+async def revoke_workspace_resource_grants(
+    user: User,
+    workspace_id: str,
+) -> Dict[str, int]:
+    """Drop in-workspace ``COLLABORATES_ON`` / ``EXCLUDED_FROM`` for ``user``.
+
+    Called when membership ends (self-leave or admin remove). Does not touch
+    ``OWNS``. Callers reassign those edges to the workspace owner first via
+    ``reassign_departing_member_ownership`` so a removed creator does not
+    leave an unmanageable resource behind.
+    """
+    deleted = {"collaborates_on": 0, "excluded_from": 0}
+    if not user or not workspace_id:
+        return deleted
+
+    from app.services.walkers.workspace_departure import (
+        workspace_departure_grant_targets,
+    )
+
+    targets = await workspace_departure_grant_targets(user, workspace_id)
+    ctx = await user.get_context()
+    for resource in targets:
+        for edge_class, key in (
+            (COLLABORATES_ON, "collaborates_on"),
+            (EXCLUDED_FROM, "excluded_from"),
+        ):
+            edges = await ctx.find_edges_between(
+                user.id, resource.id, edge_class=edge_class
+            )
+            for edge in edges:
+                await edge.delete()
+                deleted[key] += 1
+
+    if deleted["collaborates_on"] or deleted["excluded_from"]:
+        _invalidate_perm_cache(user)
+    return deleted
+
+
 # ---------------------------------------------------------------------------
 # Notifications
 # ---------------------------------------------------------------------------

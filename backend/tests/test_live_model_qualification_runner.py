@@ -105,9 +105,10 @@ def test_rejects_short_run_set_and_budget_breach() -> None:
 def test_measured_journeys_match_the_recalibrated_budget() -> None:
     """gpt-4.1's clean rental journey fits; the looping glm journey does not."""
     profile = yaml.safe_load(
-        (ROOT / "docs/product/evidence/wp-06-live-model-qualification.yaml").read_text(
-            encoding="utf-8"
-        )
+        (
+            ROOT
+            / "backend/tests/fixtures/qualification/contracts/wp-06-live-model-qualification.yaml"
+        ).read_text(encoding="utf-8")
     )
     profile["scenarios"] = [
         scenario
@@ -170,7 +171,10 @@ def test_measured_journeys_match_the_recalibrated_budget() -> None:
 
 
 def test_frozen_profile_covers_three_held_out_operational_domains() -> None:
-    profile_path = ROOT / "docs/product/evidence/wp-06-live-model-qualification.yaml"
+    profile_path = (
+        ROOT
+        / "backend/tests/fixtures/qualification/contracts/wp-06-live-model-qualification.yaml"
+    )
     profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
 
     assert profile["measurement"]["repetitions_per_scenario"] == 5

@@ -15,6 +15,7 @@ import {
 } from "@assistant-ui/react";
 import { aiChatApi, type AIChatThread, type AIChatPersistedMessage } from "../../api/aiChat";
 import { useScope } from "../../context/ScopeContext";
+import { useAuthOptional } from "../../context/AuthContext";
 import { useChatPageFocus } from "../../context/ChatPageFocusContext";
 import { useChatPageContextSnapshot } from "./useChatPageContextSnapshot";
 import type { ChatEntityRef } from "../../types/chatEntityRefs";
@@ -52,6 +53,9 @@ import {
 } from "./threadSessionRegistry";
 import {
   OPEN_AI_CHAT_EVENT,
+  consumeChatHandoff,
+  prefersFreshChat,
+  rememberFreshChat,
   peekChatHandoff,
   peekLastActiveChatThreadId,
   rememberActiveChatThreadId,
@@ -117,7 +121,7 @@ type AssistantMessageDraft = {
   steps?: NonNullable<ThreadMessageLike["metadata"]>["steps"];
   customSteps?: ObservabilityStep[];
   interactPayload?: Record<string, unknown>;
-  // Authoritative final answer (jvagent `final` chunk): `finalContent` = the
+  // Authoritative final answer (native provider `final` chunk): `finalContent` = the
   // settled answer text, `finalPayload` = the full final chunk. Debug-view
   // source-of-truth.
   finalContent?: string;
@@ -397,9 +401,22 @@ function coalescePersistedReasoning(parts: MutableContent[]): MutableContent[] {
  */
 export function normalizePersistedParts(rawParts: MutableContent[]): MutableContent[] {
   const out: MutableContent[] = [];
+  const toolPositions = new Map<string, number>();
   for (const part of rawParts) {
     const p = part as Record<string, unknown>;
     if (p && p.type === "error") {
+      continue;
+    }
+    // Older durable transcripts saved start/result updates as separate parts.
+    // Hydrate one resource per call ID, preserving its position and latest state.
+    if (p?.type === "tool-call" && typeof p.toolCallId === "string" && p.toolCallId) {
+      const previous = toolPositions.get(p.toolCallId);
+      if (previous !== undefined) {
+        out[previous] = { ...out[previous], ...part } as MutableContent;
+      } else {
+        toolPositions.set(p.toolCallId, out.length);
+        out.push(part);
+      }
       continue;
     }
     if (p && p.type === "image") {
@@ -788,6 +805,13 @@ export function useAIChatRuntime(
   const { focusedTrackId, focusedViewId, focusedAppId } = useChatPageFocus();
   const snapshotPageContext = useChatPageContextSnapshot();
   const workspaceId = scope?.workspaceId ?? null;
+  const auth = useAuthOptional();
+  const principalId = auth?.user?.id ?? null;
+  const selectionScopeReady = Boolean(workspaceId) && !auth?.loading && (auth === null || Boolean(principalId));
+  const freshChatScope = useMemo(
+    () => ({ principalId, workspaceId, providerId: provider.id }),
+    [principalId, workspaceId, provider.id],
+  );
   // Read the active agent for the current (provider, workspace). When the
   // provider has an empty catalog (MockEcho), activeAgent is null and we
   // fall through to unfiltered listing (single-agent mode).
@@ -795,6 +819,13 @@ export function useAIChatRuntime(
   const activeAgentId = activeAgent?.id ?? null;
   const [threads, setThreads] = useState<AIChatThread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const selectionKey = JSON.stringify([principalId, workspaceId, provider.id, activeAgentId]);
+  const [settledSelectionKey, setSettledSelectionKey] = useState<string | null>(null);
+  const selectionReady = selectionScopeReady && (!provider.serverPersisted || settledSelectionKey === selectionKey);
+  const selectThread = useCallback((threadId: string) => {
+    rememberFreshChat(freshChatScope, false);
+    setActiveThreadId(threadId);
+  }, [freshChatScope]);
   /**
    * Per-thread transcript + stream state (I-CHAT-PAR-04), read from a
    * module-level store rather than local state so it outlives this hook
@@ -829,13 +860,16 @@ export function useAIChatRuntime(
 
   // Companion handoff from /agent Created links — switch to the originating thread.
   useEffect(() => {
+    if (!selectionScopeReady) return;
     const apply = (threadId?: string | null) => {
       if (!threadId || threadId.startsWith("local-")) return;
-      setActiveThreadId(threadId);
+      selectThread(threadId);
     };
     // Prefer event/handoff thread; fall back to last-active (survives handoff consume).
     const pending = peekChatHandoff();
-    apply(pending?.threadId ?? peekLastActiveChatThreadId(workspaceIdRef.current));
+    apply(pending?.threadId ?? (
+      prefersFreshChat(freshChatScope) ? null : peekLastActiveChatThreadId(workspaceIdRef.current)
+    ));
 
     const onOpen = (e: Event) => {
       const detail = (e as CustomEvent<{ threadId?: string | null }>).detail;
@@ -843,7 +877,7 @@ export function useAIChatRuntime(
     };
     window.addEventListener(OPEN_AI_CHAT_EVENT, onOpen);
     return () => window.removeEventListener(OPEN_AI_CHAT_EVENT, onOpen);
-  }, []);
+  }, [freshChatScope, selectThread, selectionScopeReady]);
 
   // Guards concurrent callers (onNew + any in-flight attachment upload) from
   // creating two threads for the same first message — see ensureThreadId.
@@ -861,6 +895,11 @@ export function useAIChatRuntime(
     activeThreadId != null &&
     (streamingThreadIds.includes(activeThreadId) ||
       activeThreadId in remoteTurns);
+  const composerReady = selectionReady && (
+    !provider.serverPersisted || activeThreadId == null ||
+    activeThreadId.startsWith("local-") || isRunning ||
+    (activeSession?.lastLoadedAt ?? 0) > 0
+  );
   const activityText = isRunning ? (activeSession?.activityText ?? null) : null;
   // Not gated on `isRunning`: the errors worth showing are exactly the ones
   // that end the turn, and gating hid every one of them.
@@ -914,33 +953,38 @@ export function useAIChatRuntime(
    * via the system-message route (no model call needed).
    */
   const appendAssistantNote = useCallback(
-    (text: string) => {
-      if (!text) return;
+    async (text: string): Promise<string | null> => {
+      if (!text || !activeThreadId) return null;
       const threadId = activeThreadId;
-      if (!threadId) return;
+      const noteId = nextId("a");
       updateSession(threadId, (session) => ({
         ...session,
         messages: [
           ...session.messages,
           {
-            id: nextId("a"),
+            id: noteId,
             role: "assistant" as const,
             content: [{ type: "text" as const, text }],
             status: { type: "complete" as const, reason: "stop" as const },
           },
         ],
       }));
-      const isLocal = threadId.startsWith("local-");
-      if (!isLocal && provider.serverPersisted) {
-        aiChatApi
-          .appendSystemMessage(threadId, text)
-          .catch((err) => {
-            console.warn(
-              "appendAssistantNote: backend persistence failed",
-              err,
-            );
-          });
+      if (!threadId.startsWith("local-") && provider.serverPersisted) {
+        try {
+          const persisted = await aiChatApi.appendSystemMessage(threadId, text);
+          updateSession(threadId, (session) => ({
+            ...session,
+            messages: session.messages.map((message) =>
+              message.id === noteId ? { ...message, id: persisted.id } : message,
+            ),
+          }));
+          return persisted.id;
+        } catch (err) {
+          console.warn("appendAssistantNote: backend persistence failed", err);
+          return null;
+        }
       }
+      return noteId;
     },
     [nextId, activeThreadId, provider, updateSession],
   );
@@ -996,11 +1040,12 @@ export function useAIChatRuntime(
   // latest thread after an explicit "New conversation" click; reset on
   // workspace switch so the new workspace gets its own auto-select.
   useEffect(() => {
-    if (!provider.serverPersisted) return;
+    if (!provider.serverPersisted || !selectionScopeReady) return;
     let cancelled = false;
     void (async () => {
       const list = await refreshThreads();
       if (cancelled) return;
+      setSettledSelectionKey(selectionKey);
       if (initialAutoSelectDoneRef.current) return;
       initialAutoSelectDoneRef.current = true;
       // Threads were still listed above so the rail is populated; we just
@@ -1009,9 +1054,10 @@ export function useAIChatRuntime(
       const applied = initialThreadAppliedRef.current;
       if (initialThreadId && (!applied || applied.workspaceId === workspaceId)) {
         initialThreadAppliedRef.current = { workspaceId, threadId: initialThreadId };
-        setActiveThreadId(initialThreadId);
+        selectThread(initialThreadId);
         return;
       }
+      if (prefersFreshChat(freshChatScope)) return;
       if (list.length > 0) {
         setActiveThreadId((current) => current ?? list[0].id);
       }
@@ -1026,6 +1072,10 @@ export function useAIChatRuntime(
     activeAgentId,
     initialThreadId,
     startNewThread,
+    freshChatScope,
+    selectionScopeReady,
+    selectionKey,
+    selectThread,
   ]);
 
   // Reset the initial-auto-select guard whenever the provider changes,
@@ -1078,6 +1128,12 @@ export function useAIChatRuntime(
   const previousAgentIdRef = useRef<string | null>(activeAgentId);
   useEffect(() => {
     if (previousAgentIdRef.current === activeAgentId) return;
+    if (previousAgentIdRef.current == null) {
+      // Resolving the initial catalog is not a user switching agents. In
+      // particular, do not undo New conversation chosen while it loaded.
+      previousAgentIdRef.current = activeAgentId;
+      return;
+    }
     previousAgentIdRef.current = activeAgentId;
     initialAutoSelectDoneRef.current = false;
     setActiveThreadId(null);
@@ -1124,6 +1180,7 @@ export function useAIChatRuntime(
               ? mergeColdTranscript(server, session.messages)
               : server,
           lastLoadedAt: Date.now(),
+          activeWorkItemId: t.provider_id === "integral_native" ? t.active_work_item_id ?? null : null,
         }));
         return "ok";
       } catch (err) {
@@ -1242,9 +1299,9 @@ export function useAIChatRuntime(
    * and then return with only a console.warn, so the user saw their text
    * land and nothing answer it.
    */
-  const admissionError = useCallback((threadId: string): string | null => {
+  const admissionError = useCallback((threadId: string, attachToRemote = false): string | null => {
     const streaming = peekStreamingThreadIds();
-    if (streaming.includes(threadId) || threadId in getRemoteTurnsSnapshot()) {
+    if (streaming.includes(threadId) || (!attachToRemote && threadId in getRemoteTurnsSnapshot())) {
       return THREAD_ALREADY_RESPONDING;
     }
     if (streaming.length >= MAX_CONCURRENT_STREAMS) {
@@ -1262,8 +1319,9 @@ export function useAIChatRuntime(
       images?: ChatImageInput[],
       attachmentIds?: string[],
       hostAction?: "prompt_sheet_resume" | "staging_follow_through",
+      resumeWorkItemId?: string,
     ) => {
-      const refused = admissionError(threadId);
+      const refused = admissionError(threadId, Boolean(resumeWorkItemId));
       if (refused) {
         // A thread that is already answering is not a failed turn. Recording
         // that as streamError left a red alert under the reply that just
@@ -1343,6 +1401,7 @@ export function useAIChatRuntime(
             focusedAppId ?? pageContext.focused_app_id ?? undefined,
           pageContext,
           hostAction,
+          resumeWorkItemId,
         });
 
         for await (const ev of stream as AsyncIterable<NormalizedEvent>) {
@@ -1416,7 +1475,9 @@ export function useAIChatRuntime(
         }
 
         if (draftHasVisibleParts(draft) || !closedDraft) {
-          if (!draft.status || draft.status.type === "running") {
+          if (controller.signal.aborted) {
+            draft.status = { type: "incomplete", reason: "cancelled" };
+          } else if (!draft.status || draft.status.type === "running") {
             draft.status = { type: "complete", reason: "stop" };
           }
           flush();
@@ -1429,11 +1490,9 @@ export function useAIChatRuntime(
         void refreshThreads();
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        draft.status = {
-          type: "incomplete",
-          reason: "error",
-          error: errMsg,
-        };
+        draft.status = controller.signal.aborted
+          ? { type: "incomplete", reason: "cancelled" }
+          : { type: "incomplete", reason: "error", error: errMsg };
         // MessageError on the flushed draft — do not also set streamError.
         flush();
       } finally {
@@ -1458,7 +1517,7 @@ export function useAIChatRuntime(
         if (
           provider.serverPersisted &&
           !threadId.startsWith("local-") &&
-          (!session || session.lastLoadedAt === 0)
+          (resumeWorkItemId || !session || session.lastLoadedAt === 0)
         ) {
           void loadThread(threadId);
         }
@@ -1466,6 +1525,20 @@ export function useAIChatRuntime(
     },
     [provider, nextId, refreshThreads, activeAgentId, updateSession, focusedTrackId, focusedViewId, focusedAppId, snapshotPageContext, admissionError, loadThread],
   );
+
+  // A fresh page attaches to accepted work discovered from the owned thread.
+  // Attempt once per WorkItem per mounted view; a failed connection leaves a
+  // recoverable error rather than restarting work or spinning a retry loop.
+  const recoveredWorkItemsRef = useRef(new Set<string>());
+  useEffect(() => {
+    if (provider.id !== "integral_native" || !activeThreadId || !selectionScopeReady) return;
+    const session = sessions[activeThreadId];
+    const workItemId = session?.activeWorkItemId;
+    if (!workItemId || session.streaming || recoveredWorkItemsRef.current.has(workItemId)) return;
+    if (peekStreamingThreadIds().length >= MAX_CONCURRENT_STREAMS) return;
+    recoveredWorkItemsRef.current.add(workItemId);
+    void streamAssistantTurn(activeThreadId, "", session.messages, undefined, undefined, undefined, undefined, workItemId);
+  }, [provider.id, activeThreadId, selectionScopeReady, sessions, streamAssistantTurn]);
 
   /**
    * Return the active thread id, creating one if none exists yet — same
@@ -1488,7 +1561,7 @@ export function useAIChatRuntime(
       if (!provider.serverPersisted) {
         const localId = `local-${nextId("thr")}`;
         activeThreadIdRef.current = localId;
-        setActiveThreadId(localId);
+        selectThread(localId);
         return localId;
       }
       const created = await aiChatApi.createThread(provider.id, {
@@ -1497,7 +1570,7 @@ export function useAIChatRuntime(
       activeThreadIdRef.current = created.id;
       setThreads((prev) => [created, ...prev]);
       skipLoadForThreadIdRef.current = created.id;
-      setActiveThreadId(created.id);
+      selectThread(created.id);
       return created.id;
     })();
     threadCreationPromiseRef.current = promise;
@@ -1506,7 +1579,7 @@ export function useAIChatRuntime(
     } finally {
       threadCreationPromiseRef.current = null;
     }
-  }, [provider, activeAgentId, nextId]);
+  }, [provider, activeAgentId, nextId, selectThread]);
 
   const onNew = useCallback(
     async (message: AppendMessage) => {
@@ -1655,11 +1728,32 @@ export function useAIChatRuntime(
     const threadId = activeThreadId;
     if (!threadId) return;
     const controller = peekSessions()[threadId]?.abortController;
+    // Settle the visible draft before the transport unwinds. A follow-up
+    // can otherwise capture the old running row in its priorMessages and
+    // preserve a permanent "Working" indicator in the next turn.
+    updateSession(threadId, (session) => ({
+      ...session,
+      messages: session.messages.map((message) =>
+        message.role === "assistant" && message.status?.type === "running"
+          ? { ...message, status: { type: "incomplete", reason: "cancelled" } }
+          : message,
+      ),
+    }));
     controller?.abort();
     if (provider.serverPersisted) {
       aiChatApi.cancelThread(threadId).catch(() => {});
     }
-  }, [activeThreadId, provider.serverPersisted]);
+  }, [activeThreadId, provider.serverPersisted, updateSession]);
+
+  const switchToNewThread = useCallback(() => {
+    // An explicit choice wins over an initial list request still in flight.
+    initialAutoSelectDoneRef.current = true;
+    rememberFreshChat(freshChatScope, true);
+    rememberActiveChatThreadId(null, workspaceId);
+    consumeChatHandoff();
+    activeThreadIdRef.current = null;
+    setActiveThreadId(null);
+  }, [freshChatScope, workspaceId]);
 
   const threadListAdapter = useMemo<ExternalStoreThreadListAdapter>(() => {
     const regular = threads.filter((t) => !t.archived);
@@ -1681,11 +1775,10 @@ export function useAIChatRuntime(
         // has not committed yet in that case, while ``ensureThreadId`` reads
         // this ref synchronously; leaving it set sends the first message of a
         // supposedly new conversation into the previous provider session.
-        activeThreadIdRef.current = null;
-        setActiveThreadId(null);
+        switchToNewThread();
       },
       onSwitchToThread: async (threadId: string) => {
-        setActiveThreadId(threadId);
+        selectThread(threadId);
       },
       onRename: async (threadId: string, newTitle: string) => {
         try {
@@ -1693,6 +1786,7 @@ export function useAIChatRuntime(
           await refreshThreads();
         } catch (err) {
           console.error("AI chat: rename failed", err);
+          throw err;
         }
       },
       onArchive: async (threadId: string) => {
@@ -1714,7 +1808,7 @@ export function useAIChatRuntime(
         }
       },
     };
-  }, [threads, activeThreadId, refreshThreads]);
+  }, [threads, activeThreadId, refreshThreads, switchToNewThread, selectThread]);
 
   // Composite: images retain vision content plus a persisted file identity; general
   // file branch (Slice B — uploads to the chat-upload endpoint at send()
@@ -1732,8 +1826,21 @@ export function useAIChatRuntime(
   const setMessages = useCallback(
     (msgs: readonly ThreadMessageLike[]) => {
       if (!activeThreadId) return;
-      updateSession(activeThreadId, {
-        messages: msgs as ThreadMessageLike[],
+      updateSession(activeThreadId, (session) => {
+        const stored = new Map(session.messages.map((message) => [message.id, message]));
+        return {
+          ...session,
+          messages: msgs.map((message) => {
+            const previous = stored.get(message.id);
+            // assistant-ui can append using a snapshot from before Stop.
+            // A terminal row must not become running again under the same ID;
+            // a real retry creates a new draft with a new ID.
+            return message.status?.type === "running" && previous?.status &&
+              previous.status.type !== "running"
+              ? { ...message, status: previous.status }
+              : message;
+          }),
+        };
       });
     },
     [activeThreadId, updateSession],
@@ -1817,6 +1924,7 @@ export function useAIChatRuntime(
       threads,
       threadGroups,
       activeThreadId,
+      composerReady,
       activeProviderSessionId,
       activityText,
       isRunning,
@@ -1825,18 +1933,18 @@ export function useAIChatRuntime(
       remoteTurns,
       isThreadStreaming,
       appendAssistantNote,
-      switchToThread: (threadId: string) => setActiveThreadId(threadId),
-      switchToNewThread: () => {
-        activeThreadIdRef.current = null;
-        setActiveThreadId(null);
-      },
+      switchToThread: selectThread,
+      switchToNewThread,
     }),
     [
       runtime,
       provider,
       threads,
       threadGroups,
+      switchToNewThread,
+      selectThread,
       activeThreadId,
+      composerReady,
       activeProviderSessionId,
       activityText,
       isRunning,
@@ -1983,7 +2091,7 @@ function applyEvent(draft: AssistantMessageDraft, ev: NormalizedEvent) {
       return;
     default: {
       // Unknown event type — surface in devtools so newly-shipped
-      // jvagent event types don't silently vanish. The translator
+      // native provider event types don't silently vanish. The translator
       // emits side-channel envelopes (e.g. `_meta`) that the backend
       // strips before sending to the client; anything reaching this
       // path is genuinely unrecognised.

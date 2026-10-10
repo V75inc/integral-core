@@ -1,7 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import apiClient from '../../api/client';
 import { extensionsApi } from '../../api/extensions';
-import { useExtensionBridge, type ExtensionBridgeContext } from './useExtensionBridge';
+import {
+  useExtensionBridge,
+  type ExtensionBridgeApi,
+  type ExtensionBridgeContext,
+} from './useExtensionBridge';
 import { EXTENSION_PROTOCOL } from './extensionProtocol';
 import { ExtensionViewFallback } from './ExtensionViewFallback';
 import { Skeleton } from '../ui';
@@ -15,20 +27,40 @@ export interface AppExtensionViewHostProps {
   theme?: Record<string, unknown>;
   context?: Record<string, unknown>;
   className?: string;
+  iframeClassName?: string;
   onError?: () => void;
+  onDraftPatch?: (patch: {
+    custom_fields?: Record<string, unknown>;
+    related?: unknown;
+  }) => void;
+  minHeight?: number;
+  /** Open one of the app's entries when the frame asks (the host page supplies routing). */
+  onOpenEntry?: (entryId: string) => void;
 }
 
-export function AppExtensionViewHost({
-  appId,
-  viewKey,
-  workspaceId,
-  handshakeToken,
-  packageVersion,
-  theme,
-  context,
-  className,
-  onError,
-}: AppExtensionViewHostProps) {
+export type AppExtensionViewHostHandle = ExtensionBridgeApi;
+
+export const AppExtensionViewHost = forwardRef<
+  AppExtensionViewHostHandle,
+  AppExtensionViewHostProps
+>(function AppExtensionViewHost(
+  {
+    appId,
+    viewKey,
+    workspaceId,
+    handshakeToken,
+    packageVersion,
+    theme,
+    context,
+    className,
+    iframeClassName,
+    onError,
+    onDraftPatch,
+    minHeight = 240,
+    onOpenEntry,
+  },
+  ref,
+) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [failed, setFailed] = useState(false);
   // A real sandbox document has its own hash-only CSP. srcDoc would inherit
@@ -38,7 +70,29 @@ export function AppExtensionViewHost({
     params: { token: handshakeToken },
   });
   const [loadedToken, setLoadedToken] = useState<string | null>(null);
+  const [frameHeight, setFrameHeight] = useState<number | 'fill'>(minHeight);
+  // 'fill' tracks the window height so the view gets all the room there is.
+  const [windowHeight, setWindowHeight] = useState(() =>
+    typeof window === 'undefined' ? 800 : window.innerHeight,
+  );
+  useEffect(() => {
+    if (frameHeight !== 'fill') return undefined;
+    const onResize = () => setWindowHeight(window.innerHeight);
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [frameHeight]);
   const loaded = loadedToken === handshakeToken;
+
+  // Sandboxed iframes sometimes finish loading before React attaches onLoad,
+  // which leaves the skeleton painted over a ready frame.
+  useEffect(() => {
+    if (!handshakeToken || loaded) return undefined;
+    const timer = window.setTimeout(() => {
+      setLoadedToken(handshakeToken);
+    }, 800);
+    return () => window.clearTimeout(timer);
+  }, [handshakeToken, loaded]);
 
   const bridge = useMemo<ExtensionBridgeContext>(
     () => ({
@@ -68,6 +122,9 @@ export function AppExtensionViewHost({
       }
       if (path === 'context') {
         return ctx.context ?? {};
+      }
+      if (path === 'draft' || path === 'draft.snapshot') {
+        return ctx.context?.draft ?? ctx.context ?? {};
       }
       return null;
     },
@@ -110,14 +167,24 @@ export function AppExtensionViewHost({
     [],
   );
 
-  useExtensionBridge(
+  const bridgeApi = useExtensionBridge(
     iframeRef,
     bridge,
     readHandler,
     operationHandler,
     capabilitiesHandler,
     queryHandler,
+    onDraftPatch,
+    (height) => setFrameHeight(Math.max(minHeight, height)),
+    {
+      // A frame may ask for more room (kept within sane bounds) or to open one of its entries.
+      onResize: height =>
+        setFrameHeight(height === 'fill' ? 'fill' : Math.min(Math.max(Math.round(height), minHeight), 2400)),
+      onNavigate: entryId => onOpenEntry?.(entryId),
+    },
   );
+
+  useImperativeHandle(ref, () => bridgeApi, [bridgeApi]);
 
   // Entry hydration may finish after the iframe's initial ready handshake.
   // Notify the mounted view to reread through the now-current bridge context.
@@ -137,9 +204,12 @@ export function AppExtensionViewHost({
   }
 
   return (
-    <div className={className ?? 'relative min-h-[240px] w-full'}>
+    <div
+      className={className ?? 'relative w-full'}
+      style={{ minHeight: frameHeight === 'fill' ? Math.max(windowHeight - 96, 480) : frameHeight }}
+    >
       {!loaded ? (
-        <div className="absolute inset-0 flex items-center justify-center">
+        <div className="absolute inset-0 flex items-center justify-center" style={{ minHeight }}>
           <Skeleton className="h-full w-full min-h-[240px]" />
         </div>
       ) : null}
@@ -152,7 +222,17 @@ export function AppExtensionViewHost({
           referrerPolicy="no-referrer"
           onLoad={() => setLoadedToken(handshakeToken)}
           sandbox="allow-scripts"
-          className="w-full min-h-[240px] border border-[var(--panel-border)] rounded-[var(--radius-card)] bg-[var(--bg)]"
+          className={
+            iframeClassName ??
+            'w-full border border-[var(--panel-border)] rounded-[var(--radius-card)] bg-[var(--bg)]'
+          }
+          style={
+            iframeClassName
+              ? { height: frameHeight, minHeight }
+              : frameHeight === 'fill'
+                ? { height: Math.max(windowHeight - 96, 480), minHeight }
+                : { height: frameHeight, minHeight }
+          }
           onError={() => {
             setFailed(true);
             onError?.();
@@ -161,4 +241,4 @@ export function AppExtensionViewHost({
       ) : null}
     </div>
   );
-}
+});

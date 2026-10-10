@@ -224,11 +224,7 @@ def test_mower_servicing_tracker_routes_to_scaffold_over_modeling(
 def test_single_item_added_to_existing_track_routes_to_entries() -> None:
     """An item create in a named existing list is record work, not scaffolding."""
     backend_root = Path(__file__).resolve().parents[3]
-    skill_library = (
-        backend_root
-        / "app/resident_harness/agents/integral/integral_agent/actions/integral/"
-        / "embedded_integral_action/skills"
-    )
+    skill_library = backend_root / "app/resident_harness/" / "skills"
     result = search_capabilities_for_turn(
         query=(
             "Add a mower to our Tools list. Call it QA Mower Alpha, "
@@ -355,11 +351,7 @@ async def test_real_scaffold_skill_search_finds_the_proposal_tool_first(
     from app.agentive.tooling.catalogue import build_tool_catalogue
 
     backend_root = Path(__file__).resolve().parents[3]
-    skill_library = (
-        backend_root
-        / "app/resident_harness/agents/integral/integral_agent/actions/integral/"
-        / "embedded_integral_action/skills"
-    )
+    skill_library = backend_root / "app/resident_harness/" / "skills"
     query = (
         "tool tracker for maintenance company record tool serial number "
         "condition storage place purchase date photo current holder"
@@ -762,3 +754,48 @@ async def test_pydantic_tool_search_uses_semantic_rank_without_keyword_gate(
 
     assert result[0] == "asset_catalog"
     assert set(result) == {"asset_catalog", "general_lookup"}
+
+
+def test_exact_tool_addresses_survive_approximate_ranking_and_skill_slots():
+    from app.agentive.harness.capability_search import _search_catalog
+
+    names = [
+        "integral_describe_capabilities",
+        "integral_governed_query",
+        "integral_get_track_schema",
+    ]
+    skills = [
+        {
+            "name": f"s{i}",
+            "description": "Read capability query records",
+            "body": "Use integral_get_track_schema",
+        }
+        for i in range(8)
+    ]
+    tools = [
+        {
+            "name": name,
+            "description": "Read capability query records",
+            "input_schema": {"type": "object", "properties": {}},
+        }
+        for name in names
+    ]
+    result = _search_catalog(
+        query="integral_describe_capabilities integral_governed_query",
+        limit=5,
+        skills=skills,
+        tools=tools,
+        immediately_available_tools=(),
+        ranked_tool_ids=[(name, 1.0) for name in reversed(names)],
+    )
+    discovered = [item["name"] for item in result["results"] if item["kind"] == "tool"]
+    assert discovered[:2] == names[:2]
+    result = _search_catalog(
+        query="not_integral_describe_capabilities_extra",
+        limit=5,
+        skills=[],
+        tools=tools,
+        immediately_available_tools=(),
+        ranked_tool_ids=[(names[2], 1.0)],
+    )
+    assert result["results"][0]["name"] == names[2]

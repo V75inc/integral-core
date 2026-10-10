@@ -374,7 +374,8 @@ def _emitting_service_functions(repo_root: Path) -> set[str]:
     emit still fails, which is the property this test exists for.
     """
     emitting: set[str] = set()
-    for scope in ("services", "agentive"):
+    functions: list[ast.AsyncFunctionDef | ast.FunctionDef] = []
+    for scope in ("services", "agentive", "api"):
         for py_path in (repo_root / "backend" / "app" / scope).rglob("*.py"):
             try:
                 tree = ast.parse(py_path.read_text(encoding="utf-8"))
@@ -383,8 +384,18 @@ def _emitting_service_functions(repo_root: Path) -> set[str]:
             for node in ast.walk(tree):
                 if not isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef)):
                     continue
+                functions.append(node)
                 if "emit_change_event" in _called_names(node):
                     emitting.add(node.name)
+    # Follow a bounded name-based helper chain so a canonical endpoint wrapper
+    # can delegate through a legacy endpoint to the single audited write path.
+    changed = True
+    while changed:
+        changed = False
+        for function in functions:
+            if function.name not in emitting and _called_names(function) & emitting:
+                emitting.add(function.name)
+                changed = True
     emitting.discard("emit_change_event")
     return emitting
 

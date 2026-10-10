@@ -10,6 +10,8 @@ from httpx import AsyncClient
 from app.models.edges import HasAgentPreference
 from app.models.nodes import ChatThread
 
+pytestmark = pytest.mark.usefixtures("standalone_chat_provider")
+
 
 @pytest.mark.asyncio
 async def test_chat_thread_has_agent_id_field():
@@ -17,7 +19,7 @@ async def test_chat_thread_has_agent_id_field():
     thread = await ChatThread(
         user_id="u1",
         workspace_id="ws1",
-        provider_id="jvagent",
+        provider_id="test-provider",
         agent_id="iris",
         title="t",
     ).save()
@@ -27,11 +29,11 @@ async def test_chat_thread_has_agent_id_field():
 def test_has_agent_preference_edge_fields():
     """Edge declares provider_id, agent_id, updated_at."""
     edge = HasAgentPreference(
-        provider_id="jvagent",
+        provider_id="test-provider",
         agent_id="iris",
         updated_at=datetime.now(timezone.utc).isoformat(),
     )
-    assert edge.provider_id == "jvagent"
+    assert edge.provider_id == "test-provider"
     assert edge.agent_id == "iris"
     assert edge.updated_at
 
@@ -72,7 +74,7 @@ async def test_create_thread_uses_explicit_agent_id(
     response = await authenticated_client.post(
         "/api/chat/threads",
         headers=_scope_headers(workspace_id),
-        json={"provider_id": "jvagent", "agent_id": "iris"},
+        json={"provider_id": "test-provider", "agent_id": "iris"},
     )
     assert response.status_code == 200, response.text
     assert response.json()["agent_id"] == "iris"
@@ -88,13 +90,13 @@ async def test_create_thread_falls_back_to_preference(
     pref = await authenticated_client.put(
         f"/api/workspaces/{workspace_id}/agent-preference",
         headers=_scope_headers(workspace_id),
-        json={"provider_id": "jvagent", "agent_id": "aiva"},
+        json={"provider_id": "test-provider", "agent_id": "aiva"},
     )
     assert pref.status_code == 200, pref.text
     response = await authenticated_client.post(
         "/api/chat/threads",
         headers=_scope_headers(workspace_id),
-        json={"provider_id": "jvagent"},
+        json={"provider_id": "test-provider"},
     )
     assert response.status_code == 200, response.text
     assert response.json()["agent_id"] == "aiva"
@@ -109,13 +111,13 @@ async def test_create_thread_falls_back_to_catalog_default(
     workspace_id = await _create_workspace(authenticated_client)
     fake_agents = [{"id": "iris", "name": "Iris", "description": ""}]
     with patch(
-        "app.services.chat_providers.jvagent_provider.JvagentProvider.list_agents",
+        "tests.chat_provider_double.StandaloneTestProvider.list_agents",
         new=AsyncMock(return_value=fake_agents),
     ):
         response = await authenticated_client.post(
             "/api/chat/threads",
             headers=_scope_headers(workspace_id),
-            json={"provider_id": "jvagent"},
+            json={"provider_id": "test-provider"},
         )
     assert response.status_code == 200, response.text
     assert response.json()["agent_id"] == "iris"
@@ -129,13 +131,13 @@ async def test_create_thread_422_when_no_agent_resolvable(
     """No body, no preference, empty catalog → 422."""
     workspace_id = await _create_workspace(authenticated_client)
     with patch(
-        "app.services.chat_providers.jvagent_provider.JvagentProvider.list_agents",
+        "tests.chat_provider_double.StandaloneTestProvider.list_agents",
         new=AsyncMock(return_value=[]),
     ):
         response = await authenticated_client.post(
             "/api/chat/threads",
             headers=_scope_headers(workspace_id),
-            json={"provider_id": "jvagent"},
+            json={"provider_id": "test-provider"},
         )
     assert response.status_code == 422, response.text
 
@@ -156,13 +158,13 @@ async def test_list_threads_filters_by_agent(
         await authenticated_client.post(
             "/api/chat/threads",
             headers=_scope_headers(workspace_id),
-            json={"provider_id": "jvagent", "agent_id": agent},
+            json={"provider_id": "test-provider", "agent_id": agent},
         )
 
     response = await authenticated_client.get(
         "/api/chat/threads",
         headers=_scope_headers(workspace_id),
-        params={"provider_id": "jvagent", "agent_id": "iris"},
+        params={"provider_id": "test-provider", "agent_id": "iris"},
     )
     assert response.status_code == 200, response.text
     threads = response.json()["threads"]
@@ -180,7 +182,7 @@ async def test_list_threads_no_filter_returns_all(
         await authenticated_client.post(
             "/api/chat/threads",
             headers=_scope_headers(workspace_id),
-            json={"provider_id": "jvagent", "agent_id": agent},
+            json={"provider_id": "test-provider", "agent_id": agent},
         )
     response = await authenticated_client.get(
         "/api/chat/threads",
@@ -205,7 +207,7 @@ async def test_dispatch_passes_thread_agent_id_to_provider(
     create = await authenticated_client.post(
         "/api/chat/threads",
         headers=_scope_headers(workspace_id),
-        json={"provider_id": "jvagent", "agent_id": "aiva"},
+        json={"provider_id": "test-provider", "agent_id": "aiva"},
     )
     thread_id = create.json()["id"]
 
@@ -217,7 +219,7 @@ async def test_dispatch_passes_thread_agent_id_to_provider(
             yield  # make this an async generator without yielding anything
 
     with patch(
-        "app.services.chat_providers.jvagent_provider.JvagentProvider.stream_turn",
+        "tests.chat_provider_double.StandaloneTestProvider.stream_turn",
         new=fake_stream,
     ):
         await authenticated_client.post(

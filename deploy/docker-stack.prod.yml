@@ -30,7 +30,6 @@ services:
       HOST: "0.0.0.0"
       PORT: "4000"
       JVSPATIAL_DEBUG: "false"
-      # Runtime mode for jvspatial + jvagent: turns off jvagent dev-mode
       # response payloads (interaction/report) and dev-only CLI paths.
       JVSPATIAL_ENVIRONMENT: production
       # Integral's own Settings reads DEBUG, not JVSPATIAL_DEBUG. Setting only
@@ -56,12 +55,10 @@ services:
       JVSPATIAL_CORS_ORIGINS: ${JVSPATIAL_CORS_ORIGINS}
       JVSPATIAL_CORS_HEADERS: ${JVSPATIAL_CORS_HEADERS:-Content-Type,Authorization,X-API-Key,X-Integral-Scope}
       APP_BASE_URL: ${APP_BASE_URL}
-      JVAGENT_UPDATE_MODE: ${JVAGENT_UPDATE_MODE:-merge}
       JVSPATIAL_OBSERVABILITY_ENABLED: ${JVSPATIAL_OBSERVABILITY_ENABLED:-1}
       JVSPATIAL_SLOW_QUERY_MS: ${JVSPATIAL_SLOW_QUERY_MS:-100}
       JVSPATIAL_CACHE_GET_SIZE: ${JVSPATIAL_CACHE_GET_SIZE:-500}
       JVSPATIAL_CACHE_BACKEND: ${JVSPATIAL_CACHE_BACKEND:-memory}
-      JVAGENT_CONVERSATION_LOCK_REDIS_URL: ${JVAGENT_CONVERSATION_LOCK_REDIS_URL:-}
       # Pinned, not ${...}: >1 uvicorn worker breaks chat (per-process turn
       # registry + WS fan-out, ADR-004) and the boot check only WARNS. The
       # api-env overlay also denies WEB_CONCURRENCY/WORKERS, so raising this

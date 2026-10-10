@@ -9,6 +9,7 @@ import type {
   EntryTypeNode,
   SavedView,
 } from '../../types';
+import { randomUUID } from '../../utils/randomUUID';
 
 export const KANBAN_STAGE_KEY = '_kanban_stage';
 export const KANBAN_ORDER_KEY = '_kanban_order';
@@ -23,6 +24,42 @@ export interface KanbanColumnSpec {
   key: string;
   label?: string;
   color?: string;
+  /** False when the column is display-only (status is set by the app, not a drag). */
+  drop_target?: boolean;
+  /** Source column keys that may move into this column. Omit to allow any source. */
+  accepts_from?: string[];
+  /** When set, a drop runs this action instead of writing the group field. */
+  on_drop?: KanbanColumnDrop;
+}
+
+/** Declarative drop action stored on a kanban column (`on_drop` in the view config). */
+export interface KanbanColumnDrop {
+  kind?: string;
+  operation?: string;
+  title?: string;
+  message?: string;
+  confirm?: string;
+  confirm_label?: string;
+  success_message?: string;
+  payload?: Record<string, unknown>;
+  fields?: KanbanColumnDropField[];
+  /** Entry paths that must be non-empty before the drop runs. */
+  requires?: KanbanColumnDropRequire[];
+}
+
+export interface KanbanColumnDropRequire {
+  path?: string;
+  message?: string;
+}
+
+export interface KanbanColumnDropField {
+  key: string;
+  label?: string;
+  type?: string;
+  source?: string;
+  default?: string;
+  optional?: boolean;
+  options?: Array<string | { value?: string; label?: string }>;
 }
 
 /** Slugify a column label into a stable board key (matches backend slug style). */
@@ -73,7 +110,7 @@ export function generateKanbanColumnKey(existingKeys: Iterable<string>): string 
   const taken = new Set(existingKeys);
   let key = '';
   do {
-    const suffix = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+    const suffix = randomUUID().replace(/-/g, '').slice(0, 12);
     key = `col_${suffix}`;
   } while (taken.has(key));
   return key;

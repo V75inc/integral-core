@@ -8,7 +8,7 @@ name: CI
 
 on:
   pull_request:
-    branches: [main, dev, ab/dev2, prod]
+    branches: [main, dev, ab/dev2, prod, codex/pr-113-staging]
     paths:
       - "backend/**"
       - "sdk/**"
@@ -23,13 +23,7 @@ on:
       # produced no CI run at all.
       - ".ci/**"
       - "scripts/**"
-      # The agent descriptor. `agent/agents/**/agent.yaml` configures the
-      # resident's runtime behaviour — model, activation budget, escalation
-      # floor, observation budgets — and is read at bootstrap, so a bad value
-      # ships without touching a line of Python. This is the third time this
-      # filter has missed a directory that gates behaviour (`.ci/` and
-      # `scripts/` above were added for the same reason); PR #59 changed the
-      # orchestrator's observation budget and ran ZERO checks.
+      # Portable resident skills are runtime assets and must trigger CI.
       - "agent/**"
       - "examples/**"
       - "Makefile"

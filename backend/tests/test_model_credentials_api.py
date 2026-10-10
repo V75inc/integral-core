@@ -83,42 +83,25 @@ async def test_post_saves_local_ollama_without_api_key(enc_key, authenticated_cl
 
 
 @pytest.mark.asyncio
-async def test_post_persists_heavy_and_vision_slots(
-    enc_key, authenticated_client, test_user
-):
-    """POST persists heavy + vision slot models, readable back via GET."""
-    with patch(
-        "app.services.model_credentials.validate_provider_api_key",
-        new=AsyncMock(return_value=(True, "validated")),
-    ):
-        resp = await authenticated_client.post(
-            "/api/users/me/model-credentials",
-            json={
-                "provider": "openai",
-                "model": "gpt-4.1",
-                "api_key": "sk-live-test-key-1234",
-                "light_model": "gpt-4o-mini",
-                "heavy_model": "o3-mini",
-                "vision_model": "gpt-4o",
-            },
-        )
-    assert resp.status_code == 200
-    body = resp.json()["credential"]
-    assert body["heavy_model"] == "o3-mini"
-    assert body["vision_model"] == "gpt-4o"
-
-    get_resp = await authenticated_client.get("/api/users/me/model-credentials")
-    assert get_resp.status_code == 200
-    loaded = get_resp.json()["credential"]
-    assert loaded["heavy_model"] == "o3-mini"
-    assert loaded["vision_model"] == "gpt-4o"
+@pytest.mark.parametrize("slot", ["light", "heavy", "vision"])
+async def test_retired_model_slot_is_rejected(enc_key, authenticated_client, slot):
+    resp = await authenticated_client.post(
+        "/api/users/me/model-credentials",
+        json={
+            "provider": "openai",
+            "model": "gpt-4.1",
+            "api_key": "sk-live-test-key-1234",
+            f"{slot}_model": "retired-model",
+        },
+    )
+    assert resp.status_code == 400
 
 
 @pytest.mark.asyncio
-async def test_post_update_slots_without_resubmitting_api_key(
+async def test_post_update_primary_model_without_resubmitting_api_key(
     enc_key, authenticated_client, test_user
 ):
-    """POST can add slots without resubmitting the existing default API key."""
+    """POST can update the primary model while retaining its encrypted key."""
     from app.services.model_credentials import upsert_user_credential
 
     auth_user_id = getattr(test_user, "user_id", None) or test_user.id
@@ -141,15 +124,13 @@ async def test_post_update_slots_without_resubmitting_api_key(
             "/api/users/me/model-credentials",
             json={
                 "provider": "openai",
-                "model": "gpt-4.1",
-                "heavy_model": "o3-mini",
-                "vision_model": "gpt-4o",
+                "model": "gpt-4.1-mini",
             },
         )
     assert resp.status_code == 200
     body = resp.json()["credential"]
-    assert body["heavy_model"] == "o3-mini"
-    assert body["vision_model"] == "gpt-4o"
+    assert body["model"] == "gpt-4.1-mini"
+    assert body["key_fingerprint"]
 
 
 @pytest.mark.asyncio
@@ -201,3 +182,23 @@ async def test_account_deletion_purges_credentials(enc_key, test_user):
     removed = await delete_credentials_for_user(auth_user_id)
     assert removed >= 1
     assert await get_active_credential_for_user(auth_user_id) is None
+
+
+@pytest.mark.asyncio
+async def test_retired_key_rejection_does_not_expose_secret(
+    enc_key, authenticated_client, caplog
+):
+    secret = "synthetic-retired-slot-secret-do-not-log"
+    response = await authenticated_client.post(
+        "/api/users/me/model-credentials",
+        json={
+            "provider": "openai",
+            "model": "gpt-4.1",
+            "api_key": "sk-synthetic-primary-key",
+            "light_api_key": secret,
+        },
+    )
+    assert response.status_code == 400
+    assert "light_api_key" in response.text
+    assert secret not in response.text
+    assert secret not in caplog.text

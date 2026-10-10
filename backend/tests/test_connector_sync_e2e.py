@@ -180,7 +180,7 @@ async def test_workspace_track_connector(authenticated_client, test_user):
     # creation time via materialize_policies_for_connector (I-CON-04).
     connector = await create_connector(
         owner=test_user.id,
-        kind="jvagent",  # Phase 1 default — kind != subclass_slug
+        kind="custom",  # Phase 1 default — kind != subclass_slug
         auth_state={},
         mapping_profile=None,  # Phase 1 signature retained; I-CON-02 deprecates
     )

@@ -91,24 +91,6 @@ def test_bundle_without_always_active_remains_conditional(tmp_path: Path):
     assert doc.always_active is False
 
 
-def test_overlay_always_active_reaches_jvagent_skill_doc():
-    from app.agentive.skill_bundle_provider import _overlay_to_skill_doc
-
-    doc = SimpleNamespace(
-        name="venture-journey__founder_journey_guide",
-        description="Foundational founder routing.",
-        body="Orient the founder and pick one next action.",
-        requires_tools=("integral_list_tracks",),
-        source="workspace",
-        always_active=True,
-        metadata={"skill_key": "founder_journey_guide"},
-    )
-
-    converted = _overlay_to_skill_doc(doc)
-
-    assert converted.always_active is True
-
-
 async def _make_app(
     name: str,
     workspace_id: str,
@@ -293,42 +275,6 @@ async def test_materialize_profile_for_turn_contextvar():
     finally:
         clear_turn_workspace_profile()
     assert get_turn_workspace_profile() is None
-
-
-@pytest.mark.asyncio
-async def test_host_provider_reads_turn_profile():
-    from jvagent.action.orchestrator.skill_providers import (
-        clear_host_skill_providers,
-        register_host_skill_provider,
-    )
-
-    from app.agentive.skill_bundle_provider import install_skill_provider_into_jvagent
-
-    clear_host_skill_providers()
-    install_skill_provider_into_jvagent()
-
-    ws = "ws_host_provider"
-    app = await _make_app("CF", ws, source_operational_model_slug="content-factory")
-    await register_skill(
-        app_id=app.id,
-        workspace_id=ws,
-        skill_spec={
-            "key": "carousel_drafter",
-            "kind": "declarative",
-            "prompt_template_ref": "skills/carousel_drafter/SKILL.md",
-            "private": False,
-        },
-    )
-    await materialize_profile_for_turn(ws)
-    try:
-        from jvagent.action.orchestrator.skill_providers import collect_host_skill_docs
-
-        docs = collect_host_skill_docs(None)
-        names = {d.name for d in docs}
-        assert "content-factory__carousel_drafter" in names
-    finally:
-        clear_turn_workspace_profile()
-        clear_host_skill_providers()
 
 
 @pytest.mark.asyncio

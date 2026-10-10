@@ -622,3 +622,13 @@ class WATCHES(Edge):
 
     watched_at: Optional[str] = None
     bidirectional: bool = False
+
+
+class HasGeneratedDocument(Edge):
+    """DocumentTemplate | Entry → GeneratedDocument lineage pointer."""
+
+    generated_at: Optional[str] = None
+    bidirectional: bool = False
+
+
+HAS_GENERATED_DOCUMENT = HasGeneratedDocument

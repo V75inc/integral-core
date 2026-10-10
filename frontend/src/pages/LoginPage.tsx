@@ -12,7 +12,7 @@ import { validateLogin, type FieldErrors } from '../utils/authValidation';
  * LoginPage — Quiet Premium auth surface.
  *
  * Uses the shared responsive auth shell for its editorial copy, form card,
- * brand mark, and animated rounded-square waves.
+ * brand mark, and stationary split-square outline.
  */
 export function LoginPage() {
   const { login } = useAuth();

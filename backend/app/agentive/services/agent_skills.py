@@ -147,20 +147,7 @@ def _load_core_skill_names() -> Set[str]:
         return _RESERVED_CORE_NAMES
     from app.agentive.resident_root import resident_agent_root
 
-    paths = glob.glob(
-        os.path.join(
-            str(resident_agent_root()),
-            "agents",
-            "integral",
-            "integral_agent",
-            "actions",
-            "integral",
-            "embedded_integral_action",
-            "skills",
-            "integral-*",
-            "SKILL.md",
-        )
-    )
+    paths = glob.glob(str(resident_agent_root() / "skills" / "*" / "SKILL.md"))
     names = {os.path.basename(os.path.dirname(p)) for p in paths}
     _RESERVED_CORE_NAMES = names
     return names
@@ -169,17 +156,7 @@ def _load_core_skill_names() -> Set[str]:
 def _core_skill_dir(skill_name: str) -> str:
     from app.agentive.resident_root import resident_agent_root
 
-    return os.path.join(
-        str(resident_agent_root()),
-        "agents",
-        "integral",
-        "integral_agent",
-        "actions",
-        "integral",
-        "embedded_integral_action",
-        "skills",
-        skill_name,
-    )
+    return str(resident_agent_root() / "skills" / skill_name)
 
 
 def _parse_core_skill_disk(skill_name: str) -> Tuple[str, str, List[str]]:
@@ -317,11 +294,10 @@ async def resolve_skill_description(
     if skill_path is None:
         return ""
     try:
-        from jvagent.scaffold.skill_resolve import parse_skill_bundle
+        from app.services.skill_format import parse_skill_document
 
-        parsed = parse_skill_bundle(skill_path.parent, source="app")
-        if parsed:
-            return str(parsed.get("description") or "").strip()
+        meta, _ = parse_skill_document(skill_path)
+        return str(meta.get("description") or "").strip()
     except Exception:
         pass
     return ""

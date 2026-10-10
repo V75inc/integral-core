@@ -1,22 +1,4 @@
-/**
- * Harness panel — the singular resident coworker and the MCP clients you've
- * connected to it.
- *
- * Resident harness
- * ----------------
- *   jvagent              → embedded jvagent harness.
- *   Integral AI          → the integral_native harness.
- *   Echo                 → dev/smoke harness for local development +
- *                          smoke tests. Not a peer coworker mind.
- *
- * There is no fleet of discoverable agents to list (the agent-to-agent
- * discovery surface was retired — ADR-003). External agents connect through
- * the MCP surface and appear under "Connected agents" below.
- *
- * Harness panel off-path: if a future substrate-only kill-switch returns,
- * the panel may still render with the resident marked unavailable — today
- * the ops layer is always-on.
- */
+/** Built-in Integral AI resident and authorized external MCP clients. */
 import { useState } from 'react';
 import {
   useMutation,
@@ -30,7 +12,6 @@ import {
   connectedAgentsApi,
   type ConnectedAgent,
 } from '../../../api/connectedAgents';
-import { aiChatApi } from '../../../api/aiChat';
 import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
 import { EmptyState } from '../../../components/ui/EmptyState';
@@ -44,9 +25,8 @@ import { AsyncBoundary } from '../../../patterns';
 import { getApiBaseURL } from '../../../config';
 import { useConfirm } from '../../../context/ConfirmContext';
 import { useToast } from '../../../context/ToastContext';
-import { useSettings } from '../store';
 import { SettingsSection, StatusPill } from '../components/Field';
-import type { HarnessProviderId, SettingsSnapshot } from '../types';
+import type { HarnessProviderId } from '../types';
 
 const CONNECTED_AGENTS_QUERY_KEY = ['connected-agents'] as const;
 
@@ -81,23 +61,12 @@ interface HarnessAgentRow {
   subtitle: string;
 }
 
-const BUILTIN_AGENT: HarnessAgentRow = {
-  id: 'integral-builtin',
-  displayName: 'jvagent',
-  subtitle: 'Embedded jvagent harness',
-};
-
-const ECHO_AGENT: HarnessAgentRow = {
-  id: 'echo-mock',
-  displayName: 'Echo',
-  subtitle: 'Test assistant; repeats your messages',
-};
 
 // ---------------------------------------------------------------------------
 // Provider definitions
 // ---------------------------------------------------------------------------
 
-type ProviderKey = 'jvagent_embedded' | 'pydantic_native' | 'echo';
+type ProviderKey = 'pydantic_native';
 
 interface ProviderDef {
   key: ProviderKey;
@@ -127,22 +96,6 @@ const PROVIDERS: ProviderDef[] = [
       subtitle: 'Integral Core resident Pydantic AI harness',
     },
   },
-  {
-    key: 'jvagent_embedded',
-    label: 'jvagent',
-    blurb: 'Helps you find information, organize work, and make updates.',
-    routingId: 'jvagent-embedded',
-    providerId: 'jvagent',
-    agent: BUILTIN_AGENT,
-  },
-  {
-    key: 'echo',
-    label: 'Echo',
-    blurb: 'Repeats your messages for testing. Does not use an AI model.',
-    routingId: 'mock-echo',
-    providerId: 'mock-echo',
-    agent: ECHO_AGENT,
-  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -170,55 +123,18 @@ function AgentRow({ agent }: { agent: HarnessAgentRow }) {
   );
 }
 
-interface ProviderGroupProps {
-  provider: ProviderDef;
-  active: boolean;
-  disabled?: boolean;
-  onActivate: () => void;
-}
-
-function ProviderGroup({
-  provider,
-  active,
-  disabled = false,
-  onActivate,
-}: ProviderGroupProps) {
+function ProviderGroup({ provider }: { provider: ProviderDef }) {
   return (
-    <section
-      className={`
-        rounded-[var(--radius-card)] border bg-[var(--panel-2)] overflow-hidden
-        ${active ? 'border-[var(--brand-accent-line)]' : 'border-[var(--border-subtle)]'}
-      `}
-    >
+    <section className="rounded-[var(--radius-card)] border border-[var(--brand-accent-line)] bg-[var(--panel-2)] overflow-hidden">
       <header className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border-subtle)]">
-        <label className="flex items-center gap-2 cursor-pointer min-w-0">
-          <input
-            type="radio"
-            name="active-provider"
-            checked={active}
-            onChange={onActivate}
-            disabled={disabled}
-            aria-label={`Activate ${provider.label} assistant`}
-            className="h-4 w-4 cursor-pointer accent-[var(--brand-accent)] shrink-0"
-          />
-          <span className="min-w-0">
-            <h3 className="text-sm font-semibold text-[var(--text)]">
-              {provider.label}
-            </h3>
-            <p className="text-xs text-[var(--text-muted)] mt-0.5">
-              {provider.blurb}
-            </p>
-          </span>
-        </label>
-        <StatusPill state={disabled ? 'warn' : active ? 'ok' : 'idle'}>
-          {disabled ? 'Unavailable' : active ? 'Active' : 'Inactive'}
-        </StatusPill>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-sm font-semibold text-[var(--text)]">{provider.label}</h3>
+          <p className="text-xs text-[var(--text-muted)] mt-0.5">{provider.blurb}</p>
+        </div>
+        <StatusPill state="ok">Always active</StatusPill>
       </header>
-
       <div className="px-4 py-3">
-        <ul className="flex flex-col gap-2">
-          <AgentRow agent={provider.agent} />
-        </ul>
+        <ul className="flex flex-col gap-2"><AgentRow agent={provider.agent} /></ul>
       </div>
     </section>
   );
@@ -276,22 +192,7 @@ function AdvancedHarnessIds() {
                 </div>
               </div>
             ))}
-            <div className="contents">
-              <Text variant="body-sm" tone="subtle" as="dt">
-                Built-in jvagent agent_id
-              </Text>
-              <Text variant="mono" as="dd" className="truncate">
-                {BUILTIN_AGENT.id}
-              </Text>
-            </div>
-            <div className="contents">
-              <Text variant="body-sm" tone="subtle" as="dt">
-                Built-in Echo agent_id
-              </Text>
-              <Text variant="mono" as="dd" className="truncate">
-                {ECHO_AGENT.id}
-              </Text>
-            </div>
+
           </dl>
         </Surface>
       </CollapsibleContent>
@@ -458,47 +359,7 @@ interface AgentsSectionProps {
   navigateToSection?: (id: string) => void;
 }
 
-/** Resolve the currently-active provider routing from the settings
- *  snapshot. */
-function activeProviderKey(settings: SettingsSnapshot): ProviderKey {
-  if (settings.providers.defaultProviderId === 'mock-echo') return 'echo';
-  if (settings.providers.defaultProviderId === 'pydantic-ai-native') {
-    return 'pydantic_native';
-  }
-  return 'jvagent_embedded';
-}
-
 export function AgentsSection(_props: AgentsSectionProps = {}) {
-  const [settings, updateSettings] = useSettings();
-  const providersQuery = useQuery({
-    queryKey: ['chat-providers'],
-    queryFn: () => aiChatApi.listProviders(),
-    staleTime: 30_000,
-  });
-  const nativeAvailable = providersQuery.data?.some(
-    provider => provider.id === 'integral_native' && provider.available,
-  ) ?? false;
-  const nativeSelected =
-    settings.providers.defaultProviderId === 'pydantic-ai-native';
-  const visibleProviders = PROVIDERS.filter(
-    provider =>
-      provider.key !== 'pydantic_native' || nativeAvailable || nativeSelected,
-  );
-
-  const activeKey = activeProviderKey(settings);
-
-  const setActive = (key: ProviderKey) => {
-    const provider = PROVIDERS.find(p => p.key === key);
-    if (!provider) return;
-    updateSettings(prev => ({
-      ...prev,
-      providers: {
-        ...prev.providers,
-        defaultProviderId: provider.routingId,
-      },
-    }));
-  };
-
   return (
     <div className="flex flex-col gap-5">
       <div>
@@ -506,25 +367,17 @@ export function AgentsSection(_props: AgentsSectionProps = {}) {
           Agent
         </Text>
         <Text variant="body" tone="muted" as="p" className="mt-1">
-          Choose the AI assistant you want to work with in this workspace.
-          One assistant is active at a time.
+          Integral AI is your built-in resident assistant. Configure its model
+          in AI Models to start working with it.
         </Text>
       </div>
 
       <SettingsSection
         title="Active agent"
-        description="Choose who responds when you ask Integral for help."
+        description="Integral AI is included and always active. No harness configuration is required."
       >
         <div className="flex flex-col gap-3">
-          {visibleProviders.map(p => (
-            <ProviderGroup
-              key={p.key}
-              provider={p}
-              active={p.key === activeKey}
-              disabled={p.key === 'pydantic_native' && !nativeAvailable}
-              onActivate={() => setActive(p.key)}
-            />
-          ))}
+          <ProviderGroup provider={PROVIDERS[0]} />
           <AdvancedHarnessIds />
         </div>
       </SettingsSection>

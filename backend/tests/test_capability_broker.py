@@ -648,4 +648,30 @@ async def test_read_refusal_has_failed_receipt_and_repair_directive(
     assert result.error_code == "app_domain"
     assert result.data is None
     assert result.receipt.status == "failed"
-    assert result.next_tool == "integral_governed_query"
+    assert result.next_tool == "integral_describe_capabilities"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "principal, workspace, key, expected",
+    [
+        ("user-1", "ws-1", "recent_open", True),
+        ("other", "ws-1", "recent_open", False),
+        ("user-1", "other", "recent_open", False),
+        ("user-1", "ws-1", "echo", False),
+        ("user-1", "ws-1", "missing", False),
+    ],
+)
+async def test_generic_app_read_classification_is_server_bound(
+    run_store, principal, workspace, key, expected
+):
+    run_store["runs"]["run-1"] = _run()
+    assert (
+        await broker.is_declared_app_read(
+            principal_id=principal,
+            workspace_id=workspace,
+            run_id="run-1",
+            arguments={"app_id": "app-1", "operation_key": key},
+        )
+        is expected
+    )

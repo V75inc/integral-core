@@ -11,7 +11,7 @@ This test exercises the full substrate stack:
   4. Phase 2 + Plan 02 audit log: GET /api/audit-log returns the event
 
 The agent in this test is represented by a Subject(kind="agent", id="<id>").
-The full agentive HTTP write path (jvagent dispatching a chat -> entry creation)
+The full agentive HTTP write path (native provider dispatching a chat -> entry creation)
 is Phase 4+ scope; Plan 05 verifies the substrate end-to-end via direct engine
 invocation, which is the same single decision point every agentive surface
 flows through after Plan 02's atomic sweep.

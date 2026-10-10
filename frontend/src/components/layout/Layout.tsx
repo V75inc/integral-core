@@ -1,3 +1,4 @@
+/* patch:kanban-hire-host */
 import { Outlet, useLocation } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
 import { Sidebar } from './Sidebar';
@@ -12,16 +13,19 @@ import {
 import { useIsMdUp } from '../../hooks/useMediaQuery';
 import { useCrumbs } from '../../context/CrumbsContext';
 import { useScope } from '../../context/ScopeContext';
-import type { Crumb } from '../ui';
+import { KanbanHirePromptHost } from '../../features/kanbanHire/KanbanHirePromptHost';
 import { CommandPalette } from '../command/CommandPalette';
 import { useFirstLoginOnboarding } from '../../hooks/useFirstLoginOnboarding';
 import { OnboardingDockAutoOpen } from '../../features/ai-chat/dock/OnboardingDockAutoOpen';
 import { OnboardingGetStartedBanner } from '../onboarding/OnboardingGetStartedBanner';
+import { MustChangePasswordModal } from '../auth/MustChangePasswordModal';
+import { MemberAssignedFormPromptModal } from '../../features/memberAssignedForm/MemberAssignedFormPromptModal';
 import { EmailVerificationBanner } from './EmailVerificationBanner';
 import { getRegisteredLayoutBanners } from '../../host/registry';
 import { ChatPageFocusProvider } from '../../context/ChatPageFocusContext';
 import { useChangeEventInvalidation } from '../../hooks/useChangeEventInvalidation';
 import { useAgentiveWebSocket } from '../../hooks/useAgentiveWebSocket';
+import { stitchLayoutCrumbs } from './stitchLayoutCrumbs';
 
 function GraphMutationInvalidationWatcher() {
   useChangeEventInvalidation();
@@ -87,60 +91,12 @@ export function Layout() {
   const { crumbs } = useCrumbs();
   const { activeWorkspace } = useScope();
 
-  // Stitch a canonical breadcrumb prefix onto whatever each page
-  // publishes. Order: Home › [Workspace ›] <page tail>.
-  //   - "Home" links to / except when we're already on /, where it
-  //     renders as the plain current-page label.
-  //   - The workspace crumb is prepended on workspace-scoped surfaces
-  //     (anything that isn't /, a user-level page, or /agent) and
-  //     links to the active workspace's detail page.
-  //   - Pages that publish a duplicate "Home" or workspace-named entry
-  //     get those entries filtered from the tail.
-  const crumbsWithPrefix = useMemo<Crumb[]>(() => {
-    const isHomePath = location.pathname === '/';
-    const top = location.pathname.split('/').filter(Boolean)[0] ?? '';
-    // Surfaces that own their full viewport (e.g. /agent) opt out of
-    // the global breadcrumb chrome entirely — the page is responsible
-    // for whatever in-surface context it wants to show.
-    const CRUMBS_SUPPRESSED: ReadonlySet<string> = new Set(['agent']);
-    if (CRUMBS_SUPPRESSED.has(top)) return [];
-    const WORKSPACE_EXEMPT: ReadonlySet<string> = new Set([
-      'profile',
-      'settings',
-      'notifications',
-      'shared',
-      'workspaces',
-      'approvals',
-      'background-tasks',
-      'invitations',
-      'admin',
-    ]);
-
-    const prefix: Crumb[] = [
-      isHomePath ? { label: 'Home' } : { label: 'Home', to: '/' },
-    ];
-    const showWorkspace =
-      !isHomePath &&
-      !WORKSPACE_EXEMPT.has(top) &&
-      Boolean(activeWorkspace?.id) &&
-      Boolean(activeWorkspace?.name);
-    if (showWorkspace && activeWorkspace) {
-      prefix.push({
-        label: activeWorkspace.name,
-        to: `/workspaces/${activeWorkspace.id}`,
-      });
-    }
-
-    const tail = crumbs.filter((c) => {
-      if (c.label === 'Home') return false;
-      if (activeWorkspace?.name && c.label === activeWorkspace.name) {
-        return false;
-      }
-      return true;
-    });
-
-    return [...prefix, ...tail];
-  }, [crumbs, activeWorkspace, location.pathname]);
+  // Stitch a canonical breadcrumb prefix onto whatever each page publishes.
+  // See stitchLayoutCrumbs for Home › [Workspace ›] <page tail> rules.
+  const crumbsWithPrefix = useMemo(
+    () => stitchLayoutCrumbs(crumbs, location.pathname, activeWorkspace),
+    [crumbs, activeWorkspace, location.pathname],
+  );
   // First-login surface. When the agentive layer is reachable the dock
   // auto-opens seeded for onboarding (OnboardingDockAutoOpen); when it is
   // not, the GetStarted banner stands in so the UI never breaks just
@@ -301,6 +257,8 @@ export function Layout() {
       {/* First login opens the dock seeded for onboarding instead of a
           full-screen takeover — see OnboardingDockAutoOpen. */}
       <OnboardingDockAutoOpen />
+      <MustChangePasswordModal />
+      <MemberAssignedFormPromptModal />
 
       {/* Resident assistant — right-anchored dock plus its floating toggle.
           The dock squeezes <main> rather than covering it, so the page stays
@@ -309,6 +267,7 @@ export function Layout() {
       <AssistantDockToggle />
 
       {/* ⌘K command palette — mounted at root so it overlays any page. */}
+      <KanbanHirePromptHost />
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}

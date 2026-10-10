@@ -1,0 +1,69 @@
+{
+  "private_log_fingerprints": {
+    "verify-final.log": {
+      "sha256": "90be8c524526091cd2d6f6de5e0295998cc59497fa13d4d021740186e6fcda4a",
+      "bytes": 966130
+    },
+    "verify-ci-hermetic.log": {
+      "sha256": "54f0b993edd74d6b0e90361b4104c8c7cedf7c959469f8033c0dc74102f26e95",
+      "bytes": 4590
+    },
+    "postgres-final.log": {
+      "sha256": "14f890eb2854d6c161a81478cd6572110ba082c0c7b9be46425c216dae415f3f",
+      "bytes": 23984
+    },
+    "postgres-followup.log": {
+      "sha256": "c26387e20a6c6e044f9f2f1697919f51e6a6b8bceab5675b9ff28f0cadee4f58",
+      "bytes": 1925
+    },
+    "core-contract.log": {
+      "sha256": "984a6ea92844e5d53084195010781daf20b18b4270244d177fa649c9c626912a",
+      "bytes": 14988
+    },
+    "independent-artifacts.log": {
+      "sha256": "cf8c54a87cb5115adad9809b12a2a186633434cbcdd22003048d345c9c9a10f8",
+      "bytes": 393030
+    },
+    "dependency-audit.log": {
+      "sha256": "ec477bf6e19c95e1ae405b1891ac18b6ebef4919de9bf727286c4f7bd577b87a",
+      "bytes": 1000
+    },
+    "candidate-minimum-artifact.log": {
+      "sha256": "6a265164311167def4d8bafbe8e2cdf8fe95c8f6873c7410b2c34b2a7beb4ac8",
+      "bytes": 366
+    },
+    "candidate-minimum-build.log": {
+      "sha256": "e505b7c6004e0a36ab6eabbcbaa443afc8ca5262a4eaf931485735382c74b853",
+      "bytes": 345818
+    },
+    "candidate-minimum-pytest.log": {
+      "sha256": "6f13f54d1974be50958a34a287e6860e64fafc618f66c18b0126f3cac0d95649",
+      "bytes": 98
+    },
+    "minimum-python-pytest.log": {
+      "sha256": "0262c01681cf15a69c89146b864f8c6678eb9f4767e8e41ffef93659ad381933",
+      "bytes": 3639
+    },
+    "minimum-python-rejection.log": {
+      "sha256": "f651bdd279a9f6622c151e8ac7dcd4e3430073c076214a3a7f4f13e0b751ab8d",
+      "bytes": 524
+    },
+    "sync-minimum.log": {
+      "sha256": "852fb9df990e030365e8eaf44ea10a9f480c6015729cf0ad948ef2d66cb7f572",
+      "bytes": 360
+    },
+    "final-contract-followup.log": {
+      "sha256": "a4d2817372d11845a8f36310140c502302f1ec337e223f66db5010da4810e044",
+      "bytes": 13
+    },
+    "frontend-runner-followup.log": {
+      "sha256": "6414a9187ba468d93905ebf211eba6e0a8347fda95f83a4fb1537a22b2af63cd",
+      "bytes": 408
+    },
+    "policy-runner-regression.log": {
+      "sha256": "667de4fbad266e2721c4d8063857dfef4d0c4acccf766850f3d1d128d0a7d98e",
+      "bytes": 68
+    }
+  },
+  "privacy": "Full logs remain in the disposable local audit directory; only fingerprints are published."
+}

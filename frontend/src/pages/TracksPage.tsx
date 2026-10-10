@@ -31,6 +31,7 @@ import type { Track } from '../types';
 import { usePublishPageContext } from '../hooks/usePublishPageContext';
 import { upsertTrackInList } from '../utils/upsertTrackInList';
 import { resolveIdentityColor } from '../utils';
+import { isTrackNavVisible } from '../utils/trackNav';
 
 type SectionKind = 'tracks' | 'anchor';
 
@@ -137,6 +138,7 @@ export function TracksPage() {
   const q = search.trim().toLowerCase();
   const { filtered, sections } = useMemo(() => {
     const f = tracks.filter(t => {
+      if (!isTrackNavVisible(t)) return false;
       if (!q) return true;
       return (
         t.title.toLowerCase().includes(q) ||

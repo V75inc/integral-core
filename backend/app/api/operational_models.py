@@ -43,6 +43,9 @@ from app.services.app_graph import (
     get_track_attached_operational_model,
 )
 from app.services.change_event import emit_change_event
+from app.services.library_package_visibility import (
+    is_library_package_visible_for_workspace,
+)
 from app.services.operational_model_runtime import (
     compile_canonical_manifest,
     normalize_entry_type_form_schema,
@@ -127,6 +130,14 @@ def _is_visible_library_profile(profile: OperationalModel) -> bool:
     return slug not in _RETIRED_LIBRARY_SLUGS and name not in _RETIRED_LIBRARY_NAMES
 
 
+async def _resolve_active_workspace_for_library_list(
+    request: Request, user_id: str
+) -> Optional[str]:
+    from app.services.request_scope import resolve_workspace_id_from_request
+
+    return await resolve_workspace_id_from_request(request, user_id)
+
+
 @endpoint(
     "/operational-models", methods=["GET"], auth=True, tags=["Operational Models"]
 )
@@ -141,10 +152,15 @@ async def list_library_operational_models(
     locked-post-research §Q7 + §Q8, the helper is called inline (no MCP
     re-dispatch — Pitfall 6). Response gains ``_type_hint_matches`` (sorted
     descending) when ``type_hint`` is supplied.
+
+    Workspace-private library packages (``workspace_id`` set) are visible only
+    when the active request scope matches that workspace. Platform/seeded
+    packages (no ``workspace_id``) remain visible in every workspace.
     """
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
+    active_ws = await _resolve_active_workspace_for_library_list(request, user_id)
     reg = await OperationalModels.get(OPERATIONAL_MODELS_REGISTRY_ID)
     if not reg:
         result: Dict[str, Any] = {"operational_models": [], "total": 0}
@@ -162,11 +178,14 @@ async def list_library_operational_models(
         if getattr(p, "library_package", False)
         and (getattr(p, "metadata", None) or {}).get("seed_status") != "inactive"
         and _is_visible_library_profile(p)
+        and is_library_package_visible_for_workspace(p, active_ws)
     ]
     items = [await export_node(p) for p in lib_only]
     response: Dict[str, Any] = {"operational_models": items, "total": len(items)}
     if type_hint:
-        response["_type_hint_matches"] = await resolve_type_hint(type_hint)
+        response["_type_hint_matches"] = await resolve_type_hint(
+            type_hint, workspace_id=active_ws
+        )
     return response
 
 
@@ -185,6 +204,9 @@ async def get_library_operational_model(
         raise MissingAuthenticationError(message="Authentication required")
     cp = await OperationalModel.get(operational_model_id)
     if not cp or not getattr(cp, "library_package", False):
+        raise ResourceNotFoundError(message="Operational Model not found")
+    active_ws = await _resolve_active_workspace_for_library_list(request, user_id)
+    if not is_library_package_visible_for_workspace(cp, active_ws):
         raise ResourceNotFoundError(message="Operational Model not found")
     await _require_operational_model_scope(request, user_id, cp)
     return {"operational_model": await export_node(cp)}
@@ -2152,7 +2174,9 @@ async def get_operational_model_substrate(request: Request) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-async def resolve_type_hint(hint: str) -> List[Dict[str, Any]]:
+async def resolve_type_hint(
+    hint: str, *, workspace_id: Optional[str] = None
+) -> List[Dict[str, Any]]:
     """Resolve a free-text type_hint to ranked library packages.
 
     Per locked-post-research §Q7 + §Q8 (CONTEXT lock §"Locked: type_hint
@@ -2164,6 +2188,9 @@ async def resolve_type_hint(hint: str) -> List[Dict[str, Any]]:
         the same way.
       * ``score = len(hint_tokens & haystack_tokens) / len(hint_tokens)``.
       * Filter out score==0; sort descending.
+
+    When ``workspace_id`` is supplied, workspace-private packages belonging
+    to other workspaces are excluded (same rule as ``GET /operational-models``).
 
     Caller is responsible for the disambiguation policy (zero-match warning,
     single best-match adoption, tied-top-score 400). Pitfall 6: this is a
@@ -2189,6 +2216,8 @@ async def resolve_type_hint(hint: str) -> List[Dict[str, Any]]:
         if getattr(cp, "status", "published") != "published":
             continue
         if not _is_visible_library_profile(cp):
+            continue
+        if not is_library_package_visible_for_workspace(cp, workspace_id):
             continue
         pkg = (cp.manifest or {}).get("package") or {}
         # Plan 07-01 / I-LIB-01 — include manifest.package.tags in the

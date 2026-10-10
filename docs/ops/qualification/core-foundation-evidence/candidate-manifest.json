@@ -1,0 +1,25 @@
+{
+  "source_base_revision": "3987b3b99d92762a92369fd4077cf31698a89fd1",
+  "package_version": "0.1.1rc16",
+  "runtime_source_fingerprint": "c623dbf4a1940dc62f0c06b3465aabce736145e5ae5c707801ec082108bcbfdf",
+  "source_file_count": 1758,
+  "wheel_path": "/Users/eldonmarks/Briefcase/dev/integral-core/dist/core-foundation/integral_core-0.1.1rc16-py3-none-any.whl",
+  "wheel_sha256": "3d8f251bfcf2c58050a7e2d204cb80648f63fd0645787e681d13e35e7f04a200",
+  "wheel_bytes": 5267596,
+  "frontend_build": "VITE_API_URL= npm run build -- --outDir /tmp/integral-core-foundation-audit/frontend-candidate",
+  "qualification_scope": "direct native chat, synthetic local PostgreSQL installation, Ollama routed cloud model; no hosted publication",
+  "source_date_epoch": 1791575438,
+  "qualification_dependencies": {
+    "python": "3.11.15",
+    "jvspatial": "0.1.1",
+    "pydantic-ai-harness": "0.36.0",
+    "pydantic-ai-slim": "2.54.0",
+    "litellm": "1.101.6",
+    "openai": "2.54.0"
+  },
+  "reproducible_wheel": true,
+  "audited_change_count": 34,
+  "audited_change_manifest": "source-changes.json",
+  "audit_source_patch_sha256": "2ded5b6d04b864084131bfe793787ab027d2a1bfc4e99d32bc36fd53199a3ed2",
+  "requires_python": ">=3.11"
+}

@@ -8,7 +8,6 @@ from typing import Any
 
 from app.agentive.work_models import WorkItem
 from app.api.errors import ResourceConflictError
-from app.models.harness_records import HarnessTurnAdmissionSlot
 from app.models.nodes import ChatThread
 from app.schemas.agentive.work import TERMINAL_WORK_STATUSES, WorkError
 
@@ -189,14 +188,23 @@ async def reserve_chat_turn_admission(
 
 
 async def release_chat_turn_admission_in_transaction(
-    *, transaction: Any, thread: ChatThread | None, work_item_id: str
+    *,
+    transaction: Any,
+    thread: ChatThread | None,
+    work_item_id: str,
+    thread_id: str = "",
 ) -> None:
     """Release exact matching slot/pointer; safe to call repeatedly."""
-    slots = await HarnessTurnAdmissionSlot.find({"work_item_id": work_item_id})
+    # Read within the caller's transaction, including kernel-owned transactions
+    # that have not rebound GraphContext. Never depend on a cached thread.
+    slots = await transaction.find(
+        OBJECT_COLLECTION,
+        {"entity": "HarnessTurnAdmissionSlot", "context.work_item_id": work_item_id},
+    )
     for slot in slots:
         await transaction.find_one_and_update(
             OBJECT_COLLECTION,
-            {"id": slot.id, "context.work_item_id": work_item_id},
+            {"id": slot["id"], "context.work_item_id": work_item_id},
             {
                 "$set": {
                     "context.workspace_id": "",
@@ -208,18 +216,27 @@ async def release_chat_turn_admission_in_transaction(
             },
         )
 
-    if thread is None or getattr(thread, "active_work_item_id", "") != work_item_id:
+    target_thread_id = thread.id if thread is not None else thread_id
+    record = (
+        await transaction.get(NODE_COLLECTION, target_thread_id)
+        if target_thread_id
+        else None
+    )
+    if record is None or record.get("entity") != "ChatThread":
+        return
+    context = record.get("context") or {}
+    if context.get("active_work_item_id") != work_item_id:
         return
     await transaction.find_one_and_update(
         NODE_COLLECTION,
         {
-            "id": thread.id,
+            "id": target_thread_id,
             "context.active_work_item_id": work_item_id,
         },
         {
             "$set": {
                 "context.active_work_item_id": "",
-                "context.updated_at": _next_updated_at(thread.updated_at),
+                "context.updated_at": _next_updated_at(context.get("updated_at")),
             }
         },
     )

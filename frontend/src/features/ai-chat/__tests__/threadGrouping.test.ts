@@ -25,10 +25,10 @@ describe("groupThreadsByRecency", () => {
     ];
     const g = groupThreadsByRecency(ordered, NOW);
 
-    expect(g.get("a")).toEqual({ label: "Today", isFirst: true });
-    expect(g.get("b")).toEqual({ label: "Today", isFirst: false });
-    expect(g.get("c")).toEqual({ label: "Yesterday", isFirst: true });
-    expect(g.get("d")).toEqual({ label: "Previous 7 days", isFirst: true });
+    expect(g.get("a")).toEqual({ label: "Today · Morning", isFirst: true });
+    expect(g.get("b")).toEqual({ label: "Today · Morning", isFirst: false });
+    expect(g.get("c")).toEqual({ label: "Yesterday · Morning", isFirst: true });
+    expect(g.get("d")).toEqual({ label: "Monday, Mar 16", isFirst: true });
     expect(g.get("e")).toEqual({ label: "Previous 30 days", isFirst: true });
     // 90 days before 2026-03-20 → 2025-12-20.
     expect(g.get("f")).toEqual({ label: "December 2025", isFirst: true });
@@ -41,7 +41,7 @@ describe("groupThreadsByRecency", () => {
 
   it("treats future timestamps (clock skew) as Today", () => {
     const g = groupThreadsByRecency([{ id: "x", ts: NOW + 2 * DAY }], NOW);
-    expect(g.get("x")?.label).toBe("Today");
+    expect(g.get("x")?.label).toBe("Today · Afternoon");
   });
 
   it("separate months get distinct buckets, each first-flagged", () => {
@@ -54,6 +54,18 @@ describe("groupThreadsByRecency", () => {
     );
     expect(g.get("m1")).toEqual({ label: "February 2026", isFirst: true });
     expect(g.get("m2")).toEqual({ label: "January 2026", isFirst: true });
+  });
+
+  it("splits a busy day into local time periods", () => {
+    const g = groupThreadsByRecency([
+      { id: "evening", ts: at(0, 20) },
+      { id: "afternoon", ts: at(0, 14) },
+      { id: "morning", ts: at(0, 9) },
+      { id: "night", ts: at(0, 2) },
+    ], at(0, 22));
+    expect([...g.values()].map(v => v.label)).toEqual([
+      "Today · Evening", "Today · Afternoon", "Today · Morning", "Today · Overnight",
+    ]);
   });
 
   it("returns an empty map for no threads", () => {

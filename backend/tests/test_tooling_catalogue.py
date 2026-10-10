@@ -24,7 +24,7 @@ def test_every_array_param_declares_items():
     declare ``items`` so the catalogue is portable across providers.
 
     Regression guard: ``integral_bulk_*`` ``entry_ids`` shipped as a bare
-    ``type: array`` and jvagent logged a schema-validation warning at load.
+    ``type: array`` and native provider logged a schema-validation warning at load.
     """
 
     def walk(node, path):

@@ -23,6 +23,7 @@ import { AttachmentViewerModal } from './AttachmentViewerModal';
 
 interface AttachmentRowListProps {
   attachments: Attachment[];
+  layout?: 'list' | 'strip';
   canDelete?: boolean;
   onDeleted?(attachmentId: string): void;
   canSetCardPreview?: boolean;
@@ -38,6 +39,7 @@ interface AttachmentRowListProps {
 
 export function AttachmentRowList({
   attachments,
+  layout = 'list',
   canDelete = false,
   onDeleted,
   canSetCardPreview = false,
@@ -173,7 +175,7 @@ export function AttachmentRowList({
 
   return (
     <>
-      <div className="space-y-1">
+      <div className={layout === 'strip' ? 'grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3' : 'space-y-1'}>
         {attachments.map((att) => (
           <AttachmentRow
             key={att.id}

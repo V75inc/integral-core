@@ -1,0 +1,26 @@
+{
+  "question": "",
+  "run_id": "1cdea1ce-488c-49bf-a559-6caa6312d9b0",
+  "status": {
+    "type": "complete",
+    "reason": "stop"
+  },
+  "model_requests": 2,
+  "reported_input_tokens": 39860,
+  "reported_output_tokens": 217,
+  "tool_steps": 1,
+  "cost_sources": [
+    "unavailable"
+  ],
+  "tools": [
+    {
+      "tool": "integral_resolve_entry",
+      "arguments": {
+        "entry_id": "n.Entry.93e1077958e54b3fae1eb71e"
+      },
+      "error": false,
+      "result_bytes": 2267
+    }
+  ],
+  "answer": "Approved and applied \u2014 verified by read-back.\n\n- [Foundation Approval Smoke](/tracks/n.Track.bbf320084e1d4c288ef46422?entry=n.Entry.93e1077958e54b3fae1eb71e) now exists in [Foundation Tasks](/tracks/n.Track.bbf320084e1d4c288ef46422) as a `post`, body `Synthetic approval test`, status `active`, record revision 1. No rollback or error recorded.\n\nNo further work taken on this host turn."
+}

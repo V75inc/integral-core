@@ -18,7 +18,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 LANES = {
     "repository": ["make", "verify"],
     "core-only": ["make", "verify-core-only"],
@@ -80,7 +79,7 @@ def main() -> int:
         "git_revision": _git_revision(root),
         "runtime_versions": {"python": sys.version, "platform": platform.platform()},
         "non_secret_configuration_digest": _configuration_digest(),
-        "fixture_manifest": "docs/product/evidence/phase-0-qualification-manifest.yaml",
+        "fixture_manifest": "backend/tests/fixtures/qualification/contracts/phase-0-qualification-manifest.yaml",
         "log": str(log_path.relative_to(root)),
     }
     record_path = output_dir / f"{stamp}-{args.lane}.json"

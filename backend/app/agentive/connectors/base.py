@@ -30,7 +30,7 @@ class ChatTurnResult:
 
 
 class AgentChatConnector:
-    """Implement for each external agent runtime (jvagent, Claude API, …)."""
+    """Implement for each external agent runtime (agent runtime, Claude API, …)."""
 
     async def send_turn(
         self,

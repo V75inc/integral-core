@@ -172,3 +172,46 @@ async def test_text_adapter_never_fans_out_across_pending_proposals(monkeypatch,
     assert result["parsed"] == 0
     assert result["reason"] == "select_one_pending_action"
     assert result["pending_count"] == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "source,state,error,allowed",
+    [
+        ("card", "blessed", {"code": "apply_failed"}, True),
+        ("chat", "blessed", {"code": "apply_failed"}, False),
+        ("card", "blessed", None, False),
+        ("card", "consumed", {"code": "apply_failed"}, False),
+    ],
+)
+async def test_only_failed_card_can_resume_blessed_proposal(
+    monkeypatch, source, state, error, allowed
+):
+    monkeypatch.setattr(
+        decisions,
+        "get_token",
+        lambda _: _immediate(staged(state=state, last_error=error)),
+    )
+    calls = []
+
+    async def execute(**kwargs):
+        calls.append(kwargs)
+        return {"consumed": True, "staged_change": {"state": "consumed"}}
+
+    monkeypatch.setattr(decisions, "bless_and_execute", execute)
+    args = dict(
+        principal_id="principal-1",
+        proposal_id="proposal-1",
+        decision="approve",
+        source=source,
+        workspace_id="workspace-1",
+        conversation_id="conversation-1",
+    )
+    if allowed:
+        result = await decisions.decide_staged_write(**args)
+        assert result["ok"]
+        assert calls[0]["token"] == "proposal-1"
+    else:
+        with pytest.raises(StagingError):
+            await decisions.decide_staged_write(**args)
+        assert not calls

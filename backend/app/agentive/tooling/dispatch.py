@@ -123,7 +123,7 @@ class ToolResult:
     ``error_code`` and a human ``message``; ``data`` stays ``None``.
 
     ``next_tool`` names the tool the resident must call before it may reply,
-    set on refusals it can repair without the user. jvagent's directive
+    set on refusals it can repair without the user. agent runtime's directive
     contract enforces it, so "I'll fix that and retry" cannot end the turn.
     """
 
@@ -221,13 +221,20 @@ def _read_refusal(data: Any) -> Optional[ToolResult]:
             "The read was refused; no records were queried. Do not report an "
             "empty result or a zero count. "
             + (
-                "Use integral_governed_query in declared_capability mode for "
-                "the App's declared query, then report only its successful result."
+                "Inspect integral_describe_capabilities for a permitted declared "
+                "query belonging to this App. Use integral_governed_query in "
+                "declared_capability mode only with a verified matching key. If "
+                "none is exposed, report that the App has no available record "
+                "query. A permitted integral_resolve_entry lookup of a known "
+                "record ID remains available; it cannot enumerate unknown records. "
+                "Do not invent keys, try other broad generic queries, or use "
+                "another App's query to work around this refusal. A saved-write "
+                "receipt is evidence of that write, not a fresh record read."
                 if declared
                 else "Report the refusal without inferring any record count."
             )
         ),
-        next_tool="integral_governed_query" if declared else "",
+        next_tool="integral_describe_capabilities" if declared else "",
     )
 
 
@@ -375,7 +382,7 @@ async def dispatch_tool(
             frontend inbox scopes the card to the right conversation. Approval
             remains specific to each staged change. The
             external MCP / consent dispatch surfaces omit it (default ``None``).
-        interaction_id: Optional jvagent Interaction id of the prepare-X turn
+        interaction_id: Optional agent runtime Interaction id of the prepare-X turn
             that minted the token. Threaded through so the closure-recording path
             updates THAT interaction's response with the
             ``[SYSTEM:STAGING-RESOLVED]`` marker. Omitted off the external
@@ -407,12 +414,12 @@ async def dispatch_tool(
                 return result
 
         # Prompt Sheet sequester: while the thread has an open queue with
-        # unresolved items, refuse further *write* tools. Reads stay open so
-        # the model can resolve the next named target (list_tracks / schema)
-        # before it stops for approval — otherwise a multi-part request
-        # (delete on track A, seed track B) cannot discover B until resume,
-        # then inherits A's focus. ``integral_propose_design`` stays exempt
-        # so a mid-flight amend can replace the pending design card.
+        # unresolved items, refuse *execute* / unknown tools. Propose tools
+        # stay open so a multi-delete (or multi-create) can enqueue sheet
+        # items 1/N…N/N in one turn — the sheet already pages pending writes.
+        # Reads stay open so the model can resolve the next named target.
+        # ``integral_propose_design`` stays exempt so a mid-flight amend can
+        # replace the pending design card.
         from app.services.prompt_queue import session_queue_is_open
 
         if (
@@ -421,15 +428,16 @@ async def dispatch_tool(
             and await session_queue_is_open(session_id)
         ):
             peek = _registry().get(name)
-            if peek is None or peek.op_class != "read":
+            if peek is None or peek.op_class not in ("read", "propose"):
                 result = ToolResult(
                     is_error=True,
                     error_code="prompt_queue_open",
                     message=(
                         "A prompt sheet is open waiting for the user. Do not "
-                        "stage or execute more writes until they resolve or "
-                        "cancel the prompts. Read tools remain available so "
-                        "you can resolve the next target before stopping."
+                        "execute more writes until they resolve or cancel the "
+                        "prompts. Propose tools may still stage additional "
+                        "approvals onto the sheet; read tools remain available "
+                        "so you can resolve the next target before stopping."
                     ),
                 )
                 return result
@@ -787,7 +795,17 @@ async def _maybe_stage_mcp_write(
     from app.agentive.services.connector_registry_node import decrypt_auth_state
 
     connector_id = str(spec.get("_mcp_connector_id") or "")
-    connector = await Connector.get(connector_id)
+    if not connector_id and spec.get("_mcp_connector_slug"):
+        from app.agentive.connectors.connector_resolution import resolve_connector_row
+
+        connector = await resolve_connector_row(
+            workspace_id=scope or "",
+            slug=str(spec["_mcp_connector_slug"]),
+            principal_id=principal_id,
+        )
+        connector_id = str(connector.id)
+    else:
+        connector = await Connector.get(connector_id)
     auth_state = decrypt_auth_state(getattr(connector, "auth_state", None) or {})
     if not is_write_tool(spec, auth_state=auth_state):
         return None
@@ -925,7 +943,9 @@ async def _dispatch_bundle_tool(
     #
     # Only the resident path stages. A human calling the tool directly IS the
     # approver, and has no session to hang a card on.
-    if session_id and spec.get("_mcp_connector_id"):
+    if session_id and (
+        spec.get("_mcp_connector_id") or spec.get("_mcp_connector_slug")
+    ):
         staged = await _maybe_stage_mcp_write(
             name,
             spec,
@@ -1011,7 +1031,7 @@ async def _dispatch_service_read(
         if sig is not None and "workspace_id" in sig.parameters:
             kwargs["workspace_id"] = scope
 
-    if session_id and "session_id" not in kwargs:
+    if "session_id" not in kwargs:
         try:
             sig = inspect.signature(service_fn)
         except (TypeError, ValueError):
@@ -1359,6 +1379,7 @@ async def _dispatch_propose(
         create_staged_change,
         is_batch_open,
         open_batch,
+        peek_open_batch,
     )
     from app.services.chat_threads import design_proposed_pending
 
@@ -1416,14 +1437,17 @@ async def _dispatch_propose(
             "batched": True,
             "kind": staged["kind"],
             "summary": staged["summary"],
-            "batch_size": count,
+            "batch_size": (peek_open_batch(principal_id, session_id) or {}).get(
+                "op_count", count
+            ),
+            "result_ref": f"{{{{step_{count}.id}}}}",
             "batch_auto_opened": batch_auto_opened,
             "next": (
-                "Batch is open. Stage remaining scaffold ops "
-                '(create_app_track with app_id="{{app.id}}", views, demo '
-                "entries as needed), then call integral_commit_batch. Do not "
-                "tell the user the app exists until commit returns "
-                "batch_applied / applied=true."
+                "This operation is queued, not applied. Stage the remaining "
+                "requested operations, using result_ref for links to this "
+                "operation's new record, then call integral_commit_batch once. "
+                "References may only point to earlier creation steps. Wait "
+                "for the approved batch receipt before claiming records exist."
             ),
         }
         if batch_auto_opened:

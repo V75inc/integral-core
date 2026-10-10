@@ -4,7 +4,6 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.agentive.connectors import ChatTurnContext
-from app.agentive.connectors.jvagent_connector import JvAgentConnector
 from app.agentive.services.uplink_registry import AgentConnection, uplink_registry
 from app.main import app
 
@@ -23,7 +22,7 @@ async def test_chat_message_with_mock_connector(authenticated_client, monkeypatc
 
     fake_conn = AgentConnection(
         config_id="cfg_sys_test",
-        agent_type="jvagent",
+        agent_type="integral_native",
         uplink_url="",
         capabilities=[],
         scope="system",
@@ -87,7 +86,7 @@ async def test_register_system_requires_service_key():
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         r = await ac.post(
             "/api/agentive/uplink/register-system",
-            json={"jvagent_agent_id": "ag_test"},
+            json={"agent_type": "integral_native"},
         )
     assert r.status_code == 401
 
@@ -101,8 +100,7 @@ async def test_register_system_and_heartbeat_with_service_key():
             "/api/agentive/uplink/register-system",
             headers={"X-Integral-Service-Key": sk},
             json={
-                "jvagent_agent_id": "ag_integration_test",
-                "jvagent_base_url": "http://127.0.0.1:9",
+                "agent_type": "integral_native",
                 "capabilities": [],
             },
         )
@@ -121,37 +119,3 @@ async def test_register_system_and_heartbeat_with_service_key():
     assert hb.json().get("status") == "alive"
 
     uplink_registry._agents.pop(cid, None)
-
-
-@pytest.mark.asyncio
-async def test_jvagent_connector_maps_response(monkeypatch):
-    import httpx
-
-    async def fake_post(self, url, **kwargs):
-        req = httpx.Request("POST", url)
-        return httpx.Response(
-            200,
-            json={
-                "user_id": "u@example.com",
-                "session_id": "sess_1",
-                "response": "Hi there",
-            },
-            request=req,
-        )
-
-    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
-    monkeypatch.setattr(
-        "app.agentive.connectors.jvagent_connector.settings.JVAGENT_BASE_URL",
-        "http://localhost:1",
-    )
-    monkeypatch.setattr(
-        "app.agentive.connectors.jvagent_connector.settings.INTEGRAL_JVAGENT_AGENT_ID",
-        "ag_x",
-    )
-
-    conn = JvAgentConnector()
-    ctx = ChatTurnContext(email="u@example.com", message="hello")
-    out = await conn.send_turn(ctx, preferences={})
-    assert out.error is None
-    assert out.message == "Hi there"
-    assert out.session_id == "sess_1"

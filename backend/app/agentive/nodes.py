@@ -48,7 +48,7 @@ class AgentConfig(Node):
     # ``facet = scope`` on create/update paths (Full Sweep F1).
     facet: Optional[str] = None
     # D-09: shared AgentType Literal in app/agentive/types.py
-    agent_type: AgentType = "jvagent"
+    agent_type: AgentType = "integral_native"
     persona: str = ""  # System prompt / personality override
     # Soft-tombstone (ADR-003 / Full Sweep F3): write-ignored descriptive
     # metadata. Readers MUST NOT enforce A2A discovery, delegation, or
@@ -93,7 +93,7 @@ class AgentConfig(Node):
 class ConversationContext(Node):
     """Bridges an agent's conversation to Integral's productivity entities.
 
-    Agent-agnostic: works with jvagent, Claude Code, Open Claw, or any agent.
+    Agent-agnostic: works with agent runtime, Claude Code, Open Claw, or any agent.
     Supports hierarchical contexts (workspace-facing agent conversations scoped
     to a specific external user's access level).
     """
@@ -101,7 +101,7 @@ class ConversationContext(Node):
     # ConversationContext.agent_type stays `str` until tightened in a later phase
     # (current default `""` is not a valid AgentType Literal value; legacy strings
     # like "claude_code" / "open_claw" map to "custom" once tightened).
-    agent_type: str = ""  # "jvagent" | "claude_code" | "open_claw" | "custom"
+    agent_type: str = ""  # "integral_native" | "claude_code" | "open_claw" | "custom"
     agent_conversation_id: str = ""  # Foreign key to agent's conversation
     user_id: str = ""  # The Integral user this conversation serves
     agent_config_id: Optional[str] = None  # Links to AgentConfig for capability lookup
@@ -138,7 +138,9 @@ class Connector(Node):
     - capabilities: D-10 — Phase 1 stores; Phase 6 enforces capability-scoped dispatch
     """
 
-    kind: AgentType = "jvagent"  # D-09 Literal — same enum as AgentConfig.agent_type
+    kind: AgentType = (
+        "integral_native"  # D-09 Literal — same enum as AgentConfig.agent_type
+    )
     auth_state: Dict[str, Any] = Field(default_factory=dict)
     sync_cursor: Optional[str] = None
     mapping_profile: Optional[str] = None

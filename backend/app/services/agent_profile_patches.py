@@ -186,11 +186,15 @@ def _op_modify_field(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:
     patch = op.get("patch") or {}
     if not (et_key and field_key) or not isinstance(patch, dict):
         raise BadRequestError(
-            message="modify_field requires entry_type + field_key + patch"
+            message="modify_field requires entry_type + field_key + a non-empty patch"
+        )
+    if not patch:
+        raise BadRequestError(
+            message="modify_field requires entry_type + field_key + a non-empty patch"
         )
     if "key" in patch or "type" in patch:
         raise BadRequestError(
-            message="modify_field cannot change key or type; use rename_field or change_field_type"
+            message="modify_field cannot change field_key or type; use rename_field or change_field_type"
         )
     tier, _ = _resolve_track_tier(manifest, op.get("track"))
     for et in tier.get("entry_types") or []:
@@ -202,6 +206,41 @@ def _op_modify_field(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:
     raise BadRequestError(
         message=f"field '{field_key}' on entry type '{et_key}' not found"
     )
+
+
+def coerce_modify_field(operation: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize common modify-field argument aliases to the patch DSL shape.
+
+    This only normalizes the operation envelope. The canonical patch handler
+    still validates the target and refuses changes to field keys or types.
+    """
+    op = dict(operation or {})
+    entry_type = op.get("entry_type") or op.get("entry_type_key")
+    field_key = op.get("field_key") or op.get("key")
+    field_alias = op.get("field")
+    alias_patch: Dict[str, Any] = {}
+    if isinstance(field_alias, str):
+        field_key = field_key or field_alias
+    elif isinstance(field_alias, dict):
+        field_key = field_key or field_alias.get("key")
+        alias_patch = {
+            key: value
+            for key, value in field_alias.items()
+            if key not in {"key", "type"}
+        }
+
+    patch = op.get("patch")
+    if not isinstance(patch, dict) or not patch:
+        patch = {key: op[key] for key in ("name", "type") if key in op}
+    patch = {**alias_patch, **patch}
+
+    return {
+        "op": "modify_field",
+        "entry_type": str(entry_type or "").strip(),
+        "field_key": str(field_key or "").strip(),
+        "patch": dict(patch),
+        **({"track": op["track"]} if op.get("track") else {}),
+    }
 
 
 def _migration(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:
@@ -590,5 +629,6 @@ def apply_operations(
                     f"{', '.join(supported_ops())}"
                 )
             )
-        handler(out, raw)
+        operation = coerce_modify_field(raw) if kind == "modify_field" else raw
+        handler(out, operation)
     return out

@@ -80,7 +80,7 @@
   --surface-raised: var(--panel-2);
 
   /* System notices use dark chrome with theme-specific contrast. */
-  --system-bar-bg: #101011;
+  --system-bar-bg: #2f2f2f;
   --system-bar-fg: #f7f7f7;
   --system-bar-muted: #c4c4c7;
   --system-bar-border: #303033;
@@ -159,13 +159,8 @@
   --dur-deliberate: 480ms;
   --dur-zoom:       540ms;
 
-  /* ── Brand mark gradient (light theme) ──────────────────── */
-  /* Logo mark renders as a dark rounded square on the paper-white
-     canvas, with a faint diagonal gradient for depth. The inner
-     cutout takes --bg so the mark reads as a frame around the
-     canvas color (matches the Direction A spec). */
-  --logo-mark-from: #0b0b0c;
-  --logo-mark-to:   #2d2d2d;
+  /* Approved monochrome mark; inset cutouts remain transparent. */
+  --logo-mark: #000;
 
   /* ── Scrollbar ──────────────────────────────────────────── */
   --scrollbar-thumb:       #d6d6da;
@@ -215,13 +210,17 @@
   --z-max:           100;   /* skip link and nothing else */
 
   /* ── Dialog dimensions (template-layer source of truth) ───
-     Three semantic widths govern every modal in the app. See
+     Four semantic widths govern every modal in the app. See
      .planning/ui-templating/TOKENS.md and the FE layering ADR for
      when each applies. New modals MUST pick from this set, not
      invent new arbitrary widths. */
   --dialog-w-confirm: 480px;   /* short prompts: ConfirmDialog */
   --dialog-w-form:    720px;   /* control modals: forms, multi-step flows, pickers (standard) */
   --dialog-w-wide:    1024px;  /* media viewers, pixel-perfect canvases */
+  /* Multi-pane builders (View Designer): nearly full editorial width. */
+  --dialog-w-workspace: min(96vw, 1480px);
+  /* Expanded builder — almost edge-to-edge for wide tables / previews. */
+  --dialog-w-workspace-max: min(98vw, 1920px);
   /* Companion column inside a dialog (Modal `sidePanel`): comments,
      attachments, activity. `dialog-w-form` + this ≈ `dialog-w-wide`, which is
      the width a dialog widens to when the column opens. 380px so three
@@ -257,12 +256,12 @@
   --surface: var(--panel);
   --surface-raised: var(--panel-2);
 
-  /* A warmer notice surface stays distinct from the charcoal app chrome. */
-  --system-bar-bg: #452b28;
-  --system-bar-muted: #e1cbc1;
-  --system-bar-border: #855047;
-  --system-bar-hover: #613b35;
-  --system-bar-info-fg: #ffc19f;
+  /* Shared graphite background in both themes. */
+  --system-bar-bg: #2f2f2f;
+  --system-bar-muted: #cac7c2;
+  --system-bar-border: #403c38;
+  --system-bar-hover: #36322e;
+  --system-bar-info-fg: #ece7df;
 
   --entry-table-border: #484848;
   --entry-table-divider: #3d3d3d;
@@ -320,11 +319,8 @@
 
   /* radii / motion inherit from :root */
 
-  /* ── Brand mark gradient (dark theme) ───────────────────── */
-  /* Light gradient against the charcoal canvas — keeps the mark
-     legible without glowing. */
-  --logo-mark-from: #ededed;
-  --logo-mark-to:   #c8c8c8;
+  /* Approved reverse mark on dark surfaces. */
+  --logo-mark: #fff;
 
   /* ── Scrollbar ──────────────────────────────────────────── */
   --scrollbar-thumb:       #3a3a3a;
@@ -989,7 +985,7 @@
   }
 
   /* ── Auth page patterned background ──────────────────────────
-     AuthPageLayout uses a slow-pulsing square motif, with no color wash
+     AuthPageLayout uses a stationary square motif, with no color wash
      behind the copy. Decorative layers are aria-hidden and pointer-free. */
 
   .auth-page {
@@ -1037,42 +1033,22 @@
   .auth-ripple-circle:nth-child(2) { animation-delay: 2.3s; }
   .auth-ripple-circle:nth-child(3) { animation-delay: 4.6s; }
 
-  /* Auth pages use rounded-square waves that echo the Integral mark. Start
-     each pulse close to the center so its outward movement reads clearly. */
+  /* Keep the split-square motif inside the hero column. The desktop row is
+     sized by the form, so its ornament cannot grow beyond the form's height. */
   .auth-ripple--auth {
+    width: 100%;
+    height: 100%;
     opacity: 0.14;
   }
-  @media (min-width: 768px) {
-    .auth-ripple--auth {
-      left: 29%;
-      width: 58%;
-    }
-  }
-  .auth-ripple-square {
+  .auth-ripple-mark {
     fill: none;
     stroke: var(--auth-accent, var(--brand-accent));
     stroke-width: 6;
-    vector-effect: non-scaling-stroke;
-    transform-origin: center;
-    transform-box: fill-box;
-    animation: auth-square-ripple-pulse 12s linear infinite;
   }
-  .auth-ripple-square:nth-child(2) { animation-delay: 4s; }
-  .auth-ripple-square:nth-child(3) { animation-delay: 8s; }
-  .auth-ripple-square--frame {
-    animation: none;
-  }
-
-  @media (min-width: 768px) {
-    .auth-hero-copy {
-      position: absolute;
-      top: 50%;
-      left: calc(29vw - max(20px, (100vw - 1120px) / 2) - min(29vw, 310px));
-      width: min(58vw, 620px);
-      max-width: none;
-      transform: translateY(-50%);
-      text-align: center;
-    }
+  .auth-ripple-mark path { vector-effect: non-scaling-stroke; }
+  .auth-hero-copy {
+    position: relative;
+    z-index: 1;
   }
 
   @keyframes auth-ripple-pulse {
@@ -1080,12 +1056,7 @@
     25%  { opacity: 0.55; }
     100% { transform: scale(1.0);  opacity: 0; }
   }
-  @keyframes auth-square-ripple-pulse {
-    0%   { transform: scale(0.14); opacity: 0; stroke-width: 6; }
-    8%   { transform: scale(0.21); opacity: 0.9; stroke-width: 6; }
-    55%  { opacity: 0.62; stroke-width: 4.5; }
-    100% { transform: scale(1); opacity: 0; stroke-width: 1.2; }
-  }
+
 
   /* System notification bar — slide-down entrance.
      Uses CSS classes (not inline style) so React renders don't reset the
@@ -1397,5 +1368,23 @@
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
+  }
+}
+
+/* Entry reading width changes when utility and assistant panels open. */
+.entry-page-container {
+  container-type: inline-size;
+  container-name: entry-page;
+}
+@container entry-page (max-width: 640px) {
+  .entry-page-container .entry-page-header-title {
+    flex: 0 0 100%;
+    width: 100%;
+  }
+  .entry-meta-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .entry-meta-grid > * {
+    grid-column: 1 / -1;
   }
 }
