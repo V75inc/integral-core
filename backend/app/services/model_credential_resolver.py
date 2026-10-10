@@ -13,10 +13,7 @@ from app.models.credentials import UserModelCredential
 from app.schemas.model_credentials import SPEECH_CAPABLE_PROVIDERS
 from app.services.model_credentials import (
     decrypt_credential_api_key,
-    decrypt_credential_heavy_api_key,
-    decrypt_credential_light_api_key,
     decrypt_credential_speech_api_key,
-    decrypt_credential_vision_api_key,
     get_active_credential_for_user,
     touch_credential_last_used,
 )
@@ -43,10 +40,10 @@ _LITELLM_PROVIDER_ROUTES = {
 def litellm_model_id(provider: str, model: str) -> str:
     """Compose a stored ``provider`` + bare ``model`` into LiteLLM's id form.
 
-    The agent is LiteLLM-only (ADR-0045), so the provider must travel *inside*
+    The native model adapter uses LiteLLM, so the provider must travel *inside*
     the model id -- LiteLLM infers the route from the prefix and rejects a bare
     id with "LLM Provider NOT provided". Integral stores the two separately
-    because per-provider model actions used to pick the route.
+    for credential validation and provider-specific UI.
 
     Idempotent on an id the user already prefixed with its own provider. Note
     the check is deliberately ``<provider>/`` and not merely "contains a slash":
@@ -66,44 +63,10 @@ def litellm_model_id(provider: str, model: str) -> str:
     return f"{route}/{model_id}"
 
 
-def _slot_entry(
-    provider: str,
-    model: str,
-    api_key: str,
-) -> Dict[str, str]:
-    # ``litellm`` as the slot provider routes dispatch to
-    # LiteLLMLanguageModelAction deterministically. Sending the stored slug
-    # instead resolves to a per-provider action the agent no longer enables,
-    # and dispatch falls through with the model id uncomposed.
-    entry = {
-        "provider": "litellm",
-        "model": litellm_model_id(provider, model),
-    }
-    # Omitting the key is important for local Ollama: LiteLLM turns an empty
-    # string into ``Authorization: Bearer `` which local Ollama rejects.
-    if provider != "ollama_local" or api_key:
-        entry["api_key"] = api_key
-    return entry
-
-
-def _optional_slot(
-    *,
-    model: str,
-    provider: str,
-    default_provider: str,
-    api_key: str,
-) -> Optional[Dict[str, str]]:
-    model_id = (model or "").strip()
-    if not model_id:
-        return None
-    slug = (provider or default_provider or "").strip()
-    return _slot_entry(slug, model_id, api_key)
-
-
 def _credential_funds_byok(record: UserModelCredential) -> bool:
     """True when the active credential would drive execution as owner BYOK.
 
-    Matches ``resolve_agent_model_override``: keyless ``ollama_local`` is a
+    Matches ``resolve_native_model_override``: keyless ``ollama_local`` is a
     valid local BYOK configuration; other providers need a decryptable key.
     """
     default_provider = (getattr(record, "provider", None) or "").strip()
@@ -148,12 +111,12 @@ async def resolve_agent_key_source(
     return "byok"
 
 
-async def resolve_agent_model_override(
+async def resolve_native_model_override(
     workspace_id: Optional[str],
     *,
     include_credential_identity: bool = False,
 ) -> Optional[Dict[str, Any]]:
-    """Return the native model route dict (canonical ``slots`` map) for this turn."""
+    """Return the native model route model and credential identity for this turn for this turn."""
     mode = (settings.INTEGRAL_AGENT_KEY_MODE or "hybrid").strip().lower()
     if mode == "platform_only":
         return None
@@ -191,59 +154,17 @@ async def resolve_agent_model_override(
         logger.warning("BYOK credential decrypt failed for user_id=%s", owner.user_id)
         return None
 
-    slots: Dict[str, Dict[str, str]] = {
-        "default": _slot_entry(
-            default_provider,
-            record.model,
-            default_key,
-        ),
+    override: Dict[str, Any] = {
+        "model": litellm_model_id(default_provider, record.model)
     }
+    if default_key:
+        override["api_key"] = default_key
 
-    light = _optional_slot(
-        model=record.light_model,
-        provider=record.light_provider or default_provider,
-        default_provider=default_provider,
-        api_key=(
-            ""
-            if record.light_provider == "ollama_local"
-            else decrypt_credential_light_api_key(record)
-        ),
-    )
-    if light:
-        slots["light"] = light
-
-    heavy = _optional_slot(
-        model=record.heavy_model,
-        provider=record.heavy_provider or default_provider,
-        default_provider=default_provider,
-        api_key=(
-            ""
-            if record.heavy_provider == "ollama_local"
-            else decrypt_credential_heavy_api_key(record)
-        ),
-    )
-    if heavy:
-        slots["heavy"] = heavy
-
-    vision = _optional_slot(
-        model=record.vision_model,
-        provider=record.vision_provider or default_provider,
-        default_provider=default_provider,
-        api_key=(
-            ""
-            if record.vision_provider == "ollama_local"
-            else decrypt_credential_vision_api_key(record)
-        ),
-    )
-    if vision:
-        slots["vision"] = vision
-
-    override: Dict[str, Any] = {"slots": slots}
     if include_credential_identity:
         # Identify this stored generation, never the plaintext key or its
         # display fingerprint. Rotation/re-encryption conservatively changes
-        # attribution; last-used telemetry does not. Compatibility callers
-        # receive their unchanged model override shape.
+        # attribution; last-used telemetry does not. Callers may omit identity
+        # when they only need routing.
         identity = json.dumps(
             [
                 record.id,

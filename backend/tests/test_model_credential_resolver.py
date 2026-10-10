@@ -9,7 +9,7 @@ from app.services.credential_crypto import encrypt_secret_for_storage
 from app.services.model_credential_resolver import (
     ModelKeyRequiredError,
     litellm_model_id,
-    resolve_agent_model_override,
+    resolve_native_model_override,
 )
 from app.services.model_credentials import compute_key_fingerprint
 from app.services.personal_workspace import ensure_personal_workspace
@@ -28,7 +28,7 @@ def enc_key(monkeypatch):
 async def test_resolver_returns_none_without_owner_credential(enc_key, test_user):
     """Hybrid mode returns no override when the workspace owner has no credential."""
     workspace = await ensure_personal_workspace(test_user)
-    override = await resolve_agent_model_override(workspace.id)
+    override = await resolve_native_model_override(workspace.id)
     assert override is None
 
 
@@ -49,17 +49,15 @@ async def test_resolver_uses_owner_byok(enc_key, test_user):
     )
     await record.save()
 
-    override = await resolve_agent_model_override(workspace_id)
+    override = await resolve_native_model_override(workspace_id)
     assert override is not None
-    assert override["slots"]["default"]["api_key"] == "sk-owner-key"
+    assert override["api_key"] == "sk-owner-key"
     # Provider routing remains explicit in the default model slot.
-    assert override["slots"]["default"]["provider"] == "litellm"
-    assert override["slots"]["default"]["model"] == "openai/gpt-4o-mini"
-    assert override["slots"]["default"]["model"] == "openai/gpt-4o-mini"
-    assert override["slots"]["default"]["provider"] == "litellm"
+    assert override["model"] == "openai/gpt-4o-mini"
+    assert override["model"] == "openai/gpt-4o-mini"
     assert "credential_ref" not in override
 
-    bound = await resolve_agent_model_override(
+    bound = await resolve_native_model_override(
         workspace_id, include_credential_identity=True
     )
     identity = bound["credential_ref"]
@@ -67,51 +65,17 @@ async def test_resolver_uses_owner_byok(enc_key, test_user):
     assert "sk-owner-key" not in identity
     assert record.api_key_enc not in identity
     # Telemetry writes performed by the resolver do not create a new key generation.
-    repeated = await resolve_agent_model_override(
+    repeated = await resolve_native_model_override(
         workspace_id, include_credential_identity=True
     )
     assert repeated["credential_ref"] == identity
     record.api_key_enc = encrypt_secret_for_storage("sk-rotated-key", aad=auth_user_id)
     await record.save()
-    rotated = await resolve_agent_model_override(
+    rotated = await resolve_native_model_override(
         workspace_id, include_credential_identity=True
     )
     assert rotated["credential_ref"] != identity
-    assert rotated["slots"]["default"]["api_key"] == "sk-rotated-key"
-
-
-@pytest.mark.asyncio
-async def test_resolver_dual_provider_light_key(enc_key, test_user):
-    """Resolver emits distinct default + light slots when providers differ."""
-    workspace = await ensure_personal_workspace(test_user)
-    auth_user_id = getattr(test_user, "user_id", None) or test_user.id
-    record = UserModelCredential(
-        user_id=auth_user_id,
-        provider="openai",
-        model="o3-mini",
-        light_provider="anthropic",
-        light_model="claude-3-5-haiku-latest",
-        api_key_enc=encrypt_secret_for_storage("sk-openai-heavy", aad=auth_user_id),
-        key_fingerprint=compute_key_fingerprint("sk-openai-heavy"),
-        light_api_key_enc=encrypt_secret_for_storage("sk-ant-light", aad=auth_user_id),
-        light_key_fingerprint=compute_key_fingerprint("sk-ant-light"),
-        is_active=True,
-    )
-    await record.save()
-
-    override = await resolve_agent_model_override(workspace.id)
-    assert override is not None
-    assert override["slots"]["default"]["provider"] == "litellm"
-    assert override["slots"]["default"]["model"] == "openai/o3-mini"
-    assert override["slots"]["default"]["api_key"] == "sk-openai-heavy"
-    assert override["slots"]["light"]["provider"] == "litellm"
-    assert override["slots"]["light"]["model"] == "anthropic/claude-3-5-haiku-latest"
-    assert override["slots"]["light"]["api_key"] == "sk-ant-light"
-    # Each slot carries its own provider inside the id, so a dual-provider
-    # credential still routes through the one LiteLLM action.
-    assert override["slots"]["light"]["provider"] == "litellm"
-    assert override["slots"]["light"]["model"] == "anthropic/claude-3-5-haiku-latest"
-    assert override["slots"]["default"]["api_key"] == "sk-openai-heavy"
+    assert rotated["api_key"] == "sk-rotated-key"
 
 
 @pytest.mark.asyncio
@@ -127,7 +91,7 @@ async def test_byo_strict_raises_without_credential(enc_key, test_user, monkeypa
     await delete_credentials_for_user(auth_user_id)
     workspace = await ensure_personal_workspace(test_user)
     with pytest.raises(ModelKeyRequiredError):
-        await resolve_agent_model_override(workspace.id)
+        await resolve_native_model_override(workspace.id)
 
 
 @pytest.mark.parametrize(
@@ -180,11 +144,10 @@ async def test_resolver_composes_ollama_id_for_litellm(enc_key, test_user):
     )
     await record.save()
 
-    override = await resolve_agent_model_override(workspace.id)
+    override = await resolve_native_model_override(workspace.id)
     assert override is not None
-    assert override["slots"]["default"]["model"] == "ollama/glm-5.3:cloud"
-    assert override["slots"]["default"]["provider"] == "litellm"
-    assert override["slots"]["default"]["model"] == "ollama/glm-5.3:cloud"
+    assert override["model"] == "ollama/glm-5.3:cloud"
+    assert override["model"] == "ollama/glm-5.3:cloud"
 
 
 @pytest.mark.asyncio
@@ -200,13 +163,11 @@ async def test_resolver_omits_api_key_for_local_ollama(enc_key, test_user):
     )
     await record.save()
 
-    override = await resolve_agent_model_override(workspace.id)
+    override = await resolve_native_model_override(workspace.id)
     assert override is not None
-    assert override["slots"]["default"]["provider"] == "litellm"
-    assert override["slots"]["default"]["model"] == "ollama/gemma4:e2b"
+    assert override["model"] == "ollama/gemma4:e2b"
     assert "api_key" not in override
-    assert override["slots"]["default"] == {
-        "provider": "litellm",
+    assert override == {
         "model": "ollama/gemma4:e2b",
     }
 

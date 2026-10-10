@@ -76,45 +76,6 @@ def test_scaffold_is_the_single_resident_delivery_owner() -> None:
     assert "do **not** call" in body
 
 
-@pytest.mark.asyncio
-async def test_explicit_design_only_app_need_gets_a_host_scaffold_directive(
-    monkeypatch,
-) -> None:
-    """The reliable path must not depend on the model choosing a skill unaided."""
-    from app.api import ai_chat
-
-    async def wants_new_app(text, **_kwargs):
-        folded = text.casefold()
-        if "existing" in folded:
-            return False
-        return "need an app" in folded
-
-    monkeypatch.setattr(ai_chat, "_user_wants_new_app", wants_new_app)
-    assert await ai_chat._is_explicit_greenfield_design_request(
-        "I need an app to manage appliance service requests. "
-        "Please propose a complete design only; do not build anything yet."
-    )
-    assert await ai_chat._is_explicit_greenfield_design_request(
-        "I need an app to manage appliance service requests."
-    )
-    assert not await ai_chat._is_explicit_greenfield_design_request(
-        "Show me existing apps and do not build anything."
-    )
-    assert not await ai_chat._is_explicit_greenfield_design_request(
-        "I need to update the dashboard in my existing app."
-    )
-    # Host Prompt Sheet resumes are continuations, never greenfield design asks.
-    resume = (
-        "[PROMPT_SHEET]\n"
-        "Resolved prompts\n"
-        '* Approved — Create entry "Fabrikam Mobile App" in Project Proposals\n'
-        "<!-- INTEGRAL_AGENT_DIRECTIVE\n"
-        "The approved writes above have already been applied.\n"
-        "-->"
-    )
-    assert not await ai_chat._is_explicit_greenfield_design_request(resume)
-
-
 def test_unmet_need_routes_to_installed_app_guide_before_scaffolding() -> None:
     """Existing domain Apps own their workflow; scaffold is the fallback."""
     from app.api.ai_chat import _UNMET_NEED_DIRECTIVE
@@ -125,27 +86,6 @@ def test_unmet_need_routes_to_installed_app_guide_before_scaffolding() -> None:
     )
     assert "Do not call integral-scaffold" in _UNMET_NEED_DIRECTIVE
     assert "Only when no installed App covers the need" in _UNMET_NEED_DIRECTIVE
-
-
-@pytest.mark.asyncio
-async def test_approved_app_extension_retry_does_not_reenter_design_only_mode(
-    monkeypatch,
-) -> None:
-    from app.api import ai_chat
-
-    async def wants_new_app(text, **_kwargs):
-        folded = text.casefold()
-        return "payroll" in folded
-
-    monkeypatch.setattr(ai_chat, "_user_wants_new_app", wants_new_app)
-    marker = {"approved": True, "proposal": "Add Wiki track", "build_receipt": None}
-    assert not await ai_chat._requires_greenfield_proposal(
-        "Build the approved Wiki track in the existing Car Rental Manager app.",
-        marker,
-    )
-    assert await ai_chat._requires_greenfield_proposal(
-        "I need a new payroll app.", marker
-    )
 
 
 @pytest.mark.asyncio
@@ -162,55 +102,6 @@ async def test_affirmed_build_without_apply_receipt_fails_turn(monkeypatch) -> N
     assert error and error["code"] == "approved_build_not_applied"
     assert await _approved_build_receipt_error("thread-session", False, claim) is None
     assert await _approved_build_receipt_error("thread-session", True) is None
-
-
-@pytest.mark.asyncio
-async def test_approved_design_reply_is_routed_to_build(monkeypatch) -> None:
-    """A go-ahead on a pending design builds; a new App still proposes."""
-    from app.api import ai_chat
-
-    async def wants_new_app(text, **_kwargs):
-        return "app" in text.casefold()
-
-    monkeypatch.setattr(ai_chat, "_user_wants_new_app", wants_new_app)
-    reply = "Looks good. Build the app."
-    assert await ai_chat._requires_greenfield_proposal(reply, None)
-    assert not await ai_chat._requires_greenfield_proposal(
-        reply, {"approved": False, "proposed_at_user_turn": 1}
-    )
-    assert not await ai_chat._requires_greenfield_proposal(
-        "Build the app.", {"approved": False, "proposed_at_user_turn": 1}
-    )
-    assert await ai_chat._requires_greenfield_proposal(
-        "I need another app to manage invoices.",
-        {"approved": True, "proposed_at_user_turn": 1},
-    )
-
-
-@pytest.mark.asyncio
-async def test_greenfield_turn_requires_a_current_saved_proposal(monkeypatch) -> None:
-    """A prose-only design cannot be recorded as a successful app proposal."""
-    from app.api import ai_chat
-
-    thread = SimpleNamespace(design_proposed=None)
-
-    async def get_thread(_id):
-        return thread
-
-    async def count_user_turns(_thread):
-        return 1
-
-    monkeypatch.setattr(ai_chat.chat_store, "get_thread", get_thread)
-    monkeypatch.setattr(ai_chat.chat_store, "count_user_turns", count_user_turns)
-    error = await ai_chat._greenfield_proposal_error("thread-1", True)
-    assert error["code"] == "design_proposal_missing"
-
-    thread.design_proposed = {"proposed_at_user_turn": 0, "approved": False}
-    assert await ai_chat._greenfield_proposal_error("thread-1", True)
-
-    thread.design_proposed["proposed_at_user_turn"] = 1
-    assert await ai_chat._greenfield_proposal_error("thread-1", True) is None
-    assert await ai_chat._greenfield_proposal_error("thread-1", False) is None
 
 
 def test_existing_track_field_request_gets_schema_revision_routing() -> None:

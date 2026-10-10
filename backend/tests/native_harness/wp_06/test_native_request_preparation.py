@@ -43,12 +43,10 @@ async def test_native_turn_does_not_invoke_legacy_judges_or_lexical_routing(
         raise AssertionError("legacy intent routing entered the native path")
 
     for name in (
-        "_requires_greenfield_proposal",
         "_is_explicit_no_workspace_write_request",
         "_is_existing_schema_field_request",
         "_is_dashboard_skill_request",
         "looks_like_bless",
-        "_greenfield_proposal_error",
         "_approved_build_receipt_error",
     ):
         monkeypatch.setattr(ai_chat, name, legacy_routing_forbidden)
