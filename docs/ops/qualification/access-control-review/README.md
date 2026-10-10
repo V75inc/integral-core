@@ -110,3 +110,10 @@ Source line references in the review belong to the baseline and may move during 
 ## Source surface inventory
 
 [surface_inventory.json](surface_inventory.json) indexes 384 REST endpoint declarations and 45 ToolContext/OperationContext method declarations (including overrides). It records source hashes and leaves qualification/evidence explicitly unmapped. Rebuild it with `backend/.venv/bin/python docs/ops/qualification/access-control-review/build_surface_inventory.py`. This is a source index; worker, public, event, file and runtime registration boundaries still need mapping and paired acceptance evidence.
+
+
+## Authority-facts and legacy-disposition milestone
+
+AC-19 is closed by disposition: removed unsupported `documents/generate.py`, `template_lifecycle.py` and `document_type_lifecycle.py`; retained GeneratedDocument registration/stored records, document field APIs and supported rendering. Source tests and the independently imported working-tree wheel verify absence and preservation. Full `make verify`, 9 Core-only cases, 52 extension-contract cases and 227 PostgreSQL cases passed; the restore rehearsal retains its infrastructure skip. See [execution evidence](EXECUTION.md) and [closure ledger](closure.json).
+
+Workspace authority helpers now reject ambiguous owners, recheck disabled identities, reject the tested unknown collaborator role, and fail rather than return a partial workspace inventory after a later page error. Complete raw-fact validation, canonical resolver cutover and shared fence adoption remain open. The new [authentication characterization](auth_identity_characterization.json) reproduces a stale cached AuthUser save reactivating a disabled identity in an owned temporary JsonDB; it is unsafe-behavior evidence requiring repair, not acceptance or a production/PostgreSQL exploit claim.
