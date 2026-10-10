@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional, cast
 
 from fastapi import Request
 from jvspatial.api import endpoint
+from pydantic import ValidationError
 
 from app.api.errors import BadRequestError, ResourceNotFoundError
 from app.api.utils import resolve_principal_id
@@ -35,18 +36,9 @@ def _to_response(record) -> ModelCredentialResponse:
     return ModelCredentialResponse(
         provider=cast(ModelProvider, record.provider),
         model=record.model,
-        light_provider=_prov(record.light_provider),
-        light_model=record.light_model or None,
-        heavy_provider=_prov(record.heavy_provider),
-        heavy_model=record.heavy_model or None,
-        vision_provider=_prov(record.vision_provider),
-        vision_model=record.vision_model or None,
         speech_provider=_prov(record.speech_provider),
         speech_model=record.speech_model or None,
         key_fingerprint=record.key_fingerprint,
-        light_key_fingerprint=record.light_key_fingerprint or None,
-        heavy_key_fingerprint=record.heavy_key_fingerprint or None,
-        vision_key_fingerprint=record.vision_key_fingerprint or None,
         speech_key_fingerprint=record.speech_key_fingerprint or None,
         is_active=bool(record.is_active),
         validated_at=record.validated_at,
@@ -84,8 +76,18 @@ async def upsert_my_model_credential(request: Request) -> Dict[str, Any]:
         raise BadRequestError("Invalid JSON body") from exc
     try:
         body = ModelCredentialUpsertRequest.model_validate(raw or {})
-    except Exception as exc:
-        raise BadRequestError(str(exc)) from exc
+    except ValidationError as exc:
+        # Validation inputs may contain primary, voice or retired-slot keys.
+        # Only field names and safe validation messages belong in responses/logs.
+        issues = exc.errors(
+            include_input=False, include_context=False, include_url=False
+        )
+        message = "; ".join(
+            f"{'.'.join(map(str, issue['loc']))}: {issue['msg']}" for issue in issues
+        )
+        raise BadRequestError(f"Invalid model credential settings: {message}") from None
+    except Exception:
+        raise BadRequestError("Invalid model credential settings") from None
 
     user_id = resolve_principal_id(request)
     before = await get_active_credential_for_user(user_id)
@@ -95,15 +97,6 @@ async def upsert_my_model_credential(request: Request) -> Dict[str, Any]:
             provider=body.provider,
             model=body.model,
             api_key=body.api_key,
-            light_model=body.light_model,
-            light_provider=body.light_provider,
-            light_api_key=body.light_api_key,
-            heavy_model=body.heavy_model,
-            heavy_provider=body.heavy_provider,
-            heavy_api_key=body.heavy_api_key,
-            vision_model=body.vision_model,
-            vision_provider=body.vision_provider,
-            vision_api_key=body.vision_api_key,
             speech_model=body.speech_model,
             speech_provider=body.speech_provider,
             speech_api_key=body.speech_api_key,

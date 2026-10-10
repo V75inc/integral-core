@@ -603,19 +603,6 @@ def prompt_sheet_agent_residual(text: str) -> str:
     return body.strip()
 
 
-def extract_legacy_resume_directive(text: str) -> Optional[str]:
-    """Pull the body of a legacy ``INTEGRAL_AGENT_DIRECTIVE`` comment, if any."""
-    match = re.search(
-        r"<!--\s*INTEGRAL_AGENT_DIRECTIVE\s*([\s\S]*?)-->",
-        text or "",
-        re.IGNORECASE,
-    )
-    if not match:
-        return None
-    body = (match.group(1) or "").strip()
-    return body or None
-
-
 def _maybe_close(queue: Dict[str, Any], *, reason: str) -> Optional[str]:
     """Close when no pending items remain. Returns resume summary or None."""
     if any(i.get("status") == STATUS_PENDING for i in queue["items"]):

@@ -346,13 +346,6 @@ class Settings(BaseSettings):
     # (fail closed). Set e.g. ``com.example/*,io.github.org/*`` to allow.
     # ``TESTING=1`` treats empty as allow-all for unit tests.
     MCP_REGISTRY_INSTALL_ALLOWLIST: str = ""
-    # Retained for config compatibility; it no longer enables anything. A
-    # stdio mount spawns a process on the API host, so the spawn command must
-    # come from the in-repo connector catalog (see
-    # ``mcp_client._resolve_trusted_stdio_command``) — a registry recipe has no
-    # catalog entry to vet against, so ``to_mount_request`` refuses stdio
-    # registry installs outright regardless of this flag.
-    MCP_REGISTRY_ENABLE_STDIO_INSTALL: bool = False
 
     # ===== QuickBooks Online connector (Phase 18 QB-01) =====
     # Deployment secrets — single Intuit OAuth app per Integral deployment.

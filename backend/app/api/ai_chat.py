@@ -89,27 +89,6 @@ _SCAFFOLD_RECOVERY_ORIGIN = "scaffold_recovery"
 # ``create/build/set up`` require ``app`` as a near object ("create an app"),
 # not a later prepositional phrase ("create entries … for the CRM app").
 # ``need/want`` keep a short window; "app to manage/track/organize" still hits.
-_NEW_APP_SYSTEM = (
-    "You decide whether a user message is asking for a new App to be set up. "
-    'Answer with JSON only: {"new_app": true} or {"new_app": false}. '
-    "true only when they want a new App designed or created. false when they "
-    "want records added or changed inside an app that already exists, when a "
-    "name merely contains the word app, when they say not to create an app, "
-    "or when they are talking about something else. The message may be in "
-    "any language."
-)
-_GREENFIELD_DESIGN_DIRECTIVE = (
-    "[SYSTEM:GREENFIELD-DESIGN-REQUEST]\n"
-    "The user asked for a new App. Do not ask whether to design, create, "
-    "search for, or inspect an existing App. First call use_skill for "
-    "integral-scaffold. Follow that skill: inspect the live substrate "
-    "contract, then record a concise, complete design with the proposal "
-    "capability in this turn. Do not list models unless the user asked to "
-    "reuse one. After the proposal is recorded, stop calling tools. Do not "
-    "build anything in this turn. Reply in the user's language. Say plainly "
-    "that nothing has been built yet, and ask them to confirm the design or "
-    "say what to change."
-)
 _UNMET_NEED_DIRECTIVE = (
     "[SYSTEM:UNMET-NEED-DEFAULT]\n"
     "Ignore this note unless the user's message describes work they need to "
@@ -281,78 +260,6 @@ def _is_prompt_sheet_resume(text: str) -> bool:
     from app.services.prompt_queue import RESUME_MARKER
 
     return (text or "").lstrip().startswith(RESUME_MARKER)
-
-
-async def _user_wants_new_app(
-    text: str, *, workspace_id: Optional[str], agent_id: Optional[str]
-) -> bool:
-    """Light-model verdict. Failure answers False so a down model cannot block chat."""
-    # Workflow intent belongs to the primary native run, never a second judge.
-    return False
-
-
-async def _is_explicit_greenfield_design_request(
-    text: str,
-    *,
-    workspace_id: Optional[str] = None,
-    agent_id: Optional[str] = None,
-) -> bool:
-    """Route a new operational App need through a proposal before any build."""
-    message = text or ""
-    # Prompt Sheet resumes are host continuations ("approved writes already
-    # applied — read back"). Treating them as greenfield injects the design
-    # directive, blocks write tools, and then fails the turn when no proposal
-    # is recorded — exactly the abandon + "couldn't save the app design" path.
-    if _is_prompt_sheet_resume(message) or not message.strip():
-        return False
-    return await _user_wants_new_app(
-        message, workspace_id=workspace_id, agent_id=agent_id
-    )
-
-
-async def _requires_greenfield_proposal(
-    text: str,
-    marker: Any,
-    *,
-    workspace_id: Optional[str] = None,
-    agent_id: Optional[str] = None,
-) -> bool:
-    """An affirmation of a pending design authorizes its build, not a new proposal."""
-    if isinstance(marker, dict) and marker and not marker.get("approved"):
-        # Correction or go-ahead on the open design — not a new App.
-        return False
-    if (
-        isinstance(marker, dict)
-        and marker.get("approved")
-        and not marker.get("build_receipt")
-        and await chat_store.looks_like_design_affirm(
-            text, workspace_id=workspace_id, agent_id=agent_id
-        )
-    ):
-        return False
-    return await _is_explicit_greenfield_design_request(
-        text, workspace_id=workspace_id, agent_id=agent_id
-    )
-
-
-async def _greenfield_proposal_error(
-    thread_id: str, proposal_required: bool
-) -> Optional[Dict[str, str]]:
-    """Require a current-turn design marker before a greenfield turn succeeds."""
-    if not proposal_required:
-        return None
-    current = await chat_store.get_thread(thread_id)
-    marker = getattr(current, "design_proposed", None) or {}
-    if current is not None and isinstance(marker, dict) and marker:
-        proposed_turn = marker.get("proposed_at_user_turn")
-        if not marker.get(
-            "approved"
-        ) and proposed_turn == await chat_store.count_user_turns(current):
-            return None
-    return {
-        "code": "design_proposal_missing",
-        "message": "I couldn't save the app design. Please try the request again.",
-    }
 
 
 _BUILD_COMPLETION_CLAIM_RE = re.compile(
@@ -2031,18 +1938,7 @@ async def send_message(
             if not text:
                 raise BadRequestError(message="Prompt Sheet has no continuation")
 
-    # Native workflow selection belongs to the Pydantic run. The legacy judge
-    # is an inference call outside native admission, usage and BYOK accounting.
-    greenfield_proposal_required = (
-        False
-        if native_turn
-        else await _requires_greenfield_proposal(
-            text,
-            getattr(thread, "design_proposed", None),
-            workspace_id=active_workspace_id,
-            agent_id=getattr(thread, "agent_id", None) or None,
-        )
-    )
+    # Workflow selection belongs to the primary native run.
 
     ref_resolution = await resolve_entity_refs(
         text,
@@ -2083,7 +1979,7 @@ async def send_message(
     image_context_note = ""
     if images:
         image_context_note = uploaded_image_context_note(
-            images, image_ids, design_only=greenfield_proposal_required
+            images, image_ids, design_only=False
         )
 
     # The utterance is reserved for the user's authored text. Host policy and
@@ -2104,7 +2000,6 @@ async def send_message(
     if host_prompt_sheet_resume or _is_prompt_sheet_resume(text):
         from app.services.prompt_queue import (
             build_resume_agent_directive,
-            extract_legacy_resume_directive,
             get_queue,
             prompt_sheet_agent_residual,
             strip_prompt_sheet_directive,
@@ -2119,8 +2014,6 @@ async def send_message(
         if prompt_sheet_context:
             system_context_blocks.append(prompt_sheet_context)
         directive = build_resume_agent_directive(get_queue(thread))
-        if not directive:
-            directive = extract_legacy_resume_directive(text)
         if directive:
             resume_block = wrap_system_context(
                 "prompt_sheet_continuation",
@@ -2131,17 +2024,7 @@ async def send_message(
         text = strip_prompt_sheet_directive(text)
         # Use the same user-authored content that is persisted to the thread.
         user_utterance = "" if host_prompt_sheet_resume else sanitize_user_text(text)
-    if greenfield_proposal_required:
-        # A model may otherwise turn an already-resolved business need into a
-        # needless "create or search?" fork. This is host policy, not user
-        # content: the first turn proposes the App, even when the person asks
-        # for a build. A later affirmation authorizes the actual batch.
-        design_request_block = wrap_system_context(
-            "explicit_greenfield_design",
-            _GREENFIELD_DESIGN_DIRECTIVE,
-        )
-        system_context_blocks.append(design_request_block)
-    elif (
+    if (
         not native_turn
         and not focused_track_id
         and not focused_space_id
@@ -2308,7 +2191,6 @@ async def send_message(
             wrap_system_context=wrap_system_context,
             entities_referenced_payload=entities_referenced_payload,
             lightweight_page_context_metadata=lightweight_page_context_metadata,
-            greenfield_proposal_required=greenfield_proposal_required,
             host_action=host_action,
             client_request_id=client_request_id,
             durable_turn=durable_turn,
@@ -2357,7 +2239,6 @@ async def _start_user_turn(
     wrap_system_context: Any,
     entities_referenced_payload: Any,
     lightweight_page_context_metadata: Any,
-    greenfield_proposal_required: bool,
     host_action: Optional[str],
     client_request_id: Optional[str],
     durable_turn: bool = False,
@@ -2552,7 +2433,7 @@ async def _start_user_turn(
         ]
         # Keep host-generated approval state and instructions out of the
         # user-authored utterance. The signed system-context block is verified
-        # by legacy harness and added to the system prompt for this run.
+        # by the native harness and added to the system prompt for this run.
         marker = format_staging_pending_marker(pending_writes)
         if marker:
             extra_data["pending_approvals_marker"] = marker
@@ -2667,8 +2548,6 @@ async def _start_user_turn(
     )
     if no_workspace_writes:
         extra_data["no_workspace_writes"] = True
-    if greenfield_proposal_required:
-        extra_data["design_only"] = True
 
     if durable_turn:
         from app.schemas.agentive.work import (
@@ -2767,20 +2646,12 @@ async def _start_user_turn(
         from app.agentive.tooling.dispatch import set_no_workspace_write_guard
 
         set_no_workspace_write_guard(thread.provider_session_id)
-    if greenfield_proposal_required:
-        from app.agentive.tooling.dispatch import set_proposal_only_guard
-
-        set_proposal_only_guard(thread.provider_session_id)
 
     async def _finish_run(status: str, error: Optional[Dict[str, Any]]) -> None:
         if no_workspace_writes:
             from app.agentive.tooling.dispatch import clear_no_workspace_write_guard
 
             clear_no_workspace_write_guard(thread.provider_session_id)
-        if greenfield_proposal_required:
-            from app.agentive.tooling.dispatch import clear_proposal_only_guard
-
-            clear_proposal_only_guard(thread.provider_session_id)
         await finish_run(run.run_id, status=status, error=error)
         await _schedule_scaffold_continuation(
             status=status,
@@ -2792,7 +2663,7 @@ async def _start_user_turn(
     async def _record_run_event(event: Dict[str, Any], *, ordinal: int) -> None:
         await record_provider_event_step(run.run_id, event, ordinal=ordinal)
 
-    async def _validate_greenfield_proposal(
+    async def _validate_build_receipt(
         events: Optional[Iterable[Dict[str, Any]]] = None,
     ) -> Optional[Dict[str, str]]:
         """Fail a design/build turn that claims completion without a receipt."""
@@ -2800,11 +2671,6 @@ async def _start_user_turn(
             # The native output validator checks execution receipts in its
             # library run; do not add a second legacy prose-based validator.
             return None
-        proposal_error = await _greenfield_proposal_error(
-            thread.id, greenfield_proposal_required
-        )
-        if proposal_error:
-            return proposal_error
         return await _approved_build_receipt_error(
             thread.provider_session_id,
             approved_greenfield,
@@ -2864,7 +2730,7 @@ async def _start_user_turn(
             persist_provider_session_if_needed=_persist_provider_session_if_needed,
             on_terminal=_finish_run,
             on_event=_record_run_event,
-            validate_completed=_validate_greenfield_proposal,
+            validate_completed=_validate_build_receipt,
         ),
         media_type="text/event-stream",
         headers=SSE_HEADERS,

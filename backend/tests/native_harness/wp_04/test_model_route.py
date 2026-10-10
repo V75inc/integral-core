@@ -24,7 +24,7 @@ async def test_deployment_generation_reference_is_optional_and_versioned(
     monkeypatch, model, source
 ):
     monkeypatch.setattr(
-        "app.services.model_credential_resolver.resolve_agent_model_override",
+        "app.services.model_credential_resolver.resolve_native_model_override",
         AsyncMock(return_value=None),
     )
     route = await resolve_native_model_route(
@@ -52,7 +52,7 @@ async def test_deployment_generation_reference_is_optional_and_versioned(
 @pytest.mark.parametrize("reference", [" padded", "padded ", " ", "x" * 256])
 async def test_invalid_deployment_generation_fails_closed(monkeypatch, reference):
     monkeypatch.setattr(
-        "app.services.model_credential_resolver.resolve_agent_model_override",
+        "app.services.model_credential_resolver.resolve_native_model_override",
         AsyncMock(return_value=None),
     )
     monkeypatch.setenv("INTEGRAL_NATIVE_CREDENTIAL_REF", reference)
@@ -69,12 +69,13 @@ async def test_invalid_deployment_generation_fails_closed(monkeypatch, reference
 async def test_byok_identity_comes_from_the_same_override(monkeypatch, model, key):
     lookup = AsyncMock(
         return_value={
-            "slots": {"default": {"model": model, "api_key": key}},
+            "model": model,
+            "api_key": key,
             "credential_ref": "user-model-generation:synthetic",
         }
     )
     monkeypatch.setattr(
-        "app.services.model_credential_resolver.resolve_agent_model_override", lookup
+        "app.services.model_credential_resolver.resolve_native_model_override", lookup
     )
     monkeypatch.setenv("INTEGRAL_NATIVE_CREDENTIAL_REF", "other-host-generation")
     route = await resolve_native_model_route(
@@ -90,10 +91,10 @@ async def test_byok_identity_comes_from_the_same_override(monkeypatch, model, ke
 @pytest.mark.asyncio
 async def test_keyless_workspace_profile_does_not_invent_daemon_identity(monkeypatch):
     monkeypatch.setattr(
-        "app.services.model_credential_resolver.resolve_agent_model_override",
+        "app.services.model_credential_resolver.resolve_native_model_override",
         AsyncMock(
             return_value={
-                "slots": {"default": {"model": "ollama/gemma4:26b"}},
+                "model": "ollama/gemma4:26b",
                 "credential_ref": "user-model-generation:synthetic",
             }
         ),
@@ -107,7 +108,7 @@ async def test_keyless_workspace_profile_does_not_invent_daemon_identity(monkeyp
 @pytest.mark.asyncio
 async def test_local_endpoint_change_changes_attribution(monkeypatch):
     monkeypatch.setattr(
-        "app.services.model_credential_resolver.resolve_agent_model_override",
+        "app.services.model_credential_resolver.resolve_native_model_override",
         AsyncMock(return_value=None),
     )
     monkeypatch.setenv("INTEGRAL_NATIVE_CREDENTIAL_REF", "daemon-generation-v1")
@@ -129,17 +130,12 @@ async def test_workspace_byok_route_uses_resolved_litellm_route(monkeypatch) -> 
     async def resolve(workspace_id: str, *, include_credential_identity=False):
         assert workspace_id == "workspace-1"
         return {
-            "slots": {
-                "default": {
-                    "provider": "litellm",
-                    "model": "openrouter/anthropic/claude-sonnet",
-                    "api_key": "workspace-secret",
-                }
-            }
+            "model": "openrouter/anthropic/claude-sonnet",
+            "api_key": "workspace-secret",
         }
 
     monkeypatch.setattr(
-        "app.services.model_credential_resolver.resolve_agent_model_override",
+        "app.services.model_credential_resolver.resolve_native_model_override",
         resolve,
     )
     route = await resolve_native_model_route(
@@ -162,7 +158,7 @@ async def test_deployment_route_keeps_platform_secret_in_litellm_environment(
         return None
 
     monkeypatch.setattr(
-        "app.services.model_credential_resolver.resolve_agent_model_override",
+        "app.services.model_credential_resolver.resolve_native_model_override",
         resolve,
     )
     route = await resolve_native_model_route(
@@ -180,19 +176,11 @@ async def test_local_ollama_route_uses_configured_local_api_base(monkeypatch) ->
     """Local Ollama uses LiteLLM's native chat adapter for typed events."""
 
     async def resolve(workspace_id: str, *, include_credential_identity=False):
-        return {
-            "slots": {
-                "default": {
-                    "provider": "ollama_local",
-                    "model": "ollama/gemma4:26b",
-                    "api_key": None,
-                }
-            }
-        }
+        return {"model": "ollama/gemma4:26b", "api_key": None}
 
     monkeypatch.setenv("OLLAMA_API_BASE", "http://127.0.0.1:11434/")
     monkeypatch.setattr(
-        "app.services.model_credential_resolver.resolve_agent_model_override",
+        "app.services.model_credential_resolver.resolve_native_model_override",
         resolve,
     )
     route = await resolve_native_model_route(
@@ -219,7 +207,7 @@ async def test_platform_ollama_route_uses_typed_native_chat_adapter(
 
     monkeypatch.setenv("OLLAMA_API_BASE", "http://127.0.0.1:11434/")
     monkeypatch.setattr(
-        "app.services.model_credential_resolver.resolve_agent_model_override",
+        "app.services.model_credential_resolver.resolve_native_model_override",
         resolve,
     )
     route = await resolve_native_model_route(
@@ -244,7 +232,7 @@ async def test_local_ollama_context_size_is_configurable(monkeypatch) -> None:
 
     monkeypatch.setenv("INTEGRAL_NATIVE_OLLAMA_NUM_CTX", "12288")
     monkeypatch.setattr(
-        "app.services.model_credential_resolver.resolve_agent_model_override",
+        "app.services.model_credential_resolver.resolve_native_model_override",
         resolve,
     )
     route = await resolve_native_model_route(
@@ -263,7 +251,7 @@ async def test_local_ollama_output_budget_is_configurable(monkeypatch) -> None:
 
     monkeypatch.setenv("INTEGRAL_NATIVE_OLLAMA_NUM_PREDICT", "12288")
     monkeypatch.setattr(
-        "app.services.model_credential_resolver.resolve_agent_model_override",
+        "app.services.model_credential_resolver.resolve_native_model_override",
         resolve,
     )
     route = await resolve_native_model_route(
@@ -285,7 +273,7 @@ async def test_local_ollama_model_controls_are_optional_and_configurable(
     monkeypatch.setenv("INTEGRAL_NATIVE_OLLAMA_THINK", "low")
     monkeypatch.setenv("INTEGRAL_NATIVE_OLLAMA_CLEAR_THINKING", "true")
     monkeypatch.setattr(
-        "app.services.model_credential_resolver.resolve_agent_model_override",
+        "app.services.model_credential_resolver.resolve_native_model_override",
         resolve,
     )
     route = await resolve_native_model_route(
@@ -306,7 +294,7 @@ async def test_local_ollama_model_controls_are_omitted_by_default(monkeypatch) -
     monkeypatch.delenv("INTEGRAL_NATIVE_OLLAMA_THINK", raising=False)
     monkeypatch.delenv("INTEGRAL_NATIVE_OLLAMA_CLEAR_THINKING", raising=False)
     monkeypatch.setattr(
-        "app.services.model_credential_resolver.resolve_agent_model_override",
+        "app.services.model_credential_resolver.resolve_native_model_override",
         resolve,
     )
     route = await resolve_native_model_route(
@@ -326,7 +314,7 @@ async def test_local_ollama_clear_thinking_rejects_invalid_boolean(monkeypatch) 
 
     monkeypatch.setenv("INTEGRAL_NATIVE_OLLAMA_CLEAR_THINKING", "sometimes")
     monkeypatch.setattr(
-        "app.services.model_credential_resolver.resolve_agent_model_override",
+        "app.services.model_credential_resolver.resolve_native_model_override",
         resolve,
     )
     with pytest.raises(ServiceUnavailableError, match="model configuration is invalid"):
@@ -345,7 +333,7 @@ async def test_local_ollama_context_must_leave_room_for_prompt(monkeypatch) -> N
     monkeypatch.setenv("INTEGRAL_NATIVE_OLLAMA_NUM_CTX", "8192")
     monkeypatch.setenv("INTEGRAL_NATIVE_OLLAMA_NUM_PREDICT", "8192")
     monkeypatch.setattr(
-        "app.services.model_credential_resolver.resolve_agent_model_override",
+        "app.services.model_credential_resolver.resolve_native_model_override",
         resolve,
     )
     with pytest.raises(ServiceUnavailableError, match="model configuration is invalid"):
@@ -363,7 +351,7 @@ async def test_invalid_local_ollama_output_budget_fails_closed(monkeypatch) -> N
 
     monkeypatch.setenv("INTEGRAL_NATIVE_OLLAMA_NUM_PREDICT", "not-an-integer")
     monkeypatch.setattr(
-        "app.services.model_credential_resolver.resolve_agent_model_override",
+        "app.services.model_credential_resolver.resolve_native_model_override",
         resolve,
     )
     with pytest.raises(ServiceUnavailableError, match="model configuration is invalid"):
@@ -381,7 +369,7 @@ async def test_invalid_local_ollama_context_size_fails_closed(monkeypatch) -> No
 
     monkeypatch.setenv("INTEGRAL_NATIVE_OLLAMA_NUM_CTX", "not-an-integer")
     monkeypatch.setattr(
-        "app.services.model_credential_resolver.resolve_agent_model_override",
+        "app.services.model_credential_resolver.resolve_native_model_override",
         resolve,
     )
     with pytest.raises(ServiceUnavailableError, match="model configuration is invalid"):
@@ -403,7 +391,7 @@ async def test_invalid_default_model_route_fails_when_no_workspace_override(
         return None
 
     monkeypatch.setattr(
-        "app.services.model_credential_resolver.resolve_agent_model_override",
+        "app.services.model_credential_resolver.resolve_native_model_override",
         resolve,
     )
     with pytest.raises(ServiceUnavailableError, match="model configuration is invalid"):
@@ -418,7 +406,7 @@ async def test_native_platform_route_honors_host_quota_denial(monkeypatch):
     from app.api.errors import QuotaExceededError
 
     monkeypatch.setattr(
-        "app.services.model_credential_resolver.resolve_agent_model_override",
+        "app.services.model_credential_resolver.resolve_native_model_override",
         AsyncMock(return_value=None),
     )
     gate = AsyncMock(side_effect=QuotaExceededError(message="Host quota reached"))
@@ -433,15 +421,9 @@ async def test_native_platform_route_honors_host_quota_denial(monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("local", [True, False])
 async def test_native_local_and_byok_routes_bypass_platform_quota(monkeypatch, local):
-    override = (
-        None
-        if local
-        else {
-            "slots": {"default": {"model": "openai/gpt-4.1", "api_key": "byok-secret"}}
-        }
-    )
+    override = None if local else {"model": "openai/gpt-4.1", "api_key": "byok-secret"}
     monkeypatch.setattr(
-        "app.services.model_credential_resolver.resolve_agent_model_override",
+        "app.services.model_credential_resolver.resolve_native_model_override",
         AsyncMock(return_value=override),
     )
     gate = AsyncMock()
@@ -458,12 +440,13 @@ async def test_native_local_and_byok_routes_bypass_platform_quota(monkeypatch, l
 async def test_workspace_model_works_without_a_deployment_model(monkeypatch):
     lookup = AsyncMock(
         return_value={
-            "slots": {"default": {"model": "openai/gpt-test", "api_key": "synthetic"}},
+            "model": "openai/gpt-test",
+            "api_key": "synthetic",
             "credential_ref": "test:v1",
         }
     )
     monkeypatch.setattr(
-        "app.services.model_credential_resolver.resolve_agent_model_override", lookup
+        "app.services.model_credential_resolver.resolve_native_model_override", lookup
     )
     route = await resolve_native_model_route(
         workspace_id="workspace-1", default_model=""
@@ -478,7 +461,7 @@ async def test_missing_model_produces_setup_error_without_harness_fallback(monke
     from app.api.errors import ServiceUnavailableError
 
     monkeypatch.setattr(
-        "app.services.model_credential_resolver.resolve_agent_model_override",
+        "app.services.model_credential_resolver.resolve_native_model_override",
         AsyncMock(return_value=None),
     )
     with pytest.raises(ServiceUnavailableError, match="Integral AI needs a model"):
@@ -506,15 +489,11 @@ async def test_workspace_ollama_cloud_uses_cloud_even_with_local_server_env(
     monkeypatch.setenv("OLLAMA_API_BASE", "http://127.0.0.1:11434")
     monkeypatch.setenv("INTEGRAL_NATIVE_OLLAMA_NUM_CTX", "invalid-local-setting")
     monkeypatch.setattr(
-        "app.services.model_credential_resolver.resolve_agent_model_override",
+        "app.services.model_credential_resolver.resolve_native_model_override",
         AsyncMock(
             return_value={
-                "slots": {
-                    "default": {
-                        "model": "ollama/gpt-oss:120b",
-                        "api_key": "synthetic-cloud-key",
-                    }
-                },
+                "model": "ollama/gpt-oss:120b",
+                "api_key": "synthetic-cloud-key",
                 "credential_ref": "user-model-generation:cloud",
             }
         ),

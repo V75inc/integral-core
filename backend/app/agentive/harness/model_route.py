@@ -115,10 +115,10 @@ async def _resolve_native_model_route(
     configured environment; Core does not copy those secrets into route state.
     """
     from app.services.model_credential_resolver import (
-        resolve_agent_model_override,
+        resolve_native_model_override,
     )
 
-    override: dict[str, Any] | None = await resolve_agent_model_override(
+    override: dict[str, Any] | None = await resolve_native_model_override(
         workspace_id, include_credential_identity=True
     )
     if not override:
@@ -176,13 +176,11 @@ async def _resolve_native_model_route(
             ),
         )
 
-    slots = override.get("slots") or {}
-    default = slots.get("default") if isinstance(slots, dict) else None
-    if not isinstance(default, dict):
-        raise ValueError("workspace model override has no default LiteLLM route")
-    model = str(default.get("model") or "").strip()
+    model = str(override.get("model") or "").strip()
+    if not model:
+        raise ValueError("workspace model override has no model route")
     resolved_provider = _provider_for_model(model)
-    raw_key = default.get("api_key")
+    raw_key = override.get("api_key")
     api_key = str(raw_key) if raw_key is not None else None
     local_route = resolved_provider == "ollama" and not api_key
     api_base = None

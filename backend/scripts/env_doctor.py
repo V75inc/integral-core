@@ -89,7 +89,8 @@ def main() -> int:
         "DEBUG",
         "JVSPATIAL_DB_TYPE",
         "INTEGRAL_AGENT_KEY_MODE",
-        "INTEGRAL_AGENT_TURN_TIMEOUT_SECONDS",
+        "INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS",
+        "INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS",
     ):
         # Not every var is a Settings field — jvspatial reads some (e.g.
         # JVSPATIAL_DB_TYPE) straight from the environment.
