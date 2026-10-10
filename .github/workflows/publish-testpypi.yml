@@ -197,7 +197,7 @@ jobs:
 
   record-tag:
     name: Record the release tag
-    needs: [build, publish-testpypi]
+    needs: [qualify-source, build, publish-testpypi]
     if: >-
       always() &&
       needs.build.result == 'success' &&
