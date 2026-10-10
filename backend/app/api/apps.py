@@ -185,6 +185,7 @@ async def create_app(
     visibility: Optional[str] = None,
     library_operational_model_id: Optional[str] = None,
     accent_color: Optional[str] = None,
+    icon: Optional[str] = None,
     type_hint: Optional[str] = None,
     include_seed_data: bool = True,
 ) -> Dict[str, Any]:
@@ -253,6 +254,7 @@ async def create_app(
         visibility=visibility,
         library_package_id=library_operational_model_id,
         accent_color=accent_color,
+        icon=icon,
         include_seed_data=include_seed_data,
     )
 
@@ -452,6 +454,7 @@ async def update_app(
     description: Optional[str] = None,
     visibility: Optional[str] = None,
     accent_color: Optional[str] = None,
+    icon: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Update an App (editor or owner only).
 
@@ -499,6 +502,10 @@ async def update_app(
         sp.name_fold = new_fold
     if description is not None:
         sp.description = description
+    if icon is not None:
+        from app.services.app_identity import validate_app_icon
+
+        sp.icon = validate_app_icon(icon)
     if accent_color is not None:
         sp.accent_color = validate_hex_color(accent_color, allow_empty=True)
     if visibility is not None:

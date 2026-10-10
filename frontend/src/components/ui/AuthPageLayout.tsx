@@ -37,8 +37,8 @@ export function AuthPageLayout({
 }: AuthPageLayoutProps) {
   return (
     <main className="auth-page relative isolate flex min-h-screen items-center justify-center overflow-hidden bg-[var(--section-bg)] px-5 py-10 sm:px-8">
-      <div className="auth-content-grid relative z-10 grid w-full max-w-[1120px] items-center gap-8 md:grid-cols-[minmax(0,1fr)_440px] lg:gap-12">
-        <section className="auth-hero relative flex w-full flex-col items-center justify-center py-8 text-center md:self-stretch md:py-0">
+      <div className="auth-content-grid relative z-10 grid w-full max-w-[1120px] items-center gap-8 md:grid-cols-2 lg:gap-12">
+        <section className="auth-hero relative flex w-full flex-col items-center justify-center py-8 text-center md:py-0">
           <span className="auth-pattern" aria-hidden="true">
             <svg
               className="auth-ripple auth-ripple--auth"

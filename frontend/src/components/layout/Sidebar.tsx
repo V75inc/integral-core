@@ -1,3 +1,4 @@
+import { AppIcon } from '../../ui';
 /**
  * Sidebar — application chrome left rail.
  *
@@ -329,6 +330,7 @@ function PinnedSectionHeader({
 function PinnedAppCollapsibleRow({
   appId,
   appName,
+  icon,
   accentColor,
   trackCount,
   expanded,
@@ -338,6 +340,7 @@ function PinnedAppCollapsibleRow({
 }: {
   appId: string;
   appName: string;
+  icon?: string;
   accentColor?: string;
   trackCount: number;
   expanded: boolean;
@@ -378,7 +381,7 @@ function PinnedAppCollapsibleRow({
           ].join(' ')
         }
       >
-        <TrackAccentDot title={appName} accentColor={accentColor} />
+        <AppIcon name={appName} icon={icon} color={accentColor} size="xs" />
         <span className="flex-1 min-w-0 flex items-center gap-1.5">
           <span className="truncate">{appName}</span>
           {!expanded && trackCount > 0 ? (
@@ -440,7 +443,7 @@ function renderPinnedEntry(
           onClick={closeMobile}
           collapsed={railCollapsed}
           leading={
-            <TrackAccentDot title={s.name} accentColor={s.accent_color} />
+            <AppIcon name={s.name} icon={s.icon} color={s.accent_color} size="xs" />
           }
           trailing={pinTrailing}
         />
@@ -453,6 +456,7 @@ function renderPinnedEntry(
         <PinnedAppCollapsibleRow
           appId={s.id}
           appName={appName}
+          icon={s.icon}
           accentColor={s.accent_color}
           trackCount={entry.tracks.length}
           expanded={expanded}
@@ -740,7 +744,7 @@ function SidebarAccountMenu({
         ref={triggerRef}
         type="button"
         onClick={() => setOpen(o => !o)}
-        aria-label={`${displayName} menu`}
+        aria-label={`${displayName}${user?.email ? ` ${user.email}` : ''} menu`}
         aria-haspopup="menu"
         aria-expanded={open}
         className={[
@@ -754,7 +758,7 @@ function SidebarAccountMenu({
         ].join(' ')}
       >
         {user ? (
-          <Avatar
+          <span aria-hidden="true"><Avatar
             name={user.display_name}
             size="sm"
             ringVariant="none"
@@ -762,7 +766,7 @@ function SidebarAccountMenu({
             attachmentId={user.avatar_attachment_id}
             userId={user.id}
             version={user.updated_at}
-          />
+          /></span>
         ) : (
           <span
             aria-hidden
@@ -1091,10 +1095,7 @@ export function Sidebar({
                       onClick={closeMobile}
                       collapsed
                       leading={
-                        <TrackAccentDot
-                          title={s.name}
-                          accentColor={resolveIdentityColor(s.accent_color, activeWorkspace?.accent_color)}
-                        />
+                        <AppIcon name={s.name} icon={s.icon} color={resolveIdentityColor(s.accent_color, activeWorkspace?.accent_color)} size="xs" />
                       }
                       trailing={
                         <PinButton

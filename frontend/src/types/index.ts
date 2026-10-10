@@ -92,6 +92,9 @@ export interface WorkspaceSummary {
 }
 
 export interface App {
+  /** Built-in icon key or inline raster logo. */
+  icon?: string;
+  installed_package_slug?: string;
   id: string;
   name: string;
   description?: string;

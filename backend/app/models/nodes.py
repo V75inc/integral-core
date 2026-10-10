@@ -376,6 +376,7 @@ class App(Node):
 
     name: str = ""
     name_fold: str = ""  # casefold(name.strip()) for fuzzy index-friendly lookup
+    icon: str = ""  # built-in icon key or bounded inline raster logo
     owner_user_id: Optional[str] = None
     description: str = ""
     visibility: str = "private"  # private, workspace, public

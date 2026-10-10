@@ -124,9 +124,9 @@
 
   /* ── Brand ───────────────────────────────────────────────── */
   --brand-accent:           #ff5a1f;
-  --brand-accent-contrast:  #ffffff;
+  --brand-accent-contrast:  #1a1a1a;
   --brand-accent-default:          #ff5a1f;
-  --brand-accent-default-contrast: #ffffff;
+  --brand-accent-default-contrast: #1a1a1a;
   --brand-accent-soft:      rgba(255, 90, 31, 0.10);
   --brand-accent-line:      rgba(255, 90, 31, 0.28);
   --track-accent-bg: var(--brand-accent);
@@ -1033,8 +1033,15 @@
   .auth-ripple-circle:nth-child(2) { animation-delay: 2.3s; }
   .auth-ripple-circle:nth-child(3) { animation-delay: 4.6s; }
 
-  /* Keep the split-square motif inside the hero column. The desktop row is
-     sized by the form, so its ornament cannot grow beyond the form's height. */
+  /* Stable viewport-sized artwork across login, signup and reset forms. */
+  .auth-hero {
+    min-height: 220px;
+  }
+  @media (min-width: 768px) {
+    .auth-hero {
+      height: clamp(420px, 72svh, 680px);
+    }
+  }
   .auth-ripple--auth {
     width: 100%;
     height: 100%;
@@ -1205,6 +1212,8 @@
   .aui-reasoning-content
     .aui-md
     :where(p, li, h1, h2, h3, h4, h5, h6, blockquote, td, th, code),
+  .aui-tool-group-trigger,
+  .aui-tool-fallback-trigger,
   .aui-tool-fallback-content,
   .aui-tool-fallback-content :where(p, pre, code) {
     font-size: 0.75rem;
@@ -1232,8 +1241,10 @@
   }
 
   /* Settings shares its content pane with a collapsible assistant. Keep a
-     narrow icon control on the left and reveal the section list as an overlay,
-     so navigation never steals a full row from the selected settings page. */
+     labelled menu on narrow panes and a grouped sidebar on wider panes. */
+  .settings-nav-item:hover {
+    background: var(--panel-2);
+  }
   .settings-layout-container {
     container-type: inline-size;
     min-width: 0;
@@ -1241,7 +1252,8 @@
   }
   .settings-layout {
     display: grid;
-    grid-template-columns: 2.5rem minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 1.25rem;
     column-gap: 0.75rem;
     align-items: start;
   }
@@ -1254,20 +1266,14 @@
     min-width: 0;
   }
   .settings-compact-menu > button {
-    width: 2.5rem;
-    justify-content: center;
-    padding-inline: 0;
-  }
-  .settings-compact-label,
-  .settings-compact-chevron {
-    display: none;
+    width: 100%;
   }
   .settings-compact-nav {
     position: absolute;
     top: calc(100% + 0.5rem);
     left: 0;
     display: flex;
-    width: min(15rem, calc(100cqw - 1.5rem));
+    width: min(20rem, 100cqw);
     max-height: min(70vh, 34rem);
     flex-direction: column;
     gap: 0.125rem;
@@ -1386,5 +1392,55 @@
   }
   .entry-meta-grid > * {
     grid-column: 1 / -1;
+  }
+}
+
+@layer components {
+  .auth-password-toggle { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; }
+  .app-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    overflow: hidden;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-input);
+    background: var(--panel-2);
+    font-weight: 600;
+    letter-spacing: -0.025em;
+  }
+  .app-icon--sm { width: 32px; height: 32px; font-size: 12px; }
+  .app-icon--md { width: 56px; height: 56px; font-size: 18px; }
+  .app-icon--lg { width: 64px; height: 64px; font-size: 22px; }
+  .app-icon-choice { padding: 3px; border-radius: var(--radius-input); border: 2px solid transparent; }
+  .app-icon-choice[aria-pressed="true"] { border-color: var(--brand-accent); }
+  .app-icon-choice:hover { background: var(--panel-2); }
+  .app-icon-choice:focus-visible,
+  .app-collection-link:focus-visible,
+  .app-reorder-handle:focus-visible { outline: 2px solid var(--focus-ring-color); outline-offset: 2px; }
+  .app-logo-upload { cursor: pointer; padding: 8px 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-input); }
+  .app-logo-upload:has(+ input:focus-visible) { outline: 2px solid var(--focus-ring-color); outline-offset: 2px; }
+  .app-collection { display: flex; flex-direction: column; gap: 12px; }
+  .app-collection-row {
+    display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+    border: 1px solid var(--collection-border); border-radius: var(--radius-card); background: var(--panel);
+    transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
+  }
+  .app-collection-row:hover, .app-collection-row:focus-within { border-color: var(--border-strong, var(--brand-accent)); }
+  .app-collection-link { display: flex; align-items: center; gap: 16px; flex: 1; min-width: 0; padding: 12px 4px; border-radius: var(--radius-input); }
+  .app-reorder-handle { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 28px; min-height: 44px; color: var(--text-muted); cursor: grab; touch-action: none; border-radius: var(--radius-input); }
+  .app-reorder-handle:active { cursor: grabbing; }
+  @media (max-width: 480px) {
+    .app-collection-row { padding-inline: 8px; gap: 4px; }
+    .app-collection-link { gap: 12px; }
+  }
+}
+@layer components {
+  .app-icon--xs { width: 28px; height: 28px; font-size: 11px; border-radius: 6px; }
+  .app-icon--xs img { padding: 2px; }
+  .collection-list a:focus-visible { outline: 2px solid var(--focus-ring-color); outline-offset: -3px; }
+  @media (max-width: 767px) {
+    .auth-hero-copy h1 { font-size: 28px; line-height: 1.15; }
+    .auth-hero-copy p { font-size: 15px; line-height: 1.5; }
   }
 }

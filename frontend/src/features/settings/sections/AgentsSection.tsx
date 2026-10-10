@@ -50,95 +50,7 @@ function formatGrantedAt(iso: string): string {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Resident harness rows
-// ---------------------------------------------------------------------------
-
-interface HarnessAgentRow {
-  id: string;
-  displayName: string;
-  /** User-facing subtitle under the display name. */
-  subtitle: string;
-}
-
-
-// ---------------------------------------------------------------------------
-// Provider definitions
-// ---------------------------------------------------------------------------
-
-type ProviderKey = 'pydantic_native';
-
-interface ProviderDef {
-  key: ProviderKey;
-  /** User-facing provider title (ops-layer pick). */
-  label: string;
-  /** Short blurb for the radio card. */
-  blurb: string;
-  /** Routing id stored in ``providers.defaultProviderId`` when this
-   *  provider is the active harness. Shown only under Advanced. */
-  routingId: HarnessProviderId;
-  /** Provider registry id persisted on chat threads. */
-  providerId: string;
-  /** The synthetic row rendered under this provider. */
-  agent: HarnessAgentRow;
-}
-
-const PROVIDERS: ProviderDef[] = [
-  {
-    key: 'pydantic_native',
-    label: 'Integral AI',
-    blurb: 'Integral Core’s Pydantic AI harness with scoped sessions and brokered tools.',
-    routingId: 'pydantic-ai-native',
-    providerId: 'integral_native',
-    agent: {
-      id: 'integral-native',
-      displayName: 'Integral AI',
-      subtitle: 'Integral Core resident Pydantic AI harness',
-    },
-  },
-];
-
-// ---------------------------------------------------------------------------
-// Components
-// ---------------------------------------------------------------------------
-
-function AgentRow({ agent }: { agent: HarnessAgentRow }) {
-  return (
-    <li
-      className="
-        flex flex-col gap-2.5 rounded-[var(--radius-input)]
-        border border-[var(--border-subtle)] bg-[var(--panel)] px-3 py-2.5
-      "
-    >
-      <div className="flex flex-wrap items-center gap-2 min-w-0">
-        <span className="text-sm truncate max-w-[280px] font-medium text-[var(--text)]">
-          {agent.displayName}
-        </span>
-        <span className="ml-auto text-xs text-[var(--text-subtle)]">
-          always available
-        </span>
-      </div>
-      <p className="text-xs text-[var(--text-muted)]">{agent.subtitle}</p>
-    </li>
-  );
-}
-
-function ProviderGroup({ provider }: { provider: ProviderDef }) {
-  return (
-    <section className="rounded-[var(--radius-card)] border border-[var(--brand-accent-line)] bg-[var(--panel-2)] overflow-hidden">
-      <header className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border-subtle)]">
-        <div className="min-w-0 flex-1">
-          <h3 className="text-sm font-semibold text-[var(--text)]">{provider.label}</h3>
-          <p className="text-xs text-[var(--text-muted)] mt-0.5">{provider.blurb}</p>
-        </div>
-        <StatusPill state="ok">Always active</StatusPill>
-      </header>
-      <div className="px-4 py-3">
-        <ul className="flex flex-col gap-2"><AgentRow agent={provider.agent} /></ul>
-      </div>
-    </section>
-  );
-}
+const PROVIDERS: { key: string; label: string; routingId: HarnessProviderId; providerId: string }[] = [{ key: 'pydantic_native', label: 'Integral AI', routingId: 'pydantic-ai-native', providerId: 'integral_native' }];
 
 function AdvancedHarnessIds() {
   const [open, setOpen] = useState(false);
@@ -172,9 +84,8 @@ function AdvancedHarnessIds() {
           className="flex flex-col gap-2"
         >
           <Text variant="body-sm" tone="muted" as="p">
-            Provider IDs are recorded on conversations. Settings routes are
-            local assistant-selection keys. Prefer the harness picker above
-            unless you are debugging providers.
+            Provider IDs are recorded on conversations. The routing key identifies the built-in resident. These values are
+            for troubleshooting; model selection is configured in AI Models.
           </Text>
           <dl className="flex flex-col gap-3 text-sm">
             {PROVIDERS.map(p => (
@@ -359,25 +270,25 @@ interface AgentsSectionProps {
   navigateToSection?: (id: string) => void;
 }
 
-export function AgentsSection(_props: AgentsSectionProps = {}) {
+export function AgentsSection({ navigateToSection }: AgentsSectionProps = {}) {
   return (
     <div className="flex flex-col gap-5">
       <div>
         <Text variant="heading-md" weight="semibold" as="h2">
-          Agent
+          Connected agents
         </Text>
         <Text variant="body" tone="muted" as="p" className="mt-1">
-          Integral AI is your built-in resident assistant. Configure its model
-          in AI Models to start working with it.
+          Manage assistants that connect to Integral through MCP. Your built-in
+          Integral AI uses the model configured in AI Models.
         </Text>
       </div>
 
       <SettingsSection
-        title="Active agent"
+        title="Integral AI"
         description="Integral AI is included and always active. No harness configuration is required."
       >
         <div className="flex flex-col gap-3">
-          <ProviderGroup provider={PROVIDERS[0]} />
+          <div className="flex flex-wrap items-center justify-between gap-3"><StatusPill state="ok">Always active</StatusPill>{navigateToSection && <Button variant="secondary" size="sm" onClick={() => navigateToSection('ai-models')}>Configure AI Models</Button>}</div>
           <AdvancedHarnessIds />
         </div>
       </SettingsSection>
