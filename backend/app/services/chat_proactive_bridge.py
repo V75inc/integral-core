@@ -1,4 +1,4 @@
-"""Bridge jvagent proactive delivery to Integral ChatThread persistence."""
+"""Bridge agent runtime proactive delivery to Integral ChatThread persistence."""
 
 from __future__ import annotations
 

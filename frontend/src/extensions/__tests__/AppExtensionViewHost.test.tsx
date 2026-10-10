@@ -23,6 +23,14 @@ vi.mock('../../api/client', () => ({
   },
 }));
 
+vi.mock('../../api/extensions', () => ({
+  extensionsApi: {
+    invokeOperation: vi.fn(),
+    listCapabilities: vi.fn(async () => ({ capabilities: [] })),
+    invokeQuery: vi.fn(),
+  },
+}));
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -72,6 +80,27 @@ describe('AppExtensionViewHost bridge', () => {
         (msg as { ok?: boolean }).ok === true,
       )).toBe(true);
     });
+  });
+
+  it('keeps the same frame when the parent re-renders with a new inline onError', async () => {
+    const props = {
+      appId: 'app-1',
+      viewKey: 'receive_payment',
+      workspaceId: 'ws-1',
+      handshakeToken: 'token-abc',
+    };
+    const { rerender } = render(<AppExtensionViewHost {...props} onError={() => {}} />);
+    await waitFor(() => {
+      expect(document.querySelector('iframe')).toBeTruthy();
+    });
+    const first = document.querySelector('iframe');
+
+    rerender(
+      <AppExtensionViewHost {...props} onError={() => {}} context={{ draft: { custom_fields: { a: 1 } } }} />,
+    );
+    rerender(<AppExtensionViewHost {...props} onError={() => {}} />);
+
+    expect(document.querySelector('iframe')).toBe(first);
   });
 
   it('responds to ready with handshake and answers a read request', async () => {
@@ -158,6 +187,54 @@ describe('AppExtensionViewHost bridge', () => {
     await waitFor(() => {
       const updated = posted.find((msg) => (msg as { requestId?: string }).requestId === 'updated') as { value?: number };
       expect(updated?.value).toBe(3);
+    });
+  });
+
+  it('forwards draft.patch to the host callback', async () => {
+    const posted: unknown[] = [];
+    const onDraftPatch = vi.fn();
+    const mockWindow = {
+      postMessage: (msg: unknown) => posted.push(msg),
+    };
+
+    render(
+      <AppExtensionViewHost
+        appId="app-1"
+        viewKey="document_lines"
+        workspaceId="ws-1"
+        handshakeToken="token-abc"
+        context={{ draft: { custom_fields: {} } }}
+        onDraftPatch={onDraftPatch}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(document.querySelector('iframe')).toBeTruthy();
+    });
+
+    const iframe = document.querySelector('iframe');
+    Object.defineProperty(iframe!, 'contentWindow', {
+      value: mockWindow,
+      configurable: true,
+    });
+
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: {
+          protocol: EXTENSION_PROTOCOL,
+          type: 'draft.patch',
+          custom_fields: { total_amount: 42 },
+          related: { lines: [{ description: 'A' }] },
+        },
+        source: mockWindow as unknown as MessageEventSource,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(onDraftPatch).toHaveBeenCalledWith({
+        custom_fields: { total_amount: 42 },
+        related: { lines: [{ description: 'A' }] },
+      });
     });
   });
 });

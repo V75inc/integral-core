@@ -329,6 +329,18 @@ def test_labelled_seed_text_becomes_fields_and_named_relation_refs():
             {"honda civic": "Honda Civic"},
         )
 
+    titled = _structured_seed(
+        {
+            "track_id": "{{track.id:Rentals}}",
+            "text": "Berghotel Grosse Scheidegg",
+        },
+        tracks,
+        {},
+    )
+    assert titled["title"] == "Berghotel Grosse Scheidegg"
+    assert "text" not in titled
+    assert "fields" not in titled
+
     with pytest.raises(ValueError, match="use a relation field"):
         _structured_seed(
             {"track_id": "{{track.id:Jobs}}", "text": "Assigned Technician: Alice"},
@@ -1266,3 +1278,76 @@ def test_omitted_views_do_not_invent_a_table_or_calendar():
     ]
     materialize_scaffold_defaults(ops, allow_empty=True)
     assert [op.get("kind") for op in ops] == ["create_app_track"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["blessed", "consumed"])
+async def test_partial_design_resumes_original_cursor(approved, monkeypatch, state):
+    from app.agentive import staging
+    from app.agentive.services import staging_apply
+    from app.services import chat_threads
+
+    approved.design_proposed["partial_build"] = {"batch_token": "original"}
+    staged = SimpleNamespace(
+        token="original",
+        kind="batch",
+        user_id="user-1",
+        session_id="thread-1",
+        workspace_id="workspace-1",
+        state=state,
+        payload={"operations": [{}, {}]},
+        progress={
+            "completed": 2,
+            "results": [{"kind": "create_app"}, {"kind": "create_track"}],
+        },
+    )
+    calls = []
+
+    async def load(token):
+        assert token == "original"
+        return staged
+
+    async def apply(**kwargs):
+        calls.append(kwargs["token"])
+        return {"consumed": True, "execute_result": staged.progress}
+
+    async def receipt(**kwargs):
+        assert kwargs["batch_token"] == "original"
+        return {"id": "receipt", "design_id": "design", "design_revision": 1}
+
+    monkeypatch.setattr(staging, "get_token", load)
+    monkeypatch.setattr(staging_apply, "execute_blessed_change", apply)
+    monkeypatch.setattr(chat_threads, "record_design_build_receipt", receipt)
+    result = await scaffold_build.build_approved_design(
+        {"operations": _operations()},
+        principal_id="user-1",
+        scope="workspace-1",
+        session_id="thread-1",
+        interaction_id=None,
+    )
+    assert not result.is_error
+    assert result.data["execution_receipt_id"] == "receipt"
+    assert calls == (["original"] if state == "blessed" else [])
+    assert not is_batch_open("user-1", "thread-1")
+
+
+@pytest.mark.asyncio
+async def test_partial_design_cannot_resume_foreign_batch(approved, monkeypatch):
+    from app.agentive import staging
+
+    approved.design_proposed["partial_build"] = {"batch_token": "foreign"}
+
+    async def load(token):
+        return SimpleNamespace(
+            kind="batch", user_id="other-user", session_id="thread-1"
+        )
+
+    monkeypatch.setattr(staging, "get_token", load)
+    result = await scaffold_build.build_approved_design(
+        {},
+        principal_id="user-1",
+        scope="workspace-1",
+        session_id="thread-1",
+        interaction_id=None,
+    )
+    assert result.error_code == "partial_build_requires_repair"

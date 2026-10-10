@@ -28,15 +28,14 @@ COPY backend/pyproject.toml backend/README.md ./
 COPY backend/app ./app
 # Build the wheel's resident assets from the canonical sources, never a stale
 # locally generated app/resident_harness tree. The runtime also uses this copy.
-COPY agent ./app/resident_harness
+COPY agent/skills ./app/resident_harness/skills
 # Trusted external App handlers import the public SDK at runtime. Install
 # its independent package alongside Core so no host PYTHONPATH mount is needed.
 COPY sdk/python ./sdk
 
 # Install into a private virtualenv that we'll copy into the final stage.
-# uv pip reads pyproject [tool.uv.sources]. jvspatial resolves from PyPI and
-# jvagent from the scoped TestPyPI index. This install does not use uv.lock;
-# an opted-in PR Docker build checks image construction with these sources.
+# Runtime dependencies resolve from PyPI. This image does not use uv.lock;
+# an opted-in PR Docker build checks the installed exact harness/framework pins.
 RUN python -m venv /opt/venv \
  && /opt/venv/bin/pip install --upgrade pip uv \
  && /opt/venv/bin/uv pip install --python /opt/venv/bin/python ./sdk .
@@ -44,13 +43,12 @@ RUN python -m venv /opt/venv \
 # The image build does not consume uv.lock. Check the installed versions and
 # reject VCS installs before copying this environment into the runtime image.
 RUN /opt/venv/bin/python -c 'import importlib.metadata as m; \
-assert m.version("integral-core") == "0.1.1rc15"; \
+assert m.version("integral-core") == "0.1.1rc16"; \
 assert m.version("integral-sdk") == "0.2.0"; \
 from integral_sdk import OperationContext; \
 assert m.version("jvspatial") == "0.1.1"; \
-assert m.version("jvagent") == "0.1.8rc20"; \
-assert m.distribution("jvspatial").read_text("direct_url.json") is None; \
-assert m.distribution("jvagent").read_text("direct_url.json") is None'
+assert m.version("pydantic-ai-harness") == "0.36.0"; \
+assert m.distribution("jvspatial").read_text("direct_url.json") is None'
 
 # Pre-bake the ONNX weights for sentence-transformers/all-MiniLM-L6-v2 so
 # the runtime image never fetches from Hugging Face on cold start. The
@@ -99,10 +97,6 @@ COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /opt/fastembed_cache /opt/fastembed_cache
 COPY --from=builder /build/app /app/app
 COPY --from=builder /build/pyproject.toml /app/pyproject.toml
-# Embedded jvagent bootstrap reads app_root = parents[2]/agent from
-# /app/app/main.py → /agent. Baked at build time; local compose may bind-mount
-# ./agent over this path for live agent.yaml iteration.
-COPY agent /agent
 
 # Writable runtime dirs for the non-root user. Named volumes first mounted at
 # /data inherit this directory's ownership, so attachment bytes survive an
@@ -110,7 +104,7 @@ COPY agent /agent
 # root-owned volumes need a one-time ownership repair before this image can
 # write to them.
 RUN mkdir -p /data/files /tmp/integral_files \
- && chown -R integral:integral /opt/fastembed_cache /agent /data /tmp/integral_files
+ && chown -R integral:integral /opt/fastembed_cache /data /tmp/integral_files
 
 USER integral
 

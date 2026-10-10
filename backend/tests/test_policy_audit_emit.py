@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import inspect
 import logging
+import os
 import subprocess
+import sys
+import uuid
 from pathlib import Path
 from typing import get_args
 
@@ -27,6 +30,22 @@ from app.services.change_event_logger import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _run_guard_test(target: str) -> subprocess.CompletedProcess[str]:
+    """Keep nested checks on this interpreter with independent test storage."""
+    env = os.environ.copy()
+    env.pop("PYTEST_ADDOPTS", None)
+    # A child must not reset the outer xdist worker's graph/log database.
+    env["PYTEST_XDIST_WORKER"] = "guard_" + uuid.uuid4().hex[:12]
+    return subprocess.run(
+        [sys.executable, "-m", "pytest", "-o", "addopts=", target, "-v"],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT / "backend"),
+        env=env,
+        timeout=120,
+    )
 
 
 # ===== Section A — Literal extension + emit details kwarg =====
@@ -297,12 +316,7 @@ def test_phase_2_d_05_grep_gate_still_passes():
     not a handler). The Phase 2 D-05 grep gate scans handlers only — running it
     here proves the new emit site does NOT regress that invariant.
     """
-    result = subprocess.run(
-        ["pytest", "tests/test_change_event_no_bypass.py", "-v"],
-        capture_output=True,
-        text=True,
-        cwd=str(REPO_ROOT / "backend"),
-    )
+    result = _run_guard_test("tests/test_change_event_no_bypass.py")
     # The suite has a pre-existing baseline failure unrelated to Plan 05
     # (test_no_bypass_paths_in_core_api — ~50 handlers missing emit; logged in
     # deferred-items.md by Plans 03-01..03). We assert that the failure list
@@ -513,15 +527,8 @@ async def test_plan_01_recursion_guard_test_still_passes():
     """Plan 01 Test 21 (test_recursion_guard_short_circuits) continues to pass
     after Plan 05.
     """
-    result = subprocess.run(
-        [
-            "pytest",
-            "tests/test_policy_engine.py::test_recursion_guard_short_circuits",
-            "-v",
-        ],
-        capture_output=True,
-        text=True,
-        cwd=str(REPO_ROOT / "backend"),
+    result = _run_guard_test(
+        "tests/test_policy_engine.py::test_recursion_guard_short_circuits"
     )
     assert result.returncode == 0, (
         f"Plan 01 recursion-guard test failed after Plan 05 changes:\n"

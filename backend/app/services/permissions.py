@@ -342,6 +342,15 @@ def invalidate_user_accessible_caches(user_id: str) -> None:
     if cache is not None:
         cache.pop(("accessible_tracks", user_id), None)
         cache.pop(("accessible_apps", user_id), None)
+        # Creation can memoize a denial before the ownership edge is wired.
+        for key in list(cache):
+            if (
+                isinstance(key, tuple)
+                and len(key) == 4
+                and key[0] == "rr"
+                and key[3] == user_id
+            ):
+                cache.pop(key, None)
 
 
 async def get_user_accessible_apps(user_id: str) -> List[App]:
@@ -423,6 +432,8 @@ async def get_user_accessible_apps(user_id: str) -> List[App]:
             if ws_role in ("owner", "admin"):
                 staff_apps, _ = await collect_org_workspace_staff_inventory(ws)
                 for sp in staff_apps:
+                    if await effective_resource_visibility("app", sp) == "private":
+                        continue
                     _add(sp)
             elif ws_role == "member":
                 vis_apps, _ = await collect_org_workspace_member_visibility_inventory(
@@ -1064,7 +1075,11 @@ async def resolve_role(
             _visibility_grant_role(user_id, resource_type, node),
         )
         if implicit:
-            candidates.append(implicit)
+            # Private means the resource owner and people they add. Staff
+            # inventory does not open it. A direct OWNS / COLLABORATES_ON
+            # grant already returned above.
+            if await effective_resource_visibility(resource_type, node) != "private":
+                candidates.append(implicit)
 
         if vis_grant:
             candidates.append(vis_grant)
@@ -1078,8 +1093,8 @@ async def resolve_role(
         )
         # Private tracks hide from workspace-wide visibility grants on the
         # parent App; App collaborators (direct OWNS / COLLABORATES_ON) still
-        # inherit entry access. Org staff reach private inventory via the
-        # implicit staff role above, not this cascade path.
+        # inherit entry access. Org staff do not reach private inventory
+        # through the implicit staff role.
         if not skip_cascade:
             inherited = await resolve_role(user_id, parent[0], parent[1])
             if inherited is not None:
@@ -1243,8 +1258,11 @@ async def get_user_accessible_tracks(user_id: str) -> List[Track]:
                         *(_track_listable(t) for t in staff_tracks)
                     )
                     for t, ok in zip(staff_tracks, listable):
-                        if ok:
-                            _add(t)
+                        if not ok:
+                            continue
+                        if await effective_resource_visibility("track", t) == "private":
+                            continue
+                        _add(t)
             elif ws_role == "member":
                 _, vis_tracks = await collect_org_workspace_member_visibility_inventory(
                     ws

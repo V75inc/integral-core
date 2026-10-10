@@ -218,6 +218,7 @@ export function RelationMultiSelectCombobox({
       <Surface tone="panel" border="default" radius="input" className="w-full">
         <div
           role={isInteractive ? 'combobox' : undefined}
+          aria-label={field.name || 'Related entries'}
           aria-expanded={isOpen}
           aria-haspopup="listbox"
           tabIndex={isInteractive ? 0 : undefined}

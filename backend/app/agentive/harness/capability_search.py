@@ -377,13 +377,31 @@ def _search_catalog(
             ),
             key=lambda item: (-item[1], item[0]),
         )
+    # A canonical capability identifier is an address, not a semantic hint.
+    # Recovery responses supply exact next_tool names. Approximate ranking
+    # must not bury that permitted address beneath related workflow prose.
+    exact_tools = [
+        str(item["name"])
+        for item in tools
+        if re.search(
+            r"(?<![\w])" + re.escape(str(item["name"])) + r"(?![\w])",
+            query,
+            flags=re.IGNORECASE,
+        )
+    ]
+    if exact_tools:
+        ranked_tools = [(name, 1.0) for name in exact_tools] + [
+            (name, score) for name, score in ranked_tools if name not in exact_tools
+        ]
     # Preserve room for the strongest tool match while retaining enough skill
     # candidates for similarly worded routes (for example scaffold vs. insights).
     # A workflow and its callable operation are complementary results. Even
     # limit=1 must retain the best of each when both kinds match; otherwise a
     # model asking for a specific tool can receive only a skill indefinitely.
     limit = max(2, limit) if ranked_skills and ranked_tools else limit
-    skill_slots = min(len(ranked_skills), max(1, min(4, limit - 1)))
+    skill_slots = min(
+        len(ranked_skills), max(1, min(4, limit - max(1, len(exact_tools))))
+    )
     tool_slots = min(len(ranked_tools), max(0, limit - skill_slots))
     candidates = [
         (score, "skill", name) for name, score in ranked_skills[:skill_slots]
@@ -587,7 +605,6 @@ def build_search_capabilities_tool(
     catalogue: Sequence[dict[str, Any]],
     immediately_available_tools: Sequence[str] = (),
     run_state: dict[str, Any] | None = None,
-    skill_owned_tools: frozenset[str] = frozenset(),
 ) -> Tool[Any, Any]:
     """Build a model-callable search surface over one run's authorized catalog."""
     skills = _load_skills(skill_library)
@@ -754,9 +771,7 @@ def build_search_capabilities_tool(
             recommended_tool.get("name") if isinstance(recommended_tool, dict) else None
         )
         available_tools = [
-            item["name"]
-            for item in result["results"]
-            if item["kind"] == "tool" and item["name"] not in skill_owned_tools
+            item["name"] for item in result["results"] if item["kind"] == "tool"
         ]
         for item in result["results"]:
             if item["kind"] == "tool":

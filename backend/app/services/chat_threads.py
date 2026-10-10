@@ -32,6 +32,14 @@ def _now() -> str:
 # ---------------------------------------------------------------------------
 
 
+def derive_thread_title(text: str) -> str:
+    """Consistent first-message title for synchronous and durable acceptance."""
+    cleaned = " ".join(text.strip().split())
+    if not cleaned:
+        return "New chat"
+    return (cleaned[:60] + "…") if len(cleaned) > 60 else cleaned
+
+
 async def create_thread(
     *,
     user_id: str,
@@ -556,8 +564,11 @@ async def record_design_build_receipt(
     if thread is None or getattr(thread, "user_id", None) != user_id:
         return False
     marker = dict(getattr(thread, "design_proposed", None) or {})
-    if not marker.get("approved") or marker.get("build_receipt") or not batch_token:
+    if not marker.get("approved") or not batch_token:
         return False
+    existing = marker.get("build_receipt")
+    if isinstance(existing, dict):
+        return existing if existing.get("batch_token") == batch_token else False
     from app.services.build_verification import make_execution_receipt
 
     design_id = str(marker.get("design_id") or "") or str(uuid.uuid4())
@@ -592,7 +603,11 @@ async def record_design_partial_build(
     marker = dict(getattr(thread, "design_proposed", None) or {})
     if not marker.get("approved") or marker.get("build_receipt") or not batch_token:
         return False
-    marker["partial_build"] = {"batch_token": batch_token, "failed_at": utc_now_iso()}
+    marker["partial_build"] = {
+        "batch_token": batch_token,
+        "failed_at": utc_now_iso(),
+        "blueprint": marker.get("blueprint"),
+    }
     thread.design_proposed = marker
     await thread.save()
     return True
@@ -748,41 +763,16 @@ def _prior_proposal_excerpt(marker: Dict[str, Any], *, limit: int = 6000) -> str
 async def _design_reply_affirms(
     text: str, *, workspace_id: Optional[str], agent_id: Optional[str]
 ) -> bool:
-    from app.services.light_model_judge import light_model_json
-
-    try:
-        verdict = await light_model_json(
-            workspace_id=workspace_id,
-            agent_id=agent_id,
-            system=_AFFIRM_SYSTEM,
-            prompt=text[-2000:],
-            max_tokens=20,
-        )
-    except Exception:  # noqa: BLE001 — a missed yes must not approve a build
-        logger.debug("design affirm judge failed", exc_info=True)
-        return False
-    return verdict.get("affirm") is True
+    """Retired compatibility path; native approval is fenced tool selection."""
+    return False
 
 
 async def _proposal_promises_unbuilt_effect(
     text: str, *, workspace_id: Optional[str], agent_id: Optional[str]
 ) -> str:
     """Short phrase for an outbound effect the build cannot perform, else ""."""
-    from app.services.light_model_judge import light_model_json
-
-    try:
-        verdict = await light_model_json(
-            workspace_id=workspace_id,
-            agent_id=agent_id,
-            system=_UNBUILT_EFFECT_SYSTEM,
-            prompt=text[-4000:],
-            max_tokens=30,
-        )
-    except Exception:  # noqa: BLE001 — a down model must not block every design
-        logger.debug("unbuilt-effect judge failed", exc_info=True)
-        return ""
-    effect = verdict.get("effect")
-    return effect.strip() if isinstance(effect, str) else ""
+    # Native proposal coverage validates typed operations in the primary run.
+    return ""
 
 
 # One verdict per reply on this turn. Gates must not re-ask the model.
@@ -1292,6 +1282,24 @@ async def record_design_proposed(
             ),
         }
 
+    if existing.get("partial_build"):
+        from app.services.scaffold_repair import validate_partial_revision
+
+        try:
+            if not canonical_blueprint or not existing.get("blueprint"):
+                raise ValueError(
+                    "A partial repair requires the original and revised typed blueprint."
+                )
+            await validate_partial_revision(
+                existing,
+                canonical_blueprint,
+                user_id=user_id,
+                session_id=session_id,
+                workspace_id=getattr(thread, "workspace_id", None),
+            )
+        except ValueError as exc:
+            return {"error": "partial_build_requires_repair", "detail": str(exc)}
+
     prior_proposal = _prior_proposal_excerpt(existing) if existing else ""
     replaced = bool(existing) and (
         (existing.get("summary") or "") != summary_text
@@ -1319,6 +1327,11 @@ async def record_design_proposed(
         "approved": False,
     }
     blueprint_fields: Dict[str, Any] = {}
+    if existing.get("partial_build"):
+        thread.design_proposed["partial_build"] = dict(existing["partial_build"])
+        thread.design_proposed["partial_build"].setdefault(
+            "blueprint", existing.get("blueprint")
+        )
     if canonical_blueprint is not None:
         from app.services.design_blueprint import blueprint_diff, blueprint_digest
 
@@ -1642,6 +1655,7 @@ def thread_to_dict(
         # debug clients can correlate a host thread with the harness's
         # own conversation graph; the FE runtime ignores it.
         "provider_session_id": thread.provider_session_id or None,
+        "active_work_item_id": thread.active_work_item_id or None,
         "title": thread.title or "",
         "archived": bool(thread.archived),
         "created_at": thread.created_at,

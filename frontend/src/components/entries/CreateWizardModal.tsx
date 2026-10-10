@@ -470,6 +470,8 @@ export function CreateWizardModal({
                     field={field}
                     value={formValues[key]}
                     onChange={next => setFormValues(prev => ({ ...prev, [key]: next }))}
+                    siblingFields={entryType.form_schema?.fields}
+                    siblingValues={formValues}
                   />
                 </div>
               );
@@ -495,6 +497,8 @@ export function CreateWizardModal({
                     field={field}
                     value={formValues[key]}
                     onChange={next => setFormValues(prev => ({ ...prev, [key]: next }))}
+                    siblingFields={entryType.form_schema?.fields}
+                    siblingValues={formValues}
                   />
                 </div>
               );
@@ -538,6 +542,8 @@ export function CreateWizardModal({
                     field={field}
                     value={formValues[key]}
                     onChange={next => setFormValues(prev => ({ ...prev, [key]: next }))}
+                    siblingFields={entryType.form_schema?.fields}
+                    siblingValues={formValues}
                   />
                 </div>
               );

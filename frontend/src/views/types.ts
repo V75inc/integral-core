@@ -1,6 +1,10 @@
 import type { Entry, EntryTypeNode, SavedView, Track } from '../types';
 
 export interface EntryCreateInput {
+  /** Calendar additions need a draft form before persistence. */
+  source?: 'calendar';
+  /** Resolved target of an embedded view. */
+  track_id?: string;
   title: string;
   type?: string;
   custom_fields?: Record<string, unknown>;

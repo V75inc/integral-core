@@ -1,11 +1,11 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, Link } from 'react-router-dom';
 import { waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { AuthPageLayout } from '../AuthPageLayout';
 
 describe('AuthPageLayout', () => {
-  it('restarts the square ripple when navigating between auth routes', async () => {
+  it('preserves the frameless outline and auth navigation between routes', async () => {
     render(
       <MemoryRouter initialEntries={['/login']}>
         <Routes>
@@ -32,7 +32,8 @@ describe('AuthPageLayout', () => {
     const initialRipple = screen
       .getByRole('heading', { name: 'Sign in' })
       .closest('main')
-      ?.querySelector('svg[data-animation-cycle]');
+      ?.querySelector('svg.auth-ripple');
+    expect(initialRipple).toBeInTheDocument();
     fireEvent.click(screen.getByRole('link', { name: 'Create an account' }));
 
     await waitFor(() =>
@@ -41,43 +42,9 @@ describe('AuthPageLayout', () => {
     const nextRipple = screen
       .getByRole('heading', { name: 'Create an account' })
       .closest('main')
-      ?.querySelector('svg[data-animation-cycle]');
-    expect(nextRipple).not.toBe(initialRipple);
-    expect(nextRipple?.querySelectorAll('.auth-ripple-square:not(.auth-ripple-square--frame)'))
-      .toHaveLength(3);
-    expect(nextRipple?.querySelectorAll('.auth-ripple-square--frame')).toHaveLength(1);
-    expect(nextRipple?.querySelector('.auth-ripple-square--frame')).toHaveAttribute(
-      'x',
-      '12',
-    );
-  });
-
-  it('restarts the square ripple after a back-forward cache restore', () => {
-    render(
-      <MemoryRouter>
-        <AuthPageLayout title="Welcome" description="Your space is ready.">
-          <button type="button">Continue</button>
-        </AuthPageLayout>
-      </MemoryRouter>,
-    );
-
-    const ripple = screen.getByRole('heading', { name: 'Welcome' })
-      .closest('main')
-      ?.querySelector('svg[data-animation-cycle]');
-    expect(ripple).toHaveAttribute('data-animation-cycle', '1');
-    expect(ripple?.querySelectorAll('.auth-ripple-square:not(.auth-ripple-square--frame)'))
-      .toHaveLength(3);
-    expect(ripple?.querySelectorAll('.auth-ripple-square--frame')).toHaveLength(1);
-
-    const restoredEvent = new Event('pageshow');
-    Object.defineProperty(restoredEvent, 'persisted', { value: true });
-    act(() => window.dispatchEvent(restoredEvent));
-
-    expect(
-      screen
-        .getByRole('heading', { name: 'Welcome' })
-        .closest('main')
-        ?.querySelector('svg[data-animation-cycle]'),
-    ).toHaveAttribute('data-animation-cycle', '2');
+      ?.querySelector('svg.auth-ripple');
+    expect(nextRipple).toBeInTheDocument();
+    expect(nextRipple?.querySelectorAll('path')).toHaveLength(2);
+    expect(nextRipple?.querySelector('rect')).toBeNull();
   });
 });

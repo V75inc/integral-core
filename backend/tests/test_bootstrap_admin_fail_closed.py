@@ -17,8 +17,10 @@ async def test_bootstrap_rejects_short_configured_password(monkeypatch):
     monkeypatch.setattr(settings, "ADMIN_EMAIL", "admin@example.com")
     monkeypatch.setattr(settings, "ADMIN_PASSWORD", "short")
 
-    with pytest.raises(ValueError, match="at least 12 characters"):
+    with pytest.raises(RuntimeError, match="startup aborted") as exc_info:
         await bootstrap_admin.bootstrap_admin_if_needed()
+    assert isinstance(exc_info.value.__cause__, ValueError)
+    assert "at least 12 characters" in str(exc_info.value.__cause__)
 
 
 @pytest.mark.asyncio

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 import logging
 from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator, AsyncIterator, Dict, List, Optional, Tuple, cast
@@ -15,6 +14,7 @@ from app.schemas.agentive.work import WorkError, WorkExecutionContext
 from app.services import chat_turn_registry
 from app.services.chat_providers import ChatBackendProvider, ChatTurnContext
 from app.services.chat_providers.base import register_provider_cancel_hook
+from app.services.chat_sse import sse_bytes
 from app.services.chat_thread_events import notify_thread_stream_update
 from app.services.chat_turn_registry import InFlightTurn
 
@@ -37,11 +37,6 @@ async def _await_cleanup_task(task: asyncio.Task[Any]) -> Any:
             # strand run status, transcript persistence, or the thread fence.
             continue
     return task.result()
-
-
-def sse_bytes(event: str, data: Dict[str, Any]) -> bytes:
-    """Encode a named SSE event frame with JSON-serialized payload."""
-    return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n".encode("utf-8")
 
 
 class _DeltaHumanizer:
@@ -91,6 +86,20 @@ class _DeltaHumanizer:
 # never leaves the process — it is logged with the stack; the browser gets a
 # stable code plus a sentence a person can act on.
 _ERROR_MESSAGES: Dict[str, str] = {
+    "storage_setup_required": (
+        "Integral's storage encryption is not configured correctly. Ask the "
+        "installation owner to check setup and the original storage encryption "
+        "key, then restart Integral. Existing keys must be preserved."
+    ),
+    "harness_storage_unreadable": (
+        "Integral could not read its saved AI state. Ask the installation owner "
+        "to verify the original storage encryption key and restore from a backup "
+        "if needed. No saved work was replayed."
+    ),
+    "model_setup_required": (
+        "Choose a model in Settings → AI Models to start using Integral AI. "
+        "You can connect a cloud provider or a local Ollama model."
+    ),
     "model_key_required": (
         "No model API key is configured for this workspace. "
         "Add one in Settings and try again."
@@ -116,8 +125,99 @@ _ERROR_MESSAGES: Dict[str, str] = {
         "it can safely continue. Its work was not replayed. Start a new conversation "
         "for new work, or review the previous run before retrying here."
     ),
+    "model_configuration_invalid": (
+        "Integral AI's model configuration is invalid. Check Settings → AI Models. "
+        "For a server model, ask the administrator to review INTEGRAL_NATIVE_MODEL "
+        "and the Ollama settings in the active installation configuration, then restart."
+    ),
+    "model_authentication_failed": (
+        "The model provider rejected its credentials. Update the API key or model "
+        "access in Settings → AI Models. For a server model, ask the administrator "
+        "to check the provider credentials and restart."
+    ),
+    "model_endpoint_unreachable": (
+        "Integral AI could not reach the model provider. Check the connection. "
+        "For local Ollama, ensure it is running and the server's OLLAMA_API_BASE "
+        "points to a reachable address."
+    ),
+    "model_request_timeout": "The model provider took too long to respond. Check its availability before trying again.",
+    "model_rate_limited": "The model provider's usage limit was reached. Check the provider's quota or try again later.",
+    "model_unavailable": "The selected model is unavailable. Choose an available model in Settings → AI Models.",
+    "model_provider_unavailable": "The model provider is temporarily unavailable. Check its status before trying again.",
+    "model_request_rejected": "The model provider rejected this request. Check that the selected model supports chat and tools in Settings → AI Models.",
     "internal_error": "Something went wrong on our side. Please try again.",
+    "scaffold_plan_invalid": (
+        "The approved setup could not be built. Please try again."
+    ),
 }
+
+_SCAFFOLD_PLAN_COACHING = " Correct the generated operation plan"
+
+
+def _scaffold_plan_failure_message(exc: BaseException) -> Optional[str]:
+    """User text when a build-plan retry budget is spent.
+
+    Pydantic AI raises ``UnexpectedModelBehavior`` after ``ModelRetry``. The
+    seed or plan reason is on the cause chain; the outer message only says
+    the retry count was exceeded. Return that reason without the coaching
+    sentence written for the model.
+    """
+    outer = str(getattr(exc, "message", exc))
+    if "max retries" not in outer.lower():
+        return None
+    detail = ""
+    current: Optional[BaseException] = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        text = str(getattr(current, "message", current)).strip()
+        coaching_at = text.find(_SCAFFOLD_PLAN_COACHING)
+        if coaching_at >= 0:
+            text = text[:coaching_at].strip()
+        if text and (
+            "does not match a declared field" in text
+            or text.startswith("Operation ")
+            or "approved design" in text.lower()
+        ):
+            detail = text
+            break
+        current = current.__cause__ or current.__context__
+    lead = "The approved setup could not be built."
+    if detail:
+        return f"{lead} {detail}"
+    return lead
+
+
+# These current-state conflicts can happen on a first-ever conversation. Do
+# not describe them as an earlier user run requiring outcome reconciliation.
+_HARNESS_CURRENT_STATE_REASONS = frozenset(
+    {
+        "harness_session_id_collision",
+        "harness_session_pointer_mismatch",
+        "harness_session_pointer_missing",
+        "harness_session_scope_mismatch",
+        "harness_session_revision_changed",
+        "harness_session_generation_conflict",
+        "harness_session_edge_missing",
+        "harness_session_terminal",
+        "harness_checkpoint_manifest_unavailable",
+        "harness_checkpoint_fence_lost",
+    }
+)
+_HARNESS_RECOVERY_REASONS = frozenset(
+    {
+        "harness_model_request_unsettled",
+        "harness_tool_effect_unresolved",
+        "harness_recovery_reconciliation_required",
+        "harness_recovery_message_unavailable",
+        "harness_checkpoint_unavailable",
+    }
+)
+_HARNESS_CURRENT_STATE_MESSAGE = (
+    "The assistant could not safely complete this response. Its work was not "
+    "replayed. Start a new conversation for new work, or review this run "
+    "before retrying here."
+)
 
 
 def classify_turn_exception(
@@ -125,14 +225,52 @@ def classify_turn_exception(
 ) -> Tuple[str, str]:
     """Map an exception raised mid-stream to ``(code, user_facing_message)``."""
     try:
-        from app.api.errors import ResourceConflictError
+        from app.api.errors import ResourceConflictError, ServiceUnavailableError
+
+        if (
+            isinstance(exc, ServiceUnavailableError)
+            and getattr(exc, "details", {}).get("reason")
+            == "native_model_not_configured"
+        ):
+            return "model_setup_required", _ERROR_MESSAGES["model_setup_required"]
+
+        if (
+            isinstance(exc, ServiceUnavailableError)
+            and getattr(exc, "details", {}).get("reason")
+            == "native_model_configuration_invalid"
+        ):
+            return (
+                "model_configuration_invalid",
+                _ERROR_MESSAGES["model_configuration_invalid"],
+            )
+
+        if (
+            isinstance(exc, ServiceUnavailableError)
+            and getattr(exc, "details", {}).get("reason")
+            == "native_storage_encryption_not_configured"
+        ):
+            return "storage_setup_required", _ERROR_MESSAGES["storage_setup_required"]
 
         if isinstance(exc, ResourceConflictError):
             details = getattr(exc, "details", {})
             reason = details.get("reason") if isinstance(details, dict) else None
             if isinstance(reason, str) and reason.startswith("harness_"):
+                # Log only a fixed host reason code. Exception text/details
+                # can contain private data and never belong in this diagnostic.
+                safe_reason = (
+                    reason
+                    if reason
+                    in _HARNESS_CURRENT_STATE_REASONS | _HARNESS_RECOVERY_REASONS
+                    else "harness_unclassified_conflict"
+                )
+                logger.warning("Native chat authority guard denied: %s", safe_reason)
                 code = "harness_reconciliation_required"
-                return code, _ERROR_MESSAGES[code]
+                message = (
+                    _HARNESS_CURRENT_STATE_MESSAGE
+                    if reason in _HARNESS_CURRENT_STATE_REASONS
+                    else _ERROR_MESSAGES[code]
+                )
+                return code, message
     except Exception:  # noqa: BLE001 — keep error reporting best-effort
         pass
 
@@ -157,6 +295,9 @@ def classify_turn_exception(
                 return code, msg or _ERROR_MESSAGES[code]
         except Exception:  # noqa: BLE001
             pass
+        scaffold_message = _scaffold_plan_failure_message(exc)
+        if scaffold_message:
+            return "scaffold_plan_invalid", scaffold_message
         classify_provider_error = getattr(provider, "classify_exception", None)
         provider_code = None
         if callable(classify_provider_error):
@@ -354,7 +495,7 @@ async def generate_chat_turn_sse(
     # natural end. Anything else — client disconnect, /cancel, an exception,
     # the ASGI server cancelling us at a yield — leaves it False, and the
     # harness turn behind the iterator must then be cancelled explicitly:
-    # jvagent's walker runs as its own task and keeps calling the model and
+    # agent runtime's walker runs as its own task and keeps calling the model and
     # dispatching tools after the stream that fed it is gone.
     completed = False
     cancelled = False
@@ -366,7 +507,7 @@ async def generate_chat_turn_sse(
         )
 
         # ``aclosing`` runs the provider generator's ``finally`` blocks (the
-        # scope/focus ContextVar resets in jvagent_provider) in THIS task's
+        # scope/focus ContextVar resets in agent runtime_provider) in THIS task's
         # context when the loop exits early. Left to the event loop's
         # asyncgen finalizer they run in a different Context and
         # ``ContextVar.reset(token)`` raises.
@@ -613,3 +754,13 @@ async def generate_chat_turn_sse(
                 turn_id=turn_handle.turn_id,
                 extra=notify_extra,
             )
+
+    # EOF is not a reliable application-level completion signal: proxies and
+    # browser stream readers may keep a response body alive briefly after the
+    # server has finished the turn. Send an explicit acknowledgement only
+    # after terminal cleanup and any request-owned turn-fence release have run.
+    # Clients can then settle immediately without guessing from transport EOF.
+    yield sse_bytes(
+        "turn-settled",
+        {"type": "turn-settled", "status": terminal_status},
+    )

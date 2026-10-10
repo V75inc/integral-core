@@ -6,6 +6,7 @@ import { missionControlApi } from '../api';
 import { isOwnedPersonalWorkspace, workspaceAccessLabel } from '../api/workspaces';
 import { formatRelativeTime, resolveIdentityColor } from '../utils';
 import { markdownToPlainExcerpt } from '../utils/markdownExcerpt';
+import { isTrackNavVisible } from '../utils/trackNav';
 import type { App, Entry, Track } from '../types';
 // Phase 9 Plan 09-02 (NOTIF-01) — migrated to the canonical useNotifications
 // hook. Mission Control's "unread" metric tile now shares the single
@@ -82,6 +83,12 @@ export function MissionControlPage() {
   const tracks: Track[] = useMemo(
     () => missionControlQuery.data?.tracks ?? [],
     [missionControlQuery.data],
+  );
+  // Line-item / settings tracks stay out of Mission Control nav surfaces
+  // (same rule as /tracks and App track lists).
+  const visibleTracks = useMemo(
+    () => tracks.filter(isTrackNavVisible),
+    [tracks],
   );
   const apps: App[] = useMemo(
     () => missionControlQuery.data?.apps ?? [],
@@ -198,8 +205,10 @@ export function MissionControlPage() {
   const recentTracks = useMemo(() => {
     const score = (t: Track) =>
       new Date(t.updated_at || t.created_at || 0).getTime();
-    return [...tracks].sort((a, b) => score(b) - score(a)).slice(0, MOTION_LIMIT);
-  }, [tracks]);
+    return [...visibleTracks]
+      .sort((a, b) => score(b) - score(a))
+      .slice(0, MOTION_LIMIT);
+  }, [visibleTracks]);
 
   const recentApps = useMemo(() => {
     const score = (a: App) =>
@@ -287,7 +296,7 @@ export function MissionControlPage() {
           <section aria-label="At a glance" className="mc-metrics-grid">
             <div className="mc-metrics-primary">
               <Metric label="Workspaces" value={workspaces.length} />
-              <Metric label="Total tracks" value={tracks.length} />
+              <Metric label="Total tracks" value={visibleTracks.length} />
               <Metric label="Entries today" value={countersLoading ? '—' : entriesToday} to="/feed" />
             </div>
             <div className="mc-metrics-secondary">

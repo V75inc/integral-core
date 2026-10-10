@@ -2,7 +2,7 @@
 
 Exercises the full loop:
 
-  1. Empty Operational Model packages root → rescan returns empty diff.
+  1. Empty packages root → persisted platform seeds are retired on rescan.
   2. Drop a workspace-scope bundle on disk.
   3. ``POST /admin/packages/rescan`` reports it in ``added``.
   4. ``GET /library/workspace-models`` surfaces it to the picker.
@@ -44,13 +44,31 @@ async def test_drop_bundle_rescan_sees_it_in_listing(
         "app.services.operational_model_loader._PROFILES_ROOT", tmp_path
     )
 
-    # initial rescan: empty (tmp_path holds no bundles yet)
+    # The authenticated bootstrap may have persisted platform seeds. Clearing
+    # process history must not prevent retirement when the new root is empty.
+    from app.models.nodes import OperationalModel
+
+    seeded = await OperationalModel.find(
+        {
+            "context.library_package": True,
+            "context.metadata.seed_status": "active",
+        }
+    )
+    expected_removed = sorted(
+        {
+            row.metadata["slug"]
+            for row in seeded
+            if not row.workspace_id and row.metadata.get("slug")
+        }
+    )
+
+    # initial rescan: no bundles remain on disk
     r0 = await authenticated_admin_client.post("/api/admin/packages/rescan")
     assert r0.status_code == 200, r0.text
     body0 = r0.json()
     assert body0["added"] == []
     assert body0["updated"] == []
-    assert body0["removed"] == []
+    assert body0["removed"] == expected_removed
 
     # drop a workspace-scope bundle
     b = tmp_path / "test-ws-bundle"

@@ -29,7 +29,7 @@ async def test_enqueue_question_opens_queue_and_blocks_tools(monkeypatch):
     thread = await ChatThread.create(
         user_id="u-pq-1",
         workspace_id="ws-1",
-        provider_id="jvagent",
+        provider_id="integral_native",
         provider_session_id="sess-pq-1",
         title="t",
     )
@@ -65,7 +65,7 @@ async def test_drain_resume_and_cancel_all(monkeypatch):
     thread = await ChatThread.create(
         user_id="u-pq-2",
         workspace_id="ws-1",
-        provider_id="jvagent",
+        provider_id="integral_native",
         provider_session_id="sess-pq-2",
         title="t",
     )
@@ -124,7 +124,7 @@ async def test_cancel_all_keeps_approved(monkeypatch):
     thread = await ChatThread.create(
         user_id="u-pq-3",
         workspace_id="ws-1",
-        provider_id="jvagent",
+        provider_id="integral_native",
         provider_session_id="sess-pq-3",
         title="t",
     )
@@ -202,7 +202,7 @@ async def test_reopen_does_not_stack_prior_resolved(monkeypatch):
     thread = await ChatThread.create(
         user_id="u-pq-4",
         workspace_id="ws-1",
-        provider_id="jvagent",
+        provider_id="integral_native",
         provider_session_id="sess-pq-4",
         title="t",
     )
@@ -441,7 +441,7 @@ async def test_approved_profile_revision_resume_computes_and_surfaces_diff(
     thread = await ChatThread.create(
         user_id="u-profile-review",
         workspace_id="ws-1",
-        provider_id="jvagent",
+        provider_id="integral_native",
         provider_session_id="sess-profile-review",
         title="t",
     )
@@ -512,7 +512,7 @@ async def test_reconcile_closes_unavailable_and_expired_staged_writes(monkeypatc
     thread = await ChatThread.create(
         user_id="u-pq-reconcile",
         workspace_id="ws-1",
-        provider_id="jvagent",
+        provider_id="integral_native",
         provider_session_id="sess-pq-reconcile",
         title="t",
     )
@@ -576,7 +576,7 @@ async def test_reconcile_keeps_a_live_staged_write_actionable(monkeypatch):
     thread = await ChatThread.create(
         user_id="u-pq-live",
         workspace_id="ws-1",
-        provider_id="jvagent",
+        provider_id="integral_native",
         provider_session_id="sess-pq-live",
         title="t",
     )
@@ -613,7 +613,7 @@ async def test_reconcile_keeps_a_live_staged_write_actionable(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_open_queue_blocks_propose_but_allows_reads(monkeypatch):
+async def test_open_queue_blocks_execute_but_allows_reads(monkeypatch):
     """Reads stay open so multi-part turns can resolve the next target."""
     from app.agentive.tooling import dispatch as tooling_dispatch
 
@@ -631,15 +631,15 @@ async def test_open_queue_blocks_propose_but_allows_reads(monkeypatch):
         "app.services.chat_threads.design_amend_required", _not_awaiting
     )
 
-    propose = await tooling_dispatch.dispatch_tool(
-        "integral_create_entry",
-        {"title": "Dummy", "track_id": "n.Track.x"},
+    execute = await tooling_dispatch.dispatch_tool(
+        "integral_invoke_app_operation",
+        {},
         principal_id="u-gate",
         scope="ws-gate",
         session_id="sess-gate",
     )
-    assert propose.is_error
-    assert propose.error_code == "prompt_queue_open"
+    assert execute.is_error
+    assert execute.error_code == "prompt_queue_open"
 
     async def _ok_policy(*_a, **_k):
         return None

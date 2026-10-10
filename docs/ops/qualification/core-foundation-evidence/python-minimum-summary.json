@@ -1,0 +1,13 @@
+{
+  "declared_minimum": "3.11",
+  "previous_3_10_boot_failure": "datetime.UTC is unavailable on Python 3.10",
+  "python_3_10_install_refused": true,
+  "runtime_payload_unchanged": true,
+  "changed_wheel_members": [
+    "integral_core-0.1.1rc16.dist-info/METADATA",
+    "integral_core-0.1.1rc16.dist-info/RECORD"
+  ],
+  "wheel_sha256": "3d8f251bfcf2c58050a7e2d204cb80648f63fd0645787e681d13e35e7f04a200",
+  "supported_floor_import_passed": true,
+  "qualified_python": "3.11.15"
+}

@@ -274,3 +274,86 @@ async def test_abandoned_read_is_audited_without_reissuing_the_tool(monkeypatch)
     assert abandoned[0].tool_call_id == effect.tool_call_id
     assert abandoned[0].status == "failed"
     assert "no replay" in abandoned[0].effect_summary
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "tool,status,allowed",
+    [
+        ("read_tool", "succeeded", True),
+        ("write_tool", "succeeded", True),
+        ("write_tool", "running", False),
+        ("write_tool", "failed", False),
+    ],
+)
+async def test_cancelled_request_unknown_billing_does_not_replay_settled_effects(
+    monkeypatch,
+    tool,
+    status,
+    allowed,
+):
+    """Accounting uncertainty survives; missing mutation receipts still block."""
+    from app.agentive.harness import model_observations
+    from app.agentive.work_models import WorkApproval
+    from app.api.errors import ResourceConflictError
+
+    now = datetime.now(timezone.utc)
+    transitions = [
+        SimpleNamespace(
+            request_id="unfinished-model-request",
+            outcome="dispatch_intent",
+            observed_at=now,
+            dispatched_at=now,
+        )
+    ]
+    effect = SimpleNamespace(tool_name=tool, tool_call_id="call-1", status="completed")
+    old_history = [
+        ModelResponse(parts=[ToolCallPart(tool, {}, "call-1")]),
+        ModelRequest(parts=[ToolReturnPart(tool, {"status": status}, "call-1")]),
+    ]
+
+    async def observations(**_kwargs):
+        return transitions
+
+    async def steps(_query):
+        return [_receipt(tool, status)]
+
+    async def empty(_query):
+        return []
+
+    class Store:
+        async def list_unresolved_tool_effects(self, **_kwargs):
+            return []
+
+        async def list_tool_effects(self, **_kwargs):
+            return [effect]
+
+        async def latest_snapshot(self, **_kwargs):
+            return SimpleNamespace(
+                idempotency_key="snapshot",
+                state="complete",
+                step_index=2,
+                messages=old_history,
+            )
+
+    monkeypatch.setattr(
+        model_observations, "list_model_request_observations", observations
+    )
+    monkeypatch.setattr(WorkApproval, "find", empty)
+    monkeypatch.setattr(RunStep, "find", steps)
+    call = _resume_history(
+        _scope("next-run"),
+        SimpleNamespace(last_run_id="failed-run"),
+        Store(),
+        previous_run=_run(status="cancelled"),
+    )
+    if allowed:
+        history = await call
+        assert history[:2] == old_history
+        assert "must not be repeated" in history[-1].parts[0].content
+    else:
+        with pytest.raises(ResourceConflictError):
+            await call
+    assert model_observations.unsettled_model_request_ids(transitions) == [
+        "unfinished-model-request"
+    ]

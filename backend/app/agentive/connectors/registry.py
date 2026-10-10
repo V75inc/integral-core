@@ -49,8 +49,6 @@ def get_chat_connector(agent_type: str) -> AgentChatConnector:
     """Resolve connector by agent_type. Aliases normalize here, not in _REGISTRY."""
     t = (agent_type or "").strip().lower()
     # Alias-normalization boundary — preserved from prior shape (RESEARCH Pitfall 3).
-    if t in ("integral_assistant", ""):
-        t = "jvagent"
     cls = _REGISTRY.get(t)
     if cls is None:
         raise ValueError(f"Unsupported agent_type for chat: {agent_type!r}")
@@ -63,7 +61,6 @@ import os as _os  # noqa: E402
 
 # Side-effect imports — register built-in connectors at module load time.
 # These imports MUST stay at the bottom (avoid circular imports through @register_connector).
-from app.agentive.connectors import jvagent_connector  # noqa: E402, F401
 
 if (
     _os.getenv("INTEGRAL_ENABLE_MCP_STUB_CONNECTOR") == "1"

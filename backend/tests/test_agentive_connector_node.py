@@ -34,7 +34,7 @@ async def test_connector_node_full_seven_field_round_trip():
     from app.agentive.nodes import Connector
 
     c = await Connector.create(
-        kind="jvagent",
+        kind="custom",
         owner="user-test-conn-1",
         auth_state={"token": "abc", "refresh": "def"},
         sync_cursor="cursor-123",
@@ -45,7 +45,7 @@ async def test_connector_node_full_seven_field_round_trip():
 
     fetched = await Connector.get(c.id)
     assert fetched is not None
-    assert fetched.kind == "jvagent"
+    assert fetched.kind == "custom"
     assert fetched.owner == "user-test-conn-1"
     assert fetched.auth_state == {"token": "abc", "refresh": "def"}
     assert fetched.sync_cursor == "cursor-123"
@@ -129,7 +129,7 @@ async def test_sync_cursor_round_trip(test_user):
         update_sync_cursor,
     )
 
-    c = await create_connector(owner=test_user.id, kind="jvagent")
+    c = await create_connector(owner=test_user.id, kind="custom")
     assert await get_sync_cursor(c.id) is None  # no cursor yet
 
     await update_sync_cursor(c.id, "cursor-v1")
@@ -162,7 +162,7 @@ async def test_post_connectors_creates_via_authenticated_client(
     in test_unsigned_service_auth_rejected_at_middleware.
     """
     body = {
-        "kind": "jvagent",
+        "kind": "custom",
         "auth_state": {"token": "abc"},
         "sync_cursor": "cur-1",
         "mapping_profile": "prof-x",
@@ -172,7 +172,7 @@ async def test_post_connectors_creates_via_authenticated_client(
     r = await authenticated_client.post("/api/agentive/connectors", json=body)
     assert r.status_code in (200, 201), r.text
     created = r.json()
-    assert created["kind"] == "jvagent"
+    assert created["kind"] == "custom"
     assert created["auth_state"] == {"token": "abc"}
     assert created["sync_cursor"] == "cur-1"
     assert created["mapping_profile"] == "prof-x"
@@ -217,7 +217,7 @@ async def test_post_connectors_extra_field_returns_422_canonical_envelope(
     authenticated_client,
 ):
     """T-01-04-01 spoofing: client cannot inject `owner` (extra: forbid)."""
-    body = {"kind": "jvagent", "owner": "spoofed-user-id"}
+    body = {"kind": "custom", "owner": "spoofed-user-id"}
     r = await authenticated_client.post("/api/agentive/connectors", json=body)
     assert r.status_code == 422, r.text
     env = r.json()

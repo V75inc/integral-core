@@ -109,6 +109,48 @@ async def insert_operation_events(
         )
 
 
+async def insert_entry_event(
+    *, transaction: Any, workspace_id: str, event: Dict[str, Any]
+) -> str:
+    """Reuse the command outbox for one revision-bound substrate entry fact.
+
+    No App operation is invented for generic CRUD. The same delivery/recovery
+    consumer handles this fact after the graph transaction commits.
+    """
+    after = dict(event.get("after") or {})
+    identity = json.dumps(
+        [
+            "entry-command-v1",
+            workspace_id,
+            event["resource_id"],
+            event["action"],
+            after.get("record_revision", 1),
+        ],
+        separators=(",", ":"),
+    )
+    outbox_id = hashlib.sha256(identity.encode()).hexdigest()
+    now = utc_now_iso()
+    await transaction.insert_if_absent(
+        _COLLECTION,
+        {
+            "id": event_outbox_object_id(outbox_id),
+            "entity": _ENTITY,
+            "context": {
+                "outbox_id": outbox_id,
+                "workspace_id": workspace_id,
+                "app_id": "",
+                "operation_key": event["action"],
+                "status": "pending",
+                "event": dict(event),
+                "attempt": 0,
+                "created_at": now,
+                "updated_at": now,
+            },
+        },
+    )
+    return outbox_id
+
+
 async def deliver_operation_event(
     *, outbox_id: str, database: Any | None = None
 ) -> bool:

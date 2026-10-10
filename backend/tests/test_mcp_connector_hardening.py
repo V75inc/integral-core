@@ -633,7 +633,7 @@ async def test_owns_edge_is_wired_for_a_created_connector(
 
     r = await authenticated_client.post(
         "/api/agentive/connectors",
-        json={"kind": "jvagent", "auth_state": {}},
+        json={"kind": "custom", "auth_state": {}},
     )
     assert r.status_code in (200, 201), r.text
     connector_id = r.json()["id"]

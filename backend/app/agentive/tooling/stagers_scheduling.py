@@ -11,7 +11,21 @@ dispatch principal + bound scope, never from the stager.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List
+
+# A reminder is native. Sending a text is not: it needs a trusted package,
+# and coverage already refuses that effect when it is named as an operation.
+_TEXTING_ROUTINE = re.compile(
+    r"\b(?:sms|texting|text messages?|send (?:a |an )?texts?|"
+    r"texts? (?:the|each|them|to|customers?|renters?))\b",
+    re.IGNORECASE,
+)
+
+
+def is_texting_instruction(instruction: str) -> bool:
+    """Return whether the instruction would send a text."""
+    return bool(_TEXTING_ROUTINE.search(instruction or ""))
 
 
 def _describe_write_scope(write_scope: List[Dict[str, str]]) -> str:
@@ -47,6 +61,11 @@ async def stage_schedule_task(args: Dict[str, Any]) -> Dict[str, Any]:
 
     if not instruction:
         raise ValueError("schedule_task: instruction is required")
+    if is_texting_instruction(instruction):
+        raise ValueError(
+            "schedule_task: sending a text requires a trusted package. "
+            "Do not stage a routine for it."
+        )
     if run_at and cron:
         raise ValueError("schedule_task: pass run_at or cron, not both")
     if not run_at and not cron:
@@ -83,13 +102,14 @@ async def stage_schedule_task(args: Dict[str, Any]) -> Dict[str, Any]:
             "created from a live chat turn (need a thread to post into)"
         )
 
-    from app.services.chat_proactive_bridge import find_thread_by_provider_session
-
     principal_id = _bound_propose_principal()
-    thread = await find_thread_by_provider_session(
-        user_id=principal_id, provider_session_id=session_id
-    )
-    if thread is None:
+    from app.services.chat_threads import get_thread_by_session
+
+    # The shared resolver handles both provider session keys and Integral
+    # native ChatThread IDs. A routine always targets the active conversation,
+    # regardless of which harness owns it.
+    thread = await get_thread_by_session(session_id)
+    if thread is None or getattr(thread, "user_id", None) != principal_id:
         raise ValueError("schedule_task: could not resolve the active chat thread")
 
     from app.services.agent_scope import active_workspace_id

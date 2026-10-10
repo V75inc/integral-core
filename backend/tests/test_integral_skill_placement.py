@@ -1,4 +1,4 @@
-"""ADR-0020: resident integral_* skills live on the action overlay."""
+"""The native resident discovers portable Core instructions and tool contracts."""
 
 from __future__ import annotations
 
@@ -6,12 +6,11 @@ import glob
 import os
 
 import yaml
-from jvagent.scaffold.skill_resolve import resolve_merged_skill_bundles
 
+from app.agentive.services.agent_skills import list_core_skills
 from tests.integral_agent_paths import (
     EMBEDDED_INTEGRAL_ACTION_SKILLS_DIR,
     EMBEDDED_INTEGRAL_SKILLS_GLOB,
-    INTEGRAL_AGENT_APP_ROOT,
 )
 
 _INTEGRAL_SKILLS = (
@@ -34,25 +33,22 @@ _INTEGRAL_SKILLS = (
 )
 
 
-def test_integral_skills_on_action_overlay_filesystem():
+def test_integral_skills_on_portable_filesystem():
     paths = sorted(glob.glob(EMBEDDED_INTEGRAL_SKILLS_GLOB))
     names = {os.path.basename(os.path.dirname(p)) for p in paths}
     assert names == set(_INTEGRAL_SKILLS)
 
 
-def test_merged_bundles_discover_action_overlay_skills():
-    bundles = resolve_merged_skill_bundles(
-        INTEGRAL_AGENT_APP_ROOT,
-        "integral",
-        "integral_agent",
-        include_builtin=False,
-    )
+def test_native_discovers_every_portable_core_skill():
+    rows = list_core_skills()
+    by_key = {row["key"]: row for row in rows}
     for name in _INTEGRAL_SKILLS:
-        assert name in bundles, f"{name} missing from merged skill bundles"
-        bundle = bundles[name]
-        assert bundle.get("source") == "app"
-        assert not bundle.get("extends")
-        assert not bundle.get("requires_actions")
+        assert name in by_key
+        assert by_key[name]["resolved_body"]
+        if name != "integral-navigation":
+            assert by_key[name]["tools_required"]
+        else:
+            assert by_key[name]["tools_required"] == []
 
 
 def test_each_skill_uses_only_standard_frontmatter():

@@ -52,6 +52,9 @@ def reset_library_operational_models_cache_for_testing() -> None:
     global _CACHED_LIBRARY_SPECS, _CACHED_PROFILES_ROOT
     _CACHED_LIBRARY_SPECS = None
     _CACHED_PROFILES_ROOT = None
+    from app.services.operational_model_compile import reset_seeded_library_view_index
+
+    reset_seeded_library_view_index()
 
 
 async def _is_library_operational_model_referenced(operational_model_id: str) -> bool:
@@ -91,6 +94,7 @@ async def reconcile_removed_seeded_packages(
             {
                 "context.library_package": True,
                 "context.metadata.slug": slug,
+                "context.metadata.seed_status": "active",
             }
         )
         if rows is None:
@@ -164,7 +168,20 @@ async def sync_library_catalog_from_disk(
         changed = set(added + updated)
         upsert_specs = [s for s in specs if s.slug in changed]
 
-    removed = sorted([slug for slug in prior if slug not in now_index])
+    # The process-local index is only a rescan optimization. Startup must
+    # reconcile packages removed while this process was stopped as well.
+    seeded_rows = await OperationalModel.find(
+        {
+            "context.library_package": True,
+            "context.metadata.seed_status": "active",
+        }
+    )
+    persisted_slugs = {
+        str((row.metadata or {}).get("slug"))
+        for row in seeded_rows or []
+        if not getattr(row, "workspace_id", None) and (row.metadata or {}).get("slug")
+    }
+    removed = sorted((set(prior) | persisted_slugs) - set(now_index))
 
     if upsert_specs:
         await upsert_seeded_library_packages(

@@ -109,7 +109,14 @@ async def decide_staged_write(
         raise StagingError(
             "pending_item_changed", "The proposed change is no longer available."
         )
-    if decision == "approve" and staged.state != "pending":
+    # Explicit card retry resumes the already-approved failed execution through
+    # its existing claim/progress cursor; it does not grant a new proposal.
+    retry_failed_card = (
+        source == "card"
+        and staged.state == "blessed"
+        and bool(getattr(staged, "last_error", None))
+    )
+    if decision == "approve" and staged.state != "pending" and not retry_failed_card:
         raise StagingError(
             "pending_item_changed",
             "The proposed change is no longer awaiting a decision.",

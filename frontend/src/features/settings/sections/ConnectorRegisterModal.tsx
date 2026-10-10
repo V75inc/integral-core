@@ -20,7 +20,6 @@ import { useToast } from '../../../context/ToastContext';
 import { SettingsField, TextInput } from '../components/Field';
 
 const KINDS: AgentType[] = [
-  'jvagent',
   'mcp',
   'open_claw',
   'skill_bundle',
@@ -53,7 +52,7 @@ function parseArgs(s: string): string[] {
 export function ConnectorRegisterModal({ open, onClose, onCreated }: Props) {
   const qc = useQueryClient();
   const toast = useToast();
-  const [kind, setKind] = useState<AgentType>('jvagent');
+  const [kind, setKind] = useState<AgentType>('mcp');
   const [permissions, setPermissions] = useState('');
   const [capabilities, setCapabilities] = useState('');
   const [transport, setTransport] = useState<McpTransport>('stdio');
@@ -63,7 +62,7 @@ export function ConnectorRegisterModal({ open, onClose, onCreated }: Props) {
   const [displayName, setDisplayName] = useState('');
 
   const reset = () => {
-    setKind('jvagent');
+    setKind('mcp');
     setPermissions('');
     setCapabilities('');
     setTransport('stdio');

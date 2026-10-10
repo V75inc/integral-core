@@ -17,6 +17,8 @@ export default {
         'dialog-confirm': 'var(--dialog-w-confirm)',  /* 480px — confirm prompts */
         'dialog-form':    'var(--dialog-w-form)',     /* 720px — standard control modal */
         'dialog-wide':    'var(--dialog-w-wide)',     /* 1024px — media viewers */
+        'dialog-workspace': 'var(--dialog-w-workspace)', /* ~1480 / 96vw — multi-pane builders */
+        'dialog-workspace-max': 'var(--dialog-w-workspace-max)', /* ~1920 / 98vw — expanded builder */
       },
       zIndex: {
         /** Viewport-level stacking ladder. Source of truth: the `--z-*`

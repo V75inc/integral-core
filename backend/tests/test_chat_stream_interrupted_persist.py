@@ -225,10 +225,13 @@ async def test_terminal_callback_receives_one_success(monkeypatch):
 
     kwargs = _make_kwargs(_FakeThread(), _QuickProvider(), [])
     kwargs["on_terminal"] = on_terminal
+    chunks = []
     async for _chunk in chat_streaming.generate_chat_turn_sse(**kwargs):
-        pass
+        chunks.append(_chunk)
 
     assert order == ["terminal", "release"]
+    assert chunks[-1].startswith(b"event: turn-settled\n")
+    assert b'"status": "succeeded"' in chunks[-1]
 
 
 @pytest.mark.asyncio

@@ -36,35 +36,11 @@ def test_pydantic_provider_cancel_hook_is_synchronous() -> None:
     """TurnRegistry.cancel is sync; native token cancellation must be too."""
     from app.services.chat_providers.pydantic_ai_provider import PydanticAIProvider
 
-    called = []
-
-    class Token:
-        def cancel(self):
-            called.append("cancelled")
-
     provider = PydanticAIProvider()
-    provider._active_tokens["thread-3"] = Token()
     turn = _TurnHandle()
     register_provider_cancel_hook(turn, thread_id="thread-3", provider=provider)
+    token = provider._active_tokens["thread-3"]
 
     turn.cancel()
 
-    assert called == ["cancelled"]
-
-
-def test_legacy_jvagent_provider_keeps_cancel_fallback(monkeypatch) -> None:
-    """Legacy provider doubles still cancel embedded jvagent interactions."""
-    from app.providers import jvagent_embed
-
-    called = []
-    monkeypatch.setattr(
-        jvagent_embed, "cancel_interact", lambda *, thread_id: called.append(thread_id)
-    )
-    turn = _TurnHandle()
-
-    register_provider_cancel_hook(
-        turn, thread_id="thread-2", provider=SimpleNamespace(id="jvagent")
-    )
-    turn.cancel()
-
-    assert called == ["thread-2"]
+    assert token.cancelled

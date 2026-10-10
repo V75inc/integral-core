@@ -2,7 +2,8 @@
 
 A host process (e.g. Integral Business) may register implementations after
 boot via ``INTEGRAL_HOST_EXTENSION_MODULE``. Core call sites invoke these
-helpers and treat missing handlers as no-ops.
+helpers. Most missing handlers are no-ops; bounded-work price admission instead
+refuses an absent resolver through the work price service.
 
 Authorization (pre-operation deny) is separate from metering (post-operation
 usage signal). Metering failures must stay observable — they are logged and
@@ -15,6 +16,9 @@ import logging
 import threading
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence
+
+from app.schemas.agentive.model_dispatch import ModelDispatchInput, ModelPayloadBounds
+from app.schemas.agentive.work_price import ModelPriceRequest, ModelTokenPriceEvidence
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +34,8 @@ BackgroundTaskFactory = Callable[[], Awaitable[Any]]
 MiddlewareFactory = Callable[[], Any]
 # (request, action, workspace_id) → raise or pass
 EntitlementMutationAuthorizer = Callable[[Any, str, str], Awaitable[Any]]
+ModelPriceResolver = Callable[[ModelPriceRequest], Awaitable[ModelTokenPriceEvidence]]
+ModelBoundsResolver = Callable[[ModelDispatchInput], Awaitable[ModelPayloadBounds]]
 
 _USAGE_FAILURE_IDENTITY_KEYS = (
     "workspace_id",
@@ -57,6 +63,8 @@ _workspace_enricher: Optional[WorkspaceExportEnricher] = None
 _background_task_factories: List[BackgroundTaskFactory] = []
 _middleware_registrations: List[MiddlewareRegistration] = []
 _entitlement_mutation_authorizer: Optional[EntitlementMutationAuthorizer] = None
+_model_price_resolver: Optional[ModelPriceResolver] = None
+_model_bounds_resolver: Optional[ModelBoundsResolver] = None
 
 _lock = threading.Lock()
 _last_usage_record_failure: Optional[Dict[str, Any]] = None
@@ -67,6 +75,32 @@ def register_platform_quota_assert(fn: Optional[PlatformQuotaAssert]) -> None:
     """Register (or clear) the pre-operation platform quota gate."""
     global _platform_quota_assert
     _platform_quota_assert = fn
+
+
+def register_model_price_resolver(fn: Optional[ModelPriceResolver]) -> None:
+    """Trusted boot-time host registration; missing pricing is never a free quote."""
+    global _model_price_resolver
+    if fn is not None and not callable(fn):
+        raise TypeError("model price resolver must be callable")
+    _model_price_resolver = fn
+
+
+def get_model_price_resolver() -> Optional[ModelPriceResolver]:
+    """Used by the fail-closed work price service, never a public/model tool."""
+    return _model_price_resolver
+
+
+def register_model_bounds_resolver(fn: Optional[ModelBoundsResolver]) -> None:
+    """Register trusted payload policy at host boot, never through an agent tool."""
+    global _model_bounds_resolver
+    if fn is not None and not callable(fn):
+        raise TypeError("model bounds resolver must be callable")
+    _model_bounds_resolver = fn
+
+
+def get_model_bounds_resolver() -> Optional[ModelBoundsResolver]:
+    """Missing host bounds must prevent approved bounded-work model dispatch."""
+    return _model_bounds_resolver
 
 
 def register_usage_event_recorder(fn: Optional[UsageEventRecorder]) -> None:

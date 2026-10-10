@@ -39,7 +39,7 @@ status: "PRODUCTION — single source of truth"
 # -----------------------------------------------------------------------------
 conventions:
   naming: "integral_<verb>_<resource>  (CONTEXT D-06; mcp_adapter._name_from_path)"
-  tool_namespace_when_surfaced: "integral__<tool>  (jvagent ToolRegistry reserves action__/harness__/skill__/mcp__; integral_* names are collision-safe)"
+  tool_namespace_when_surfaced: "integral_<tool> (native broker and MCP use the canonical manifest name)"
   identity: "Acting principal resolved by resolve_principal_id(request); NEVER an argument. The single resident agent holds NO ambient authority."
   scope: "Workspace scope bound from X-Integral-Scope (request_scope.resolve_workspace_id_from_request). NO tool accepts a workspace_id that widens scope beyond the caller's bound, validated membership."
   errors: "JVSpatialAPIException subclasses (app/api/errors.py). Insufficient permission => fail-closed denial, never a partial leak."
@@ -94,8 +94,8 @@ privacy_contract:
     rule: "Agents with no Policy grant are denied (fail_closed_no_policy). Ambiguity resolves to denial, never disclosure."
     enforced_by: "policy_engine baseline-policy materialization"
   PC-7_per_user_sandbox:
-    rule: "claude-spec skill scripts and any file IO run in the caller's <agent_id>/<user_id>/ slice (jvagent.core.sandbox). No path escapes it (validate_relative_path rejects abs paths + `..`)."
-    enforced_by: "jvagent/core/sandbox.py; jvagent/action/code_execution"
+    rule: "File exports use the authenticated caller's user_id beneath INTEGRAL_SANDBOX_ROOT. Paths are validated and cannot escape that directory. Native App skills are declarative; they cannot enable filesystem execution."
+    enforced_by: "app/services/attachment_agent.py; app/agentive/harness/broker_tools.py"
   PC-8_audited:
     rule: "Every mutation emits a ChangeEvent with actor_kind=agent + actor_id."
     invariants: [I-APPROVAL-03]
@@ -168,7 +168,7 @@ skill_governance:
       specs_allowed: [jv, claude]
       may_bundle_code: true            # claude-spec scripts run in the per-user sandbox (PC-7)
       tool_references: "any manifest tool"
-      source: "jvagent/skills/*  (skills_source: library)"
+      source: "pydantic-ai-harness standard skill library"
     app_or_track_bundled:
       author: "app / bundle author (semi- or untrusted)"
       specs_allowed: [jv]              # claude-spec FORBIDDEN — no author-supplied code path
@@ -182,7 +182,7 @@ skill_governance:
     - "a non-standard SKILL.md frontmatter field"
   enforcement_layers:   # defense in depth — a bundled SOP cannot exceed the acting user
     - "registration validator (above) — blocks code + unknown-tool references at install time"
-    - "jvagent tool:* access control gates every dispatch"
+    - "Native capability policy and per-call Core authorization gate every dispatch"
     - "policy_engine.evaluate(subject, action, resource) as the ACTING USER on every tool call (PC-1..PC-8)"
   capability_growth_path: "Add a governed tool to this manifest (reviewed + policy-gated + scoped), OR declare a bundle tools[] entry under trust_tier=trusted reaching the substrate only via the ToolContext facade + a frozen hook binding. NEVER custom code inside a skill."
 
@@ -319,18 +319,20 @@ domains:
           its entries are the records). Use this to find where content lives — when the
           user asks "what tracks do I have", "list my projects/contacts/tasks tracks",
           or before filing/querying so you can resolve a track id. Pass app_id to
-          restrict to one app's tracks. Returns track metadata (id, title, visibility,
-          workspace, role), NOT the entries inside — use integral_query_entries to pull
-          a track's entries, or integral_get_track_schema to see its structure. Each
-          track row includes action_url — link track names in chat with
-          [title](action_url).
+          restrict to one app's tracks. By default omits tracks with nav_visible=false
+          (internal line-item tracks); pass include_nav_hidden=true when you need those.
+          Returns track metadata (id, title, visibility, workspace, role), NOT the
+          entries inside — use integral_query_entries to pull a track's entries, or
+          integral_get_track_schema to see its structure. Each track row includes
+          action_url — link track names in chat with [title](action_url).
         http: "GET /api/tracks"
         policy_action: track.read
         params:
           app_id: {type: string, optional: true, desc: "Restrict to tracks under this app (from integral_list_apps)."}
           cursor: {type: string, optional: true, desc: "Opaque pagination cursor from a prior call's next_cursor; omit for the first page."}
           limit: {type: integer, default: 100, desc: "Page size (max 100). Omit cursor+limit to auto-fetch ALL accessible tracks in the active workspace (agent dispatch expands pages). Pass cursor to paginate manually."}
-        returns: { tracks: [{id: str, title: str, visibility: str, workspace_id: str, role: str}], total: integer, has_more: bool, next_cursor: str }
+          include_nav_hidden: {type: boolean, optional: true, default: false, desc: "When true, include tracks with nav_visible=false (e.g. document line-item tracks). Default false keeps human-facing nav lists clean."}
+        returns: { tracks: [{id: str, title: str, visibility: str, workspace_id: str, role: str, nav_visible: bool}], total: integer, has_more: bool, next_cursor: str }
         privacy: "Permission-filtered per track. PC-3, PC-4."
       - name: integral_get_track_schema
         status: existing
@@ -423,12 +425,15 @@ domains:
           track_id OR space_id (the app), not both. This shows what one resource HAS;
           integral_describe_substrate shows the global palette of what you COULD add,
           and integral_list_models lists reusable library packages.
+          Defaults to a bounded overview. For schema authoring or modification,
+          explicitly request detail=full to inspect fields and configurations.
         http: "(operational_models introspection)"
         policy_action: track.read
         params:
           track_id: {type: string, optional: true, desc: "Describe the Operational Model attached to this track (provide track_id OR space_id, not both)."}
           space_id: {type: string, optional: true, desc: "Describe the Operational Model attached to this app (the substrate's space). Provide track_id OR space_id, not both."}
-        returns: { manifest: object, draft_status: str, pending_changes: list }
+          detail: {type: string, optional: true, enum: [overview, full], default: overview, desc: "Bounded overview for discovery; full is required before schema modification."}
+        returns: { published: object, draft: "object|null", has_draft: bool }
       - name: integral_describe_capabilities
         status: existing
         op_class: read
@@ -1002,6 +1007,7 @@ domains:
           focused_view_id: {type: string, optional: true, desc: "Id of the view tab currently in focus in the UI, if any — biases view resolution."}
           kanban_stage_hint: {type: string, optional: true, desc: "Kanban column key or label when creating on a board view (maps to _kanban_stage or workflow field)."}
           focused_track_id: {type: string, optional: true, desc: "Id of the track currently in focus, if any — biases resolution toward it."}
+          allow_duplicate_title: {type: boolean, optional: true, default: false, desc: "Propose a separate new record even when a same-type title exists. Use only when the user requests a separate record. The approval preview discloses that existing records stay unchanged; this flag never approves or executes the create."}
         returns: { staged_token: str, preview: object }
       - name: integral_rank_destinations
         status: existing
@@ -1062,6 +1068,7 @@ domains:
           idempotency_key: {type: string, optional: true, desc: "Retries of the same payload and revisions return the first result and do not append again. A different payload with the same key conflicts."}
           entry_type_key: {type: string, optional: true, desc: "Entry type key used for protected-field checks on update and append when the entry has no type."}
           replace_body: {type: boolean, optional: true, desc: "On update, replace the body with text. Omit to leave the body unchanged."}
+          allow_duplicate_title: {type: boolean, optional: true, default: false, desc: "Propose a separate new record despite a same-type title match, only when requested. Still requires approval and retains the existing record unchanged."}
         returns: { staged_token: str, preview: object, filing_status: str }
       - name: integral_update_entry
         status: existing
@@ -1090,8 +1097,10 @@ domains:
         priority: P1
         summary: >-
           Delete an entry. Use when the user explicitly asks to remove or discard a
-          specific entry (resolve its id first). The delete is soft (status=deleted),
-          so it is reversible by an admin, but treat it as a real removal. This STAGES
+          specific entry (resolve its id first). The entry is permanently removed;
+          associated comments and sharing links are removed, and its attached files
+          are no longer accessible through it. Policy may also delete linked child
+          tracks. This cannot be undone. This STAGES
           the deletion the user approves in Integral — there is no separate execute
           step. To merely change status or move an entry, use integral_update_entry
           instead of deleting.
@@ -1162,7 +1171,7 @@ domains:
         returns: { ok: bool, key: str, kind: str, version: int }
       - name: integral_get_artifact
         status: existing
-        op_class: propose
+        op_class: read
         priority: P2
         summary: Fetch one session artifact by key (full body). Does not stage a write.
         http: "(conversation context)"
@@ -1172,7 +1181,7 @@ domains:
         returns: { ok: bool, key: str, kind: str, title: str, body: str, version: int }
       - name: integral_list_artifacts
         status: existing
-        op_class: propose
+        op_class: read
         priority: P2
         summary: List session artifacts (metadata only), optionally filtered by kind. Does not stage a write.
         http: "(conversation context)"
@@ -2295,7 +2304,7 @@ domains:
         status: existing
         op_class: propose
         priority: P2
-        summary: "File a chat-uploaded file (Slice B — general file persistence) into an entry. The file must already be uploaded via the chat composer in THIS conversation and not yet filed elsewhere; use integral_list_attachments / conversation context to find its attachment_id."
+        summary: "File an existing chat upload into an entry. The upload must belong to THIS conversation and not yet be filed elsewhere. Use conversation context to find its attachment_id. For a new record, begin a batch, stage integral_create_entry first, pass its returned result_ref as entry_id here, then commit one combined approval. Destination permissions are checked when the saved entry is resolved during execution."
         http: "(attachment_agent.attach_uploaded_file_to_entry)"
         policy_action: attachment.create
         staging_kind: attach_uploaded_file
@@ -2553,7 +2562,7 @@ summary:
   total_tools: 125
   existing_tools: 123    # status: existing
   gap_tools_proposed: 2  # status: gap (workspace_setup, onboard_user deferred)
-  by_op_class: { read: 51, propose: 72, execute: 2 }
+  by_op_class: { read: 53, propose: 70, execute: 2 }
   by_priority: { P0: 15, P1: 41, P2: 69 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"

@@ -8,7 +8,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Dict, Optional
 
-from jvspatial.db import get_prime_database
+from jvspatial.core.context import get_default_context
 
 from app.agentive.work_models import WorkItem, WorkOutboxEntry
 from app.schemas.agentive.work import (
@@ -28,6 +28,18 @@ TOPIC_ENQUEUED = "work.enqueued"
 TOPIC_TRANSITIONED = "work.transitioned"
 
 _dev_lock = asyncio.Lock()
+
+
+def _active_database() -> Any:
+    """Use the database bound to the active graph context.
+
+    Worker processes and scoped/test contexts may bind a dedicated database.
+    Bypassing that binding for CAS operations can silently select a different
+    backend (and lose cross-process atomicity), so work/outbox writes must use
+    the same database as the WorkItem reads.
+    """
+    return get_default_context().database
+
 
 OutboxConsumer = Callable[[WorkOutboxEntry], Awaitable[None]]
 
@@ -363,7 +375,7 @@ async def enqueue_work_item_unit(
         causation_id=req.causation_id or "",
     )
 
-    db = get_prime_database()
+    db = _active_database()
     if transaction is not None or _is_postgres_txn_db(db):
         return await _enqueue_postgres(
             db=_txn_database(db) if transaction is None else db,
@@ -470,7 +482,7 @@ async def transition_work_item_unit(
     now = utc_now_iso()
     field_updates = dict(fields or {})
 
-    db = get_prime_database()
+    db = _active_database()
     if transaction is not None or _is_postgres_txn_db(db):
         return await _transition_postgres(
             db=_txn_database(db) if transaction is None else db,
@@ -553,6 +565,12 @@ async def _transition_postgres(
                 created_at=now,
                 run_id=str(field_updates.get("run_id") or ctx.get("run_id") or ""),
             ),
+        )
+        await _release_terminal_chat_admission(
+            transaction=txn,
+            context=ctx,
+            work_item_id=bare_id,
+            target=target,
         )
         if owns_txn:
             await db.commit_transaction(txn)
@@ -732,7 +750,7 @@ async def cas_work_item_update(
     )
     bare_id = object_id.removeprefix("o.WorkItem.")
     now = utc_now_iso()
-    db = get_prime_database()
+    db = _active_database()
 
     if transaction is not None or _is_postgres_txn_db(db):
         return await _cas_postgres(
@@ -760,6 +778,30 @@ async def cas_work_item_update(
             error_code=error_code,
             now=now,
         )
+
+
+async def _release_terminal_chat_admission(
+    *,
+    transaction: Any,
+    context: Dict[str, Any],
+    work_item_id: str,
+    target: Any,
+) -> None:
+    """Join chat admission cleanup to every shared-store terminal transition."""
+    from app.schemas.agentive.work import TERMINAL_WORK_STATUSES
+
+    if context.get("kind") != "chat_turn" or target not in TERMINAL_WORK_STATUSES:
+        return
+    from app.services.chat_turn_admission import (
+        release_chat_turn_admission_in_transaction,
+    )
+
+    await release_chat_turn_admission_in_transaction(
+        transaction=transaction,
+        thread=None,
+        thread_id=str(context.get("thread_id") or ""),
+        work_item_id=work_item_id,
+    )
 
 
 async def _cas_postgres(
@@ -817,6 +859,12 @@ async def _cas_postgres(
                     created_at=now,
                 ),
             )
+        await _release_terminal_chat_admission(
+            transaction=txn,
+            context=ctx,
+            work_item_id=bare_id,
+            target=updates.get("status"),
+        )
         if owns_txn:
             await db.commit_transaction(txn)
         item = _hydrate_work_item(updated)

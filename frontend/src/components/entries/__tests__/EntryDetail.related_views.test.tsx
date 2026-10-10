@@ -41,7 +41,7 @@ vi.mock('../../views/ComposableViewSlot', () => ({
   },
 }));
 
-import { RelatedViewsSection } from '../RelatedViewsSection';
+import { RelatedViewsSection, splitRelatedViewsByPosition } from '../RelatedViewsSection';
 
 beforeEach(() => {
   slotCalls.length = 0;
@@ -51,6 +51,26 @@ afterEach(() => {
   // RTL doesn't auto-cleanup with vitest unless globals are on; explicit
   // cleanup here keeps screen.queryByTestId scoped per-test.
   cleanup();
+});
+
+describe('splitRelatedViewsByPosition', () => {
+  it('puts position primary in primary and everything else in related', () => {
+    const { primary, related } = splitRelatedViewsByPosition([
+      { view: 'lines', bind: {}, position: 'primary' },
+      { view: 'board', bind: {} },
+      { view: 'feed', bind: {}, position: 'related' },
+    ]);
+    expect(primary.map(r => r.view)).toEqual(['lines']);
+    expect(related.map(r => r.view)).toEqual(['board', 'feed']);
+  });
+
+  it('treats empty/missing as both empty', () => {
+    expect(splitRelatedViewsByPosition(undefined)).toEqual({
+      primary: [],
+      related: [],
+    });
+    expect(splitRelatedViewsByPosition([])).toEqual({ primary: [], related: [] });
+  });
 });
 
 describe('RelatedViewsSection — Phase 3.1 ANC-06', () => {
@@ -169,6 +189,21 @@ describe('RelatedViewsSection — Phase 3.1 ANC-06', () => {
     });
   });
 
+  it('forwards appId so embedded extension views can load their package', () => {
+    render(
+      <RelatedViewsSection
+        entry={{ id: 'e-42' }}
+        entryTypeSpec={{
+          related_views: [{ view: 'opening_apply_link', bind: {} }],
+        }}
+        user={{ id: 'u-99' }}
+        currentTrackId="t-current"
+        appId="app-recruitment"
+      />
+    );
+    expect(slotCalls[0].bindings?.appId).toBe('app-recruitment');
+  });
+
   it('mixed declarations: one resolves, one skipped → only the resolved one renders', () => {
     render(
       <RelatedViewsSection
@@ -208,5 +243,37 @@ describe('RelatedViewsSection — Phase 3.1 ANC-06', () => {
     expect(slotCalls[0].onEntryOpen).toBe(onEntryOpen);
     expect(slotCalls[0].onEntryCreate).toBe(onEntryCreate);
     expect(slotCalls[0].isEditor).toBe(true);
+  });
+
+  it('primary placement: custom testId, no Related heading', () => {
+    render(
+      <RelatedViewsSection
+        entry={{ id: 'e1' }}
+        entryTypeSpec={{
+          related_views: [{ view: 'lines', bind: {}, position: 'primary' }],
+        }}
+        user={{ id: 'u1' }}
+        currentTrackId="t-current"
+        heading={null}
+        testId="primary-related-views-section"
+      />
+    );
+    expect(screen.getByTestId('primary-related-views-section')).toBeInTheDocument();
+    expect(screen.queryByText('Related')).toBeNull();
+    expect(screen.getAllByTestId('slot')).toHaveLength(1);
+  });
+
+  it('empty primary list renders nothing', () => {
+    render(
+      <RelatedViewsSection
+        entry={{ id: 'e1' }}
+        entryTypeSpec={{ related_views: [] }}
+        user={{ id: 'u1' }}
+        currentTrackId="t-current"
+        heading={null}
+        testId="primary-related-views-section"
+      />
+    );
+    expect(screen.queryByTestId('primary-related-views-section')).toBeNull();
   });
 });

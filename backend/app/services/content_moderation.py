@@ -18,6 +18,9 @@ import re
 from functools import lru_cache
 from typing import Optional, Protocol
 
+from markdown_it import MarkdownIt
+from markdown_it.token import Token
+
 from app.api.errors import BadRequestError
 
 logger = logging.getLogger(__name__)
@@ -106,6 +109,34 @@ def _filter() -> _ProfanityFilter:
     return profanity
 
 
+@lru_cache(maxsize=1)
+def _markdown_parser() -> MarkdownIt:
+    return MarkdownIt("commonmark")
+
+
+def moderation_text(text: str) -> str:
+    """Return Markdown's textual content without interpreting it as policy.
+
+    Remove formatting tokens, not the words they enclose. Code and raw HTML
+    remain subject to moderation. Preserve obfuscated/literal characters;
+    this is not a sanitizer and never changes the text persisted by a writer.
+    """
+
+    def collect(tokens: list[Token]) -> str:
+        result = []
+        for token in tokens:
+            if token.children is not None:
+                result.append(collect(token.children))
+            elif token.type in {"softbreak", "hardbreak"}:
+                result.append("\n")
+            elif token.content:
+                result.append(token.content)
+        return "".join(result)
+
+    # Block boundaries must not concatenate independent words.
+    return "\n".join(collect([token]) for token in _markdown_parser().parse(text))
+
+
 def contains_profanity(text: str) -> bool:
     """True if ``text`` contains flagged language. Empty/None text is clean.
 
@@ -117,7 +148,7 @@ def contains_profanity(text: str) -> bool:
     flt = _filter()
     if flt is None:
         return False
-    return bool(flt.contains_profanity(text))
+    return bool(flt.contains_profanity(moderation_text(text)))
 
 
 def validate_no_profanity(text: str, field_name: str) -> None:

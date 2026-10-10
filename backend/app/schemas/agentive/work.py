@@ -121,6 +121,16 @@ class RetryPolicy(BaseModel):
         return self
 
 
+class ChatTurnHostControl(BaseModel):
+    """Server-captured host event bound to an authoritative source revision."""
+
+    action: Literal["prompt_sheet_resume", "staging_follow_through"]
+    source_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    read_only: bool = False
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
 class ChatTurnSubmissionRequest(BaseModel):
     """Trusted server-side envelope for an idempotent user chat submission."""
 
@@ -136,6 +146,12 @@ class ChatTurnSubmissionRequest(BaseModel):
     provider_metadata: Dict[str, Any] = Field(default_factory=dict)
     parent_id: Optional[str] = None
     execution_context: Optional["ChatTurnExecutionContext"] = None
+    # Computed by the authenticated HTTP producer from the validated client
+    # payload. It never comes from an arbitrary browser-supplied digest.
+    client_payload_digest: Optional[str] = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -150,6 +166,10 @@ class ChatTurnExecutionContext(BaseModel):
     focused_space_id: Optional[str] = Field(default=None, max_length=255)
     focused_view_id: Optional[str] = Field(default=None, max_length=255)
     extra_data: Dict[str, Any] = Field(default_factory=dict)
+    host_control: Optional[ChatTurnHostControl] = None
+    attachment_bindings: list[Dict[str, Any]] = Field(
+        default_factory=list, max_length=10
+    )
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -205,6 +225,36 @@ class WorkFailure(BaseModel):
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
+    @classmethod
+    def from_record(
+        cls, record: object, *, default_class: FailureClass = "permanent"
+    ) -> "WorkFailure":
+        """Project legacy errors into the bounded public failure contract.
+
+        Older chat workers persisted code/message without a failure class.
+        Do not rewrite those historical rows or expose arbitrary error details.
+        Invalid shapes remain a non-retryable failure with a safe explanation.
+        """
+        from pydantic import ValidationError
+
+        if isinstance(record, dict):
+            fields = {
+                key: record[key]
+                for key in ("class", "code", "message", "retryable")
+                if key in record
+            }
+            fields.setdefault("class", default_class)
+            try:
+                return cls.model_validate(fields)
+            except ValidationError:
+                pass
+        return cls(
+            class_=default_class,
+            code="work.failure_record_invalid",
+            message="Failure details are unavailable for this work item.",
+            retryable=False,
+        )
+
 
 class WorkExecutionContext(BaseModel):
     """Immutable, server-derived lease authority propagated to effect boundaries."""
@@ -250,6 +300,7 @@ class WorkItemStatusResponse(BaseModel):
 
     work_item_id: str
     kind: str
+    operation: str = ""
     status: WorkStatus
     workspace_id: str
     app_id: str = ""

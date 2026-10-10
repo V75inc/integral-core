@@ -52,6 +52,23 @@ def test_add_entry_type_inserts_new_type():
     assert out["track"]["entry_types"][0]["key"] == "task"
 
 
+def test_add_entry_type_accepts_top_level_name_and_fields():
+    out = apply_operations(
+        _empty_track_manifest(),
+        [
+            {
+                "op": "add_entry_type",
+                "name": "Maintenance",
+                "fields": [{"key": "notes", "name": "Notes", "type": "text"}],
+            }
+        ],
+    )
+    added = out["track"]["entry_types"][0]
+    assert added["name"] == "Maintenance"
+    assert added["key"] == "maintenance"
+    assert added["fields"][0]["key"] == "notes"
+
+
 def test_add_entry_type_rejects_duplicate_key():
     with pytest.raises(BadRequestError):
         apply_operations(
@@ -154,6 +171,24 @@ def test_modify_field_patches_existing():
         ],
     )
     assert out["track"]["entry_types"][0]["fields"][0]["enum"] == ["low", "high"]
+
+
+def test_coerce_modify_field_normalizes_supported_aliases():
+    from app.services.agent_profile_patches import coerce_modify_field
+
+    assert coerce_modify_field(
+        {
+            "op": "modify_field",
+            "entry_type_key": "task",
+            "field": "priority",
+            "name": "Urgency",
+        }
+    ) == {
+        "op": "modify_field",
+        "entry_type": "task",
+        "field_key": "priority",
+        "patch": {"name": "Urgency"},
+    }
 
 
 def test_modify_field_rejects_key_and_type_changes():

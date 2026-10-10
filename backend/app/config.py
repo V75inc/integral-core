@@ -30,7 +30,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # launch-location independent.
 _BACKEND_DIR = Path(__file__).resolve().parents[1]
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_ENV_FILES = (_BACKEND_DIR / ".env", _REPO_ROOT / ".env")
+_MANAGED_ENV = os.environ.get("INTEGRAL_ENV_FILE")
+_ENV_FILES = (
+    (Path(_MANAGED_ENV),)
+    if _MANAGED_ENV
+    else (_BACKEND_DIR / ".env", _REPO_ROOT / ".env")
+)
 
 
 def load_integral_env_files() -> None:
@@ -51,6 +56,8 @@ def load_integral_env_files() -> None:
         if env_path.is_file():
             load_dotenv(env_path)
             loaded.add(env_path.resolve())
+    if _MANAGED_ENV:
+        return
     cwd_env = Path.cwd() / ".env"
     try:
         cwd_resolved = cwd_env.resolve()
@@ -60,7 +67,19 @@ def load_integral_env_files() -> None:
         load_dotenv(cwd_env)
 
 
+def configure_integral_text_fidelity() -> None:
+    """Preserve authored text by default, including semantic Unicode symbols.
+
+    jvspatial's optional ASCII normalization can turn ``≠`` into ``=``.
+    Integral already owns dedicated search-fold fields; display, evidence and
+    transcript text must retain its meaning even without an operator .env.
+    Apply after dotenv loading so an explicit deployment choice is preserved.
+    """
+    os.environ.setdefault("JVSPATIAL_TEXT_NORMALIZATION_ENABLED", "false")
+
+
 load_integral_env_files()
+configure_integral_text_fidelity()
 
 
 class Settings(BaseSettings):
@@ -107,6 +126,9 @@ class Settings(BaseSettings):
     # Bound a native chat WorkItem from acceptance through completion. A
     # persisted deadline lets workers stop a wedged provider stream and keeps
     # recovery from extending the same turn indefinitely.
+    # WP-03 rollout candidate: enable only after durable HTTP/recovery/browser
+    # qualification. Native remains the selected provider in either mode.
+    INTEGRAL_NATIVE_DURABLE_CHAT_ENABLED: bool = False
     INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS: int = Field(default=900, ge=30, le=3600)
     # Bound one provider request inside the longer multi-step chat-turn budget.
     # A stalled stream must not hold a browser turn open until the full harness
@@ -186,51 +208,6 @@ class Settings(BaseSettings):
     # Production deployments SHOULD set this (or leave empty only for embed
     # paths that mint a fixed resident principal). See Full Sweep S1.
     INTEGRAL_SERVICE_ALLOWED_USER_IDS: str = ""
-
-    # In-app chat → jvagent (server-side connector; browser never calls jvagent directly)
-    # Two delivery modes:
-    # - EMBED: jvagent runs in-process via jvagent.embed.bootstrap on startup
-    #   when agent/app.yaml exists. The active agent is picked by the user via
-    #   the /agent surface and persisted as the jvspatial Agent node id on the
-    #   ChatThread row.
-    # - HTTP: out-of-process jvagent server (single-agent only) reached via
-    # JVAGENT_BASE_URL + INTEGRAL_JVAGENT_AGENT_ID.
-    JVAGENT_BASE_URL: str = ""
-    INTEGRAL_JVAGENT_AGENT_ID: Optional[str] = None
-
-    # Wall-clock ceiling for one agent turn over the HTTP connector, which is a
-    # single blocking POST /interact for the whole turn. A reasoning model that
-    # plans, reads a schema, queries and writes runs for minutes, not seconds:
-    # measured turns on the resident harness reach ~8 minutes. The old 120s
-    # client timeout cut those off and reported "Could not reach the agent
-    # service" — a transport error for what was a healthy, still-running turn.
-    # The orchestrator bounds the turn itself (activation_budget,
-    # max_duration_seconds); this is only the backstop against a hung socket.
-    INTEGRAL_AGENT_TURN_TIMEOUT_SECONDS: float = 900.0
-
-    # jvagent embed bootstrap update mode (run | merge | source).
-    # - ``source`` (default): YAML is the source of truth. Every action node is
-    #   rebuilt from agent.yaml on each restart, so context.* overrides
-    #   (model, skills, prompts, response_mode, routing flags) always
-    #   propagate cleanly. Right default for development.
-    # - ``merge``: update action metadata + module_path in place but preserve
-    #   runtime property values. Right for production where API-driven drift
-    #   must survive restarts.
-    # - ``run``: skip existing actions entirely; only register new ones.
-    # NOTE: main.py reads this at startup via os.getenv() (see
-    # ``_jvagent_update_mode``) so test/env overrides apply immediately; this
-    # field is the documented declarative source-of-truth and default.
-    JVAGENT_UPDATE_MODE: str = "source"
-
-    # jvagent's embed ``Server.get_app()`` mounts jvagent's OWN HTTP surface on
-    # this app (``/api/agents/{id}/memory/...``, ``/api/actions/{id}``,
-    # ``/api/logs``, ``/api/graph``, ...) unless
-    # ``JVAGENT_EMBED_ENDPOINTS_DISABLED`` is truthy in the environment. None
-    # of it is used by Integral — the resident is reached through the chat
-    # surface and MCP only — and the ``auth=False`` interact routes live one
-    # import away in the same registration path. Default OFF: main.py sets
-    # the kill-switch env var before the Server is built unless this opts in.
-    JVAGENT_EMBED_ENDPOINTS_ENABLED: bool = False
 
     # ===== Agent model credentials (BYOK) =====
     # hybrid: use workspace owner's BYOK when configured, else platform env keys.
@@ -369,13 +346,6 @@ class Settings(BaseSettings):
     # (fail closed). Set e.g. ``com.example/*,io.github.org/*`` to allow.
     # ``TESTING=1`` treats empty as allow-all for unit tests.
     MCP_REGISTRY_INSTALL_ALLOWLIST: str = ""
-    # Retained for config compatibility; it no longer enables anything. A
-    # stdio mount spawns a process on the API host, so the spawn command must
-    # come from the in-repo connector catalog (see
-    # ``mcp_client._resolve_trusted_stdio_command``) — a registry recipe has no
-    # catalog entry to vet against, so ``to_mount_request`` refuses stdio
-    # registry installs outright regardless of this flag.
-    MCP_REGISTRY_ENABLE_STDIO_INSTALL: bool = False
 
     # ===== QuickBooks Online connector (Phase 18 QB-01) =====
     # Deployment secrets — single Intuit OAuth app per Integral deployment.
@@ -453,6 +423,9 @@ class Settings(BaseSettings):
     # Files larger than this should land via chunked/resumable upload
     # (Phase 6 — not yet implemented).
     ATTACHMENT_MAX_UPLOAD_BYTES: int = 500 * 1024 * 1024
+    # Extra MIME types accepted on upload, comma separated, on top of the built-in
+    # document / image / audio / video list. Executables stay refused unless named.
+    ATTACHMENT_EXTRA_ALLOWED_MIME_TYPES: str = ""
     # Aggregate cap for a single batch request.
     ATTACHMENT_MAX_BATCH_BYTES: int = 1024 * 1024 * 1024
     # Maximum files per batch request.

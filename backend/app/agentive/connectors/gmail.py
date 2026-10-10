@@ -57,6 +57,7 @@ from app.services.connectors import (
     register_sync_connector,
 )
 from app.services.connectors.gmail_oauth import refresh_tokens
+from app.services.connectors.sync_lease import save_connector_changes
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +188,7 @@ class GmailConnector(SyncConnector):
             )
             auth_state[_REAUTH_REQUIRED_KEY] = True
             connector.auth_state = auth_state
-            await connector.save()
+            await save_connector_changes(connector, fields=("auth_state",))
             return False
         try:
             refreshed = await refresh_tokens(
@@ -201,7 +202,7 @@ class GmailConnector(SyncConnector):
             if details.get("reauth_required"):
                 auth_state[_REAUTH_REQUIRED_KEY] = True
                 connector.auth_state = auth_state
-                await connector.save()
+                await save_connector_changes(connector, fields=("auth_state",))
             return False
         new_access = refreshed.get("access_token") or ""
         # Google MAY omit refresh_token on refresh; preserve the existing one.
@@ -214,7 +215,7 @@ class GmailConnector(SyncConnector):
         ).isoformat()
         auth_state.pop(_REAUTH_REQUIRED_KEY, None)
         connector.auth_state = auth_state
-        await connector.save()
+        await save_connector_changes(connector, fields=("auth_state",))
         logger.info(
             "gmail _ensure_fresh_token: rotated access_token for connector %s",
             getattr(connector, "id", "<unknown>"),
@@ -328,7 +329,7 @@ class GmailConnector(SyncConnector):
                         updated_at=str(last_internal) if last_internal else None,
                     )
             connector.sync_cursor = _now_iso()
-            await connector.save()
+            await save_connector_changes(connector, fields=("sync_cursor",))
         finally:
             if owns_client:
                 await client.aclose()

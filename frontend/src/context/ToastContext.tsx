@@ -236,7 +236,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                 aria-hidden
               />
             )}
-            <span className="flex-1">{t.message}</span>
+            <span className="min-w-0 flex-1 truncate" title={t.message}>{t.message}</span>
             {t.action ? (
               <Link
                 to={t.action.href}

@@ -78,7 +78,7 @@ def _build_fake_connector_class(
             return MaterializedEntry(
                 title=payload.get("title", f"ext-{record.external_id}"),
                 body=payload.get("body", ""),
-                entry_type_key="default",
+                entry_type_key="post",
                 tags=list(payload.get("tags", []) or []),
                 custom_fields=dict(payload.get("custom_fields", {}) or {}),
                 external_updated_at=record.updated_at,
@@ -94,7 +94,33 @@ async def _bind_connector_to_track(connector: Connector, track: Track) -> None:
     """Materialize the IS_CONNECTED_TO edge — sync_runtime reads it via
     ``connector.nodes(edge=["IsConnectedTo"], direction="out", node=["Track"])``.
     """
+    from app.agentive.services.connector_registry_node import (
+        materialize_policies_for_connector,
+    )
+    from app.models.edges import CONTAINS, OWNS
+    from app.models.nodes import User
+    from app.services.app_graph import (
+        catalog_user,
+        ensure_track_attached_operational_model,
+    )
+    from app.services.personal_workspace import ensure_personal_workspace
+
+    user = await User.create(user_id=connector.owner, display_name="Sync test owner")
+    await catalog_user(user)
+    ws = await ensure_personal_workspace(user)
+    track.workspace_id = ws.id
+    await track.save()
+    await ws.connect(track, edge=CONTAINS)
+    await user.connect(track, edge=OWNS)
+    await ensure_track_attached_operational_model(track)
+    connector.workspace_id = ws.id
+    connector.owner = user.id
+    await connector.save()
+    await user.connect(connector, edge=OWNS)
     await connector.connect(track, edge=IS_CONNECTED_TO, mapping_profile_yaml="")
+    await materialize_policies_for_connector(
+        connector=connector, actor_id=connector.owner
+    )
 
 
 async def _make_owner_user_id() -> str:
@@ -115,7 +141,7 @@ async def test_first_sync_materializes_entries_with_split_provenance():
     records = [
         ExternalRecord(
             external_id="ext-1",
-            payload={"title": "Issue 1", "body": "Body 1", "tags": ["bug"]},
+            payload={"title": "Issue 1", "body": "Body 1"},
             updated_at="2026-05-01T00:00:00+00:00",
         ),
         ExternalRecord(
@@ -214,9 +240,12 @@ async def test_connector_as_actor_in_every_emit():
         # return value (its only contract is "must not raise").
         return None
 
-    with patch(
-        "app.services.connectors.sync_runtime.emit_change_event",
-        side_effect=_spy,
+    with (
+        patch(
+            "app.services.connectors.sync_runtime.emit_change_event",
+            side_effect=_spy,
+        ),
+        patch("app.services.change_event.emit_change_event", side_effect=_spy),
     ):
         await sync_one_connector(connector)
 
@@ -804,3 +833,116 @@ async def test_unknown_slug_returns_empty_stats():
         "skipped": 0,
         "failed": 0,
     }
+
+
+@pytest.mark.asyncio
+async def test_same_upstream_source_is_isolated_across_workspaces():
+    """A valid shared external record cannot become a cross-tenant upsert."""
+    records = [ExternalRecord(external_id="shared-1", payload={"title": "Original"})]
+    _build_fake_connector_class(slug="shared-source", records=records)
+    installations = []
+    for owner in ("tenant-a", "tenant-b"):
+        track = await Track.create(title="Source", workspace_id="temporary")
+        connector = await Connector.create(subclass_slug="shared-source", owner=owner)
+        await _bind_connector_to_track(connector, track)
+        installations.append((connector, track))
+        assert (await sync_one_connector(connector))["created"] == 1
+    a, b = [await Entry.find({"context.track_id": t.id}) for _, t in installations]
+    assert len(a) == len(b) == 1
+    assert a[0].id != b[0].id
+    assert a[0].idempotency_key != b[0].idempotency_key
+    records[0].payload["title"] = "Tenant B update"
+    assert (await sync_one_connector(installations[1][0]))["updated"] == 1
+    assert (await Entry.get(a[0].id)).title == "Original"
+    assert (await Entry.get(b[0].id)).title == "Tenant B update"
+
+
+@pytest.mark.asyncio
+async def test_two_instances_in_one_workspace_have_distinct_identity():
+    """Installed bindings own independent records even for the same vendor ID."""
+    records = [
+        ExternalRecord(external_id="shared-instance", payload={"title": "Record"})
+    ]
+    _build_fake_connector_class(slug="instance-source", records=records)
+    track = await Track.create(title="Source", workspace_id="temporary")
+    first = await Connector.create(
+        subclass_slug="instance-source", owner="instance-owner"
+    )
+    await _bind_connector_to_track(first, track)
+    from app.agentive.services.connector_registry_node import (
+        materialize_policies_for_connector,
+    )
+    from app.models.edges import OWNS
+    from app.models.nodes import User
+
+    second = await Connector.create(
+        subclass_slug=first.subclass_slug,
+        owner=first.owner,
+        workspace_id=first.workspace_id,
+    )
+    await (await User.get(first.owner)).connect(second, edge=OWNS)
+    await second.connect(track, edge=IS_CONNECTED_TO, mapping_profile_yaml="")
+    await materialize_policies_for_connector(connector=second, actor_id=second.owner)
+    for connector in (first, second):
+        assert (await sync_one_connector(connector))["created"] == 1
+        assert (await sync_one_connector(connector))["updated"] == 1
+    entries = await Entry.find({"context.track_id": track.id})
+    assert len(entries) == 2
+    assert len({entry.idempotency_key for entry in entries}) == 2
+
+
+@pytest.mark.asyncio
+async def test_wrong_legacy_provenance_is_not_adopted():
+    """Legacy collisions demand reconciliation and cannot overwrite data."""
+    records = [ExternalRecord(external_id="legacy", payload={"title": "Vendor"})]
+    factory = _build_fake_connector_class(slug="legacy-source", records=records)
+    track = await Track.create(title="Source", workspace_id="temporary")
+    connector = await Connector.create(
+        subclass_slug="legacy-source", owner="legacy-owner"
+    )
+    await _bind_connector_to_track(connector, track)
+    from app.services.entry_create import create_entry_in_track
+
+    legacy = await create_entry_in_track(
+        track=track,
+        user_id=connector.owner,
+        workspace_id=connector.workspace_id,
+        title="Keep me",
+        idempotency_key=factory().idempotency_key_for(records[0]),
+        provenance=Provenance(source="connector", source_id="other-binding:legacy"),
+    )
+    with pytest.raises(ValueError, match="provenance"):
+        await sync_one_connector(connector)
+    assert (await Entry.get(legacy.id)).title == "Keep me"
+    assert len(await Entry.find({"context.track_id": track.id})) == 1
+
+
+@pytest.mark.asyncio
+async def test_connector_reconciles_declared_tag_edges_and_rejects_unknown_tags():
+    """Vendor labels map to the declared taxonomy, never arbitrary strings."""
+    records = [ExternalRecord(external_id="labels", payload={"tags": ["Urgent"]})]
+    _build_fake_connector_class(slug="label-source", records=records)
+    track = await Track.create(title="Source", workspace_id="temporary")
+    connector = await Connector.create(subclass_slug="label-source", owner="tag-owner")
+    await _bind_connector_to_track(connector, track)
+    from app.models.edges import CONTAINS, TAGGED_WITH
+    from app.models.nodes import Tag
+    from app.services.app_graph import ensure_track_attached_operational_model
+
+    model = await ensure_track_attached_operational_model(track)
+    tag = await Tag.create(name="Urgent", track_id=track.id)
+    await model.connect(tag, edge=CONTAINS)
+    assert (await sync_one_connector(connector))["created"] == 1
+    entry = (await Entry.find({"context.track_id": track.id}))[0]
+    assert entry.tags == [tag.id]
+    assert await entry.count_nodes(edge=[TAGGED_WITH], node=[Tag], direction="out") == 1
+    records[0].payload["tags"] = []
+    assert (await sync_one_connector(connector))["updated"] == 1
+    entry = await Entry.get(entry.id)
+    assert entry.tags == []
+    assert await entry.count_nodes(edge=[TAGGED_WITH], node=[Tag], direction="out") == 0
+    revision = entry.record_revision
+    records[0].payload["tags"] = ["Unknown"]
+    with pytest.raises(ValueError, match="taxonomy"):
+        await sync_one_connector(connector)
+    assert (await Entry.get(entry.id)).record_revision == revision

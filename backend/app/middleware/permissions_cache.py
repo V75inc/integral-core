@@ -1,7 +1,8 @@
 """Reset per-request permission memoization (contextvars) at HTTP request boundaries."""
 
+from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, Iterator, Optional, Tuple, Union
 
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -21,11 +22,36 @@ PermissionCacheKey = Union[
 _permissions_cache_var: ContextVar[Optional[Dict[PermissionCacheKey, Any]]] = (
     ContextVar("integral_permissions_cache", default=None)
 )
+_live_permissions_var: ContextVar[bool] = ContextVar(
+    "integral_live_permissions_required", default=False
+)
+
+
+def live_permissions_required() -> bool:
+    """Whether this authorization boundary must bypass process TTL snapshots."""
+    return _live_permissions_var.get()
 
 
 def reset_permissions_cache() -> None:
     """Drop the current task's permission cache (call at start of each HTTP request)."""
     _permissions_cache_var.set(None)
+
+
+@contextmanager
+def isolated_permissions_cache() -> Iterator[None]:
+    """Fence one worker item or broker call from inherited request memoization.
+
+    Background tasks inherit ContextVars, including their mutable dictionary.
+    A new work item is an authorization boundary just like a new HTTP request.
+    Nested calls restore the caller's cache without sharing their fresh memo.
+    """
+    token = _permissions_cache_var.set({})
+    live_token = _live_permissions_var.set(True)
+    try:
+        yield
+    finally:
+        _live_permissions_var.reset(live_token)
+        _permissions_cache_var.reset(token)
 
 
 def permissions_cache_get() -> Dict[PermissionCacheKey, Any]:

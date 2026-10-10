@@ -45,7 +45,6 @@ services:
       JVSPATIAL_CORS_ORIGINS: ${JVSPATIAL_CORS_ORIGINS}
       JVSPATIAL_CORS_HEADERS: ${JVSPATIAL_CORS_HEADERS:-Content-Type,Authorization,X-API-Key,X-Integral-Scope}
       APP_BASE_URL: ${APP_BASE_URL}
-      JVAGENT_UPDATE_MODE: ${JVAGENT_UPDATE_MODE:-source}
       # Pinned, not ${...}: >1 uvicorn worker breaks chat (per-process turn
       # registry + WS fan-out, ADR-004) and the boot check only WARNS. The
       # api-env overlay also denies WEB_CONCURRENCY/WORKERS, so raising this

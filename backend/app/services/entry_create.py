@@ -7,13 +7,16 @@ without importing the HTTP layer (I-CRUD-01).
 
 from __future__ import annotations
 
+import hashlib
 import logging
+from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
 from app.api.errors import ResourceNotFoundError
 from app.contracts.information import schema_revision_from_profile_version
 from app.models.edges import AUTHORED_BY, CONTAINS, IS_OF_TYPE, TAGGED_WITH
 from app.models.nodes import Entry, EntryType, Tag, Track
+from app.schemas.provenance import Provenance
 from app.services.app_graph import ensure_track_attached_operational_model
 from app.services.change_event import emit_change_event
 from app.services.content_moderation import validate_no_profanity
@@ -34,7 +37,73 @@ from app.utils.time import utc_now_iso
 logger = logging.getLogger(__name__)
 
 
-async def create_entry_in_track(
+async def _seed_preview_default_fields(
+    *,
+    track: Track,
+    entry_type: EntryType,
+    runtime_tier: Dict[str, Any],
+    custom_fields: Dict[str, Any],
+    user_id: str,
+    workspace_id: str,
+) -> Dict[str, Any]:
+    """Fill empty fields that declare ``validation.preview_default_tool``.
+
+    Matches compose UX (FormRegion / EntryFormExpanded): when auto-generate
+    tools report a number, agent/API creates satisfy ``required`` without the
+    caller supplying the value. Best-effort — tool failures leave the field
+    empty so the normal required validator can still refuse.
+    """
+    if not workspace_id:
+        return custom_fields
+    spec = resolve_entry_type_spec(entry_type, runtime_tier)
+    fields = list(spec.get("fields") or [])
+    out = dict(custom_fields)
+    for raw in fields:
+        if not isinstance(raw, dict):
+            continue
+        key = str(raw.get("key") or "").strip()
+        validation = (
+            raw.get("validation") if isinstance(raw.get("validation"), dict) else {}
+        )
+        tool = str(validation.get("preview_default_tool") or "").strip()
+        if not key or not tool:
+            continue
+        if out.get(key) not in (None, ""):
+            continue
+        input_payload = validation.get("preview_default_input")
+        payload = (
+            dict(input_payload)
+            if isinstance(input_payload, dict) and not isinstance(input_payload, list)
+            else {}
+        )
+        try:
+            from app.services.workspace_tools import invoke_workspace_tool
+
+            result = await invoke_workspace_tool(
+                user_id=user_id,
+                workspace_id=workspace_id,
+                tool_key=tool,
+                payload=payload,
+                agent=False,
+            )
+        except Exception:  # noqa: BLE001 — preview is best-effort
+            logger.debug(
+                "preview_default_tool %r failed for field %r on track %s",
+                tool,
+                key,
+                track.id,
+                exc_info=True,
+            )
+            continue
+        if not isinstance(result, dict) or result.get("auto_generate") is not True:
+            continue
+        number = str(result.get("number") or "").strip()
+        if number:
+            out[key] = number
+    return out
+
+
+async def _create_entry_in_track(
     *,
     track: Track,
     user_id: str,
@@ -47,6 +116,9 @@ async def create_entry_in_track(
     attachment_ids: Optional[List[str]] = None,
     workspace_id: str = "",
     actor_kind: str = "human",
+    actor_id: Optional[str] = None,
+    provenance: Optional[Provenance] = None,
+    idempotency_key: str = "",
     skip_profanity: bool = False,
     change_event_sink: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Entry:
@@ -114,13 +186,21 @@ async def create_entry_in_track(
     schema_revision = schema_revision_from_profile_version(
         getattr(operational_model, "version_number", None)
     )
+    seeded_custom_fields = await _seed_preview_default_fields(
+        track=track,
+        entry_type=resolved_type,
+        runtime_tier=runtime_tier,
+        custom_fields=dict(custom_fields or {}),
+        user_id=user_id,
+        workspace_id=str(getattr(track, "workspace_id", "") or workspace_id),
+    )
     (
         validated_custom_fields,
         relation_refs,
     ) = await validate_and_materialize_entry_custom_fields(
         track=track,
         entry_type=resolved_type,
-        custom_fields=custom_fields or {},
+        custom_fields=seeded_custom_fields,
         runtime_tier=runtime_tier,
         actor_user_id=user_id,
         actor_kind=actor_kind,
@@ -145,7 +225,11 @@ async def create_entry_in_track(
         validate_no_profanity(body, "body")
 
     now = utc_now_iso()
-    entry = await Entry.create(
+    if provenance is not None and provenance.source == "connector":
+        provenance = provenance.model_copy(
+            update={"synced_at": datetime.fromisoformat(now)}
+        )
+    attributes = dict(
         type_id=resolved_type_id,
         title=title,
         author_id=user_id,
@@ -158,7 +242,24 @@ async def create_entry_in_track(
         created_at=now,
         updated_at=now,
         schema_revision=schema_revision,
+        idempotency_key=idempotency_key,
+        **({"provenance": provenance} if provenance is not None else {}),
     )
+    if idempotency_key:
+        # The runtime supplies a fully scoped key. The unique Node id is the
+        # final insertion fence, including destination-rebinding races.
+        from app.api.errors import ResourceConflictError
+
+        entry, inserted = await Entry.create_if_absent(
+            id="n.Entry." + hashlib.sha256(idempotency_key.encode()).hexdigest(),
+            **attributes,
+        )
+        if not inserted:
+            raise ResourceConflictError(
+                message="Connector record identity already exists; reconcile its destination"
+            )
+    else:
+        entry = await Entry.create(**attributes)
 
     try:
         await track.connect(entry, edge=CONTAINS, added_at=now)
@@ -200,7 +301,7 @@ async def create_entry_in_track(
 
     event = {
         "actor_kind": actor_kind,
-        "actor_id": user_id,
+        "actor_id": actor_id or user_id,
         "action": "entry.create",
         "resource_type": "Entry",
         "resource_id": entry.id,
@@ -213,7 +314,7 @@ async def create_entry_in_track(
     else:
         await emit_change_event(
             actor_kind=actor_kind,  # type: ignore[arg-type]
-            actor_id=user_id,
+            actor_id=actor_id or user_id,
             action="entry.create",
             resource_type="Entry",
             resource_id=entry.id,
@@ -221,4 +322,88 @@ async def create_entry_in_track(
             after=event["after"],
             scope=f"track:{track.id}",
         )
+    return entry
+
+
+async def create_entry_in_track(
+    *,
+    track: Track,
+    user_id: str,
+    title: str = "",
+    body: str = "",
+    custom_fields: Optional[Dict[str, Any]] = None,
+    tags: Optional[List[str]] = None,
+    entry_type: Optional[EntryType] = None,
+    type_id: str = "",
+    attachment_ids: Optional[List[str]] = None,
+    workspace_id: str = "",
+    actor_kind: str = "human",
+    actor_id: Optional[str] = None,
+    provenance: Optional[Provenance] = None,
+    idempotency_key: str = "",
+    skip_profanity: bool = False,
+    change_event_sink: Optional[Callable[[Dict[str, Any]], None]] = None,
+) -> Entry:
+    """Canonical create; graph edges and its event fact share the PG commit."""
+    from jvspatial.core.context import get_default_context
+
+    from app.services.entry_write_scope import (
+        entry_write_scope,
+        is_postgres_entry_transaction,
+    )
+
+    events: List[Dict[str, Any]] = []
+    outbox_id = None
+    caller_context = get_default_context()
+    async with entry_write_scope(f"track:{track.id}") as graph:
+        fresh_track = await Track.get(track.id)
+        if fresh_track is None:
+            raise ResourceNotFoundError(message="Track not found")
+        if workspace_id and fresh_track.workspace_id != workspace_id:
+            from app.api.errors import InsufficientPermissionsError
+
+            raise InsufficientPermissionsError(
+                message="Track is outside the bound workspace"
+            )
+        # Rehydrate the type under the command's context as well.
+        fresh_type = await EntryType.get(entry_type.id) if entry_type else None
+        entry = await _create_entry_in_track(
+            track=fresh_track,
+            user_id=user_id,
+            title=title,
+            body=body,
+            custom_fields=custom_fields,
+            tags=tags,
+            entry_type=fresh_type,
+            type_id=type_id or (entry_type.id if entry_type else ""),
+            attachment_ids=attachment_ids,
+            workspace_id=workspace_id,
+            actor_kind=actor_kind,
+            actor_id=actor_id,
+            provenance=provenance,
+            idempotency_key=idempotency_key,
+            skip_profanity=skip_profanity,
+            change_event_sink=change_event_sink or events.append,
+        )
+        if events and is_postgres_entry_transaction(graph.database):
+            from app.services.app_operations.event_outbox import insert_entry_event
+
+            outbox_id = await insert_entry_event(
+                transaction=graph.database,
+                workspace_id=fresh_track.workspace_id,
+                event=events[0],
+            )
+    # Callers may save provenance or connect a transformed record after this
+    # command returns. Its owned transaction has released the connection; a
+    # nested command must instead retain the caller's still-active context.
+    await entry.set_context(caller_context)
+    if outbox_id and graph is not caller_context:
+        from app.services.app_operations.event_outbox import deliver_operation_event
+
+        try:
+            await deliver_operation_event(outbox_id=outbox_id)
+        except Exception:
+            logger.exception("Entry change event awaits recovery")
+    elif events and not outbox_id:
+        await emit_change_event(**events[0])
     return entry

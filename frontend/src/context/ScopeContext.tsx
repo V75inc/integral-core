@@ -18,7 +18,7 @@
  *    workspace.
  *
  * Header injection: ``X-Integral-Scope: ws:<workspace_id>`` set on
- * every outbound axios request + on the JvAgent chat fetch path. The
+ * every outbound axios request + on the native provider chat fetch path. The
  * backend treats this as a HINT and validates against live membership
  * (``services/request_scope.py``); the resolved id is persisted back
  * to ``User.active_workspace_id`` so the chain converges.

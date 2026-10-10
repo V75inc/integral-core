@@ -84,9 +84,6 @@ if [ ${#PIP_AUDIT[@]} -gt 0 ]; then
   # than the package versions we actually ship.
   #
   # The export comes from uv.lock, not a hand-maintained requirements mirror.
-  # jvagent is not published on PyPI, so it is intentionally excluded from
-  # this PyPI advisory query; the other exact locked versions remain audited.
-  # DELETE this filter when jvagent 0.1.8 final lands on PyPI.
   # backend/requirements.txt used to be that mirror and drifted three RCs
   # behind uv.lock before anyone noticed, so it is gone; uv.lock is the single
   # source of truth and `uv export` renders it in requirements format.
@@ -94,7 +91,7 @@ if [ ${#PIP_AUDIT[@]} -gt 0 ]; then
   AUDIT_REQ="$(mktemp)"
   trap 'rm -f "$AUDIT_REQ"' EXIT
   if ! (cd "$REPO_ROOT/backend" && uv export --frozen --no-emit-project \
-        --no-hashes) | grep -v '^jvagent==' > "$AUDIT_REQ"; then
+        --no-hashes) > "$AUDIT_REQ"; then
     echo "  FAILED: could not export backend/uv.lock (is uv installed?)." >&2
     FAILED=1
   fi

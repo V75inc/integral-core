@@ -251,8 +251,13 @@ function TableWidgetInner({
   const columns: TableColumn[] =
     rawColumns && rawColumns.length > 0 ? rawColumns : DEFAULT_COLUMNS;
 
-  const [visibleColumns, setVisibleColumns] = useState<Set<string>>(
-    () => new Set(columns.map(c => c.field))
+  // Each saved view/schema owns its column choices. A sibling view may
+  // share some fields while prescribing additional columns of its own.
+  const columnSelectionKey = JSON.stringify([view.id, columns.map(c => c.field)]);
+  const [visibleColumnSelections, setVisibleColumnSelections] = useState<Record<string, Set<string>>>({});
+  const visibleColumns = useMemo(
+    () => visibleColumnSelections[columnSelectionKey] ?? new Set(columns.map(c => c.field)),
+    [visibleColumnSelections, columnSelectionKey, columns]
   );
 
   const [sortField, setSortField] = useState<string | null>(null);
@@ -332,14 +337,14 @@ function TableWidgetInner({
   }, [resizing]);
 
   const toggleColumn = (field: string) => {
-    setVisibleColumns(prev => {
-      const next = new Set(prev);
+    setVisibleColumnSelections(prev => {
+      const next = new Set(prev[columnSelectionKey] ?? columns.map(c => c.field));
       if (next.has(field)) {
         if (next.size > 1) next.delete(field);
       } else {
         next.add(field);
       }
-      return next;
+      return { ...prev, [columnSelectionKey]: next };
     });
   };
 

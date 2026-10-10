@@ -29,6 +29,7 @@ async def assert_package_upgrade_migration_safe(
     candidate = await preview_effective_app_manifest_after_library_merge(
         target_manifest=dict(attached_profile.manifest or {}),
         library_cp=library_profile,
+        target_profile=attached_profile,
     )
     impacts = await compute_entry_impact_for_attached(
         cp=attached_profile,

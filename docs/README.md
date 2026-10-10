@@ -1,95 +1,27 @@
-# Integral documentation
+# Explore Integral
 
-Central index for **stable, maintained** documentation.
+Integral connects knowledge, software structure, and AI action in a shared operational environment. These guides move from the experience to the architecture, then into building and operating the system.
 
-## Documentation lanes
+## Understand the idea
 
-| Lane | Location | Use when |
-|------|----------|----------|
-| Onboarding | [README.md](../README.md) | First run (Docker, source, or a released wheel with `integral init` / `integral web`), monorepo map, env vars |
-| Product strategy | [product/](product/) | Vision, requirements, architecture, roadmap, BYOA |
-| Technical reference | **`docs/`** (substrate, backend, ops) | Implementing features, authoring profiles |
-| Conventions (agents) | [AGENTS.md](../AGENTS.md) | jvspatial patterns, hooks, commands |
+Start with [Meet Integral](product/INTRODUCTION.md). Continue with the [white paper](product/WHITE_PAPER.md) for the complete conceptual guide to the substrate, its layers, application composition, and governed AI execution.
 
-Agent/GSD phase artifacts are **gitignored** and are not part of published repo documentation.
+The [concept](product/CONCEPT.md) states the purpose. The [architecture](product/ARCHITECTURE.md) describes the implementation, the [requirements](product/PRD.md) define behavior to preserve, and the [roadmap](product/ROADMAP.md) identifies further development and qualification.
 
-## Product ([product/](product/))
+## Use it
 
-| Doc | Purpose |
-|-----|---------|
-| [product/CONCEPT.md](product/CONCEPT.md) | Product vision |
-| [product/PRD.md](product/PRD.md) | Requirements, personas, epics |
-| [product/ARCHITECTURE.md](product/ARCHITECTURE.md) | System design, data model, access model (§9) |
-| [product/RESIDENT_HARNESS.md](product/RESIDENT_HARNESS.md) | Singular resident harness spec ([ADR-003](backend/adr/003-singular-resident-harness.md)) |
-| [product/PYDANTIC_AI_HARNESS_IMPLEMENTATION_PLAN.md](product/PYDANTIC_AI_HARNESS_IMPLEMENTATION_PLAN.md) | Proposed composed native harness: adoption matrix, bounded delivery packages, recovery and qualification gates |
-| [product/PYDANTIC_AI_HARNESS_INTELLIGENCE_PLANE_SPEC.md](product/PYDANTIC_AI_HARNESS_INTELLIGENCE_PLANE_SPEC.md) | Native harness tenancy, graph continuity, governance, observability and usage contracts |
-| [product/PYDANTIC_AI_HARNESS_BLUEPRINT_REVIEW.md](product/PYDANTIC_AI_HARNESS_BLUEPRINT_REVIEW.md) | Revision 2 adversarial review, resolved findings and next implementation gate |
-| [product/NATIVE_HARNESS_RESEARCH_AND_BLUEPRINT.md](product/NATIVE_HARNESS_RESEARCH_AND_BLUEPRINT.md) | Comparative harness research and updated Pydantic AI Harness recommendation |
-| [product/ROADMAP.md](product/ROADMAP.md) | Milestone sequencing |
-| [product/CORE_FINISH_STATUS.md](product/CORE_FINISH_STATUS.md) | Current finish-state status: implemented work, unproven gates, and ordered remaining program |
-| [product/CORE_SUBSTRATE_USE_CASES.md](product/CORE_SUBSTRATE_USE_CASES.md) | Complete user-intent inventory for the Core substrate, resident App delivery, filing, query, and dashboards |
-| [product/CORE_SUBSTRATE_IMPROVEMENT_PLAN.md](product/CORE_SUBSTRATE_IMPROVEMENT_PLAN.md) | Dependency-ordered plan to complete and qualify Core skills, tools, and user flows |
-| [product/CORE_ACCEPTANCE_LEDGER.md](product/CORE_ACCEPTANCE_LEDGER.md) | Candidate-specific qualification gates, evidence, and limitations |
-| [product/FOUNDATION_EXTENSION_SAAS.md](product/FOUNDATION_EXTENSION_SAAS.md) | Foundation-first reframe: open-core boundary, extension contract, SaaS entitlements |
-| [product/FOUNDATION_PUBLIC_DEVELOPER_SPRINT.md](product/FOUNDATION_PUBLIC_DEVELOPER_SPRINT.md) | Next sprint: coding-agent work packages for the public extension platform and independent Asset Register proof |
-| [product/HARNESS_RUNTIME_SUBSTRATE_GAP_PLAN.md](product/HARNESS_RUNTIME_SUBSTRATE_GAP_PLAN.md) | Current assessment and coding-agent closure plan for a harness-backed runtime substrate with intrinsic agentive queryability |
-| [product/INTEGRAL_CORE_EXTRACT.md](product/INTEGRAL_CORE_EXTRACT.md) | What ships in public integral-core vs commercial packages/apps |
-| [product/CORE_PIN.md](product/CORE_PIN.md) | Commercial dependency-pin runbook for Core releases |
-| [product/BYOA.md](product/BYOA.md) | External-agent surface — MCP only |
+Start your own workspace with the [local installation and CLI guide](ops/LOCAL_INSTALLATION.md). Then follow the [user guide](user-guide/README.md) for workspaces, Apps and Tracks, records, views, sharing, the resident AI, and approvals.
 
-## Substrate and platform
+## Build on it
 
-| Doc | Purpose |
-|-----|---------|
-| [INVARIANTS.md](INVARIANTS.md) | Graph contiguousness, edge naming, substrate contracts |
-| [platform/extension-contract-v1.md](platform/extension-contract-v1.md) | F0 App extension contract (ToolContext, hooks, lifecycle) |
-| [developer/quickstart.md](developer/quickstart.md) | Example-led guide to author a custom Integral App, including the distro `agent.override.yaml` |
-| [platform/extension-contract-governance.md](platform/extension-contract-governance.md) | Semver / deprecation stub for the extension contract |
-| [operational-models/README.md](operational-models/README.md) | Operational Model vocabulary and authoring path |
-| [platform/operational-model.md](platform/operational-model.md) | Operational Model overview and learning path (compatibility filename) |
+Follow the [App quickstart](developer/quickstart.md), then use the [extension contract](platform/extension-contract-v1.md), [Operational Model guide](operational-models/README.md), and [backend reference](backend/README.md). The [generated capability map](generated/capability-map.md) derives from source and must be regenerated rather than edited by hand.
 
-### Operational Model technical deep dives
+## Operate it
 
-| Doc | Topic |
-|-----|--------|
-| [operational-models/VIEW_PALETTE.md](operational-models/VIEW_PALETTE.md) | View types and contracts |
-| [operational-models/REGION_SYSTEM.md](operational-models/REGION_SYSTEM.md) | Apex-style region widgets + create_wizard step kinds |
-| [operational-models/AGENT_CONTRACT.md](operational-models/AGENT_CONTRACT.md) | Agent MCP tools for models |
-| [operational-models/DRAFT_PUBLISH.md](operational-models/DRAFT_PUBLISH.md) | Draft/publish lifecycle |
-| [operational-models/MIGRATIONS.md](operational-models/MIGRATIONS.md) | Schema migrations |
-| [operational-models/COMPOSITES.md](operational-models/COMPOSITES.md) | Composite field types |
-| [operational-models/PLUGINS.md](operational-models/PLUGINS.md) | Signed code plugins |
-| [operational-models/META_WIDGETS.md](operational-models/META_WIDGETS.md) | Composable meta-widgets |
-| [operational-models/COMPOSITION_PATTERNS.md](operational-models/COMPOSITION_PATTERNS.md) | Anchor and relation patterns |
+Use the [CLI guide](ops/LOCAL_INSTALLATION.md) for local startup, logs, backups, restore, and upgrades. For hosted environments, use the [deployment runbook](ops/DEPLOY.md), [configuration guide](ops/CONFIGURATION.md), [security guide](ops/SECURITY.md), and [qualification record](ops/QUALIFICATION.md). Deployment, publication, CI, and user-flow acceptance are distinct checks.
 
-## Backend reference
+## Maintain it
 
-| Doc | Purpose |
-|-----|---------|
-| [backend/app-bundles-v1.md](backend/app-bundles-v1.md) | Manifest v2, App lifecycle, cross-App relations |
-| [backend/connectors.md](backend/connectors.md) | Add native or MCP packages to the Connector library ([ADR-010](backend/adr/010-connector-subsystem-architecture.md)) |
-| [backend/workspace-agent-profile.md](backend/workspace-agent-profile.md) | Per-workspace resident jvagent skill overlay (base + tenant tiers) |
-| [backend/ai-chat.md](backend/ai-chat.md) | Parallel conversation streams, turn lifecycle, WS events ([ADR-005](backend/adr/005-single-worker-until-shared-turn-state.md)) |
-| [backend/conversation-use-cases.md](backend/conversation-use-cases.md) | CUCS — conversational scenarios for core + bundle skills, where they live, Integral's assertion namespaces |
-| [backend/model-credentials-byok.md](backend/model-credentials-byok.md) | Platform vs per-user BYOK LLM keys (hybrid / strict / operator setup) |
-| [backend/operational-model-authoring-and-library.md](backend/operational-model-authoring-and-library.md) | Authoring workflow and library merge |
-| [backend/operational-model-packages.md](backend/operational-model-packages.md) | Packages and v1→v2 migration |
-| [backend/operational-model-search-index.md](backend/operational-model-search-index.md) | Search index behavior |
+The [contributor guide](developer/CONTRIBUTING.md) explains repository discipline. [Invariants](INVARIANTS.md) preserve the substrate's access, graph, extension, and execution contracts.
 
-Package setup: [backend/README.md](../backend/README.md). Agent bundle: [agent/README.md](../agent/README.md).
-
-## Operations
-
-| Doc | Purpose |
-|-----|---------|
-| [ops/DEPLOY.md](ops/DEPLOY.md) | Swarm deploy, worker concurrency, merge-mode observation budgets, ownerless-App backfill |
-| [ops/OPERATIONAL_MODEL_SIGNING.md](ops/OPERATIONAL_MODEL_SIGNING.md) | Profile signing for catalog trust |
-
-## Changelog and contributing
-
-- [CHANGELOG.md](../CHANGELOG.md) — breaking changes and releases
-- [CONTRIBUTING.md](../CONTRIBUTING.md) — hooks, tests, PR expectations
-
-## Agent / IDE entry points
-
-- [AGENTS.md](../AGENTS.md) — repo conventions for AI coding agents
+This edition was rebuilt against the staging checkout on 8 October 2026. Superseded plans, duplicate explanations, old candidate reports, and obsolete architecture narratives were removed from maintained documentation. The [editorial audit](editorial/README.md) records each original Markdown document's disposition. Historical originals remain recoverable in Git and a separate local snapshot.

@@ -220,7 +220,12 @@ _BUILTIN_FIELD_TYPES: List[FieldTypeSpec] = [
     FieldTypeSpec(
         type="computed",
         label="Computed",
-        description="Read-only derived value.",
+        description=(
+            "Read-only value from an expression over fields on the same entry. "
+            "Requires expression: arithmetic (+ - * / and parentheses) over "
+            "number fields, or concat(...) of text. Calculated when the entry "
+            "is read and not stored. Cross-entry aggregates are not supported."
+        ),
     ),
     FieldTypeSpec(
         type="file",

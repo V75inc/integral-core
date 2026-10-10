@@ -1,37 +1,9 @@
-# Extension contract governance
+# Evolve extension contracts
 
-**Status:** F0 baseline (publisher/signing remain F3)
-**Companion:** [extension-contract-v1.md](extension-contract-v1.md)
+A public contract change affects independent App authors. Treat its information shapes, policy requirements, lifecycle, and failure semantics as a reviewed interface.
 
-## Contract-test kit
+Describe compatibility, source and wire changes, migration needs, and effects on existing packages. Add behavior tests using an external package that does not import private Core modules. Preserve Core-only boot and the [invariants](../INVARIANTS.md).
 
-| Lane | Command | Proves |
-| --- | --- | --- |
-| Core-only | `make verify-core-only` | Import guard + library contains only `core_package` |
-| Extension contract | `make verify-contract` | External `examples/reference-hello-app/` load/compile/hooks + install→upgrade→pause→uninstall |
+Additive fields must retain deliberate defaults and validation. A change that broadens authority, permits executable code, or changes effect replay requires explicit architecture review. Do not disguise it as a renamed helper.
 
-Fixtures: `examples/reference-hello-app/`, `backend/tests/contract/`, `backend/tests/core_only/`.
-
-## Compatibility / support window
-
-- Documented extension surfaces in [extension-contract-v1.md](extension-contract-v1.md) are the support boundary.
-- Core minor releases must not break contract tests without a MAJOR bump of the published contract.
-- Undocumented Core internals (`app.services.*` outside ToolContext, underscore modules) are unsupported for App authors.
-
-## Semver rules
-
-- **MAJOR** — remove or change meaning of a published ToolContext method, hook point, or required manifest field.
-- **MINOR** — additive manifest fields, new optional ToolContext methods, new package classes.
-- **PATCH** — clarifications, bug fixes that preserve behavior.
-
-## Deprecation window
-
-Public extension surfaces: announce in CHANGELOG + docs; keep deprecated behavior for at least one minor release of Integral Core before removal.
-
-## Security advisory process
-
-Publisher key rotation, package revocation, and vulnerability disclosure for signed packages are defined before F3. Until then, first-party `trust_tier=trusted` packages are reviewed in-repo.
-
-## Publisher onboarding
-
-Outline only (F3): identity verification, capability review, signing keys, catalog listing metadata. Community Apps default to declarative-only.
+Update the [extension contract](extension-contract-v1.md), SDK types, runnable reference package, generated capability artifacts where affected, and authoring guidance together. A checked-in example is not proof of production qualification; record the actual artifact and acceptance evidence separately.

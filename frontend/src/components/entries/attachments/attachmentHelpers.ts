@@ -13,6 +13,24 @@ import {
   resolveAttachmentMime,
 } from '../../../utils/attachmentMime';
 
+// Formats with no in-browser renderer that the server converts to a PDF
+// preview (LibreOffice). Keep in step with attachment_preview.py.
+const SERVER_PREVIEW_MIMES = new Set([
+  'application/msword',
+  'application/rtf',
+  'text/rtf',
+  'application/vnd.oasis.opendocument.text',
+  'application/vnd.oasis.opendocument.presentation',
+  'application/vnd.oasis.opendocument.graphics',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.template',
+  'application/vnd.ms-word.document.macroenabled.12',
+  'application/vnd.ms-powerpoint.presentation.macroenabled.12',
+  'application/vnd.openxmlformats-officedocument.presentationml.template',
+  'application/vnd.ms-visio.drawing',
+  'application/vnd.visio',
+  'application/vnd.ms-publisher',
+]);
+
 export type ViewerKind =
   | 'image'
   | 'pdf'
@@ -51,7 +69,8 @@ export function resolveViewerKind(attachment: Attachment): ViewerKind {
   if (
     mime ===
       'application/vnd.openxmlformats-officedocument.presentationml.presentation' ||
-    mime === 'application/vnd.ms-powerpoint'
+    mime === 'application/vnd.ms-powerpoint' ||
+    SERVER_PREVIEW_MIMES.has(mime)
   ) {
     return 'pptx-preview';
   }

@@ -41,6 +41,29 @@ from app.views import dashboard_widget_types as dwt
 logger = logging.getLogger(__name__)
 
 
+@endpoint("/apps/{app_id}/home", methods=["GET"], auth=True, tags=["Dashboards"])
+async def get_app_home(request: Request, app_id: str) -> Dict[str, Any]:
+    """Read the active package-owned home and optional scoped widget data."""
+    from app.services.app_home import read_app_home
+
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    include_data = request.query_params.get("include_data", "true") == "true"
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    try:
+        return await read_app_home(
+            user_id=user_id,
+            app_id=app_id,
+            workspace_id=workspace_id,
+            include_data=include_data,
+        )
+    except PermissionError:
+        raise InsufficientPermissionsError(message="Access denied")
+    except ValueError:
+        raise ResourceNotFoundError(message="App not found")
+
+
 async def _require_app(app_id: str) -> App:
     app = await App.get(app_id)
     if not app:

@@ -26,18 +26,73 @@ NEVER ``connector.mapping_profile`` (deprecated by the
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
+import hashlib
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
-from app.models.nodes import Entry, EntryType, Track
+from app.models.nodes import Entry, Track
 from app.schemas.provenance import Provenance
 from app.services.change_event import emit_change_event
 from app.services.connectors.conflict_records import create_conflict_record
 from app.services.connectors.registry import get_sync_connector
+from app.services.connectors.sync_lease import (
+    LEASE_SECONDS,
+    claim_sync,
+    current_sync_lease,
+    release_sync,
+    renew_sync,
+    save_connector_changes,
+    sync_effect,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def connector_record_key(
+    *, workspace_id: str, connector_id: str, upstream_key: str
+) -> str:
+    """Runtime identity; two installed instances deliberately own separate records."""
+    if not workspace_id or not connector_id or not upstream_key:
+        raise ValueError(
+            "Connector record identity requires workspace, instance and source"
+        )
+    identity = json.dumps(
+        [workspace_id, connector_id, upstream_key], separators=(",", ":")
+    )
+    return "connector:v2:" + hashlib.sha256(identity.encode()).hexdigest()
+
+
+async def _find_owned_entry(
+    *, connector, record, track: Track, key: str, legacy_key: str
+):
+    """Never adopt a record from another destination or source owner.
+
+    Legacy records are considered only on this bound destination. A collision
+    or wrong provenance is an explicit reconciliation error, never a re-key.
+    """
+    source_id = f"{connector.id}:{record.external_id}"
+    graph = await track.get_context()
+    matches = await graph.find(
+        Entry,
+        {
+            "context.track_id": track.id,
+            "context.idempotency_key": {"$in": [key, legacy_key]},
+        },
+        limit=2,
+    )
+    if len(matches) > 1:
+        raise ValueError("Ambiguous connector records require reconciliation")
+    if not matches:
+        return None
+    entry = matches[0]
+    prov = entry.provenance
+    if prov is None or prov.source != "connector" or prov.source_id != source_id:
+        raise ValueError("Connector record provenance does not match its binding")
+    return entry
 
 
 def _utc_now_iso() -> str:
@@ -52,7 +107,8 @@ def _parse_iso(value: Optional[str]) -> Optional[datetime]:
     if not value:
         return None
     try:
-        return datetime.fromisoformat(value)
+        parsed = datetime.fromisoformat(value)
+        return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
     except (ValueError, TypeError):
         return None
 
@@ -64,38 +120,20 @@ def _local_edited_after_sync(entry: Entry, last_synced_at: Optional[str]) -> boo
     there cannot be a local edit "since" a sync that never happened, so
     returns False.
 
-    Edge case (non-parseable timestamps): treat as "no detectable local
-    edit" rather than raising — the worst case is one extra overwrite,
-    which is preferable to crashing the sync loop on a stray ISO format.
+    Invalid timestamps on a previously synchronized record cannot prove that
+    an overwrite is safe. Surface them as a conflict rather than losing edits.
     """
-    if not last_synced_at:
+    provenance = getattr(entry, "provenance", None)
+    baseline = provenance.synced_at if provenance else None
+    if baseline is None and not last_synced_at:
         return False
     local_dt = _parse_iso(entry.updated_at)
-    last_dt = _parse_iso(last_synced_at)
+    last_dt = baseline or _parse_iso(last_synced_at)
     if local_dt is None or last_dt is None:
-        return False
+        return True
+    if last_dt.tzinfo is None:
+        last_dt = last_dt.replace(tzinfo=timezone.utc)
     return local_dt > last_dt
-
-
-async def _apply_external(entry: Entry, materialized: Any) -> None:
-    """Overwrite local Entry fields from the external materialized payload.
-
-    Also restamps ``provenance.synced_at`` so subsequent local-edit detection
-    on the next sync compares against the right baseline. ``provenance`` is
-    only restamped when the entry's source is ``"connector"`` — defensive
-    guard against accidentally rewriting human/agent provenance for an entry
-    that the runtime tried to upsert through a key collision.
-    """
-    entry.title = materialized.title
-    entry.body = materialized.body
-    entry.tags = list(materialized.tags or [])
-    entry.custom_fields = dict(materialized.custom_fields or {})
-    prov = entry.provenance
-    if prov is not None and prov.source == "connector":
-        prov.synced_at = _utc_now()
-        entry.provenance = prov
-    entry.updated_at = _utc_now_iso()
-    await entry.save()
 
 
 def _snapshot(entry: Entry) -> Dict[str, Any]:
@@ -149,11 +187,11 @@ async def _resolve_bound_track(connector) -> Optional[Any]:
     ``Connector.mapping_profile``. Returns the first bound Track when only
     one binding exists; callers that need per-entity routing across multiple
     bound Tracks (Phase 18 Finance App — five tracks, one connector)
-    use :func:`_resolve_bound_tracks_by_entry_type` instead.
+    use the authorized ``resolve_connector_bindings`` walker instead.
     """
     try:
         bound = await connector.nodes(
-            edge=["IsConnectedTo"], direction="out", node=["Track"]
+            edge=["IsConnectedTo"], direction="out", node=["Track"], limit=1
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning(
@@ -165,86 +203,6 @@ async def _resolve_bound_track(connector) -> Optional[Any]:
     if not bound:
         return None
     return bound[0]
-
-
-async def _resolve_bound_tracks_by_entry_type(
-    connector,
-) -> Dict[str, Track]:
-    """Walk every IS_CONNECTED_TO Track and index its EntryTypes by key.
-
-    Phase 18 — per-entity routing for multi-track connectors. The
-    QuickBooks connector pulls five entity types (Invoice / Purchase /
-    Customer / Vendor / Bill) and binds to five Finance App tracks; this
-    helper builds a {entry_type_key → Track} map so the write loop can
-    route each materialized record to the track whose OperationalModel
-    declares the matching EntryType.
-
-    The map is additive: a single-track connector (e.g. GitHub Issues
-    bound to one track with one ``github_issue`` EntryType) populates one
-    map entry, and the write loop's fall-back to ``_resolve_bound_track``
-    keeps that path working unchanged.
-
-    Returns an empty dict when the connector has no bound Tracks.
-    """
-    out: Dict[str, Track] = {}
-    try:
-        bound = await connector.nodes(
-            edge=["IsConnectedTo"], direction="out", node=["Track"]
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "_resolve_bound_tracks_by_entry_type: edge traversal failed for "
-            "connector %s: %s",
-            getattr(connector, "id", "<unknown>"),
-            exc,
-        )
-        return out
-    for tnode in bound:
-        if not isinstance(tnode, Track):
-            continue
-        # A Track's EntryTypes hang off its attached OperationalModel via
-        # CONTAINS — walk one hop through the Operational Model to enumerate them.
-        try:
-            cps = await tnode.nodes(
-                edge=["HAS_OPERATIONAL_MODEL"],
-                direction="out",
-                node=["OperationalModel"],
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "_resolve_bound_tracks_by_entry_type: HAS_OPERATIONAL_MODEL walk "
-                "failed for track %s: %s",
-                tnode.id,
-                exc,
-            )
-            continue
-        for cp in cps:
-            try:
-                ets = await cp.nodes(
-                    edge=["CONTAINS"], direction="out", node=["EntryType"]
-                )
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "_resolve_bound_tracks_by_entry_type: EntryType walk failed "
-                    "for operational_model %s: %s",
-                    cp.id,
-                    exc,
-                )
-                continue
-            for et in ets:
-                if not isinstance(et, EntryType):
-                    continue
-                # EntryType nodes carry ``name`` (canonical), not ``key``.
-                # The manifest's entry_types[].key normalizes via _slug(name)
-                # (see operational_model_compile.slug_manifest_key); mirror
-                # that here so the routing dict keys match the connector's
-                # MaterializedEntry.entry_type_key values.
-                from app.services.operational_model_compile import _slug
-
-                key = _slug(getattr(et, "name", "") or "")
-                if key:
-                    out[key] = tnode
-    return out
 
 
 async def _reembed_synced_entry(entry: Entry) -> None:
@@ -310,7 +268,7 @@ async def _run_connector_hooks(
     )
 
 
-async def sync_one_connector(connector) -> Dict[str, int]:
+async def _sync_owned(connector, lease) -> Dict[str, int]:
     """Pull external records, dedupe via idempotency_key, materialize/update Entries.
 
     Returns stats dict ``{created, updated, conflict, skipped, failed}``.
@@ -373,14 +331,27 @@ async def sync_one_connector(connector) -> Dict[str, int]:
         await _mark_unbound(connector)
         return stats
 
-    # Phase 18 — multi-track routing. For connectors bound to >1 Track
-    # (e.g. QuickBooks bound to the five Finance tracks), build a
-    # {entry_type_key → Track} map so each materialized record routes to
-    # the track whose OperationalModel declares the matching EntryType.
-    # Single-track connectors yield an empty/one-entry map; the fall-back
-    # ``target_track`` preserves their behavior.
-    track_by_entry_type = await _resolve_bound_tracks_by_entry_type(connector)
+    from jvspatial.db.postgres import PostgresTransaction
 
+    from app.schemas.policy import Resource, Subject
+    from app.services.connectors.tag_resolution import resolve_connector_tags
+    from app.services.entry_create import create_entry_in_track
+    from app.services.entry_update import update_entry_in_track
+    from app.services.permissions import resolve_role
+    from app.services.policy_engine import evaluate
+    from app.services.walkers.connector_bindings import resolve_connector_bindings
+
+    bindings = await resolve_connector_bindings(connector)
+    decision = await evaluate(
+        subject=Subject(kind="connector", id=connector.id),
+        action="connector.sync",
+        resource=Resource(
+            kind="connector", id=connector.id, scope=f"connector:{connector.id}"
+        ),
+        _dry_run=True,
+    )
+    if not decision.allowed:
+        raise PermissionError("Connector policy does not authorize synchronization")
     # Lifecycle start emit — single emission path (D-05).
     await emit_change_event(
         actor_kind="connector",
@@ -395,123 +366,158 @@ async def sync_one_connector(connector) -> Dict[str, int]:
 
     try:
         async for record in sub.sync_pull(connector=connector):
-            key = sub.idempotency_key_for(record)
-            existing = await Entry.find({"context.idempotency_key": key})
-            materialized = sub.to_entry(record)
+            events: list[dict[str, Any]] = []
+            outbox_id = None
+            outcome = "updated"
+            async with sync_effect(lease) as graph:
+                from app.middleware.permissions_cache import reset_permissions_cache
 
-            # Phase 18 — route per-record by the materialized
-            # entry_type_key when the connector has multi-track bindings.
-            # Falls back to the legacy single-bound-track resolution.
-            entry_type_key = (getattr(materialized, "entry_type_key", "") or "").strip()
-            routed_track = (
-                track_by_entry_type.get(entry_type_key) if entry_type_key else None
-            )
-            record_target_track = routed_track or target_track
-
-            if existing:
-                entry = existing[0]
-                # CRITICAL — capture before_snap BEFORE _apply_external mutates
-                # entry in-place. `existing[0] is entry`, so reading
-                # _snapshot(existing[0]) AFTER _apply_external would give
-                # `before == after` and silently destroy the audit trail
-                # (T-05-03-03 mitigation).
-                before_snap = _snapshot(entry)
-
-                if sub.conflict_policy == "mirror_only":
-                    await _apply_external(entry, materialized)
-                    stats["updated"] += 1
-                elif sub.conflict_policy == "last_write_wins":
-                    if _local_edited_after_sync(entry, connector.last_synced_at):
-                        # T-05-03-03 — explicit WARNING surfaces silent
-                        # local-edit overwrites in operator logs.
-                        logger.warning(
-                            "connector sync: overwriting local edit on entry %s "
-                            "(connector=%s, policy=last_write_wins)",
-                            entry.id,
-                            connector.id,
-                        )
-                    await _apply_external(entry, materialized)
-                    stats["updated"] += 1
-                else:  # manual_resolve
-                    if _local_edited_after_sync(entry, connector.last_synced_at):
+                reset_permissions_cache()
+                upstream_key = sub.idempotency_key_for(record)
+                materialized = sub.to_entry(record)
+                entry_type_key = str(materialized.entry_type_key or "").strip()
+                if entry_type_key not in bindings:
+                    raise ValueError(
+                        "Connector payload references an undeclared bound entry type"
+                    )
+                record_target_track, entry_type = bindings[entry_type_key]
+                # Re-traverse authorization under the effect context: binding or
+                # owner permission changes during network I/O must take effect.
+                live_bindings = await resolve_connector_bindings(connector)
+                if (
+                    entry_type_key not in live_bindings
+                    or live_bindings[entry_type_key][0].id != record_target_track.id
+                    or live_bindings[entry_type_key][1].id != entry_type.id
+                ):
+                    raise PermissionError(
+                        "Connector destination binding changed during sync"
+                    )
+                record_target_track, entry_type = live_bindings[entry_type_key]
+                workspace_id = lease.workspace_id
+                key = connector_record_key(
+                    workspace_id=workspace_id,
+                    connector_id=connector.id,
+                    upstream_key=upstream_key,
+                )
+                entry = await _find_owned_entry(
+                    connector=connector,
+                    record=record,
+                    track=record_target_track,
+                    key=key,
+                    legacy_key=upstream_key,
+                )
+                action = "entry.update" if entry is not None else "entry.create"
+                decision = await evaluate(
+                    subject=Subject(kind="connector", id=connector.id),
+                    action=action,
+                    resource=Resource(
+                        kind="entry",
+                        id=entry.id if entry else "",
+                        scope=f"connector:{connector.id}",
+                    ),
+                    _dry_run=True,
+                )
+                if not decision.allowed:
+                    raise PermissionError(
+                        "Connector policy does not authorize this write"
+                    )
+                if entry is not None and await resolve_role(
+                    lease.principal_id, "entry", entry.id
+                ) not in {"owner", "admin", "editor"}:
+                    raise PermissionError("Connector owner cannot update this record")
+                tag_ids = await resolve_connector_tags(
+                    record_target_track, list(materialized.tags or [])
+                )
+                provenance = Provenance(
+                    source="connector",
+                    source_id=f"{connector.id}:{record.external_id}",
+                    confidence=1.0,
+                    synced_at=_utc_now(),
+                )
+                if entry is not None:
+                    local_edit = _local_edited_after_sync(
+                        entry, connector.last_synced_at
+                    )
+                    if sub.conflict_policy == "manual_resolve" and local_edit:
                         await create_conflict_record(
                             connector_id=connector.id,
                             entry=entry,
                             external_snapshot=_materialized_to_dict(materialized),
                         )
-                        stats["conflict"] += 1
-                        # No emit, no _apply_external — the local edit is
-                        # preserved until a human resolves the Conflict.
-                        continue
-                    await _apply_external(entry, materialized)
-                    stats["updated"] += 1
+                        outcome = "conflict"
+                    else:
+                        if sub.conflict_policy == "last_write_wins" and local_edit:
+                            logger.warning(
+                                "connector sync: overwriting local edit on entry %s (connector=%s)",
+                                entry.id,
+                                connector.id,
+                            )
+                        entry = await update_entry_in_track(
+                            entry_id=entry.id,
+                            user_id=lease.principal_id,
+                            workspace_id=workspace_id,
+                            actor_kind="connector",
+                            actor_id=connector.id,
+                            title=materialized.title,
+                            body=materialized.body,
+                            tags=tag_ids,
+                            type_id=entry_type.id,
+                            custom_fields=dict(materialized.custom_fields or {}),
+                            replace_custom_fields=True,
+                            provenance=provenance,
+                            idempotency_key=key,
+                            expected_record_revision=entry.record_revision,
+                            change_event_sink=events.append,
+                        )
+                else:
+                    entry = await create_entry_in_track(
+                        track=record_target_track,
+                        user_id=lease.principal_id,
+                        workspace_id=workspace_id,
+                        actor_kind="connector",
+                        actor_id=connector.id,
+                        title=materialized.title,
+                        body=materialized.body,
+                        entry_type=entry_type,
+                        tags=tag_ids,
+                        custom_fields=dict(materialized.custom_fields or {}),
+                        provenance=provenance,
+                        idempotency_key=key,
+                        change_event_sink=events.append,
+                    )
+                    outcome = "created"
+                if outcome != "conflict":
+                    await _run_connector_hooks(
+                        entry=entry, connector=connector, entry_type_key=entry_type_key
+                    )
+                if events and isinstance(graph.database, PostgresTransaction):
+                    from app.services.app_operations.event_outbox import (
+                        insert_entry_event,
+                    )
 
-                # D-05 single-emission — entry.update for upsert.
-                await emit_change_event(
-                    actor_kind="connector",
-                    actor_id=actor_id,
-                    action="entry.update",
-                    resource_type="Entry",
-                    resource_id=entry.id,
-                    before=before_snap,
-                    after=_snapshot(entry),
-                    scope=f"track:{entry.track_id}",
+                    outbox_id = await insert_entry_event(
+                        transaction=graph.database,
+                        workspace_id=workspace_id,
+                        event=events[0],
+                    )
+            stats[outcome] += 1
+            if outbox_id:
+                from app.services.app_operations.event_outbox import (
+                    deliver_operation_event,
                 )
-                # Phase 4 re-embed parity (synced upsert).
-                await _reembed_synced_entry(entry)
-                await _run_connector_hooks(
-                    entry=entry,
-                    connector=connector,
-                    entry_type_key=entry_type_key,
-                )
-            else:
-                # First-time materialization.
-                provenance = Provenance(
-                    source="connector",  # I-CON-01 — ActorKind Literal member
-                    source_id=f"{connector.id}:{record.external_id}",  # I-CON-01 split shape
-                    confidence=1.0,
-                    synced_at=_utc_now(),
-                )
-                now = _utc_now_iso()
-                entry = Entry(
-                    title=materialized.title,
-                    body=materialized.body,
-                    track_id=record_target_track.id,
-                    tags=list(materialized.tags or []),
-                    custom_fields=dict(materialized.custom_fields or {}),
-                    provenance=provenance,
-                    idempotency_key=key,
-                    created_at=now,
-                    updated_at=now,
-                )
-                await entry.save()
 
-                # Wire CONTAINS edge so the Track → Entry traversal works,
-                # mirroring api/entries.py:402 create_entry idiom.
-                from app.models.edges import CONTAINS
-
-                await record_target_track.connect(entry, edge=CONTAINS, added_at=now)
-                stats["created"] += 1
-
-                # D-05 single-emission — entry.create.
-                await emit_change_event(
-                    actor_kind="connector",
-                    actor_id=actor_id,
-                    action="entry.create",
-                    resource_type="Entry",
-                    resource_id=entry.id,
-                    before=None,
-                    after=_snapshot(entry),
-                    scope=f"track:{entry.track_id}",
-                )
-                # Phase 4 re-embed parity (synced create).
-                await _reembed_synced_entry(entry)
-                await _run_connector_hooks(
-                    entry=entry,
-                    connector=connector,
-                    entry_type_key=entry_type_key,
-                )
+                try:
+                    await deliver_operation_event(outbox_id=outbox_id)
+                except Exception:
+                    logger.exception("Connector change event awaits recovery")
+            elif events:
+                await emit_change_event(**events[0])
+            if outcome != "conflict":
+                fresh = await Entry.get(entry.id)
+                if fresh is not None:
+                    await _reembed_synced_entry(fresh)
     except Exception as exc:  # noqa: BLE001
+        stats["failed"] += 1
         logger.warning(
             "connector sync failed for %s: %s", connector.id, exc, exc_info=True
         )
@@ -531,7 +537,7 @@ async def sync_one_connector(connector) -> Dict[str, int]:
     # completion. The next tick's local-edit detection compares against
     # this stamp (see ``_local_edited_after_sync``).
     connector.last_synced_at = _utc_now_iso()
-    await connector.save()
+    await save_connector_changes(connector, fields=("last_synced_at", "sync_cursor"))
 
     await emit_change_event(
         actor_kind="connector",
@@ -544,3 +550,52 @@ async def sync_one_connector(connector) -> Dict[str, int]:
         scope=f"user:{connector.owner}",
     )
     return stats
+
+
+async def sync_one_connector(connector) -> Dict[str, int]:
+    """Manual and scheduled entry point share one durable exclusive owner."""
+    stats = {"created": 0, "updated": 0, "conflict": 0, "skipped": 0, "failed": 0}
+    slug = str(getattr(connector, "subclass_slug", "") or "").strip()
+    try:
+        get_sync_connector(slug)
+    except ValueError:
+        return stats
+    if await _resolve_bound_track(connector) is None:
+        await _mark_unbound(connector)
+        return stats
+    lease = await claim_sync(connector)
+    if lease is None:
+        stats["skipped"] = 1
+        return stats
+
+    async def heartbeat():
+        while True:
+            await asyncio.sleep(LEASE_SECONDS / 3)
+            await renew_sync(lease)
+
+    pulse = asyncio.create_task(heartbeat(), name=f"connector-heartbeat:{connector.id}")
+
+    async def execute():
+        token = current_sync_lease.set(lease)
+        try:
+            return await _sync_owned(connector, lease)
+        finally:
+            current_sync_lease.reset(token)
+
+    work = asyncio.create_task(execute(), name=f"connector-sync:{connector.id}")
+    try:
+        done, _ = await asyncio.wait({pulse, work}, return_when=asyncio.FIRST_COMPLETED)
+        if pulse in done:
+            await pulse
+        return await work
+    finally:
+        for task in (work, pulse):
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(work, pulse, return_exceptions=True)
+        try:
+            await release_sync(lease)
+        except Exception:
+            # A failed cleanup cannot authorize effects; expiry still reclaims
+            # the lease. Preserve the original failure/cancellation result.
+            logger.exception("Connector lease release failed; awaiting expiry")

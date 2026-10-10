@@ -12,11 +12,7 @@ import yaml
 
 def test_workspace_skill_describes_scope_tools_as_dispatchable() -> None:
     root = Path(__file__).resolve().parents[2]
-    skill_path = (
-        root
-        / "agent/agents/integral/integral_agent/actions/integral"
-        / "embedded_integral_action/skills/integral-workspace/SKILL.md"
-    )
+    skill_path = root / "agent" / "skills/integral-workspace/SKILL.md"
     manifest_path = root / "backend/app/agentive/tool_manifest.yaml"
     raw = skill_path.read_text(encoding="utf-8")
     frontmatter = yaml.safe_load(raw.split("---", 2)[1])
@@ -38,8 +34,8 @@ def test_workspace_skill_describes_scope_tools_as_dispatchable() -> None:
 def test_no_core_skill_marks_an_existing_manifest_tool_unavailable() -> None:
     """Fallback prose must move in lockstep with the public tool catalogue."""
     root = Path(__file__).resolve().parents[2]
-    skills = root / "agent/agents/integral/integral_agent/actions/integral"
-    skills = skills / "embedded_integral_action/skills"
+    skills = root / "agent"
+    skills = skills / "skills"
     manifest = yaml.safe_load(
         (root / "backend/app/agentive/tool_manifest.yaml").read_text(encoding="utf-8")
     )
@@ -69,11 +65,7 @@ def test_scaffold_is_the_single_resident_delivery_owner() -> None:
     )
 
     root = Path(__file__).resolve().parents[2]
-    path = (
-        root
-        / "agent/agents/integral/integral_agent/actions/integral"
-        / f"embedded_integral_action/skills/{RESIDENT_DELIVERY_OWNER}/SKILL.md"
-    )
+    path = root / "agent" / f"skills/{RESIDENT_DELIVERY_OWNER}/SKILL.md"
     body = path.read_text(encoding="utf-8").lower()
 
     assert all(phase in body for phase in RESIDENT_DELIVERY_PHASES)
@@ -82,106 +74,6 @@ def test_scaffold_is_the_single_resident_delivery_owner() -> None:
     assert "explicit design-only boundary" in body
     assert "proposed — nothing has been built." in body
     assert "do **not** call" in body
-
-
-def test_resident_runtime_treats_an_explicit_greenfield_need_as_design_ready() -> None:
-    """A stated app need must not be bounced back as a create-versus-search fork."""
-    root = Path(__file__).resolve().parents[2]
-    agent = yaml.safe_load(
-        (root / "agent/agents/integral/integral_agent/agent.yaml").read_text(
-            encoding="utf-8"
-        )
-    )
-    role = str(agent["context"]["role"]).lower()
-
-    assert "enough to propose a design" in role
-    assert "do not ask whether to create or search" in role
-    assert "design only" in role
-
-
-def test_resident_web_research_actions_are_bounded_and_documented() -> None:
-    """The resident can search and read public sources with bounded context."""
-    root = Path(__file__).resolve().parents[2]
-    agent_path = root / "agent/agents/integral/integral_agent/agent.yaml"
-    agent = yaml.safe_load(agent_path.read_text(encoding="utf-8"))
-    actions = {row["action"]: row["context"] for row in agent["actions"]}
-
-    assert actions["jvagent/serper_web_search"]["enabled"] is True
-    assert actions["jvagent/serper_web_search"]["max_results"] == 5
-    fetch = actions["jvagent/web_fetch"]
-    assert fetch["enabled"] is True
-    assert fetch["max_chars"] == 8000
-    assert fetch["max_bytes"] == 1_000_000
-    assert fetch["timeout"] == 15
-
-    skill_path = (
-        root / "agent/agents/integral/integral_agent/skills/web-research/SKILL.md"
-    )
-    raw = skill_path.read_text(encoding="utf-8")
-    normalized = " ".join(raw.split())
-    frontmatter = yaml.safe_load(raw.split("---", 2)[1])
-    assert set(frontmatter["allowed-tools"].split()) == {
-        "mcp__serper_web_search__search_web",
-        "web_search__search",
-        "web_fetch__fetch",
-    }
-    assert "SERPER_API_KEY" in raw
-    assert "private records" in raw
-    assert "untrusted" in raw
-    assert "snippet is a lead, not a verified source" in raw
-    assert "label the research" in normalized
-    assert "compare dates stated on the fetched page with" in normalized
-    assert "at least two distinct fetched pages" in normalized
-    assert "does not prove" in normalized
-    assert "a returned URL or page title alone is not" in normalized
-    assert (
-        "Count" in normalized
-        and "title-only fetch as zero usable sources" in normalized
-    )
-    assert "treat an event dated before today as past" in normalized
-
-    project = (root / "backend/pyproject.toml").read_text(encoding="utf-8")
-    assert '"beautifulsoup4>=4.12,<5"' in project
-    assert '"markdownify>=0.13,<2"' in project
-
-
-@pytest.mark.asyncio
-async def test_explicit_design_only_app_need_gets_a_host_scaffold_directive(
-    monkeypatch,
-) -> None:
-    """The reliable path must not depend on the model choosing a skill unaided."""
-    from app.api import ai_chat
-
-    async def wants_new_app(text, **_kwargs):
-        folded = text.casefold()
-        if "existing" in folded:
-            return False
-        return "need an app" in folded
-
-    monkeypatch.setattr(ai_chat, "_user_wants_new_app", wants_new_app)
-    assert await ai_chat._is_explicit_greenfield_design_request(
-        "I need an app to manage appliance service requests. "
-        "Please propose a complete design only; do not build anything yet."
-    )
-    assert await ai_chat._is_explicit_greenfield_design_request(
-        "I need an app to manage appliance service requests."
-    )
-    assert not await ai_chat._is_explicit_greenfield_design_request(
-        "Show me existing apps and do not build anything."
-    )
-    assert not await ai_chat._is_explicit_greenfield_design_request(
-        "I need to update the dashboard in my existing app."
-    )
-    # Host Prompt Sheet resumes are continuations, never greenfield design asks.
-    resume = (
-        "[PROMPT_SHEET]\n"
-        "Resolved prompts\n"
-        '* Approved — Create entry "Fabrikam Mobile App" in Project Proposals\n'
-        "<!-- INTEGRAL_AGENT_DIRECTIVE\n"
-        "The approved writes above have already been applied.\n"
-        "-->"
-    )
-    assert not await ai_chat._is_explicit_greenfield_design_request(resume)
 
 
 def test_unmet_need_routes_to_installed_app_guide_before_scaffolding() -> None:
@@ -194,27 +86,6 @@ def test_unmet_need_routes_to_installed_app_guide_before_scaffolding() -> None:
     )
     assert "Do not call integral-scaffold" in _UNMET_NEED_DIRECTIVE
     assert "Only when no installed App covers the need" in _UNMET_NEED_DIRECTIVE
-
-
-@pytest.mark.asyncio
-async def test_approved_app_extension_retry_does_not_reenter_design_only_mode(
-    monkeypatch,
-) -> None:
-    from app.api import ai_chat
-
-    async def wants_new_app(text, **_kwargs):
-        folded = text.casefold()
-        return "payroll" in folded
-
-    monkeypatch.setattr(ai_chat, "_user_wants_new_app", wants_new_app)
-    marker = {"approved": True, "proposal": "Add Wiki track", "build_receipt": None}
-    assert not await ai_chat._requires_greenfield_proposal(
-        "Build the approved Wiki track in the existing Car Rental Manager app.",
-        marker,
-    )
-    assert await ai_chat._requires_greenfield_proposal(
-        "I need a new payroll app.", marker
-    )
 
 
 @pytest.mark.asyncio
@@ -231,70 +102,6 @@ async def test_affirmed_build_without_apply_receipt_fails_turn(monkeypatch) -> N
     assert error and error["code"] == "approved_build_not_applied"
     assert await _approved_build_receipt_error("thread-session", False, claim) is None
     assert await _approved_build_receipt_error("thread-session", True) is None
-
-
-@pytest.mark.asyncio
-async def test_approved_design_reply_is_routed_to_build(monkeypatch) -> None:
-    """A go-ahead on a pending design builds; a new App still proposes."""
-    from app.api import ai_chat
-
-    async def wants_new_app(text, **_kwargs):
-        return "app" in text.casefold()
-
-    monkeypatch.setattr(ai_chat, "_user_wants_new_app", wants_new_app)
-    reply = "Looks good. Build the app."
-    assert await ai_chat._requires_greenfield_proposal(reply, None)
-    assert not await ai_chat._requires_greenfield_proposal(
-        reply, {"approved": False, "proposed_at_user_turn": 1}
-    )
-    assert not await ai_chat._requires_greenfield_proposal(
-        "Build the app.", {"approved": False, "proposed_at_user_turn": 1}
-    )
-    assert await ai_chat._requires_greenfield_proposal(
-        "I need another app to manage invoices.",
-        {"approved": True, "proposed_at_user_turn": 1},
-    )
-
-
-def test_host_design_directive_does_not_trigger_harness_tool_steering() -> None:
-    """System-context host guidance must not look like user tool steering."""
-    from jvagent.action.orchestrator.orchestrator_interact_action import (
-        OrchestratorInteractAction,
-    )
-
-    from app.agentive.tooling import build_tool_catalogue
-    from app.api.ai_chat import _GREENFIELD_DESIGN_DIRECTIVE
-
-    names = {entry["name"] for entry in build_tool_catalogue()}
-    assert not OrchestratorInteractAction._user_named_tools(
-        _GREENFIELD_DESIGN_DIRECTIVE, names
-    )
-
-
-@pytest.mark.asyncio
-async def test_greenfield_turn_requires_a_current_saved_proposal(monkeypatch) -> None:
-    """A prose-only design cannot be recorded as a successful app proposal."""
-    from app.api import ai_chat
-
-    thread = SimpleNamespace(design_proposed=None)
-
-    async def get_thread(_id):
-        return thread
-
-    async def count_user_turns(_thread):
-        return 1
-
-    monkeypatch.setattr(ai_chat.chat_store, "get_thread", get_thread)
-    monkeypatch.setattr(ai_chat.chat_store, "count_user_turns", count_user_turns)
-    error = await ai_chat._greenfield_proposal_error("thread-1", True)
-    assert error["code"] == "design_proposal_missing"
-
-    thread.design_proposed = {"proposed_at_user_turn": 0, "approved": False}
-    assert await ai_chat._greenfield_proposal_error("thread-1", True)
-
-    thread.design_proposed["proposed_at_user_turn"] = 1
-    assert await ai_chat._greenfield_proposal_error("thread-1", True) is None
-    assert await ai_chat._greenfield_proposal_error("thread-1", False) is None
 
 
 def test_existing_track_field_request_gets_schema_revision_routing() -> None:
@@ -327,43 +134,13 @@ def test_existing_track_field_request_treats_live_model_as_authoritative() -> No
     assert "authoritative: if the requested field is absent" in source
 
 
-def test_scaffold_use_case_requires_preview_before_the_single_build_approval() -> None:
-    """The deterministic resident journey cannot regress to create-first."""
-    root = Path(__file__).resolve().parents[2]
-    path = (
-        root
-        / "agent/agents/integral/integral_agent/use-cases/scaffold/app-one-batch.yaml"
-    )
-    doc = yaml.safe_load(path.read_text(encoding="utf-8"))
-    turns = {turn["id"]: turn for turn in doc["turns"]}
-
-    proposal = turns["request-crm-design"]["harness"]["decisions"]
-    assert [step.get("tool") for step in proposal if step["action"] == "tool"] == [
-        "integral_propose_design"
-    ]
-    assert "nothing has been built" in proposal[-1]["answer"].lower()
-
-    build = turns["affirm-crm-design"]["harness"]["decisions"]
-    assert [step.get("tool") for step in build if step["action"] == "tool"] == [
-        "integral_begin_batch",
-        "integral_create_app",
-        "integral_create_app_track",
-        "integral_create_app_track",
-        "integral_commit_batch",
-    ]
-
-
 # ---------------------------------------------------------------------------
 # W0.1 drift regressions — one test per row of the skill ↔ implementation
-# drift table in docs/product/CORE_SUBSTRATE_IMPROVEMENT_PLAN.md §3.
+# drift table in docs/ops/QUALIFICATION.md §3.
 # ---------------------------------------------------------------------------
 
 _ROOT = Path(__file__).resolve().parents[2]
-_SKILLS = (
-    _ROOT
-    / "agent/agents/integral/integral_agent/actions/integral"
-    / "embedded_integral_action/skills"
-)
+_SKILLS = _ROOT / "agent" / "skills"
 
 
 def _skill(name: str) -> str:
@@ -698,3 +475,18 @@ def test_w01_d17_insights_resolves_field_keys_before_ranking() -> None:
             }
         )
     )
+
+
+def test_attachments_skill_observes_app_query_boundaries_and_viewer_controls() -> None:
+    skill = _skill("integral-attachments")
+    frontmatter = yaml.safe_load(skill.split("---", 2)[1])
+    tools = set(frontmatter["allowed-tools"].split())
+    assert {
+        "integral_describe_capabilities",
+        "integral_governed_query",
+        "integral_list_apps",
+    } <= tools
+    assert "declared_query_required" in skill
+    assert "do not repeat generic searches" in skill
+    assert "missing `preview_url` or `thumb_url` does not mean" in skill
+    assert "Open/Download" in skill

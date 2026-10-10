@@ -1,7 +1,7 @@
 """Proactive intelligence endpoints — digests, reminders, and agent push webhook.
 
 D-06: `/proactive/push` is renamed to `/proactive/log-push` and is logging-only —
-it does NOT actually deliver. Real delivery (jvagent webhook / channel queue) lands
+it does NOT actually deliver. Real delivery (agent runtime webhook / channel queue) lands
 in Phase 5 or Phase 6. The old path retains a 308 redirect for one release window.
 """
 
@@ -347,7 +347,7 @@ async def proactive_log_push(
 async def get_users_needing_digest(request: Request) -> Dict[str, Any]:
     """Return list of users who should receive a proactive digest.
 
-    Called by jvagent's IntegralProactiveAction to find users with
+    Called by agent runtime's IntegralProactiveAction to find users with
     verified channel identities and proactive preferences enabled.
     Requires service auth.
     """

@@ -13,6 +13,8 @@ interface ViewSettingsModalProps {
   view: SavedView | null;
   trackId: string;
   entryTypes: EntryTypeNode[];
+  /** Opens the Universal View Designer for layout / widget config. */
+  onOpenDesigner?: (view: SavedView) => void;
 }
 
 /** Slug = lowercase, non-alphanumeric → underscore (matches backend
@@ -44,6 +46,7 @@ export function ViewSettingsModal({
   view,
   trackId,
   entryTypes,
+  onOpenDesigner,
 }: ViewSettingsModalProps) {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
@@ -218,23 +221,37 @@ export function ViewSettingsModal({
           />
         </div>
 
-        <div className="flex items-center justify-end gap-2 pt-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={onClose}
-            disabled={saving}
-          >
-            Cancel
-          </Button>
-          <Button
-            size="sm"
-            variant="primary"
-            onClick={handleSave}
-            disabled={saving}
-          >
-            {saving ? 'Saving…' : 'Save'}
-          </Button>
+        <div className="flex items-center justify-between gap-2 pt-2">
+          {onOpenDesigner && view ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onOpenDesigner(view)}
+              disabled={saving}
+            >
+              Open designer
+            </Button>
+          ) : (
+            <span />
+          )}
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onClose}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={handleSave}
+              disabled={saving}
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </Button>
+          </div>
         </div>
       </div>
     </Modal>

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone, tzinfo
 from decimal import Decimal
@@ -63,6 +64,83 @@ async def _claimed_context(
         logical_step_key="native-harness:0",
     )
     return claimed, context
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_effect_fence_accepts_a_concurrent_same_authority_heartbeat(
+    postgres_raw_db, postgres_graph_context, monkeypatch
+) -> None:
+    from jvspatial.core.context import scoped_default_context_async
+
+    item, context = await _claimed_context()
+    original = work_items._cas_lease_fence_in_transaction
+    renewed = False
+
+    async def renew_before_cas(**kwargs):
+        nonlocal renewed
+        async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+            current = await work_items.heartbeat_lease(
+                item.work_item_id,
+                lease_token=item.lease_token,
+                lease_fence=item.lease_fence,
+                worker_id=item.lease_owner,
+                lease_seconds=60,
+            )
+            renewed = current.lease_expires_at != item.lease_expires_at
+            assert current.lease_token == item.lease_token
+            assert current.lease_fence == item.lease_fence
+        await original(**kwargs)
+
+    monkeypatch.setattr(work_items, "_cas_lease_fence_in_transaction", renew_before_cas)
+    async with work_items.authorized_work_item_effect(context):
+        assert renewed
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+@pytest.mark.parametrize("revocation", ["cancel", "fence", "deadline"])
+async def test_heartbeat_retry_does_not_accept_changed_execution_authority(
+    postgres_raw_db, postgres_graph_context, monkeypatch, revocation
+) -> None:
+    from jvspatial.core.context import scoped_default_context_async
+
+    from app.agentive.services.work_outbox import cas_work_item_update
+
+    item, context = await _claimed_context()
+    original = work_items._cas_lease_fence_in_transaction
+
+    async def revoke_before_cas(**kwargs):
+        async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+            await work_items.heartbeat_lease(
+                item.work_item_id,
+                lease_token=item.lease_token,
+                lease_fence=item.lease_fence,
+                worker_id=item.lease_owner,
+                lease_seconds=60,
+            )
+            changes = {
+                "cancel": {
+                    "cancel_requested_at": datetime.now(timezone.utc).isoformat()
+                },
+                "fence": {"lease_fence": item.lease_fence + 1},
+                "deadline": {"deadline_at": datetime.now(timezone.utc).isoformat()},
+            }
+            await cas_work_item_update(
+                item.work_item_id,
+                expected={"status": "running", "lease_fence": item.lease_fence},
+                updates=changes[revocation],
+            )
+        await original(**kwargs)
+
+    monkeypatch.setattr(
+        work_items, "_cas_lease_fence_in_transaction", revoke_before_cas
+    )
+    with pytest.raises(WorkError):
+        async with work_items.authorized_work_item_effect(context):
+            pytest.fail("changed authority must not enter the effect")
 
 
 def test_work_execution_authority_is_frozen_and_strict() -> None:
@@ -421,11 +499,11 @@ async def test_native_step_store_event_uses_atomic_workitem_fence(
 @pytest.mark.contract
 @pytest.mark.postgres
 @pytest.mark.asyncio
-async def test_stale_workitem_fence_rejects_model_usage_completion(
+async def test_stale_workitem_keeps_authorized_model_usage_completion(
     postgres_graph_context,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A reclaimed attempt cannot append a terminal model-usage receipt."""
+    """Late accounting survives lease loss without granting fresh dispatch authority."""
     from app.agentive.harness.contracts import (
         ModelUsageObservation,
         PhysicalModelRequest,
@@ -482,18 +560,22 @@ async def test_stale_workitem_fence_rejects_model_usage_completion(
             ),
         }
     )
+    await persist_model_request_observation(response, work_execution_context=context)
+    fresh_dispatch = dispatch.model_copy(update={"request_id": "physical-request-2"})
     with pytest.raises(WorkError) as exc_info:
         await persist_model_request_observation(
-            response, work_execution_context=context
+            fresh_dispatch, work_execution_context=context
         )
-
     assert exc_info.value.code == "work.lease_lost"
     records = await HarnessModelRequestRecord.find(
         {"scope_key": _scope_key(scope), "run_key": scope.run_id}
     )
-    assert len(records) == 1
+    assert len(records) == 2
     observations = await list_model_request_observations(scope=scope)
-    assert [observation.outcome for observation in observations] == ["dispatch_intent"]
+    assert {observation.outcome for observation in observations} == {
+        "dispatch_intent",
+        "responded",
+    }
 
 
 @pytest.mark.contract
@@ -629,3 +711,18 @@ async def test_stale_workitem_fence_blocks_brokered_capability_and_receipt(
     assert invocations == []
     records = await HarnessToolEffectRecord.find({"run_key": scope.run_id})
     assert records == []
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_fenced_effect_serializes_parallel_graph_reads(
+    postgres_graph_context,
+) -> None:
+    """Broker permission fanout must stay on its fenced transaction safely."""
+    item, context = await _claimed_context()
+    async with work_items.authorized_work_item_effect(context) as graph:
+        pages = await asyncio.gather(
+            *(graph.database.find("object", {"id": item.id}) for _ in range(12))
+        )
+        assert all(len(page) == 1 and page[0]["id"] == item.id for page in pages)

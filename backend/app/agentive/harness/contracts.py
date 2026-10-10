@@ -81,6 +81,24 @@ class HarnessExecutionScope(BaseModel):
         return self.run_id
 
 
+class ModelRouteIdentity(BaseModel):
+    """Persistable selected-route attribution, excluding credential material."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    provider: str
+    model: str
+    credential_source: Literal["workspace_byok", "platform", "local"]
+    credential_ref: str
+
+    @field_validator("provider", "model", "credential_ref")
+    @classmethod
+    def _canonical_identity(cls, value: str) -> str:
+        if not value.strip() or value != value.strip():
+            raise ValueError("model route identity must be canonical and nonempty")
+        return value
+
+
 class ResolvedModelRoute(BaseModel):
     """Per-run LiteLLM route resolved from trusted Core configuration.
 
@@ -175,6 +193,25 @@ class ModelUsageObservation(BaseModel):
     complete: bool
 
 
+class ModelRequestContextObservation(BaseModel):
+    """Content-free dimensions of the actual outbound request, in characters.
+
+    These are diagnostic sizes, not billed token estimates. Instructions include
+    the framework-rendered catalogue and active skills; conversation includes
+    user/assistant messages and tool arguments; tool results/schemas are separate.
+    No prompt, record data, credentials or model reasoning is stored here.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+    instruction_chars: int = Field(ge=0)
+    conversation_chars: int = Field(ge=0)
+    tool_result_chars: int = Field(ge=0)
+    tool_schema_chars: int = Field(ge=0)
+    message_count: int = Field(ge=0)
+    visible_tool_count: int = Field(ge=0)
+    tool_schema_fingerprint: str | None = None
+
+
 class PhysicalModelRequest(BaseModel):
     """Immutable identity and outcome for exactly one outbound SDK attempt."""
 
@@ -184,6 +221,10 @@ class PhysicalModelRequest(BaseModel):
     scope: HarnessExecutionScope
     provider: str
     model: str
+    # Selected route attribution only, never credential material. Older
+    # encrypted observations remain readable with explicitly unknown values.
+    credential_source: Literal["workspace_byok", "platform", "local"] | None = None
+    credential_ref: str | None = None
     attempt: int = Field(ge=1)
     dispatched_at: datetime
     observed_at: datetime | None = None
@@ -199,6 +240,7 @@ class PhysicalModelRequest(BaseModel):
     ]
     provider_request_id: str | None = None
     usage: ModelUsageObservation | None = None
+    request_context: ModelRequestContextObservation | None = None
 
     @field_validator("request_id", "provider", "model")
     @classmethod
@@ -209,12 +251,18 @@ class PhysicalModelRequest(BaseModel):
             )
         return value
 
-    @field_validator("provider_request_id")
+    @field_validator("provider_request_id", "credential_ref")
     @classmethod
     def _provider_request_id_canonical(cls, value: str | None) -> str | None:
         if value is not None and (not value.strip() or value != value.strip()):
-            raise ValueError("provider request ID must be canonical and nonempty")
+            raise ValueError("observation reference must be canonical and nonempty")
         return value
+
+    @model_validator(mode="after")
+    def _credential_attribution(self) -> "PhysicalModelRequest":
+        if self.credential_ref is not None and self.credential_source is None:
+            raise ValueError("credential reference requires its selected source")
+        return self
 
 
 class RunUsageSummary(BaseModel):

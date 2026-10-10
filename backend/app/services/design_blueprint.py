@@ -100,6 +100,65 @@ def _track_name(ref: Any) -> str:
     return (match.group(1) if match else str(ref or "")).strip().casefold()
 
 
+# The palette's column board is ``kanban``. A plan that says ``board`` is that view.
+_VIEW_TYPE_ALIASES = {"board": "kanban"}
+
+
+def _canonical_view_type(value: Any) -> str:
+    kind = str(value or "").strip().casefold()
+    return _VIEW_TYPE_ALIASES.get(kind, kind)
+
+
+def _blank_seed_value(value: Any) -> bool:
+    """An empty string or null is not a seed value."""
+    if value is None:
+        return True
+    return isinstance(value, str) and value.strip() == ""
+
+
+def _seed_field_difference(
+    title: str,
+    approved_fields: Dict[str, Any],
+    planned_fields: Dict[str, Any],
+    member_keys: set[str],
+) -> Optional[str]:
+    """Name how a planned seed differs from the approved field map.
+
+    Empty strings and nulls are dropped first, so a stuffed-in blank does not
+    fail a seed that otherwise matches. A member key may be added at execution
+    to bind the requesting user.
+    """
+    approved = {
+        key: value
+        for key, value in approved_fields.items()
+        if not _blank_seed_value(value)
+    }
+    planned = {
+        key: value
+        for key, value in planned_fields.items()
+        if key in member_keys or not _blank_seed_value(value)
+    }
+    extra = sorted(
+        key for key in planned if key not in approved and key not in member_keys
+    )
+    missing = sorted(key for key in approved if key not in planned)
+    mismatched = sorted(
+        key for key in approved if key in planned and planned[key] != approved[key]
+    )
+    if not extra and not missing and not mismatched:
+        return None
+    parts = [f"Seed {title!r} fields differ from the approved design."]
+    if missing:
+        parts.append("Missing: " + ", ".join(missing) + ".")
+    if extra:
+        parts.append("Extra: " + ", ".join(extra) + ".")
+    if mismatched:
+        shown = ", ".join(f"{key} (approved {approved[key]!r})" for key in mismatched)
+        parts.append("Mismatched: " + shown + ".")
+    parts.append("Copy the approved seed fields exactly.")
+    return " ".join(parts)
+
+
 def plan_fidelity_errors(
     blueprint: Dict[str, Any],
     operations: List[Tuple[str, Dict[str, Any]]],
@@ -151,6 +210,12 @@ def plan_fidelity_errors(
                 )
                 continue
             matched.add(id(hit))
+            if hit.get("key") != spec["key"]:
+                errors.append(
+                    f"Field {spec['name']!r} must retain approved key "
+                    f"{spec['key']!r}, not {hit.get('key')!r}. "
+                    "Copy the approved field key and update its references."
+                )
             if hit.get("type") and hit["type"] != spec["type"]:
                 errors.append(
                     f"Field {spec['key']} must be {spec['type']}, not {hit['type']}."
@@ -260,7 +325,7 @@ def plan_fidelity_errors(
         (
             _track_name(p.get("track_id")),
             str(p.get("name") or "").casefold(),
-            str(p.get("view_type") or ""),
+            _canonical_view_type(p.get("view_type")),
         )
         for p in by_tool.get("integral_save_view", [])
     }
@@ -323,19 +388,11 @@ def plan_fidelity_errors(
                 for field in entry_type.get("fields") or []
                 if field.get("type") == "member"
             }
-            unexpected = {
-                key: value
-                for key, value in planned_fields.items()
-                if key not in approved_fields and key not in member_keys
-            }
-            if unexpected or any(
-                planned_fields.get(key) != value
-                for key, value in approved_fields.items()
-            ):
-                errors.append(
-                    f"Seed {seed['title']!r} fields differ from the approved "
-                    "design; leave unspecified values blank."
-                )
+            difference = _seed_field_difference(
+                seed["title"], approved_fields, planned_fields, member_keys
+            )
+            if difference:
+                errors.append(difference)
 
     has_dashboard = bool(by_tool.get("integral_create_dashboard"))
     if bool(blueprint.get("dashboard")) != has_dashboard:

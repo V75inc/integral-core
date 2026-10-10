@@ -10,84 +10,51 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
-# --------------------------------------------------------------------------- #
-# Filing helpers — COPIED verbatim from the resident integral_tools.py.
-# (Temporary duplication; the resident originals are removed in the next task.)
-# --------------------------------------------------------------------------- #
-
 
 def _norm_key(s: str) -> str:
-    """Normalize a key for comparison: lowercase, strip non-alnum."""
-    return "".join(c for c in s.lower() if c.isalnum())
-
-
-_FIELD_ALIASES: Dict[str, tuple] = {
-    "name": ("fullname", "fullName", "full_name", "personname", "contactname"),
-    "email": ("emailaddress", "email_address", "mail", "e_mail"),
-    "phone": ("phonenumber", "phone_number", "mobile", "tel", "telephone", "cell"),
-    "company": ("organization", "organisation", "employer", "firm", "org"),
-    "role": ("title", "jobtitle", "job_title", "position"),
-    "source": ("origin", "referredby", "referred_by", "referrer"),
-    "due": ("duedate", "due_date", "deadline", "by"),
-    "priority": ("urgency", "importance"),
-    "assignee": ("owner", "assignedto", "assigned_to"),
-    "severity": ("seriousness", "level"),
-    "topic": ("subject", "theme", "about"),
-    "attendees": ("participants", "people", "who"),
-    "date": ("when", "scheduledfor", "scheduled_for"),
-}
+    """Compare the schema's own keys and display names, without semantic guesses."""
+    return "".join(c for c in s.casefold() if c.isalnum())
 
 
 def _normalize_agent_fields(
     agent_fields: Dict[str, Any],
     form_schema: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """Map loosely-keyed agent fields onto canonical ``form_schema`` keys."""
-    if not agent_fields or not isinstance(agent_fields, dict):
-        return {}
-    fields_spec = form_schema.get("fields", []) if isinstance(form_schema, dict) else []
-    if not fields_spec:
-        return {k: v for k, v in agent_fields.items() if v is not None and v != ""}
+    """Map schema-declared names only; refuse unknown or ambiguous data loss.
 
-    canonical_keys: Dict[str, str] = {}
+    Exact stable keys take precedence. Normalized key/name matching is allowed
+    only when it identifies one field. Explicit null/empty values are retained
+    for the canonical validator to interpret, not silently discarded.
+    """
+    fields_spec = form_schema.get("fields", []) if isinstance(form_schema, dict) else []
+    exact = {str(f["key"]) for f in fields_spec if isinstance(f, dict) and f.get("key")}
+    candidates: Dict[str, set[str]] = {}
     for f in fields_spec:
-        canon = f.get("key", "")
-        if not canon:
+        if not isinstance(f, dict) or not f.get("key"):
             continue
-        canonical_keys[_norm_key(canon)] = canon
-        name = f.get("name", "")
-        if name:
-            canonical_keys[_norm_key(name)] = canon
-        for alias in _FIELD_ALIASES.get(_norm_key(canon), ()):
-            canonical_keys.setdefault(_norm_key(alias), canon)
+        key = str(f["key"])
+        for label in (key, str(f.get("name") or "")):
+            if label:
+                candidates.setdefault(_norm_key(label), set()).add(key)
 
     out: Dict[str, Any] = {}
     for raw_key, value in agent_fields.items():
-        if value is None or value == "":
-            continue
-        normalized = _norm_key(raw_key)
-        canon = canonical_keys.get(normalized)
-        if not canon:
-            for alias_norm, alias_canon in canonical_keys.items():
-                if alias_norm == normalized:
-                    canon = alias_canon
-                    break
-        if not canon:
-            for canon_key, aliases in _FIELD_ALIASES.items():
-                if normalized == canon_key or normalized in {
-                    _norm_key(a) for a in aliases
-                }:
-                    if canon_key in canonical_keys.values():
-                        canon = canon_key
-                        break
-                    for alias in aliases:
-                        if _norm_key(alias) in canonical_keys:
-                            canon = canonical_keys[_norm_key(alias)]
-                            break
-                    if canon:
-                        break
-        if canon:
-            out[canon] = value
+        if raw_key in exact:
+            key = raw_key
+        else:
+            matches = candidates.get(_norm_key(raw_key), set())
+            if len(matches) != 1:
+                reason = "ambiguous" if matches else "unknown"
+                raise ValueError(
+                    f"Field {raw_key!r} is {reason}. Use a stable schema key: "
+                    + ", ".join(sorted(exact))
+                )
+            key = next(iter(matches))
+        if key in out:
+            raise ValueError(
+                f"Multiple supplied fields map to {key!r}; supply it once."
+            )
+        out[key] = value
     return out
 
 
@@ -275,13 +242,15 @@ async def _stage_existing_entry(
 async def stage_file_content(a: Dict[str, Any]) -> Dict[str, Any]:
     """Stage a ``file_content`` change when track + entry type resolve from hints."""
     from app.agentive.personalization import get_filing_defaults
-    from app.agentive.tooling.bindings import _bound_propose_principal
+    from app.agentive.tooling.bindings import (
+        _bound_propose_principal,
+        is_cleanup_instruction,
+    )
     from app.services.filing_resolution import (
         resolve_entry_type_for_track,
         resolve_track_for_filing,
     )
 
-    uid = _bound_propose_principal()
     text = (a.get("text") or "").strip()
     fields_in = a.get("fields")
     if not text and isinstance(fields_in, dict):
@@ -308,6 +277,18 @@ async def stage_file_content(a: Dict[str, Any]) -> Dict[str, Any]:
     if mode in ("update", "append"):
         return await _stage_existing_entry(a, mode=mode, text=text)
 
+    title = str(a.get("title") or "")
+    if is_cleanup_instruction(text) or is_cleanup_instruction(title):
+        return _no_stage_candidates(
+            message=(
+                "This is a cleanup instruction, not content to file. Query "
+                "the matching entries and stage integral_delete_entry or "
+                "integral_update_entry. Nothing was staged."
+            ),
+            filing_status="error",
+        )
+
+    uid = _bound_propose_principal()
     defaults: Dict[str, Any] = {}
     try:
         learned = await get_filing_defaults(user_id=uid, text=text)
@@ -358,7 +339,14 @@ async def stage_file_content(a: Dict[str, Any]) -> Dict[str, Any]:
     schema = entry_type.form_schema if isinstance(entry_type.form_schema, dict) else {}
     explicit = a.get("fields")
     if isinstance(explicit, dict) and explicit:
-        merged = _normalize_agent_fields(explicit, schema)
+        try:
+            merged = _normalize_agent_fields(explicit, schema)
+        except ValueError as exc:
+            return _no_stage_candidates(
+                message=str(exc),
+                filing_status="error",
+                resolved_track={"id": track.id, "title": track.title or track.id},
+            )
     else:
         merged = {}
 
@@ -391,6 +379,39 @@ async def stage_file_content(a: Dict[str, Any]) -> Dict[str, Any]:
     entry_type_name = entry_type.name
     title = (a.get("title") or "").strip() or _derive_title(text)
 
+    from app.agentive.tooling.bindings import duplicate_create_block
+
+    blocked = await duplicate_create_block(
+        track_id=track.id,
+        title=title,
+        text=text,
+        fields=merged,
+        allow_duplicate_title=bool(a.get("allow_duplicate_title")),
+        entry_type=entry_type.id,
+    )
+    if blocked:
+        return _no_stage_candidates(
+            message=blocked,
+            filing_status="error",
+            resolved_track={"id": track.id, "title": track_title},
+        )
+
+    from app.agentive.tooling.bindings import date_left_in_title_block
+
+    date_block = await date_left_in_title_block(
+        track_id=track.id,
+        title=title,
+        text=text,
+        fields=merged,
+        entry_type_name=entry_type_name,
+    )
+    if date_block:
+        return _no_stage_candidates(
+            message=f"file_content: {date_block}",
+            filing_status="error",
+            resolved_track={"id": track.id, "title": track_title},
+        )
+
     payload: Dict[str, Any] = {
         "track_id": track.id,
         "title": title,
@@ -409,6 +430,8 @@ async def stage_file_content(a: Dict[str, Any]) -> Dict[str, Any]:
         fields=merged,
         tags=tags_for_diff,
     )
+    if a.get("allow_duplicate_title"):
+        diff_human += "\n- **Separate record:** Create a new record; retain all existing records unchanged."
     summary = f"File content as “{title}” in {track_title} ({entry_type_name})"
     diff_machine: Dict[str, Any] = {
         "op": "file_content",

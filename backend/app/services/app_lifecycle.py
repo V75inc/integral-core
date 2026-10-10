@@ -44,6 +44,7 @@ See ``backend/tests/test_app_lifecycle.py`` for the regression suite.
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from app.api.utils import export_node
@@ -121,14 +122,57 @@ async def enqueue_install_work(
     include_seed_data: bool = True,
 ) -> Dict[str, Any]:
     """Queue an idempotent package install for the leased lifecycle worker."""
-    from app.agentive.services.work_items import enqueue_work_item
+    from app.agentive.services.work_items import (
+        enqueue_work_item,
+        work_item_object_id,
+    )
+    from app.agentive.work_models import WorkItem
+    from app.services.library_package_visibility import (
+        assert_library_package_installable_in_workspace,
+    )
+
+    library_cp = await OperationalModel.get(library_cp_id)
+    if not library_cp:
+        raise BadRequestError(
+            message=f"Library OperationalModel {library_cp_id!r} not found",
+            details={"library_cp_id": library_cp_id},
+        )
+    if not getattr(library_cp, "library_package", False):
+        raise BadRequestError(
+            message=f"OperationalModel {library_cp_id!r} is not a library package",
+            details={"library_cp_id": library_cp_id},
+        )
+    await assert_library_package_installable_in_workspace(library_cp, workspace_id)
+
+    # One in-flight install per package is the point of the key (a double click
+    # reuses it). A FINISHED install must not block installing again later, e.g.
+    # after an uninstall: the id is deterministic, so reusing the key would hand
+    # back the old "succeeded" item and install nothing.
+    idempotency_key = f"install:{library_cp_id}"
+    previous = await WorkItem.get(
+        work_item_object_id(
+            kind="app_lifecycle",
+            origin="app_lifecycle",
+            principal_id=actor_id,
+            workspace_id=workspace_id,
+            idempotency_key=idempotency_key,
+        )
+    )
+    if previous is not None and str(previous.status or "") in (
+        "succeeded",
+        "failed",
+        "cancelled",
+        "expired",
+        "dead_letter",
+    ):
+        idempotency_key = f"{idempotency_key}:{uuid.uuid4().hex[:12]}"
 
     work = await enqueue_work_item(
         kind="app_lifecycle",
         origin="app_lifecycle",
         principal_id=actor_id,
         workspace_id=workspace_id,
-        idempotency_key=f"install:{library_cp_id}",
+        idempotency_key=idempotency_key,
         input_payload={
             "action": "install",
             "library_cp_id": library_cp_id,
@@ -397,8 +441,12 @@ async def install_app(
             message=f"OperationalModel {library_cp_id!r} is not a library package",
             details={"library_cp_id": library_cp_id},
         )
+    from app.services.library_package_visibility import (
+        assert_library_package_installable_in_workspace,
+    )
     from app.services.package_trust import assert_library_artifact_trusted
 
+    await assert_library_package_installable_in_workspace(library_cp, workspace_id)
     assert_library_artifact_trusted(library_cp)
 
     manifest = library_cp.manifest or {}
@@ -934,17 +982,49 @@ async def _remove_stale_skills_from_manifest(
     return removed
 
 
+async def _resolve_app_bundle_dir(app_node: App) -> str | None:
+    """Filesystem root for an installed App's code bundle, if recorded.
+
+    Prefer the attached OperationalModel's ``metadata.bundle_dir_path``,
+    then the library row the App was installed from. Required so
+    ``register_bundle_on_install`` rewrites handler_refs to
+    ``integral_bundle_<slug>.*`` for external package paths — omitting
+    it falls back to ``app.packages.<slug>`` and breaks Business distros.
+    """
+    attached = await get_app_attached_operational_model(app_node)
+    bundle_dir = (
+        str((getattr(attached, "metadata", None) or {}).get("bundle_dir_path") or "")
+        or None
+    )
+    if bundle_dir:
+        return bundle_dir
+    library_id = getattr(app_node, "installed_from_library_id", None) or getattr(
+        app_node, "library_merge_source_id", None
+    )
+    if not library_id:
+        return None
+    library_cp = await OperationalModel.get(library_id)
+    if library_cp is None:
+        return None
+    return (
+        str((getattr(library_cp, "metadata", None) or {}).get("bundle_dir_path") or "")
+        or None
+    )
+
+
 async def sync_operational_layer_from_manifest(
     app_node: App,
     canonical: Dict[str, Any],
     *,
     actor_id: str,
 ) -> Dict[str, Any]:
-    """Sync Skill nodes, agents, and hook registry from a compiled manifest.
+    """Sync Skill nodes, agents, hook registry, and settings_schema mirror.
 
     Idempotent upsert for skills/agents; replaces bundle hook registration
-    for the App's workspace. Call after install, library update, or merge
-    when the App is (or will be) active.
+    for the App's workspace. Mirrors ``app.settings_schema`` onto the App
+    node so Settings UI / PATCH validation stay aligned after merge-library
+    (install already stamped the mirror at create time). Call after install,
+    library update, or merge when the App is (or will be) active.
     """
     _ = actor_id  # reserved for audit hooks
     await _remove_stale_skills_from_manifest(app_node, canonical)
@@ -953,31 +1033,38 @@ async def sync_operational_layer_from_manifest(
     try:
         from app.services.hooks.install_hook import register_bundle_on_install
 
-        attached_cp = await get_app_attached_operational_model(app_node)
-        bundle_dir = str(
-            (getattr(attached_cp, "metadata", None) or {}).get("bundle_dir_path") or ""
-        ).strip()
-        if not bundle_dir:
-            library_id = str(getattr(app_node, "installed_from_library_id", "") or "")
-            library_cp = await OperationalModel.get(library_id) if library_id else None
-            bundle_dir = str(
-                (getattr(library_cp, "metadata", None) or {}).get("bundle_dir_path")
-                or ""
-            ).strip()
+        bundle_dir = await _resolve_app_bundle_dir(app_node)
         await register_bundle_on_install(
             workspace_id=app_node.workspace_id,
             canonical=canonical,
-            bundle_dir=bundle_dir or None,
+            bundle_dir=bundle_dir,
             app_id=app_node.id,
         )
     except Exception:
         logger.exception("hook framework registration failed during operational sync")
+
+    # Keep App.settings_schema in lockstep with the compiled manifest.
+    # Merge-library updates the attached OM but historically left this
+    # denormalized mirror stale — Settings page renders from the App node.
+    settings_schema = dict((canonical.get("app") or {}).get("settings_schema") or {})
+    schema_changed = settings_schema != dict(app_node.settings_schema or {})
+    if schema_changed:
+        app_node.settings_schema = settings_schema
+        # Fill defaults for newly-required / newly-declared keys so an
+        # upgraded App remains PATCH-valid without forcing a re-install.
+        app_node.settings = _apply_schema_defaults(
+            dict(app_node.settings or {}), settings_schema
+        )
+        app_node.updated_at = utc_now_iso()
+        await app_node.save()
+
     from app.agentive.workspace_agent_profile import invalidate_workspace_profile
 
     invalidate_workspace_profile(app_node.workspace_id)
     return {
         "skills_registered": len(registered_skills),
         "agents_registered": len(registered_agents),
+        "settings_schema_synced": schema_changed,
     }
 
 
@@ -1160,9 +1247,14 @@ async def finalize_install(
     try:
         from app.services.hooks.install_hook import register_bundle_on_install
 
+        # Settings-gated installs register here, not in install_app. Omitting
+        # bundle_dir rewrites handler_refs to app.packages.<slug>, which does
+        # not exist for external Business apps (hyphenated slugs included).
+        bundle_dir = await _resolve_app_bundle_dir(app_node)
         await register_bundle_on_install(
             workspace_id=app_node.workspace_id,
             canonical=canonical,
+            bundle_dir=bundle_dir,
             app_id=app_node.id,
         )
     except Exception:
@@ -1550,6 +1642,15 @@ async def update_app_from_library(
                 await register_bundle_on_install(
                     app_node.workspace_id,
                     compile_canonical_manifest(manifest=manifest_snapshot),
+                    bundle_dir=(
+                        str(
+                            (getattr(library_cp, "metadata", None) or {}).get(
+                                "bundle_dir_path"
+                            )
+                            or ""
+                        )
+                        or None
+                    ),
                     app_id=app_id,
                 )
         except Exception as rollback_exc:  # noqa: BLE001

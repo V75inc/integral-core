@@ -501,6 +501,51 @@ class DesignBlueprint(BaseModel):
                 raise ValueError(
                     f"seed {seed.id}: unknown field keys {', '.join(unknown)}"
                 )
+            # A sample must be saveable before the design can be approved.
+            # Multiple types may have different required fields; accept only
+            # a type whose complete shape fits this seed, rather than merging
+            # the requirements of unrelated types.
+            candidates = [
+                et
+                for et in tracks[seed.track].entry_types
+                if set(seed.fields) <= {f.key for f in et.fields}
+            ]
+            failures = []
+            for candidate in candidates:
+                missing = [
+                    f.key
+                    for f in candidate.fields
+                    if f.required
+                    and (
+                        f.key not in seed.fields
+                        or seed.fields[f.key] is None
+                        or (
+                            isinstance(seed.fields[f.key], str)
+                            and not seed.fields[f.key].strip()
+                        )
+                        or seed.fields[f.key] == []
+                    )
+                    and not (f.relation and f.relation.target == "track")
+                ]
+                invalid = [
+                    f.key
+                    for f in candidate.fields
+                    if f.type == "select"
+                    and f.options
+                    and f.key in seed.fields
+                    and seed.fields[f.key] not in (None, "")
+                    and seed.fields[f.key] not in f.options
+                ]
+                if not missing and not invalid:
+                    break
+                failures.append(
+                    f"{candidate.name}: missing required fields {missing}; invalid choices {invalid}"
+                )
+            else:
+                raise ValueError(
+                    f"seed {seed.id} cannot be saved: "
+                    + "; ".join(failures or ["fields do not match one entry type"])
+                )
             vocabulary = {
                 tag.casefold() for g in tracks[seed.track].tag_groups for tag in g.tags
             }

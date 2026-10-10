@@ -77,7 +77,7 @@ async def test_is_connected_to_edge_connector_to_track():
     # Alias sanity
     assert IS_CONNECTED_TO is IsConnectedTo
 
-    connector = await Connector.create(kind="jvagent", owner="u-1")
+    connector = await Connector.create(kind="custom", owner="u-1")
     track = await Track.create(title="bound-track", workspace_id="w-1")
 
     yaml_spec = "entry_type: github_issue\nmapping:\n  title: title\n"
@@ -259,7 +259,7 @@ async def test_materialize_policies_for_connector_creates_policy_and_edge():
     from app.services.policy_engine import evaluate
 
     owner_id = await _owner_user_id("policy-owner")
-    connector = await create_connector(kind="jvagent", owner=owner_id)
+    connector = await create_connector(kind="custom", owner=owner_id)
 
     # Verify the HAS_POLICY edge wired
     attached_policies = await connector.nodes(
@@ -314,7 +314,7 @@ async def test_create_connector_still_returns_persisted_node():
 
     owner_id = await _owner_user_id("backcompat-owner")
     c = await create_connector(
-        kind="jvagent",
+        kind="custom",
         owner=owner_id,
         auth_state={"token": "abc"},
         capabilities=["filing"],
@@ -322,7 +322,7 @@ async def test_create_connector_still_returns_persisted_node():
     fetched = await Connector.get(c.id)
     assert fetched is not None
     assert fetched.owner == owner_id
-    assert fetched.kind == "jvagent"
+    assert fetched.kind == "custom"
     assert fetched.auth_state == {"token": "abc"}
     assert fetched.capabilities == ["filing"]
     # Additive fields default-applied

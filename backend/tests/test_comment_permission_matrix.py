@@ -169,7 +169,9 @@ async def test_org_admin_without_a_direct_grant_can_comment():
     ``test_org_admin_cannot_mint_share_without_direct_grant`` in
     tests/test_wave1_access.py.
     """
-    ws, _app, _track, entry = await _org_fixture("orgadmin")
+    ws, app, _track, entry = await _org_fixture("orgadmin")
+    app.visibility = "workspace"
+    await app.save()
     admin = await _member(ws, "orgadmin", "admin")
 
     assert await resolve_role(admin.id, "entry", entry.id) == "commenter"
@@ -185,7 +187,9 @@ async def test_org_admin_still_cannot_edit_or_administer():
     """
     from app.services.permissions import can_admin_track, can_edit_track
 
-    ws, _app, track, _entry = await _org_fixture("orgadminlimits")
+    ws, app, track, _entry = await _org_fixture("orgadminlimits")
+    app.visibility = "workspace"
+    await app.save()
     admin = await _member(ws, "orgadminlimits", "admin")
 
     assert await can_edit_track(admin.id, track.id) is False

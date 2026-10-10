@@ -12,4 +12,4 @@ later phase (see Pitfall 7 in 01-RESEARCH.md).
 
 from typing import Literal
 
-AgentType = Literal["jvagent", "mcp", "skill_bundle", "custom"]
+AgentType = Literal["integral_native", "mcp", "skill_bundle", "custom"]

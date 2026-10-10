@@ -21,7 +21,7 @@ pytestmark = pytest.mark.smoke
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = Path(__file__).parent / "fixtures" / "qualification"
-EVIDENCE = ROOT / "docs" / "product" / "evidence"
+EVIDENCE = FIXTURES / "contracts"
 
 
 def _script(name: str) -> Any:

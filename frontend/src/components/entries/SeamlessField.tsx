@@ -1,11 +1,12 @@
 import { useState, type ReactNode } from 'react';
+import { Pencil, X } from 'lucide-react';
 import { AppSelect, DatePicker } from '../ui';
 import type { OperationalModelFieldSpec } from '../../types';
 import { buildFieldPlaceholder } from '../../utils/fieldPlaceholders';
 import { humanizeEnumValue } from '../../utils/humanizeFieldKey';
 import { SeamlessFileFieldInner } from './SeamlessFileFieldInner';
 import { resolveFieldType, MissingFieldType, checklistFieldRegistration } from './fieldTypes';
-import { Text } from '../../ui';
+import { IconButton, Text } from '../../ui';
 import { JsonTableEditor, isJsonTableShape } from './JsonTableEditor';
 import { useRelationLabels, RelationValue } from './relations';
 import { RelationMultiSelectCombobox } from './RelationMultiSelectCombobox';
@@ -15,6 +16,7 @@ import {
   fieldAriaLabel,
   isFieldRequired,
 } from './fieldLabel';
+import { projectComputedValues } from './computedExpression';
 import type { RelationNavContext } from './relations/routeForRelationTarget';
 
 /** Resolve a single relation id via the shared cache when the picker's
@@ -50,11 +52,17 @@ export interface SeamlessFieldRelationChoice {
 }
 
 export interface SeamlessFieldProps {
+  /** Detail grid owns the visible label and left alignment. */
+  externalLabel?: boolean;
   field: OperationalModelFieldSpec;
   value: unknown;
   onChange: (value: unknown) => void;
   relationChoices?: SeamlessFieldRelationChoice[];
   relationLoading?: boolean;
+  /** Other fields on this entry type, used to evaluate a computed expression. */
+  siblingFields?: OperationalModelFieldSpec[];
+  /** Current values of those fields, including unsaved edits. */
+  siblingValues?: Record<string, unknown>;
   /** Optional display labels for select / multi_select enum keys (e.g. kanban column labels). */
   enumLabels?: Record<string, string>;
   /**
@@ -64,6 +72,10 @@ export interface SeamlessFieldProps {
    * types.
    */
   entryId?: string;
+  /** Public share wizard — file uploads use token-scoped endpoints. */
+  publicShare?: { token: string; entryId: string };
+  /** Upload via `/me/assigned-form/attachments` (member assigned-form API). */
+  memberFormUpload?: boolean;
   /** Dismiss host modal (etc.) before following a relation link. */
   onNavigate?: () => void;
   navContext?: RelationNavContext | null;
@@ -113,7 +125,9 @@ function SeamlessShell({
   field,
   active,
   className = '',
+  hideLabel = false,
 }: {
+  hideLabel?: boolean;
   children: ReactNode;
   showLabel: boolean;
   field: OperationalModelFieldSpec;
@@ -130,7 +144,7 @@ function SeamlessShell({
       `}
       aria-required={required || undefined}
     >
-      <FloatingLabel show={showLabel} name={field.name} required={required} />
+      {!hideLabel && <FloatingLabel show={showLabel} name={field.name} required={required} />}
       {children}
     </div>
   );
@@ -162,6 +176,9 @@ function LegacyField(props: SeamlessFieldProps) {
     enumLabels,
     onNavigate,
     navContext,
+    entryId,
+    publicShare,
+    memberFormUpload,
   } = props;
   const v = value;
   if (field.type === 'boolean') {
@@ -300,6 +317,21 @@ function LegacyField(props: SeamlessFieldProps) {
           aria-label={fieldAriaLabel(field)}
         />
       </>
+    );
+  }
+
+  if (field.type === 'file' || field.type === 'files') {
+    return (
+      <SeamlessFileFieldInner
+        field={field}
+        value={value}
+        onChange={onChange}
+        many={field.type === 'files'}
+        readonly={Boolean(field.readonly)}
+        entryId={entryId}
+        publicShare={publicShare}
+        memberFormUpload={memberFormUpload}
+      />
     );
   }
 
@@ -507,6 +539,7 @@ function SeamlessMultiSelectInner({
 }
 
 function SeamlessRelationManyInner({
+  externalLabel = false,
   field,
   value,
   onChange,
@@ -517,6 +550,7 @@ function SeamlessRelationManyInner({
   onNavigate,
   navContext,
 }: {
+  externalLabel?: boolean;
   field: OperationalModelFieldSpec;
   value: unknown;
   onChange: (v: unknown) => void;
@@ -527,29 +561,15 @@ function SeamlessRelationManyInner({
   onNavigate?: () => void;
   navContext?: RelationNavContext | null;
 }) {
-  const selected = Array.isArray(value) ? (value as string[]) : [];
-  const [hovered, setHovered] = useState(false);
-  const [focusWithin, setFocusWithin] = useState(false);
-  const showFloat =
-    focusWithin || hovered || selected.length > 0 || isFieldRequired(field);
   const emptyHint =
     field.key === 'tasks' && opts.length === 0 && !relationLoading
       ? (placeholder || 'Select project(s) above first to load tasks.')
       : undefined;
 
   return (
-    <div
-      className="space-y-1.5 pl-3"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      onFocusCapture={() => setFocusWithin(true)}
-      onBlurCapture={e => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
-          setFocusWithin(false);
-        }
-      }}
-    >
-      {showFloat ? <InlineFieldLabel field={field} /> : null}
+    <div className={`space-y-1.5 ${externalLabel ? '' : 'pl-3'}`}>
+      {/* Keep the label in flow so pointer entry cannot move the trigger. */}
+      {!externalLabel && <InlineFieldLabel field={field} />}
       <RelationMultiSelectCombobox
         field={field}
         value={value}
@@ -567,6 +587,7 @@ function SeamlessRelationManyInner({
 }
 
 function SeamlessRelationSingleInner({
+  externalLabel = false,
   field,
   value,
   onChange,
@@ -577,6 +598,7 @@ function SeamlessRelationSingleInner({
   onNavigate,
   navContext,
 }: {
+  externalLabel?: boolean;
   field: OperationalModelFieldSpec;
   value: unknown;
   onChange: (v: unknown) => void;
@@ -594,12 +616,53 @@ function SeamlessRelationSingleInner({
     focusWithin || hovered || hasValue || isFieldRequired(field);
   const active = focusWithin || hasValue || readonly;
   const currentId = String(value || '');
+  const [editing, setEditing] = useState(false);
   const knownChoice = opts.find(o => o.value === currentId);
   // Same fallback as the many-chip path — when the picker's preloaded opts
   // don't cover the current value (cross-track relation, late preload,
   // deleted-then-restored entry), resolve the label via the shared cache so
   // the trigger shows the real label instead of the generic placeholder.
   const needsFallback = currentId !== '' && !knownChoice;
+  const chipFallback = (
+    <span className="inline-flex items-center px-2 py-0.5 text-sm font-normal rounded-full bg-[var(--badge-muted-bg)] text-[var(--badge-muted-fg)]">
+      {knownChoice?.label || (
+        <RelationChipFallbackLabel
+          id={currentId}
+          relation={field.relation}
+        />
+      )}
+    </span>
+  );
+
+  if (readonly || (currentId && !editing)) {
+    return (
+      <div className={`space-y-1.5 ${externalLabel ? '' : 'pl-3'}`}>
+        {!externalLabel && <InlineFieldLabel field={field} />}
+        <div className="flex min-w-0 items-center gap-2">
+          {currentId ? (
+            <div className="min-w-0 flex-1">
+              <RelationValue
+                value={currentId}
+                relation={field.relation}
+                variant="chips"
+                stopPropagation
+                onNavigate={onNavigate}
+                navContext={navContext}
+                emptyFallback={chipFallback}
+              />
+            </div>
+          ) : (
+            <Text variant="body" tone="muted" as="p">—</Text>
+          )}
+          {!readonly && (
+            <IconButton label={`Change ${field.name}`} onClick={() => setEditing(true)} className="shrink-0">
+              <Pencil size={14} aria-hidden />
+            </IconButton>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -613,39 +676,18 @@ function SeamlessRelationSingleInner({
         }
       }}
     >
-      {currentId ? (
-        <div className="pl-3">
-          <RelationValue
-            value={currentId}
-            relation={field.relation}
-            variant="chips"
-            stopPropagation
-            onNavigate={onNavigate}
-            navContext={navContext}
-            emptyFallback={
-              <span className="inline-flex items-center px-2 py-0.5 text-sm font-normal rounded-full bg-[var(--badge-muted-bg)] text-[var(--badge-muted-fg)]">
-                {knownChoice?.label || (
-                  <RelationChipFallbackLabel
-                    id={currentId}
-                    relation={field.relation}
-                  />
-                )}
-              </span>
-            }
-          />
-        </div>
-      ) : null}
       <SeamlessShell
-        showLabel={showFloat}
+        hideLabel={externalLabel}
+        showLabel={!externalLabel && showFloat}
         field={field}
         active={active || hovered}
       >
-        <div className="py-0.5">
+        <div className="flex min-w-0 items-center gap-2 py-0.5">
           <AppSelect
             variant="pill"
-            className="w-full max-w-full border-0 bg-transparent px-0 py-1 font-normal shadow-none focus:ring-0"
+            className="min-w-0 w-full max-w-full border-0 bg-transparent px-0 py-1 font-normal shadow-none focus:ring-0"
             value={currentId}
-            onValueChange={val => onChange(val || null)}
+            onValueChange={val => { onChange(val || null); setEditing(false); }}
             disabled={readonly}
             placeholder={placeholder}
             options={[
@@ -665,6 +707,9 @@ function SeamlessRelationSingleInner({
             ]}
             aria-label={fieldAriaLabel(field)}
           />
+          {currentId && <IconButton label={`Cancel editing ${field.name}`} onClick={() => setEditing(false)} className="shrink-0">
+            <X size={14} aria-hidden />
+          </IconButton>}
         </div>
       </SeamlessShell>
     </div>
@@ -914,6 +959,8 @@ export function SeamlessField(props: SeamlessFieldProps) {
     enumLabels,
     onNavigate,
     navContext,
+    siblingFields,
+    siblingValues,
   } = props;
 
   // 1. Plugin / composite override: if the field-type registry has an
@@ -1055,7 +1102,7 @@ export function SeamlessField(props: SeamlessFieldProps) {
         ? 'No sprint'
         : relationLoading
           ? 'Loading…'
-          : 'Select…';
+          : field.placeholder?.trim() || `Select ${field.name || 'an entry'}…`;
     if (many) {
       const tasksPlaceholder =
         relationChoices.length === 0
@@ -1063,6 +1110,7 @@ export function SeamlessField(props: SeamlessFieldProps) {
           : 'Select tasks…';
       return (
         <SeamlessRelationManyInner
+          externalLabel={props.externalLabel}
           field={field}
           value={value}
           onChange={onChange}
@@ -1079,6 +1127,7 @@ export function SeamlessField(props: SeamlessFieldProps) {
     }
     return (
       <SeamlessRelationSingleInner
+        externalLabel={props.externalLabel}
         field={field}
         value={value}
         onChange={onChange}
@@ -1119,18 +1168,14 @@ export function SeamlessField(props: SeamlessFieldProps) {
   }
 
   if (field.type === 'computed') {
-    // Server-calculated (e.g. a hooks[]-bound tools[] handler writes this on
-    // entry.create/entry.update) — never directly user-editable, regardless
-    // of the field's own ``readonly`` flag. FieldRenderer.tsx (read-only
-    // detail display) already has a 'computed' case; this dispatcher (used
-    // by the entry create/edit form) never got its planned write-mode
-    // counterpart, so any entry type with a computed field 500'd the whole
-    // form with "Field type not installed" instead of just showing the
-    // current (usually still-empty, pre-first-save) value.
+    const shown =
+      siblingFields && siblingValues
+        ? projectComputedValues(siblingFields, siblingValues)[field.key]
+        : value;
     return (
       <SeamlessTextLikeInner
         field={field}
-        value={value}
+        value={shown}
         onChange={onChange}
         placeholder={placeholder}
         readonly
@@ -1186,6 +1231,8 @@ export function SeamlessField(props: SeamlessFieldProps) {
         many={field.type === 'files'}
         readonly={readonly}
         entryId={props.entryId}
+        publicShare={props.publicShare}
+        memberFormUpload={props.memberFormUpload}
       />
     );
   }

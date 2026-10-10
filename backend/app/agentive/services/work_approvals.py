@@ -7,11 +7,10 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Literal, Optional, Tuple
 
-from jvspatial.db import get_prime_database
-
 from app.agentive.services.work_outbox import (
     OBJECT_COLLECTION,
     TOPIC_TRANSITIONED,
+    _active_database,
     _dev_lock,
     _is_postgres_txn_db,
     _txn_database,
@@ -266,7 +265,7 @@ async def propose_work_approval_unit(
         created_at=now,
     )
 
-    db = get_prime_database()
+    db = _active_database()
     if transaction is not None or _is_postgres_txn_db(db):
         approval, item = await _propose_postgres(
             db=_txn_database(db) if transaction is None else db,
@@ -457,6 +456,18 @@ async def decide_work_approval_unit(
     approval = await get_work_approval(work_approval_id)
     if approval is None:
         raise WorkError("work.not_found", f"work approval {work_approval_id} not found")
+    if decision == "approved":
+        bound_item = await WorkItem.get(f"o.WorkItem.{approval.work_item_id}")
+        if bound_item is None:
+            raise WorkError("work.not_found")
+        if (
+            bound_item.origin == "mandate_review"
+            or "mandate_revision" in bound_item.plan
+        ):
+            # A stored review is not dispatch admission. Until the generic
+            # mandate decision path verifies current grants and reserves its
+            # shared limits, ordinary approval must never queue this work.
+            raise WorkError("work.mandate_admission_required")
     if approval.status != "pending":
         # Idempotent replay of the same decision.
         item = await WorkItem.get(f"o.WorkItem.{approval.work_item_id}")
@@ -499,7 +510,7 @@ async def decide_work_approval_unit(
         )
         next_attempt_at = ""
 
-    db = get_prime_database()
+    db = _active_database()
     if transaction is not None or _is_postgres_txn_db(db):
         return await _decide_postgres(
             db=_txn_database(db) if transaction is None else db,
@@ -536,6 +547,12 @@ async def _decide_dev(
 ) -> Tuple[WorkApproval, WorkItem]:
     from app.agentive.services.work_outbox import _cas_dev
 
+    if decision == "approved":
+        item = await WorkItem.get(f"o.WorkItem.{approval.work_item_id}")
+        if item is None:
+            raise WorkError("work.not_found")
+        if item.origin == "mandate_review" or "mandate_revision" in item.plan:
+            raise WorkError("work.mandate_admission_required")
     # One-decision CAS on the approval row.
     fresh = await WorkApproval.get(approval.id)
     if fresh is None or fresh.status != "pending":
@@ -627,6 +644,11 @@ async def _decide_postgres(
                 "work.not_found", f"work item {approval.work_item_id} not found"
             )
         ctx = dict(current.get("context") or {})
+        if decision == "approved" and (
+            ctx.get("origin") == "mandate_review"
+            or "mandate_revision" in (ctx.get("plan") or {})
+        ):
+            raise WorkError("work.mandate_admission_required")
         if ctx.get("status") != "waiting_for_human":
             raise WorkError(
                 "work.invalid_transition",
@@ -639,9 +661,13 @@ async def _decide_postgres(
         if failure is not None:
             set_fields["context.failure"] = failure
 
+        expected: Dict[str, Any] = {"id": wi_oid, "context.status": "waiting_for_human"}
+        if decision == "approved":
+            expected["context.origin"] = {"$ne": "mandate_review"}
+            expected["context.plan.mandate_revision"] = {"$exists": False}
         updated = await txn.find_one_and_update(
             OBJECT_COLLECTION,
-            {"id": wi_oid, "context.status": "waiting_for_human"},
+            expected,
             {"$set": set_fields},
         )
         if updated is None:

@@ -239,8 +239,8 @@ def _stdio_manual_recipe(server_doc: Dict[str, Any]) -> Optional[Dict[str, Any]]
         "package_version": version,
         "note": (
             "Stdio/npm/docker installs require the runtime on the Integral "
-            "backend host. Use manual mount unless MCP_REGISTRY_ENABLE_STDIO_INSTALL "
-            "is enabled and the server is allowlisted."
+            "backend host. Registry stdio installs are unsupported; use a vetted "
+            "in-repo connector catalog entry for manual mounts."
         ),
     }
 

@@ -1,4 +1,4 @@
-import type { ReactNode, RefObject } from 'react';
+import { type ReactNode, type RefObject } from 'react';
 import { Loader2 } from 'lucide-react';
 import { TrackFilterStrip } from '../TrackFilterStrip';
 import { EntryComposer } from '../../entries/EntryComposer';
@@ -132,19 +132,21 @@ export function TrackDetailMainColumn({
                 retrievalError={retrievalError}
               />
             </div>
-            {canCreateEntry ? (
-              <EntryComposer
-                track={track}
-                viewEntryTypeKeys={activeView?.entry_type_keys}
-                viewDefaultEntryTypeKey={
-                  activeView?.default_entry_type_key ??
-                  track?.operational_model_defaults?.default_entry_type
-                }
-                createCustomFieldFallback={kanbanCreateCustomFieldFallback}
-                workflowEnumLabels={kanbanWorkflowEnumLabels}
-                onCreated={onEntryCreatedFromComposer}
-              />
-            ) : null}
+            <div className="flex items-center gap-2 shrink-0">
+              {canCreateEntry ? (
+                <EntryComposer
+                  track={track}
+                  viewEntryTypeKeys={activeView?.entry_type_keys}
+                  viewDefaultEntryTypeKey={
+                    activeView?.default_entry_type_key ??
+                    track?.operational_model_defaults?.default_entry_type
+                  }
+                  createCustomFieldFallback={kanbanCreateCustomFieldFallback}
+                  workflowEnumLabels={kanbanWorkflowEnumLabels}
+                  onCreated={onEntryCreatedFromComposer}
+                />
+              ) : null}
+            </div>
           </FilterActionRow>
 
           {semanticMode && retrievalMissingCount > 0 ? (
@@ -229,6 +231,7 @@ export function TrackDetailMainColumn({
       ) : (
         emptyStateContent
       )}
+
     </section>
   );
 }

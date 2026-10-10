@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import tempfile
+from dataclasses import replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
@@ -118,7 +119,6 @@ async def test_provider_lists_one_resident_agent_when_available(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Expose one Integral Native agent when the harness is configured."""
-    monkeypatch.setenv("INTEGRAL_NATIVE_HARNESS_ENABLED", "true")
     monkeypatch.setenv("INTEGRAL_NATIVE_MODEL", "ollama/gemma4:26b")
 
     agents = await PydanticAIProvider().list_agents()
@@ -139,9 +139,17 @@ class _Session:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("token_limit", [300_000, 450_000])
+@pytest.mark.parametrize("second_text", ["continue", ""])
+@pytest.mark.parametrize("staging_continuation", [False, True])
+@pytest.mark.parametrize("attachment_only", [False, True])
+@pytest.mark.parametrize("routine_output", ["", "answer", "quiet"])
 async def test_provider_persists_session_and_resumes_previous_run(
     monkeypatch: pytest.MonkeyPatch,
     token_limit: int,
+    second_text: str,
+    staging_continuation: bool,
+    attachment_only: bool,
+    routine_output: str,
 ) -> None:
     """Two turns share a session while resuming separate durable runs."""
     from app.config import settings
@@ -152,11 +160,31 @@ async def test_provider_persists_session_and_resumes_previous_run(
     session = _Session()
     scopes = [_scope("run-a"), _scope("run-b")]
     observed_limits = []
+    observed_prompts = []
+    observed_instructions = []
+    observed_histories = []
+    host_outcome_calls = []
+
+    def host_outcome(history, *, conversation_id):
+        host_outcome_calls.append(conversation_id)
+        return "Trusted host outcome"
+
+    monkeypatch.setattr(
+        "app.services.chat_providers.pydantic_ai_provider._host_staging_outcome_instructions",
+        host_outcome,
+    )
 
     async def prepare(_ctx: Any) -> Any:
         scope = scopes.pop(0)
+        from app.services.scheduled_turn import SILENT_ROUTINE_OUTPUT
+
+        answer = (
+            SILENT_ROUTINE_OUTPUT
+            if scope.run_id == "run-b" and routine_output == "quiet"
+            else f"answer-{scope.run_id}"
+        )
         agent, store = build_native_runtime(
-            model=TestModel(custom_output_text=f"answer-{scope.run_id}"),
+            model=TestModel(custom_output_text=answer),
             instructions="",
             tools=[],
             step_store_backend=backend,
@@ -167,6 +195,9 @@ async def test_provider_persists_session_and_resumes_previous_run(
         class AgentSpy:
             def run_stream_events(self, *args: Any, **kwargs: Any) -> Any:
                 observed_limits.append(kwargs.get("usage_limits"))
+                observed_prompts.append(args[0])
+                observed_instructions.append(kwargs.get("instructions"))
+                observed_histories.append(kwargs.get("message_history"))
                 return agent.run_stream_events(*args, **kwargs)
 
         history = (
@@ -251,13 +282,67 @@ async def test_provider_persists_session_and_resumes_previous_run(
         {"type": "text-delta", "delta": "answer-run-a"}
     ]
 
+    ctx = replace(
+        ctx,
+        text=second_text,
+        system_context=(
+            '<untrusted_data name="uploaded_file_references">'
+            '[{"name":"second-upload.txt","attachment_id":"attachment-b"}]'
+            "</untrusted_data>"
+        ),
+        extra_data={
+            "staging_outcome_continuation": staging_continuation,
+            "attachment_only_input": attachment_only,
+            "origin": "routine_task" if routine_output else "",
+        },
+    )
     second = [event async for event in provider.stream_turn(ctx)]
     assert second[0]["type"] == "_meta"
     assert second[-1]["type"] == "message-finish"
     assert session.last_run_id == "run-b"
-    assert [event for event in second if event.get("type") == "text-delta"] == [
-        {"type": "text-delta", "delta": "answer-run-b"}
-    ]
+    assert host_outcome_calls == (
+        ["thread-a"] if staging_continuation and not second_text else []
+    )
+    assert observed_instructions[-1] is None
+    if routine_output and not second_text:
+        from pydantic_ai.messages import SystemPromptPart
+
+        from app.services.scheduled_turn import ROUTINE_EVENT_INSTRUCTIONS
+
+        part = observed_histories[-1][-1].parts[0]
+        assert isinstance(part, SystemPromptPart)
+        assert part.content == ROUTINE_EVENT_INSTRUCTIONS + ctx.system_context
+        assert "Read current records" in part.content
+    elif staging_continuation and not second_text:
+        from pydantic_ai.messages import SystemPromptPart
+
+        part = observed_histories[-1][-1].parts[0]
+        assert isinstance(part, SystemPromptPart)
+        assert part.content == "Trusted host outcome"
+    elif attachment_only and not second_text:
+        from pydantic_ai.messages import SystemPromptPart
+
+        from app.services.chat_providers.pydantic_ai_provider import (
+            _ATTACHMENT_ONLY_EVENT_INSTRUCTIONS,
+        )
+
+        part = observed_histories[-1][-1].parts[0]
+        assert isinstance(part, SystemPromptPart)
+        assert part.content == (
+            _ATTACHMENT_ONLY_EVENT_INSTRUCTIONS + "\n\n" + ctx.system_context
+        )
+        assert '"attachment_id":"attachment-b"' in part.content
+        assert '<untrusted_data name="uploaded_file_references">' in part.content
+        assert "new user upload" in part.content
+    assert ctx.text == second_text
+    if routine_output == "quiet":
+        assert not [event for event in second if event.get("type") == "text-delta"]
+        assert {"type": "routine-no-message"} in second
+    else:
+        assert [event for event in second if event.get("type") == "text-delta"] == [
+            {"type": "text-delta", "delta": "answer-run-b"}
+        ]
+    assert observed_prompts == ["continue", second_text or None]
     assert len(observed_limits) == 2
     assert all(limit.request_limit == 20 for limit in observed_limits)
     assert all(limit.total_tokens_limit == token_limit for limit in observed_limits)
@@ -466,6 +551,7 @@ async def test_prepare_uses_host_run_and_snapshot_as_broker_authority(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Harness tools use the same durable run that Core's chat router created."""
+    monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "a" * 32)
     from pathlib import Path
     from types import SimpleNamespace
 
@@ -645,13 +731,20 @@ async def test_prepare_uses_host_run_and_snapshot_as_broker_authority(
         "lookup remains read-only even when no matching record exists"
         in runtime_args["instructions"]
     )
+    assert (
+        "Earlier user commands are conversation history" in runtime_args["instructions"]
+    )
+    assert "Never revive rejected, expired, stopped" in runtime_args["instructions"]
     assert "do not invent alternate spellings" in runtime_args["instructions"]
     assert (
         "do not repeat the same call with unchanged inputs"
         in runtime_args["instructions"]
     )
     assert tool_args["work_execution_context"] == work_context
-    assert model_args["observer"].keywords["work_execution_context"] == work_context
+    boundary = model_args["admission"]
+    assert model_args["observer"] == boundary.observe
+    assert boundary._context == work_context
+    assert boundary._observer.keywords["work_execution_context"] == work_context
     assert _rest[-2] == work_context
     assert _rest[-1]["proposal_attempted"] is False
     assert _rest[-1]["capability_search_completed"] is False
@@ -765,9 +858,25 @@ async def test_completed_build_requires_readback_before_final_answer():
 
     state["verification_succeeded"] = False
     state["verification_status"] = "partial"
-    partial = await validate(None, "Everything is ready.")
-    assert "verification returned partial" in partial
-    assert "Everything is ready" not in partial
+    state["verification_reply"] = (
+        "Partial. Not present: seed:Highway Rehabilitation (mismatch)."
+    )
+    with pytest.raises(ModelRetry, match="seed:Highway Rehabilitation") as retry:
+        await validate(None, "Everything is ready.")
+    message = str(retry.value)
+    assert "verification returned partial" in message
+    assert "Do not claim the setup is ready" in message
+    assert "do not call write tools" in message
+    assert "report every resource on each project" in message
+    assert state["verification_narrated"] is True
+
+    explained = await validate(
+        None,
+        "Highway Rehabilitation did not match. I cannot report the setup as ready.",
+    )
+    assert explained == (
+        "Highway Rehabilitation did not match. I cannot report the setup as ready."
+    )
 
 
 @pytest.mark.asyncio
@@ -831,7 +940,8 @@ async def test_cancel_before_provider_generator_starts_prevents_dispatch(
 ) -> None:
     """A stop racing the first generator advance cannot start a late run."""
     provider = PydanticAIProvider()
-    provider.cancel_turn(thread_id="thread-a")
+    cancel = provider.bind_turn_cancel(thread_id="thread-a")
+    cancel()
 
     async def prepare(_ctx: Any) -> Any:
         raise AssertionError("cancelled provider must not prepare or dispatch")
@@ -841,7 +951,27 @@ async def test_cancel_before_provider_generator_starts_prevents_dispatch(
         async for _event in provider.stream_turn(SimpleNamespace(thread_id="thread-a")):
             pass
 
-    assert "thread-a" not in provider._cancelled_before_start
+    assert "thread-a" not in provider._active_tokens
+
+
+def test_late_host_cancel_cannot_cancel_a_newer_turn() -> None:
+    provider = PydanticAIProvider()
+    old_cancel = provider.bind_turn_cancel(thread_id="thread-a")
+    provider._active_tokens.pop("thread-a")  # completed generator cleanup
+    old_cancel()
+    new_cancel = provider.bind_turn_cancel(thread_id="thread-a")
+    new_token = provider._active_tokens["thread-a"]
+    old_cancel()
+    assert not new_token.cancelled
+    new_cancel()
+    assert new_token.cancelled
+
+
+def test_idle_cancel_leaves_no_state_for_the_next_turn() -> None:
+    provider = PydanticAIProvider()
+    provider.cancel_turn(thread_id="thread-a")
+    provider.bind_turn_cancel(thread_id="thread-a")
+    assert not provider._active_tokens["thread-a"].cancelled
 
 
 @pytest.mark.asyncio
@@ -872,17 +1002,12 @@ async def test_resume_blocks_unknown_physical_model_request(
         await _resume_history(_scope("next-run"), session, object())
 
 
-def test_provider_is_opt_in_and_requires_trusted_model_config(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The native provider cannot appear without explicit deployment config."""
+def test_provider_is_built_in_without_environment(monkeypatch):
     provider = PydanticAIProvider()
     monkeypatch.delenv("INTEGRAL_NATIVE_HARNESS_ENABLED", raising=False)
     monkeypatch.delenv("INTEGRAL_NATIVE_MODEL", raising=False)
-    assert not provider.is_available()
-    monkeypatch.setenv("INTEGRAL_NATIVE_HARNESS_ENABLED", "true")
-    assert not provider.is_available()
-    monkeypatch.setenv("INTEGRAL_NATIVE_MODEL", "openai/gpt-test")
+    assert provider.is_available()
+    monkeypatch.setenv("INTEGRAL_NATIVE_HARNESS_ENABLED", "false")
     assert provider.is_available()
 
 
@@ -907,12 +1032,20 @@ def test_integral_contextvars_are_bound_and_restored() -> None:
         focused_view_id="view-a",
         extra_data={"page_context": {"url": "/tracks/track-a"}},
     )
+    from app.services.turn_binding import current_user_sentence
+
+    before_sentence = current_user_sentence.get()
     with _bind_integral_turn_context(ctx):
+        assert current_user_sentence.get() == "hello"
+        with _bind_integral_turn_context(replace(ctx, text="")):
+            assert current_user_sentence.get() == ""
+        assert current_user_sentence.get() == "hello"
         assert current_scope_workspace_id.get() == "workspace-a"
         assert current_focused_track_id.get() == "track-a"
         assert current_focused_view_id.get() == "view-a"
         assert current_page_context.get() == {"url": "/tracks/track-a"}
         assert current_chat_thread_id.get() == "thread-a"
+    assert current_user_sentence.get() == before_sentence
     assert current_scope_workspace_id.get() is None
     assert current_chat_thread_id.get() is None
 
@@ -920,3 +1053,57 @@ def test_integral_contextvars_are_bound_and_restored() -> None:
 async def _return(value):
     """Tiny awaitable for monkeypatched async persistence lookups."""
     return value
+
+
+@pytest.mark.parametrize("state", ["consumed", "revoked", "expired"])
+def test_terminal_preview_compacts_without_losing_outcome_or_identity(state):
+    import json
+
+    from app.services.chat_providers.pydantic_ai_provider import (
+        _terminal_staging_context,
+    )
+
+    snapshot = {
+        "_kind": "staged_change",
+        "token": "token",
+        "state": state,
+        "state_source": "current_core_staging",
+        "summary": "Create a note",
+        "diff_human": "large preview " * 2000,
+        "diff_machine": {
+            "op": "batch",
+            "ops": [
+                {
+                    "kind": "create_entry",
+                    "track_id": "track-a",
+                    "title": "Note",
+                    "body": "content " * 1000,
+                }
+            ],
+        },
+        "execute_result": {"entry": {"id": "entry-a", "record_revision": 1}},
+        "last_error": None,
+    }
+    compact = _terminal_staging_context(snapshot)
+    assert compact["state"] == state
+    assert compact["state_source"] == "current_core_staging"
+    assert compact["execute_result"] == snapshot["execute_result"]
+    assert compact["affected_resources"]["ops"][0]["track_id"] == "track-a"
+    assert compact["affected_resources"]["ops"][0]["title"] == "Note"
+    assert len(json.dumps(compact)) < len(json.dumps(snapshot)) / 10
+    assert "body" not in compact["affected_resources"]["ops"][0]
+    assert snapshot["diff_human"]  # projection does not mutate UI/audit input
+
+
+@pytest.mark.parametrize("state", ["pending", "blessed"])
+def test_unapplied_preview_and_application_error_are_not_compacted(state):
+    from app.services.chat_providers.pydantic_ai_provider import (
+        _terminal_staging_context,
+    )
+
+    snapshot = {
+        "state": state,
+        "diff_human": "Exact pending preview",
+        "last_error": {"code": "revision_conflict"},
+    }
+    assert _terminal_staging_context(snapshot) is snapshot

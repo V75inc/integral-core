@@ -1,9 +1,7 @@
 import { useMessageTiming, useAuiState } from "@assistant-ui/react";
-import { useState } from "react";
-import { ChevronDown } from "lucide-react";
 import type { ObservabilityStep } from "../useAIChatRuntime";
 
-/** jvagent final-payload usage block (interaction.usage). */
+/** native provider final-payload usage block (interaction.usage). */
 type FinalUsage = {
   prompt_tokens?: number;
   completion_tokens?: number;
@@ -12,7 +10,7 @@ type FinalUsage = {
   estimated_cost_usd?: number;
 };
 
-/** jvagent final-payload per-call metric (interaction.observability_metrics[]). */
+/** native provider final-payload per-call metric (interaction.observability_metrics[]). */
 type FinalMetric = {
   event_type?: string;
   data?: {
@@ -25,10 +23,6 @@ type FinalMetric = {
 function formatTimeSec(seconds: number | undefined): string | null {
   if (seconds == null || seconds <= 0) return null;
   return formatTime(seconds * 1000);
-}
-
-function formatTokens(n: number): string {
-  return n >= 1_000 ? `${(n / 1_000).toFixed(1)}k` : String(n);
 }
 
 function formatExactTokens(n: number | undefined): string {
@@ -51,6 +45,24 @@ function shortModel(modelId: string | undefined): string {
   return parts[parts.length - 1];
 }
 
+/** Model names share the activity disclosure, including turns without tools. */
+export function useMessageModelLabel(): string | undefined {
+  return useAuiState((s) => {
+    const custom = s.message.metadata?.custom as {
+      steps?: ObservabilityStep[];
+      finalPayload?: { interaction?: { observability_metrics?: FinalMetric[] } };
+    } | undefined;
+    const models: string[] = (custom?.steps ?? []).flatMap(step => step.modelId ? [step.modelId] : []);
+    if (models.length === 0) {
+      models.push(...(custom?.finalPayload?.interaction?.observability_metrics ?? [])
+        .filter(metric => metric.event_type === "model_call")
+        .flatMap(metric => metric.data?.model ? [metric.data.model] : []));
+    }
+    const unique = [...new Set(models)];
+    return unique.length ? unique.map(shortModel).join(" / ") : undefined;
+  });
+}
+
 export function MessageObservability() {
   const role = useAuiState((s) => s.message.role);
   const statusType = useAuiState((s) =>
@@ -59,7 +71,7 @@ export function MessageObservability() {
   const customSteps = useAuiState(
     (s) => (s.message.metadata?.custom as { steps?: ObservabilityStep[] })?.steps,
   );
-  // Authoritative usage from jvagent's final payload (interaction.usage):
+  // Authoritative usage from native provider's final payload (interaction.usage):
   // {prompt_tokens, completion_tokens, total_tokens, ...}. This is the source
   // of truth for token spend — observability_metrics-derived steps can be
   // empty when the metric shape doesn't match the per-step extractor.
@@ -84,7 +96,6 @@ export function MessageObservability() {
       )?.finalPayload?.interaction?.observability_metrics ?? undefined,
   );
   const timing = useMessageTiming();
-  const [expanded, setExpanded] = useState(false);
 
   if (role !== "assistant") return null;
   if (statusType === "running") return null;
@@ -102,7 +113,7 @@ export function MessageObservability() {
   const hasTiming = (totalStreamMs ?? 0) > 0;
 
   // Prefer the final payload's authoritative total; fall back to summing the
-  // per-step usage (older turns / non-jvagent providers).
+  // per-step usage (older turns / non-native provider providers).
   const allInputReported = steps.length > 0 && steps.every((st) => st.usage?.inputTokens != null);
   const allOutputReported = steps.length > 0 && steps.every((st) => st.usage?.outputTokens != null);
   const totalIn =
@@ -129,7 +140,6 @@ export function MessageObservability() {
   const metricModels = metricSteps
     .map((m) => m.data?.model)
     .filter((m): m is string => !!m);
-  const primaryModel = shortModel(steps[0]?.modelId ?? metricModels[0]);
   const hasModel = !!(steps[0]?.modelId ?? metricModels[0]);
   const providerCostComplete =
     steps.length > 0 && steps.every((step) => step.providerCostUsd != null);
@@ -150,177 +160,138 @@ export function MessageObservability() {
     return null;
   }
 
-  // Step count for the "(+N steps)" hint: use whichever source has rows.
-  const stepCount = steps.length > 0 ? steps.length : metricSteps.length;
-  const multiModel = new Set(
-    (steps.length > 0 ? steps.map((step) => step.modelId) : metricModels).filter(Boolean),
-  ).size > 1;
-
-  const summaryParts: string[] = [];
-  if (hasModel) summaryParts.push(primaryModel);
-  if (totalTokens > 0) summaryParts.push(`${formatTokens(totalTokens)} tokens`);
-  if (providerCostTotal != null) {
-    const estimated = steps.some(step => step.costSource === "litellm_calculated");
-    summaryParts.push(`${estimated ? "est. " : ""}$${providerCostTotal.toFixed(4)}`);
-  } else if (steps.length > 0) {
-    summaryParts.push("cost unavailable");
-  }
   const timeStr = formatTime(totalStreamMs);
-  if (timeStr) summaryParts.push(timeStr);
   const tpsStr = formatTps(timing?.tokensPerSecond);
-  if (tpsStr) summaryParts.push(tpsStr);
-
-  if (summaryParts.length === 0) return null;
 
   return (
-    <div className="mt-2">
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        className="flex items-center gap-1.5 text-[10px] text-[var(--text-subtle)] hover:text-[var(--text-muted)] transition"
-      >
-        <ChevronDown
-          size={10}
-          className={`transition-transform ${expanded ? "" : "-rotate-90"}`}
-        />
-        <span className="tabular-nums">
-          {summaryParts.join(" · ")}
-          {stepCount > 1
-            ? ` (+${stepCount - 1} ${multiModel ? "steps" : "calls"})`
-            : ""}
-        </span>
-      </button>
+    <div data-slot="aui_usage-details" className="rounded-[var(--radius-input)] bg-[var(--panel-2)] px-3 py-2 text-[11px] text-[var(--text-muted)]">
+      {hasNativeCallDetails && (
+        <div className="overflow-x-auto">
+        <table className="w-full text-left tabular-nums">
+          <thead>
+            <tr className="text-[10px] uppercase tracking-wide text-[var(--text-subtle)]">
+              <th className="pb-1 pr-3 font-medium">Call</th>
+              <th className="pb-1 pr-3 font-medium">Model</th>
+              <th className="pb-1 pr-3 font-medium text-right">In</th>
+              <th className="pb-1 pr-3 font-medium text-right">Out</th>
+              <th className="pb-1 pr-3 font-medium text-right">Cost</th>
+              <th className="pb-1 pr-3 font-medium text-right">Time</th>
+              <th className="pb-1 font-medium text-right">State</th>
+            </tr>
+          </thead>
+          <tbody>
+            {steps.map((step, index) => (
+              <tr key={step.requestId ?? index}>
+                <td className="pr-3 py-0.5">{index + 1}</td>
+                <td className="pr-3 py-0.5 font-mono text-[10px]">
+                  <span title={step.modelId ?? step.provider}>
+                    {step.modelId ?? step.provider ?? "unknown"}
+                  </span>
+                </td>
+                <td className="pr-3 py-0.5 text-right">
+                  {formatExactTokens(step.usage?.inputTokens)}
+                </td>
+                <td className="pr-3 py-0.5 text-right">
+                  {formatExactTokens(step.usage?.outputTokens)}
+                </td>
+                <td
+                  className="pr-3 py-0.5 text-right"
+                  title={step.costSource ? `Source: ${step.costSource}` : undefined}
+                >
+                  {step.providerCostUsd == null
+                    ? "—"
+                    : `$${step.providerCostUsd.toFixed(4)}`}
+                </td>
+                <td className="pr-3 py-0.5 text-right">
+                  {formatTime(step.durationMs) ?? "—"}
+                </td>
+                <td className="py-0.5 text-right">{step.outcome ?? "—"}</td>
+              </tr>
+            ))}
+            {steps.length > 1 && (
+              <tr className="border-t border-[var(--border-subtle)] text-[var(--text)]">
+                <td className="pr-3 pt-1" colSpan={2}>Total</td>
+                <td className="pr-3 pt-1 text-right">{formatExactTokens(totalIn)}</td>
+                <td className="pr-3 pt-1 text-right">{formatExactTokens(totalOut)}</td>
+                <td className="pr-3 pt-1 text-right">
+                  {providerCostTotal == null
+                    ? "—"
+                    : `$${providerCostTotal.toFixed(4)}`}
+                </td>
+                <td className="pt-1" colSpan={2} />
+              </tr>
+            )}
+          </tbody>
+        </table>
+        </div>
+      )}
+      {metricSteps.length > 0 && (
+        <table className="w-full text-left tabular-nums">
+          <thead>
+            <tr className="text-[10px] uppercase tracking-wide text-[var(--text-subtle)]">
+              <th className="pb-1 pr-3 font-medium">Step</th>
+              <th className="pb-1 pr-3 font-medium">Model</th>
+              <th className="pb-1 pr-3 font-medium text-right">In</th>
+              <th className="pb-1 pr-3 font-medium text-right">Out</th>
+              <th className="pb-1 font-medium text-right">Time</th>
+            </tr>
+          </thead>
+          <tbody>
+            {metricSteps.map((step, i) => (
+              <tr key={i}>
+                <td className="pr-3 py-0.5">{i + 1}</td>
+                <td className="pr-3 py-0.5 font-mono text-[10px]">
+                  {shortModel(step.data?.model)}
+                </td>
+                <td className="pr-3 py-0.5 text-right">
+                  {formatExactTokens(step.data?.usage?.prompt_tokens)}
+                </td>
+                <td className="pr-3 py-0.5 text-right">
+                  {formatExactTokens(step.data?.usage?.completion_tokens)}
+                </td>
+                <td className="py-0.5 text-right">
+                  {formatTimeSec(step.data?.duration) ?? "—"}
+                </td>
+              </tr>
+            ))}
+            {metricSteps.length > 1 && (
+              <tr className="border-t border-[var(--border-subtle)] text-[var(--text)]">
+                <td className="pr-3 pt-1" colSpan={2}>
+                  Total
+                </td>
+                <td className="pr-3 pt-1 text-right">
+                  {formatExactTokens(totalIn)}
+                </td>
+                <td className="pr-3 pt-1 text-right">
+                  {formatExactTokens(totalOut)}
+                </td>
+                <td className="pt-1" />
+              </tr>
+            )}
+          </tbody>
+        </table>
+      )}
 
-      {expanded && (
-        <div className="mt-1.5 rounded-[var(--radius-input)] bg-[var(--panel-2)] px-3 py-2 text-[11px] text-[var(--text-muted)]">
-          {hasNativeCallDetails && (
-            <div className="overflow-x-auto">
-            <table className="w-full text-left tabular-nums">
-              <thead>
-                <tr className="text-[10px] uppercase tracking-wide text-[var(--text-subtle)]">
-                  <th className="pb-1 pr-3 font-medium">Call</th>
-                  <th className="pb-1 pr-3 font-medium">Model</th>
-                  <th className="pb-1 pr-3 font-medium text-right">In</th>
-                  <th className="pb-1 pr-3 font-medium text-right">Out</th>
-                  <th className="pb-1 pr-3 font-medium text-right">Cost</th>
-                  <th className="pb-1 pr-3 font-medium text-right">Time</th>
-                  <th className="pb-1 font-medium text-right">State</th>
-                </tr>
-              </thead>
-              <tbody>
-                {steps.map((step, index) => (
-                  <tr key={step.requestId ?? index}>
-                    <td className="pr-3 py-0.5">{index + 1}</td>
-                    <td className="pr-3 py-0.5 font-mono text-[10px]">
-                      <span title={step.modelId ?? step.provider}>
-                        {step.modelId ?? step.provider ?? "unknown"}
-                      </span>
-                    </td>
-                    <td className="pr-3 py-0.5 text-right">
-                      {formatExactTokens(step.usage?.inputTokens)}
-                    </td>
-                    <td className="pr-3 py-0.5 text-right">
-                      {formatExactTokens(step.usage?.outputTokens)}
-                    </td>
-                    <td
-                      className="pr-3 py-0.5 text-right"
-                      title={step.costSource ? `Source: ${step.costSource}` : undefined}
-                    >
-                      {step.providerCostUsd == null
-                        ? "—"
-                        : `$${step.providerCostUsd.toFixed(4)}`}
-                    </td>
-                    <td className="pr-3 py-0.5 text-right">
-                      {formatTime(step.durationMs) ?? "—"}
-                    </td>
-                    <td className="py-0.5 text-right">{step.outcome ?? "—"}</td>
-                  </tr>
-                ))}
-                {steps.length > 1 && (
-                  <tr className="border-t border-[var(--border-subtle)] text-[var(--text)]">
-                    <td className="pr-3 pt-1" colSpan={2}>Total</td>
-                    <td className="pr-3 pt-1 text-right">{formatExactTokens(totalIn)}</td>
-                    <td className="pr-3 pt-1 text-right">{formatExactTokens(totalOut)}</td>
-                    <td className="pr-3 pt-1 text-right">
-                      {providerCostTotal == null
-                        ? "—"
-                        : `$${providerCostTotal.toFixed(4)}`}
-                    </td>
-                    <td className="pt-1" colSpan={2} />
-                  </tr>
-                )}
-              </tbody>
-            </table>
-            </div>
+      {(hasTiming || totalTokens > 0 || steps.length > 0) && (
+        <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-[10px] text-[var(--text-subtle)]">
+          {timing?.firstTokenTime != null && timing.firstTokenTime > 0 && (
+            <span>TTFT: {formatTime(timing.firstTokenTime)}</span>
           )}
-          {metricSteps.length > 0 && (
-            <table className="w-full text-left tabular-nums">
-              <thead>
-                <tr className="text-[10px] uppercase tracking-wide text-[var(--text-subtle)]">
-                  <th className="pb-1 pr-3 font-medium">Step</th>
-                  <th className="pb-1 pr-3 font-medium">Model</th>
-                  <th className="pb-1 pr-3 font-medium text-right">In</th>
-                  <th className="pb-1 pr-3 font-medium text-right">Out</th>
-                  <th className="pb-1 font-medium text-right">Time</th>
-                </tr>
-              </thead>
-              <tbody>
-                {metricSteps.map((step, i) => (
-                  <tr key={i}>
-                    <td className="pr-3 py-0.5">{i + 1}</td>
-                    <td className="pr-3 py-0.5 font-mono text-[10px]">
-                      {shortModel(step.data?.model)}
-                    </td>
-                    <td className="pr-3 py-0.5 text-right">
-                      {formatExactTokens(step.data?.usage?.prompt_tokens)}
-                    </td>
-                    <td className="pr-3 py-0.5 text-right">
-                      {formatExactTokens(step.data?.usage?.completion_tokens)}
-                    </td>
-                    <td className="py-0.5 text-right">
-                      {formatTimeSec(step.data?.duration) ?? "—"}
-                    </td>
-                  </tr>
-                ))}
-                {metricSteps.length > 1 && (
-                  <tr className="border-t border-[var(--border-subtle)] text-[var(--text)]">
-                    <td className="pr-3 pt-1" colSpan={2}>
-                      Total
-                    </td>
-                    <td className="pr-3 pt-1 text-right">
-                      {formatExactTokens(totalIn)}
-                    </td>
-                    <td className="pr-3 pt-1 text-right">
-                      {formatExactTokens(totalOut)}
-                    </td>
-                    <td className="pt-1" />
-                  </tr>
-                )}
-              </tbody>
-            </table>
+          {timeStr && <span>Total: {timeStr}</span>}
+          {tpsStr && <span>{tpsStr}</span>}
+          {totalTokens > 0 && (
+            <span>{totalTokens.toLocaleString()} tokens</span>
           )}
-
-          {(hasTiming || totalTokens > 0) && (
-            <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-[10px] text-[var(--text-subtle)]">
-              {timing?.firstTokenTime != null && timing.firstTokenTime > 0 && (
-                <span>TTFT: {formatTime(timing.firstTokenTime)}</span>
-              )}
-              {timeStr && <span>Total: {timeStr}</span>}
-              {tpsStr && <span>{tpsStr}</span>}
-              {totalTokens > 0 && (
-                <span>{totalTokens.toLocaleString()} tokens</span>
-              )}
-              {providerCostTotal != null && (
-                <span>{steps.some(step => step.costSource === "litellm_calculated") ? "Estimated cost" : "Provider cost"} ${providerCostTotal.toFixed(4)}</span>
-              )}
-              {hasNativeCallDetails && providerCostTotal == null && (
-                <span>Provider cost unavailable for some calls</span>
-              )}
-              {typeof finalUsage?.estimated_cost_usd === "number" &&
-                finalUsage.estimated_cost_usd > 0 && (
-                  <span>${finalUsage.estimated_cost_usd.toFixed(4)}</span>
-                )}
-            </div>
+          {providerCostTotal != null && (
+            <span>{steps.some(step => step.costSource === "litellm_calculated") ? "Estimated cost" : "Provider cost"} ${providerCostTotal.toFixed(4)}</span>
           )}
+          {hasNativeCallDetails && providerCostTotal == null && (
+            <span>Provider cost unavailable for some calls</span>
+          )}
+          {typeof finalUsage?.estimated_cost_usd === "number" &&
+            finalUsage.estimated_cost_usd > 0 && (
+              <span>${finalUsage.estimated_cost_usd.toFixed(4)}</span>
+            )}
         </div>
       )}
     </div>

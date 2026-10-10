@@ -23,6 +23,7 @@ from app.services.sharing import (
     list_access,
     remove_collaborator,
     remove_exclusion,
+    revoke_workspace_resource_grants,
 )
 
 # Part of the per-PR smoke gate (see pyproject [tool.pytest.ini_options] markers).
@@ -173,6 +174,79 @@ async def test_ensure_guest_membership_idempotent():
     second = await ensure_guest_membership(user, ws.id, "system")
     assert first is True
     assert second is False
+
+
+@pytest.mark.asyncio
+async def test_revoke_workspace_resource_grants_scoped_to_workspace():
+    owner = await _user("revgrant_owner")
+    guest = await _user("revgrant_guest")
+    ws = await _workspace("Revoke Grants WS")
+    other_ws = await _workspace("Keep Grants WS")
+    await owner.connect(ws, edge=IS_MEMBER_OF, role="owner")
+    await guest.connect(ws, edge=IS_MEMBER_OF, role="guest")
+    app = await _space("Revoke App", workspace_id=ws.id)
+    other_app = await _space("Keep App", workspace_id=other_ws.id)
+    await owner.connect(app, edge=OWNS)
+    await owner.connect(other_app, edge=OWNS)
+    await guest.connect(app, edge=COLLABORATES_ON, role="viewer")
+    await guest.connect(other_app, edge=COLLABORATES_ON, role="viewer")
+
+    result = await revoke_workspace_resource_grants(guest, ws.id)
+    assert result["collaborates_on"] >= 1
+    assert await resolve_role(guest.id, "app", app.id) is None
+
+    # Cross-workspace COLLABORATES_ON must survive (edge still present).
+    # resolve_role alone is insufficient here — guest is not a member of
+    # other_ws, so the workspace gate would deny even with the edge intact.
+    ctx = await guest.get_context()
+    kept = await ctx.find_edges_between(
+        guest.id, other_app.id, edge_class=COLLABORATES_ON
+    )
+    assert kept, "collaborator edge outside the left workspace must remain"
+
+
+@pytest.mark.asyncio
+async def test_departing_member_owns_move_to_workspace_owner():
+    """Removal must not strand Apps and Tracks the member created."""
+    from app.services.ownership_transfer import reassign_departing_member_ownership
+
+    owner = await _user("reassign_owner")
+    member = await _user("reassign_member")
+    ws = await _workspace("Reassign WS")
+    other_ws = await _workspace("Reassign Other")
+    await owner.connect(ws, edge=IS_MEMBER_OF, role="owner")
+    await member.connect(ws, edge=IS_MEMBER_OF, role="member")
+    app = await _space("Member App", workspace_id=ws.id)
+    track = await _track("Member Track", workspace_id=ws.id)
+    other_app = await _space("Other App", workspace_id=other_ws.id)
+    await member.connect(app, edge=OWNS, role="owner")
+    await member.connect(track, edge=OWNS, role="owner")
+    await member.connect(other_app, edge=OWNS, role="owner")
+    await owner.connect(app, edge=COLLABORATES_ON, role="editor")
+    app.owner_user_id = member.id
+    track.owner_id = member.id
+    await app.save()
+    await track.save()
+
+    moved = await reassign_departing_member_ownership(member, ws.id)
+    assert moved == {"apps": 1, "tracks": 1}
+
+    member_ctx = await member.get_context()
+    owner_ctx = await owner.get_context()
+    assert not await member_ctx.find_edges_between(member.id, app.id, edge_class=OWNS)
+    assert not await member_ctx.find_edges_between(member.id, track.id, edge_class=OWNS)
+    assert await owner_ctx.find_edges_between(owner.id, app.id, edge_class=OWNS)
+    assert await owner_ctx.find_edges_between(owner.id, track.id, edge_class=OWNS)
+    assert not await owner_ctx.find_edges_between(
+        owner.id, app.id, edge_class=COLLABORATES_ON
+    )
+    assert await member_ctx.find_edges_between(member.id, other_app.id, edge_class=OWNS)
+    refreshed_app = await App.get(app.id)
+    refreshed_track = await Track.get(track.id)
+    assert refreshed_app.owner_user_id == owner.id
+    assert refreshed_track.owner_id == owner.id
+    assert await resolve_role(owner.id, "app", app.id) == "owner"
+    assert await resolve_role(owner.id, "track", track.id) == "owner"
 
 
 # ---------------------------------------------------------------------------

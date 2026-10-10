@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { MarkdownContent } from '../ui';
+import { HtmlSandboxPreview } from './HtmlSandboxPreview';
 import type { OperationalModelFieldSpec, Track } from '../../types';
 import {
   formatCustomFieldValue,
@@ -12,6 +13,7 @@ import { useScope } from '../../context/ScopeContext';
 import { InlineFieldEditor } from './InlineFieldEditor';
 import { JsonTableEditor, isJsonTableShape } from './JsonTableEditor';
 import { MemberValue } from './members';
+import { FileValue } from './FileValue';
 import { RelationValue } from './relations';
 import type { RelationNavContext } from './relations/routeForRelationTarget';
 import { formatChecklistSummary } from './fieldTypes/ChecklistField';
@@ -56,6 +58,7 @@ export interface EntryMetaFieldsProps {
   onCommitField?: (key: string, value: unknown) => Promise<void>;
   /** When true, the inline editor is visible but non-interactive (no edit affordance). */
   readOnly?: boolean;
+  readOnlyKeys?: string[];
   /** Kanban workflow field key → enum key → display label (for select / multi_select). */
   workflowEnumLabels?: Record<string, Record<string, string>>;
   /** Called before relation link navigation (e.g. dismiss host modal). */
@@ -86,6 +89,7 @@ export function EntryMetaFields({
   expanded = false,
   onCommitField,
   readOnly = false,
+  readOnlyKeys = [],
   workflowEnumLabels,
   onNavigate,
   navContext,
@@ -334,7 +338,7 @@ export function EntryMetaFields({
   const rows: Row[] = [];
 
   for (const field of ordered) {
-    if (field.key.startsWith('_')) continue;
+    if (field.key.startsWith('_') || field.hidden) continue;
     const raw = values[field.key];
     const t = String(field.type || '').toLowerCase();
     const isInlineEditable =
@@ -383,7 +387,7 @@ export function EntryMetaFields({
 
     // Relation / member fields skip the text rendering path — dedicated
     // resolvers hydrate ids to labels asynchronously in the JSX branch below.
-    if (t === 'relation' || t === 'member') {
+    if (t === 'relation' || t === 'member' || t === 'file' || t === 'files') {
       rows.push({
         field,
         text: '',
@@ -417,7 +421,7 @@ export function EntryMetaFields({
       className={`${variant === 'card' ? 'mt-2' : 'mt-4'} ${className}`.trim()}
       aria-label={variant === 'card' ? 'Entry details' : 'Entry fields'}
     >
-      <div className="grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
+      <div className="entry-meta-grid grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
         {rows.map((row, idx) => {
           const prev = idx > 0 ? rows[idx - 1] : undefined;
           const showGroupHeader = Boolean(row.group && row.group !== prev?.group);
@@ -427,7 +431,8 @@ export function EntryMetaFields({
           // Caller already shows ``row.field.name`` above the value, so the
           // editor's own ``label`` prop is left undefined.
           const jsonTable = t === 'json' && isJsonTableShape(row.raw);
-          const fullBleed = t === 'markdown' || t === 'json';
+          const htmlBodyPreview = row.field.key === 'html_body';
+          const fullBleed = t === 'markdown' || t === 'json' || htmlBodyPreview;
 
           return (
             <Fragment key={row.field.key}>
@@ -442,7 +447,7 @@ export function EntryMetaFields({
                   </p>
                 </div>
               ) : null}
-              <div className={`min-w-0 ${fullBleed ? 'sm:col-span-2' : ''}`.trim()}>
+              <div className={`min-w-0 [overflow-wrap:anywhere] ${fullBleed ? 'sm:col-span-2' : ''}`.trim()}>
                 <div className="text-[13px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
                   {row.field.name}
                 </div>
@@ -451,13 +456,14 @@ export function EntryMetaFields({
                     <InlineFieldEditor
                       field={row.field}
                       value={values[row.field.key] ?? null}
-                      readOnly={readOnly}
+                      readOnly={readOnly || readOnlyKeys.includes(row.field.key)}
                       onCommit={newValue => onCommitField(row.field.key, newValue)}
                     />
                   </div>
-                ) : row.relationEditable && onCommitField ? (
+                ) : row.relationEditable && onCommitField && !readOnlyKeys.includes(row.field.key) ? (
                   <div className="mt-0.5">
                     <SeamlessField
+                      externalLabel
                       field={row.field}
                       value={values[row.field.key] ?? null}
                       onChange={async newValue => {
@@ -483,6 +489,15 @@ export function EntryMetaFields({
                       }}
                       readonly
                     />
+                  </div>
+                ) : htmlBodyPreview ? (
+                  <div className="mt-0.5 min-w-0">
+                    {variant === 'detail' ? (
+                      <p className="mb-2 text-xs text-[var(--text-muted)]">
+                        Rendered in a sandboxed frame — scripts cannot run in the app.
+                      </p>
+                    ) : null}
+                    <HtmlSandboxPreview html={String(row.raw ?? '')} />
                   </div>
                 ) : t === 'markdown' ? (
                   <div className={`mt-0.5 break-words text-[var(--text)] ${valueClampClass}`.trim()}>
@@ -510,6 +525,8 @@ export function EntryMetaFields({
                       }
                     />
                   </div>
+                ) : t === 'file' || t === 'files' ? (
+                  <div className="mt-0.5 min-w-0"><FileValue value={row.raw} /></div>
                 ) : t === 'member' ? (
                   <div
                     className={`mt-0.5 text-sm leading-relaxed ${valueClampClass}`.trim()}

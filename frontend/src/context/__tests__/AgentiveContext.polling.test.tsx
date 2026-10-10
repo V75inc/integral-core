@@ -1,8 +1,8 @@
 /**
- * Polling behaviour for the `/agentive/status` wait-for-jvagent loop.
+ * Polling behaviour for the `/agentive/status` wait-for-native provider loop.
  *
  * The interval only runs while agentive is enabled but no agent has connected
- * yet — which, if jvagent never registers, is indefinitely. It previously ran
+ * yet — which, if native provider never registers, is indefinitely. It previously ran
  * regardless of tab visibility, so a backgrounded tab kept issuing requests
  * whose result it could not display.
  *

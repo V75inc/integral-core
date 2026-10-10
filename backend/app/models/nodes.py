@@ -32,13 +32,7 @@ class IntegralApp(Node):
     full analysis.
     """
 
-    # Decouple the persisted entity discriminator from the Python class name.
-    # jvagent's framework also defines a class literally named ``App`` (see
-    # ``jvagent.core.app.App``) that hangs off Root in the same jvspatial DB
-    # when AGENTIVE_ENABLED=1. Without this override, jvspatial's
-    # ``find_subclass_by_name(Node, "App")`` non-deterministically returns
-    # one class for both — causing jvagent's ``isinstance`` checks to miss
-    # its own previously-created App and spawn a fresh duplicate every boot.
+    # Explicit discriminator separates the deployment root from workspace Apps.
     __entity_name__ = "IntegralApp"
 
     name: str = "Integral"
@@ -374,10 +368,8 @@ class Invitation(Node):
 class App(Node):
     """Named grouping of tracks; access can cascade to contained tracks.
 
-    Set to ``"WorkspaceApp"`` to avoid collision with jvagent's own ``App``
-    node class (also a ``Node`` subclass; its discriminator defaults to the
-    class ``__name__`` ``"App"``).  DB rows migrated: ``"Space"`` → ``"App"``
-    → ``"WorkspaceApp"``.
+    The persisted discriminator ``WorkspaceApp`` distinguishes workspace Apps
+    from the deployment root ``IntegralApp``.
     """
 
     __entity_name__ = "WorkspaceApp"
@@ -531,6 +523,11 @@ class Track(Node):
     # personal workspace). Additive field — existing Tracks default to ""; no
     # migration. CONTEXT lock #1 / RESEARCH §Q7 Option A.
     kind: str = ""
+    # App navigation visibility. False = omit from default App track lists /
+    # Feed filters while the Track remains addressable (direct URL, pins,
+    # agent tools with include_nav_hidden). Sourced from OM app.tracks[].
+    # Additive — existing Tracks default True; no migration.
+    nav_visible: bool = True
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -597,6 +594,28 @@ class Comment(Node):
     text: str = ""
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+
+
+class GeneratedDocument(Node):
+    """Immutable record of a document rendered from a template version."""
+
+    __entity_name__ = "GeneratedDocument"
+
+    workspace_id: str = attribute(default="", indexed=True)
+    template_id: str = attribute(default="", indexed=True)
+    template_version_id: str = attribute(default="", indexed=True)
+    module: str = ""
+    context_type: str = attribute(default="", indexed=True)
+    context_entry_id: str = attribute(default="", indexed=True)
+    generated_by: str = ""
+    generated_at: Optional[str] = None
+    output_format: Literal["pdf", "html", "docx"] = "pdf"
+    attachment_id: str = ""
+    input_values: Dict[str, Any] = Field(default_factory=dict)
+    resolved_snapshot: Dict[str, Any] = Field(default_factory=dict)
+    checksum: str = ""
+    status: Literal["generated", "superseded", "void"] = "generated"
+    created_at: Optional[str] = None
 
 
 class Attachment(Node):
@@ -783,7 +802,7 @@ class Notification(Node):
 class ChatThread(Node):
     """An AI chat conversation owned by a user.
 
-    Maps 1:1 to a provider-side conversation (e.g. jvagent Conversation via
+    Maps 1:1 to a provider-side conversation (through
     ``provider_session_id``). User → ChatThread via ``OWNS``;
     ChatThread → ChatMessage via ``CONTAINS``.
     """
@@ -826,7 +845,7 @@ class ChatThread(Node):
     pending_question: Optional[Dict[str, Any]] = None
     # Durable Prompt Sheet queue. Shape: {status: open|closed, opened_at,
     # closed_at, close_reason, items: PromptItem[]}. See
-    # docs/superpowers/specs/2026-09-08-prompt-sheet-design.md.
+    # docs/backend/prompt-queue.md.
     prompt_queue: Optional[Dict[str, Any]] = None
     # Last client page_context snapshot (full JSON incl. visible_data).
     # Ephemeral UI state for integral_get_page_context — not substrate domain.

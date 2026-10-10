@@ -4,7 +4,7 @@ Mirrors the frontend ``ChatProvider`` interface
 (``frontend/src/features/ai-chat/providers/types.ts``): both sides agree on a
 single normalized event envelope (``NormalizedEvent``) so the chat surface,
 persistence, and runtime stay decoupled from any specific agent harness
-(jvagent embedded, jvagent HTTP, OpenAI Direct, LangGraph, mock fixtures, …).
+(Integral AI or test fixtures).
 
 Adding a new harness means dropping a new ``ChatBackendProvider`` adapter
 (typically wrapping its native streaming surface), registering it in
@@ -14,8 +14,7 @@ module directly.
 
 The normalized envelope itself is documented in
 ``.planning/initiatives/ai-chat/SPEC.md`` § 6.3 and produced by adapters by
-calling :mod:`app.providers.jvagent_streaming.translate_envelope` (or its
-harness-specific equivalent).
+the native event translator.
 """
 
 from __future__ import annotations
@@ -41,8 +40,7 @@ class AgentDescriptor(TypedDict, total=False):
     Returned by :meth:`ChatBackendProvider.list_agents` so the chat UI can
     render an agent switcher without knowing harness specifics. ``id`` is
     the provider-native identifier the caller persists onto
-    ``ChatThread.agent_id`` (for jvagent this is the agent's ``alias`` —
-    stable across deploys, unlike the regenerated internal ``id``).
+    ``ChatThread.agent_id``.
     """
 
     id: str
@@ -82,9 +80,7 @@ class ChatTurnContext:
     """Stable Integral user identifier (jvspatial node id of the User)."""
 
     user_email: str
-    """Authenticated user's email — provided for legacy harnesses that
-    historically keyed users by email rather than node id (e.g. the
-    out-of-process jvagent integration)."""
+    """Authenticated user email; identity is always bound by user_id."""
 
     text: str
     """User-authored utterance for this turn.
@@ -95,8 +91,7 @@ class ChatTurnContext:
 
     thread_id: str
     """ChatThread node id. Adapters may forward this to their native
-    ``data`` payload for downstream context (Integral expects it surfaced
-    as ``thread_id`` in jvagent's data dict, e.g.)."""
+    context for transcript and capability resolution."""
 
     session_id: Optional[str]
     """Provider-side session id from a prior turn, if any. ``None`` for
@@ -153,8 +148,7 @@ class ChatBackendProvider(Protocol):
     trace.
 
     Adapters are expected to be cheap to instantiate — they usually hold no
-    state of their own and delegate to module-level streaming helpers (e.g.
-    :mod:`app.providers.jvagent_embed`).
+    state of their own beyond the native streaming lifecycle.
     """
 
     id: str
@@ -186,27 +180,6 @@ class ChatBackendProvider(Protocol):
         """
         ...
 
-
-def register_provider_cancel_hook(
-    turn_handle: Any, *, thread_id: str, provider: ChatBackendProvider
-) -> None:
-    """Bind an in-flight host turn to the selected provider's cancel method.
-
-    The provider owns transport cancellation; Integral's turn registry owns
-    the decision to cancel. The jvagent fallback keeps older provider doubles
-    compatible while production adapters adopt ``cancel_turn``.
-    """
-    cancel_turn = getattr(provider, "cancel_turn", None)
-    if callable(cancel_turn):
-        turn_handle.register_cancel_hook(lambda: cancel_turn(thread_id=thread_id))
-        return
-    if provider.id == "jvagent":
-        from app.providers import jvagent_embed
-
-        turn_handle.register_cancel_hook(
-            lambda: jvagent_embed.cancel_interact(thread_id=thread_id)
-        )
-
     # ------------------------------------------------------------------
     # Identity & conversation lifecycle
     # ------------------------------------------------------------------
@@ -214,7 +187,7 @@ def register_provider_cancel_hook(
     # Multi-user isolation is achieved by passing the host's stable
     # ``user_id`` (e.g. an Integral User node id) as the provider's user
     # identifier on every turn. Adapters that back onto a multi-tenant
-    # harness (jvagent, etc.) materialize a per-user memory subgraph keyed
+    # harness materialize a per-user memory subgraph keyed
     # on this id so different host users sharing the same agent never see
     # each other's conversations or long-term memory.
     #
@@ -284,6 +257,24 @@ def register_provider_cancel_hook(
         per (provider, workspace).
         """
         return []
+
+
+def register_provider_cancel_hook(
+    turn_handle: Any, *, thread_id: str, provider: ChatBackendProvider
+) -> None:
+    """Bind an in-flight host turn to the selected provider's cancel method.
+
+    The provider owns transport cancellation; Integral's turn registry owns
+    the decision to cancel. There is no vendor-specific fallback.
+    """
+    bind_cancel = getattr(provider, "bind_turn_cancel", None)
+    if callable(bind_cancel):
+        turn_handle.register_cancel_hook(bind_cancel(thread_id=thread_id))
+        return
+    cancel_turn = getattr(provider, "cancel_turn", None)
+    if callable(cancel_turn):
+        turn_handle.register_cancel_hook(lambda: cancel_turn(thread_id=thread_id))
+        return
 
 
 @dataclass

@@ -51,6 +51,7 @@ describe('Modal dock clearance', () => {
     // Inline style, not a class: the width is a live CSS variable that the
     // dock updates as the user drags the resize handle.
     expect(overlayContainer().style.right).toBe('var(--assistant-dock-w, 0px)');
+    expect(overlayContainer().style.top).toBe('var(--system-bar-h, 0px)');
   });
 
   it('covers the dock by default', () => {
@@ -62,6 +63,7 @@ describe('Modal dock clearance', () => {
       </Modal>,
     );
     expect(overlayContainer().style.right).toBe('');
+    expect(overlayContainer().style.top).toBe('var(--system-bar-h, 0px)');
   });
 
   it('claims aria-modal only when the page really is inert', () => {
@@ -144,5 +146,48 @@ describe('Modal dock clearance', () => {
     // container is what narrows the scrim. A `fixed` scrim would ignore it.
     expect(scrim?.className).toContain('absolute');
     expect(scrim?.className).toContain('inset-0');
+  });
+
+  it('side panel widens a form dialog to dialog-wide', () => {
+    render(
+      <Modal
+        open
+        onClose={() => {}}
+        title="Entry"
+        sidePanel={<aside>panel</aside>}
+      >
+        <p>body</p>
+      </Modal>,
+    );
+    expect(screen.getByRole('dialog').className).toContain('max-w-dialog-wide');
+  });
+
+  it('keeps workspace-max width when a side panel is open', () => {
+    // Entry enlarge / View Designer pass workspace widths; the companion
+    // column must not downgrade them back to dialog-wide.
+    render(
+      <Modal
+        open
+        onClose={() => {}}
+        title="Entry"
+        width="max-w-dialog-workspace-max"
+        sidePanel={<aside>panel</aside>}
+      >
+        <p>body</p>
+      </Modal>,
+    );
+    const cls = screen.getByRole('dialog').className;
+    expect(cls).toContain('max-w-dialog-workspace-max');
+    expect(cls).not.toContain('max-w-dialog-wide');
+  });
+
+  it('EntryDetail wires expand toggle to appearance.entryDialogExpanded', () => {
+    const source = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/components/entries/EntryDetail.tsx'),
+      'utf-8',
+    );
+    expect(source).toMatch(/entryDialogExpanded/);
+    expect(source).toMatch(/entry-dialog-expand/);
+    expect(source).toMatch(/max-w-dialog-workspace-max/);
   });
 });

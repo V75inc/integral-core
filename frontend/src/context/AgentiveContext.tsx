@@ -55,10 +55,10 @@ export function AgentiveProvider({ children }: { children: ReactNode }) {
     refresh();
   }, [loading, refresh]);
 
-  // Poll while agentive is on but no agent is connected yet (jvagent may register after page load).
+  // Poll while agentive is on but no agent is connected yet (native provider may register after page load).
   //
   // Skipped while the tab is hidden. A background tab cannot show the result,
-  // and this interval runs until jvagent registers -- which, if it never does,
+  // and this interval runs until native provider registers -- which, if it never does,
   // is forever. `visibilitychange` re-runs the effect so a returning user gets
   // a fresh value immediately rather than waiting out the remaining interval.
   useEffect(() => {

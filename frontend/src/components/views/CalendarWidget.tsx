@@ -206,6 +206,7 @@ function CalendarWidgetInner({
       }
       const created = await onEntryCreate({
         ...input,
+        source: 'calendar',
         type: createEntryTypeKey
       });
       if (!created) return;

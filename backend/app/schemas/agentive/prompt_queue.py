@@ -28,6 +28,7 @@ class PromptQueueResponse(BaseModel):
     open: bool = False
     queue: Dict[str, Any] = Field(default_factory=dict)
     resume_text: Optional[str] = None
+    resume_required: bool = True
     closed: bool = False
     cancelled: bool = False
     matched: bool = False

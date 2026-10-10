@@ -54,6 +54,42 @@ def test_resource_urls_preserve_opaque_ids_and_the_original_receipt():
     assert "url" not in source["tracks"][0]
 
 
+def test_governed_query_rows_get_canonical_urls_without_mutating_receipts():
+    """Declared and generic queries use rows, not entries collections."""
+    source = {
+        "rows": [
+            {"id": "n.Entry.example", "track_id": "n.Track.example"},
+            {"id": "n.Track.example"},
+            {"id": "n.WorkspaceApp.example"},
+            {"count": 3},
+            {"id": "external-resource"},
+            "scalar-row",
+        ],
+        "_receipt": {"state": "complete", "run_id": "run-1"},
+    }
+    result = _resource_links_for_model(source)
+    assert [row["url"] for row in result["rows"][:3]] == [
+        "/tracks/n.Track.example?entry=n.Entry.example",
+        "/tracks/n.Track.example",
+        "/apps/n.WorkspaceApp.example",
+    ]
+    assert result["rows"][3:] == source["rows"][3:]
+    assert result["_receipt"] == source["_receipt"]
+    assert "url" not in source["rows"][0]
+
+
+def test_app_query_items_receive_resource_links_without_mutating_receipts():
+    """App-defined query output can use items rather than rows."""
+    source = {
+        "items": [{"id": "n.Entry.smoke", "track_id": "n.Track.smoke"}],
+        "_receipt": {"state": "complete"},
+    }
+    result = _resource_links_for_model(source)
+    assert result["items"][0]["url"] == "/tracks/n.Track.smoke?entry=n.Entry.smoke"
+    assert "url" not in source["items"][0]
+    assert result["_receipt"] == source["_receipt"]
+
+
 def test_pending_write_resolution_tool_is_only_exposed_for_scoped_pending_items():
     """Expose the chat decision tool only when Core supplied pending items."""
     tools = build_brokered_tools(
@@ -444,10 +480,10 @@ async def test_setup_is_exposed_as_one_build_contract_not_staging_primitives(tmp
 
 
 @pytest.mark.asyncio
-async def test_repeated_identical_read_is_suppressed_with_a_stop_instruction(
+async def test_repeated_identical_read_remains_available(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A repeated read cannot become an unbounded model/tool loop."""
+    """Framework limits bound execution without suppressing legitimate reads."""
     invocations = []
 
     def infer(_name: str):
@@ -479,10 +515,8 @@ async def test_repeated_identical_read_is_suppressed_with_a_stop_instruction(
     second = await tool.function_schema.call({}, SimpleNamespace(tool_call_id="call-2"))
 
     assert first["items"] == []
-    assert second["error_code"] == "repeated_read_suppressed"
-    assert second["retryable"] is False
-    assert "do not repeat" in second["message"]
-    assert len(invocations) == 1
+    assert second["items"] == []
+    assert len(invocations) == 2
 
 
 @pytest.mark.asyncio
@@ -535,10 +569,10 @@ async def test_provider_stringified_object_is_normalized_before_broker_validatio
 
 
 @pytest.mark.asyncio
-async def test_scaffold_phase_calls_have_bounded_retry_budgets(
+async def test_scaffold_phase_corrections_are_not_blocked_by_broker_quotas(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Validation and proposal retries stop after two useful attempts."""
+    """Framework usage limits govern proposal corrections, not per-tool quotas."""
     invocations = []
 
     def infer(_name: str):
@@ -610,16 +644,15 @@ async def test_scaffold_phase_calls_have_bounded_retry_budgets(
 
     assert first["proposal_id"] == 2
     assert second["proposal_id"] == 3
-    assert third["error_code"] == "capability_call_limit"
-    assert third["retryable"] is False
-    assert len(invocations) == 3
+    assert third["proposal_id"] == 4
+    assert len(invocations) == 4
 
 
 @pytest.mark.asyncio
-async def test_coverage_allows_one_schema_correction_before_stopping(
+async def test_coverage_remains_retryable_after_failed_attempts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Coverage affords one correction and records only a successful check."""
+    """Failed validation can be corrected within the framework execution budget."""
     attempts = 0
 
     def infer(_name: str):
@@ -681,8 +714,8 @@ async def test_coverage_allows_one_schema_correction_before_stopping(
     assert failed["error_code"] == "invalid_blueprint"
     assert corrected["error_code"] == "invalid_blueprint"
     assert valid["status"] == "buildable"
-    assert limited["error_code"] == "capability_call_limit"
-    assert attempts == 3
+    assert limited["status"] == "buildable"
+    assert attempts == 4
 
 
 @pytest.mark.asyncio
@@ -925,14 +958,14 @@ async def test_unified_search_discloses_tools_and_replays_native_availability(
         visible = {tool.name for tool in info.function_tools}
         requests.append(visible)
         assert "search_tools" not in visible
-        if len(requests) in {1, 4}:
+        if len(requests) == 1:
             assert visible - {"search_conversation_history"} == {"search_capabilities"}
             return ModelResponse(
                 parts=[
                     ToolCallPart("search_capabilities", {"query": "list entry records"})
                 ]
             )
-        if len(requests) in {2, 5}:
+        if len(requests) in {2, 4}:
             assert "integral_list_entries" in visible
             return ModelResponse(parts=[ToolCallPart("integral_list_entries", {})])
         return ModelResponse(parts=[TextPart("No entries yet.")])
@@ -968,7 +1001,7 @@ async def test_unified_search_discloses_tools_and_replays_native_availability(
         run_id=next_scope.framework_run_id,
     )
     assert second.output == "No entries yet."
-    assert len(requests) == 6
+    assert len(requests) == 5
     assert len(invocations) == 2
     assert invocations[0]["workspace_id"] == _scope().workspace_id
     assert invocations[0]["principal_id"] == _scope().principal_id
@@ -1132,7 +1165,12 @@ async def test_approved_build_macro_runs_at_most_once_per_model_turn(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "code", ["invalid_scaffold_plan", "scaffold_plan_validation_failed"]
+    "code",
+    [
+        "invalid_scaffold_plan",
+        "plan_differs_from_design",
+        "scaffold_plan_validation_failed",
+    ],
 )
 async def test_pre_effect_build_validation_can_be_corrected_with_framework_retry(
     monkeypatch, code
@@ -1143,7 +1181,12 @@ async def test_pre_effect_build_validation_can_be_corrected_with_framework_retry
         calls.append(kwargs)
         if len(calls) == 1:
             return CapabilityResult(
-                ok=False, error_code=code, message="Correct the sort list."
+                ok=False,
+                error_code=code,
+                message=(
+                    "The plan adds Track 'Vehicle Details', which is not in the "
+                    "approved design."
+                ),
             )
         return CapabilityResult(ok=True, data={"applied": True})
 
@@ -1167,8 +1210,9 @@ async def test_pre_effect_build_validation_can_be_corrected_with_framework_retry
     )[0]
     assert tool.max_retries == 2
     ctx = SimpleNamespace(tool_call_id="invalid", active_capability_ids=set())
-    with pytest.raises(ModelRetry, match="Correct the sort"):
+    with pytest.raises(ModelRetry, match="approved design") as retry:
         await tool.function_schema.call({}, ctx)
+    assert "Do not ask the user to repeat approval" in str(retry.value)
     ctx.tool_call_id = "corrected"
     assert (await tool.function_schema.call({}, ctx))["applied"] is True
     ctx.tool_call_id = "duplicate"
@@ -1219,6 +1263,99 @@ async def test_framework_bounds_pre_effect_build_correction(monkeypatch):
     with pytest.raises(UnexpectedModelBehavior, match="retries"):
         await agent.run("Build the approved design.")
     assert len(calls) == 3  # Initial validation plus the two library-owned retries.
+
+
+@pytest.mark.asyncio
+async def test_plan_drift_is_repaired_by_pydantic_in_the_same_turn(
+    monkeypatch, tmp_path
+):
+    """An extra generated Track is corrected without repeating user approval."""
+    from pydantic_ai_harness.step_persistence import InMemoryStepStore
+
+    invocations = []
+
+    async def invoke(**kwargs):
+        invocations.append(kwargs)
+        if len(invocations) == 1:
+            return CapabilityResult(
+                ok=False,
+                error_code="plan_differs_from_design",
+                message=(
+                    "The plan adds Track 'Vehicle Details', which is not in the "
+                    "approved design."
+                ),
+            )
+        return CapabilityResult(ok=True, data={"applied": True})
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda _: ("core", "write"),
+    )
+    model_calls = []
+
+    def respond(_messages, _info):
+        model_calls.append(len(model_calls) + 1)
+        if len(model_calls) == 1:
+            return ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        "integral_build_approved_design",
+                        {
+                            "operations": [
+                                {
+                                    "tool": "integral_create_app_track",
+                                    "args": {"name": "Vehicle Details"},
+                                }
+                            ]
+                        },
+                    )
+                ]
+            )
+        if len(model_calls) == 2:
+            return ModelResponse(
+                parts=[
+                    ToolCallPart("integral_build_approved_design", {"operations": []})
+                ]
+            )
+        return ModelResponse(
+            parts=[TextPart("The approved setup is built and ready to review.")]
+        )
+
+    scope = _scope()
+    agent, _ = build_native_runtime(
+        model=FunctionModel(respond),
+        instructions="Continue the saved approved design.",
+        tools=build_brokered_tools(
+            scope=scope,
+            catalogue=[
+                {
+                    "name": "integral_build_approved_design",
+                    "description": "Build the approved design.",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {"operations": {"type": "array"}},
+                    },
+                }
+            ],
+            run_state={"approved_design_ready": True},
+        ),
+        step_store_backend=InMemoryStepStore(),
+        scope=scope,
+        agent_name="scaffold-plan-retry-test",
+    )
+
+    result = await agent.run(
+        "Build the approved design.",
+        conversation_id=scope.framework_conversation_id,
+        run_id=scope.framework_run_id,
+    )
+
+    assert result.output == "The approved setup is built and ready to review."
+    assert len(model_calls) == 3
+    assert len(invocations) == 2
 
 
 @pytest.mark.asyncio
@@ -1399,10 +1536,12 @@ async def test_pending_design_build_is_disclosed_without_fresh_turn_search(
         is not None
     )
 
-    assert (
-        await unrelated.prepare_tool_def(SimpleNamespace(active_capability_ids=set()))
-        is None
+    # The schema remains deferred. Pydantic AI owns whether it is revealed;
+    # absence of a current-turn search is not a second authorization boundary.
+    deferred = await unrelated.prepare_tool_def(
+        SimpleNamespace(active_capability_ids=set())
     )
+    assert deferred is not None and deferred.defer_loading
 
     run_state["capability_search_completed"] = True
     disclosed = await build.prepare_tool_def(
@@ -1459,3 +1598,288 @@ async def test_verbal_decisions_use_conversation_identity_not_checkpoint_session
     )
     assert denied["error_code"] == "user_no_workspace_writes"
     assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("transient_failure", [False, True])
+async def test_identical_read_recovers_and_observes_new_state(
+    monkeypatch, transient_failure
+):
+    records = []
+    attempts = 0
+
+    async def invoke(**kwargs):
+        nonlocal attempts
+        attempts += 1
+        if transient_failure and attempts == 1:
+            return CapabilityResult(
+                ok=False,
+                error_code="temporarily_unavailable",
+                message="Retry this read.",
+            )
+        return CapabilityResult(ok=True, data={"entries": list(records)})
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda _name: ("core", "read"),
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    tool = build_brokered_tools(
+        scope=_scope(),
+        catalogue=[
+            {
+                "name": "integral_query_entries",
+                "description": "Query entries.",
+                "input_schema": {"type": "object", "properties": {}},
+            }
+        ],
+    )[0]
+    first = await tool.function_schema.call({}, SimpleNamespace(tool_call_id="first"))
+    if transient_failure:
+        assert first["error_code"] == "temporarily_unavailable"
+    else:
+        assert first["entries"] == []
+    records.append({"id": "n.Entry.created"})
+    second = await tool.function_schema.call({}, SimpleNamespace(tool_call_id="second"))
+    assert second["entries"][0]["id"] == "n.Entry.created"
+    assert attempts == 2
+
+
+@pytest.mark.asyncio
+async def test_vetted_connector_read_crosses_broker_on_no_save_turn(monkeypatch):
+    invocations = []
+
+    async def invoke(**kwargs):
+        invocations.append(kwargs)
+        return CapabilityResult(ok=True, data={"results": []})
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    tools = build_brokered_tools(
+        scope=_scope(),
+        no_workspace_writes=True,
+        catalogue=[
+            {
+                "name": "mcp__serper_web_search__search_web",
+                "description": "Search public sources.",
+                "op_class": "read",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                },
+            },
+            {
+                "name": "mcp__custom__delete",
+                "description": "Unknown remote side effects.",
+                "input_schema": {"type": "object", "properties": {}},
+            },
+        ],
+    )
+    context = SimpleNamespace(tool_call_id="read", active_capability_ids=set())
+    read = next(tool for tool in tools if tool.name.endswith("search_web"))
+    assert read.sequential is False
+    result = await read.function_schema.call({"query": "public documentation"}, context)
+    assert result["results"] == []
+    assert invocations[0]["source"] == "connector"
+    assert invocations[0]["op_class"] == "read"
+    assert invocations[0]["workspace_id"] == "workspace-1"
+    write = next(tool for tool in tools if tool.name.endswith("delete"))
+    assert write.sequential is True
+    denied = await write.function_schema.call({}, context)
+    assert denied["error_code"] == "user_no_workspace_writes"
+    assert len(invocations) == 1
+
+
+@pytest.mark.asyncio
+async def test_durable_attachment_tool_checks_accepted_input_before_dispatch(
+    monkeypatch,
+):
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock
+
+    from app.schemas.agentive.work import WorkError, WorkExecutionContext
+
+    scope = _scope()
+    work = WorkExecutionContext(
+        work_item_id="work-1",
+        attempt=1,
+        run_id=scope.run_id,
+        principal_id=scope.principal_id,
+        workspace_id=scope.workspace_id,
+        thread_id=scope.thread_id,
+        logical_step_key="attachment-read",
+        effect_key="effect-1",
+        lease_token="lease-1",
+        lease_fence=1,
+    )
+    item = SimpleNamespace(kind="chat_turn")
+    invocations = []
+
+    @asynccontextmanager
+    async def authorized(context):
+        assert context is work
+        yield
+
+    async def invoke(**kwargs):
+        invocations.append(kwargs)
+        return CapabilityResult(ok=True, data={"text": "accepted file"})
+
+    guard = AsyncMock(side_effect=WorkError("work.policy_denied", "attachment changed"))
+    monkeypatch.setattr(
+        "app.agentive.services.work_items.authorized_work_item_effect", authorized
+    )
+    monkeypatch.setattr(
+        "app.agentive.work_models.WorkItem.get", AsyncMock(return_value=item)
+    )
+    monkeypatch.setattr(
+        "app.services.chat_turn_attachments.assert_chat_attachment_read_inputs", guard
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda name: ("core", "read"),
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    tools = build_brokered_tools(
+        scope=scope,
+        work_execution_context=work,
+        catalogue=[
+            {
+                "name": "integral_get_attachment_text",
+                "description": "Read a file.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"attachment_id": {"type": "string"}},
+                },
+            }
+        ],
+        run_state={"capability_search_completed": True},
+    )
+    tool = next(tool for tool in tools if tool.name == "integral_get_attachment_text")
+    ctx = SimpleNamespace(tool_call_id="file-call", active_capability_ids=set())
+    with pytest.raises(WorkError, match="attachment changed"):
+        await tool.function_schema.call({"attachment_id": "file-1"}, ctx)
+    assert invocations == []
+    guard.assert_awaited_once_with(item=item)
+    guard.side_effect = None
+    result = await tool.function_schema.call({"attachment_id": "file-1"}, ctx)
+    assert result["text"] == "accepted file"
+    assert len(invocations) == 1
+
+
+@pytest.mark.asyncio
+async def test_durable_tools_forward_distinct_host_owned_logical_contexts(monkeypatch):
+    from contextlib import asynccontextmanager
+
+    from app.schemas.agentive.work import WorkError, WorkExecutionContext
+
+    scope = _scope()
+    parent = WorkExecutionContext(
+        work_item_id="work-1",
+        attempt=1,
+        run_id=scope.run_id,
+        principal_id=scope.principal_id,
+        workspace_id=scope.workspace_id,
+        thread_id=scope.thread_id,
+        logical_step_key="provider:0",
+        effect_key="parent-effect",
+        lease_token="lease-1",
+        lease_fence=1,
+    )
+    calls = []
+
+    @asynccontextmanager
+    async def authorized(context):
+        assert context is parent
+        yield
+
+    async def invoke(**kwargs):
+        calls.append(kwargs)
+        return CapabilityResult(ok=True, data={"tracks": []})
+
+    monkeypatch.setattr(
+        "app.agentive.services.work_items.authorized_work_item_effect", authorized
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda name: ("core", "read"),
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    tools = build_brokered_tools(
+        scope=scope,
+        work_execution_context=parent,
+        catalogue=[
+            {
+                "name": "integral_list_tracks",
+                "description": "List tracks.",
+                "input_schema": {"type": "object", "properties": {}},
+            }
+        ],
+    )
+    tool = next(t for t in tools if t.name == "integral_list_tracks")
+    for identifier in ("call-a", "call-b", "call-a"):
+        await tool.function_schema.call(
+            {}, SimpleNamespace(tool_call_id=identifier, active_capability_ids=set())
+        )
+    first, second, replay = [c["work_execution_context"] for c in calls]
+    assert first.logical_step_key != second.logical_step_key
+    assert first.effect_key != second.effect_key
+    assert first == replay
+    assert first.logical_step_key != parent.logical_step_key
+    for context in (first, second):
+        for field in (
+            "work_item_id",
+            "attempt",
+            "run_id",
+            "principal_id",
+            "workspace_id",
+            "thread_id",
+            "lease_token",
+            "lease_fence",
+            "deadline_at",
+            "cancellation_signal",
+        ):
+            assert getattr(context, field) == getattr(parent, field)
+    with pytest.raises(WorkError, match="tool call identity"):
+        await tool.function_schema.call(
+            {}, SimpleNamespace(tool_call_id=None, active_capability_ids=set())
+        )
+    assert len(calls) == 3
+
+
+def test_tool_effect_identity_survives_new_attempt_but_keeps_current_lease():
+    from app.agentive.harness.broker_tools import _tool_work_context
+    from app.schemas.agentive.work import WorkExecutionContext
+
+    parent = WorkExecutionContext(
+        work_item_id="work-1",
+        attempt=1,
+        run_id="run-1",
+        principal_id="user-1",
+        workspace_id="workspace-1",
+        thread_id="thread-1",
+        logical_step_key="provider:0",
+        effect_key="parent-effect",
+        lease_token="lease-1",
+        lease_fence=1,
+    )
+    newer = parent.model_copy(
+        update={
+            "attempt": 2,
+            "run_id": "run-2",
+            "lease_token": "lease-2",
+            "lease_fence": 2,
+        }
+    )
+    first = _tool_work_context(parent, "persisted-call", "integral_list_tracks")
+    replay = _tool_work_context(newer, "persisted-call", "integral_list_tracks")
+    assert first.logical_step_key == replay.logical_step_key
+    assert first.effect_key == replay.effect_key
+    assert replay.attempt == 2 and replay.lease_fence == 2
+    assert replay.run_id == "run-2" and replay.lease_token == "lease-2"

@@ -6,7 +6,7 @@
  *
  * Supported widgets per app_bundles_v1.md §7.3:
  *   text | textarea | select | multi_select | boolean
- *   entry_picker | tag_picker | number | date
+ *   entry_picker | tag_picker | number | date | password | secret
  *
  * Widget dispatch precedence:
  *   1. JSON Schema's ``ui:widget`` extension (per spec).
@@ -68,6 +68,8 @@ function isKnownWidget(s: string): s is WidgetKind {
     'tag_picker',
     'number',
     'date',
+    'password',
+    'secret',
   ].includes(s);
 }
 

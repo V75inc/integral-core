@@ -51,7 +51,7 @@ def _make_upload(content: bytes, filename: str, content_type: str):
 
 async def _seed_chat_attachment(user_id: str):
     thread = await chat_store.create_thread(
-        user_id=user_id, provider_id="jvagent", workspace_id="ws1"
+        user_id=user_id, provider_id="integral_native", workspace_id="ws1"
     )
     upload = _make_upload(b"quarterly numbers", "report.csv", "text/csv")
     result = await _persist_uploaded_chat_file(
@@ -271,3 +271,71 @@ def test_tool_bound_and_dispatchable():
     binding = bindings.TOOL_BINDINGS.get("integral_attach_uploaded_file_to_entry")
     assert binding is not None
     assert binding.stager is bindings._stage_attach_uploaded_file
+
+
+@pytest.mark.asyncio
+async def test_attachment_stage_accepts_valid_backward_target_without_writes(
+    monkeypatch,
+):
+    from app.agentive import staging
+    from app.services.agent_scope import current_scope_workspace_id
+
+    staging._reset_for_tests()
+    thread, attachment_id = await _seed_chat_attachment("owner")
+    await staging.open_batch(
+        user_id="owner", session_id=thread.id, label="File receipt"
+    )
+    await staging.append_to_batch(
+        user_id="owner",
+        session_id=thread.id,
+        op={
+            "kind": "create_entry",
+            "payload": {"track_id": "track", "title": "Receipt"},
+        },
+    )
+    monkeypatch.setattr(
+        chat_store, "get_thread_by_session", AsyncMock(return_value=thread)
+    )
+    principal = bindings._propose_principal.set("owner")
+    session = bindings._propose_session_id.set(thread.id)
+    workspace = current_scope_workspace_id.set("ws1")
+    try:
+        staged = await bindings._stage_attach_uploaded_file(
+            {
+                "entry_id": "{{step_1.id}}",
+                "attachment_id": attachment_id,
+            }
+        )
+        assert staged["payload"]["entry_id"] == "{{step_1.id}}"
+        attachment = await Attachment.get(attachment_id)
+        assert attachment.owner_kind == "chat"
+        assert not await attachment.nodes(
+            edge=[HAS_ATTACHMENT], node=["Entry"], direction="in", limit=1
+        )
+        workspace_wrong = current_scope_workspace_id.set("other-workspace")
+        try:
+            with pytest.raises(Exception, match="own this file"):
+                await bindings._stage_attach_uploaded_file(
+                    {
+                        "entry_id": "{{step_1.id}}",
+                        "attachment_id": attachment_id,
+                    }
+                )
+        finally:
+            current_scope_workspace_id.reset(workspace_wrong)
+        other, _ = await _seed_chat_attachment("owner")
+        monkeypatch.setattr(
+            chat_store, "get_thread_by_session", AsyncMock(return_value=other)
+        )
+        with pytest.raises(Exception, match="own this file"):
+            await bindings._stage_attach_uploaded_file(
+                {
+                    "entry_id": "{{step_1.id}}",
+                    "attachment_id": attachment_id,
+                }
+            )
+    finally:
+        bindings._propose_principal.reset(principal)
+        bindings._propose_session_id.reset(session)
+        current_scope_workspace_id.reset(workspace)
+        staging._reset_for_tests()

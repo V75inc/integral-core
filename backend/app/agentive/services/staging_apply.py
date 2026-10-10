@@ -19,7 +19,6 @@ from app.agentive.staging import (
     consume_token,
     persist_consumed_nav_in_transcript,
     record_execute_outcome,
-    record_external_result_for_agent,
     release_execution_claim,
     resolve_transcript_anchor_for_token,
 )
@@ -112,6 +111,39 @@ async def bless_and_execute(
         autonomy="single",
         decision_source=decision_source,
     )
+    return await execute_blessed_change(
+        user_id=user_id,
+        token=token,
+        request=request,
+        staged=sc,
+    )
+
+
+async def execute_blessed_change(
+    *,
+    user_id: str,
+    token: str,
+    request: Optional[Any] = None,
+    staged: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """Dispatch + consume an already-blessed token (host follow-through / retry).
+
+    Same post-bless path as :func:`bless_and_execute` without re-blessing.
+    Used by ``staging_follow_through`` so an empty host turn does not leave
+    apply to an unreliable model utterance.
+    """
+    from app.agentive.staging import get_token
+
+    sc = staged if staged is not None else await get_token(token)
+    if sc is None:
+        raise StagingError("unknown_token", f"No staged change for token {token!r}")
+    if sc.user_id != user_id:
+        raise StagingError("wrong_user", "Token does not belong to this user")
+    if sc.state != "blessed":
+        raise StagingError(
+            f"already_{sc.state}" if sc.state != "pending" else "not_blessed",
+            f"Token is not blessed (state={sc.state!r})",
+        )
 
     response: Dict[str, Any] = {
         "ok": True,
@@ -169,6 +201,25 @@ async def bless_and_execute(
 
     if not result.get("error") and result.get("filed") is not False:
         try:
+            # A partial design resumed through the inbox must retain its
+            # design receipt before the terminal staging row is removed.
+            if sc.kind == "batch" and sc.session_id:
+                from app.services import chat_threads
+
+                thread = await chat_threads.get_thread_by_session(sc.session_id)
+                marker = getattr(thread, "design_proposed", None) or {}
+                if (marker.get("partial_build") or {}).get("batch_token") == sc.token:
+                    receipt = await chat_threads.record_design_build_receipt(
+                        session_id=sc.session_id,
+                        user_id=user_id,
+                        batch_token=sc.token,
+                        execute_result=result,
+                    )
+                    if not isinstance(receipt, dict):
+                        raise StagingError(
+                            "build_receipt_unavailable",
+                            "The batch applied but its design receipt could not be persisted.",
+                        )
             # Consume clears the execution claim.
             await consume_token(user_id=user_id, token=token, expected_kind=sc.kind)
             response["consumed"] = True
@@ -179,11 +230,10 @@ async def bless_and_execute(
             response["staged_change"] = sc.to_dict()
             await persist_consumed_nav_in_transcript(sc, result)
             # Hand the output back to the agent. The transcript patch above
-            # feeds the FE card; jvagent's history build reads only
+            # feeds the FE card; agent runtime's history build reads only
             # utterance + response, so without this a blessed external READ
             # returned its data to the human and never to the model that
             # asked for it.
-            await record_external_result_for_agent(sc, result)
             from app.services.no_fit_route import maybe_file_preserve_after_structure
 
             follow = await maybe_file_preserve_after_structure(

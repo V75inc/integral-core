@@ -193,6 +193,43 @@ describe("useAIChatRuntime parallel streams", () => {
     // B stopped, A did not.
     expect(result.current.streamingThreadIds).not.toContain(threadB);
     expect(result.current.streamingThreadIds).toContain(threadA);
+    expect(result.current.runtime.thread.getState().messages.find(
+      (message) => message.role === "assistant",
+    )?.status).toEqual({ type: "incomplete", reason: "cancelled" });
+  });
+
+  it("settles an empty cancelled draft before a follow-up captures the transcript", async () => {
+    const emptyProvider: ChatProvider = {
+      ...mockProvider,
+      streamTurn: async function* ({ abortSignal }) {
+        yield { type: "status", text: "Working" };
+        while (!abortSignal?.aborted) await delay(5);
+      },
+    };
+    const { result } = renderHook(() => useAIChatRuntime(emptyProvider));
+    await act(async () => {
+      await result.current.runtime.thread.append({
+        role: "user", content: [{ type: "text", text: "first" }],
+      });
+    });
+    // assistant-ui publishes its external-store snapshot asynchronously;
+    // cancelRun is ignored before that snapshot reports a running turn.
+    await waitFor(() => expect(result.current.runtime.thread.getState().isRunning).toBe(true));
+    await act(async () => {
+      await result.current.runtime.thread.cancelRun();
+    });
+    await waitFor(() => expect(result.current.runtime.thread.getState().messages.find(
+      (message) => message.role === "assistant",
+    )?.status).toEqual({ type: "incomplete", reason: "cancelled" }));
+    await act(async () => {
+      await result.current.runtime.thread.append({
+        role: "user", content: [{ type: "text", text: "follow up" }],
+      });
+    });
+    expect(result.current.runtime.thread.getState().messages.filter(
+      (message) => message.role === "assistant",
+    )[0]?.status).toEqual({ type: "incomplete", reason: "cancelled" });
+    await act(async () => { await result.current.runtime.thread.cancelRun(); });
   });
 
   it("renders the authoritative final answer when streamed text is truncated", async () => {

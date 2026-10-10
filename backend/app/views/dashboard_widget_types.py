@@ -41,7 +41,7 @@ TYPE_ALIASES: Dict[str, str] = {
     "chart": "chart_bar",
     "feed": "activity_digest",
     "calendar": "activity_digest",
-    "table": "table_widget",
+    "table": "recent_entries",
     "quick_link": "recent_entries",
 }
 
@@ -202,6 +202,46 @@ def _register_builtins() -> None:
             },
         ),
         DashboardWidgetSpec(
+            type="record_summary",
+            label="Record summary",
+            description="Selected fields from an authorized App query, with optional details.",
+            palette_group="summaries",
+            default_size={"w": 12, "h": 5},
+            config_schema={
+                "type": "object",
+                "required": ["fields"],
+                "additionalProperties": False,
+                "properties": {
+                    "fields": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 8,
+                        "items": {
+                            "type": "object",
+                            "required": ["field", "label"],
+                            "additionalProperties": False,
+                            "properties": {
+                                "field": {"type": "string", "maxLength": 160},
+                                "label": {"type": "string", "maxLength": 80},
+                                "detail": {"type": "boolean"},
+                                "value_labels": {
+                                    "type": "object",
+                                    "maxProperties": 20,
+                                    "additionalProperties": {
+                                        "type": "string",
+                                        "maxLength": 80,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    "max_records": {"type": "integer", "minimum": 1, "maximum": 10},
+                    "empty_message": {"type": "string", "maxLength": 300},
+                },
+            },
+            data_source_schema={"properties": {"kind": {"enum": ["declared_query"]}}},
+        ),
+        DashboardWidgetSpec(
             type="recent_entries",
             label="Recent entries",
             description="Titles of the latest matching entries. No configurable columns or due-date ordering.",
@@ -248,6 +288,21 @@ def _register_builtins() -> None:
             description="Tracks with entry counts.",
             palette_group="summaries",
             data_source_schema={"properties": {"kind": {"enum": ["track_breakdown"]}}},
+        ),
+        DashboardWidgetSpec(
+            type="table_widget",
+            label="Table",
+            description="Top records behind a widget.",
+            palette_group="dashboard",
+            data_source_schema={"properties": {"limit": {"type": "integer"}}},
+        ),
+        DashboardWidgetSpec(
+            type="progress",
+            label="Progress",
+            description="A total against a target.",
+            palette_group="dashboard",
+            config_schema={"properties": {"target": {"type": "number"}}},
+            data_source_schema={"properties": {"kind": {"enum": ["aggregate"]}}},
         ),
     ]
     for spec in builtins:

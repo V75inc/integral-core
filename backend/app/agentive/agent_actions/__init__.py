@@ -1,24 +1,7 @@
-"""jvagent agent-actions registry — harness-tier (AGENTIVE_ENABLED-only).
+"""Registry of in-process Core retrieval actions.
 
-Per CONTEXT lock #11: agent actions live inside the AGENTIVE_ENABLED
-conditional load path (``backend/app/agentive/``). The MCP-side override
-map (``MCP_TOOL_NAME_OVERRIDES`` in ``backend/app/agentive/tooling/name_overrides.py``)
-lives in the always-loaded core service path — that surface is what an
-external MCP client (Claude Desktop, Cursor) consumes. THIS surface is
-what the in-process jvagent tool loop consumes.
-
-Actions are async callables invokable from inside the agent tool loop.
-Phase 4 lands the first action: ``retrieve_context`` (RET-04).
-
-Pattern (used by Phase 5+ agent-action additions):
-
-  1. Define an async callable in ``agent_actions/<name>.py`` that takes
-     ``agent_id`` + action-specific kwargs and returns a typed response.
-  2. Eager-import the callable here.
-  3. Register it via ``register_action(name, fn)``.
-
-The registry is a single module-level dict. ``get_registered_actions()``
-returns a snapshot for the agent loop's tool-dispatch table.
+The native resident and external MCP tools use the governed tool manifest.
+These callables share Core authentication, permission and retrieval services.
 """
 
 from __future__ import annotations

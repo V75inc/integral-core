@@ -59,6 +59,9 @@ def _scope_headers(workspace_id: str) -> Dict[str, str]:
     return {"X-Integral-Scope": f"ws:{workspace_id}"}
 
 
+pytestmark = pytest.mark.usefixtures("standalone_chat_provider")
+
+
 @pytest.mark.asyncio
 async def test_send_message_with_attachment_builds_context_note(
     authenticated_client: AsyncClient, test_user
@@ -67,7 +70,7 @@ async def test_send_message_with_attachment_builds_context_note(
     create = await authenticated_client.post(
         "/api/chat/threads",
         headers=_scope_headers(workspace_id),
-        json={"provider_id": "jvagent", "agent_id": "aiva"},
+        json={"provider_id": "test-provider", "agent_id": "aiva"},
     )
     thread_id = create.json()["id"]
 
@@ -87,7 +90,7 @@ async def test_send_message_with_attachment_builds_context_note(
             yield  # async generator, yields nothing
 
     with patch(
-        "app.services.chat_providers.jvagent_provider.JvagentProvider.stream_turn",
+        "tests.chat_provider_double.StandaloneTestProvider.stream_turn",
         new=fake_stream,
     ):
         resp = await authenticated_client.post(
@@ -130,7 +133,7 @@ async def test_send_message_drops_attachment_id_not_owned_by_thread(
     create = await authenticated_client.post(
         "/api/chat/threads",
         headers=_scope_headers(workspace_id),
-        json={"provider_id": "jvagent", "agent_id": "aiva"},
+        json={"provider_id": "test-provider", "agent_id": "aiva"},
     )
     thread_id = create.json()["id"]
 
@@ -143,7 +146,7 @@ async def test_send_message_drops_attachment_id_not_owned_by_thread(
             yield
 
     with patch(
-        "app.services.chat_providers.jvagent_provider.JvagentProvider.stream_turn",
+        "tests.chat_provider_double.StandaloneTestProvider.stream_turn",
         new=fake_stream,
     ):
         resp = await authenticated_client.post(

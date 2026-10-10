@@ -10,6 +10,7 @@ route and execution scope.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 from collections import defaultdict
@@ -25,15 +26,21 @@ import httpx
 
 from app.agentive.harness.contracts import (
     HarnessExecutionScope,
+    ModelRequestContextObservation,
+    ModelRouteIdentity,
     ModelUsageObservation,
     PhysicalModelRequest,
     ResolvedModelRoute,
 )
+from app.agentive.harness.model_errors import model_request_error
 from app.agentive.harness.pydantic_ai_compat import LiteLLMProvider, OpenAIChatModel
+from app.schemas.agentive.model_dispatch import ModelDispatchInput
 
 logger = logging.getLogger(__name__)
 
 AttemptObserver = Callable[[PhysicalModelRequest], Awaitable[None]]
+DispatchReadiness = Callable[[], Awaitable[None]]
+ModelAdmission = Callable[[ModelDispatchInput], Awaitable[DispatchReadiness]]
 
 
 class _ModelStreamOutcome(str, Enum):
@@ -148,6 +155,39 @@ def _plain(value: Any) -> Any:
     if isinstance(value, dict):
         return value
     raise TypeError("LiteLLM returned an unsupported response object")
+
+
+def _request_context(body: dict[str, Any]) -> ModelRequestContextObservation:
+    """Measure serialized request components without retaining their contents."""
+    sizes = {"instruction": 0, "conversation": 0, "tool_result": 0}
+    messages = body.get("messages") or []
+    for message in messages:
+        role = message.get("role") if isinstance(message, dict) else None
+        component = (
+            "instruction"
+            if role in {"system", "developer"}
+            else "tool_result" if role == "tool" else "conversation"
+        )
+        sizes[component] += len(
+            json.dumps(message, ensure_ascii=False, separators=(",", ":"))
+        )
+    tools = body.get("tools") or []
+    serialized_tools = json.dumps(
+        tools, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+    )
+    return ModelRequestContextObservation(
+        instruction_chars=sizes["instruction"],
+        conversation_chars=sizes["conversation"],
+        tool_result_chars=sizes["tool_result"],
+        tool_schema_chars=len(
+            json.dumps(tools, ensure_ascii=False, separators=(",", ":"))
+        ),
+        tool_schema_fingerprint=hashlib.sha256(
+            serialized_tools.encode("utf-8")
+        ).hexdigest(),
+        message_count=len(messages),
+        visible_tool_count=len(tools),
+    )
 
 
 def _cost_value(value: Any) -> Decimal | None:
@@ -418,6 +458,9 @@ class _LiteLLMStream(httpx.AsyncByteStream):
                     else _ModelStreamOutcome.UNKNOWN
                 )
                 await self._finish(self._accounting_response(), outcome)
+                classified = model_request_error(exc)
+                if classified is not None:
+                    raise classified from exc
             raise
 
     async def aclose(self) -> None:
@@ -446,6 +489,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         observer: AttemptObserver | None = None,
         completion: Callable[..., Awaitable[Any]] | None = None,
         timeout_seconds: float = 180.0,
+        admission: ModelAdmission | None = None,
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("model request timeout must be positive")
@@ -454,6 +498,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         self._observer = observer
         self._completion = completion
         self._timeout_seconds = timeout_seconds
+        self._admission = admission
 
     async def _sdk_completion(self, **kwargs: Any) -> Any:
         completion = self._completion
@@ -472,6 +517,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         response: Any | None = None,
         complete: bool = False,
         required: bool = False,
+        request_context: ModelRequestContextObservation | None = None,
     ) -> None:
         if self._observer is None:
             if required:
@@ -494,6 +540,8 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
             scope=self._scope,
             provider=self._route.provider,
             model=self._route.model,
+            credential_source=self._route.credential_source,
+            credential_ref=self._route.credential_ref,
             attempt=1,
             dispatched_at=started_at,
             observed_at=datetime.now(timezone.utc),
@@ -502,6 +550,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
                 _provider_request_id(response) if response is not None else None
             ),
             usage=usage,
+            request_context=request_context,
         )
         try:
             await self._observer(observation)
@@ -539,6 +588,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
                 request=request,
             )
 
+        request_context = _request_context(body)
         request_id = str(uuid4())
         started_at = datetime.now(timezone.utc)
         kwargs = dict(body)
@@ -586,39 +636,88 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
             kwargs["extra_body"] = extra_body
         if self._route.api_base is not None:
             kwargs["api_base"] = self._route.api_base
+        else:
+            kwargs.pop("api_base", None)
         if self._route.api_key is not None:
             kwargs["api_key"] = self._route.api_key.get_secret_value()
         else:
             kwargs.pop("api_key", None)
 
+        readiness = None
+        if self._admission is not None:
+            # Use final mapped SDK kwargs, including tools, reasoning controls
+            # and enforced output settings. Do not pass credential material to
+            # the host payload resolver or persist plaintext input there.
+            payload = {
+                key: value
+                for key, value in kwargs.items()
+                if key not in {"api_key", "api_base"}
+            }
+            readiness = await self._admission(
+                ModelDispatchInput(
+                    scope=self._scope,
+                    route=ModelRouteIdentity(
+                        provider=self._route.provider,
+                        model=self._route.model,
+                        credential_source=self._route.credential_source,
+                        credential_ref=self._route.credential_ref,
+                    ),
+                    request_id=request_id,
+                    sdk_payload_json=json.dumps(
+                        payload,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        allow_nan=False,
+                    ),
+                    endpoint_fingerprint=hashlib.sha256(
+                        (self._route.api_base or "provider-default").encode()
+                    ).hexdigest(),
+                )
+            )
+            if not callable(readiness):
+                raise RuntimeError("model admission requires final dispatch readiness")
+
         await self._observe(
             request_id=request_id,
+            request_context=request_context,
             started_at=started_at,
             outcome="dispatch_intent",
             required=True,
         )
+
+        if readiness is not None:
+            # Receipt persistence can outlive pricing or current authority.
+            # A rejected readiness check has no SDK dispatch; retain its hold
+            # conservatively for the separate no-dispatch recovery path.
+            await readiness()
 
         try:
             response = await self._sdk_completion(**kwargs)
         except asyncio.CancelledError:
             await self._observe(
                 request_id=request_id,
+                request_context=request_context,
                 started_at=started_at,
                 outcome="cancelled",
             )
             raise
-        except BaseException:
+        except BaseException as exc:
             await self._observe(
                 request_id=request_id,
+                request_context=request_context,
                 started_at=started_at,
                 outcome="outcome_unknown",
             )
+            classified = model_request_error(exc)
+            if classified is not None:
+                raise classified from exc
             raise
 
         if body.get("stream") is True:
             if not hasattr(response, "__aiter__"):
                 await self._observe(
                     request_id=request_id,
+                    request_context=request_context,
                     started_at=started_at,
                     outcome="failed",
                 )
@@ -631,6 +730,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
             async def finish(last: Any | None, outcome: _ModelStreamOutcome) -> None:
                 await self._observe(
                     request_id=request_id,
+                    request_context=request_context,
                     started_at=started_at,
                     outcome=outcome.value,
                     response=last,
@@ -652,6 +752,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         except Exception:
             await self._observe(
                 request_id=request_id,
+                request_context=request_context,
                 started_at=started_at,
                 outcome="failed",
             )
@@ -663,6 +764,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
 
         await self._observe(
             request_id=request_id,
+            request_context=request_context,
             started_at=started_at,
             outcome="responded",
             response=response,
@@ -683,6 +785,7 @@ def build_litellm_sdk_model(
     observer: AttemptObserver,
     completion: Callable[..., Awaitable[Any]] | None = None,
     timeout_seconds: float = 180.0,
+    admission: ModelAdmission | None = None,
 ) -> OpenAIChatModel:
     """Build an OpenAI-compatible Pydantic model over LiteLLM's in-process SDK."""
     transport = LiteLLMSDKTransport(
@@ -691,6 +794,7 @@ def build_litellm_sdk_model(
         observer=observer,
         completion=completion,
         timeout_seconds=timeout_seconds,
+        admission=admission,
     )
     http_client = httpx.AsyncClient(
         transport=transport, timeout=httpx.Timeout(timeout_seconds)

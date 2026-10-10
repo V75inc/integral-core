@@ -49,7 +49,7 @@ describe('postAgentiveChatMessage', () => {
       message: 'msg',
       session_id: 'sid',
       agent_user_id: 'uid',
-      agent_type: 'jvagent',
+      agent_type: 'integral_native',
     };
     (api.post as ReturnType<typeof vi.fn>).mockResolvedValue({ data: fakeResp });
 
@@ -58,7 +58,7 @@ describe('postAgentiveChatMessage', () => {
     expect(r.message).toBe('msg');
     expect(r.session_id).toBe('sid');
     expect(r.agent_user_id).toBe('uid');
-    expect(r.agent_type).toBe('jvagent');
+    expect(r.agent_type).toBe('integral_native');
   });
 });
 

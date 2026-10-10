@@ -1,7 +1,12 @@
 import type { PointerEvent as ReactPointerEvent, RefObject } from 'react';
+import { lazy, Suspense } from 'react';
 import { ActivityPanel } from '../../activity/ActivityPanel';
 import { SidebarScroller } from '../../layout/SidebarScroller';
-import { TrackConfigPanel } from '../TrackConfigPanel';
+import { Text } from '../../../ui';
+
+const TrackConfigPanel = lazy(() =>
+  import('../TrackConfigPanel').then(m => ({ default: m.TrackConfigPanel }))
+);
 
 export interface TrackDetailRightRailProps {
   trackId: string;
@@ -73,10 +78,18 @@ export function TrackDetailRightRail({
               className="mt-3"
             >
               <div id="track-config-panel" className="min-w-0">
-                <TrackConfigPanel
-                  trackId={trackId}
-                  canEdit={canAdminTrack}
-                />
+                <Suspense
+                  fallback={
+                    <Text as="div" variant="body" tone="muted" className="animate-pulse">
+                      Loading configuration…
+                    </Text>
+                  }
+                >
+                  <TrackConfigPanel
+                    trackId={trackId}
+                    canEdit={canAdminTrack}
+                  />
+                </Suspense>
               </div>
             </SidebarScroller>
           </>

@@ -25,11 +25,13 @@ edge to wire, and no cascade-delete / backup weight for 10-minute tokens.
 
 Failure policy
 --------------
-Every store call is best-effort and swallows exceptions (logged): a DB hiccup
+Ordinary store calls are best-effort and swallow exceptions (logged): a DB hiccup
 must never break an agent turn, and unit tests that run without a bootstrapped
 database degrade cleanly to today's in-memory-only behaviour. A persist failure
 in production is the same (rare) failure mode staging already documented as
 acceptable — just far less likely than a routine restart.
+Partial batch replacement is the exception: it uses strict writes inside a
+graph transaction so retiring approval and binding its replacement are atomic.
 """
 
 from __future__ import annotations
@@ -315,6 +317,15 @@ async def persist(sc: "StagedChange") -> None:
             await StagedChangeRecord.create(**fields)
     except Exception:  # noqa: BLE001 — durability is best-effort, never fatal
         logger.warning("staging_store.persist_failed token=%s", sc.token, exc_info=True)
+
+
+async def replace_partial(old: "StagedChange", new: "StagedChange") -> None:
+    """Strict writes inside the caller's transaction; never swallow rollback errors."""
+    existing = await _find_record(old.token)
+    if existing is None or _sc_to_fields(old) != _sc_to_fields(_record_to_sc(existing)):
+        raise RuntimeError("The durable partial batch changed; reload before repair.")
+    await StagedChangeRecord.create(**_sc_to_fields(new))
+    await existing.delete()
 
 
 async def remove(token: str) -> None:

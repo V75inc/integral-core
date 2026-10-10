@@ -2,7 +2,7 @@
 
 Three investigations in one session guessed why a turn stopped and were wrong,
 because the deciding facts — which protocol it spoke and why, which guard
-fired, how the loop ended — were never in the log. jvagent records all of it on
+fired, how the loop ended — were never in the log. native provider records all of it on
 the final envelope; these tests pin that we read it and surface it.
 """
 
@@ -121,7 +121,7 @@ def test_detail_dump_is_opt_in(monkeypatch, value, expected):
 def _final_content(**activation):
     """Integral's real terminal event: final-content, raw response under payload.
 
-    The chat provider never sees jvagent's bare ``final`` — the embed streamer
+    The chat provider never sees native provider's bare ``final`` — the embed streamer
     translates the turn into a UI vocabulary first. Reading only ``final`` is
     how the first version of this logged nothing at all while looking correct.
     """

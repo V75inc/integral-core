@@ -46,9 +46,12 @@ function bucketLabel(ts: number | null, now: number): string {
   // Calendar-day difference so "yesterday 11pm" reads as 1 day, not 0.
   // Future timestamps (clock skew) fall through to "Today".
   const days = differenceInCalendarDays(now, ts);
-  if (days <= 0) return "Today";
-  if (days === 1) return "Yesterday";
-  if (days <= 7) return "Previous 7 days";
+  if (days <= 1) {
+    const hour = new Date(Math.min(ts, now)).getHours();
+    const period = hour < 6 ? "Overnight" : hour < 12 ? "Morning" : hour < 18 ? "Afternoon" : "Evening";
+    return `${days <= 0 ? "Today" : "Yesterday"} · ${period}`;
+  }
+  if (days <= 7) return format(ts, "EEEE, MMM d");
   if (days <= 30) return "Previous 30 days";
   return format(ts, "MMMM yyyy");
 }

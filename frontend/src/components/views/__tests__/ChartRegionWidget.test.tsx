@@ -113,8 +113,14 @@ beforeEach(() => {
   );
 });
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
+  // Recharts' Redux store batches notifications on animation frames. Drain
+  // those callbacks while jsdom still owns cancelAnimationFrame, rather than
+  // letting its fallback timer fire after the environment has been removed.
+  await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
 

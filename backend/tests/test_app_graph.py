@@ -277,7 +277,7 @@ async def test_catalog_chat_thread_under_workspace_branch():
     thread = await ChatThread.create(
         user_id="u",
         workspace_id=ws.id,
-        provider_id="jvagent",
+        provider_id="integral_native",
         title="t",
         created_at=now,
         updated_at=now,

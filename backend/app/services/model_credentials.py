@@ -18,6 +18,10 @@ from app.services.credential_crypto import (
     encryption_available,
     encryption_unavailable_reason,
 )
+from app.services.model_provider_endpoints import (
+    OLLAMA_CLOUD_API_BASE,
+    OLLAMA_LOCAL_DEFAULT_API_BASE,
+)
 from app.utils.time import utc_now_iso
 
 logger = logging.getLogger(__name__)
@@ -30,8 +34,8 @@ SUPPORTED_PROVIDERS = frozenset(
 _OPENAI_VALIDATE_URL = "https://api.openai.com/v1/models"
 _ANTHROPIC_VALIDATE_URL = "https://api.anthropic.com/v1/models"
 _OPENROUTER_VALIDATE_URL = "https://openrouter.ai/api/v1/auth/key"
-_OLLAMA_VALIDATE_URL = "https://ollama.com/api/chat"
-_OLLAMA_LOCAL_DEFAULT_BASE_URL = "http://localhost:11434"
+_OLLAMA_VALIDATE_URL = f"{OLLAMA_CLOUD_API_BASE}/api/chat"
+_OLLAMA_LOCAL_DEFAULT_BASE_URL = OLLAMA_LOCAL_DEFAULT_API_BASE
 # Cloud model likely available on ollama.com; used only for key validation.
 _OLLAMA_VALIDATE_MODEL = "gpt-oss:120b"
 
@@ -69,18 +73,9 @@ def audit_snapshot_credential(record: UserModelCredential) -> Dict[str, Any]:
     return {
         "provider": record.provider,
         "model": record.model,
-        "light_provider": record.light_provider or None,
-        "light_model": record.light_model or None,
-        "heavy_provider": record.heavy_provider or None,
-        "heavy_model": record.heavy_model or None,
-        "vision_provider": record.vision_provider or None,
-        "vision_model": record.vision_model or None,
         "speech_provider": record.speech_provider or None,
         "speech_model": record.speech_model or None,
         "key_fingerprint": record.key_fingerprint,
-        "light_key_fingerprint": record.light_key_fingerprint or None,
-        "heavy_key_fingerprint": record.heavy_key_fingerprint or None,
-        "vision_key_fingerprint": record.vision_key_fingerprint or None,
         "speech_key_fingerprint": record.speech_key_fingerprint or None,
         "is_active": bool(record.is_active),
         "validated_at": record.validated_at,
@@ -273,20 +268,11 @@ async def upsert_user_credential(
     provider: str,
     model: str,
     api_key: Optional[str] = None,
-    light_model: Optional[str] = None,
-    light_provider: Optional[str] = None,
-    light_api_key: Optional[str] = None,
-    heavy_model: Optional[str] = None,
-    heavy_provider: Optional[str] = None,
-    heavy_api_key: Optional[str] = None,
-    vision_model: Optional[str] = None,
-    vision_provider: Optional[str] = None,
-    vision_api_key: Optional[str] = None,
     speech_model: Optional[str] = None,
     speech_provider: Optional[str] = None,
     speech_api_key: Optional[str] = None,
 ) -> UserModelCredential:
-    """Validate + (re)persist a user's BYOK credential (default + optional slots)."""
+    """Validate + (re)persist a user's primary-model and voice-input credentials."""
     if settings.INTEGRAL_AGENT_KEY_MODE == "platform_only":
         raise RuntimeError("BYOK is disabled on this deployment")
 
@@ -317,18 +303,6 @@ async def upsert_user_credential(
     valid, message = await validate_provider_api_key(slug, api_key_plain)
     if not valid:
         raise ValueError(message)
-
-    light_slug = (light_provider or "").strip().lower() or slug
-    if light_slug not in SUPPORTED_PROVIDERS:
-        raise ValueError(f"Unsupported light provider: {light_provider}")
-
-    heavy_slug = (heavy_provider or "").strip().lower() or slug
-    if heavy_slug not in SUPPORTED_PROVIDERS:
-        raise ValueError(f"Unsupported heavy provider: {heavy_provider}")
-
-    vision_slug = (vision_provider or "").strip().lower() or slug
-    if vision_slug not in SUPPORTED_PROVIDERS:
-        raise ValueError(f"Unsupported vision provider: {vision_provider}")
 
     # The speech slot is opt-in: no model means the slot is off, and any stored
     # slot key is dropped rather than left orphaned behind an empty provider.
@@ -372,27 +346,6 @@ async def upsert_user_credential(
             user_id=user_id,
         )
 
-    light_encrypted, light_fingerprint = await _resolve_slot_key(
-        label="light",
-        provider_slug=light_slug,
-        incoming_key=light_api_key,
-        existing_enc=existing.light_api_key_enc if existing else "",
-        existing_fingerprint=existing.light_key_fingerprint if existing else "",
-    )
-    heavy_encrypted, heavy_fingerprint = await _resolve_slot_key(
-        label="heavy",
-        provider_slug=heavy_slug,
-        incoming_key=heavy_api_key,
-        existing_enc=existing.heavy_api_key_enc if existing else "",
-        existing_fingerprint=existing.heavy_key_fingerprint if existing else "",
-    )
-    vision_encrypted, vision_fingerprint = await _resolve_slot_key(
-        label="vision",
-        provider_slug=vision_slug,
-        incoming_key=vision_api_key,
-        existing_enc=existing.vision_api_key_enc if existing else "",
-        existing_fingerprint=existing.vision_key_fingerprint if existing else "",
-    )
     if speech_model_clean:
         speech_encrypted, speech_fingerprint = await _resolve_slot_key(
             label="speech",
@@ -412,22 +365,10 @@ async def upsert_user_credential(
     if existing:
         existing.provider = slug
         existing.model = model.strip()
-        existing.light_provider = light_slug if light_slug != slug else ""
-        existing.light_model = (light_model or "").strip()
-        existing.heavy_provider = heavy_slug if heavy_slug != slug else ""
-        existing.heavy_model = (heavy_model or "").strip()
-        existing.vision_provider = vision_slug if vision_slug != slug else ""
-        existing.vision_model = (vision_model or "").strip()
         existing.speech_provider = speech_slug if speech_slug != slug else ""
         existing.speech_model = speech_model_clean
         existing.api_key_enc = encrypted
         existing.key_fingerprint = fingerprint
-        existing.light_api_key_enc = light_encrypted
-        existing.light_key_fingerprint = light_fingerprint
-        existing.heavy_api_key_enc = heavy_encrypted
-        existing.heavy_key_fingerprint = heavy_fingerprint
-        existing.vision_api_key_enc = vision_encrypted
-        existing.vision_key_fingerprint = vision_fingerprint
         existing.speech_api_key_enc = speech_encrypted
         existing.speech_key_fingerprint = speech_fingerprint
         existing.is_active = True
@@ -440,22 +381,10 @@ async def upsert_user_credential(
         user_id=user_id,
         provider=slug,
         model=model.strip(),
-        light_provider=light_slug if light_slug != slug else "",
-        light_model=(light_model or "").strip(),
-        heavy_provider=heavy_slug if heavy_slug != slug else "",
-        heavy_model=(heavy_model or "").strip(),
-        vision_provider=vision_slug if vision_slug != slug else "",
-        vision_model=(vision_model or "").strip(),
         speech_provider=speech_slug if speech_slug != slug else "",
         speech_model=speech_model_clean,
         api_key_enc=encrypted,
         key_fingerprint=fingerprint,
-        light_api_key_enc=light_encrypted,
-        light_key_fingerprint=light_fingerprint,
-        heavy_api_key_enc=heavy_encrypted,
-        heavy_key_fingerprint=heavy_fingerprint,
-        vision_api_key_enc=vision_encrypted,
-        vision_key_fingerprint=vision_fingerprint,
         speech_api_key_enc=speech_encrypted,
         speech_key_fingerprint=speech_fingerprint,
         is_active=True,
@@ -481,29 +410,6 @@ async def revoke_user_credential(user_id: str) -> bool:
 def decrypt_credential_api_key(record: UserModelCredential) -> str:
     """Decrypt the default-slot API key (AAD-bound to the record's user_id)."""
     return decrypt_secret_from_storage(record.api_key_enc or "", aad=record.user_id)
-
-
-def decrypt_credential_light_api_key(record: UserModelCredential) -> str:
-    """Decrypt the light-slot key, falling back to the default-slot key."""
-    if record.light_api_key_enc:
-        return decrypt_secret_from_storage(record.light_api_key_enc, aad=record.user_id)
-    return decrypt_credential_api_key(record)
-
-
-def decrypt_credential_heavy_api_key(record: UserModelCredential) -> str:
-    """Decrypt the heavy-slot key, falling back to the default-slot key."""
-    if record.heavy_api_key_enc:
-        return decrypt_secret_from_storage(record.heavy_api_key_enc, aad=record.user_id)
-    return decrypt_credential_api_key(record)
-
-
-def decrypt_credential_vision_api_key(record: UserModelCredential) -> str:
-    """Decrypt the vision-slot key, falling back to the default-slot key."""
-    if record.vision_api_key_enc:
-        return decrypt_secret_from_storage(
-            record.vision_api_key_enc, aad=record.user_id
-        )
-    return decrypt_credential_api_key(record)
 
 
 def decrypt_credential_speech_api_key(record: UserModelCredential) -> str:

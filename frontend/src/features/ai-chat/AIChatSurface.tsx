@@ -1,6 +1,7 @@
 import { createContext, useContext, type ReactNode } from "react";
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import { useAIChatRuntime } from "./useAIChatRuntime";
+import type { AIChatThread as ChatThreadRecord } from "../../api/aiChat";
 import type { ThreadGroupInfo } from "./threadGrouping";
 import { AIChatThread } from "./components/Thread";
 import { MockEchoProvider } from "./providers/MockEchoProvider";
@@ -28,29 +29,34 @@ const ChatActivityContext = createContext<{
   activityText: string | null;
   isRunning: boolean;
   streamError: string | null;
-  appendAssistantNote: (text: string) => void;
+  appendAssistantNote: (text: string) => Promise<string | null>;
   activeProviderSessionId: string | null;
   activeProviderId: string;
   /** ChatThread node id for the open thread — what the questions/staging
    *  REST surface keys on (distinct from the provider session id). */
   activeThreadId: string | null;
+  composerReady: boolean;
   streamingThreadIds: readonly string[];
   /** Threads busy with a turn this tab did not start. */
   remoteTurns: Record<string, { workspaceId: string | null; turnId: string | null }>;
   isThreadStreaming: (threadId: string) => boolean;
-  /** Recency bucket per thread id (Today / Yesterday / …) for the rail. */
+  /** Authorized thread metadata for title search within the active scope. */
+  threads: readonly ChatThreadRecord[];
+  /** Recency bucket per thread id for the rail. */
   threadGroups: ReadonlyMap<string, ThreadGroupInfo>;
 }>({
   activityText: null,
   isRunning: false,
   streamError: null,
-  appendAssistantNote: () => {},
+  appendAssistantNote: async () => null,
   activeProviderSessionId: null,
   activeProviderId: "",
   activeThreadId: null,
+  composerReady: false,
   streamingThreadIds: [],
   remoteTurns: {},
   isThreadStreaming: () => false,
+  threads: [],
   threadGroups: new Map(),
 });
 
@@ -61,7 +67,7 @@ export function useChatActivity() {
 export interface AIChatSurfaceProps {
   /**
    * Default = MockEchoProvider for safety. Real callers (page, popup) pass
-   * the provider they want — typically JvAgentProvider in production.
+   * the provider they want — typically IntegralNativeProvider in production.
    */
   provider?: ChatProvider;
   /** Hide the surface header chrome (e.g. when embedded in a dialog). */
@@ -141,10 +147,12 @@ function AIChatRuntimeBoundaryInner({
     appendAssistantNote,
     activeProviderSessionId,
     activeThreadId,
+    composerReady,
     streamingThreadIds,
     remoteTurns,
     isThreadStreaming,
     threadGroups,
+    threads,
   } = useAIChatRuntime(provider, {
     consumeEntityRefs: consumePendingEntityRefs,
     resetComposerEntityRefs,
@@ -162,10 +170,12 @@ function AIChatRuntimeBoundaryInner({
           activeProviderSessionId,
           activeProviderId: provider.id,
           activeThreadId,
+          composerReady,
           streamingThreadIds,
           remoteTurns,
           isThreadStreaming,
           threadGroups,
+          threads,
         }}
       >
         {/* Staged-change approval cards render inline at the top of the

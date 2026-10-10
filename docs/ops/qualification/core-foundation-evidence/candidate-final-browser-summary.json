@@ -1,0 +1,17 @@
+{
+  "scenario": "final packaged browser live fenced quote without reload",
+  "status": {
+    "type": "complete",
+    "reason": "stop"
+  },
+  "tool_steps": 1,
+  "physical_model_requests": 2,
+  "input_tokens": 39220,
+  "output_tokens": 203,
+  "provider_cost": "unavailable",
+  "quoted_body": "Synthetic approval test",
+  "record_revision": 1,
+  "browser_console_errors_or_warnings": 0,
+  "reload_needed": false,
+  "wheel_sha256": "3d8f251bfcf2c58050a7e2d204cb80648f63fd0645787e681d13e35e7f04a200"
+}

@@ -160,16 +160,25 @@ def create_web_app(
 
     @app.api_route("/", methods=["GET"])
     async def index() -> FileResponse:
-        return FileResponse(static_dir / "index.html")
+        return FileResponse(
+            static_dir / "index.html", headers={"Cache-Control": "no-store"}
+        )
 
     @app.api_route("/{path:path}", methods=["GET"])
     async def asset_or_spa(path: str) -> Response:
         found = _safe_file(static_dir, path)
         if found is not None:
-            return FileResponse(found)
+            return FileResponse(
+                found,
+                headers=(
+                    {"Cache-Control": "no-store"} if found.suffix == ".html" else None
+                ),
+            )
         if Path(path).suffix.lower() in _STATIC_ASSET_SUFFIXES:
             return Response(status_code=404)
-        return FileResponse(static_dir / "index.html")
+        return FileResponse(
+            static_dir / "index.html", headers={"Cache-Control": "no-store"}
+        )
 
     return app
 

@@ -12,8 +12,8 @@ export function AiModelsSection() {
           AI Models
         </Text>
         <Text variant="body" tone="muted" as="p" className="mt-1">
-          Connect your AI provider and choose which models to use for chat,
-          quick replies, harder problems, and images.
+          Connect your AI provider and choose your primary chat model and optional
+          voice input.
         </Text>
       </div>
       <ModelCredentialsSection />

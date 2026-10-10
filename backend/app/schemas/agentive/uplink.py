@@ -13,7 +13,7 @@ class RegisterAgentRequest(BaseModel):
     """User-context agent registration body (BYOA personal/org-facing scope)."""
 
     scope: str = "personal"
-    agent_type: AgentType = "jvagent"
+    agent_type: AgentType = "integral_native"
     capabilities: List[str] = Field(default_factory=list)
     uplink_url: str = ""
     persona: str = ""
@@ -24,21 +24,13 @@ class RegisterAgentRequest(BaseModel):
 
 
 class RegisterSystemAgentRequest(BaseModel):
-    """Service-key-only deployment-wide agent registration body.
+    """Service-key-only deployment-wide agent registration body."""
 
-    ``jvagent_agent_id`` and ``jvagent_base_url`` are jvagent-specific top-level
-    fields preserved from the existing wire shape (uplink.py:140-152). They
-    are folded into ``preferences`` server-side so the typed boundary stays
-    vendor-neutral while preserving back-compat with current callers.
-    """
-
-    agent_type: AgentType = "jvagent"
+    agent_type: AgentType = "integral_native"
     capabilities: List[str] = Field(default_factory=list)
     uplink_url: str = ""
     persona: str = ""
     preferences: Dict[str, Any] = Field(default_factory=dict)
-    jvagent_agent_id: Optional[str] = None
-    jvagent_base_url: Optional[str] = None
 
     model_config = {"extra": "forbid"}
 

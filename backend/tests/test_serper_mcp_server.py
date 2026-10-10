@@ -48,6 +48,8 @@ def test_search_web_normalizes_and_caps_results(
         "snippet": "Evidence",
     }
     assert "connector-test-key" not in repr(result)
+    assert result["source_kind"] == "search_snippets_not_fetched_pages"
+    assert result["retrieved_at"]
 
 
 def test_search_web_requires_key_and_query(monkeypatch: pytest.MonkeyPatch) -> None:

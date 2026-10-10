@@ -19,12 +19,11 @@ import {
   type SpeechProvider,
 } from '../../../api/modelCredentials';
 import {
-  defaultModelForSlot,
+  defaultModel,
   defaultSpeechModel,
   RECOMMENDED_MODELS,
   SPEECH_MODEL_PRESETS,
   type ModelPreset,
-  type ModelSlotTier,
 } from '../../../api/modelPresets';
 import { Button } from '../../../components/ui/Button';
 import { Skeleton } from '../../../components/ui/Skeleton';
@@ -36,16 +35,6 @@ import { SettingsSection, StatusPill } from '../components/Field';
 const QUERY_KEY = ['model-credentials', 'me'] as const;
 const CUSTOM_MODEL_VALUE = '__custom__';
 
-type OptionalSlot = 'light' | 'heavy' | 'vision';
-
-type OptionalSlotState = {
-  enabled: boolean;
-  dualProvider: boolean;
-  provider: ModelProvider;
-  model: string;
-  apiKey: string;
-};
-
 const PROVIDER_OPTIONS: { value: ModelProvider; label: string }[] = (
   Object.entries(PROVIDER_LABELS) as [ModelProvider, string][]
 ).map(([value, label]) => ({ value, label }));
@@ -54,31 +43,12 @@ function providerLabel(provider: ModelProvider): string {
   return PROVIDER_LABELS[provider] ?? provider;
 }
 
-function alternateProvider(current: ModelProvider): ModelProvider {
-  return PROVIDER_OPTIONS.find(o => o.value !== current)?.value ?? 'openai';
-}
-
-function freshOptionalSlot(
-  slot: OptionalSlot,
-  baseProvider: ModelProvider,
-): OptionalSlotState {
-  return {
-    enabled: slot === 'light',
-    dualProvider: false,
-    provider: alternateProvider(baseProvider),
-    model: defaultModelForSlot(baseProvider, slot),
-    apiKey: '',
-  };
-}
-
 function ModelSelect({
   provider,
-  tier,
   value,
   onChange,
 }: {
   provider: ModelProvider;
-  tier: ModelSlotTier;
   value: string;
   onChange: (modelId: string) => void;
 }) {
@@ -87,12 +57,12 @@ function ModelSelect({
   useEffect(() => {
     if (prevProvider.current === provider) return;
     prevProvider.current = provider;
-    onChange(defaultModelForSlot(provider, tier));
-  }, [provider, tier, onChange]);
+    onChange(defaultModel(provider));
+  }, [provider, onChange]);
 
   return (
     <PresetModelSelect
-      presets={RECOMMENDED_MODELS[provider][tier]}
+      presets={RECOMMENDED_MODELS[provider]}
       value={value}
       onChange={onChange}
     />
@@ -316,30 +286,6 @@ function ApiKeyRow({
   );
 }
 
-function slotSummary(
-  cred: ModelCredential,
-  slot: ModelSlotTier,
-): string {
-  if (slot === 'default') {
-    return `${providerLabel(cred.provider)} · ${cred.model}`;
-  }
-  const model =
-    slot === 'light'
-      ? cred.light_model
-      : slot === 'heavy'
-        ? cred.heavy_model
-        : cred.vision_model;
-  if (!model) return '—';
-  const altProvider =
-    slot === 'light'
-      ? cred.light_provider
-      : slot === 'heavy'
-        ? cred.heavy_provider
-        : cred.vision_provider;
-  const prov = altProvider && altProvider !== cred.provider ? altProvider : cred.provider;
-  return `${providerLabel(prov)} · ${model}`;
-}
-
 function speechSummary(cred: ModelCredential): string {
   if (!cred.speech_model) return 'Off';
   const prov =
@@ -367,7 +313,7 @@ function freshSpeechSlot(): SpeechSlotState {
 }
 
 /**
- * Voice input slot. Unlike the other optional slots it is opt-in (off by
+ * Voice input slot. It is opt-in (off by
  * default — members' dictation bills this key) and its provider list is
  * limited to vendors with a streaming speech-to-text API.
  */
@@ -465,143 +411,14 @@ function SpeechSlotEditor({
   );
 }
 
-function OptionalSlotEditor({
-  slot,
-  baseProvider,
-  state,
-  onChange,
-  onValidate,
-  validatePending,
-}: {
-  slot: OptionalSlot;
-  baseProvider: ModelProvider;
-  state: OptionalSlotState;
-  onChange: (next: OptionalSlotState) => void;
-  onValidate: () => void;
-  validatePending: boolean;
-}) {
-  const tier = slot;
-  const label = MODEL_SLOT_LABELS[slot];
-  const hint = MODEL_SLOT_HINTS[slot];
-  const modelProvider = state.dualProvider ? state.provider : baseProvider;
-  const needsKey = state.enabled && state.dualProvider && state.provider !== baseProvider;
-
-  return (
-    <TierPanel
-      title={label}
-      hint={hint}
-      headerExtra={
-        <EnabledToggle
-          checked={state.enabled}
-          onChange={enabled =>
-            onChange({
-              ...state,
-              enabled,
-              model: enabled
-                ? state.model || defaultModelForSlot(modelProvider, tier)
-                : state.model,
-            })
-          }
-        />
-      }
-    >
-      {state.enabled ? (
-        <>
-          <label className="flex cursor-pointer items-start gap-2.5">
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={state.dualProvider}
-              onChange={e => {
-                const dual = e.target.checked;
-                const lp = dual ? state.provider : baseProvider;
-                onChange({
-                  ...state,
-                  dualProvider: dual,
-                  provider: dual ? state.provider : baseProvider,
-                  model: defaultModelForSlot(lp, tier),
-                  apiKey: dual ? state.apiKey : '',
-                });
-              }}
-            />
-            <span className="flex min-w-0 flex-col gap-1">
-              <Text variant="body-sm" as="p">
-                Different provider
-              </Text>
-              <Text variant="body-sm" tone="muted" as="p">
-                Same provider reuses your primary API key.
-              </Text>
-            </span>
-          </label>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {state.dualProvider ? (
-              <div>
-                <FieldLabel>Provider</FieldLabel>
-                <ProviderSelect
-                  value={state.provider}
-                  onChange={next =>
-                    onChange({
-                      ...state,
-                      provider: next,
-                      model: defaultModelForSlot(next, tier),
-                      apiKey: '',
-                    })
-                  }
-                />
-              </div>
-            ) : null}
-            <div className={state.dualProvider ? '' : 'sm:col-span-2'}>
-              <FieldLabel>Model</FieldLabel>
-              <ModelSelect
-                provider={modelProvider}
-                tier={tier}
-                value={state.model}
-                onChange={model => onChange({ ...state, model })}
-              />
-            </div>
-          </div>
-          {needsKey ? (
-            <ApiKeyRow
-              provider={modelProvider}
-              label={`${label} API key`}
-              value={state.apiKey}
-              onChange={apiKey => onChange({ ...state, apiKey })}
-              onTest={onValidate}
-              testDisabled={
-                state.provider !== 'ollama_local' && !state.apiKey.trim()
-              }
-              testPending={validatePending}
-              consoleUrl={PROVIDER_CONSOLE_URLS[state.provider]}
-              consoleLabel={`${providerLabel(state.provider)} console`}
-            />
-          ) : (
-            <Text variant="body-sm" tone="muted">
-              Uses the same API key as your primary model.
-            </Text>
-          )}
-        </>
-      ) : (
-        <Text variant="body-sm" tone="muted">
-          Off — your primary model is used instead.
-        </Text>
-      )}
-    </TierPanel>
-  );
-}
-
 export function ModelCredentialsSection() {
   const qc = useQueryClient();
   const toast = useToast();
   const { agentKeyMode } = useAgentiveCapability();
 
   const [provider, setProvider] = useState<ModelProvider>('ollama');
-  const [model, setModel] = useState(() => defaultModelForSlot('ollama', 'default'));
+  const [model, setModel] = useState(() => defaultModel('ollama'));
   const [apiKey, setApiKey] = useState('');
-  const [slots, setSlots] = useState<Record<OptionalSlot, OptionalSlotState>>(() => ({
-    light: freshOptionalSlot('light', 'ollama'),
-    heavy: freshOptionalSlot('heavy', 'ollama'),
-    vision: freshOptionalSlot('vision', 'ollama'),
-  }));
   const [speech, setSpeech] = useState<SpeechSlotState>(freshSpeechSlot);
 
   const credQuery = useQuery<ModelCredential | null>({
@@ -616,9 +433,6 @@ export function ModelCredentialsSection() {
         active.updated_at,
         active.provider,
         active.model,
-        active.light_model,
-        active.heavy_model,
-        active.vision_model,
         active.speech_provider,
         active.speech_model,
       ].join('|')
@@ -628,33 +442,6 @@ export function ModelCredentialsSection() {
     if (!active) return;
     setProvider(active.provider);
     setModel(active.model);
-    const loadSlot = (key: OptionalSlot): OptionalSlotState => {
-      const modelField =
-        key === 'light'
-          ? active.light_model
-          : key === 'heavy'
-            ? active.heavy_model
-            : active.vision_model;
-      const providerField =
-        key === 'light'
-          ? active.light_provider
-          : key === 'heavy'
-            ? active.heavy_provider
-            : active.vision_provider;
-      const separate = !!providerField && providerField !== active.provider;
-      return {
-        enabled: !!modelField,
-        dualProvider: separate,
-        provider: (providerField || alternateProvider(active.provider)) as ModelProvider,
-        model: modelField || defaultModelForSlot(active.provider, key),
-        apiKey: '',
-      };
-    };
-    setSlots({
-      light: loadSlot('light'),
-      heavy: loadSlot('heavy'),
-      vision: loadSlot('vision'),
-    });
     const speechProvider: SpeechProvider = isSpeechProvider(active.speech_provider)
       ? active.speech_provider
       : isSpeechProvider(active.provider)
@@ -670,64 +457,17 @@ export function ModelCredentialsSection() {
 
   const applyRecommendedOllama = () => {
     setProvider('ollama');
-    setModel(defaultModelForSlot('ollama', 'default'));
-    setSlots({
-      light: { ...freshOptionalSlot('light', 'ollama'), enabled: true },
-      heavy: freshOptionalSlot('heavy', 'ollama'),
-      vision: freshOptionalSlot('vision', 'ollama'),
-    });
+    setModel(defaultModel('ollama'));
   };
 
   const handleProviderChange = (next: ModelProvider) => {
     setProvider(next);
-    setModel(defaultModelForSlot(next, 'default'));
+    setModel(defaultModel(next));
     if (next === 'ollama_local') setApiKey('');
-    setSlots(prev => ({
-      light: {
-        ...prev.light,
-        model: prev.light.enabled
-          ? defaultModelForSlot(prev.light.dualProvider ? prev.light.provider : next, 'light')
-          : prev.light.model,
-      },
-      heavy: {
-        ...prev.heavy,
-        model: prev.heavy.enabled
-          ? defaultModelForSlot(prev.heavy.dualProvider ? prev.heavy.provider : next, 'heavy')
-          : prev.heavy.model,
-      },
-      vision: {
-        ...prev.vision,
-        model: prev.vision.enabled
-          ? defaultModelForSlot(prev.vision.dualProvider ? prev.vision.provider : next, 'vision')
-          : prev.vision.model,
-      },
-    }));
-  };
-
-  const slotFields = (
-    key: OptionalSlot,
-  ): {
-    model: string;
-    provider: ModelProvider | undefined;
-    api_key: string | undefined;
-  } => {
-    const s = slots[key];
-    if (!s.enabled || !s.model.trim()) {
-      return { model: '', provider: undefined, api_key: undefined };
-    }
-    const separate = s.dualProvider && s.provider !== provider;
-    return {
-      model: s.model.trim(),
-      provider: separate ? s.provider : undefined,
-      api_key: separate && s.apiKey.trim() ? s.apiKey.trim() : undefined,
-    };
   };
 
   const saveMut = useMutation({
     mutationFn: () => {
-      const light = slotFields('light');
-      const heavy = slotFields('heavy');
-      const vision = slotFields('vision');
       const speechModel = speech.enabled ? speech.model.trim() : '';
       const speechSeparate = !!speechModel && speech.provider !== provider;
       const trimmedKey = apiKey.trim();
@@ -735,15 +475,6 @@ export function ModelCredentialsSection() {
         provider,
         model: model.trim(),
         ...(trimmedKey ? { api_key: trimmedKey } : {}),
-        light_model: light.model,
-        light_provider: light.provider,
-        light_api_key: light.api_key,
-        heavy_model: heavy.model,
-        heavy_provider: heavy.provider,
-        heavy_api_key: heavy.api_key,
-        vision_model: vision.model,
-        vision_provider: vision.provider,
-        vision_api_key: vision.api_key,
         speech_model: speechModel,
         speech_provider: speechSeparate ? speech.provider : undefined,
         speech_api_key:
@@ -753,11 +484,6 @@ export function ModelCredentialsSection() {
     onSuccess: cred => {
       setApiKey('');
       setSpeech(prev => ({ ...prev, apiKey: '' }));
-      setSlots(prev => ({
-        light: { ...prev.light, apiKey: '' },
-        heavy: { ...prev.heavy, apiKey: '' },
-        vision: { ...prev.vision, apiKey: '' },
-      }));
       qc.setQueryData(QUERY_KEY, cred);
       qc.invalidateQueries({ queryKey: ['agentive', 'status'] });
       toast.showToast('Models and keys saved', 'success');
@@ -797,21 +523,6 @@ export function ModelCredentialsSection() {
     },
   });
 
-  const optionalSlotValid = (key: OptionalSlot) => {
-    const s = slots[key];
-    if (!s.enabled) return true;
-    if (!s.model.trim()) return false;
-    if (
-      s.dualProvider &&
-      s.provider !== provider &&
-      s.provider !== 'ollama_local' &&
-      !s.apiKey.trim()
-    ) {
-      return false;
-    }
-    return true;
-  };
-
   const speechSlotValid =
     !speech.enabled ||
     (!!speech.model.trim() &&
@@ -820,15 +531,12 @@ export function ModelCredentialsSection() {
   const canSave =
     (active || apiKey.trim() || provider === 'ollama_local') &&
     model.trim() &&
-    optionalSlotValid('light') &&
-    optionalSlotValid('heavy') &&
-    optionalSlotValid('vision') &&
     speechSlotValid;
 
   return (
     <SettingsSection
       title="Your models & keys"
-      description="Choose models for everyday chat, quick replies, complex tasks, images, and voice input. Local Ollama can run without a hosted API key."
+      description="Choose your primary chat model and optional voice input. Local Ollama can run without a hosted API key."
     >
       <Stack gap="md">
         <Text variant="body-sm" tone="muted">
@@ -854,25 +562,12 @@ export function ModelCredentialsSection() {
                 <Stack gap="sm">
                   <StatusPill state="ok">Active</StatusPill>
                   <div className="grid gap-3 sm:grid-cols-2">
-                    {(['default', 'light', 'heavy', 'vision'] as ModelSlotTier[]).map(
-                      slot => (
-                        <Surface
-                          key={slot}
-                          tone="panel"
-                          border="subtle"
-                          radius="card"
-                          padding="none"
-                          className="px-3 py-2"
-                        >
-                          <Text variant="body-sm" tone="muted" as="p">
-                            {MODEL_SLOT_LABELS[slot]}
-                          </Text>
-                          <Text variant="body" weight="medium" as="p" className="mt-0.5">
-                            {slotSummary(active, slot)}
-                          </Text>
-                        </Surface>
-                      ),
-                    )}
+                    <Surface tone="panel" border="subtle" radius="card" padding="none" className="px-3 py-2">
+                      <Text variant="body-sm" tone="muted" as="p">Primary</Text>
+                      <Text variant="body" weight="medium" as="p" className="mt-0.5">
+                        {providerLabel(active.provider)} · {active.model}
+                      </Text>
+                    </Surface>
                     <Surface
                       tone="panel"
                       border="subtle"
@@ -944,7 +639,6 @@ export function ModelCredentialsSection() {
                       <FieldLabel>Model</FieldLabel>
                       <ModelSelect
                         provider={provider}
-                        tier="default"
                         value={model}
                         onChange={setModel}
                       />
@@ -970,23 +664,6 @@ export function ModelCredentialsSection() {
                     consoleLabel={`${providerLabel(provider)} console`}
                   />
                 </TierPanel>
-
-                {(['light', 'heavy', 'vision'] as OptionalSlot[]).map(slot => (
-                  <OptionalSlotEditor
-                    key={slot}
-                    slot={slot}
-                    baseProvider={provider}
-                    state={slots[slot]}
-                    onChange={next => setSlots(prev => ({ ...prev, [slot]: next }))}
-                    onValidate={() =>
-                      validateKey.mutate({
-                        prov: slots[slot].provider,
-                        key: slots[slot].apiKey.trim(),
-                      })
-                    }
-                    validatePending={validateKey.isPending}
-                  />
-                ))}
 
                 <SpeechSlotEditor
                   baseProvider={provider}
