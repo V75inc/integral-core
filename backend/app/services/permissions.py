@@ -41,6 +41,7 @@ import logging
 import os
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
+from app.exceptions import AuthorizationUnavailableError
 from app.middleware.permissions_cache import permissions_cache_get
 from app.models.edges import COLLABORATES_ON, EXCLUDED_FROM, IS_MEMBER_OF, OWNS
 from app.models.nodes import App, Entry, Track, User, View, Workspace
@@ -826,7 +827,7 @@ async def _is_excluded_from_resource(user: User, resource_id: str) -> bool:
         logger.warning(
             "Error reading exclusion on %s for %s: %s", resource_id, user.id, exc
         )
-        return False
+        raise AuthorizationUnavailableError() from exc
 
 
 async def _parent_of_resource(resource_type: str, resource_id: str) -> Optional[tuple]:

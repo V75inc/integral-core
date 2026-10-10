@@ -682,17 +682,21 @@ async def evaluate(
     if subject.kind == "system":
         return Decision(allowed=True, reason="system_subject")
 
-    # Per-request cache lookup (D-11). Dry-run skips cache entirely.
+    # Memoize only pure reads with the complete resource identity. Effects
+    # and payload-bearing decisions must be evaluated again, including
+    # approval creation. Dry-run bypasses all memoization.
     cache = permissions_cache_get()
     cache_key = (
         "policy",
         subject.kind,
         subject.id,
         action,
-        resource.kind,
-        resource.id,
+        json.dumps(
+            resource.model_dump(mode="json"), sort_keys=True, separators=(",", ":")
+        ),
     )
-    if not _dry_run and cache_key in cache:
+    cacheable = not _dry_run and payload is None and not _is_write_action(action)
+    if cacheable and cache_key in cache:
         return cache[cache_key]
 
     decision: Decision
@@ -863,7 +867,7 @@ async def evaluate(
                     policy_chain=policy_chain,
                 )
 
-    if not _dry_run:
+    if cacheable:
         cache[cache_key] = decision
 
     # POL-04 observability: every denial is structurally logged + audit-emitted

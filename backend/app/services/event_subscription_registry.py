@@ -1,7 +1,7 @@
 """Core event subscription registry — connections + broadcast helper for /api/events WS.
 
 Per CONTEXT D-12: this module lives in core (``app/services/``), NOT agentive. The
-/api/events WS endpoint is core infrastructure available without AGENTIVE_ENABLED.
+/api/events WS endpoint is Core infrastructure; the resident layer is always on.
 The Phase 1 sibling at ``app/agentive/services/agent_events.py`` is preserved
 verbatim (W3 invariant).
 
@@ -29,11 +29,13 @@ from typing import Any, Awaitable, Callable, Dict, List
 
 from fastapi import WebSocket
 
+from app.middleware.permissions_cache import isolated_permissions_cache
 from app.schemas.policy import Resource, Subject
 from app.services.change_event_logger import (
     ChangeEventEnvelope,
     is_change_event_enabled,
 )
+from app.services.event_access import can_release_event, scrub_event_credentials
 from app.services.policy_engine import evaluate as policy_evaluate
 from app.utils.time import utc_now_iso
 
@@ -91,16 +93,14 @@ async def _user_permitted_for_scope(user_id: str, scope: str) -> bool:
     broadcast (the engine's per-request cache contextvar is empty in the
     WS broadcast path because there is no inbound HTTP request).
     """
-    decision = await policy_evaluate(
-        subject=Subject(kind="human", id=user_id),
-        action="event_feed.subscribe",
-        resource=Resource(
-            kind="change_event",
-            id="",
-            scope=scope,
-        ),
-    )
-    return decision.allowed
+    with isolated_permissions_cache():
+        decision = await policy_evaluate(
+            subject=Subject(kind="human", id=user_id),
+            action="event_feed.subscribe",
+            resource=Resource(kind="change_event", id="", scope=scope),
+            _dry_run=True,
+        )
+        return decision.allowed
 
 
 async def broadcast_change_event(event: ChangeEventEnvelope) -> None:
@@ -120,8 +120,7 @@ async def broadcast_change_event(event: ChangeEventEnvelope) -> None:
         return
 
     if _subscriptions:
-        scope = event.scope or ""
-        payload: Dict[str, Any] = event.to_wire()
+        payload: Dict[str, Any] = scrub_event_credentials(event.to_wire())
         message = json.dumps(
             {
                 "type": "change_event",
@@ -131,7 +130,20 @@ async def broadcast_change_event(event: ChangeEventEnvelope) -> None:
         )
 
         for user_id, websockets in list(_subscriptions.items()):
-            permitted = await _user_permitted_for_scope(user_id, scope)
+            try:
+                permitted = await can_release_event(
+                    user_id,
+                    event,
+                    action="event_feed.subscribe",
+                    evaluate=policy_evaluate,
+                )
+            except Exception:
+                logger.exception(
+                    "event authorization unavailable user=%s event=%s",
+                    user_id,
+                    event.id,
+                )
+                continue
             if not permitted:
                 continue
 

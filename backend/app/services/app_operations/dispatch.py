@@ -188,6 +188,7 @@ async def invoke_app_operation(
         lookup_idempotent_result,
         store_idempotent_result,
     )
+    from app.services.app_operations.result_access import authorize_replayed_result
 
     request_hash = hash_request_payload(body)
     idem_key = str(idempotency_key or "").strip()
@@ -222,6 +223,9 @@ async def invoke_app_operation(
             request_hash=request_hash,
         )
         if cached is not None:
+            await authorize_replayed_result(
+                cached, user_id=user_id, workspace_id=workspace_id, app_id=app_id
+            )
             return cached
 
     ctx = OperationContext(
@@ -402,6 +406,13 @@ async def invoke_app_operation(
                 await deliver_operation_event(
                     outbox_id=event_outbox_id(identity, sequence)
                 )
+        else:
+            await authorize_replayed_result(
+                execution.result,
+                user_id=user_id,
+                workspace_id=workspace_id,
+                app_id=app_id,
+            )
         return {
             **execution.result,
             "operation_receipt": receipt_reference(

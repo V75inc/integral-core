@@ -47,6 +47,7 @@ from app.schemas.api.auth import (
 )
 from app.services.app_graph import catalog_user, catalog_workspace
 from app.services.change_event import emit_change_event
+from app.services.email_identity import email_proof_matches, verified_current_email
 from app.services.email_verification import (
     ERR_ALREADY_VERIFIED,
     ERR_ATTEMPTS_EXCEEDED,
@@ -107,6 +108,10 @@ async def _self_user_view(user: User) -> Dict[str, Any]:
             target["preferences"] = _scrub_sensitive_preferences(
                 target.get("preferences")
             )
+    verified = bool(await verified_current_email(user))
+    user_data["email_verified"] = verified
+    if isinstance(context, dict):
+        context["email_verified"] = verified
     return user_data
 
 
@@ -547,9 +552,6 @@ async def resend_verification(request: Request) -> Dict[str, Any]:
     if not user:
         raise ResourceNotFoundError(message="User not found")
 
-    if user.email_verified:
-        return {"ok": True, "message": "Email already verified"}
-
     auth_user = await AuthUser.get(user.user_id)
     if not auth_user:
         raise ResourceNotFoundError(message="Auth user not found")
@@ -557,10 +559,12 @@ async def resend_verification(request: Request) -> Dict[str, Any]:
     email = getattr(auth_user, "email", "") or ""
     if not email:
         raise BadRequestError(message="No email address on file")
+    if email_proof_matches(user, email):
+        return {"ok": True, "message": "Email already verified"}
 
     # Rate-limit: if an unexpired code is already pending, don't generate a
     # new one — the existing code is still valid and the user should wait.
-    if has_pending_code(user):
+    if has_pending_code(user, email):
         return {
             "ok": True,
             "message": "A code is already pending. Please check your email.",
