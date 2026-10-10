@@ -109,4 +109,4 @@ Source line references in the review belong to the baseline and may move during 
 
 ## Source surface inventory
 
-[surface_inventory.json](surface_inventory.json) indexes 384 REST endpoint declarations and 44 ToolContext/OperationContext method declarations (including overrides). It records source hashes and leaves qualification/evidence explicitly unmapped. Rebuild it with `backend/.venv/bin/python docs/ops/qualification/access-control-review/build_surface_inventory.py`. This is a source index; worker, public, event, file and runtime registration boundaries still need mapping and paired acceptance evidence.
+[surface_inventory.json](surface_inventory.json) indexes 384 REST endpoint declarations and 45 ToolContext/OperationContext method declarations (including overrides). It records source hashes and leaves qualification/evidence explicitly unmapped. Rebuild it with `backend/.venv/bin/python docs/ops/qualification/access-control-review/build_surface_inventory.py`. This is a source index; worker, public, event, file and runtime registration boundaries still need mapping and paired acceptance evidence.

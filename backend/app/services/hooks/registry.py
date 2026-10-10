@@ -209,26 +209,32 @@ class ToolContext:
     #: Explicit facade enforcement for read-time projections and read operations.
     read_only: bool = False
 
-    async def get_entry(self, entry_id: str):
-        """Fetch an Entry node by id (scoped to caller's workspace access)."""
-        from app.models.nodes import Entry
-        from app.services.permissions import resolve_role
+    async def _resource_in_scope(self, kind: str, resource_id: str) -> bool:
+        """Check canonical execution containment independently of caller grants."""
         from app.services.resource_location import locate_resource
 
-        location = await locate_resource("entry", entry_id)
+        location = await locate_resource(kind, resource_id)
         if location is None or location.workspace_id != self.workspace_id:
-            return None
+            return False
         app_id = str(getattr(self, "app_id", "") or "").strip()
-        if app_id and location.app_id != app_id:
-            return None
-        ent = await Entry.find_one({"id": entry_id})
-        if ent is None:
-            return None
-        # Standard access gate.
-        role = await resolve_role(self.user_id, "entry", entry_id)
-        if role is None:
-            return None
-        return ent
+        return not app_id or location.app_id == app_id
+
+    async def get_entry(self, entry_id: str):
+        """Fetch an Entry node by id (scoped to caller's workspace access)."""
+        from app.middleware.permissions_cache import isolated_permissions_cache
+        from app.models.nodes import Entry
+        from app.services.permissions import resolve_role
+
+        with isolated_permissions_cache():
+            if not await self._resource_in_scope("entry", entry_id):
+                return None
+            ent = await Entry.find_one({"id": entry_id})
+            if (
+                ent is None
+                or await resolve_role(self.user_id, "entry", entry_id) is None
+            ):
+                return None
+            return ent
 
     async def get(self, object_ref: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Fetch a serialized object by ObjectRef-shaped dict (ToolContext v2)."""
@@ -253,15 +259,18 @@ class ToolContext:
 
     async def query(self, query_spec: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a governed QuerySpec (ADR-012)."""
+        from app.middleware.permissions_cache import isolated_permissions_cache
         from app.schemas.governed_query import QuerySpec
         from app.services.governed_query import execute_query
 
         spec = QuerySpec.model_validate(query_spec)
-        result = await execute_query(
-            user_id=self.user_id,
-            workspace_id=self.workspace_id,
-            spec=spec,
-        )
+        with isolated_permissions_cache():
+            result = await execute_query(
+                user_id=self.user_id,
+                workspace_id=self.workspace_id,
+                spec=spec,
+                target_gate=self._resource_in_scope,
+            )
         return result.model_dump()
 
     async def invoke(
@@ -299,36 +308,16 @@ class ToolContext:
         Track belongs to this workspace — no cross-workspace leak, and the
         query actually matches.
         """
-        from app.models.nodes import Entry, Track
-
-        # resolve_role is used in the per-entry gate below. The sibling helpers
-        # in this class each import it locally; this one did not, so the first
-        # entry that reached the permission check would raise NameError. mypy
-        # caught it as `Name "resolve_role" is not defined` — it is unreachable
-        # only while the query returns nothing, which is precisely the bug the
-        # docstring above says was just fixed.
-        from app.services.permissions import resolve_role
+        from app.models.nodes import Entry
 
         rows = list(await Entry.find(query))
         if not rows:
             return []
-        track_in_ws: Dict[str, bool] = {}
         scoped: List[Any] = []
         for entry in rows:
-            track_id = getattr(entry, "track_id", None)
-            if not track_id:
-                continue
-            if track_id not in track_in_ws:
-                track = await Track.get(track_id)
-                track_in_ws[track_id] = bool(
-                    track and getattr(track, "workspace_id", None) == self.workspace_id
-                )
-            if not track_in_ws[track_id]:
-                continue
-            role = await resolve_role(self.user_id, "entry", entry.id)
-            if role is None:
-                continue
-            scoped.append(entry)
+            current = await self.get_entry(entry.id)
+            if current is not None:
+                scoped.append(current)
         return scoped
 
     async def _tracks_by_title(self, track_type: str) -> List[Any]:
@@ -344,7 +333,7 @@ class ToolContext:
         each entry with ``resolve_role(..., "entry", …)`` — same ACL as
         :meth:`find_entries`.
         """
-        from app.models.edges import CONTAINS
+        from app.middleware.permissions_cache import isolated_permissions_cache
         from app.models.nodes import Track
         from app.services.operational_model_compile import _slug
         from app.services.permissions import resolve_role
@@ -356,21 +345,11 @@ class ToolContext:
         for track in await Track.find({"context.workspace_id": self.workspace_id}):
             if _slug(getattr(track, "title", "") or "") != want:
                 continue
-            if await resolve_role(self.user_id, "track", track.id) is None:
-                continue
-            try:
-                # App's stored discriminator is "WorkspaceApp"
-                # (__entity_name__ = "WorkspaceApp" — see app/models/nodes.py),
-                # not "App" — node=["App"] silently matches nothing.
-                parents = await track.nodes(
-                    edge=[CONTAINS], node=["WorkspaceApp"], direction="in"
-                )
-            except Exception:  # noqa: BLE001
-                parents = []
-            if parents and not any(
-                getattr(p, "lifecycle_state", "active") == "active" for p in parents
-            ):
-                continue
+            with isolated_permissions_cache():
+                if not await self._resource_in_scope("track", track.id):
+                    continue
+                if await resolve_role(self.user_id, "track", track.id) is None:
+                    continue
             out.append(track)
         return out
 
@@ -386,7 +365,6 @@ class ToolContext:
         """
         from app.models.nodes import Entry, EntryType
         from app.services.operational_model_compile import _slug
-        from app.services.permissions import resolve_role
 
         wanted_type = _slug(entry_type) if entry_type else ""
         type_key_cache: Dict[str, str] = {}
@@ -395,7 +373,7 @@ class ToolContext:
             if not type_id:
                 return ""
             if type_id not in type_key_cache:
-                et = await EntryType.get(type_id)
+                et = await EntryType.find_one({"id": type_id})
                 if et is None:
                     type_key_cache[type_id] = ""
                 else:
@@ -411,16 +389,22 @@ class ToolContext:
                 entries = await track.nodes(
                     edge=["CONTAINS"], direction="out", node=["Entry"]
                 )
-            except Exception:  # noqa: BLE001
-                continue
+            except Exception as exc:
+                from app.exceptions import AuthorizationUnavailableError
+
+                raise AuthorizationUnavailableError() from exc
             for e in entries:
                 if not isinstance(e, Entry):
                     continue
-                if wanted_type and await _entry_type_slug(e.type_id) != wanted_type:
+                current = await self.get_entry(e.id)
+                if current is None:
                     continue
-                if await resolve_role(self.user_id, "entry", e.id) is None:
+                if (
+                    wanted_type
+                    and await _entry_type_slug(current.type_id) != wanted_type
+                ):
                     continue
-                out.append(e)
+                out.append(current)
         return out
 
     async def find_track_id_by_title(self, track_type: str) -> Optional[str]:
@@ -449,8 +433,7 @@ class ToolContext:
         Domain Apps own interpretation of their fields and ordering. Core only
         resolves the graph relation and applies principal/workspace access.
         """
-        from app.models.nodes import Entry, Track
-        from app.services.permissions import resolve_role
+        from app.models.nodes import Entry
 
         edge_key = str(edge_type or "").strip()
         way = str(direction or "").strip().lower()
@@ -461,38 +444,26 @@ class ToolContext:
             or not 1 <= int(limit) <= 500
         ):
             return []
-        source = await Entry.get(entry_id)
-        if (
-            source is None
-            or await resolve_role(self.user_id, "entry", entry_id) is None
-        ):
-            return []
-        source_track = await Track.get(source.track_id) if source.track_id else None
-        if source_track is None or (
-            self.workspace_id
-            and str(getattr(source_track, "workspace_id", "")) != self.workspace_id
-        ):
+        source = await self.get_entry(entry_id)
+        if source is None:
             return []
         try:
             neighbours = await source.nodes(
                 edge=[edge_key], direction=way, node=["Entry"], limit=int(limit)
             )
-        except Exception:  # noqa: BLE001
+        except Exception as exc:
+            from app.exceptions import AuthorizationUnavailableError
+
             logger.exception(
                 "get_related_entries failed (entry=%s edge=%s)", entry_id, edge_key
             )
-            return []
+            raise AuthorizationUnavailableError() from exc
         allowed = []
         for neighbour in neighbours:
-            if await resolve_role(self.user_id, "entry", neighbour.id) is None:
-                continue
-            track = await Track.get(neighbour.track_id) if neighbour.track_id else None
-            if track is None or (
-                self.workspace_id
-                and str(getattr(track, "workspace_id", "")) != self.workspace_id
-            ):
-                continue
-            allowed.append(neighbour)
+            if isinstance(neighbour, Entry):
+                current = await self.get_entry(neighbour.id)
+                if current is not None:
+                    allowed.append(current)
         return allowed
 
     async def get_employee_compensation(self, employee_id: str) -> Optional[float]:
@@ -536,7 +507,9 @@ class ToolContext:
         are always the same string.
         """
         from app.exceptions import CrossAppTargetNotFoundError
+        from app.middleware.permissions_cache import isolated_permissions_cache
         from app.models.nodes import App
+        from app.services.permissions import resolve_role
         from app.services.relation_runtime import resolve_target_app
 
         try:
@@ -545,8 +518,13 @@ class ToolContext:
             )
         except CrossAppTargetNotFoundError:
             return {}
-        app_node = await App.get(app_id)
-        return dict(getattr(app_node, "settings", None) or {}) if app_node else {}
+        with isolated_permissions_cache():
+            if not await self._resource_in_scope("app", app_id):
+                return {}
+            if await resolve_role(self.user_id, "app", app_id) is None:
+                return {}
+            app_node = await App.find_one({"id": app_id})
+            return dict(getattr(app_node, "settings", None) or {}) if app_node else {}
 
     async def emit_audit(self, action: str, details: Dict[str, Any]) -> None:
         """Emit a ChangeEvent for tool-side audit."""
@@ -570,18 +548,9 @@ class ToolContext:
 
     async def get_entry_system(self, entry_id: str):
         """Fetch Entry by id — trusted bundle tools only; requires explicit principal."""
-        from app.models.nodes import Entry
-        from app.services.permissions import resolve_role
-
         if not (self.user_id or "").strip():
             return None
-        ent = await Entry.get(entry_id)
-        if ent is None:
-            return None
-        role = await resolve_role(self.user_id, "entry", entry_id)
-        if role is None:
-            return None
-        return ent
+        return await self.get_entry(entry_id)
 
     async def update_entry_fields(
         self,
@@ -629,23 +598,31 @@ class ToolContext:
         """Atomically transition entry custom_fields when state matches expected."""
         if getattr(self, "read_only", False):
             return False, "read_only"
-        from app.services.entry_conditional_update import (
-            conditional_update_entry_custom_fields,
-        )
+        from app.middleware.permissions_cache import isolated_permissions_cache
+        from app.services.app_operations.context import OperationContext
+        from app.services.resource_location import locate_resource
 
-        return await conditional_update_entry_custom_fields(
-            user_id=self.user_id,
-            entry_id=entry_id,
-            state_field=state_field,
-            expected_state=expected_state,
-            updates=updates,
-            scope=f"tool:{self.scope}",
-            event_sink=(
-                self.deferred_change_events.append
-                if getattr(self, "deferred_change_events", None) is not None
-                else None
-            ),
-        )
+        with isolated_permissions_cache():
+            if not await self._resource_in_scope("entry", entry_id):
+                return False, "write_denied"
+            location = await locate_resource("entry", entry_id)
+            if location is None or not location.app_id:
+                return False, "write_denied"
+            context = OperationContext(
+                user_id=self.user_id,
+                workspace_id=self.workspace_id,
+                scope=self.scope,
+                bundle_slug=self.bundle_slug,
+                actor_kind=self.actor_kind,
+                app_id=location.app_id,
+                deferred_change_events=getattr(self, "deferred_change_events", None),
+            )
+            return await context.conditional_update_entry_fields(
+                entry_id,
+                state_field=state_field,
+                expected_state=expected_state,
+                updates=updates,
+            )
 
     async def _own_bundle_app(self) -> Optional[Any]:
         """The calling bundle's App in the caller's OWN personal workspace.
@@ -731,19 +708,25 @@ class ToolContext:
         memory (I-SCRATCH-02 makes ``kind`` the queryable discriminator, and
         title-matching explicitly wrong).
         """
+        from app.middleware.permissions_cache import isolated_permissions_cache
         from app.models.nodes import Track
         from app.services.permissions import resolve_role
 
         if not track_id or not (self.user_id or "").strip():
             return ""
         try:
-            if await resolve_role(self.user_id, "track", track_id) is None:
-                return ""
-            track = await Track.get(track_id)
-            return str(getattr(track, "kind", "") or "") if track else ""
-        except Exception:  # noqa: BLE001
+            with isolated_permissions_cache():
+                if not await self._resource_in_scope("track", track_id):
+                    return ""
+                if await resolve_role(self.user_id, "track", track_id) is None:
+                    return ""
+                track = await Track.find_one({"id": track_id})
+                return str(getattr(track, "kind", "") or "") if track else ""
+        except Exception as exc:
+            from app.exceptions import AuthorizationUnavailableError
+
             logger.exception("track_kind failed for %s", track_id)
-            return ""
+            raise AuthorizationUnavailableError() from exc
 
     async def create_entry_in_own_bundle_track(
         self,
@@ -1203,17 +1186,19 @@ class ToolContext:
 
         if getattr(self, "read_only", False):
             return None
+        from app.middleware.permissions_cache import isolated_permissions_cache
         from app.models.edges import HAS_ATTACHMENT
-        from app.models.nodes import Attachment, Entry
+        from app.models.nodes import Attachment
         from app.services.attachment_storage import get_attachment_storage_service
         from app.services.permissions import resolve_role
 
-        ent = await Entry.get(entry_id)
-        if ent is None:
-            return None
-        role = await resolve_role(self.user_id, "entry", entry_id)
-        if role not in ("owner", "editor"):
-            return None
+        with isolated_permissions_cache():
+            ent = await self.get_entry(entry_id)
+            if ent is None:
+                return None
+            role = await resolve_role(self.user_id, "entry", entry_id)
+            if role not in ("owner", "admin", "editor"):
+                return None
 
         attachment = await Attachment.create(
             filename=filename,
@@ -1294,24 +1279,38 @@ class ToolContext:
         trusted tool use a stored file (a letterhead template) without reaching
         into attachment storage.
         """
-        from app.models.nodes import Attachment, Entry
+        from app.models.edges import HAS_ATTACHMENT
+        from app.models.nodes import Attachment
         from app.services.attachment_storage import get_attachment_storage_service
-        from app.services.permissions import resolve_role
 
-        ent = await Entry.get(entry_id)
+        ent = await self.get_entry(entry_id)
         if ent is None:
             return None
-        if await resolve_role(self.user_id, "entry", entry_id) is None:
+        wanted = str(attachment_id or "").strip()
+        if not wanted:
+            # The relationship is authoritative; attachment_ids is only a cache.
+            attachments, _ = await ent.nodes_page(
+                edge=[HAS_ATTACHMENT],
+                node=[Attachment],
+                direction="out",
+                limit=1,
+                sort=[("context.created_at", -1), ("id", -1)],
+            )
+            newest = attachments[0] if attachments else None
+            wanted = str(newest.id) if newest else ""
+        if not wanted or not await HAS_ATTACHMENT.count(
+            {"source": ent.id, "target": wanted}
+        ):
             return None
-        ids = [str(a) for a in (ent.attachment_ids or [])]
-        wanted = str(attachment_id or "").strip() or (ids[-1] if ids else "")
-        if not wanted or wanted not in ids:
-            return None
-        att = await Attachment.get(wanted)
+        att = await Attachment.find_one({"id": wanted})
         if att is None or not att.storage_key:
             return None
         data = await get_attachment_storage_service().read_attachment(att.storage_key)
-        if not data:
+        if (
+            not data
+            or await self.get_entry(entry_id) is None
+            or not await HAS_ATTACHMENT.count({"source": ent.id, "target": wanted})
+        ):
             return None
         return data, str(att.filename or "")
 
@@ -1326,7 +1325,7 @@ class ToolContext:
         """
         from app.services.walkers.plan_rollup import roll_up_plan
 
-        return await roll_up_plan(plan_id)
+        return await roll_up_plan(plan_id, entry_reader=self.get_entry)
 
     async def clear_pending_onboarding_form_for_user(self, member_user_id: str) -> bool:
         """Clear hire onboarding prompt on a workspace member (HR bundle hook)."""
