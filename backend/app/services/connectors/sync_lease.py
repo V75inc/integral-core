@@ -19,7 +19,7 @@ from datetime import datetime, timedelta, timezone
 from typing import AsyncIterator
 
 from jvspatial.core import Object
-from jvspatial.core.context import get_default_context, graph_transaction
+from jvspatial.core.context import get_default_context
 
 LEASE_SECONDS = 60.0
 _dev_locks: dict[tuple[int, int, str], asyncio.Lock] = {}
@@ -101,12 +101,13 @@ def _object_id(connector_id: str) -> str:
 async def _transaction(connector_id: str):
     from app.services.app_operations.transaction_scope import (
         graph_transaction_available,
+        postgres_graph_transaction,
     )
 
     database = get_default_context().database
     if graph_transaction_available(database):
-        async with graph_transaction(database) as graph:
-            yield graph
+        async with postgres_graph_transaction(database):
+            yield get_default_context()
         return
     concrete = database
     while getattr(concrete, "inner", None) is not None:

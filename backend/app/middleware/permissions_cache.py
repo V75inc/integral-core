@@ -67,8 +67,8 @@ def policy_decision_clear_for_subject(subject_kind: str, subject_id: str) -> int
     invalidation across requests is unnecessary (the next request starts with a
     fresh cache via ``reset_permissions_cache``).
 
-    Cache keys touched have the 6-tuple shape
-    ``("policy", subject_kind, subject_id, action, resource_kind, resource_id)``
+    Cache keys touched start with
+    ``("policy", subject_kind, subject_id, action, complete_resource_json)``
     written by ``policy_engine.evaluate``. Other key shapes (Phase 0 user_node,
     Phase 0 etr, Phase 1 rr) are not touched.
 
@@ -102,5 +102,7 @@ class PermissionsCacheMiddleware:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Clear the per-request permission cache for HTTP requests, then invoke the app."""
         if scope["type"] == "http":
-            reset_permissions_cache()
-        await self.app(scope, receive, send)
+            with isolated_permissions_cache():
+                await self.app(scope, receive, send)
+        else:
+            await self.app(scope, receive, send)

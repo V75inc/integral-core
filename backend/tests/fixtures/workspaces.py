@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from app.models.edges import IS_MEMBER_OF
 from app.models.nodes import User, Workspace
+from app.services.app_graph import catalog_user, catalog_workspace
 from app.utils.time import utc_now_iso
 
 
@@ -33,6 +34,8 @@ async def make_org_workspace(name: str = "WS Test", **overrides) -> Workspace:
     }
     fields.update(overrides)
     ws = await Workspace.create(**fields)
-    owner = await User.create(name=f"{name} owner")
+    await catalog_workspace(ws)
+    owner = await User.create(display_name=f"{name} owner")
+    await catalog_user(owner)
     await owner.connect(ws, edge=IS_MEMBER_OF, role="owner", joined_at=now)
     return ws

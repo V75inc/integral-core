@@ -322,6 +322,18 @@ class Workspace(Node):
     applied_profiles: List[Dict[str, Any]] = Field(default_factory=list)
 
 
+class WorkspaceAuthorizationState(Node):
+    """Workspace-attached authorization revision, written only by atomic updates.
+
+    Kept separate from Workspace so stale ordinary settings saves cannot
+    overwrite revocation revisions. ACL services use authorization_scope;
+    this record is not a user-editable settings object.
+    """
+
+    workspace_id: str = ""
+    revision: int = Field(default=0, ge=0)
+
+
 class Invitation(Node):
     """Pending invitation — workspace-level or resource-level.
 

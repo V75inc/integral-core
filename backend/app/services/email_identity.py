@@ -20,7 +20,7 @@ async def current_account_email(user: User) -> Optional[str]:
     if not user.user_id:
         return None
     try:
-        identity = await AuthUser.get(user.user_id)
+        identity = await AuthUser.find_one({"$and": [{"id": user.user_id}]})
         return validate_email(identity.email) if identity else None
     except Exception:
         logger.warning("Cannot establish account mailbox for user=%s", user.id)

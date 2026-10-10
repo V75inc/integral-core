@@ -371,6 +371,7 @@ from app.models.nodes import (
     View,
     Views,
     Workspace,
+    WorkspaceAuthorizationState,
     Workspaces,
 )
 
@@ -1283,6 +1284,7 @@ server = Server(
         OperationalModel,
         User,
         Workspace,
+        WorkspaceAuthorizationState,
         Apps,
         Tracks,
         ChatThreads,

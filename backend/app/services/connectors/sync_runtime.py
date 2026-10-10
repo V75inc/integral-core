@@ -331,9 +331,10 @@ async def _sync_owned(connector, lease) -> Dict[str, int]:
         await _mark_unbound(connector)
         return stats
 
-    from jvspatial.db.postgres import PostgresTransaction
-
     from app.schemas.policy import Resource, Subject
+    from app.services.app_operations.transaction_scope import (
+        graph_transaction_available,
+    )
     from app.services.connectors.tag_resolution import resolve_connector_tags
     from app.services.entry_create import create_entry_in_track
     from app.services.entry_update import update_entry_in_track
@@ -490,7 +491,7 @@ async def _sync_owned(connector, lease) -> Dict[str, int]:
                     await _run_connector_hooks(
                         entry=entry, connector=connector, entry_type_key=entry_type_key
                     )
-                if events and isinstance(graph.database, PostgresTransaction):
+                if events and graph_transaction_available(graph.database):
                     from app.services.app_operations.event_outbox import (
                         insert_entry_event,
                     )

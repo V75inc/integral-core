@@ -14,8 +14,8 @@ only — direct grants beat exclusion):
   1. Personal-workspace owner short-circuit (workspace resource).
   2. Workspace membership gate for app/track/entry resources.
   3. Direct ``OWNS`` edge → "owner".
-  4. Direct ``COLLABORATES_ON`` edge → that role.
-  5. ``EXCLUDED_FROM`` on this resource → None (blocks inherited paths).
+  4. Direct ``COLLABORATES_ON`` edge contributes its complete role.
+  5. ``EXCLUDED_FROM`` removes inherited candidates, preserving direct grants.
   6. Org workspace owner/admin staff implicit role on app/track.
   7. ``visibility`` grant (workspace → non-guest members; public → any user).
   8. Recurse on parent; cap any inherited role above "editor" to "editor".
@@ -42,7 +42,10 @@ import os
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
 from app.exceptions import AuthorizationUnavailableError
-from app.middleware.permissions_cache import permissions_cache_get
+from app.middleware.permissions_cache import (
+    live_permissions_required,
+    permissions_cache_get,
+)
 from app.models.edges import COLLABORATES_ON, EXCLUDED_FROM, IS_MEMBER_OF, OWNS
 from app.models.nodes import App, Entry, Track, User, View, Workspace
 from app.services.perf_trace import perf_traced
@@ -51,8 +54,12 @@ logger = logging.getLogger(__name__)
 
 
 def _permission_memo_enabled() -> bool:
-    """Skip memoization under pytest so graph mutations in the same test see fresh roles."""
-    return not (os.getenv("TESTING") or os.getenv("PYTEST_CURRENT_TEST"))
+    """Read current roles at live boundaries and during mutation-heavy tests."""
+    return not (
+        live_permissions_required()
+        or os.getenv("TESTING")
+        or os.getenv("PYTEST_CURRENT_TEST")
+    )
 
 
 try:
@@ -71,8 +78,30 @@ async def get_user_node(user_id: str) -> Optional[User]:
     if cache is not None and ck in cache:
         return cache[ck]
 
-    user = await User.get(user_id)
+    # AuthUser and graph User share a discriminator; an Object principal
+    # must not be mistaken for its graph profile by an ID-based cache lookup.
+    user = None
+    if not user_id.startswith("o."):
+        user = (
+            await User.find_one({"id": user_id})
+            if live_permissions_required()
+            else await User.get(user_id)
+        )
     if user:
+        # Deferred work often carries the graph profile ID. Its linked login
+        # must still be active; using this alias must not evade account disable.
+        auth_id = str(getattr(user, "user_id", "") or "")
+        if live_permissions_required() and auth_id.startswith("o.User."):
+            try:
+                identity = (
+                    await AuthUser.find_one({"$and": [{"id": auth_id}]})
+                    if AuthUser
+                    else None
+                )
+            except Exception as exc:
+                raise AuthorizationUnavailableError() from exc
+            if identity is None or not identity.is_active:
+                return None
         if cache is not None:
             cache[ck] = user
         return user
@@ -83,8 +112,12 @@ async def get_user_node(user_id: str) -> Optional[User]:
         return None
 
     try:
-        auth_user = await AuthUser.get(user_id)
-        if not auth_user:
+        auth_user = (
+            await AuthUser.find_one({"$and": [{"id": user_id}]})
+            if live_permissions_required()
+            else await AuthUser.get(user_id)
+        )
+        if not auth_user or not auth_user.is_active:
             if cache is not None:
                 cache[ck] = None
             return None
@@ -98,6 +131,8 @@ async def get_user_node(user_id: str) -> Optional[User]:
         return user
     except Exception as exc:
         logger.warning("Failed to resolve User for %s: %s", user_id, exc)
+        if live_permissions_required():
+            raise AuthorizationUnavailableError() from exc
         if cache is not None:
             cache[ck] = None
         return None
@@ -203,8 +238,9 @@ async def _is_workspace_owner_user(workspace: Workspace, user: User) -> bool:
                 role = rctx.get("role") if isinstance(rctx, dict) else None
             if str(role or "").strip().lower() == "owner":
                 return True
-    except Exception:
+    except Exception as exc:
         logger.exception("workspace owner check failed")
+        raise AuthorizationUnavailableError() from exc
     return False
 
 
@@ -221,7 +257,7 @@ async def can_create_app_under_workspace(user_id: str, workspace_id: str) -> boo
     user = await get_user_node(user_id)
     if not user:
         return False
-    ws = await Workspace.get(workspace_id)
+    ws = await _load_resource_node("workspace", workspace_id)
     if not ws:
         return False
     if await _is_workspace_owner_user(ws, user):
@@ -243,7 +279,7 @@ async def can_create_track_under_workspace(user_id: str, workspace_id: str) -> b
     user = await get_user_node(user_id)
     if not user:
         return False
-    ws = await Workspace.get(workspace_id)
+    ws = await _load_resource_node("workspace", workspace_id)
     if not ws:
         return False
     if await _is_workspace_owner_user(ws, user):
@@ -271,7 +307,7 @@ async def can_publish_operational_models_under_workspace(
     user = await get_user_node(user_id)
     if not user:
         return False
-    ws = await Workspace.get(workspace_id)
+    ws = await _load_resource_node("workspace", workspace_id)
     if not ws:
         return False
     if await _is_workspace_owner_user(ws, user):
@@ -296,9 +332,15 @@ async def _user_in_workspace_member_pool(user: User, workspace_id: str) -> bool:
         edges = await ctx.find_edges_between(
             user.id, workspace_id, edge_class=IS_MEMBER_OF
         )
-        return bool(edges)
+        return len(edges) == 1 and str(getattr(edges[0], "role", "") or "").lower() in (
+            "owner",
+            "admin",
+            "member",
+            "guest",
+        )
     except Exception as exc:
         logger.warning("workspace membership check failed: %s", exc)
+        raise AuthorizationUnavailableError() from exc
     return False
 
 
@@ -314,7 +356,7 @@ async def can_view_app(user_id: str, app_id: str) -> bool:
     callers must NOT invoke this directly (enforced by
     ``tests/test_no_legacy_helper_calls.py``).
     """
-    app = await App.get(app_id)
+    app = await _load_resource_node("app", app_id)
     if not app or str(getattr(app, "lifecycle_state", "") or "") == "uninstalled":
         return False
     return await resolve_role(user_id, "app", app_id) is not None
@@ -506,7 +548,7 @@ async def can_view_track(user_id: str, track_id: str) -> bool:
     DEPRECATED — use ``policy_engine.evaluate(action='track.read', ...)``. See
     ``can_view_app`` docstring for the migration contract.
     """
-    track = await Track.get(track_id)
+    track = await _load_resource_node("track", track_id)
     if not track:
         return False
     try:
@@ -583,8 +625,8 @@ async def can_edit_entry(user_id: str, entry_id: str) -> bool:
     """True if the user is the author or can edit via cascade / direct grant.
 
     Roles owner / admin / editor all carry entry-CRUD authority on the
-    parent track and therefore beat the per-entry role check. commenter /
-    viewer fall back to the author shortcut (own entries only).
+    parent track and therefore beat the per-entry role check. Only a
+    commenter can use the author shortcut (own entries only).
 
     DEPRECATED — use ``policy_engine.evaluate(action='entry.update', ...)``.
     See ``can_view_app`` docstring for the migration contract.
@@ -594,11 +636,13 @@ async def can_edit_entry(user_id: str, entry_id: str) -> bool:
         return True
     # EXCLUDED_FROM / no grant → resolve_role is None; do not let author shortcut
     # resurrect edit after an explicit deny.
-    if role is None:
+    if role != "commenter":
         return False
     try:
-        entry = await Entry.get(entry_id)
-        return bool(entry and entry.author_id == user_id)
+        entry = await _load_resource_node("entry", entry_id)
+        user = await get_user_node(user_id)
+        identities = {user_id, user.id, user.user_id} if user is not None else set()
+        return bool(entry and entry.author_id and entry.author_id in identities)
     except Exception as exc:
         logger.warning("Error checking entry edit permission for %s: %s", user_id, exc)
         return False
@@ -698,7 +742,9 @@ async def effective_resource_visibility(resource_type: str, node: Any) -> str:
                 edge=["CONTAINS"], direction="in", node=["WorkspaceApp"]
             )
             if apps:
-                return await effective_resource_visibility("app", apps[0])
+                parent = await _load_resource_node("app", apps[0].id)
+                if parent is not None:
+                    return await effective_resource_visibility("app", parent)
         except Exception as exc:
             logger.warning(
                 "effective_resource_visibility parent lookup failed for track %s: %s",
@@ -727,7 +773,7 @@ async def _is_publicly_readable_resource(resource_type: str, node: Any) -> bool:
                 return False
         if not track_id:
             return False
-        track = await Track.get(track_id)
+        track = await _load_resource_node("track", track_id)
         if not track:
             return False
         return await effective_resource_visibility("track", track) == "public"
@@ -750,7 +796,7 @@ async def _visibility_grant_role(
         ws_id = await _workspace_id_for_resource(resource_type, node)
         if not ws_id:
             return None
-        ws = await Workspace.get(ws_id)
+        ws = await _load_resource_node("workspace", ws_id)
         if not ws or getattr(ws, "kind", "") != "organization":
             return None
         from app.services.workspace_permissions import user_in_workspace_cascade_view
@@ -812,17 +858,16 @@ async def _direct_role_on_resource(user: User, resource_id: str) -> Optional[str
         logger.warning(
             "Error reading direct role on %s for %s: %s", resource_id, user.id, exc
         )
-        return None
+        raise AuthorizationUnavailableError() from exc
 
 
 async def _is_excluded_from_resource(user: User, resource_id: str) -> bool:
     """True iff an EXCLUDED_FROM edge exists from this user to this resource."""
     try:
-        ctx = await user.get_context()
-        edges = await ctx.find_edges_between(
-            user.id, resource_id, edge_class=EXCLUDED_FROM
-        )
-        return bool(edges)
+        # Optional audit metadata must not determine whether a deny exists.
+        # Edge hydration skips malformed metadata; count reads presence itself
+        # on the current graph/transaction context, without deserialization.
+        return await EXCLUDED_FROM.count({"source": user.id, "target": resource_id}) > 0
     except Exception as exc:
         logger.warning(
             "Error reading exclusion on %s for %s: %s", resource_id, user.id, exc
@@ -834,7 +879,7 @@ async def _parent_of_resource(resource_type: str, resource_id: str) -> Optional[
     """Return (parent_type, parent_id) or None if the resource has no parent."""
     try:
         if resource_type == "entry":
-            entry = await Entry.get(resource_id)
+            entry = await _load_resource_node("entry", resource_id)
             if not entry:
                 return None
             if entry.track_id:
@@ -846,7 +891,7 @@ async def _parent_of_resource(resource_type: str, resource_id: str) -> Optional[
                 return ("track", tracks[0].id)
             return None
         if resource_type == "track":
-            track = await Track.get(resource_id)
+            track = await _load_resource_node("track", resource_id)
             if not track:
                 return None
             apps = await track.nodes(
@@ -862,10 +907,20 @@ async def _parent_of_resource(resource_type: str, resource_id: str) -> Optional[
         logger.warning(
             "Error finding parent of %s %s: %s", resource_type, resource_id, exc
         )
-        return None
+        raise AuthorizationUnavailableError() from exc
 
 
 async def _load_resource_node(resource_type: str, resource_id: str) -> Any:
+    if live_permissions_required():
+        model = {
+            "workspace": Workspace,
+            "app": App,
+            "track": Track,
+            "entry": Entry,
+        }.get(resource_type)
+        if model is None:
+            return None
+        return await model.find_one({"id": resource_id})
     if resource_type == "workspace":
         return await Workspace.get(resource_id)
     if resource_type == "app":
@@ -893,13 +948,14 @@ async def _workspace_id_for_resource(resource_type: str, node: Any) -> Optional[
                     track_id = tracks[0].id
             if not track_id:
                 return None
-            track = await Track.get(track_id)
+            track = await _load_resource_node("track", track_id)
             if not track:
                 return None
             workspace_id = getattr(track, "workspace_id", "") or ""
             return workspace_id or None
     except Exception as exc:
         logger.warning("workspace anchor lookup failed for %s: %s", resource_type, exc)
+        raise AuthorizationUnavailableError() from exc
     return None
 
 
@@ -915,9 +971,9 @@ async def resolve_role(
       1. Personal-workspace owner short-circuit (workspace only).
       2. Workspace membership gate for app/track/entry resources.
       3. Direct OWNS edge on the resource → "owner".
-      4. Direct COLLABORATES_ON edge → that role.
-      5. EXCLUDED_FROM on this resource → None (blocks inherited paths).
-      6. Among remaining candidates, strongest wins (ROLE_RANK):
+      4. Direct COLLABORATES_ON edge → direct role candidate.
+      5. EXCLUDED_FROM removes inherited candidates, preserving direct grants.
+      6. Among complete direct and inherited candidates, strongest wins (ROLE_RANK):
          org staff implicit role, visibility grant (viewer floor), and
          parent cascade (Entry→Track, Track→App; inherited roles above
          "editor" capped to "editor"). Visibility alone must not eclipse
@@ -994,6 +1050,7 @@ async def resolve_role(
             logger.warning(
                 "Error reading workspace membership for %s: %s", user.id, exc
             )
+            raise AuthorizationUnavailableError() from exc
         return _finish(None)
 
     # deviation: procedural cascade rather than a Walker. AGENTS.md names
@@ -1029,7 +1086,7 @@ async def resolve_role(
         _workspace_id_for_resource(resource_type, node),
     )
     if workspace_id and not await _user_in_workspace_member_pool(user, workspace_id):
-        ws = await Workspace.get(workspace_id)
+        ws = await _load_resource_node("workspace", workspace_id)
         # A resource OWNS edge survives a workspace-membership revoke. It
         # must not bypass the workspace gate: former members may retain that
         # edge on resources they created, but no longer have workspace access.
@@ -1043,19 +1100,22 @@ async def resolve_role(
                 return _finish(None)
             return _finish("viewer")
 
-    # App / Track / Entry — uniform walker (direct grant already computed).
-    if direct:
+    # Direct owner is already the maximum role. Exclusions only remove
+    # inherited grants, and inherited roles cap at editor. After the workspace
+    # gate above, no additional candidate can change this complete grant.
+    if direct == "owner":
         return _finish(direct)
 
     if await _is_excluded_from_resource(user, resource_id):
-        return _finish(None)
+        # Explicit exclusions remove inherited candidates, not direct grants.
+        return _finish(direct)
 
     # Candidates from staff / visibility / parent cascade. Visibility is a
     # read floor (viewer), not a ceiling — an App editor on a workspace-
     # visible track must still resolve as editor so comment/edit gates work
     # (ARCHITECTURE §9 "strongest wins"; QA: full-permission users blocked
     # from commenting when visibility short-circuited before cascade).
-    candidates: list[str] = []
+    candidates: list[str] = [direct] if direct is not None else []
 
     if resource_type in ("app", "track"):
         # Reuse the anchor resolved above instead of re-querying it — this was
@@ -1399,7 +1459,7 @@ async def get_user_accessible_entries(
         if app_id:
             if not await can_view_app(user_id, app_id):
                 return []
-            sp = await App.get(app_id)
+            sp = await _load_resource_node("app", app_id)
             if not sp:
                 return []
             if workspace_id and _effective_workspace_id_of(sp) != workspace_id:
@@ -1421,7 +1481,7 @@ async def get_user_accessible_entries(
         elif track_id:
             if not await can_view_track(user_id, track_id):
                 return []
-            track = await Track.get(track_id)
+            track = await _load_resource_node("track", track_id)
             if workspace_id and (
                 track is None or _effective_workspace_id_of(track) != workspace_id
             ):
@@ -1503,18 +1563,18 @@ async def count_user_accessible_entries(user_id: str, track_id: str) -> int:
     if not await can_view_track(user_id, track_id):
         return 0
     try:
-        track = await Track.get(track_id)
+        # Authorization above has already loaded the Track and principal.
+        # An empty collection needs no deny/direct-grant filtering, so defer
+        # those additional primary reads until there are entries to count.
+        total = await Entry.count({"track_id": track_id})
+        if not total:
+            return 0
+        track = await _load_resource_node("track", track_id)
         user = await get_user_node(user_id)
         if not track or not user:
             return 0
         context = await track.get_context()
         node_collection = context._get_collection_name("n")
-        total = await context.database.count(
-            node_collection,
-            {"entity": "Entry", "context.track_id": track_id},
-        )
-        if not total:
-            return 0
         exclusions = await user.nodes(edge=["EXCLUDED_FROM"], node=["Entry"])
         denied_ids = {node.id for node in exclusions}
         if not denied_ids:
@@ -1555,7 +1615,7 @@ async def get_user_accessible_entry_page(
     """Return one persisted Entry page with exact visible total for one Track."""
     if limit < 1 or offset < 0 or not await can_view_track(user_id, track_id):
         return {"entries": [], "total": 0, "next_cursor": None}
-    track = await Track.get(track_id)
+    track = await _load_resource_node("track", track_id)
     user = await get_user_node(user_id)
     if not track or not user:
         return {"entries": [], "total": 0, "next_cursor": None}
@@ -1649,7 +1709,7 @@ async def iter_user_accessible_entry_batches(
     """Stream visible Entry batches from one authorized Track in key order."""
     if batch_size < 1 or not await can_view_track(user_id, track_id):
         return
-    track = await Track.get(track_id)
+    track = await _load_resource_node("track", track_id)
     user = await get_user_node(user_id)
     if not track or not user:
         return

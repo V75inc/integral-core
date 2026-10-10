@@ -106,3 +106,7 @@ All listed paths are relative to `backend/tests/`. Use `backend/.venv/bin/python
 Full `make verify`, CI-faithful smoke/xdist, clean wheel/Core-only release checks, PostgreSQL multiprocess races, shipped-browser/MCP acceptance, real session/MFA/provider behavior and operational offboarding/recovery are required implementation closure gates. They were not run as part of this source/design review. The source-confirmed policy-subject authority issue and generated-document helper need end-to-end reachability qualification; the synthetic policy probe does not establish a deployed exploit.
 
 Source line references in the review belong to the baseline and may move during implementation. Use function names and retained probe names to locate them afterward. The evidence JSON contains only test identifiers/counts, source baseline/hashes and limitations; it contains no raw tokens, credentials, production records, prompts or completions.
+
+## Source surface inventory
+
+[surface_inventory.json](surface_inventory.json) indexes 384 REST endpoint declarations and 44 ToolContext/OperationContext method declarations (including overrides). It records source hashes and leaves qualification/evidence explicitly unmapped. Rebuild it with `backend/.venv/bin/python docs/ops/qualification/access-control-review/build_surface_inventory.py`. This is a source index; worker, public, event, file and runtime registration boundaries still need mapping and paired acceptance evidence.

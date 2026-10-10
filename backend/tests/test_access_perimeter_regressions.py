@@ -231,15 +231,11 @@ async def test_exclusion_lookup_failure_cannot_restore_inheritance(monkeypatch):
     await reader.connect(entry, edge=EXCLUDED_FROM)
     with isolated_permissions_cache():
         assert not await perms.can_view_entry(reader.id, entry.id)
-    context = await reader.get_context()
-    original = type(context).find_edges_between
 
-    async def fault(self, *args, **kwargs):
-        if kwargs.get("edge_class") is EXCLUDED_FROM:
-            raise RuntimeError("exclusion store unavailable")
-        return await original(self, *args, **kwargs)
+    async def fault(*args, **kwargs):
+        raise RuntimeError("exclusion store unavailable")
 
-    monkeypatch.setattr(type(context), "find_edges_between", fault)
+    monkeypatch.setattr(EXCLUDED_FROM, "count", fault)
     with isolated_permissions_cache(), pytest.raises(AuthorizationUnavailableError):
         await perms.can_view_entry(reader.id, entry.id)
 
