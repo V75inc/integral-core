@@ -53,6 +53,10 @@ const STAGED_KEY = ['agent-inbox', 'staged'] as const;
 const APPROVALS_KEY = ['agent-inbox', 'approvals'] as const;
 const ROUTINES_KEY = ['agent-inbox', 'routines'] as const;
 
+// Inspect only status, preserving each query's independently inferred data type.
+const retryFailedRead = (query: { state: { status: string } }): number | false =>
+  query.state.status === 'error' ? 10_000 : false;
+
 export function useAgentInbox({ enabled = true }: { enabled?: boolean } = {}): AgentInbox {
   const queryClient = useQueryClient();
 
@@ -72,6 +76,8 @@ export function useAgentInbox({ enabled = true }: { enabled?: boolean } = {}): A
           );
         },
         enabled,
+        // Recover failed reads while observed; healthy queues stay event-driven.
+        refetchInterval: retryFailedRead,
         staleTime: 10_000,
       },
       {
@@ -81,12 +87,16 @@ export function useAgentInbox({ enabled = true }: { enabled?: boolean } = {}): A
           return res.approvals ?? [];
         },
         enabled,
+        // Recover failed reads while observed; healthy queues stay event-driven.
+        refetchInterval: retryFailedRead,
         staleTime: 10_000,
       },
       {
         queryKey: ROUTINES_KEY,
         queryFn: async () => (await listRoutines()).routines ?? [],
         enabled,
+        // Recover failed reads while observed; healthy queues stay event-driven.
+        refetchInterval: retryFailedRead,
         staleTime: 30_000,
       },
     ],
@@ -128,7 +138,7 @@ export function useAgentInbox({ enabled = true }: { enabled?: boolean } = {}): A
     approvals,
     routines,
     actionableCount: staged.length + approvals.length,
-    loading: results.some((r) => r.isLoading),
+    loading: results.some((r) => r.isLoading || r.isFetching),
     // One failed source must not blank the others — a broken routines
     // endpoint should not hide a pending approval.
     degraded: results.some((r) => r.isError),
