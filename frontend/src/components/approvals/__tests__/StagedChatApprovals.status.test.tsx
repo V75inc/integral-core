@@ -21,6 +21,8 @@ const staged = {
 };
 
 let state: 'pending' | 'blessed' = 'pending';
+let error: string | null = null;
+const revoke = vi.fn(async () => undefined);
 
 vi.mock('../../../api/agentive', () => ({
   listPendingStagedChanges: vi.fn(async () => [staged]),
@@ -29,18 +31,20 @@ vi.mock('../../../api/agentive', () => ({
 vi.mock('../../../features/ai-chat/staging/useStagedChange', () => ({
   useStagedChange: () => ({
     busy: false,
-    error: null,
+    error,
     state,
-    status: { kind: 'idle', state },
+    status: error ? { kind: 'error', state, message: error } : { kind: 'idle', state },
     isBlessed: state === 'blessed',
     isTerminal: false,
     bless: vi.fn(),
-    revoke: vi.fn(),
+    revoke,
   }),
 }));
 
 afterEach(() => {
   state = 'pending';
+  error = null;
+  vi.clearAllMocks();
   cleanup();
 });
 
@@ -59,13 +63,32 @@ describe('StagedChatApprovals status language', () => {
         (_content, element) =>
           element?.tagName === 'P' &&
           element.textContent?.includes(
-            'Authorized · waiting for the agent to apply it',
+            'Approved · not yet applied',
           ) === true,
       ),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: 'Authorize staged change' }),
     ).not.toBeInTheDocument();
+  });
+
+  it('offers cancellation for an approved but unapplied change', async () => {
+    state = 'blessed';
+    vi.mocked(listPendingStagedChanges).mockResolvedValueOnce([{ ...staged, state: 'blessed' }]);
+    render(<ConfirmProvider><MemoryRouter><StagedChatApprovals /></MemoryRouter></ConfirmProvider>);
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel approved change' }));
+    expect(revoke).toHaveBeenCalledOnce();
+  });
+
+  it('explains a refusal without claiming execution and keeps cancellation available', async () => {
+    state = 'blessed';
+    error = 'Source changed; reconcile the saved record.';
+    vi.mocked(listPendingStagedChanges).mockResolvedValueOnce([{ ...staged, state: 'blessed' }]);
+    render(<ConfirmProvider><MemoryRouter><StagedChatApprovals /></MemoryRouter></ConfirmProvider>);
+    expect(await screen.findByText(/Approved · action incomplete/)).toBeInTheDocument();
+    expect(screen.queryByText(/waiting for the agent/)).not.toBeInTheDocument();
+    expect(screen.getByText(error)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel approved change' })).toBeInTheDocument();
   });
 
   it('labels pending work as awaiting authorization', async () => {

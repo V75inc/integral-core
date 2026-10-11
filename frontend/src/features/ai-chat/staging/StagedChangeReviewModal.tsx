@@ -133,15 +133,23 @@ export function StagedChangeReviewModal({
               <X size={12} /> Reject
             </button>
           </div>
+        ) : isBlessed ? (
+          <div className="flex w-full flex-wrap items-center gap-2">
+            <Text variant="meta" tone="muted">
+              {error ? 'Approved — action incomplete.' : 'Approved — not yet applied.'}
+            </Text>
+            <button
+              type="button"
+              onClick={() => void revoke()}
+              disabled={busy}
+              className="staged-review-reject ml-auto inline-flex items-center gap-1 rounded-[var(--radius-pill)] px-3 py-1.5 text-xs disabled:opacity-50"
+            >
+              <X size={12} /> Cancel approval
+            </button>
+          </div>
         ) : (
           <Text variant="meta" tone="muted">
-            {/* Same wording as the card and the inbox row: `blessed` means
-                approved, not applied, and this surface cannot tell which. */}
-            {isBlessed
-              ? 'Approved — not yet applied.'
-              : isTerminal
-                ? `No longer actionable (${status.state}).`
-                : status.state}
+            {isTerminal ? `No longer actionable (${status.state}).` : status.state}
           </Text>
         )}
       </Modal.Footer>
