@@ -145,7 +145,9 @@ async def _resolve_source(
         or step.principal_id != principal_id
         or step.workspace_id != workspace_id
         or step.status != "succeeded"
-        or step.kind != "query"
+        # The broker records connector reads as environment steps. Read/write
+        # authority is independently rechecked against the bound connector tool.
+        or step.kind != "environment"
         or step.capability_source != "connector"
         or step.origin != "chat"
         or step.policy_decision != "allow"
