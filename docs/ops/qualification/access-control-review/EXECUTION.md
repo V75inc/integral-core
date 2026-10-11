@@ -1050,3 +1050,112 @@ independent-account browser/MCP remain required. The next implementation is
 the qualified relationship-clock candidate and all producer cutovers, including
 legacy notification acceptance and provision/account lifecycle paths found in
 the producer inventory. No PR, release or deployment is authorized here.
+
+
+The membership source foundation was committed and pushed as
+`05a8d0280e34fa65e9de354865d5f430c5cd349c`. Remote branch readback verified
+that exact commit on `codex/access-control-review`; final staged guards and
+the actual commit hook passed. No additional finding or use case was closed.
+
+### Integrated relationship history under qualification
+
+Typed membership/collaboration history edges now retain a clock after actual
+grant deletion. Versioned invitation baselines bind the recipient, target,
+grant family, complete current grant and persistent clock. Legacy baselines
+cannot prove unchanged history and require explicit adoption/reissue.
+Participating membership, invitation, collaboration and departure writers
+advance these clocks; collaboration mutations join the workspace fence and
+record PostgreSQL audit intent alongside the actual effect. Existing adds and
+exact role no-ops report stored rights without replacing or inventing rights.
+Untracked mutations or malformed clocks deny until governed recovery.
+
+Source-1 exposed a matching legacy technical revision mirror changing a grant
+fingerprint; normalization now accepts only an exact typed matching mirror.
+Source-1 recorded 153 passes, two explicit skips and one failure. Source-2
+passed its narrower membership/invitation/helper selection: 157 JSON passes
+with two explicit PostgreSQL-only skips, and all 180 PostgreSQL cases. Source-3 stopped with a collection import cycle introduced by the
+sharing scope. Delaying the membership scope import until admission removes
+that cycle. Source-3 retained 235 passes, one explicit skip and one collection
+error. Source-4 passed 255 JSON cases with two explicit PostgreSQL-only skips;
+all 278 PostgreSQL cases also passed, with no skips, failures or errors. Failed logs/XML remain retained under their
+original `/tmp/integral-grant-history-source-*` prefixes. No complete current
+source qualification or new milestone commit is claimed.
+
+All producer convergence, independently revocable source provenance, identity
+fences, suspension/reentry, full history audit payloads, migration/restore and
+independent-account browser/MCP remain open. Share-link redemption, legacy
+notification acceptance and provisioning still need canonical cutovers. The
+relationship clocks themselves never grant access. JSON provides local
+ordering only, with no distributed or transactional rollback guarantee.
+
+
+The additional PostgreSQL producer lane passed **35 cases with zero skips,
+failures or errors** (`/tmp/integral-grant-history-producer-pg-1.{log,xml}`).
+Actual add/update/remove failures at durable audit intent roll back the grant,
+its history clock, guest membership and notification; sink failure preserves
+committed rights with a pending fact. Independent database pools prove a
+collaborator-administrator revocation orders subsequent peer grant admission.
+Departure now verifies raw grant deletion before advancing negative history;
+full malformed-target inventory/cascade reconciliation remains open.
+
+The designated DeepSeek native smoke is rerunning with an allowed owned-App
+read and a private foreign-App denial, plus transcript readback. Full current
+source qualification remains pending; no new milestone commit is claimed.
+
+
+### AC-22 discovered by designated native cloud smoke
+
+Both actual cloud smoke attempts completed the owned read and denied the foreign
+App tool read, then failed the secure assertion because SSE disclosed the exact
+private name. Transport inspection found no private marker in the model request
+bodies. Host ID humanization, including streamed prose and persistence, loaded
+labels globally without recipient admission. AC-22 is now included in the review,
+plan and closure ledger; its sanitized failed evidence is in
+[output-label disclosure](output_label_disclosure.json).
+
+The repair binds current identity/workspace/read authority to known label
+families and leaves unsupported or denied metadata opaque. Model labels use
+only their admitted own metadata. The first compatibility run recorded six
+interruption failures because its synthetic context has no identity attributes;
+that known-failed lane was interrupted, with its partial receipt retained.
+Unknown identity now produces an opaque fallback. Revised JSON/PostgreSQL
+contracts and real DeepSeek allow/deny smoke are running; no current full
+qualification or additional finding closure is claimed.
+
+
+The revised focused label/stream/persistence/staging selection passed **56 JSON
+and 56 PostgreSQL cases**, with no skips, failures or errors. Actual designated
+DeepSeek native smoke passed **one complete case**, including the owned read,
+foreign private-App forbidden result, absence of the private marker in SSE and
+persisted transcript API readback. [Fresh sanitized cloud receipt](deepseek-output-label-smoke.json)
+identifies the current runtime diff and physical model steps. This establishes
+the in-process fixture result, not independent-account browser/production or
+complete output release fencing. Full staged repository qualification is now
+running under `/tmp/integral-grant-history-full-1*`; source is frozen.
+
+
+The Full-1 focused PostgreSQL selection passed with zero skips/failures/errors;
+exact XML counts are retained in the milestone ledger. Broader PostgreSQL
+spikes/contracts and `make verify` remain pending/running.
+
+A separate authenticated HTTP security probe confirms the unchanged legacy
+notification response path: a synthetic delivered `type=invite` notification
+containing workspace/role metadata but no canonical invitation returns 200 and
+creates `IS_MEMBER_OF{role=admin}`. The required no-grant assertion failed;
+[retained receipt](legacy_notification_grant_gap.json) is characterization, not
+a pass. HTTP notification creation is platform-admin-only; no ordinary-user
+notification forgery is claimed. This strengthens the existing all-producer
+convergence obligation. Current `create_notification` already normalizes a
+linked recipient to its AuthUser subject; preserve that behavior rather than
+assuming an inbox alias defect. Canonical invitation notifications use
+`type=invitation` with the ID nested in `metadata.payload`, so response handling
+needs the actual canonical shape and verified current invitation service.
+No full finding closure is claimed by the pending foundation milestone.
+
+The second legacy-notification HTTP characterization explicitly checked `verified_current_email(recipient)` returned no proof before acceptance. The route still returned 200 and materialized workspace-admin membership without any canonical Invitation. Both failed probes and their source digests are retained in `legacy_notification_grant_gap.json`; this strengthens the mailbox-bypass evidence without asserting that ordinary users can forge privileged notifications.
+
+Retained the stronger legacy notification HTTP probe under `probes/test_legacy_notification_grant_gap.py`, so the regression scenario is reviewable beyond the temporary-run files. The runtime/test source under full qualification remains unchanged. The passive surface inventory was refreshed to 386 REST and 45 facade declarations; all surface qualification fields remain unmapped.
+
+The current-source CI-faithful smoke receipt contains 1,235 passes and 12 explicit skips, with zero failures/errors (`/tmp/integral-grant-history-full-1-smoke.xml`). The frontend suite passed 1,590 tests across 282 files. The owned full qualification coordinator remains live in its full backend lane; neither smoke nor frontend completion substitutes for that remaining gate.
+
+Full-1 is terminal and passed all six lanes. Exact current-source results: backend 5,557 passed /326 skipped, CI-faithful smoke 1,235 passed /12 skipped, frontend 1,590 passed across 282 files, focused PostgreSQL 1,180 passed with no skips, extension 52 passed /244 explicit PostgreSQL skips; all failure/error counts zero. Core-only and broader PostgreSQL spikes/contracts also passed. Reproducible and verified wheel SHA-256: `8b0e48968ca5bc2cd4150f09554fb4e1576a7fe4e3cbfb8287a98cf19366dc03`. Ledger records exact receipt digests and this milestone as qualified_partial; all stated whole-goal gaps remain open.

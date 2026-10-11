@@ -20,6 +20,7 @@ from app.models.edges import IS_MEMBER_OF
 from app.models.nodes import User, Workspace
 from app.services.authority_facts import relationship_flag, relationship_literal
 from app.services.entry_write_scope import is_postgres_entry_transaction
+from app.services.grant_history import grant_baseline, record_grant_change
 from app.services.membership_write_scope import membership_write_scope
 from app.services.permissions import get_user_node
 from app.services.permissions_process_cache import invalidate_user_aliases
@@ -206,12 +207,25 @@ async def add_member(
         _ceiling(actor, member, owner, _snapshot(row) if row else None, values)
         if row is not None:
             raise ResourceConflictError(message="User is already a workspace member")
+        await grant_baseline(
+            source_id=member.id,
+            target_id=workspace.id,
+            grant_class=IS_MEMBER_OF,
+            grant=row,
+        )
         await member.connect(
             workspace, edge=IS_MEMBER_OF, joined_at=utc_now_iso(), **values
         )
         current = await _membership(member, workspace_id)
         if current is None:
             raise AuthorizationUnavailableError()
+        await record_grant_change(
+            source=member,
+            target=workspace,
+            grant_class=IS_MEMBER_OF,
+            before=None,
+            after=current,
+        )
         after = _snapshot(current)
         outbox_id = await _record_change(
             actor, workspace, "workspace.member_add", None, after
@@ -245,6 +259,12 @@ async def update_member(
             raise ResourceNotFoundError(
                 message="User is not a member of this workspace"
             )
+        await grant_baseline(
+            source_id=member.id,
+            target_id=workspace.id,
+            grant_class=IS_MEMBER_OF,
+            grant=row,
+        )
         before = _snapshot(row)
         values = {
             "role": role if role is not None else before["role"],
@@ -281,6 +301,13 @@ async def update_member(
             current = await _membership(member, workspace_id)
             if current is None:
                 raise AuthorizationUnavailableError()
+            await record_grant_change(
+                source=member,
+                target=workspace,
+                grant_class=IS_MEMBER_OF,
+                before=row,
+                after=current,
+            )
             after = _snapshot(current)
             outbox_id = await _record_change(
                 actor, workspace, "workspace.member_update", before, after

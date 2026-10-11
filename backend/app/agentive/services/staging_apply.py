@@ -194,7 +194,9 @@ async def execute_blessed_change(
         try:
             from app.services.id_resolver import humanize_ids
 
-            result["message"] = await humanize_ids(result["message"])
+            result["message"] = await humanize_ids(
+                result["message"], user_id=user_id, workspace_id=sc.workspace_id
+            )
         except Exception:  # noqa: BLE001
             pass
     response["execute_result"] = result

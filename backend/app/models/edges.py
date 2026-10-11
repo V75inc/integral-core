@@ -131,6 +131,32 @@ class COLLABORATES_ON(Edge):
     bidirectional: bool = False
 
 
+class MembershipGrantHistory(Edge):
+    """User → Workspace lifetime clock; never an admission grant."""
+
+    revision: int
+    grant_id: Optional[str]
+    last_grant_id: str
+    grant_fingerprint: str
+    changed_at: str
+    bidirectional: bool = False
+
+
+class CollaborationGrantHistory(Edge):
+    """User → resource lifetime clock, retained when collaboration ends."""
+
+    revision: int
+    grant_id: Optional[str]
+    last_grant_id: str
+    grant_fingerprint: str
+    changed_at: str
+    bidirectional: bool = False
+
+
+MEMBERSHIP_GRANT_HISTORY = MembershipGrantHistory
+COLLABORATION_GRANT_HISTORY = CollaborationGrantHistory
+
+
 class HasAgentPreference(Edge):
     """User → Workspace per-user × per-workspace active agent.
 

@@ -14,7 +14,8 @@
         "Gate by-ID invitation actions/discovery; token path does not verify account"
       ],
       "verification": [
-        "test_invitation_mailbox_proof.py: 9 HTTP/service cases; targeted selection passed"
+        "test_invitation_mailbox_proof.py: 9 HTTP/service cases; targeted selection passed",
+        "Legacy notification HTTP characterization explicitly confirms no current verified-mailbox proof yet accepts pointerless metadata and grants workspace admin: legacy_notification_grant_gap.json. Remaining bypass confirmed; finding stays in_progress."
       ]
     },
     {
@@ -105,7 +106,8 @@
       "description": "**Invitation authority and status can become stale.** A resource admin can issue an invite, lose all authority, and the invite still grants editor. Acceptance can observe pending, then complete after revoke has persisted. `invitations.py:371,437,477,517,763`. Probes `test_stale_inviter_still_confers_resource_grant`, `test_invite_accept_can_win_after_revoke`. Bind invitations to issuing authority and target workspace/policy revision; atomically claim pending status and materialize grants. Define authorized workspace-owner adoption of outstanding invitations.",
       "implementation": [],
       "verification": [
-        "Current external rooted JsonDB recheck: /tmp/integral-invitation-lifecycle-current-baseline.xml, three secure assertions failed, zero setup errors. Stale issuer, revoke-before-materialize and viewer/editor receipt mismatch persist. Independent PostgreSQL lifecycle qualification still required."
+        "Current external rooted JsonDB recheck: /tmp/integral-invitation-lifecycle-current-baseline.xml, three secure assertions failed, zero setup errors. Stale issuer, revoke-before-materialize and viewer/editor receipt mismatch persist. Independent PostgreSQL lifecycle qualification still required.",
+        "Legacy notification response all-producer gap: authenticated HTTP /notifications/{id}/respond returns 200 and creates workspace admin from synthetic delivered metadata without canonical Invitation. Failed no-grant security assertion retained in legacy_notification_grant_gap.json. Privileged delivery fixture; no ordinary-user notification forgery claim."
       ]
     },
     {
@@ -249,6 +251,22 @@
       "verification": [
         "Current external rooted JsonDB recheck: /tmp/integral-invitation-lifecycle-current-baseline.xml, three secure assertions failed, zero setup errors. Stale issuer, revoke-before-materialize and viewer/editor receipt mismatch persist. Independent PostgreSQL lifecycle qualification still required.",
         "Current rooted JSON producer probes: collaborator viewer/editor/viewer retains revision 0 and exact issuance baseline; membership absent/add/remove returns the same absent-v1 baseline. Failed security assertions retained in /tmp/integral-collaborator-revision-gap-2.xml and /tmp/integral-absent-membership-baseline-gap.xml. These gaps require persistent negative grant history and all-writer revision adoption; they are not closed by current invitation outcome receipts."
+      ]
+    },
+    {
+      "id": "AC-22",
+      "priority_and_review_evidence": "P1 / R, native cloud + SSE rendering",
+      "status": "open",
+      "description": "Denied private resource IDs disclose exact stored labels through unscoped host output enrichment after a forbidden native tool result. Additional implementation scrutiny finding on 11 October 2026.",
+      "implementation": [
+        "Explicit recipient and workspace admission in label resolver; supported metadata uses current canonical read contracts, unknown families remain opaque; streaming, persistence and approval/result text propagate recipient identity. Full qualification pending."
+      ],
+      "verification": [
+        "Two failed actual DeepSeek Flash Cloud native PostgreSQL smoke receipts reproduce forbidden tool result followed by private App label in SSE. Inspected request bodies contain no private marker, isolating host enrichment. output_label_disclosure.json preserves sanitized source/evidence attribution.",
+        "Repaired focused label/stream/persistence/staging contracts: 56 JSON and 56 PostgreSQL passes, zero skips/failures/errors. Actual designated native cloud smoke: 1 complete pass with allowed read, forbidden private-App result, no private marker in SSE or transcript API readback. deepseek-output-label-smoke.json. Full qualification pending."
+      ],
+      "limits": [
+        "Current repair still under qualification; complete metadata families, historical transcript dependency release, shared release fencing and independent-account browser/MCP remain open."
       ]
     }
   ],
@@ -750,17 +768,22 @@
       "status": "in_progress",
       "authorized_evidence": [
         "test_resource_location.py::test_bound_query_filters_before_count_and_pagination",
-        "test_resource_location.py::test_rollup_refuses_foreign_or_excluded_dependencies (authorized complete rollup)"
+        "test_resource_location.py::test_rollup_refuses_foreign_or_excluded_dependencies (authorized complete rollup)",
+        "test_id_label_authority.py::test_current_owned_labels_require_exact_workspace_scope"
       ],
       "denied_evidence": [
         "test_resource_location.py::test_bound_query_filters_before_count_and_pagination (foreign App does not influence count/cursor)",
-        "test_resource_location.py::test_rollup_refuses_foreign_or_excluded_dependencies"
+        "test_resource_location.py::test_rollup_refuses_foreign_or_excluded_dependencies",
+        "test_id_label_authority.py::test_private_app_name_denied_in_stream_persistence_and_card_helpers",
+        "test_id_label_authority.py::test_labels_recheck_revocation_and_corrupt_containment"
       ],
       "surfaces": [
-        "Bound-App governed query; shared plan rollup"
+        "Bound-App governed query; shared plan rollup",
+        "Recipient-bound label enrichment in native SSE, transcript persistence, staging/result display; in-process designated cloud readback."
       ],
       "limits": [
-        "Other aggregates, search, exports, relation projections and actual-output dependency release remain pending"
+        "Other aggregates, search, exports, relation projections and actual-output dependency release remain pending",
+        "AC-22 repair remains under full qualification; generic metadata families and shared output release fencing still required."
       ]
     },
     {
@@ -1095,14 +1118,14 @@
     }
   ],
   "qualification": {
-    "full_local_gate": "Membership source foundation passed make verify: 1211 smoke passes (11 skips), 1590 frontend passes, 5534 backend passes (320 skips). Full goal-wide gate remains pending.",
+    "full_local_gate": "Grant-history/output-label foundation passed make verify: 1235 smoke passes (12 skips),1590 frontend passes,5557 backend passes (326 skips). Full goal-wide gate remains pending.",
     "postgres_multiprocess": "pending",
-    "core_only_contract": "Membership source foundation passed Core-only, extension (52 passed / 244 PostgreSQL-only skips), focused PostgreSQL (1098 passed / zero skips) and broader PostgreSQL spikes/contracts. Final goal-wide qualification remains pending.",
+    "core_only_contract": "Current grant-history/output-label foundation passed Core-only, extension (52 passed /244 explicit PostgreSQL skips), focused PostgreSQL (1180 passed /zero skips) and broader PostgreSQL spikes/contracts. Final goal-wide qualification remains pending.",
     "independent_artifacts": "pending",
     "browser_mcp": "pending",
     "migration_restore": "pending",
-    "latest_milestone": "M3-workspace-membership-source-foundation",
-    "live_smoke_model": "Designated ollama_chat/deepseek-v4.1-flash:cloud passed current Core cloud transport and native PostgreSQL tool/readback smoke (1 passed, no skips/failures/errors). See deepseek-native-smoke.json. Synthetic authenticated fixture; independent-account browser, complete ACL, effect, migration and restore smoke remain pending."
+    "latest_milestone": "M3-grant-history-and-output-label-foundation",
+    "live_smoke_model": "Designated ollama_chat/deepseek-v4.1-flash:cloud passed native allow/deny and persisted transcript readback (1 passed, no skips/failures/errors); deepseek-output-label-smoke.json. Synthetic authenticated fixture; independent-account browser and full ACL/effect/migration/restore smoke remain pending."
   },
   "milestones": [
     {
@@ -1648,7 +1671,7 @@
     },
     {
       "id": "M3-workspace-membership-source-foundation",
-      "status": "qualified_partial",
+      "status": "pushed_partial",
       "implementation": [
         "Current service-boundary admission for add, patch, remove and self departure; generic member editing cannot mutate owner membership",
         "Ordinary administrator cannot assign administrator/creation rights, alter its own rights, or edit/remove protected administrator/creator peers; owner and ordinary App authority remain separate",
@@ -1680,7 +1703,85 @@
         "Current external role-roundtrip and absent/member/absent probes still fail secure stale-baseline requirements. Persistent negative grant history and all-writer cutover are the next required integration, not a closure claim."
       ],
       "source_head": "3b49c29bf8fc24ae5269599d82a78bb3cf6981be",
-      "staged_runtime_diff_sha256": "0515946433fbbb79582c34439b8272fc99a4dd0908356a792aefb063e53c5674"
+      "staged_runtime_diff_sha256": "0515946433fbbb79582c34439b8272fc99a4dd0908356a792aefb063e53c5674",
+      "commit": "05a8d0280e34fa65e9de354865d5f430c5cd349c",
+      "remote_verified": true
+    },
+    {
+      "id": "M3-grant-history-and-output-label-foundation",
+      "status": "qualified_partial",
+      "implementation": [
+        "Persistent typed membership/collaboration relationship clocks survive grant deletion and invalidate stale invitation baselines, including role and absence roundtrips.",
+        "Participating collaborator add/update/remove and member/invitation/departure writers share the workspace mutation fence, preserve raw grant facts and record clock advancement.",
+        "PostgreSQL collaboration audit intent commits with effect; failures roll back grant, clock, guest membership and notification, while sink failure keeps a pending fact.",
+        "AC-22 output-label repair requires explicit current recipient/workspace/read admission; unknown metadata families remain opaque. Streaming, transcript and staging/result text propagate recipient identity."
+      ],
+      "evidence": [
+        "Source-4 focused contracts: 255 JSON passes / 2 PostgreSQL-only skips; all 278 PostgreSQL cases pass.",
+        "Additional producer PostgreSQL contracts: all 35 cases pass, including rollback, sink failure and independent-pool collaborator revocation ordering.",
+        "Focused output-label compatibility/authority: 56 JSON and 56 PostgreSQL passes; designated DeepSeek native allow/deny and transcript readback 1 pass.",
+        "Retained failures: source-1 technical mirror fingerprint, source-3 import cycle, two native output-label disclosure attempts, first interrupted label compatibility run with six missing-context attribute failures.",
+        "Full-1 terminal exit 0 on all six lanes: staged preflight/actual precommit, Core-only, extension 52 passed / 244 explicit PostgreSQL skips, focused PostgreSQL 1180 passed / zero skips, broader PostgreSQL spikes/contracts, and make verify (1235 smoke passed /12 skips;1590 frontend passed;5557 backend passed /326 explicit skips)."
+      ],
+      "limits": [
+        "All-writer cutover, independent source provenance, identity/release ordering, suspension/reentry and migration/restore remain open.",
+        "JSON has process-local ordering only; no distributed or transaction rollback claim.",
+        "AC-22 runtime repair passed this milestone qualification; complete label contracts and release dependency histories remain open.",
+        "No whole finding or use-case closure, independent-account browser/MCP, CI, production migration, deployment or release qualification.",
+        "Separate actual HTTP probe confirms unchanged legacy notification metadata still creates admin membership without a canonical Invitation. Secure assertion fails; legacy_notification_grant_gap.json retained. Canonical response cutover is next."
+      ],
+      "qualification_runner": "/tmp/integral-grant-history-full-1.status.json",
+      "staged_runtime_diff_sha256": "60c116353cefa34991db6d3834168b15a1b6a84d4dfdd8adfbe30c4593fb1f48",
+      "focused_postgres_counts": {
+        "tests": 1180,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 1180
+      },
+      "ci_faithful_smoke": {
+        "passed": 1235,
+        "skipped": 12,
+        "failed": 0,
+        "errors": 0,
+        "xml": "/tmp/integral-grant-history-full-1-smoke.xml",
+        "sha256": "4433a4398b677df37be1ab14aaf6911fa9e3ce660107614bc4c82f0c43ba8c3f"
+      },
+      "frontend_suite": {
+        "passed": 1590,
+        "files_passed": 282,
+        "log": "/tmp/integral-grant-history-full-1-verify.log",
+        "status": "passed"
+      },
+      "backend_suite": {
+        "passed": 5557,
+        "skipped": 326,
+        "failed": 0,
+        "errors": 0
+      },
+      "wheel_sha256": "8b0e48968ca5bc2cd4150f09554fb4e1576a7fe4e3cbfb8287a98cf19366dc03",
+      "qualification_receipts": [
+        {
+          "path": "/tmp/integral-grant-history-full-1.status.json",
+          "sha256": "d1cf0c43daa4103f97a0412cc72333f1b0f1a6b40cefca8dc0bc39a72cc413da"
+        },
+        {
+          "path": "/tmp/integral-grant-history-full-1.xml",
+          "sha256": "1b998503997786d81348c8d3c45b58756d6850e56cc5309e2194c26998fd7ce7"
+        },
+        {
+          "path": "/tmp/integral-grant-history-full-1-smoke.xml",
+          "sha256": "4433a4398b677df37be1ab14aaf6911fa9e3ce660107614bc4c82f0c43ba8c3f"
+        },
+        {
+          "path": "/tmp/integral-grant-history-full-1-postgres.xml",
+          "sha256": "8a2896de62ca5fd81fa161bed05bbcac7e20fc48d7b79359819d18da921aa4bd"
+        },
+        {
+          "path": "/tmp/integral-grant-history-full-1-extension.xml",
+          "sha256": "7e0d0d448c78353dc61913b09d5cc4b096feeca2d87a4da859052a9b2c32693d"
+        }
+      ]
     }
   ],
   "baseline_evidence": {
