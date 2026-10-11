@@ -229,6 +229,17 @@ class ToolContext:
         oid = str((object_ref or {}).get("id") or "").strip()
         if not oid:
             return None
+        if kind == "tool_observation":
+            from app.services.tool_source_observations import (
+                resolve_tool_source_observation,
+            )
+
+            return await resolve_tool_source_observation(
+                principal_id=self.user_id,
+                workspace_id=self.workspace_id,
+                observation_id=oid,
+                session_id=str((object_ref or {}).get("session_id") or ""),
+            )
         if kind != "entry":
             return None
         ent = await self.get_entry(oid)
