@@ -34,6 +34,12 @@ Connector list and tool caches are partitioned by authenticated principal and ac
 
 Gate: `ConnectorsSection.test.tsx` exercises mounted workspace switches, delayed old responses, and panel reset using a real query client.
 
+### I-UI-COPY-01 — JSON copy feedback follows clipboard completion
+
+The JSON inspector reports success only after the browser clipboard write resolves. Pending writes disable duplicate clicks; denied or unavailable clipboard access produces visible, retryable feedback. Row copies preserve complete values even when their display is truncated. Completion for replaced data or an unmounted inspector cannot set current success feedback or leave a reset timer running. A browser accepting a write does not by itself qualify paste delivery in an external application.
+
+Gate: `JsonViewer.test.tsx` exercises delayed success, rejection and retry, missing browser support, complete identifiers, duplicate clicks, replacement, and unmount cleanup. Actual clipboard readback and paste delivery remain separate runtime checks.
+
 ### I-ROLE-01 — Five-Tier Role Ladder (`role-ladder-five-tier`)
 
 **Statement.** `COLLABORATES_ON.role` accepts exactly five values, ordered
