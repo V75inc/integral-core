@@ -19,6 +19,16 @@ function staged(input: unknown, extra: Record<string, unknown> = {}): StagedChan
 afterEach(cleanup);
 
 describe('literal operation review', () => {
+  it('uses declared presentation order and retains unlabelled inputs without mutating them', () => {
+    const proposal = staged({ diagnostic: 'Trace value', sources: 'Source value', main: 'Main decision' }, {
+      review: { input_labels: { properties: { main: { title: 'Primary decision' }, sources: { title: 'Supporting material' } } } },
+    });
+    const before = JSON.stringify(proposal);
+    const { container } = render(<StagedOperationInputs staged={proposal} />);
+    expect([...container.querySelectorAll('dt')].map(node => node.textContent)).toEqual(['Primary decision', 'Supporting material', 'Diagnostic']);
+    expect(screen.getByText('Trace value')).toBeInTheDocument();
+    expect(JSON.stringify(proposal)).toBe(before);
+  });
   it('groups exact input with App titles, links record references and keeps the input untouched', () => {
     const proposal = staged({ owner_id: 'n.Entry.123abc', choices: [{ passage: 'Line one\nLine two', partial: true, cost: 0 }] }, {
       review: { input_labels: { properties: {

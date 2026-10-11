@@ -56,7 +56,14 @@ export function StagedOperationInputs({ staged, onNavigate }: {
       </ol>;
     }
     if (isObject(value)) {
-      const entries = Object.entries(value);
+      // App schema order is presentation only. Keep every unlabelled input too;
+      // object arrival/storage order must not push the main decision to the end.
+      const declared = schema?.properties ?? {};
+      const keys = [
+        ...Object.keys(declared).filter(key => Object.prototype.hasOwnProperty.call(value, key)),
+        ...Object.keys(value).filter(key => !Object.prototype.hasOwnProperty.call(declared, key)),
+      ];
+      const entries = keys.map(key => [key, value[key]] as const);
       if (!entries.length) return <Text variant="body-sm" tone="muted">None</Text>;
       return <dl className="flex min-w-0 flex-col gap-3">
         {entries.slice(0, 256).map(([key, child]) => <div key={key} className="min-w-0">
