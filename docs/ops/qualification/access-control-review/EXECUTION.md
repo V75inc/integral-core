@@ -417,3 +417,88 @@ qualification and remains a required W7 repair. GitHub CI, browser/MCP,
 migration and complete effect/release-fence evidence are not established by
 these local results. The source package is now qualified for its partial
 canonical-governance milestone commit and push on the designated branch.
+
+That qualified package was committed and pushed as
+`6c48cb6021020b4ab26ffc3a3851fff45c29afc2` on `codex/access-control-review`.
+Remote/local equality and a clean worktree were verified before the next slice.
+
+Entry projection baseline 1 introduced paired point/projection tests across
+list, keyset page, workspace page, count, offset page and stream, both human ID
+forms where relevant, plus an actual HTTP parent projection. Against the pushed
+source it reproduced **44 failures and 11 passes** (57.31 seconds). The tests
+cover inherited exclusions, protected owner data access, missing/foreign extra
+containment, direct Entry grants without parent access, malformed raw grants
+and injected candidate-storage outages. These are baseline failures awaiting
+runtime repair; no new closure or qualified source is claimed from them.
+
+### Entry projections: bounded shared admission (working; unqualified)
+
+The 55-case baseline against pushed `6c48cb60` reproduced 44 failures. The
+shared reader now admits raw Entry windows before exposing list/page/count/
+stream results, retains direct Entry discovery without parent read authority,
+refills rejected windows and propagates source failure as unavailable. Parent
+exports expose navigation fields only. Navigation payloads remain private
+in-memory response metadata and never establish an authorization decision.
+
+Focused JSON 3 passed **97** cases, including all five unchanged query budgets.
+Extended JSON 5 passed **141** cases. A deterministic compound-sort baseline 7
+then reproduced omitted authorized rows; regression run 8 passed both sort
+directions, null tails, multi-window refill, between-request revocation and
+private-payload nonpersistence. These are source tests, not browser, wheel,
+MCP, durable migration or release-fence proof. Full local/PostgreSQL qualification
+remains required; no finding or use-case closure status changed.
+
+### Entry projection refinements before commit
+
+Final run 11 passed the full local gate (855 smoke/7 skips; 1,583 frontend;
+5,182 backend/297 skips), Core-only and extension contracts. Its focused
+PostgreSQL lane then reproduced two explicit-null cursor omissions; this
+snapshot was not committed. PostgreSQL plain-null equality and explicit JSON
+null differ in jvspatial 0.1.1; cursor predicates now use the adapter-shared
+exists-false semantics. Native date cursors cover both explicit-null and missing
+tails in either direction.
+
+A separate regression reproduced saving a selected Entry retaining its temporary
+parent projection in the framework's object cache. Entry persistence clears this
+response-only payload; a warm-cache/canonical-workspace-move regression confirms
+that a subsequent selection contains only the new parents. This payload never
+establishes authority.
+
+Eight PostgreSQL numeric-sort failures were reproduced. Custom/label ordering now
+uses a portable comparator over admitted raw windows and a heap sized by offset,
+page and one lookahead. ID/date ordering retains the storage keyset path. The
+portable path scans candidates to determine the actual top page; typed indexed
+ordering and whole-query work/byte budgets remain qualification work. The memory
+regression observes eight retained records for offset four/page three over 25
+candidates, including exclusions and a direct grant that defeats an exclusion.
+
+Ordinary-mode App/Track inventories no longer consume the protected-owner fast
+path. Tests retain the published active/paused data gate; installing,
+awaiting-settings and failed states stay in recovery controls rather than
+ordinary data projections. Recovery metadata/inventories/UI remain open.
+
+Extended run 20 passed **127 cases on each adapter**, including the five unchanged
+query budgets. Full final qualification is still required. Finding/U-case closure
+statuses remain unchanged; this is not response-fence, complete related-resource,
+migration, restore, browser, MCP or release qualification.
+
+### Entry final-21 PostgreSQL contract correction
+
+The final-21 snapshot passed all 16 guards, pinned formatting/lint/types, reproducible wheel qualification (`9348064eeb2f02d9023b93c2f6565fe2085ab9967d03a4bc53710ebdf697d052`), 899 smoke tests (7 skips), 1583 frontend tests, 5226 backend tests (297 skips), Core-only, extension, and 229 focused PostgreSQL tests. The broader PostgreSQL lane failed the existing transactional permission-fanout test: it expected an inherited Entry exclusion to hide a record from the canonical workspace owner. That expectation contradicted I-GOVERN-01. The test now checks protected stewardship (all five canonical records) and ordinary App authority (four records, with the excluded record absent), outside and inside the actual PostgreSQL transaction. Runtime source was not changed for this correction.
+
+Running that test alone also exposed its implicit dependency on another test having created the Integral graph shell in the raw PostgreSQL store. The test now provisions the rooted shell explicitly. The standalone strengthened test passes (`/tmp/integral-access-entry-projection-transaction-23.xml`); the prior unrooted standalone attempt is retained as fixture evidence (`...-transaction-22.log`). Final qualification must be rerun before commit. The restore drill remains skipped because the Docker backup helper cannot reach the host-only owned database mapping; restore/current-authorization recovery remains open.
+
+### Independent next-milestone baselines during frozen Entry qualification
+
+Read-only probes outside the repository test tree, using the repository pytest configuration and graph fixtures, reproduced two open boundaries without changing the frozen runtime/test source:
+
+- `/tmp/integral-access-function-audience-baseline-2.xml`: 10 assertion failures, no setup errors. An explicitly admitted App viewer who is also the workspace owner regains stewardship mode inside the actual operation/query handler. Excluded Entry point reads, nested policy evaluation and current list selection disclose the record. Direct Entry grants remain readable but execution mode is still incorrect. Exception/cancellation/concurrent-Core cases and a declared-template adapter fixture also reproduce the missing invocation-wide restriction. Template adapter replacement is explicit; this is not complete real template/transport qualification. The first external probe omitted the pytest config and had fixture setup errors; it is not security evidence.
+- `/tmp/integral-access-policy-scope-baseline-3.xml`: positive actual PolicyModule authorization under canonical workspace B succeeds, then the same App/grant is incorrectly allowed under immutable execution scope A. The scope mismatch survives an inherited request memo. This remains a separate module target/parent binding requirement; a header-only check does not close it.
+
+These are next-slice baselines, not new passing acceptance, and do not change any finding/use-case closure status. Dispatcher/module sources were unchanged from `6c48cb60`; selection used the pending Entry snapshot.
+
+### Qualified Entry projection milestone — final-24
+
+The final-24 coordinator completed all five lanes successfully with frozen runtime and test diffs. All 16 guards, pinned formatting/lint/type checks and reproducible wheel/import checks pass. The wheel SHA-256 is `9348064eeb2f02d9023b93c2f6565fe2085ab9967d03a4bc53710ebdf697d052`. Final automated receipts: 899 smoke tests (7 skips), 1583 frontend tests across 279 files, 5226 full backend tests (297 skips), Core-only, extension-contract, 229 focused PostgreSQL tests, and the broader PostgreSQL spike/contract lane. The restore rehearsal is still explicitly skipped and does not qualify current-authorization restore. `/tmp/integral-access-entry-projection-final-24.status.json` records terminal exit zero for every lane; adjacent XML/log receipts retain the named scenarios and exact test counts.
+
+Frozen patch SHA-256: runtime `ed6c6378a21ca2e27028ef336860a03aeb600e623133e3743d8308e591e79864`; tests `24e2dc5f255d4a8969ed84bdea446bb6236453e92bedb58d2af11aa62d2e7fbf`. Runtime/tests were compared again after terminal qualification and before committing. This milestone establishes current canonical Entry selection, admitted counts/refill/cursors, portable numeric/compound ordering, and narrow parent navigation. It is partial remediation, not full closure of a finding or U-case: whole-release fences, saved View authority, related-data disclosure, App function permits/effects, budgets, migration/restore and independent browser acceptance remain open. No GitHub CI, deployment or release is inferred from the local branch gates.

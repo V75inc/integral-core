@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Literal, Optional
 
 from jvspatial.core import Node
 from jvspatial.core.annotations import attribute, compound_index
-from pydantic import Field
+from pydantic import Field, PrivateAttr
 
 from app.schemas.provenance import Provenance
 
@@ -565,6 +565,10 @@ class EntryType(Node):
 class Entry(Node):
     """Fundamental unit of content within a Track."""
 
+    # Ephemeral response payload from this selection's canonical parents.
+    # Never persisted, serialized as an Entry field, or used to grant access.
+    _read_parent_navigation: Optional[Dict[str, Any]] = PrivateAttr(default=None)
+
     type_id: str = ""
     title: str = ""
     author_id: str = attribute(default="", indexed=True)
@@ -599,6 +603,12 @@ class Entry(Node):
     # are unaffected. Values: "pending" | "running" | "complete" | "failed".
     migration_status: str = "complete"
     migration_error: Optional[str] = None  # populated on "failed"; last error message
+
+    async def save(self) -> "Entry":
+        """Drop response-only parent data before persistence warms graph caches."""
+        self._read_parent_navigation = None
+        await super().save()
+        return self
 
 
 class Comment(Node):

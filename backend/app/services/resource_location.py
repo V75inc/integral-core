@@ -370,6 +370,8 @@ async def locate_resources(
     *,
     workspace_hints: list[str] | None = None,
     allowed_app_states: frozenset[str] = ACTIVE_APP_STATES,
+    records_out: dict[str, dict] | None = None,
+    selected_records: list[dict] | None = None,
 ) -> dict[str, ResourceLocation | None]:
     """Batch fresh raw ancestors; each candidate still traverses its complete path.
 
@@ -391,16 +393,36 @@ async def locate_resources(
                     ids[offset : offset + 500],
                     workspace_hints=workspace_hints,
                     allowed_app_states=allowed_app_states,
+                    records_out=records_out,
+                    selected_records=[
+                        row
+                        for row in selected_records or []
+                        if row.get("id") in ids[offset : offset + 500]
+                    ],
                 )
             )
         return bulk_result
     try:
         context = get_default_context()
         records: dict[str, dict] = {}
+        for row in selected_records or []:
+            node_id = row.get("id")
+            if (
+                node_id not in ids
+                or node_id in records
+                or row.get("entity") != model._entity_name()
+                or not isinstance(row.get("context"), dict)
+            ):
+                raise AuthorizationUnavailableError()
+            records[node_id] = row
         missing: set[str] = set()
         parents: dict[tuple[str, str], list[dict]] = {}
         seen: set[str] = set()
         pending = set(ids) | {"n.Root.root", APP_NODE_ID, WORKSPACES_REGISTRY_ID}
+        if kind == "entry":
+            pending.update(
+                required_node_text(row, "track_id") for row in records.values()
+            )
         # Hints only widen the fresh prefetch. Raw facts still prove all links;
         # a stale scalar can never determine the returned scope.
         for workspace_id in list(dict.fromkeys(workspace_hints or []))[:500]:
@@ -416,16 +438,21 @@ async def locate_resources(
             if not frontier:
                 break
             seen.update(frontier)
-            rows = await context.database.find(
-                "node", {"id": {"$in": sorted(frontier)}}, limit=len(frontier) + 1
+            unread = frontier - records.keys()
+            rows = (
+                await context.database.find(
+                    "node", {"id": {"$in": sorted(unread)}}, limit=len(unread) + 1
+                )
+                if unread
+                else []
             )
             row_ids = [row.get("id") for row in rows]
-            if len(row_ids) != len(set(row_ids)) or not set(row_ids).issubset(frontier):
+            if len(row_ids) != len(set(row_ids)) or not set(row_ids).issubset(unread):
                 raise AuthorizationUnavailableError()
             if any(not isinstance(row.get("context"), dict) for row in rows):
                 raise AuthorizationUnavailableError()
             records.update({row["id"]: row for row in rows})
-            missing.update(frontier - set(row_ids))
+            missing.update(unread - set(row_ids))
             edge_rows = await context.database.find(
                 "edge",
                 {
@@ -456,7 +483,7 @@ async def locate_resources(
                     raise AuthorizationUnavailableError()
                 parents[(target, entity)].append(row)
                 pending.add(source)
-            for row in rows:
+            for row in [records[node_id] for node_id in frontier if node_id in records]:
                 entity = row.get("entity")
                 if entity in (App._entity_name(), Track._entity_name()):
                     workspace_id = required_node_text(row, "workspace_id")
@@ -466,6 +493,8 @@ async def locate_resources(
         if pending - seen:
             raise AuthorizationUnavailableError()
         result: dict[str, ResourceLocation | None] = {}
+        if records_out is not None:
+            records_out.update(records)
         checked: set[str] = set()
         for node_id in ids:
             walker = ResourceLocationWalker(allowed_app_states=allowed_app_states)
