@@ -1144,6 +1144,23 @@ async def _x_call_workspace_tool(
         )
     except Exception as exc:  # noqa: BLE001 — surface as envelope
         return _envelope_error(exc)
+    if isinstance(output, dict) and output.get("ok") is False:
+        # A tool may have retained partial effects before refusing. Preserve
+        # its output for reconciliation; never consume approval as success
+        # merely because dispatch returned without raising an exception.
+        message = output.get("error") or output.get("message")
+        return {
+            "ok": False,
+            "error": True,
+            "error_code": "workspace_tool_refused",
+            "message": (
+                message[:2000]
+                if isinstance(message, str)
+                else "Workspace tool did not complete"
+            ),
+            "tool_key": tool_key,
+            "output": output,
+        }
     return {"ok": True, "tool_key": tool_key, "output": output}
 
 
