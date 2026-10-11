@@ -433,3 +433,124 @@ async def test_labeled_relation_does_not_create_before_declared_target_admission
         )
     after = await target_track.nodes(edge=[CONTAINS], node=["Entry"], limit=10)
     assert {e.id for e in after} == {e.id for e in before}
+
+
+@pytest.mark.postgres
+@pytest.mark.parametrize("failure", ["later_field", "source_hook"])
+async def test_failed_source_create_rolls_back_inferred_target_and_retry(
+    failure, test_user, monkeypatch
+):
+    """Nested label creation commits only with its complete source command."""
+    from app.services import entry_create
+
+    ws, source, source_type, target_track, target = await _fixture(test_user, test_user)
+    _, provider, rogue = await _apps(ws, source, target_track, test_user)
+    graph = await target_track.get_context()
+    for edge in await graph.find_edges_between(
+        rogue.id, target_track.id, edge_class=CONTAINS
+    ):
+        await edge.delete()
+    await provider.connect(target_track, edge=CONTAINS)
+    target_track.template_id = "targets"
+    await target_track.save()
+    target_type = await EntryType.create(
+        name="Target Record",
+        track_id=target_track.id,
+        form_schema={"fields": [{"key": "company_name", "type": "text"}]},
+    )
+    await target_track.connect(target_type, edge=CONTAINS)
+    field = source_type.form_schema["fields"][0]
+    field.update(
+        required=True, validation={"create_from_label": True, "write_label_to": "name"}
+    )
+    field["relation"].update(
+        target_app="provider", allow_cross_app=True, target_track_types=["targets"]
+    )
+    source_type.form_schema["fields"].extend(
+        [
+            {"key": "name", "type": "text"},
+            {"key": "state", "type": "select", "enum": ["ready"]},
+        ]
+    )
+    await source_type.save()
+    reset_permissions_cache()
+    before_target = await target.export(flat=True)
+    before_outbox = await graph.database.find(
+        "object", {"entity": "OperationEventOutbox"}
+    )
+    inferred_ids = []
+    original_create = entry_create.create_entry_in_track
+    original_hooks = entry_create.run_entry_save_hooks
+
+    async def observe_create(**kwargs):
+        created = await original_create(**kwargs)
+        if kwargs["track"].id == target_track.id:
+            inferred_ids.append(created.id)
+        return created
+
+    async def fail_source_hook(**kwargs):
+        if kwargs["entry"].track_id == source.id:
+            raise RuntimeError("source hook rejected after related creation")
+        return await original_hooks(**kwargs)
+
+    monkeypatch.setattr(entry_create, "create_entry_in_track", observe_create)
+    if failure == "source_hook":
+        monkeypatch.setattr(entry_create, "run_entry_save_hooks", fail_source_hook)
+    payload = {
+        "name": "Transactional related record",
+        "state": "invalid" if failure == "later_field" else "ready",
+    }
+    error_type = BadRequestError if failure == "later_field" else RuntimeError
+    error_message = "state" if failure == "later_field" else "source hook rejected"
+    with pytest.raises(error_type, match=error_message):
+        await entry_create.create_entry_in_track(
+            track=source,
+            entry_type=source_type,
+            user_id=test_user.user_id,
+            workspace_id=ws.id,
+            title="Transactional source record",
+            custom_fields=payload,
+            skip_profanity=True,
+        )
+    assert len(inferred_ids) == 1, "the test must reach real nested target creation"
+    assert await Entry.get(inferred_ids[0]) is None
+    assert await Entry.find({"context.track_id": source.id}) == []
+    targets = await Entry.find({"context.track_id": target_track.id})
+    assert {entry.id for entry in targets} == {target.id}
+    assert await (await Entry.get(target.id)).export(flat=True) == before_target
+    assert (
+        await graph.database.find("object", {"entity": "OperationEventOutbox"})
+        == before_outbox
+    ), "failed creation must not leave a deliverable event fact"
+    assert (
+        await graph.find_edges_between(
+            target_track.id, inferred_ids[0], edge_class=CONTAINS
+        )
+        == []
+    )
+
+    monkeypatch.setattr(entry_create, "run_entry_save_hooks", original_hooks)
+    payload["state"] = "ready"
+    created = await entry_create.create_entry_in_track(
+        track=source,
+        entry_type=source_type,
+        user_id=test_user.user_id,
+        workspace_id=ws.id,
+        title="Transactional source record",
+        custom_fields=payload,
+        skip_profanity=True,
+    )
+    inferred = await Entry.get(created.custom_fields["related"])
+    assert inferred is not None and inferred.id != inferred_ids[0]
+    assert inferred.title == payload["name"]
+    assert inferred.author_id == test_user.user_id
+    assert {
+        entry.id for entry in await Entry.find({"context.track_id": source.id})
+    } == {created.id}
+    assert {
+        entry.id for entry in await Entry.find({"context.track_id": target_track.id})
+    } == {target.id, inferred.id}
+    edges = await graph.find_edges_between(
+        created.id, inferred.id, edge_class=REFERENCES
+    )
+    assert len(edges) == 1 and edges[0].target_app_id == provider.id
