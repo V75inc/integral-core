@@ -84,9 +84,10 @@
   --system-bar-fg: #f7f7f7;
   --system-bar-muted: #c4c4c7;
   --system-bar-border: #303033;
+  --system-bar-action-border: #64646b;
   --system-bar-hover: #29292c;
   --system-bar-focus: #f7f7f7;
-  --system-bar-info-fg: #f7f7f7;
+  --system-bar-info-fg: #add7ff;
   --system-bar-warn-fg: #ffd58a;
   --system-bar-error-fg: #ffb5ad;
   --system-bar-success-fg: #a9e8bd;
@@ -261,7 +262,7 @@
   --system-bar-muted: #cac7c2;
   --system-bar-border: #403c38;
   --system-bar-hover: #36322e;
-  --system-bar-info-fg: #ece7df;
+  --system-bar-info-fg: #add7ff;
 
   --entry-table-border: #484848;
   --entry-table-divider: #3d3d3d;

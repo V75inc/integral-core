@@ -7,7 +7,7 @@
  *   - Slide-down entrance via transform/opacity (CSS class, data-open toggle)
  *     so React re-renders don't reset the transition mid-flight
  *   - Solid dark chrome in both themes so scrolled content never bleeds through
- *   - Centered message with absolute-right dismiss
+ *   - Shared compact message/action row, with a narrow-screen fallback
  *
  * Sidebar offset / content push-down:
  *   - Sets --system-bar-h on :root after the entrance starts; the layout
@@ -24,6 +24,7 @@ import {
   AlertTriangle,
   CheckCircle,
   Info,
+  Loader2,
   X,
   type LucideIcon,
 } from 'lucide-react';
@@ -34,6 +35,7 @@ import {
   type SystemNotificationType,
 } from './SystemNotificationsContext';
 import { LINE_ICON_STROKE } from '../ui/IconWell';
+import { Text } from '../../ui';
 
 const CSS_VAR = '--system-bar-h';
 const ENTER_DELAY = 500; // ms after mount before slide-down begins
@@ -62,8 +64,9 @@ export function SystemNotificationBar() {
 
   // open=true → slide in; flipped 500ms after a notification appears.
   const [open, setOpen] = useState(false);
-  const [busyActions, setBusyActions] = useState<Record<number, boolean>>({});
+  const [busyActions, setBusyActions] = useState<Record<string, boolean>>({});
   const barRef = useRef<HTMLDivElement>(null);
+  const openedRef = useRef(false);
   const currentId = current?.id ?? null;
 
   // Schedule open=true after the delay, once we have a notification.
@@ -73,6 +76,7 @@ export function SystemNotificationBar() {
   useEffect(() => {
     if (!currentId) {
       setOpen(false);
+      openedRef.current = false;
       document.documentElement.style.setProperty(CSS_VAR, '0px');
       return;
     }
@@ -83,25 +87,27 @@ export function SystemNotificationBar() {
         document.documentElement.style.setProperty(CSS_VAR, `${h}px`);
       }
     };
-    const t = window.setTimeout(() => {
+    const reveal = () => {
+      openedRef.current = true;
       setOpen(true);
       publishHeight();
       if (barRef.current && typeof ResizeObserver !== 'undefined') {
         ro = new ResizeObserver(() => publishHeight());
         ro.observe(barRef.current);
       }
-    }, ENTER_DELAY);
+    };
+    // Swapping queued notices must not briefly release the layout offset.
+    const t = openedRef.current ? null : window.setTimeout(reveal, ENTER_DELAY);
+    if (openedRef.current) reveal();
     return () => {
-      clearTimeout(t);
+      if (t !== null) clearTimeout(t);
       if (ro) ro.disconnect();
-      document.documentElement.style.setProperty(CSS_VAR, '0px');
     };
   }, [currentId]);
 
-  // Reset busy state when notification swaps.
-  useEffect(() => {
-    setBusyActions({});
-  }, [currentId]);
+  useEffect(() => () => {
+    document.documentElement.style.setProperty(CSS_VAR, '0px');
+  }, []);
 
   if (!current) return null;
 
@@ -111,7 +117,7 @@ export function SystemNotificationBar() {
   const dismissible = current.dismissible !== false;
 
   const linkCls = `
-    cursor-pointer font-medium whitespace-nowrap px-3 py-1.5
+    cursor-pointer relative flex h-10 items-center justify-center whitespace-nowrap px-3
     hover:opacity-80 transition-opacity
     disabled:opacity-50 disabled:cursor-not-allowed
     rounded-[var(--radius-input)] hover:bg-[var(--system-bar-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--system-bar-focus)]
@@ -121,13 +127,14 @@ export function SystemNotificationBar() {
     idx: number,
     action: NonNullable<SystemNotification['actions']>[number],
   ) => {
-    setBusyActions((b) => ({ ...b, [idx]: true }));
+    const key = `${current.id}:${idx}`;
+    setBusyActions((b) => ({ ...b, [key]: true }));
     try {
       await action.onClick();
     } finally {
       setBusyActions((b) => {
         const next = { ...b };
-        delete next[idx];
+        delete next[key];
         return next;
       });
     }
@@ -150,38 +157,37 @@ export function SystemNotificationBar() {
         borderColor: 'var(--system-bar-border)',
       }}
     >
-      <div className="relative w-full py-2 pl-4 pr-12 sm:pl-6 sm:pr-14">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-start gap-x-4 gap-y-2 sm:justify-center">
-          <div className="flex min-w-0 items-start gap-2.5 sm:items-center">
-            <Icon size={18} strokeWidth={LINE_ICON_STROKE} className="mt-0.5 shrink-0 sm:mt-0" style={{ color: style.accentFg }} aria-hidden />
-            <p className="min-w-0 text-sm leading-snug">
-              <span className="font-medium">{current.title}</span>
-              {current.body && <span className="mt-0.5 block sm:ml-3 sm:mt-0 sm:inline" style={{ color: 'var(--system-bar-muted)' }}>{' '}{current.body}</span>}
-            </p>
-          </div>
+      <div className="relative w-full px-4 py-2 sm:px-6">
+        <Text as="div" variant="body-sm" tone="inherit" className={`mx-auto grid min-h-10 max-w-7xl grid-cols-[20px_minmax(0,1fr)] items-center gap-x-3 gap-y-1 md:flex md:justify-center ${dismissible ? 'pr-10' : ''}`}>
+          <Icon size={20} strokeWidth={LINE_ICON_STROKE} className="shrink-0 self-center" style={{ color: style.accentFg }} aria-hidden />
+          <Text as="p" variant="body-sm" tone="inherit" className="min-w-0 [overflow-wrap:anywhere]">
+            <Text as="span" variant="body-sm" weight="medium" tone="inherit">{current.title}</Text>
+            {current.body && <span style={{ color: 'var(--system-bar-muted)' }}>{' · '}{current.body}</span>}
+          </Text>
           {current.actions && current.actions.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1 pl-7 sm:pl-0">
+            <div className="col-start-2 flex flex-wrap items-center gap-1 md:shrink-0 md:flex-nowrap">
               {current.actions.map((action, i) => {
-                const busy = action.busy || !!busyActions[i];
+                const busy = action.busy || !!busyActions[`${current.id}:${i}`];
                 return (
-                  <button key={i} type="button" disabled={busy} onClick={() => runAction(i, action)}
+                  <button key={i} type="button" disabled={busy} aria-busy={busy} onClick={() => runAction(i, action)}
                     className={`${linkCls} ${i === 0 ? 'border' : 'border border-transparent'}`}
-                    style={{ color: style.accentFg, borderColor: i === 0 ? 'var(--system-bar-border)' : undefined }}>
-                    {busy ? 'Working…' : action.label}
+                    style={{ color: 'var(--system-bar-fg)', borderColor: i === 0 ? 'var(--system-bar-action-border)' : undefined }}>
+                    <Text variant="body-sm" weight="medium" tone="inherit" className={busy ? 'opacity-0' : undefined}>{action.label}</Text>
+                    {busy && <Loader2 size={16} strokeWidth={LINE_ICON_STROKE} aria-hidden className="absolute animate-spin motion-reduce:animate-none" />}
                   </button>
                 );
               })}
             </div>
           )}
-        </div>
+        </Text>
         {dismissible && (
           <button
             type="button"
             onClick={() => { current.onUserDismiss?.(); dismiss(current.id); }}
             aria-label="Dismiss notification"
             className="
-              absolute right-2 top-1/2 -translate-y-1/2
-              flex h-8 w-8 items-center justify-center
+              absolute right-2 top-2
+              flex h-10 w-10 items-center justify-center
               rounded-[var(--radius-input)]
               text-[var(--system-bar-muted)]
               hover:bg-[var(--system-bar-hover)] hover:text-[var(--system-bar-fg)] transition-colors
