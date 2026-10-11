@@ -1526,7 +1526,7 @@
     },
     {
       "id": "M2-model-creator-curation-foundation",
-      "status": "qualified_partial",
+      "status": "pushed_partial",
       "evidence": [
         "model_creator_qualification.json: all five frozen-source lanes exit zero",
         "173 JSON / 173 PostgreSQL focused cases; 836 focused PostgreSQL full gate cases",
@@ -1540,7 +1540,107 @@
         "Fresh invitation probes retain AC-07 stale issuer/revoke interleave, AC-21 effective receipt mismatch and AC-09 invitation ceiling bypass. Their next shared lifecycle repair remains required.",
         "The required broader PostgreSQL lane retained one explicit loopback-route restore skip. External gateway round-trip evidence is recorded separately; current-revocation quarantine/restore acceptance remains open.",
         "No GitHub CI, deployment, production migration, release or browser/MCP parity claim."
-      ]
+      ],
+      "commit": "ea3bc98041f9fe763fe8fdeebadc1dde89ade559",
+      "remote_verified": true
+    },
+    {
+      "id": "M3-invitation-authority-working",
+      "status": "qualified_partial",
+      "implementation": [
+        "Current canonical issuer/target authority at workspace and resource issuance service boundaries",
+        "Owner-only administrator/creation delegation until explicit scoped administration grants exist",
+        "Resource invitation workspace resolved from rooted target and supplied mismatch rejected",
+        "Acceptance rechecks current issuer authority before grant materialization",
+        "New pending invitations bind to original issuer membership edge; missing legacy binding and removal/rejoin deny without granting",
+        "Raw invitation lifecycle status/workspace/revision admission without hydrated defaults",
+        "PostgreSQL acceptance/revoke/decline/expiry join a shared workspace and invitation transaction scope; current recipient proof is reevaluated inside it",
+        "Bounded expiry inventory uses primary database limit; rejects stale terminal snapshots before writes",
+        "Acceptance/revoke/decline audit intent uses the existing durable operation outbox, keyed by invitation identity/action/revision, committed with the graph write and delivered after commit",
+        "Issuance captures the exact existing grant fingerprint, including edge identity and technical revision; acceptance upgrades only that unchanged baseline and records created/upgraded/unchanged/conflict",
+        "Workspace membership upgrades preserve membership identity and retain stronger role/creation grants",
+        "Durable receipt contains granted role/creation flags and effective role at acceptance; APIs independently recheck current role on responses and retries",
+        "Primary invitation admission validates explicit role/subtype, baseline, timezone-bound expiry and uncoerced creation flags",
+        "Three invitation screens handle conflicts/unchanged/no-access outcomes without announcing Joined as null or opening a workspace with absent access",
+        "Exact primary invitation shell/catalog and INVITED_TO target admission rejects contradictory targets",
+        "Protected owner adoption uses read-only review digest, explicit chosen rights, fresh target/grant/membership proof, token rotation and preserved original issuer provenance",
+        "Owner adoption explicitly reconciles legacy missing issuer/baseline/revision and proven resource-only workspace records; ambiguous targets and terminal/expired records require repair or reissuance",
+        "Token acceptance and decline recheck supplied token hash inside held scope, rejecting pre-rotation lookup snapshots",
+        "Issuance joins the workspace graph transaction and durable outbox before post-commit delivery; catalog failures roll back creation",
+        "Expiry emits durable system-actor audit intent with terminal state",
+        "Owner-facing adoption controls require deliberate role selection and renewed review after failure; ordinary admins cannot select invitation administrator/creation delegation",
+        "Returned invitation Nodes are rebound to caller live graph context, preserving active outer transaction bindings",
+        "Adoption action mirrors audit in PolicyAction; durable acceptance before-state snapshot precedes grant receipt assignment; nested issuance is rejected before state or delivery until deferred outer-commit delivery is implemented"
+      ],
+      "verification": [
+        "Workspace issuance slice: 55 JSON and 55 PostgreSQL cases passed with zero failures/errors/skips; /tmp/integral-invitation-authority-json-2.xml and /tmp/integral-invitation-authority-pg-2.xml",
+        "Broader resource/acceptance integration remains under qualification; no full gate or commit claimed",
+        "Integrated focused-6: 92 JSON / 92 PostgreSQL passed, zero failures/errors/skips. Current source check, issuer membership removal/rejoin and unbound legacy cases executed. No full gate/commit/push yet.",
+        "Scope-2: 5 JSON passes / 1 PostgreSQL-only skip; 6 PostgreSQL passes, zero failures/errors",
+        "Integration-3: one expiry failure on both adapters; Node.find limit kwarg became a field predicate, corrected to primary database limit",
+        "Integration-4: 96 JSON passes / 1 PostgreSQL-only skip; 99 PostgreSQL passes, zero failures/errors/skips. Includes actual post-grant rollback and independent-connection revoke/accept barrier.",
+        "Integration-5 requalification pending after explicit scoped-store transaction binding",
+        "Integration-5: 99 PostgreSQL tests passed, zero failures/errors/skips after explicit current scoped-store binding. App-only flake8 passed; configured mypy passed 660 source files. All jobs terminal; full milestone qualification remains pending.",
+        "Audit-1: 80 JSON / 99 PostgreSQL tests passed; audit-2: 108 PostgreSQL tests passed including sink-failure recovery, intent-failure complete rollback, existing Entry outbox and App operation shared-semantics regressions. Zero failures/errors/skips in PostgreSQL. Configured mypy passed 660 source files; app-only flake8 passed.",
+        "Audit-3 terminal exit zero: 109 PostgreSQL tests, zero failures/errors/skips. Two invitations for the same target/action/revision create distinct durable facts and both deliver once. All processes terminal before next edit batch.",
+        "Grant-2: 107 JSON passes / 1 explicit PostgreSQL-only skip; 149 PostgreSQL passes, zero skips/failures/errors, including Model creator regressions. New created/upgraded/unchanged/conflict/removal/replay and actual existing-member HTTP receipt tests passed. Frontend interaction 3 cases and type check passed. Grant-3 requalifies creation-flag receipts and raw bool admission.",
+        "Grant-3 terminal: 107 JSON passes / 1 explicit PostgreSQL-only skip; 149 PostgreSQL passes, zero skips/failures/errors. Creation-flag receipt readback and raw boolean admission included. Configured mypy passed 661 source files, app-only flake8 passed, frontend types passed, rendered interaction tests 3 passed. All jobs terminal.",
+        "Adoption-1 PostgreSQL lane terminal setup failure: all 160 cases errored because disposable qualification container was missing; no runtime verdict. JSON 122 passed, 3 PG-only skips.",
+        "Adoption-2 terminal: PostgreSQL 161 passed, zero failures/errors/skips; JSON 122 passed, 3 PostgreSQL-only skips. Includes owner adoption audit rollback, token rotation/stale token snapshot, recipient review conflict and provenance/topology tests.",
+        "Adoption-3 terminal PostgreSQL: 152 passes, 13 failures, 1 erroneous skip caused by newly returned Invitation Nodes retaining closed transaction context plus audit assertions predating issuance outbox. Rebound Nodes and updated actual before-state assertions. JSON 122 passed, 3 PG-only skips.",
+        "Adoption-4 PostgreSQL interrupted by Docker storage exhaustion (server WAL no space); one workspace revision assertion also corrected to preserve actual issuance before state. No qualifying pass. Owned disposable database recreated on tmpfs with bounded WAL; unrelated Docker objects preserved.",
+        "Adoption UI rendered tests: 5 passed in 2 files; configured mypy passed 663 source files. Current adoption-5 requalification pending; no full gate, commit or push.",
+        "Adoption-5 terminal exit zero: pg: 169 cases; 0 failures; 0 errors; 0 skips; json: 128 cases; 0 failures; 0 errors; 3 skips. Includes issuance catalog/audit complete rollback and expiry system audit intent. Source rebind and actual before-revision assertions verified. Frontend type check identified missing resource subtype fields, corrected in types; configured flake8 identified 3 missing public docstrings, corrected. Full five-lane milestone qualification next, no closure/commit/push yet.",
+        "Full-5 terminal exit zero: actual staged preflight, Core-only, extension, 976-case PostgreSQL integration, PostgreSQL spikes/contract lane and complete make verify passed. Backend 5481 passed / 313 skipped; smoke 1158 passed / 11 skipped; frontend 1588 passed. No GitHub CI/deployment/migration/browser claim."
+      ],
+      "limits": [
+        "No finding or use-case closure",
+        "Pending invitation adoption/migration, raw record validation, revision CAS, atomic grant outcomes, durable audit and receipts, independent-connection races remain required",
+        "Original membership binding prevents rejoin revival in current admission; atomic source-change ordering and protected-owner adoption/migration remain open.",
+        "Lifecycle integration does not yet have durable outcome receipts/audit intent, adoption/legacy migration, common identity ordering or complete membership/grant-writer fencing. No production-strength JSON rollback claim.",
+        "Audit durability applies to the integrated acceptance/revoke/decline slice. Issuance/expiry/adoption audit, durable actual-grant outcome receipts and all source-writer/release fences remain open.",
+        "Grant baselines/version metadata are foundations: all peer writers still must preserve/advance versions and share source fences; ABA/final-boundary mutation races, full migration/adoption and UI/browser qualification remain open. No finding/use-case closure.",
+        "Current integrated issuance/expiry/adoption slice supersedes earlier audit-slice limits after qualification, but all peer identity/membership/grant-writer source fences, versioned ABA handling, full inventory/quarantine/restore migration and independent-account browser qualification remain open. No finding or use-case closure.",
+        "Nested invitation issuance needs deferred delivery integration before composable outer transactions are supported; unsupported nesting denies before creating state or sending tokens.",
+        "Complete grant/source audit payload and history, including requested rights and source/baseline provenance, remains part of broader audit completion; the integrated event intent proves durability for this tested slice."
+      ],
+      "qualification": {
+        "source_diff_sha256": "5f306f1d4ea7319d67878dc91cd50ad07e3b1190a11421e84a9b6d22c07baa46",
+        "runner_status": "/tmp/integral-invitation-lifecycle-full-5.status.json",
+        "counts": {
+          "backend": {
+            "total": 5794,
+            "failures": 0,
+            "errors": 0,
+            "skips": 313,
+            "passed": 5481
+          },
+          "smoke": {
+            "total": 1169,
+            "failures": 0,
+            "errors": 0,
+            "skips": 11,
+            "passed": 1158
+          },
+          "extension": {
+            "total": 296,
+            "failures": 0,
+            "errors": 0,
+            "skips": 244,
+            "passed": 52
+          },
+          "postgres": {
+            "total": 976,
+            "failures": 0,
+            "errors": 0,
+            "skips": 0,
+            "passed": 976
+          }
+        },
+        "frontend_passed": 1588,
+        "wheel_sha256": "5eb7745d64d8a98ef8fa2281cf80235738e21e8d7a526e3514f6ceb9cb5a17ed",
+        "branch": "codex/access-control-review"
+      }
     }
   ],
   "baseline_evidence": {

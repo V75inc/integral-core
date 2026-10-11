@@ -365,6 +365,20 @@ class Invitation(Node):
     email: str = attribute(default="", indexed=True)  # casefold-normalized
     invited_user_id: Optional[str] = None  # resolved at create if email maps to a User
     invited_by_user_id: str = ""
+    issuer_membership_id: str = (
+        ""  # Pending authority binds to this membership lifetime.
+    )
+    invitation_revision: int = 0
+    audit_outbox_id: str = ""
+    grant_baseline: str = ""
+    grant_outcome: str = ""
+    granted_role: Optional[str] = None
+    effective_role_at_acceptance: Optional[str] = None
+    granted_can_create_apps: Optional[bool] = None
+    granted_can_create_tracks: Optional[bool] = None
+    adopted_by_user_id: str = ""
+    adopted_membership_id: str = ""
+    adopted_at: Optional[str] = None
     role: str = "member"  # member | admin | guest (workspace-level only)
     can_create_apps: bool = False
     can_create_tracks: bool = False

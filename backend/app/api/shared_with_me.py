@@ -360,6 +360,9 @@ async def post_accept_my_invitation(
         _raise_invitation_action_error(err)
     assert invitation is not None
     workspace = await Workspace.get(invitation.workspace_id)
+    from app.services.invitation_grants import invitation_effective_role
+
+    current_role = await invitation_effective_role(invitation, user.id)
     return {
         "invitation": {
             "id": invitation.id,
@@ -370,7 +373,15 @@ async def post_accept_my_invitation(
         "workspace": (
             {"id": workspace.id, "name": workspace.name} if workspace else None
         ),
-        "role": invitation.target_resource_role or invitation.role,
+        "role": current_role,
+        "grant_receipt": {
+            "outcome": invitation.grant_outcome or None,
+            "granted_role": invitation.granted_role,
+            "can_create_apps": invitation.granted_can_create_apps,
+            "can_create_tracks": invitation.granted_can_create_tracks,
+            "effective_role_at_acceptance": invitation.effective_role_at_acceptance,
+            "revision": invitation.invitation_revision,
+        },
         "message": "Invitation accepted",
     }
 
@@ -604,7 +615,12 @@ async def get_sharing_overview(request: Request) -> SharingOverviewResponse:
     # ------------------------------------------------------------------
     invitation_rows: List[OutboundInvitation] = []
     issued = await Invitation.find(
-        {"context.invited_by_user_id": user_id, "context.status": "pending"}
+        {
+            "context.invited_by_user_id": {
+                "$in": [user_id, user.id] if user is not None else []
+            },
+            "context.status": "pending",
+        }
     )
     invitation_targets = [
         (kind, rid)

@@ -543,7 +543,7 @@ async def test_resource_invitation_accept_materializes_collab_edge(monkeypatch):
 async def test_resource_invitation_stays_pending_when_resource_missing():
     from app.models.nodes import Invitation
     from app.services.invitations import (
-        ERR_RESOURCE_NOT_FOUND,
+        ERR_GRANT_FAILED,
         consume_invitation_token,
         create_resource_invitation,
     )
@@ -566,7 +566,7 @@ async def test_resource_invitation_stays_pending_when_resource_missing():
     await broken.save()
 
     inv, err = await consume_invitation_token(plaintext, accepting.id)
-    assert err == ERR_RESOURCE_NOT_FOUND
+    assert err == ERR_GRANT_FAILED
     assert inv is not None
     reloaded = await Invitation.get(invitation.id)
     assert reloaded.status == "pending"
@@ -598,27 +598,27 @@ async def test_resource_invitation_wires_invited_to_edges():
 
 @pytest.mark.asyncio
 async def test_expire_invitations_only_marks_past_pending():
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
 
     from app.models.nodes import Invitation
-    from app.services.invitations import _expiry_iso, expire_invitations
+    from app.services.invitations import create_invitation, expire_invitations
+    from tests.test_resource_location import graph
 
-    future = await Invitation.create(
-        workspace_id="ws-future",
+    owner, workspace, _, _, _ = await graph()
+    future, _, _ = await create_invitation(
+        workspace=workspace,
+        inviter_user_id=owner.id,
         email="future@example.com",
-        status="pending",
-        expires_at=_expiry_iso(30),
-        token_hash="a" * 64,
-        created_at=datetime.now().isoformat(),
+        send_email_notification=False,
     )
-    past = await Invitation.create(
-        workspace_id="ws-past",
+    past, _, _ = await create_invitation(
+        workspace=workspace,
+        inviter_user_id=owner.id,
         email="past@example.com",
-        status="pending",
-        expires_at=(datetime.now() - timedelta(days=1)).isoformat(),
-        token_hash="b" * 64,
-        created_at=datetime.now().isoformat(),
+        send_email_notification=False,
     )
+    past.expires_at = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    await past.save()
     count = await expire_invitations()
     assert count >= 1
     reloaded_future = await Invitation.get(future.id)

@@ -766,3 +766,155 @@ No runtime/repository-test edit occurred while full-2 was live. This diagnoses t
 All five frozen full-2 lanes completed exit zero: Core-only, extension-contract (52 passes / 232 explicit skips), focused PostgreSQL (836 passes / zero skips), broader PostgreSQL (one explicit loopback restore skip), and `make verify`. Full backend: **5419 passed / 300 skipped**, zero failures/errors; smoke: **1096 passed / 10 skipped**, zero failures/errors; frontend: **1583 tests / 279 files passed**. Pinned formatting/lint/mypy, staged guards, types and reproducible wheel/import passed. Wheel SHA-256: `d4d8e49192f802142113ea8be30ebcc70ae46bc72ca8f22c74fcb5d78b985bd0`. Frozen runtime/test staged hashes matched after terminal completion; no unstaged source bytes were present. `model_creator_qualification.json` records exact source fingerprints, reports, gate logs and unresolved limits.
 
 This qualifies the creator curation and private creation identity/provenance repair for commit and push on the same branch. It does not close any whole review finding/use case or finish Model/membership lifecycles. In particular, the four freshly rechecked invitation defects, legacy migration, suspension, atomic effect/release, complete epochs, browser/MCP and current-revocation restore acceptance remain open.
+
+
+### M3 invitation authority integration in progress
+
+The prior creator foundation is committed and remote-verified on the singular branch as `ea3bc98041f9fe763fe8fdeebadc1dde89ade559`. The next package implements common service-level invitation authority. Workspace issuance now checks a current canonical issuer and rooted workspace before effects. Ordinary admins can issue basic member/guest invitations but cannot issue administrator membership or creation flags, even when they themselves hold creation flags; explicit scoped delegation administration is still forthcoming. Protected ownership retains those rights without requiring creation flags. App execution cannot consume protected owner authority.
+
+Workspace issuance qualification-2 passed **55 JSON and 55 PostgreSQL cases**, zero failures/errors/skips. Initial existing-fixture qualification had two failures: unrelated overview/revoke tests issued workspace invitations without any owner membership. The repaired fixtures give their intended issuer canonical ownership and preserve their endpoint assertions. The first resource selection named a nonexistent test module and ended with exit 5 without a usable qualification result; corrected selection-4 includes the actual `test_sharing.py`.
+
+Resource issuance now checks the exact `*.invitation_create` policy and canonical containment at the service boundary. An omitted workspace is resolved from the target; a supplied mismatch denies before writes. The canonical issuer ID is persisted. Acceptance rechecks current issuer authority before materializing grants. This broader integration is under qualification. These checks are **not** a transaction/revocation fence: pending issuer membership lifetime, protected-owner adoption, legacy migration, raw record admission, atomic lifecycle CAS/outcomes, durable audit/receipts and independent PostgreSQL races remain required. AC-07/09/21 and related use cases remain open. No full-gate pass, commit or push is claimed for the working M3 changes.
+
+
+Invitation integrated qualification-4 ended with three failures, zero setup errors: canonical graph issuer ID was absent from an overview query keyed only to login ID; a cross-owner fixture's issuer was outside the target's workspace; and the now-fail-closed target/issuer check returned the generic grant failure rather than a missing-target subtype. Overview/revoke paths now recognize both current principal aliases. The negative fixture uses the actual resource owner's workspace. Missing/corrupt target acceptance remains pending and returns generic grant failure before any grant. Focused-5 passed **90 JSON / 90 PostgreSQL cases**, zero skips/errors/failures.
+
+New producers now persist `issuer_membership_id`, capturing the unique primary-store membership edge. Acceptance compares it with the current live issuer membership after current target/policy admission. Removing/rejoining the issuer does not reactivate the pending invitation even when its direct resource admin grant remains. Pending legacy records without that original binding fail closed and need explicit owner adoption/reissuance; no historical binding is invented on read. Integrated focused-6 passed **92 JSON / 92 PostgreSQL cases**, zero skips/errors/failures (`/tmp/integral-invitation-authority-{json,pg}-6.xml`). This is current admission proof, not atomic revocation ordering or a complete migration. The next implementation remains the invitation CAS/transaction/receipt/outbox/adoption package. No broad finding closure or milestone push is claimed.
+
+A direct ad hoc mypy invocation followed transitive third-party imports and reported 143 errors; test-inclusive flake8 also scanned files outside the configured app-only gate. Neither is represented as the repository qualification command. The configured `.ci/mypy_backend.sh` and app-only flake8 are rerun separately; the full milestone gate remains required before commit.
+
+Configured app-only flake8 passed. The actual `.ci/mypy_backend.sh` passed all **659 source files**; the ad hoc transitive-import result above is not a failure of that configured gate. All focused test and lint processes are terminal before the next source-edit batch. Full qualification and commit/push remain pending the lifecycle implementation.
+
+
+### M3 lifecycle scope and acceptance integration
+
+The new lifecycle scope uses the existing PostgreSQL workspace authorization fence and public held graph transaction, then locks the invitation row. It reloads primary raw status/workspace/revision, rejects missing authority fields instead of hydrating pending defaults, and prohibits nested same-task transitions. Development JSON only gets process-local serialization and cannot claim transactional rollback. Lifecycle-scope focused-2 passed **5 JSON tests with one explicit PostgreSQL-only rollback skip**, and **6 PostgreSQL tests with no skips/failures/errors**. The rollback test verifies both terminal invitation state and first-created workspace revision are absent after an injected exception.
+
+Acceptance is now being connected to that held unit: current recipient identity/mailbox proof, pending/terminal/expiry state and issuer admission are re-evaluated inside it; a materializer error raises through the transaction before returning an error. Accepted retries use current canonical identity and recipient proof rather than an early cached status result. Terminal acceptance increments the invitation revision. Integration qualification is running; revoke/decline/expiry still need the same seam, durable audit intent and grant receipts remain unfinished, and membership/grant writers still need common source-change ordering. No full lifecycle closure or milestone commit is claimed.
+
+
+Lifecycle integration-2 passed the acceptance/revoke selection on JSON and PostgreSQL. Revoke now reauthorizes current actor/target at the service boundary, reloads current state inside the same lifecycle seam, increments revision, returns idempotently for an existing revoke and refuses to replace other terminal states. Decline now rechecks current recipient proof and pending/expiry state in the same seam. Expiry now reloads each candidate inside that seam before changing state.
+
+Integration-3 had **one expiry assertion failure on each adapter**, zero setup errors. The pinned `Node.find(..., limit=N)` interprets `limit` as an entity filter rather than a database option, so no rows matched. The repair reads bounded raw primary candidates (`database.find(..., limit=N)`) before any hydration and validates the raw identity/workspace before scope admission. The old expiry fixture also used unrooted fake workspaces; it now issues actual authorized rooted invitations before moving the expiry into the past. No permissive lifecycle fallback was added. A patch initially matched an earlier duplicate-pending search rather than expiry; it was corrected and inspected before any test run, retaining the original producer query.
+
+Integration-4 passed **96 JSON tests with one explicit PostgreSQL-only rollback skip**, and **99 PostgreSQL tests with no skips/failures/errors**. Actual PostgreSQL tests now write both guest membership and collaboration, inject a post-grant failure and verify neither grant nor accepted state/revision survives. A second independent connection attempts acceptance behind a held revoke, remains waiting until cancellation commits, then observes revoked and no recipient grant. These tests do not prove all source membership/grant mutations use the same fence.
+
+Further source review found the transaction helper defaults to the registered prime store. Lifecycle now explicitly joins the current scoped store's public transaction before taking the workspace fence, so an independently selected internal context stays on its intended store/connection. Integration-5 requalifies that change. Recipient identity-before-workspace fencing, durable terminal receipts/outbox, legacy adoption/migration and complete peer-writer participation remain required. The current audit emits are still in the held operation and are **not** the durable post-commit intent required for closure. No finding/use-case closure, full milestone gate, commit or push is claimed.
+
+Lifecycle integration-5 is terminal exit 0: **99 PostgreSQL cases passed**, zero skips/failures/errors, after explicitly binding the lifecycle transaction to the current scoped store. App-only flake8 passed and configured mypy passed **660 source files**. All test/lint jobs are terminal before the next source-edit batch. Durable receipts, post-commit audit intent, adoption/migration and common identity/source-writer fencing remain the next requirements; the branch has no new milestone commit or push yet.
+
+
+### M3 durable invitation audit slice
+
+Acceptance/revoke/decline now persist audit intent using the existing `OperationEventOutbox` Object collection in their held PostgreSQL graph transaction. The shared primitive now accepts an explicit namespace, subject and revision; Entry CRUD delegates to it while retaining its exact prior `entry-command-v1` identity format. Invitation facts use `invitation-lifecycle-v1` and the invitation ID, rather than the common target resource ID or an invented default revision. This avoids collapsing distinct invitations to the same target. The invitation stores its outbox ID in the same graph commit.
+
+Normal delivery runs after scope commit; nested callers leave delivery to their outer command/recovery owner. Sink failure is logged as pending delivery and leaves durable intent; it does not pretend the audit reached the sink or undo committed access. The existing resident startup/periodic recovery uses the same outbox consumer. This is reuse of current recovery infrastructure, not a new side-channel logging system. JSON continues immediate nontransactional audit behavior and does not claim durable atomic guarantees.
+
+Audit-1 passed **80 JSON and 99 PostgreSQL tests**. Audit-2 passed **108 PostgreSQL tests**, zero skips/failures/errors, including an actual sink failure followed by successful recovery and idempotent second delivery, an outbox insertion fault that rolls back accepted state plus guest/collaboration grants, current Entry outbox tests and App shared-semantics regressions. Configured app-only flake8 passed and mypy passed **660 source files**. A same-target/different-invitation event-identity test is now running in audit-3. Issuance/expiry/adoption audit, actual grant outcome receipts, original-grant concurrency, complete source-writer/identity/release fencing and owner adoption/legacy migration remain required. No finding/use-case closure, full milestone gate, commit or push is claimed.
+
+Audit-3 completed terminal exit 0: **109 PostgreSQL tests passed**, zero skips/failures/errors. The added actual-store case accepts two separate invitations to the same Track with matching action/revision, and verifies distinct durable fact IDs plus delivery of both facts. All test/lint processes are terminal. The next implementation remains actual grant baseline/version/outcome receipts and protected owner adoption/migration; milestone qualification/commit/push are still pending.
+
+
+### M3 invitation grant outcomes and current response projection
+
+Issuance now captures the exact observed recipient grant or explicit absence. Acceptance locks an existing PostgreSQL grant row before comparing its captured fingerprint; it upgrades only that unchanged baseline and retains stronger roles/creation flags. An intervening create, change or removal yields conflict without overwriting the newer state. The accepted invitation stores the created/upgraded/unchanged/conflict receipt, persisted direct role/creation flags and effective role at acceptance in the same graph/outbox transaction. Workspace upgrades preserve the membership edge identity rather than destroying creator membership lifetimes. Technical `grant_revision` is typed relationship metadata; introducing zero on a legacy row for locking does not manufacture a role. All ordinary writers still need common revision/fence integration; this is not an ABA or complete peer-write guarantee.
+
+The acceptance endpoints project current effective access independently from that durable historical receipt, including retries after grant removal. They do not recreate removed access on an accepted retry. Existing workspace members may now receive an invitation for an intended rights upgrade. The old existing-member test's expected blanket 400 was the only grant-1 failure on both adapters. It now performs actual HTTP acceptance and verifies unchanged membership/effective role/receipt for the no-op case. This aligns with the plan's requirement to qualify existing members rather than avoiding that scenario.
+
+Grant-2 passed **107 JSON tests with one explicit PostgreSQL rollback skip** and **149 PostgreSQL tests with no skips/failures/errors**, including creator membership binding regressions. New actual-store scenarios cover creation, intended same-edge upgrade, preservation of stronger rights, intervening role/create/removal conflicts, membership lifetime preservation, historical retry without regrant, and missing raw role/baseline/expiry rejection. Raw invitation role/subtype/baseline/expiry are now admitted before hydration defaults; creation flags are validated as stored booleans. The subsequent grant-3 selection requalifies current creation-flag receipt fields. App-only flake8 and configured mypy passed **661 source files**.
+
+The API clients now allow an absent current role and carry the grant receipt. All three acceptance screens use outcome-aware messages and avoid workspace navigation when current access is absent. Three actual rendered invitation-page interaction tests passed for absent access, conflict returning viewer despite requested admin, and unchanged membership. Frontend type checks passed. This is component/HTTP/local-store evidence, not independent-account browser or full frontend-suite qualification. Legacy adoption/migration, complete peer grant/membership revisions, identity/source/effect/release ordering, issuance/expiry/adoption audit, declared delegation and full milestone gates remain required. No broad finding/use-case closure or new commit/push is claimed.
+
+Grant-3 completed terminal exit 0: **107 JSON passes with one PostgreSQL-only skip** and **149 PostgreSQL passes**, zero PostgreSQL skips/failures/errors. Receipt creation flags match persisted membership readback; raw invitation flags are validated without hydration coercion. App-only flake8 passed, configured mypy passed **661 source files**, and frontend types passed after receipt/null-role integration. All processes are terminal before the next source-edit batch. The next requirements remain protected owner adoption and explicit legacy reconciliation, issuance/expiry audit, complete source-writer/identity fencing and full milestone qualification before commit/push.
+
+
+### M3 explicit owner adoption and issuance durability (working)
+
+Owner review now binds the stored pending invitation, current recipient grant,
+canonical target workspace and current owner membership lifetime. Adoption
+requires chosen rights and the current review digest, preserves original issuer
+provenance, rotates the token, and grants nothing until acceptance. It can
+explicitly reconcile missing legacy binding/baseline/revision and an empty
+workspace scalar only when the named resource target proves the workspace.
+Conflicting edges, terminal invitations and expired records are rejected.
+Ordinary acceptance never performs this migration implicitly.
+
+Acceptance and decline compare the supplied token hash after held-scope
+admission. The owner UI requires deliberate role selection and clears a stale
+review after a failed apply. Issuance now commits rooted state and audit intent
+before delivery, propagates catalog failures, and expiry records a system actor.
+Nodes returned from completed transactions are rebound to the caller context;
+nested commands retain their still-active outer context.
+
+Evidence: `/tmp/integral-invitation-adoption-pg-2.xml` has 161 passes, no skips,
+failures or errors. JSON-2 has 122 passes and 3 explicit PostgreSQL-only skips.
+Adoption-1 PostgreSQL failed setup with the owned container missing. Adoption-3
+exposed closed transaction contexts in returned invitations and two old audit
+assumptions; repaired before further qualification. Adoption-4 was interrupted
+by Docker WAL storage exhaustion and also required a revision test to compare
+against issuance's actual persisted before state. These failed/interrupted
+receipts are retained and do not qualify the milestone. Only the owned
+disposable database was recreated, on temporary memory storage with bounded
+WAL. Adoption-5 is pending. Five frontend interaction tests and the configured
+663-file mypy gate passed. No full milestone gate or new commit/push yet.
+
+The whole-goal ledger remains open: current source changes by all peer writers,
+identity ordering, ABA/version discipline, inventory/quarantine/restore and
+independent-account browser qualification are still required.
+
+Adoption-5 terminal: pg: 169 cases; 0 failures; 0 errors; 0 skips; json: 128 cases; 0 failures; 0 errors; 3 skips. Source binding, issuance fault rollback, expiry intent and partial adoption provenance executed. Current type/docstring corrections proceed to full five-lane milestone gate.
+
+Full-1 was intentionally stopped after Core-only passed and while the extension
+lane was active, to resolve I-ROLE-01 duplicated resource-role/rank declarations.
+The runtime now consumes canonical sharing.VALID_ROLES and permissions.ROLE_RANK.
+Full-2 adds a staged preflight (actual guards/precommit/pinned format/lint/types)
+before the five qualification lanes. No pass is inferred from a stopped lane.
+
+Full-2 failed staged UI drift before tests; full-file migration to shared Text
+and Surface primitives resolved the invitation panel's pre-existing literals
+and the new owner review literal. Full-3 staged guards, actual precommit,
+pinned Black/isort/flake8 and configured backend mypy have passed so far;
+frontend lint/types and the full five lanes remain in progress. No new commit.
+
+Invariant review for the invitation milestone: I-GRAPH-01 is preserved by
+same-unit target/catalog attachment and complete rooted identity admission;
+I-GRAPH-02 is preserved by reusing Object-shaped outbox facts; I-ROLE-01 consumes
+canonical VALID_ROLES/ROLE_RANK and keeps owner/admin/editor tiers distinct;
+workspace target admission retains the access perimeter; I-CRUD-01 keeps graph
+mutations in service functions; I-EXT-01/Core-only and the module-boundary/cycle
+guards qualify domain-neutral imports. Creation grants remain separate from
+protected owner delegation and do not mint ordinary App action authority.
+Full-3 preflight and Core-only terminal exit zero; broader lanes remain pending.
+
+Full-3 broad PostgreSQL lane failed only the PolicyAction strict-superset
+contract: workspace.invitation_adopt was added to ChangeEventAction without
+the policy twin. Corrected. A source release-boundary recheck also found that
+nested issuance could deliver inside a still-open outer transaction. Issuance
+now refuses that unsupported nesting before creating state or delivering a
+token; a real PostgreSQL regression checks it. Composable nested issuance
+requires deferred delivery integration and remains open; this constrained
+behavior is not whole-goal closure. Full-4 requalification begins next.
+
+Full-4 intentionally stopped in preflight for acceptance audit before-state refinement; the snapshot now precedes grant receipt assignment, with durable before/after regression assertions. Full-5 restarts the gate.
+
+
+### M3 invitation lifecycle foundation — full-5 qualified partial milestone
+
+All processes are terminal. Actual staged guards/precommit/pinned format/lint/types,
+Core-only, extension, PostgreSQL integration, PostgreSQL spikes/contract and full
+`make verify` passed. PostgreSQL integration: 976 passes,
+zero failures/errors/skips. Extension: 52 passes,
+244 explicit skips. Smoke: 1158
+passes, 11 explicit skips. Frontend: 1,588 passes. Full
+backend: 5481 passes, 313 explicit
+skips, zero failures/errors. Receipts use `/tmp/integral-invitation-lifecycle-full-5`.
+Wheel SHA-256: `5eb7745d64d8a98ef8fa2281cf80235738e21e8d7a526e3514f6ceb9cb5a17ed`.
+Frozen staged runtime/test diff SHA-256: `5f306f1d4ea7319d67878dc91cd50ad07e3b1190a11421e84a9b6d22c07baa46`.
+
+This closes no whole finding or use case. All peer identity/membership/grant
+writers need common fences and version discipline; offboarding/reentry blocks,
+complete source/audit history and migration/quarantine/current-auth restore
+remain open. Nested issuance now denies before effects until deferred outer
+commit delivery exists. The owner UI has rendered test coverage, not
+independent-account browser qualification. No GitHub CI, deployment or release
+claim. Commit/push proceeds on the single authorized branch.
