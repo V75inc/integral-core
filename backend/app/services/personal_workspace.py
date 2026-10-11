@@ -28,14 +28,15 @@ logger = logging.getLogger(__name__)
 async def _find_personal_workspace(user: User) -> Optional[Workspace]:
     """Return the user's existing Personal Workspace, or ``None``."""
     try:
-        candidates = await user.nodes(edge=[IS_MEMBER_OF], node=["Workspace"])
+        candidates = await user.nodes(
+            edge=[{IS_MEMBER_OF.__name__: {"context.role": "owner"}}],
+            node=[{"Workspace": {"context.kind": "personal"}}],
+            limit=1,
+        )
     except Exception:
         logger.exception("_find_personal_workspace traversal failed for %s", user.id)
         return None
-    for ws in candidates:
-        if getattr(ws, "kind", "") == "personal":
-            return ws
-    return None
+    return candidates[0] if candidates else None
 
 
 async def ensure_personal_workspace(user: User) -> Workspace:

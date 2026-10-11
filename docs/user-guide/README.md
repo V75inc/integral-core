@@ -34,6 +34,8 @@ For a first AI request, be concrete:
 
 > “In this workspace, summarize the requests in this Track. Link the records you use and identify anything you cannot determine.”
 
+For dependency questions, ask in ordinary language: “What could hold up this launch, and how would a backup supplier help?” Where recorded graph context is configured, the resident follows stored workspace relationships and explains the selected dates, states and evidence. See [workspace graph context](../product/GRAPH_CONTEXT.md) for setup, privacy and limits.
+
 The model and tools available to your installation determine what can be completed. A useful answer should preserve uncertainty rather than supply missing facts by guesswork.
 
 ## 3. Workspaces and teams

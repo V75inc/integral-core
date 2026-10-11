@@ -180,6 +180,13 @@ def _build_input_schema(spec: ToolSpec) -> Dict[str, Any]:
             required.append(pname)
 
     schema: Dict[str, Any] = {"type": "object", "properties": properties}
+    if spec.name == "integral_get_graph_context":
+        from app.schemas.graph_context import GraphContextRequest
+
+        graph_schema = GraphContextRequest.model_json_schema()
+        schema["$defs"] = graph_schema.pop("$defs", {})
+        properties["spec"] = graph_schema
+        schema["additionalProperties"] = False
     if spec.name == "integral_query_spec":
         schema["additionalProperties"] = False
     if (

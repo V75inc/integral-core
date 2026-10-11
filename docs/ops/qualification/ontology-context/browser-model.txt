@@ -1,0 +1,121 @@
+
+  - button "Show conversations":
+    - generic: Conversations
+  - button "Chat" [pressed]:
+    - generic: Chat
+  - button "Inbox":
+    - generic: Inbox
+  - link "Open full chat":
+    - /url: /agent
+  - button "Close chat":
+  - dialog:
+    - button:
+    - complementary:
+      - button [disabled]:
+        - generic: Integral AI
+        - generic: Your workspace assistant
+      - generic: Conversations
+      - button:
+      - searchbox
+      - generic: Today · Morning
+      - button:
+        - generic: Use integral-insights and integral_get_graph_context to expl…
+        - time: 06:21 AM
+      - button:
+  - paragraph: Get started with your workspace
+  - paragraph: Say hello and I’ll help you set up your Apps and Tracks.
+  - button "Skip workspace introduction": Skip
+  - generic: Use integral-insights and integral_get_graph_context to explain the stored dependency paths for launch entry n.Entry.c05a620cfce1478cb79bc1f9. Use ontology view, REFERENCES edges and depth 3 in this workspace. Cite returned readable names and paths, separate stored links from inference, and do not read other workspaces.
+  - paragraph:
+    - text: I am sorry, but I do not have access to the specific
+    - code: integral_get_graph_context
+    - text: tool or the necessary permissions within the current context to execute a graph traversal on stored dependency paths for a specific entry ID, including ontology view, REFERENCES edges, and depth 3.
+  - paragraph:
+    - text: Therefore, I cannot provide the requested explanation of the stored dependency paths for
+    - code: Launch regional pilot on 1 November
+    - text: .
+  - button "Worked · gemma4:e2b":
+    - status "Worked · gemma4:e2b":
+      - generic: Worked · gemma4:e2b
+  - button "Copy":
+  - button "Regenerate":
+  - button "Message debug":
+  - button "More":
+  - generic: Please first call search_capabilities to discover integral_get_graph_context, then call the discovered read tool with root_id n.Entry.c05a620cfce1478cb79bc1f9, view ontology, edge_types [REFERENCES], max_depth 3. Do not assume the tool is unavailable before discovery. Explain only the returned stored links.
+  - paragraph:
+    - text: The stored dependency paths for entry
+    - code: Launch regional pilot on 1 November
+    - text: ", viewed through the ontology and"
+    - code: REFERENCES
+    - text: "edges with a depth of 3, reveal the following relationships between the identified entries:"
+  - paragraph:
+    - strong: "Stored Links (Explicit Dependencies):"
+  - list:
+    - strong:
+      - code: Launch regional pilot on 1 November
+      - text: references
+      - code: Supplier capacity confirmation
+    - text: ": This relationship is defined by the field"
+    - code: depends_on
+    - text: under the
+    - code: operational_model
+    - text: relation.
+    - strong:
+      - code: Launch regional pilot on 1 November
+      - text: references
+      - code: Complete reliability validation
+    - text: ": This relationship is defined by the field"
+    - code: requires
+    - text: under the
+    - code: operational_model
+    - text: relation.
+    - strong:
+      - code: Supplier capacity confirmation
+      - text: references
+      - code: Reserve a backup supplier
+    - text: ": This relationship is defined by the field"
+    - code: mitigated_by
+    - text: under the
+    - code: operational_model
+    - text: relation.
+  - paragraph:
+    - strong: "Inference:"
+  - paragraph: "These links establish a chain of operational dependencies:"
+  - list:
+    - text: The initial entry,
+    - strong: "\"Launch regional pilot on 1 November\""
+    - text: (
+    - code: Launch regional pilot on 1 November
+    - text: ), depends on the
+    - strong: "\"Supplier capacity confirmation\""
+    - text: (
+    - code: Supplier capacity confirmation
+    - text: ).
+    - text: The initial entry also requires the
+    - strong: "\"Complete reliability validation\""
+    - text: (
+    - code: Complete reliability validation
+    - text: ).
+    - text: Furthermore, the
+    - strong: "\"Supplier capacity confirmation\""
+    - text: (
+    - code: Supplier capacity confirmation
+    - text: ) is mitigated by the
+    - strong: "\"Reserve a backup supplier\""
+    - text: (
+    - code: Reserve a backup supplier
+    - text: ).
+  - button "Worked · 2 steps · gemma4:e2b":
+    - status "Worked · 2 steps · gemma4:e2b":
+      - generic: Worked · 2 steps · gemma4:e2b
+  - button "Copy":
+  - button "Regenerate":
+  - button "Message debug":
+  - button "More":
+  - textbox "Message input":
+    - /placeholder: Ask Integral…
+  - button "Attach a file":
+  - button "Dictate (⇧⌘Space)":
+  - status
+  - generic: "@people, #apps/tracks"
+  - button "Send message" [disabled]:

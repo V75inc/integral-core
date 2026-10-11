@@ -1,0 +1,96 @@
+{
+  "time": "2026-10-11T10:13:08.213Z",
+  "origin": "http://127.0.0.1:63235",
+  "results": [
+    {
+      "name": "Authenticated analyst session",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Ontology capture",
+      "pass": true,
+      "detail": "4 nodes, 3 edges, 106 ms"
+    },
+    {
+      "name": "Native database projection",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Expected readable dependency paths",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Denied intermediary and hidden bridge excluded",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Cross-workspace relationship excluded",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "No dangling endpoints",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Minimal context: bodies and custom fields absent",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Foreign endpoint readable in its own workspace",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Foreign root denied in launch workspace",
+      "pass": true,
+      "detail": "HTTP 403"
+    },
+    {
+      "name": "Explicitly denied root rejected",
+      "pass": true,
+      "detail": "HTTP 403"
+    },
+    {
+      "name": "Anonymous capture rejected",
+      "pass": true,
+      "detail": "HTTP 401"
+    },
+    {
+      "name": "Caller-selected workspace rejected",
+      "pass": true,
+      "detail": "HTTP 400"
+    },
+    {
+      "name": "Payload and traversal limits enforced",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Home excludes denied title, body and count",
+      "pass": true,
+      "detail": "risk track count 4"
+    },
+    {
+      "name": "App card count respects entry exclusion",
+      "pass": true,
+      "detail": "risk track count 4"
+    },
+    {
+      "name": "Omitted scope selects analyst-owned Personal workspace",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Viewer write blocked",
+      "pass": true,
+      "detail": "HTTP 403"
+    }
+  ]
+}

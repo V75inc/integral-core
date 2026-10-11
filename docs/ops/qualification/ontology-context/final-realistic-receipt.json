@@ -1,0 +1,96 @@
+{
+  "time": "2026-10-11T17:02:36.209Z",
+  "origin": "http://127.0.0.1:57137",
+  "results": [
+    {
+      "name": "Real authenticated analyst",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Search baseline succeeds",
+      "pass": true,
+      "detail": "80 ms"
+    },
+    {
+      "name": "Search is not a dependency projection",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Native recorded capture",
+      "pass": true,
+      "detail": "328 ms; 8 nodes, 7 edges"
+    },
+    {
+      "name": "All eight authorized related records included",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Unlinked historical marketing excluded",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Private, foreign and denied-bridge facts excluded",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Primary capacity explicitly unknown",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Backup quantity has vehicle units and reservation caveat",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Insurance expiry and old observation returned",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Qualification remains pending",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Calibration completion is distinct from pending route trial",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Approved depot is distinct from incomplete work",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "All record deadlines correctly captured",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Graph endpoints and definitions remain closed",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Capture completeness and byte bound",
+      "pass": true,
+      "detail": "45923 bytes"
+    },
+    {
+      "name": "private root denied",
+      "pass": true,
+      "detail": "HTTP 403"
+    },
+    {
+      "name": "foreign root denied",
+      "pass": true,
+      "detail": "HTTP 403"
+    }
+  ]
+}

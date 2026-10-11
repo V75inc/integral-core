@@ -525,6 +525,29 @@ Bundle manifest descriptions match disk frontmatter after the canonical synchron
 
 Every indexed candidate passes current entry.read policy before exposure. Retrieval is a projection, not another authority store.
 
+### I-CONTEXT-01 — Intra-workspace insight evidence
+
+The graph-context insight surface is confined to the requesting user's active,
+server-validated workspace. Current membership and canonical per-resource
+read policy are required before expansion. Every emitted edge has two permitted
+endpoints in that workspace, and every supporting path consists only of those
+nodes and edges. A relationship to another workspace is excluded even when the
+same user can read both resources; it cannot be exposed or used as a hidden
+bridge. Captures and expansions never cache permission across requests. Private
+account/runtime records and installed-App records outside declared query
+contracts remain excluded. Bound captures disclose radius and truncation, not
+inaccessible candidate counts.
+
+Subject discovery for that insight is also workspace-bound. Generic retrieval
+defaults to the server-validated active workspace; a narrower track must belong
+to it. Semantic candidates are checked against current graph membership and
+read policy independently of vector-store pre-filters, so readable foreign
+records cannot become model context for the current workspace's decision.
+
+Verification: `backend/tests/test_graph_context.py` exercises excluded bridges,
+cross-workspace links whose endpoints are both readable, denied foreign roots,
+permission revocation between captures, installed-App boundaries and HTTP scope.
+
 ### I-RET-02 — No-Index-Bypass (`no-index-bypass`)
 
 Index/Track prefilters supplement rather than replace per-candidate authorization. Preserve sharing and guest semantics.

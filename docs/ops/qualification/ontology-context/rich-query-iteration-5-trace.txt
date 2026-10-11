@@ -1,0 +1,1362 @@
+Browser tab: 3, Title: "Integral", URL: "http://127.0.0.1:52655/agent".
+1 AXWebArea Integral, URL: 127.0.0.1:52655/agent
+	2 container root
+		3 container
+			4 text Can't reach Integral Check your connection and try again.
+			7 button Dismiss notification
+				8 image
+		9 link Description: Skip to main content, Value: 127.0.0.1:52655/agent#main-content
+		10 container app-sidebar-nav
+			11 link Description: Integral — go to dashboard, Value: 127.0.0.1:52655/
+			12 button Expand sidebar
+				13 image
+			14 container Sidebar navigation
+				15 link Description: Home, Value: 127.0.0.1:52655/
+				16 pop up button (collapsed) Description: Switch workspace (currently Maya Chen), Secondary Actions: Expand
+				17 link Description: Agent — talk to your Integral coworker, Value: 127.0.0.1:52655/agent
+				18 link Description: Feed, Value: 127.0.0.1:52655/feed
+				19 link Description: Apps, Value: 127.0.0.1:52655/apps
+				20 link Description: Tracks, Value: 127.0.0.1:52655/tracks
+			21 link Description: Approvals, Value: 127.0.0.1:52655/approvals
+			22 link Description: Background Tasks, Value: 127.0.0.1:52655/background-tasks
+			23 link Description: Notifications, Value: 127.0.0.1:52655/notifications
+			24 link Description: Settings, Value: 127.0.0.1:52655/settings
+			25 pop up button (collapsed) Description: Noah Patel menu, Secondary Actions: Expand
+		26 container main-content
+			27 container
+				28 container Breadcrumb
+				29 checkbox Chat, Value: 1
+				30 checkbox Inbox, Value: 0
+				31 button Switch to light mode
+				32 button Inbox
+					33 image
+			34 container
+				35 button (disabled) Active agent
+					36 text Integral AI Your workspace assistant
+				37 text CONVERSATIONS
+				38 button New conversation
+					39 image
+				40 search text field (settable) Search conversations
+				222 text TODAY · AFTERNOON
+				42 container
+					43 button What could hold up our regional pilot launch on 1 November, … 12:47 PM
+						44 container What could hold up our regional pilot launch on 1 November, …
+							45 text What could hold up our regional pilot launch on 1 November, …
+							46 text 12:47 PM
+					47 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:ra:, Secondary Actions: Expand
+						48 image
+				49 container
+					50 button What could hold up our regional pilot launch on 1 November, … 12:41 PM
+						51 container What could hold up our regional pilot launch on 1 November, …
+							52 text What could hold up our regional pilot launch on 1 November, …
+							53 text 12:41 PM
+					54 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:rd:, Secondary Actions: Expand
+						55 image
+				56 container
+					57 button What could hold up our regional pilot launch on 1 November, … 12:27 PM
+						58 container What could hold up our regional pilot launch on 1 November, …
+							59 text What could hold up our regional pilot launch on 1 November, …
+							60 text 12:27 PM
+					61 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:rg:, Secondary Actions: Expand
+						62 image
+				64 container
+					65 button What could hold up our regional pilot launch on 1 November, … 12:14 PM
+						66 container What could hold up our regional pilot launch on 1 November, …
+							67 text What could hold up our regional pilot launch on 1 November, …
+							68 text 12:14 PM
+					69 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:rj:, Secondary Actions: Expand
+						70 image
+				223 text TODAY · MORNING
+				71 container
+					72 button What could hold up our regional pilot launch on 1 November, … 11:56 AM
+						73 container What could hold up our regional pilot launch on 1 November, …
+							74 text What could hold up our regional pilot launch on 1 November, …
+							75 text 11:56 AM
+					76 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:rm:, Secondary Actions: Expand
+						77 image
+				78 container
+					79 button What could hold up our regional pilot launch on 1 November, … 08:01 AM
+						80 container What could hold up our regional pilot launch on 1 November, …
+							81 text What could hold up our regional pilot launch on 1 November, …
+							82 text 08:01 AM
+					83 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:rp:, Secondary Actions: Expand
+						84 image
+				85 container
+					86 button What could hold up our regional pilot launch on 1 November, … 07:58 AM
+						87 container What could hold up our regional pilot launch on 1 November, …
+							88 text What could hold up our regional pilot launch on 1 November, …
+							89 text 07:58 AM
+					90 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:rs:, Secondary Actions: Expand
+						91 image
+				92 container
+					93 button What could hold up our regional pilot launch on 1 November, … 07:50 AM
+						94 container What could hold up our regional pilot launch on 1 November, …
+							95 text What could hold up our regional pilot launch on 1 November, …
+							96 text 07:50 AM
+					97 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:rv:, Secondary Actions: Expand
+						98 image
+				99 container
+					100 button What could hold up our regional pilot launch on 1 November, … 07:43 AM
+						101 container What could hold up our regional pilot launch on 1 November, …
+							102 text What could hold up our regional pilot launch on 1 November, …
+							103 text 07:43 AM
+					104 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r12:, Secondary Actions: Expand
+						105 image
+				106 container
+					107 button What could hold up our regional pilot launch on 1 November, … 07:41 AM
+						108 container What could hold up our regional pilot launch on 1 November, …
+							109 text What could hold up our regional pilot launch on 1 November, …
+							110 text 07:41 AM
+					111 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r15:, Secondary Actions: Expand
+						112 image
+				113 container
+					114 button What could hold up our regional pilot launch on 1 November, … 07:30 AM
+						115 container What could hold up our regional pilot launch on 1 November, …
+							116 text What could hold up our regional pilot launch on 1 November, …
+							117 text 07:30 AM
+					118 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r18:, Secondary Actions: Expand
+						119 image
+				120 container
+					121 button What could hold up our regional pilot launch on 1 November, … 07:17 AM
+						122 container What could hold up our regional pilot launch on 1 November, …
+							123 text What could hold up our regional pilot launch on 1 November, …
+							124 text 07:17 AM
+					125 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r1b:, Secondary Actions: Expand
+						126 image
+				127 container
+					128 button What could hold up our regional pilot launch on 1 November, … 07:12 AM
+						129 container What could hold up our regional pilot launch on 1 November, …
+							130 text What could hold up our regional pilot launch on 1 November, …
+							131 text 07:12 AM
+					132 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r1e:, Secondary Actions: Expand
+						133 image
+				134 container
+					135 button What could hold up our regional pilot launch on 1 November, … 07:07 AM
+						136 container What could hold up our regional pilot launch on 1 November, …
+							137 text What could hold up our regional pilot launch on 1 November, …
+							138 text 07:07 AM
+					139 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r1h:, Secondary Actions: Expand
+						140 image
+				141 container
+					142 button What could hold up our regional pilot launch on 1 November, … 06:54 AM
+						143 container What could hold up our regional pilot launch on 1 November, …
+							144 text What could hold up our regional pilot launch on 1 November, …
+							145 text 06:54 AM
+					146 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r1k:, Secondary Actions: Expand
+						147 image
+				148 container
+					149 button What could hold up our regional pilot launch on 1 November, … 06:49 AM
+						150 container What could hold up our regional pilot launch on 1 November, …
+							151 text What could hold up our regional pilot launch on 1 November, …
+							152 text 06:49 AM
+					153 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r1n:, Secondary Actions: Expand
+						154 image
+				155 container
+					156 button What could hold up our regional pilot launch on 1 November, … 06:40 AM
+						157 container What could hold up our regional pilot launch on 1 November, …
+							158 text What could hold up our regional pilot launch on 1 November, …
+							159 text 06:40 AM
+					160 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r1q:, Secondary Actions: Expand
+						161 image
+				162 container
+					163 button What could hold up our regional pilot launch on 1 November, … 06:33 AM
+						164 container What could hold up our regional pilot launch on 1 November, …
+							165 text What could hold up our regional pilot launch on 1 November, …
+							166 text 06:33 AM
+					167 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r1t:, Secondary Actions: Expand
+						168 image
+				169 container
+					170 button What could hold up our regional pilot launch on 1 November, … 06:30 AM
+						171 container What could hold up our regional pilot launch on 1 November, …
+							172 text What could hold up our regional pilot launch on 1 November, …
+							173 text 06:30 AM
+					174 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r20:, Secondary Actions: Expand
+						175 image
+				176 container
+					177 button What could hold up our regional pilot launch on 1 November, … 06:29 AM
+						178 container What could hold up our regional pilot launch on 1 November, …
+							179 text What could hold up our regional pilot launch on 1 November, …
+							180 text 06:29 AM
+					181 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r23:, Secondary Actions: Expand
+						182 image
+				224 container
+					225 button Use integral-insights and integral_get_graph_context to expl… 06:21 AM
+						226 container Use integral-insights and integral_get_graph_context to expl…
+							227 text Use integral-insights and integral_get_graph_context to expl…
+							228 text 06:21 AM
+					229 pop up button (collapsed) Description: Options for Use integral-insights and integral_get_graph_context to expl…, ID: radix-:r29:, Secondary Actions: Expand
+						230 image
+			183 container
+				231 text What could hold up our regional pilot launch on 1 November, and how would a backup supplier help?
+				234 container
+					235 text Based on the recorded dependencies for the  Launch regional pilot on 1 November , two prerequisites are currently required:
+				236 text Prerequisites:
+				237 content list
+					238 container
+						239 AXListMarker 1.
+						240 text Supplier capacity confirmation  (Decision deadline: 2026-10-24): The recorded status shows the capacity units are unknown, and the verification notes state "awaiting written commitment."
+					241 container
+						242 AXListMarker 2.
+						243 text Complete reliability validation  (Decision deadline: 2026-10-22): The recorded status shows that the validation tests are "not completed."
+				244 container
+					245 text Fallback Mitigation:
+					246 text The  Reserve a backup supplier  record (due 2026-10-22) is linked as a potential mitigation for the pilot. It proposes  40  pilot units of  indicative capacity only; no reservation .
+				247 container
+					248 text Conclusion:
+					249 text While the backup supplier could mitigate the capacity risk, it is important to note that this mitigation  does not replace  the requirement for  Complete reliability validation . The primary evidence gaps are the outstanding written commitment for supplier capacity and the incomplete reliability validation tests.
+				232 button (expanded) Secondary Actions: Collapse
+					233 image
+					250 text Worked · 3 steps · gemma4:latest
+				267 container radix-:r2b:
+					268 text Activity and tool results are shown here. Private model reasoning is not displayed.
+					269 table
+						270 row
+							271 cell
+								272 text CALL
+							273 cell
+								274 text MODEL
+							275 cell
+								276 text IN
+							277 cell
+								278 text OUT
+							279 cell
+								280 text COST
+							281 cell
+								282 text TIME
+							283 cell
+								284 text STATE
+						285 row
+							286 cell
+								287 text 1
+							288 cell
+								289 text ollama_chat/gemma4:latest
+							290 cell
+								291 text 3,614
+							292 cell
+								293 text 228
+							294 cell Source: unavailable
+								295 text —
+							296 cell
+								297 text 28.6s
+							298 cell
+								299 text responded
+						300 row
+							301 cell
+								302 text 2
+							303 cell
+								304 text ollama_chat/gemma4:latest
+							305 cell
+								306 text 12,492
+							307 cell
+								308 text 200
+							309 cell Source: unavailable
+								310 text —
+							311 cell
+								312 text 48.5s
+							313 cell
+								314 text responded
+						315 row
+							316 cell
+								317 text 3
+							318 cell
+								319 text ollama_chat/gemma4:latest
+							320 cell
+								321 text 13,737
+							322 cell
+								323 text 290
+							324 cell Source: unavailable
+								325 text —
+							326 cell
+								327 text 55.9s
+							328 cell
+								329 text responded
+						330 row
+							331 cell
+								332 text 4
+							333 cell
+								334 text ollama_chat/gemma4:latest
+							335 cell
+								336 text 21,864
+							337 cell
+								338 text 1,126
+							339 cell Source: unavailable
+								340 text —
+							341 cell
+								342 text 82.1s
+							343 cell
+								344 text responded
+						345 row
+							346 cell
+								347 text Total
+							348 cell
+								349 text 51,707
+							350 cell
+								351 text 1,844
+							352 cell
+								353 text —
+					354 text TTFT:  212.7s Total:  222.1s 53,551  tokens Provider cost unavailable for some calls
+					355 text Steps
+					356 button (collapsed) Used tool: load_capability, Secondary Actions: Expand
+						357 image
+						358 text Used tool
+						359 text :
+						360 text load_capability
+						361 image
+					362 button (collapsed) Used tool: integral_query, Secondary Actions: Expand
+						363 image
+						364 text Used tool
+						365 text :
+						366 text integral_query
+						367 image
+					368 button (expanded) Used tool: integral_get_graph_context, Secondary Actions: Collapse
+						369 image
+						370 text Used tool
+						371 text :
+						372 text integral_get_graph_context
+						373 image
+					374 container radix-:r2g:
+						375 text {
+  "spec": {
+    "view": "ontology",
+    "detail": "recorded",
+    "root_id": "n.Entry.c05a620cfce1478cb79bc1f9",
+    "max_depth": 3,
+    "max_nodes": 10,
+    "edge_types": [
+      "REFERENCES"
+    ]
+  }
+}
+						376 text Result:
+						377 text {
+  "meta": {
+    "view": "ontology",
+    "scope": "ws:n.Workspace.d5df6c7ea06d4e8ba3c2d851",
+    "root_id": "n.Entry.c05a620cfce1478cb79bc1f9",
+    "complete": true,
+    "ordering": "breadth_first_edge_id",
+    "direction": "both",
+    "max_depth": 3,
+    "captured_at": "2026-10-11T16:45:59.891854+00:00",
+    "consistency": "best_effort",
+    "edge_policy": "traversal",
+    "continuation": "new_live_capture",
+    "stop_reasons": [],
+    "execution_mode": "native",
+    "root_available": true,
+    "detail_complete": true,
+    "read_finished_at": "2026-10-11T16:45:59.936366+00:00",
+    "request_fingerprint": "85205beb0393c6790119214e29681cbf9756054b6a08c8b28216a3860cf25365"
+  },
+  "edges": [
+    {
+      "id": "e.REFERENCES.18ee96205ead4600ae0750e1",
+      "entity": "REFERENCES",
+      "fields": {
+        "field_key": {
+          "path": "field_key",
+          "state": "present",
+          "record_id": "e.REFERENCES.18ee96205ead4600ae0750e1"
+        },
+        "cross_track": {
+          "path": "cross_track",
+          "state": "present",
+          "record_id": "e.REFERENCES.18ee96205ead4600ae0750e1"
+        },
+        "relation_type": {
+          "path": "relation_type",
+          "state": "present",
+          "record_id": "e.REFERENCES.18ee96205ead4600ae0750e1"
+        }
+      },
+      "source": "n.Entry.c05a620cfce1478cb79bc1f9",
+      "target": "n.Entry.6ba5e901adbc47919a3237de",
+      "context": {
+        "field_key": "depends_on",
+        "cross_track": true,
+        "relation_type": "operational_model"
+      },
+      "relation": {
+        "status": "resolved",
+        "type_meaning": "Source entry references target entry via a declared field.",
+        "definition_ids": [
+          "om/81f8acfaa99efa7f2f9cac94"
+        ],
+        "evidence_class": "application_declared"
+      },
+      "bidirectional": false,
+      "traversed_from": "n.Entry.c05a620cfce1478cb79bc1f9",
+      "truncated_fields": []
+    },
+    {
+      "id": "e.REFERENCES.e27088f5d2904847abf979e6",
+      "entity": "REFERENCES",
+      "fields": {
+        "field_key": {
+          "path": "field_key",
+          "state": "present",
+          "record_id": "e.REFERENCES.e27088f5d2904847abf979e6"
+        },
+        "cross_track": {
+          "path": "cross_track",
+          "state": "present",
+          "record_id": "e.REFERENCES.e27088f5d2904847abf979e6"
+        },
+        "relation_type": {
+          "path": "relation_type",
+          "state": "present",
+          "record_id": "e.REFERENCES.e27088f5d2904847abf979e6"
+        }
+      },
+      "source": "n.Entry.c05a620cfce1478cb79bc1f9",
+      "target": "n.Entry.cc2f2e4fdd00476e912b62d4",
+      "context": {
+        "field_key": "requires",
+        "cross_track": true,
+        "relation_type": "operational_model"
+      },
+      "relation": {
+        "status": "resolved",
+        "type_meaning": "Source entry references target entry via a declared field.",
+        "definition_ids": [
+          "om/f7e6e88623e89a47edd9e518"
+        ],
+        "evidence_class": "application_declared"
+      },
+      "bidirectional": false,
+      "traversed_from": "n.Entry.c05a620cfce1478cb79bc1f9",
+      "truncated_fields": []
+    },
+    {
+      "id": "e.REFERENCES.c88f545dd65d4365a816c37d",
+      "entity": "REFERENCES",
+      "fields": {
+        "field_key": {
+          "path": "field_key",
+          "state": "present",
+          "record_id": "e.REFERENCES.c88f545dd65d4365a816c37d"
+        },
+        "cross_track": {
+          "path": "cross_track",
+          "state": "present",
+          "record_id": "e.REFERENCES.c88f545dd65d4365a816c37d"
+        },
+        "relation_type": {
+          "path": "relation_type",
+          "state": "present",
+          "record_id": "e.REFERENCES.c88f545dd65d4365a816c37d"
+        }
+      },
+      "source": "n.Entry.6ba5e901adbc47919a3237de",
+      "target": "n.Entry.411ee6640fcf40fcbddda854",
+      "context": {
+        "field_key": "mitigated_by",
+        "cross_track": true,
+        "relation_type": "operational_model"
+      },
+      "relation": {
+        "status": "resolved",
+        "type_meaning": "Source entry references target entry via a declared field.",
+        "definition_ids": [
+          "om/35d86e9c7e8a8fc3661b3d97"
+        ],
+        "evidence_class": "application_declared"
+      },
+      "bidirectional": false,
+      "traversed_from": "n.Entry.6ba5e901adbc47919a3237de",
+      "truncated_fields": []
+    }
+  ],
+  "nodes": [
+    {
+      "id": "n.Entry.c05a620cfce1478cb79bc1f9",
+      "label": "Launch regional pilot on 1 November",
+      "entity": "Entry",
+      "fields": {
+        "title": {
+          "path": "title",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.c05a620cfce1478cb79bc1f9"
+        },
+        "status": {
+          "path": "status",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.c05a620cfce1478cb79bc1f9",
+          "description": "Substrate lifecycle state; not operational completion."
+        },
+        "type_id": {
+          "path": "type_id",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.c05a620cfce1478cb79bc1f9"
+        },
+        "track_id": {
+          "path": "track_id",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.c05a620cfce1478cb79bc1f9"
+        },
+        "updated_at": {
+          "path": "updated_at",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.c05a620cfce1478cb79bc1f9"
+        },
+        "record_revision": {
+          "path": "record_revision",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.c05a620cfce1478cb79bc1f9"
+        },
+        "schema_revision": {
+          "path": "schema_revision",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.c05a620cfce1478cb79bc1f9"
+        },
+        "custom_fields.due": {
+          "path": "custom_fields.due",
+          "label": "Decision deadline",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.c05a620cfce1478cb79bc1f9"
+        },
+        "provenance.source": {
+          "path": "provenance.source",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.c05a620cfce1478cb79bc1f9"
+        },
+        "custom_fields.observed": {
+          "path": "custom_fields.observed",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.c05a620cfce1478cb79bc1f9"
+        },
+        "custom_fields.readiness": {
+          "path": "custom_fields.readiness",
+          "label": "Recorded readiness",
+          "state": "present",
+          "evidence": {
+            "source": "Planning note; synthetic test data",
+            "status": "complete",
+            "revision": 2,
+            "observed_at": "2026-10-11",
+            "value_class": "recorded",
+            "verification": "planned, not approved"
+          },
+          "record_id": "n.Entry.c05a620cfce1478cb79bc1f9"
+        },
+        "custom_fields.source_note": {
+          "path": "custom_fields.source_note",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.c05a620cfce1478cb79bc1f9"
+        },
+        "custom_fields.verification": {
+          "path": "custom_fields.verification",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.c05a620cfce1478cb79bc1f9"
+        },
+        "custom_fields.capacity_units": {
+          "path": "custom_fields.capacity_units",
+          "unit": "pilot units",
+          "state": "present",
+          "evidence": {
+            "source": "Planning note; synthetic test data",
+            "status": "complete",
+            "revision": 2,
+            "observed_at": "2026-10-11",
+            "value_class": "recorded",
+            "verification": "planned, not approved"
+          },
+          "record_id": "n.Entry.c05a620cfce1478cb79bc1f9"
+        }
+      },
+      "context": {
+        "title": "Launch regional pilot on 1 November",
+        "status": "active",
+        "type_id": "n.EntryType.c824a89417da43d2b477a4be",
+        "track_id": "n.Track.81d1a2d2a8d64131a714ed58",
+        "updated_at": "2026-10-11T09:54:29.646360+00:00",
+        "record_revision": 2,
+        "schema_revision": 1,
+        "custom_fields.due": "2026-11-01",
+        "provenance.source": "human",
+        "custom_fields.observed": "2026-10-11",
+        "custom_fields.readiness": "planned",
+        "custom_fields.source_note": "Planning note; synthetic test data",
+        "custom_fields.verification": "planned, not approved",
+        "custom_fields.capacity_units": 40
+      },
+      "truncated_fields": []
+    },
+    {
+      "id": "n.Entry.6ba5e901adbc47919a3237de",
+      "label": "Supplier capacity confirmation",
+      "entity": "Entry",
+      "fields": {
+        "title": {
+          "path": "title",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.6ba5e901adbc47919a3237de"
+        },
+        "status": {
+          "path": "status",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.6ba5e901adbc47919a3237de",
+          "description": "Substrate lifecycle state; not operational completion."
+        },
+        "type_id": {
+          "path": "type_id",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.6ba5e901adbc47919a3237de"
+        },
+        "track_id": {
+          "path": "track_id",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.6ba5e901adbc47919a3237de"
+        },
+        "updated_at": {
+          "path": "updated_at",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.6ba5e901adbc47919a3237de"
+        },
+        "record_revision": {
+          "path": "record_revision",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.6ba5e901adbc47919a3237de"
+        },
+        "schema_revision": {
+          "path": "schema_revision",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.6ba5e901adbc47919a3237de"
+        },
+        "custom_fields.due": {
+          "path": "custom_fields.due",
+          "label": "Decision deadline",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.6ba5e901adbc47919a3237de"
+        },
+        "provenance.source": {
+          "path": "provenance.source",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.6ba5e901adbc47919a3237de"
+        },
+        "custom_fields.observed": {
+          "path": "custom_fields.observed",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.6ba5e901adbc47919a3237de"
+        },
+        "custom_fields.readiness": {
+          "path": "custom_fields.readiness",
+          "label": "Recorded readiness",
+          "state": "present",
+          "evidence": {
+            "source": "Supplier follow-up note; synthetic test data",
+            "status": "complete",
+            "revision": 2,
+            "observed_at": "2026-10-10",
+            "value_class": "recorded",
+            "verification": "awaiting written commitment"
+          },
+          "record_id": "n.Entry.6ba5e901adbc47919a3237de"
+        },
+        "custom_fields.source_note": {
+          "path": "custom_fields.source_note",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.6ba5e901adbc47919a3237de"
+        },
+        "custom_fields.verification": {
+          "path": "custom_fields.verification",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.6ba5e901adbc47919a3237de"
+        },
+        "custom_fields.capacity_units": {
+          "path": "custom_fields.capacity_units",
+          "unit": "pilot units",
+          "state": "null",
+          "evidence": {
+            "source": "Supplier follow-up note; synthetic test data",
+            "status": "complete",
+            "revision": 2,
+            "observed_at": "2026-10-10",
+            "value_class": "recorded",
+            "verification": "awaiting written commitment"
+          },
+          "record_id": "n.Entry.6ba5e901adbc47919a3237de"
+        }
+      },
+      "context": {
+        "title": "Supplier capacity confirmation",
+        "status": "active",
+        "type_id": "n.EntryType.d64b3f5a19594ff499951c97",
+        "track_id": "n.Track.4dd9b6b03a72419baa67e847",
+        "updated_at": "2026-10-11T09:54:30.094141+00:00",
+        "record_revision": 2,
+        "schema_revision": 1,
+        "custom_fields.due": "2026-10-24",
+        "provenance.source": "human",
+        "custom_fields.observed": "2026-10-10",
+        "custom_fields.readiness": "capacity unconfirmed",
+        "custom_fields.source_note": "Supplier follow-up note; synthetic test data",
+        "custom_fields.verification": "awaiting written commitment",
+        "custom_fields.capacity_units": null
+      },
+      "truncated_fields": []
+    },
+    {
+      "id": "n.Entry.cc2f2e4fdd00476e912b62d4",
+      "label": "Complete reliability validation",
+      "entity": "Entry",
+      "fields": {
+        "title": {
+          "path": "title",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.cc2f2e4fdd00476e912b62d4"
+        },
+        "status": {
+          "path": "status",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.cc2f2e4fdd00476e912b62d4",
+          "description": "Substrate lifecycle state; not operational completion."
+        },
+        "type_id": {
+          "path": "type_id",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.cc2f2e4fdd00476e912b62d4"
+        },
+        "track_id": {
+          "path": "track_id",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.cc2f2e4fdd00476e912b62d4"
+        },
+        "updated_at": {
+          "path": "updated_at",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.cc2f2e4fdd00476e912b62d4"
+        },
+        "record_revision": {
+          "path": "record_revision",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.cc2f2e4fdd00476e912b62d4"
+        },
+        "schema_revision": {
+          "path": "schema_revision",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.cc2f2e4fdd00476e912b62d4"
+        },
+        "custom_fields.due": {
+          "path": "custom_fields.due",
+          "label": "Decision deadline",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.cc2f2e4fdd00476e912b62d4"
+        },
+        "provenance.source": {
+          "path": "provenance.source",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.cc2f2e4fdd00476e912b62d4"
+        },
+        "custom_fields.observed": {
+          "path": "custom_fields.observed",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.cc2f2e4fdd00476e912b62d4"
+        },
+        "custom_fields.readiness": {
+          "path": "custom_fields.readiness",
+          "label": "Recorded readiness",
+          "state": "present",
+          "evidence": {
+            "source": "Validation checklist; synthetic test data",
+            "status": "complete",
+            "revision": 2,
+            "observed_at": "2026-10-11",
+            "value_class": "recorded",
+            "verification": "tests not completed"
+          },
+          "record_id": "n.Entry.cc2f2e4fdd00476e912b62d4"
+        },
+        "custom_fields.source_note": {
+          "path": "custom_fields.source_note",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.cc2f2e4fdd00476e912b62d4"
+        },
+        "custom_fields.verification": {
+          "path": "custom_fields.verification",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.cc2f2e4fdd00476e912b62d4"
+        },
+        "custom_fields.capacity_units": {
+          "path": "custom_fields.capacity_units",
+          "unit": "pilot units",
+          "state": "null",
+          "evidence": {
+            "source": "Validation checklist; synthetic test data",
+            "status": "complete",
+            "revision": 2,
+            "observed_at": "2026-10-11",
+            "value_class": "recorded",
+            "verification": "tests not completed"
+          },
+          "record_id": "n.Entry.cc2f2e4fdd00476e912b62d4"
+        }
+      },
+      "context": {
+        "title": "Complete reliability validation",
+        "status": "active",
+        "type_id": "n.EntryType.d64b3f5a19594ff499951c97",
+        "track_id": "n.Track.4dd9b6b03a72419baa67e847",
+        "updated_at": "2026-10-11T09:54:30.142930+00:00",
+        "record_revision": 2,
+        "schema_revision": 1,
+        "custom_fields.due": "2026-10-28",
+        "provenance.source": "human",
+        "custom_fields.observed": "2026-10-11",
+        "custom_fields.readiness": "reliability tests pending",
+        "custom_fields.source_note": "Validation checklist; synthetic test data",
+        "custom_fields.verification": "tests not completed",
+        "custom_fields.capacity_units": null
+      },
+      "truncated_fields": []
+    },
+    {
+      "id": "n.Entry.411ee6640fcf40fcbddda854",
+      "label": "Reserve a backup supplier",
+      "entity": "Entry",
+      "fields": {
+        "title": {
+          "path": "title",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.411ee6640fcf40fcbddda854"
+        },
+        "status": {
+          "path": "status",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.411ee6640fcf40fcbddda854",
+          "description": "Substrate lifecycle state; not operational completion."
+        },
+        "type_id": {
+          "path": "type_id",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.411ee6640fcf40fcbddda854"
+        },
+        "track_id": {
+          "path": "track_id",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.411ee6640fcf40fcbddda854"
+        },
+        "updated_at": {
+          "path": "updated_at",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.411ee6640fcf40fcbddda854"
+        },
+        "record_revision": {
+          "path": "record_revision",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.411ee6640fcf40fcbddda854"
+        },
+        "schema_revision": {
+          "path": "schema_revision",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.411ee6640fcf40fcbddda854"
+        },
+        "custom_fields.due": {
+          "path": "custom_fields.due",
+          "label": "Decision deadline",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.411ee6640fcf40fcbddda854"
+        },
+        "provenance.source": {
+          "path": "provenance.source",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.411ee6640fcf40fcbddda854"
+        },
+        "custom_fields.observed": {
+          "path": "custom_fields.observed",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.411ee6640fcf40fcbddda854"
+        },
+        "custom_fields.readiness": {
+          "path": "custom_fields.readiness",
+          "label": "Recorded readiness",
+          "state": "present",
+          "evidence": {
+            "source": "Backup supplier proposal; synthetic test data",
+            "status": "complete",
+            "revision": 2,
+            "observed_at": "2026-10-09",
+            "value_class": "recorded",
+            "verification": "indicative capacity only; no reservation"
+          },
+          "record_id": "n.Entry.411ee6640fcf40fcbddda854"
+        },
+        "custom_fields.source_note": {
+          "path": "custom_fields.source_note",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.411ee6640fcf40fcbddda854"
+        },
+        "custom_fields.verification": {
+          "path": "custom_fields.verification",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.411ee6640fcf40fcbddda854"
+        },
+        "custom_fields.capacity_units": {
+          "path": "custom_fields.capacity_units",
+          "unit": "pilot units",
+          "state": "present",
+          "evidence": {
+            "source": "Backup supplier proposal; synthetic test data",
+            "status": "complete",
+            "revision": 2,
+            "observed_at": "2026-10-09",
+            "value_class": "recorded",
+            "verification": "indicative capacity only; no reservation"
+          },
+          "record_id": "n.Entry.411ee6640fcf40fcbddda854"
+        }
+      },
+      "context": {
+        "title": "Reserve a backup supplier",
+        "status": "active",
+        "type_id": "n.EntryType.d64b3f5a19594ff499951c97",
+        "track_id": "n.Track.4dd9b6b03a72419baa67e847",
+        "updated_at": "2026-10-11T09:54:30.183808+00:00",
+        "record_revision": 2,
+        "schema_revision": 1,
+        "custom_fields.due": "2026-10-22",
+        "provenance.source": "human",
+        "custom_fields.observed": "2026-10-09",
+        "custom_fields.readiness": "qualification pending",
+        "custom_fields.source_note": "Backup supplier proposal; synthetic test data",
+        "custom_fields.verification": "indicative capacity only; no reservation",
+        "custom_fields.capacity_units": 40
+      },
+      "truncated_fields": []
+    }
+  ],
+  "paths": {
+    "n.Entry.411ee6640fcf40fcbddda854": {
+      "edges": [
+        "e.REFERENCES.18ee96205ead4600ae0750e1",
+        "e.REFERENCES.c88f545dd65d4365a816c37d"
+      ],
+      "nodes": [
+        "n.Entry.c05a620cfce1478cb79bc1f9",
+        "n.Entry.6ba5e901adbc47919a3237de",
+        "n.Entry.411ee6640fcf40fcbddda854"
+      ]
+    },
+    "n.Entry.6ba5e901adbc47919a3237de": {
+      "edges": [
+        "e.REFERENCES.18ee96205ead4600ae0750e1"
+      ],
+      "nodes": [
+        "n.Entry.c05a620cfce1478cb79bc1f9",
+        "n.Entry.6ba5e901adbc47919a3237de"
+      ]
+    },
+    "n.Entry.c05a620cfce1478cb79bc1f9": {
+      "edges": [],
+      "nodes": [
+        "n.Entry.c05a620cfce1478cb79bc1f9"
+      ]
+    },
+    "n.Entry.cc2f2e4fdd00476e912b62d4": {
+      "edges": [
+        "e.REFERENCES.e27088f5d2904847abf979e6"
+      ],
+      "nodes": [
+        "n.Entry.c05a620cfce1478cb79bc1f9",
+        "n.Entry.cc2f2e4fdd00476e912b62d4"
+      ]
+    }
+  },
+  "profile": {
+    "revision": "1",
+    "profile_id": "integral-recorded"
+  },
+  "_receipt": {
+    "origin": "chat",
+    "run_id": "69d4f3a5-417e-4c91-a18c-c4ad802b1bb9",
+    "status": "succeeded",
+    "step_key": "capability:native:ffc8d6257",
+    "capability_key": "integral_get_graph_context",
+    "idempotency_key": "native:ffc8d62574dacbf58ca81ceef16c7da5ea485ace3ba3466fbcef92c699f6140c",
+    "snapshot_fingerprint": "86dc1132b581c984f7fef45fc7dca67c80d0138722a7b5778dc7f3138dd33ee3"
+  },
+  "coverage": {
+    "field_states": {
+      "null": 2,
+      "missing": 0,
+      "present": 63,
+      "truncated": 0
+    },
+    "selected_detail": "represented_authorized_fields_only",
+    "requested_radius": 3,
+    "decision_sufficiency": "not_assessed"
+  },
+  "ontology": {
+    "coverage": "represented_types_only",
+    "edge_types": {
+      "REFERENCES": "Source entry references target entry via a declared field."
+    },
+    "node_types": {
+      "Entry": "A readable information record; selected detail is not readiness verification."
+    },
+    "evidence_class": "application_declared",
+    "relation_definitions": {
+      "om/35d86e9c7e8a8fc3661b3d97": {
+        "id": "om/35d86e9c7e8a8fc3661b3d97",
+        "direction": "has proposed mitigation",
+        "edge_type": "REFERENCES",
+        "conditions": "Qualification and a recorded reservation are required before relying on it.",
+        "description": "Target is a proposed mitigation for the source capacity risk.",
+        "evidence_class": "application_declared"
+      },
+      "om/81f8acfaa99efa7f2f9cac94": {
+        "id": "om/81f8acfaa99efa7f2f9cac94",
+        "inverse": "required by",
+        "direction": "requires",
+        "edge_type": "REFERENCES",
+        "conditions": "The link alone does not confirm available capacity.",
+        "description": "Source launch requires target supplier capacity confirmation.",
+        "evidence_class": "application_declared"
+      },
+      "om/f7e6e88623e89a47edd9e518": {
+        "id": "om/f7e6e88623e89a47edd9e518",
+        "direction": "requires",
+        "edge_type": "REFERENCES",
+        "conditions": "Supplier mitigation does not replace this validation.",
+        "description": "Source launch requires the target validation prerequisite.",
+        "evidence_class": "application_declared"
+      }
+    }
+  },
+  "replayed": false,
+  "format_version": 2,
+  "expansion_points": [],
+  "relation_definitions": {
+    "om/35d86e9c7e8a8fc3661b3d97": {
+      "id": "om/35d86e9c7e8a8fc3661b3d97",
+      "direction": "has proposed mitigation",
+      "edge_type": "REFERENCES",
+      "conditions": "Qualification and a recorded reservation are required before relying on it.",
+      "description": "Target is a proposed mitigation for the source capacity risk.",
+      "evidence_class": "application_declared"
+    },
+    "om/81f8acfaa99efa7f2f9cac94": {
+      "id": "om/81f8acfaa99efa7f2f9cac94",
+      "inverse": "required by",
+      "direction": "requires",
+      "edge_type": "REFERENCES",
+      "conditions": "The link alone does not confirm available capacity.",
+      "description": "Source launch requires target supplier capacity confirmation.",
+      "evidence_class": "application_declared"
+    },
+    "om/f7e6e88623e89a47edd9e518": {
+      "id": "om/f7e6e88623e89a47edd9e518",
+      "direction": "requires",
+      "edge_type": "REFERENCES",
+      "conditions": "Supplier mitigation does not replace this validation.",
+      "description": "Source launch requires the target validation prerequisite.",
+      "evidence_class": "application_declared"
+    }
+  }
+}
+				251 button Copy
+					252 image
+				253 button Regenerate
+					254 image
+				255 button Message debug
+					256 image
+				257 pop up button (collapsed) Description: More, ID: radix-:r2c:, Secondary Actions: Expand
+					258 image
+				259 container
+					260 text entry area (settable) Message input
+					261 button Description: Attach a file, Help: Attach an image or file
+						262 image
+					263 checkbox Description: Dictate (⇧⌘Space), Value: 0
+					264 text @people, #apps/tracks
+					265 button (disabled) Send message
+						266 image
+
+The focused UI element is 368 button (expanded) Used tool: integral_get_graph_context, Secondary Actions: Collapse

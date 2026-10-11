@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from app.models.edges import COLLABORATES_ON, EXCLUDED_FROM, OWNS
 from app.models.nodes import App, Entry, Track
 from app.services.entry_search import entry_search_query_clause
 from app.services.pagination import (
@@ -14,9 +15,11 @@ from app.services.pagination import (
     paginate_entity_find,
 )
 from app.services.permissions import (
+    ROLE_RANK,
     can_view_app,
     can_view_track,
     get_user_accessible_tracks,
+    get_user_node,
 )
 from app.services.query_filters import FILTER_OPS, canonical_filter_op
 from app.services.relative_date_filters import resolve_relative_date
@@ -250,8 +253,12 @@ async def fetch_accessible_entries_page(
     include_total: bool = False,
 ) -> Tuple[List[Entry], dict]:
     """Fetch one page of entries via DB keyset pagination."""
+    user = await get_user_node(user_id)
+    if user is None:
+        empty = 0 if include_total else None
+        return [], {"total": empty, "next_cursor": None, "has_more": False}
     scope_query, verified_tracks, needs_post_filter = await _build_scope_query(
-        user_id,
+        user.id,
         track_id=track_id,
         app_id=app_id,
         workspace_id=workspace_id,
@@ -260,9 +267,30 @@ async def fetch_accessible_entries_page(
         empty = 0 if include_total else None
         return [], {"total": empty, "next_cursor": None, "has_more": False}
 
+    # Track access does not grant access to an explicitly excluded Entry.
+    # Apply overrides before pagination/counting so hidden rows cannot leak
+    # through the feed, totals, or cursor page size. Direct grants still win.
+    # JWT principals are AuthUser Object ids; ACL edges originate at the
+    # corresponding User graph node. The resolver reuses the request memo.
+    exclusions = await EXCLUDED_FROM.find({"source": user.id})
+    denied_ids = {edge.target for edge in exclusions}
+    if denied_ids:
+        grant_query = {"source": user.id, "target": {"$in": sorted(denied_ids)}}
+        owned, collaborators = await asyncio.gather(
+            OWNS.find(grant_query), COLLABORATES_ON.find(grant_query)
+        )
+        denied_ids.difference_update(edge.target for edge in owned)
+        denied_ids.difference_update(
+            edge.target
+            for edge in collaborators
+            if str(edge.role or "viewer").strip().lower() in ROLE_RANK
+        )
+
     clauses: List[Dict[str, Any]] = []
     if scope_query:
         clauses.append(scope_query)
+    if denied_ids:
+        clauses.append({"id": {"$nin": sorted(denied_ids)}})
 
     if status:
         clauses.append({"context.status": status})
@@ -302,6 +330,6 @@ async def fetch_accessible_entries_page(
         include_total=include_total,
     )
     page = await _filter_entry_page(
-        user_id, page, verified_tracks, needs_post_filter=needs_post_filter
+        user.id, page, verified_tracks, needs_post_filter=needs_post_filter
     )
     return page, response

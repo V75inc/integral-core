@@ -46,10 +46,13 @@ class RetrieveRequest(BaseModel):
       * ``"track:<id>"`` — enables SQL pre-filter on Plan 04-01's
         ``track_id`` column (perf optimization; the per-candidate policy
         filter ALWAYS still applies).
-      * ``"workspace:<id>"`` — no pre-filter; per-candidate policy filter
-        is the sole gate.
-      * ``None`` — universe-wide vector search; per-candidate policy
-        filter is mandatory.
+      * ``"workspace:<id>"`` — must match the request's validated workspace;
+        graph membership and current permissions filter every candidate.
+      * ``None`` — defaults to the request's validated workspace. It never
+        widens retrieval to all workspaces the principal can read.
+
+    A track scope must also belong to that validated workspace. Vector-store
+    pre-filtering is advisory; candidate membership is checked independently.
 
     ``mode`` dispatches to the three retrieval channels:
       * ``"graph"`` — existing ``get_user_accessible_entries`` traversal
