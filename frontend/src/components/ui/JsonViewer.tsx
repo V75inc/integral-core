@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import {
   ChevronRight,
   ChevronDown,
@@ -121,6 +121,51 @@ function previewValue(value: unknown, palette: Palette, identifier = false): Rea
 
 // ── Row ────────────────────────────────────────────────────────────────────
 
+function useJsonCopy(value: unknown) {
+  const [status, setStatus] = useState<"idle" | "pending" | "copied" | "error">("idle");
+  const active = useRef(false);
+  const generation = useRef(0);
+  const pending = useRef(false);
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    active.current = true;
+    pending.current = false;
+    setStatus("idle");
+    return () => {
+      active.current = false;
+      generation.current += 1;
+      if (resetTimer.current !== null) clearTimeout(resetTimer.current);
+    };
+  }, [value]);
+
+  const copy = useCallback(async () => {
+    if (pending.current) return;
+    pending.current = true;
+    const request = ++generation.current;
+    if (resetTimer.current !== null) clearTimeout(resetTimer.current);
+    setStatus("pending");
+    try {
+      const text = JSON.stringify(value, null, 2);
+      if (typeof text !== "string") throw new Error("No JSON to copy");
+      await navigator.clipboard.writeText(text);
+      if (!active.current || request !== generation.current) return;
+      setStatus("copied");
+      resetTimer.current = setTimeout(() => {
+        if (active.current && request === generation.current) setStatus("idle");
+      }, 1500);
+    } catch {
+      if (active.current && request === generation.current) setStatus("error");
+    } finally {
+      if (request === generation.current) pending.current = false;
+    }
+  }, [value]);
+
+  return { status, copy };
+}
+
+const COPY_ERROR = "Couldn't copy. Try again or select the text and copy manually.";
+
 interface JsonNodeProps {
   nodeKey: string | null;
   value: unknown;
@@ -141,7 +186,8 @@ const JsonNode: React.FC<JsonNodeProps> = ({
   isLast
 }) => {
   const [expanded, setExpanded] = useState(depth < defaultExpandDepth);
-  const [copied, setCopied] = useState(false);
+  const { status: copyStatus, copy } = useJsonCopy(value);
+  const copyLabel = copyStatus === "pending" ? "Copying…" : copyStatus === "copied" ? "Copied" : `Copy ${nodeKey ?? "JSON value"}`;
 
   const expandable = isExpandable(value);
   const itemCount = countItems(value);
@@ -154,11 +200,9 @@ const JsonNode: React.FC<JsonNodeProps> = ({
   const handleCopy = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      navigator.clipboard.writeText(JSON.stringify(value, null, 2));
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
+      void copy();
     },
-    [value],
+    [copy],
   );
 
   const toggle = useCallback(() => {
@@ -201,6 +245,10 @@ const JsonNode: React.FC<JsonNodeProps> = ({
         {!isLast && <span style={{ color: palette.bracket }}>,</span>}
         <button
           onClick={handleCopy}
+          type="button"
+          aria-label={copyLabel}
+          title={copyLabel}
+          disabled={copyStatus === "pending"}
           className="json-copy-btn"
           style={{
             marginLeft: 6,
@@ -214,8 +262,9 @@ const JsonNode: React.FC<JsonNodeProps> = ({
             alignItems: "center"
           }}
         >
-          {copied ? <Check size={12} /> : <Copy size={12} />}
+          {copyStatus === "copied" ? <Check size={12} /> : <Copy size={12} />}
         </button>
+        {copyStatus === "error" && <span role="alert">{COPY_ERROR}</span>}
       </div>
     );
   }
@@ -264,6 +313,10 @@ const JsonNode: React.FC<JsonNodeProps> = ({
         </span>
         <button
           onClick={handleCopy}
+          type="button"
+          aria-label={copyLabel}
+          title={copyLabel}
+          disabled={copyStatus === "pending"}
           className="json-copy-btn"
           style={{
             marginLeft: 6,
@@ -277,8 +330,9 @@ const JsonNode: React.FC<JsonNodeProps> = ({
             alignItems: "center"
           }}
         >
-          {copied ? <Check size={12} /> : <Copy size={12} />}
+          {copyStatus === "copied" ? <Check size={12} /> : <Copy size={12} />}
         </button>
+        {copyStatus === "error" && <span role="alert">{COPY_ERROR}</span>}
       </div>
       {expanded && (
         <div>
@@ -315,14 +369,12 @@ const JsonViewer: React.FC<JsonViewerProps> = ({
   dark = false
 }) => {
   const [searchTerm, setSearchTerm] = useState("");
-  const [copiedAll, setCopiedAll] = useState(false);
+  const { status: copyAllStatus, copy: copyAll } = useJsonCopy(data);
   const palette = dark ? DARK : LIGHT;
 
   const handleCopyAll = useCallback(() => {
-    navigator.clipboard.writeText(JSON.stringify(data, null, 2));
-    setCopiedAll(true);
-    setTimeout(() => setCopiedAll(false), 1500);
-  }, [data]);
+    void copyAll();
+  }, [copyAll]);
 
   const itemCount = useMemo(() => countItems(data), [data]);
 
@@ -392,6 +444,8 @@ const JsonViewer: React.FC<JsonViewerProps> = ({
         </span>
         <button
           onClick={handleCopyAll}
+          type="button"
+          disabled={copyAllStatus === "pending"}
           style={{
             display: "inline-flex",
             alignItems: "center",
@@ -407,10 +461,11 @@ const JsonViewer: React.FC<JsonViewerProps> = ({
             whiteSpace: "nowrap"
           }}
         >
-          {copiedAll ? <Check size={13} /> : <Copy size={13} />}
-          {copiedAll ? "Copied" : "Copy all"}
+          {copyAllStatus === "copied" ? <Check size={13} /> : <Copy size={13} />}
+          {copyAllStatus === "copied" ? "Copied" : copyAllStatus === "pending" ? "Copying…" : "Copy all"}
         </button>
       </div>
+      {copyAllStatus === "error" && <div role="alert" style={{ padding: "6px 12px" }}>{COPY_ERROR}</div>}
 
       {/* Tree */}
       <div
@@ -458,6 +513,7 @@ const JsonViewer: React.FC<JsonViewerProps> = ({
       <style>{`
         .json-row:hover { background-color: ${palette.hoverBg} !important; }
         .json-row:hover .json-copy-btn { opacity: 1 !important; }
+        .json-copy-btn:focus-visible { opacity: 1 !important; }
         .json-copy-btn:hover { color: ${palette.key} !important; }
       `}</style>
     </div>
