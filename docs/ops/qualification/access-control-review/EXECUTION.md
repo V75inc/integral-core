@@ -518,3 +518,29 @@ The full final-6 coordinator completed every lane with exit zero. All 16 guards,
 Runtime/test patch SHA-256 values were checked after terminal qualification: `085468f08d29d82432324e0315347e8221479e443c49637e92fb963e9362b0ce` and `9094158e9466b9a3eef698222c9eed1f3bea8dfcb6037b9dcfdf33f6cfcdd40d`. This qualifies the complete awaited invocation's ordinary-authority mode and its cleanup/isolation; it does not qualify exact per-function grants, retained contexts, definition/dependency epochs or the ASGI/stream release point. All finding/U-case closure statuses remain unchanged. Restore/current-authority recovery and GitHub CI/deployment remain unverified.
 
 Combined focused PostgreSQL: 298 passed, 0 skipped.
+
+
+### Pushed App invocation milestone and canonical policy scope working slice
+
+App invocation milestone `b50dbf3cdefc3ac7a169fd16b334b12bf2f4efd4` was committed with all hooks passing and pushed to `codex/access-control-review`. Local/remote revision equality and a clean tree were verified before this slice.
+
+The PolicyModule working repair binds App/Track/Entry point targets to their current canonical workspace and validates the claimed structural parent before legacy policy evaluation. Empty-ID creation binds an existing permitted parent; it cannot invent a target location. Management lifecycle states establish location only: the existing action-specific data, execution and recovery gates retain their separate meanings. Invalid, missing or foreign location denies; unavailable primary facts propagate a typed authorization-unavailable error. Other resource kinds still need dedicated ownership adapters and are not declared solved by this helper.
+
+Every module evaluation now isolates its permission cache, including inside a retained request context. Actual-store tests pair legitimate cross-workspace direct shares with foreign-scope denial, both principal aliases, current grant revocation, disabled linked identities, same-workspace wrong parents, Entry creation, removed named containment and primary-source outages. This does not supply atomic effect/release fencing or complete definition/dependency epochs.
+
+Focused-1 reached all new scope/current-authority assertions without failure. Its six lifecycle cases failed setup because the fixture used an undefined field (`install_state`); the fixture now uses the actual `lifecycle_state`. No lifecycle security pass or failure is inferred from that erroneous setup. Focused rerun and exact complete gates remain required before commit. All findings/use-case closure statuses remain unchanged.
+
+Focused-2 completed with exit zero: **154 tests passed on each adapter**, with no skips. Logs/XML are under `/tmp/integral-access-policy-scope-focused-2-*`. The complete gate now follows against staged, frozen runtime/test source. This slice preserves the Authority and access invariants, I-GOVERN-01 and existing graph/lifecycle semantics; no persisted schema or structural writer changes are introduced.
+
+The first complete-gate attempt (`/tmp/integral-access-policy-scope-final-1.status.json`) stopped at the module-boundary guard before tests. The adapter had acquired an unapproved direct service import. The repair places scoped evaluation behind the already-approved `policy_engine` seam; the module guard and public immutable scope forwarding contract remain intact. No full-gate pass is claimed for this attempt. Frozen source is superseded, with focused/full qualification required again.
+
+Focused-3 qualifies the repaired adapter/service boundary: 154 passed on JSON and 154 passed on PostgreSQL, with no skips. Full-final-2 follows; no broad closure is inferred.
+
+During frozen full-final-2 qualification, an isolated external JSON-store probe established the next related-resource baseline: `/tmp/integral-access-related-view-baseline.xml` has one assertion failure and zero setup errors. A caller with guest membership and a direct Track viewer grant can read a canonical View in workspace B, then the same actual PolicyModule call wrongly allows it under workspace A execution scope. The probe source is outside the repository runtime/test trees; those remain frozen. This is unsafe-behavior evidence for the already-open related-resource ownership requirement, not current-slice acceptance or PostgreSQL/browser proof.
+
+
+### Qualified canonical policy scope milestone — final-2
+
+The final-2 coordinator completed all five lanes with exit zero. All 16 guards, commit-hook checks, pinned format/lint/types, reproducible wheel/import, CI-faithful smoke, frontend, full backend, Core-only, extension, and both PostgreSQL lanes pass. Wheel SHA-256: `5681b23c6bcee9f5a93d63e61e6750aeeb9a965011cd906b52ed28e4dd39a9b8`. Automated receipts cover 946 smoke tests (7 skips), 1583 frontend tests / 279 files, 5273 backend tests (297 skips), 327 focused PostgreSQL tests (zero skips), and 232 broader PostgreSQL spike/contract tests with one explicit restore skip. Terminal receipt: `/tmp/integral-access-policy-scope-final-2.status.json`.
+
+Frozen runtime/test patch SHA-256 values were rechecked after terminal qualification: `4b985307760b26762a9350f669845834e41458f165664690f7e606f0cf1a279d` and `3baf3a8c42268e30cc9b59d09acab50ee6d1ddb44444394a9f780ffa79804d18`. Twenty-nine new actual-store cases qualify canonical App/Track/Entry workspace/parent binding and retained-context current admission. The isolated View baseline remains failing/open; dedicated related-resource ownership, exact action permits, definition/dependency epochs, atomic effect/release fences, migration/restore and browser acceptance remain required. Finding/U-case closure statuses remain unchanged. These local and owned-store results are not GitHub CI, deployment or release evidence.

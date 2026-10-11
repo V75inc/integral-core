@@ -6,8 +6,8 @@ import hashlib
 import json
 
 from app.contracts.runtime import ExecutionScope
-from app.schemas.policy import Decision, Resource, Subject
-from app.services.policy_engine import evaluate
+from app.schemas.policy import Decision, Resource
+from app.services.policy_engine import evaluate_scoped
 
 
 def decision_fingerprint(
@@ -52,15 +52,7 @@ class PolicyModule:
         self, *, scope: ExecutionScope, action: str, resource: Resource
     ) -> Decision:
         """Return the policy decision for a validated execution scope."""
-        return await evaluate(
-            subject=Subject(kind="human", id=scope.principal_id),
-            action=action,
-            resource=resource,
-            # These origins are server-created declaration dispatch scopes.
-            # Core data stewardship is not an App function delegation.
-            _allow_owner_governance=scope.origin
-            not in {"app_operation", "app_query", "app_declaration"},
-        )
+        return await evaluate_scoped(scope=scope, action=action, resource=resource)
 
     def revision(
         self,

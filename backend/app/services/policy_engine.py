@@ -34,6 +34,7 @@ import os
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, get_args
 
+from app.contracts.runtime import ExecutionScope
 from app.exceptions import PayloadTooLargeError
 from app.middleware.permissions_cache import permissions_cache_get
 from app.schemas.policy import Decision, PolicyAction, Resource, Subject
@@ -657,6 +658,36 @@ def _is_write_action(action: str) -> bool:
     if action in READ_FULL:
         return False
     return True
+
+
+async def evaluate_scoped(
+    *, scope: ExecutionScope, action: str, resource: Resource
+) -> Decision:
+    """Authorize a module call against current canonical execution binding.
+
+    Keep the module adapter on the approved policy-engine seam. This is a
+    fresh decision boundary, not an atomic effect or response-release fence.
+    """
+    from app.middleware.permissions_cache import isolated_permissions_cache
+    from app.services.core_policy_scope import (
+        CORE_DATA_KINDS,
+        core_policy_scope_matches,
+    )
+
+    with isolated_permissions_cache():
+        if resource.kind in CORE_DATA_KINDS and not await core_policy_scope_matches(
+            scope, resource
+        ):
+            return Decision(allowed=False, reason="canonical_execution_scope_mismatch")
+        return await evaluate(
+            subject=Subject(kind="human", id=scope.principal_id),
+            action=action,
+            resource=resource,
+            # Server-created declaration scopes consume ordinary delegation;
+            # Core stewardship is not an App business-function grant.
+            _allow_owner_governance=scope.origin
+            not in {"app_operation", "app_query", "app_declaration"},
+        )
 
 
 async def evaluate(
