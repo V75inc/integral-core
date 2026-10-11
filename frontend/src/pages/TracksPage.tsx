@@ -158,7 +158,7 @@ export function TracksPage() {
         <header className="mb-8 md:mb-10 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
             <PageHeading>Tracks</PageHeading>
-            <div className="mt-3 md:mt-3.5 flex flex-wrap items-center gap-x-4 md:gap-x-6 gap-y-2 text-sm text-[var(--text-subtle)]">
+            <div className="mt-3 md:mt-3.5 flex flex-wrap items-center gap-x-4 md:gap-x-6 gap-y-2 text-xs text-[var(--text-subtle)]">
               <span>
                 {tracks.length} {tracks.length === 1 ? 'track' : 'tracks'} in {scopeLabel}
               </span>
@@ -323,14 +323,14 @@ export function TracksPage() {
                       <Link
                         to={`/tracks/${t.id}`}
                         className="
-                          col-span-3 grid grid-cols-subgrid items-start py-4
+                          col-span-3 grid grid-cols-subgrid min-h-20 items-center py-4
                           focus-visible:outline-none
                         "
                       >
                         <TrackDot
                           color={resolveIdentityColor(t.accent_color, activeWorkspace?.accent_color)}
                           size="md"
-                          className="mt-[8px] shrink-0"
+                          className="shrink-0"
                           title={t.title}
                         />
                         <div className="min-w-0">
@@ -348,12 +348,12 @@ export function TracksPage() {
                                 : ''}
                             </p>
                           ) : t.purpose || t.description ? (
-                            <p className="text-sm text-[var(--text-muted)] mt-0.5 line-clamp-1">
+                            <p className="text-xs text-[var(--text-muted)] mt-0.5 line-clamp-1">
                               {t.purpose || t.description}
                             </p>
                           ) : null}
                         </div>
-                        <div className="text-xs text-[var(--text-subtle)] tabular-nums shrink-0 text-right pt-0.5">
+                        <div className="text-xs text-[var(--text-subtle)] tabular-nums shrink-0 text-right">
                           <div>
                             {t.entry_count || 0}{' '}
                             {(t.entry_count || 0) === 1 ? 'entry' : 'entries'}

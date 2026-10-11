@@ -407,6 +407,7 @@ async def submit_chat_turn(
                 if part.get("type") == "text"
             )
             thread.title = derive_thread_title(title_text)
+            thread.title_source = "fallback"
         thread.pending_question = None
         if request.execution_context and request.execution_context.extra_data.get(
             "page_context"

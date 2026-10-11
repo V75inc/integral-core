@@ -86,6 +86,7 @@ export const appsApi = {
     visibility?: string;
     library_operational_model_id?: string;
     accent_color?: string;
+    icon?: string;
     include_seed_data?: boolean;
   }) =>
     apiClient
@@ -103,6 +104,7 @@ export const appsApi = {
       workspace_id?: string | null;
       visibility?: string;
       accent_color?: string;
+      icon?: string;
     }
   ) =>
     apiClient

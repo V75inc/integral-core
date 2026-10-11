@@ -51,3 +51,15 @@ it('shows authorized useful metadata in the title card', () => {
   expect(screen.getByRole('tooltip')).toHaveTextContent('4 messages');
   expect(screen.getByRole('tooltip')).toHaveTextContent('Working…');
 });
+
+it('wraps the full title in a wider hover card without inheriting row truncation', () => {
+  const fullTitle = 'Plan the community clinic volunteer rota and coordinate weekly shifts with backup coverage';
+  render(<button><ConversationLabel title={fullTitle} /></button>);
+  fireEvent.focus(screen.getByRole('button'));
+  const card = screen.getByRole('tooltip');
+  expect(card).toHaveClass('whitespace-normal', 'w-[min(560px,calc(100vw-16px))]');
+  expect(card).toHaveTextContent(fullTitle);
+  expect(card.querySelector('.truncate')).toBeNull();
+  fireEvent.resize(window);
+  expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+});

@@ -1,3 +1,4 @@
+import { PostToFeedDialog } from './PostToFeedDialog';
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
@@ -18,6 +19,7 @@ import {
   Rocket,
   LayoutTemplate,
   Maximize2,
+  Send,
   Minimize2,
 } from 'lucide-react';
 import { isSamePrincipal, formatRelativeTime, entryTypeColor } from '../../utils';
@@ -210,6 +212,7 @@ export function EntryDetail({
   };
   const [entry, setEntry] = useState(initialEntry);
   const [parentEntry, setParentEntry] = useState<Entry | null>(null);
+  const [postToFeedOpen, setPostToFeedOpen] = useState(false);
   const canEdit = useCanEditEntry(entry, {
     track:
       trackContext && trackContext.id === entry.track_id
@@ -507,7 +510,7 @@ export function EntryDetail({
   // ESC at the document level with that focus-aware skip.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      if (e.key !== 'Escape' || e.defaultPrevented || postToFeedOpen) return;
       // The page stays open. Nested drawers/viewers own their own dismissal.
       if (variant === 'page') {
         if ((e.target as HTMLElement | null)?.closest('[role="dialog"]')) return;
@@ -540,7 +543,7 @@ export function EntryDetail({
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose, variant, commentsPanelOpen]);
+  }, [onClose, variant, commentsPanelOpen, postToFeedOpen]);
 
   // Opening from a "Comments" affordance should land on that tab.
   useEffect(() => {
@@ -1652,6 +1655,11 @@ export function EntryDetail({
           trackId={trackId}
         />
       ) : null}
+      {canEdit && !isEditing ? (
+        <IconButton label="Post to feed" title="Post to feed" size="md" onClick={() => setPostToFeedOpen(true)}>
+          <Send size={16} strokeWidth={LINE_ICON_STROKE} aria-hidden />
+        </IconButton>
+      ) : null}
       {/* Enlarge / restore — modal chrome only (page variant is already full width).
           Persists as appearance.entryDialogExpanded so the next open remembers. */}
       {variant !== 'page' ? (
@@ -1815,7 +1823,7 @@ export function EntryDetail({
     <>
     <Chrome
       open
-      onClose={onClose}
+      onClose={postToFeedOpen ? () => {} : onClose}
       title={titleSlot}
       headerActions={headerActions}
       sidePanel={commentsPanelOpen && (variant === 'page' || showSideColumn) ? panelNode : undefined}
@@ -2046,6 +2054,7 @@ export function EntryDetail({
         </div>
 
     </Chrome>
+    <PostToFeedDialog entry={entry} open={postToFeedOpen} onClose={() => setPostToFeedOpen(false)} />
       {embeddedCompose && (
         <EntryComposeModal
           open

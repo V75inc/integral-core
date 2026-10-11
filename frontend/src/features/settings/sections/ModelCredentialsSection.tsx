@@ -71,10 +71,12 @@ function ModelSelect({
 
 /** Preset dropdown plus a "Custom model ID…" escape hatch. */
 function PresetModelSelect({
+  label = 'Chat model',
   presets,
   value,
   onChange,
 }: {
+  label?: string;
   presets: ModelPreset[];
   value: string;
   onChange: (modelId: string) => void;
@@ -85,6 +87,7 @@ function PresetModelSelect({
   return (
     <div className="flex flex-col gap-1">
       <Select
+        aria-label={label}
         value={selectValue}
         onChange={e => {
           const next = e.target.value;
@@ -105,6 +108,7 @@ function PresetModelSelect({
       </Select>
       {selectValue === CUSTOM_MODEL_VALUE ? (
         <Input
+          aria-label={`${label} ID`}
           value={value}
           onChange={e => onChange(e.target.value)}
           placeholder="model-id"
@@ -122,7 +126,7 @@ function ProviderSelect({
   onChange: (provider: ModelProvider) => void;
 }) {
   return (
-    <Select value={value} onChange={e => onChange(e.target.value as ModelProvider)}>
+    <Select aria-label="Chat model provider" value={value} onChange={e => onChange(e.target.value as ModelProvider)}>
       {PROVIDER_OPTIONS.map(opt => (
         <option key={opt.value} value={opt.value}>
           {opt.label}
@@ -256,6 +260,7 @@ function ApiKeyRow({
       <div className="flex flex-wrap gap-2">
         <Input
           type="password"
+          aria-label={label}
           autoComplete="off"
           value={value}
           onChange={e => onChange(e.target.value)}
@@ -356,6 +361,7 @@ function SpeechSlotEditor({
             <div>
               <FieldLabel>Provider</FieldLabel>
               <Select
+                aria-label="Voice input provider"
                 value={state.provider}
                 onChange={e => {
                   const next = e.target.value as SpeechProvider;
@@ -377,6 +383,7 @@ function SpeechSlotEditor({
             <div>
               <FieldLabel>Model</FieldLabel>
               <PresetModelSelect
+                label="Voice input model"
                 presets={SPEECH_MODEL_PRESETS[state.provider]}
                 value={state.model}
                 onChange={model => onChange({ ...state, model })}
