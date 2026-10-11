@@ -12,6 +12,44 @@ from app.services.app_operations.dispatch import (
 )
 
 
+def _input_review_labels(
+    schema: Any, *, depth: int = 0, remaining: list[int] | None = None
+) -> Dict[str, Any]:
+    """Small presentation-only schema projection, never execution authority.
+
+    App-owned titles supply domain vocabulary. Unsupported schemas simply use
+    literal field keys; the complete validated input remains in diff_machine.
+    """
+    if remaining is None:
+        remaining = [256]
+    remaining[0] -= 1
+    if not isinstance(schema, dict) or depth > 8 or remaining[0] < 0:
+        return {}
+    labels: Dict[str, Any] = {}
+    title = schema.get("title")
+    if isinstance(title, str) and title.strip():
+        labels["title"] = title[:160]
+    properties = schema.get("properties")
+    if isinstance(properties, dict):
+        projected = {
+            key: child
+            for key, spec in list(properties.items())[:256]
+            if (
+                child := _input_review_labels(
+                    spec, depth=depth + 1, remaining=remaining
+                )
+            )
+        }
+        if projected:
+            labels["properties"] = projected
+    items = _input_review_labels(
+        schema.get("items"), depth=depth + 1, remaining=remaining
+    )
+    if items:
+        labels["items"] = items
+    return labels
+
+
 async def prepare_agent_app_operation(
     args: Dict[str, Any], *, principal_id: str, workspace_id: str
 ) -> Dict[str, Any]:
@@ -79,6 +117,13 @@ async def prepare_agent_app_operation(
             + json.dumps(body, ensure_ascii=False, indent=2)
             + "\n```"
         ),
-        "diff_machine": {"op": "invoke_app_operation", **payload},
+        "diff_machine": {
+            "op": "invoke_app_operation",
+            **payload,
+            "review": {
+                "description": str(spec.get("description") or ""),
+                "input_labels": _input_review_labels(spec.get("input_schema")),
+            },
+        },
         "payload": payload,
     }

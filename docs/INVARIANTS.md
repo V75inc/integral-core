@@ -255,6 +255,11 @@ remains visible; a failed refresh cannot silently discard known proposals.
 Technical details are secondary. A proposal need not have a chat session.
 The global Inbox counts and displays pending/blessed proposals alongside policy
 approvals; a loading or failed proposal read must not claim that all is clear.
+Typed App operation review renders the bound input as literal, read-only fields.
+App schema titles supply field vocabulary; presentation metadata never enters the
+execution payload. Supported record references use the existing scoped label/link
+resolver. Large input projections explicitly direct inspection to the complete
+technical payload; narrated JSON is never substituted for the execution input.
 
 Closed staging tokens have a principal-scoped, state-only reconciliation receipt
 for 24 hours. It retains no payload, human diff, summary, idempotency key, or
@@ -268,6 +273,8 @@ history or a background retention SLA.
 Verification: `tests/test_staging_decision_readback.py`, staging persistence and
 terminal-durability suites, Approvals/Inbox review and modal shared-state tests,
 and `NotificationsHeaderButton.approvals.test.tsx`.
+Literal input and App-owned label projection are covered by
+`StagedOperationInputs.test.tsx` and `test_app_operation_staging.py`.
 Preserve I-SUBSTRATE-01, I-GRAPH-02, I-APPROVAL-01/02/04 and I-ROLE-01/02.
 
 ### I-UX-01 — One provenance presentation

@@ -8,7 +8,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.agentive.services.app_operation_staging import prepare_agent_app_operation
+from app.agentive.services.app_operation_staging import (
+    _input_review_labels,
+    prepare_agent_app_operation,
+)
 from app.services.app_operations import dispatch as operations
 from app.services.app_operations.registry import (
     clear_workspace_operations,
@@ -78,6 +81,51 @@ async def test_prepare_mutation_validates_without_handler_and_freezes_input(
     assert staged["payload"]["declaration_fingerprint"]
     args["input"]["title"] = "Changed after preparation"
     assert staged["payload"]["input"]["title"] == "Checked vendor page"
+    handler.assert_not_awaited()
+
+
+def test_review_labels_preserve_app_titles_without_execution_schema_or_authority():
+    schema = {
+        "type": "object",
+        "properties": {
+            "sources": {
+                "title": "Chosen material",
+                "type": "array",
+                "items": {
+                    "properties": {"body": {"title": "Exact passage", "type": "string"}}
+                },
+            }
+        },
+        "required": ["sources"],
+        "description": "This is not an execution instruction.",
+    }
+    original = copy.deepcopy(schema)
+    assert _input_review_labels(schema) == {
+        "properties": {
+            "sources": {
+                "title": "Chosen material",
+                "items": {"properties": {"body": {"title": "Exact passage"}}},
+            }
+        }
+    }
+    assert schema == original
+    wide = {"properties": {str(i): {"title": "Field"} for i in range(1000)}}
+    assert len(_input_review_labels(wide)["properties"]) <= 256
+
+
+@pytest.mark.asyncio
+async def test_review_presentation_does_not_enter_execution_payload(operation_contract):
+    spec, handler, _ = operation_contract
+    spec["input_schema"]["properties"]["title"]["title"] = "Finding title"
+    register_app_operations(WS, APP, "reference-review-app", [spec])
+    staged = await prepare_agent_app_operation(
+        _args(), principal_id="u1", workspace_id=WS
+    )
+    assert staged["diff_machine"]["review"]["input_labels"] == {
+        "properties": {"title": {"title": "Finding title"}}
+    }
+    assert "review" not in staged["payload"]
+    assert staged["diff_machine"]["input"] == {"title": "Checked vendor page"}
     handler.assert_not_awaited()
 
 

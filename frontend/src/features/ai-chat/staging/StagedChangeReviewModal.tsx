@@ -5,6 +5,7 @@ import JsonViewer from '../../../components/ui/JsonViewer';
 import { MarkdownContent } from '../../../components/ui/MarkdownContent';
 import { Text } from '../../../ui';
 import { diffBodyWithoutSummary } from './diffBodyWithoutSummary';
+import { operationInput, StagedOperationInputs } from './StagedOperationInputs';
 import type { StagedChange } from './types';
 import type { UseStagedChangeResult } from './useStagedChange';
 import './staging.css';
@@ -47,6 +48,9 @@ export function StagedChangeReviewModal({
     () => diffBodyWithoutSummary(staged.summary, staged.diff_human),
     [staged.summary, staged.diff_human],
   );
+  const input = operationInput(staged);
+  const review = staged.diff_machine?.review as { description?: unknown } | undefined;
+  const description = typeof review?.description === 'string' ? review.description : null;
 
   // Close once the change is settled — leaving a modal open over a change that
   // no longer exists invites a second click on a dead button.
@@ -70,7 +74,16 @@ export function StagedChangeReviewModal({
               Change
             </Text>
             <div className="staged-review-diff text-sm">
-              {diffBody ? (
+              {input ? (
+                <div className="flex min-w-0 flex-col gap-4">
+                  {description !== null ? (
+                    description ? <Text variant="body-sm" as="p" className="whitespace-pre-wrap">{description}</Text> : null
+                  ) : (
+                    <MarkdownContent mutedBody={false}>{diffBody.split('```json')[0].trim()}</MarkdownContent>
+                  )}
+                  <StagedOperationInputs staged={staged} onNavigate={onClose} />
+                </div>
+              ) : diffBody ? (
                 <MarkdownContent mutedBody={false}>{diffBody}</MarkdownContent>
               ) : (
                 <Text variant="meta" tone="muted">
