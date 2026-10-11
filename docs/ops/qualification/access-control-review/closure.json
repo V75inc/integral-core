@@ -38,13 +38,18 @@
     {
       "id": "AC-03",
       "priority_and_review_evidence": "P0 / R",
-      "status": "in_progress",
+      "status": "closed",
       "description": "**Policy memoization omits inputs that change the decision.** Key contains subject/action/resource kind/id, but omits scope, entry type, tags, approval payload and policy revision. An allowed request can authorize another scope in the same context. The event subscription helper uses constant kind/id, so two Track scopes collide directly. `policy_engine.py:685`; `middleware/permissions_cache.py:15`; `event_subscription_registry.py:94`. Probes `test_policy_cache_ignores_scope_and_tags`, `test_event_subscription_decision_cache_crosses_track_scope`. Include complete immutable decision inputs; do not cache effect/approval creation. Start fresh, live authorization for each event.",
       "implementation": [
-        "Complete serialized Resource cache identity; no payload/effect memoization"
+        "Remove policy-decision memoization until every policy writer has an admitted durable revision; each call rechecks current policies and full Resource inputs. Payload/approval effects never use cached allow."
       ],
       "verification": [
-        "Scope/tag/type variations and distinct write payloads tested"
+        "test_access_perimeter_regressions.py::test_policy_memo_distinguishes_complete_resource",
+        "test_access_perimeter_regressions.py::test_write_policy_is_not_memoized_across_payloads",
+        "test_access_perimeter_regressions.py::test_policy_reduction_is_seen_within_same_request",
+        "test_access_perimeter_regressions.py::test_live_event_rechecks_entry_and_revocation",
+        "test_policy_engine.py::test_policy_decision_rechecks_on_second_call",
+        "primary_directory_policy_qualification.json: real JSON/PostgreSQL targeted tests and full source/artifact gates passed; separate U-case browser/MCP/pagination and universal fence obligations remain open."
       ]
     },
     {
@@ -186,10 +191,18 @@
     {
       "id": "AC-15",
       "priority_and_review_evidence": "P2 / R, HTTP + S",
-      "status": "open",
+      "status": "closed",
       "description": "**Directory privacy differs by endpoint.** A viewer receives a reduced `/access`, but legacy `/apps/{id}/collaborators` returns other people and roles. Any guest can list the workspace member pool; public Track mention candidates can search graph Users. `sharing.py:959`; `api/apps.py:901`; `api/tracks.py:765,1076`; `api/workspaces.py:663`. Probe `test_viewer_legacy_collaborators_enumerates_other_people`. Define separately permission to read content, mention eligible people, and inspect access administration. Apply it consistently, with minimal user-field projections.",
-      "implementation": [],
-      "verification": []
+      "implementation": [
+        "Unify legacy App/Track directory review with owner/admin/protected-owner governance; readers receive reduced standing only. Workspace member directory requires administration. Public Track mention candidates remain current named participants, minimally projected without global user search or email enrichment."
+      ],
+      "verification": [
+        "test_access_directory_contract.py::test_reader_cannot_enumerate_legacy_access_but_owner_can",
+        "test_access_directory_contract.py::test_guest_member_pool_is_restricted_to_administration",
+        "test_access_directory_contract.py::test_public_track_mention_picker_cannot_search_global_users",
+        "test_mention_candidates.py::TestMentionCandidatesEndpoint::test_public_visibility_does_not_expand_to_global_search",
+        "primary_directory_policy_qualification.json: real JSON/PostgreSQL targeted tests and full source/artifact gates passed; separate U-case browser/MCP/pagination and universal fence obligations remain open."
+      ]
     },
     {
       "id": "AC-16",
@@ -1984,6 +1997,65 @@
         "junit_sha256": "4f8bb749c6d4f77bfadc919837e7e437f77e23a688812391c26ebf283770dfa7",
         "test_source_sha256": "ca6d4743ffa81381c35e3f4ab19b65538445a17c184f027184d506e84d0ef6cb"
       }
+    },
+    {
+      "id": "R1-primary-proof-policy-directory",
+      "status": "qualified_partial",
+      "finding_ids": [
+        "AC-01",
+        "AC-03",
+        "AC-15"
+      ],
+      "qualification": {
+        "state": "passed",
+        "backend": {
+          "path": "/tmp/integral-primary-directory-policy-full-5.xml",
+          "sha256": "ef07a87ffdbc42c8b6919ca4f88bf9915ea005940ddce870e41244bfc74ee386",
+          "counts": {
+            "tests": 5938,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 332,
+            "passed": 5606
+          }
+        },
+        "ci_smoke": {
+          "path": "/tmp/integral-primary-directory-policy-full-5-smoke.xml",
+          "sha256": "a0b15bd51046756f82e9d2eb4b09a7ed6e4153aa00b4cca7e3197c13c58388ac",
+          "counts": {
+            "tests": 1297,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 13,
+            "passed": 1284
+          }
+        },
+        "extension": {
+          "path": "/tmp/integral-primary-directory-policy-full-5-extension.xml",
+          "sha256": "6207cf586755da5091f8420884c425a991ee0c5c9c61c43e6bc31eccbc48826d",
+          "counts": {
+            "tests": 301,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 249,
+            "passed": 52
+          }
+        },
+        "frontend": {
+          "passed": 1590,
+          "files_passed": 282
+        },
+        "core_only": "passed",
+        "wheel_sha256": "5a9556b9bf25bc679d0246cfc8cddc39e3274b326b6e91e933a1a2a5623b47d7",
+        "runtime_diff_sha256": "6e56f83a84049979f2bab005846629d9d7a1d58a1e26c60be75e55a55d5cec22"
+      },
+      "closed_findings": [
+        "AC-03",
+        "AC-15"
+      ],
+      "remaining": [
+        "Whole AC-01 current-identity/fence and all U-case integrated surface acceptance remain open."
+      ]
     }
   ],
   "baseline_evidence": {

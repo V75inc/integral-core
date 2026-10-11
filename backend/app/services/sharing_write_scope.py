@@ -13,7 +13,6 @@ from typing import Any
 
 from jvspatial.core.context import get_default_context
 
-from app.api.errors import BadRequestError, ResourceNotFoundError
 from app.exceptions import AuthorizationUnavailableError
 from app.services.entry_write_scope import is_postgres_entry_transaction
 from app.services.resource_location import MANAGEMENT_APP_STATES, locate_resource
@@ -81,6 +80,9 @@ def collaboration_mutation(function):
 
     @wraps(function)
     async def invoke(*args: Any, **kwargs):
+        # Import after the sharing service has finished defining its commands.
+        from app.api.errors import BadRequestError, ResourceNotFoundError
+
         bound = signature.bind(*args, **kwargs)
         kind = bound.arguments["resource_type"]
         identity = bound.arguments["resource_id"]

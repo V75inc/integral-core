@@ -36,10 +36,6 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, get_args
 
 from app.contracts.runtime import ExecutionScope
 from app.exceptions import PayloadTooLargeError
-from app.middleware.permissions_cache import (
-    live_permissions_required,
-    permissions_cache_get,
-)
 from app.schemas.policy import Decision, PolicyAction, Resource, Subject
 from app.services.change_event import emit_change_event
 from app.services.permissions import (
@@ -769,29 +765,9 @@ async def evaluate(
 
     _allow_owner_governance = _allow_owner_governance and owner_governance_allowed()
 
-    # Memoize only pure reads with the complete resource identity. Effects
-    # and payload-bearing decisions must be evaluated again, including
-    # approval creation. Dry-run bypasses all memoization.
-    cache = permissions_cache_get()
-    cache_key = (
-        "policy",
-        subject.kind,
-        subject.id,
-        action,
-        "governance" if _allow_owner_governance else "ordinary",
-        json.dumps(
-            resource.model_dump(mode="json"), sort_keys=True, separators=(",", ":")
-        ),
-    )
-    cacheable = (
-        not _dry_run
-        and payload is None
-        and not _is_write_action(action)
-        and not live_permissions_required()
-    )
-    if cacheable and cache_key in cache:
-        return cache[cache_key]
-
+    # Policy changes are independent of Resource inputs. Until every policy
+    # writer advances an admitted durable revision, re-evaluate each call.
+    # A request-local decision cannot authorize a later changed policy.
     decision: Decision
 
     if subject.kind == "human":
@@ -965,9 +941,6 @@ async def evaluate(
                     reason=mismatch_reason or "no_matching_policy",
                     policy_chain=policy_chain,
                 )
-
-    if cacheable:
-        cache[cache_key] = decision
 
     # POL-04 observability: every denial is structurally logged + audit-emitted
     # via the single emission helper (Phase 2 D-05 path). Allow decisions do

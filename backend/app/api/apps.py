@@ -64,6 +64,7 @@ from app.services.permissions import (
     can_create_app_under_workspace,
     get_user_accessible_apps,
     get_user_node,
+    resolve_role,
 )
 from app.services.policy_engine import evaluate as policy_evaluate
 from app.services.request_scope import (
@@ -909,6 +910,17 @@ async def list_app_collaborators(request: Request, app_id: str) -> Dict[str, Any
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
+    from app.services.sharing import can_review_resource_access
+
+    if not await can_review_resource_access(user_id, "app", app_id):
+        return {
+            "collaborators": [],
+            "total": 0,
+            "effective_total": 0,
+            "app_id": app_id,
+            "caller_role": await resolve_role(user_id, "app", app_id),
+            "directory_visible": False,
+        }
     _decision = await policy_evaluate(
         subject=Subject(kind="human", id=user_id),
         action="app.read",
@@ -927,7 +939,12 @@ async def list_app_collaborators(request: Request, app_id: str) -> Dict[str, Any
         node=["User"],
         limit=500,
     )
-    owner_node = await get_user_node(sp.owner_user_id) if sp.owner_user_id else None
+    owners = await sp.nodes(edge=["OWNS"], direction="in", node=["User"], limit=2)
+    if len(owners) > 1:
+        from app.exceptions import AuthorizationUnavailableError
+
+        raise AuthorizationUnavailableError()
+    owner_node = await get_user_node(owners[0].id) if owners else None
 
     role_by_user: Dict[str, str] = {}
     if collaborators:

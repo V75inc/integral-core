@@ -417,3 +417,28 @@ async def test_workspace_avatar_denies_outsider_before_storage_read(monkeypatch)
     response = await workspaces.get_workspace_avatar(request_for(reader), workspace.id)
     assert response.body == b"png-fixture"
     assert storage.read_attachment.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_policy_reduction_is_seen_within_same_request(monkeypatch):
+    policy = SimpleNamespace(
+        id="p",
+        is_active=True,
+        scope="track:allowed",
+        actions=["entry.read"],
+        entry_types=[],
+        tags=[],
+        requires_human_approval=False,
+    )
+    monkeypatch.setattr(
+        pe, "_find_policies_for_subject", AsyncMock(return_value=[policy])
+    )
+    with isolated_permissions_cache():
+        args = dict(
+            subject=Subject(kind="agent", id="perimeter-agent"),
+            action="entry.read",
+            resource=Resource(kind="entry", id="same", scope="track:allowed"),
+        )
+        assert (await pe.evaluate(**args)).allowed
+        policy.actions = []
+        assert not (await pe.evaluate(**args)).allowed

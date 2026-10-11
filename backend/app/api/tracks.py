@@ -26,7 +26,7 @@ from app.models.edges import (
     EXCLUDED_FROM,
     WATCHES,
 )
-from app.models.nodes import OperationalModel, Track, User
+from app.models.nodes import OperationalModel, Track
 from app.schemas.policy import Resource, Subject
 from app.services.app_graph import (
     get_track_attached_operational_model,
@@ -794,6 +794,25 @@ async def list_collaborators(request: Request, track_id: str) -> Dict[str, Any]:
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
+    from app.services.sharing import can_review_resource_access
+
+    if not await can_review_resource_access(user_id, "track", track_id):
+        current_track = await Track.get(track_id)
+        visibility = getattr(current_track, "visibility", None)
+        reduced_visibility_grant = (
+            "public"
+            if visibility == "public"
+            else ("workspace" if visibility in {"workspace", "organization"} else None)
+        )
+        return {
+            "collaborators": [],
+            "total": 0,
+            "effective_total": 0,
+            "track_id": track_id,
+            "caller_role": await resolve_role(user_id, "track", track_id),
+            "directory_visible": False,
+            "visibility_grant": reduced_visibility_grant,
+        }
     _decision = await policy_evaluate(
         subject=Subject(kind="human", id=user_id),
         action="track.read",
@@ -841,7 +860,12 @@ async def list_collaborators(request: Request, track_id: str) -> Dict[str, Any]:
     # inherited rows for the same user.
     rows: Dict[str, Dict[str, Any]] = {}
 
-    owner_node = await get_user_node(track.owner_id)
+    owners = await track.nodes(edge=["OWNS"], direction="in", node=["User"], limit=2)
+    if len(owners) > 1:
+        from app.exceptions import AuthorizationUnavailableError
+
+        raise AuthorizationUnavailableError()
+    owner_node = await get_user_node(owners[0].id) if owners else None
     if owner_node:
         # Never full-export User — preferences hold reset/OTP hashes.
         data = await public_user_view(owner_node)
@@ -960,8 +984,8 @@ async def list_collaborators(request: Request, track_id: str) -> Dict[str, Any]:
     result = list(rows.values())
     effective_count = sum(1 for r in result if r.get("effective_access"))
 
+    track_vis = track.visibility
     visibility_grant: Optional[str] = None
-    track_vis = getattr(track, "visibility", None)
     if track_vis == "public":
         visibility_grant = "public"
     elif track_vis in ("workspace", "organization") and bool(
@@ -999,22 +1023,10 @@ async def list_mention_candidates(
     q: str = "",
     limit: int = 8,
 ) -> Dict[str, Any]:
-    """List users eligible to be ``@``-mentioned on this track.
+    """Mention eligible named collaborators, never the global user directory.
 
-    Mirrors the access-model cascade so the @-picker can never surface a
-    user that lacks effective visibility on the track:
-
-      * ``track.visibility == "public"`` → fall through to the global user
-        search the picker used pre-scoping (anyone authenticated can read).
-      * Otherwise → owner + direct ``COLLABORATES_ON`` + app-inherited
-        ``COLLABORATES_ON``, minus ``EXCLUDED_FROM`` (deny overrides
-        inherited paths only — direct/owner survive). Workspace-visibility
-        tracks do NOT enumerate the workspace member pool: visibility on a
-        track is not the same as a working relationship with it, and the
-        picker stays tight to keep drive-by mentions off shared boards.
-
-    Query ``q`` is case-insensitive contains against display_name and the
-    email local-part. Cap defaults to 8, clamps to [1, 50].
+    Public visibility does not expand the mention cohort. Project only public
+    identity fields, and recheck each candidate's current resource authority.
     """
     user_id = resolve_principal_id(request)
     if not user_id:
@@ -1041,7 +1053,6 @@ async def list_mention_candidates(
         cap = 8
     cap = max(1, min(cap, 50))
     q_norm = (q or "").strip().casefold()
-    track_vis = getattr(track, "visibility", None)
 
     async def _hydrate(u: Any) -> Dict[str, Any]:
         # Projection, not a raw export: this is a collaborator picker, so it
@@ -1050,15 +1061,6 @@ async def list_mention_candidates(
         # password-reset slot) or ``notification_preferences`` (holds the
         # verified WhatsApp phone). See app/api/utils.py::public_user_view.
         data = await public_user_view(u)
-        if getattr(u, "user_id", None):
-            try:
-                from jvspatial.api.auth.models import User as AuthUser
-
-                au = await AuthUser.get(u.user_id)
-                if au:
-                    data["email"] = getattr(au, "email", "") or ""
-            except Exception:
-                pass
         return data
 
     def _q_match(data: Dict[str, Any]) -> bool:
@@ -1076,38 +1078,6 @@ async def list_mention_candidates(
 
     def _is_caller(u: Any) -> bool:
         return u.id == caller_node_id or getattr(u, "user_id", None) == user_id
-
-    if track_vis == "public":
-        import re as _re
-
-        from jvspatial.core.pager import ObjectPager
-
-        filters: Dict[str, Any] = {}
-        if q_norm:
-            filters["context.display_name"] = {
-                "$regex": _re.escape(q),
-                "$options": "i",
-            }
-        # Pull a wider page than the cap so an email-local-part match can
-        # bubble in even when the display_name DB filter eliminates it.
-        pager = ObjectPager(User, page_size=max(cap * 4, 32), filters=filters)
-        users: List[Any] = await pager.get_page(page=1)
-        out: List[Dict[str, Any]] = []
-        for u in users:
-            if _is_caller(u):
-                continue
-            data = await _hydrate(u)
-            if not _q_match(data):
-                continue
-            out.append(data)
-            if len(out) >= cap:
-                break
-        return {
-            "users": out,
-            "track_id": track_id,
-            "visibility_grant": "public",
-            "total": len(out),
-        }
 
     ctx = await track.get_context()
 
@@ -1193,6 +1163,8 @@ async def list_mention_candidates(
             continue
         if uid in excluded_user_ids and not _has_direct_path(uid):
             continue
+        if await resolve_role(u.id, "track", track.id) is None:
+            continue
         data = await _hydrate(u)
         if not _q_match(data):
             continue
@@ -1203,7 +1175,7 @@ async def list_mention_candidates(
     return {
         "users": out,
         "track_id": track_id,
-        "visibility_grant": None,
+        "visibility_grant": "public" if track.visibility == "public" else None,
         "total": len(out),
     }
 

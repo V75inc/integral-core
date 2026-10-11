@@ -29,7 +29,7 @@ from typing import Optional, Tuple
 
 from app.config import settings
 from app.models.nodes import User
-from app.services.email_identity import current_account_email, email_proof_matches
+from app.services.email_identity import current_account_email, verified_current_email
 from app.services.email_service import render_verification_email, send_email
 
 logger = logging.getLogger(__name__)
@@ -163,7 +163,7 @@ async def consume_verification_code(
     on failure, or ``None`` on success.
     """
     current_email = await current_account_email(user_node)
-    if current_email and email_proof_matches(user_node, current_email):
+    if current_email and await verified_current_email(user_node) == current_email:
         return False, ERR_ALREADY_VERIFIED
 
     if not code or not code.strip():

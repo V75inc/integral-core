@@ -658,7 +658,7 @@ async def list_workspace_members(request: Request, workspace_id: str) -> Dict[st
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    ws, role = await _require_workspace_role(workspace_id, user_id, "guest")
+    ws, role = await _require_workspace_role(workspace_id, user_id, "admin")
     members: List[Dict[str, Any]] = []
     member_nodes, _next = await ws.nodes_page(
         edge=["IS_MEMBER_OF"],

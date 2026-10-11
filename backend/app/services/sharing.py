@@ -1109,6 +1109,31 @@ async def _inherited_collaborators(
     return inherited
 
 
+async def can_review_resource_access(
+    actor_user_id: str, resource_type: ResourceType, resource_id: str
+) -> bool:
+    """One current access-directory contract shared by legacy and modern reads."""
+    from app.middleware.permissions_cache import isolated_permissions_cache
+    from app.services.workspace_governance import resolve_owner_governance
+
+    with isolated_permissions_cache():
+        await _require_policy_allowed(
+            actor_user_id,
+            f"{resource_type}.read",
+            resource_type,
+            resource_id,
+            denied_message="Access denied.",
+        )
+        return (
+            await resolve_role(actor_user_id, resource_type, resource_id)
+            in {"owner", "admin"}
+            or await resolve_owner_governance(
+                actor_user_id, resource_type, resource_id, "resource.access.review"
+            )
+            is not None
+        )
+
+
 async def list_access(
     actor_user_id: str,
     resource_type: ResourceType,
