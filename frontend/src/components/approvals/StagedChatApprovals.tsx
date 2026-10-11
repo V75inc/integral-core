@@ -20,11 +20,8 @@ import type { StagedChange } from '../../features/ai-chat/staging/types';
  * endpoints the chat card calls, so the inline card reconciles to the
  * terminal state on its next mount.
  */
-export function StagedChatApprovals({
-  onCountChange,
-}: {
-  onCountChange?: (count: number) => void;
-}) {
+/** Bounded proposal collection shared by the full page and global Inbox. */
+export function useStagedApprovals() {
   const [rows, setRows] = useState<StagedChange[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [refreshFailed, setRefreshFailed] = useState(false);
@@ -65,10 +62,24 @@ export function StagedChatApprovals({
     };
   }, [refetch]);
 
-  useEffect(() => {
-    if (loaded) onCountChange?.(rows.length);
-  }, [loaded, rows.length, onCountChange]);
+  return { rows, loaded, refreshFailed, refetch };
+}
 
+export function StagedChatApprovals({
+  onCountChange,
+}: {
+  onCountChange?: (count: number) => void;
+}) {
+  const collection = useStagedApprovals();
+  useEffect(() => {
+    if (collection.loaded) onCountChange?.(collection.rows.length);
+  }, [collection.loaded, collection.rows.length, onCountChange]);
+  return <StagedApprovalsList {...collection} />;
+}
+
+export function StagedApprovalsList({
+  rows, loaded, refreshFailed, refetch,
+}: ReturnType<typeof useStagedApprovals>) {
   if (!loaded || (rows.length === 0 && !refreshFailed)) return null;
 
   return (
