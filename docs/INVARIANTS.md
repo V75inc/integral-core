@@ -417,6 +417,11 @@ Routes delegate persisted writes to named services; direct graph creation/connec
 
 Library Apps install through `app_lifecycle.install_app` or its canonical HTTP route. Partial create-and-merge cannot omit settings, definitions, seeds, skills, tools, or lifecycle. Seed/provisioning callers delegate rather than reconstructing install.
 
+Batch failures retain the same public typed error code/details as a single-install
+denial. The generic installer offers registered host guidance per failed App,
+while preserving partial successes and unknown-outcome protection; it does not
+infer commercial plans or automatically retry a denied install.
+
 ### I-APP-07 — Personal workspace at signup
 
 Provision the personal workspace idempotently at signup. Listing and scope reads do not lazy-create missing workspaces. Accessible workspace reads enumerate already linked resources.

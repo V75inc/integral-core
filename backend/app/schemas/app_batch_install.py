@@ -35,6 +35,7 @@ class BatchInstallEntry(BaseModel):
     reason: Optional[str] = None
     error: Optional[str] = None
     error_code: Optional[str] = None
+    details: Optional[Dict[str, Any]] = None
     install_token: Optional[str] = None
     settings_schema: Optional[Dict[str, Any]] = None
 
