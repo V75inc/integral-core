@@ -2307,6 +2307,7 @@ async def _start_user_turn(
             "Image" if images else ("File" if attachment_file_parts else "")
         )
         thread.title = _derive_thread_title(user_text or fallback_title)
+        thread.title_source = "fallback"
         await thread.save()
     elif had_pending_question and not durable_turn:
         await thread.save()

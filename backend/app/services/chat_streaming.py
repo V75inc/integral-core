@@ -145,6 +145,10 @@ _ERROR_MESSAGES: Dict[str, str] = {
     "model_unavailable": "The selected model is unavailable. Choose an available model in Settings → AI Models.",
     "model_provider_unavailable": "The model provider is temporarily unavailable. Check its status before trying again.",
     "model_request_rejected": "The model provider rejected this request. Check that the selected model supports chat and tools in Settings → AI Models.",
+    "chat_storage_unavailable": (
+        "Live chat is unavailable because this installation needs transactional "
+        "storage. Ask your administrator to configure PostgreSQL for Integral."
+    ),
     "internal_error": "Something went wrong on our side. Please try again.",
     "scaffold_plan_invalid": (
         "The approved setup could not be built. Please try again."
@@ -273,6 +277,13 @@ def classify_turn_exception(
                 return code, message
     except Exception:  # noqa: BLE001 — keep error reporting best-effort
         pass
+
+    from app.services.app_operations.transaction_scope import (
+        OperationTransactionUnavailable,
+    )
+
+    if isinstance(exc, OperationTransactionUnavailable):
+        return "chat_storage_unavailable", _ERROR_MESSAGES["chat_storage_unavailable"]
 
     model_key_exc: Optional[type] = None
     try:
