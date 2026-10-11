@@ -50,7 +50,7 @@
     "backend/app/api/notification_preferences.py": "9b573e42038cae66b65c8e1d9b8df76fab2b6d8c55724a503efc316134aaab8c",
     "backend/app/api/notifications.py": "b09d7f1440247a5cb84ced8d3a5fdd29c417492b6c03c5171708d36c9e6b5c83",
     "backend/app/api/oauth_consent.py": "5d3b33c1fc5c55e6d6b57d33690370cd37d582c86b0beae7bb126de97c1ad977",
-    "backend/app/api/operational_models.py": "c5e3ee43b17e6a4176c6682cc8950cf691c72b855fa8d105e5df2d89b7d89e91",
+    "backend/app/api/operational_models.py": "1ede536b3bc9d28f28572ca2bc595055daf05b364ea91b938fd49d452825dc68",
     "backend/app/api/policies.py": "703d1cba7be48a614b24b5ad840735050b2b0b2c3b5e87a9ea14f2e969ecaa24",
     "backend/app/api/query_spec.py": "2189dba4b69e6e4dd5184d44b5489d95c407e63bb576ff4b1b1eeb8657fe7fd1",
     "backend/app/api/retrieval_config.py": "21e063169c409882a7a2cfe1b65cbcf25104284ed8848277f23551b71c225d77",
@@ -68,7 +68,7 @@
     "backend/app/api/utils.py": "86c9ec243feb6459325f2610a97dfbc69c470ee7e20762adc418392f7bb32547",
     "backend/app/api/validators.py": "1b7240804c0e85db6151e0c3b16fc7a16fc7d97c5aedca89b544b9069bdc4093",
     "backend/app/api/validators_common.py": "886bc75cfffd10d603ab69a805dd2319e1153a36617c5181b825e23f8e871ef8",
-    "backend/app/api/views.py": "0e8d1754a32fbff9a3822dfd5eda376aa7fb069eeef5587c06208148b789b533",
+    "backend/app/api/views.py": "569fc6e2a47422f362d0e16d4bfe881ef71b2adae561bf122c54fe0899d3f55b",
     "backend/app/api/work_items.py": "e33c707a36c6b6bbb0790f7e4ee856aecf80868bb8caf55fc697f566c65ba119",
     "backend/app/api/workspace_member_hire.py": "dd21d4b5a0b2e2eac4e9a71055491c9d7637f7ec73e3bd366665fb3e251b132f",
     "backend/app/api/workspaces.py": "a262acdfcbe392261bc381f1c14c1b2a7c001971ae337e04e37d5714242f070d",
@@ -2668,7 +2668,7 @@
       "methods_expression": "['GET']",
       "auth_expression": "True",
       "file": "backend/app/api/operational_models.py",
-      "line": 144,
+      "line": 145,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2679,7 +2679,7 @@
       "methods_expression": "['GET']",
       "auth_expression": "True",
       "file": "backend/app/api/operational_models.py",
-      "line": 198,
+      "line": 199,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2690,7 +2690,7 @@
       "methods_expression": "['GET']",
       "auth_expression": "True",
       "file": "backend/app/api/operational_models.py",
-      "line": 221,
+      "line": 222,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2701,7 +2701,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/operational_models.py",
-      "line": 248,
+      "line": 249,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2712,7 +2712,7 @@
       "methods_expression": "['PUT']",
       "auth_expression": "True",
       "file": "backend/app/api/operational_models.py",
-      "line": 336,
+      "line": 337,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2723,7 +2723,7 @@
       "methods_expression": "['DELETE']",
       "auth_expression": "True",
       "file": "backend/app/api/operational_models.py",
-      "line": 425,
+      "line": 426,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2734,7 +2734,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/operational_models.py",
-      "line": 471,
+      "line": 472,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2745,7 +2745,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/operational_models.py",
-      "line": 505,
+      "line": 506,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2756,7 +2756,7 @@
       "methods_expression": "['DELETE']",
       "auth_expression": "True",
       "file": "backend/app/api/operational_models.py",
-      "line": 594,
+      "line": 595,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2767,7 +2767,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/operational_models.py",
-      "line": 657,
+      "line": 658,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2778,7 +2778,7 @@
       "methods_expression": "['DELETE']",
       "auth_expression": "True",
       "file": "backend/app/api/operational_models.py",
-      "line": 756,
+      "line": 757,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2789,7 +2789,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/operational_models.py",
-      "line": 819,
+      "line": 820,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2800,7 +2800,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/operational_models.py",
-      "line": 900,
+      "line": 901,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2811,7 +2811,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/operational_models.py",
-      "line": 1038,
+      "line": 1039,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2822,7 +2822,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/operational_models.py",
-      "line": 1138,
+      "line": 1139,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2833,7 +2833,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/operational_models.py",
-      "line": 1378,
+      "line": 1379,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2844,7 +2844,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/operational_models.py",
-      "line": 1464,
+      "line": 1465,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2855,7 +2855,7 @@
       "methods_expression": "['GET']",
       "auth_expression": "True",
       "file": "backend/app/api/operational_models.py",
-      "line": 1661,
+      "line": 1662,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2866,7 +2866,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/operational_models.py",
-      "line": 1685,
+      "line": 1686,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2877,7 +2877,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/operational_models.py",
-      "line": 1774,
+      "line": 1775,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2888,7 +2888,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/operational_models.py",
-      "line": 1802,
+      "line": 1803,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2899,7 +2899,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/operational_models.py",
-      "line": 1875,
+      "line": 1876,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2910,7 +2910,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/operational_models.py",
-      "line": 1996,
+      "line": 1997,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2921,7 +2921,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/operational_models.py",
-      "line": 2024,
+      "line": 2025,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2932,7 +2932,7 @@
       "methods_expression": "['GET']",
       "auth_expression": "True",
       "file": "backend/app/api/operational_models.py",
-      "line": 2060,
+      "line": 2061,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2943,7 +2943,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/operational_models.py",
-      "line": 2257,
+      "line": 2258,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2954,7 +2954,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/operational_models.py",
-      "line": 2391,
+      "line": 2392,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2965,7 +2965,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/operational_models.py",
-      "line": 2572,
+      "line": 2573,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -3999,7 +3999,7 @@
       "methods_expression": "['GET']",
       "auth_expression": "True",
       "file": "backend/app/api/views.py",
-      "line": 257,
+      "line": 244,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4010,7 +4010,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/views.py",
-      "line": 291,
+      "line": 278,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4021,7 +4021,7 @@
       "methods_expression": "['GET']",
       "auth_expression": "True",
       "file": "backend/app/api/views.py",
-      "line": 392,
+      "line": 380,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4032,7 +4032,7 @@
       "methods_expression": "['PUT']",
       "auth_expression": "True",
       "file": "backend/app/api/views.py",
-      "line": 415,
+      "line": 404,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4043,7 +4043,7 @@
       "methods_expression": "['DELETE']",
       "auth_expression": "True",
       "file": "backend/app/api/views.py",
-      "line": 577,
+      "line": 572,
       "qualification": "unmapped",
       "evidence": []
     },

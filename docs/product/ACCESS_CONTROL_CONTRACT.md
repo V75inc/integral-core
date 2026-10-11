@@ -76,6 +76,14 @@ multiple or inconsistent parents cannot activate a direct grant. Raw candidate
 cardinality is checked before hydration; malformed candidates must not
 disappear and make a set look unique.
 
+A saved View belongs to one Track through `HAS_VIEW`; its model catalog and
+parent caches must agree with that named scope. Shared-model catalog membership
+cannot combine Track audiences or let one Track's configuration maintenance
+change another's Views. Saved View policy targets bind both the current
+canonical Workspace and any claimed parent. Model-only templates require
+separate model authority and never acquire a Track capability from membership
+alone. Legacy ambiguous paths remain withheld for reviewed repair.
+
 Persisted role, creation, visibility, kind and lifecycle facts use exact typed
 vocabularies. Missing fields do not acquire authority through model defaults.
 Conflicting legacy/canonical representations fail closed. API normalization

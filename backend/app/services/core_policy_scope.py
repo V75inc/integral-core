@@ -1,11 +1,11 @@
-"""Canonical execution binding for Core App/Track/Entry policy targets."""
+"""Canonical execution binding for Core App/Track/Entry/View policy targets."""
 
 from app.contracts.runtime import ExecutionScope
 from app.schemas.policy import Resource
 from app.services.resource_location import MANAGEMENT_APP_STATES, locate_resource
 
-CORE_DATA_KINDS = frozenset({"app", "track", "entry"})
-PARENT_KINDS = frozenset({"workspace", "app", "track", "entry"})
+CORE_DATA_KINDS = frozenset({"app", "track", "entry", "view"})
+PARENT_KINDS = frozenset({"workspace", "app", "track", "entry", "view"})
 
 
 async def core_policy_scope_matches(scope: ExecutionScope, resource: Resource) -> bool:
@@ -18,7 +18,7 @@ async def core_policy_scope_matches(scope: ExecutionScope, resource: Resource) -
     adapters; this helper's contract covers only CORE_DATA_KINDS.
     """
     if resource.kind not in CORE_DATA_KINDS:
-        raise ValueError("Core policy scope requires App, Track or Entry")
+        raise ValueError("Core policy scope requires App, Track, Entry or View")
     parts = resource.scope.split(":", 1)
     if (
         len(parts) != 2
@@ -37,6 +37,7 @@ async def core_policy_scope_matches(scope: ExecutionScope, resource: Resource) -
             "app": {"workspace"},
             "track": {"workspace", "app"},
             "entry": {"track"},
+            "view": {"track"},
         }
         if parent_kind not in allowed_parents[resource.kind]:
             return False
@@ -53,5 +54,6 @@ async def core_policy_scope_matches(scope: ExecutionScope, resource: Resource) -
         "app": location.app_id,
         "track": location.track_id,
         "entry": resource.id if resource.kind == "entry" else "",
+        "view": resource.id if resource.kind == "view" else "",
     }
     return bool(expected[parent_kind]) and expected[parent_kind] == parent_id

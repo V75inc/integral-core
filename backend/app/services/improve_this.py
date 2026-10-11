@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 from app.models.edges import CONTAINS
 from app.models.nodes import Entry, Track, View
 from app.services.app_graph import get_track_attached_operational_model
+from app.services.view_scope import get_scoped_view
 
 
 def _tier(manifest: Dict[str, Any]) -> Dict[str, Any]:
@@ -97,7 +98,7 @@ async def focus_track(
         if isinstance(track, Track):
             return track
     if view_id.startswith("n."):
-        view = await View.get(view_id)
+        view = await get_scoped_view(view_id)
         if isinstance(view, View) and view.track_id:
             track = await Track.get(view.track_id)
             if isinstance(track, Track):

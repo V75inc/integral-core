@@ -11,6 +11,7 @@ from app.services.app_graph import (
     catalog_track,
     catalog_user,
     catalog_workspace,
+    create_track_view,
 )
 from app.services.permissions import can_edit_view, can_view_view
 
@@ -101,13 +102,15 @@ async def test_shared_cp_admin_on_sibling_does_not_grant_edit_on_other_track_vie
 
     await outsider.connect(track_a, edge=COLLABORATES_ON, role="owner")
 
-    view_a = await View.create(
+    view_a = await create_track_view(
+        track_a,
         name="Board A",
         type="kanban",
         track_id=track_a.id,
         operational_model_id=cp.id,
     )
-    view_b = await View.create(
+    view_b = await create_track_view(
+        track_b,
         name="Board B",
         type="kanban",
         track_id=track_b.id,

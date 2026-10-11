@@ -1088,12 +1088,13 @@
     }
   ],
   "qualification": {
-    "full_local_gate": "Canonical-governance milestone passed make verify with 796 smoke, 1583 frontend and 5123 backend cases; final goal-wide gate pending",
+    "full_local_gate": "Latest saved-View milestone passed make verify: 979 smoke passes (10 skips), 1583 frontend passes, 5306 backend passes (300 skips). Final goal-wide gate remains pending.",
     "postgres_multiprocess": "pending",
-    "core_only_contract": "Canonical-governance milestone passed 9 Core-only, 52 extension-contract, 166 focused PostgreSQL and 232 PostgreSQL spikes/contracts (1 restore skip); final goal-wide qualification pending",
+    "core_only_contract": "Latest saved-View milestone passed Core-only, extension, 603 focused PostgreSQL tests (zero skips), and 232 broader PostgreSQL tests (one explicit restore skip). Final goal-wide qualification remains pending.",
     "independent_artifacts": "pending",
     "browser_mcp": "pending",
-    "migration_restore": "pending"
+    "migration_restore": "pending",
+    "latest_milestone": "M2-saved-view-scope-working"
   },
   "milestones": [
     {
@@ -1299,7 +1300,7 @@
     },
     {
       "id": "M2-policy-execution-scope-working",
-      "status": "qualified_partial",
+      "status": "pushed_partial",
       "deliverable": "Canonical App/Track/Entry target and parent binding before current PolicyModule evaluation",
       "evidence": [
         "Actual baseline 3 admitted canonical workspace B resource under immutable execution scope A despite legitimate B grant.",
@@ -1314,7 +1315,114 @@
         "Per-call memo isolation does not establish atomic effect or whole-response release fencing.",
         "No finding/use-case closure, browser, restore, GitHub CI or deployment claimed."
       ],
-      "qualification_receipt": "/tmp/integral-access-policy-scope-final-2.status.json"
+      "qualification_receipt": "/tmp/integral-access-policy-scope-final-2.status.json",
+      "commit": "996d68456809efb8102c8be4124533b890573972"
+    },
+    {
+      "id": "M2-saved-view-scope-working",
+      "status": "qualified_partial",
+      "deliverable": "Named saved-View Track scope, raw canonical point/list/config consumers, common transactional creation and unique-path migration",
+      "evidence": [
+        "External JSON baseline: legitimate shared View B admitted under immutable scope A; one assertion failure and zero setup errors.",
+        "Focused 1: new actual-store scope tests passed; three legacy positive fixtures lacked structural View scope. Fixtures adopted common factory; unanchored cases remain separate.",
+        "Focused 2: new scope/migration dry-run cases passed; four restructuring fixtures used unanchored Views.",
+        "Focused 3: import edit caused collection errors; stopped terminal, syntax fixed. Root-incomplete structural fixtures corrected without weakening canonical factory validation.",
+        "Focused 4: remaining split tests used a noncanonical mock registry. Fixture now reuses the actual rooted registry.",
+        "Focused 5 terminal success: 124 passed /6 skipped on JSON, 130 passed /0 skipped on PostgreSQL, including migration apply/stale-plan/rollback cases. Narrow selection only.",
+        "Extended 6 stopped in the JSON lane: the delete_view routing unit patched View.get after production adopted get_scoped_view. Further inspection found unresolved View IDs bypassed staging scope validation; required View targets now reject before dispatch. Extended 7 is running; no pass claimed.",
+        "Extended 7 stopped on one new missing-scope fixture: it passed Node objects to the ID-based find_edges_between method, removing no edge. Corrected to IDs with an explicit one-edge assertion; runtime unchanged.",
+        "Extended 8 did not collect tests: resolving the venv Python symlink launched the base interpreter without cryptography. Extended 9 uses the lexical repository venv path and is running.",
+        "Extended 9 terminal success: {\"json\": {\"total\": 241, \"skipped\": 6, \"failed\": 0, \"errors\": 0, \"passed\": 235}, \"postgres\": {\"total\": 241, \"skipped\": 0, \"failed\": 0, \"errors\": 0, \"passed\": 241}}. Full final 1 follows; source is frozen.",
+        "Full final 1 stopped terminal in make verify precommit at six mypy errors on the untyped heterogeneous migration report. All 16 guards and preceding hooks passed; no suite pass claimed. Added an explicit TypedDict report; affected migration qualification and full final 2 required.",
+        "Migration type correction: 3 JSON passes /3 PostgreSQL-only skips; all 6 PostgreSQL cases pass. Full final 2 follows against replacement frozen source.",
+        "Full final 2 stopped terminal at the flake8 docstring hook: two new public helpers lacked docstrings. Mypy passed. Added docstrings only; full final 3 requalifies source.",
+        "Full final 3 stopped terminal on flake8 C408 in authoring fields (dict constructor). Changed it to the equivalent literal; mypy and all guards passed. Full final 4 required.",
+        "Full final 4 stopped intentionally before source repair; owned make/test subtree terminated and coordinator terminal -15. Guard/type/format/frontend checks and wheel/import passed, but no full suite qualification claimed. Remaining consumer audit found cached update receipt, scalar profile delete and scalar definition verification.",
+        "Extended 10 terminal success after those consumer repairs: {\"json\": {\"total\": 261, \"skipped\": 6, \"passed\": 255}, \"postgres\": {\"total\": 261, \"skipped\": 0, \"passed\": 261}}.",
+        "Profile default creation also cleared all shared-model View flags. It now scopes maintenance to the exact Track; added a real direct-Track-admin/unmanaged-sibling regression. Extended 11 running.",
+        "Extended 11 preflight first found an unused registry helper import after the scoped default loop changed; no tests collected on that launch. Removed the import, configured app lint passed, and the rerun is running.",
+        "Extended 11 terminal success: {\"json\": {\"passed\": 256, \"skipped\": 6, \"total\": 262}, \"postgres\": {\"passed\": 262, \"skipped\": 0, \"total\": 262}}. Full final 5 follows against replacement staged/frozen source.",
+        "Full final 5 stopped in CI-faithful smoke: {\"total\": 989, \"skipped\": 10, \"failures\": 1, \"errors\": 0, \"passed\": 978}. The sole failure was test_entry_type_materialize_fold using uncataloged Workspace/Track setup. Added canonical catalogs without weakening View creation. Broader JSON backend run 1 follows before the next complete gate.",
+        "Broader JSON backend 1 terminal result: {\"total\": 5606, \"skipped\": 300, \"failures\": 27, \"errors\": 0, \"passed\": 5279}. Failures grouped into batch Workspace roots, anchor/governance/shared-delete placeholder Workspace/App paths, unscoped edge-test Track, and public-provision App roots. Fixtures now add real catalog/containment while keeping structural/mock-policy scope explicit; affected JSON/PostgreSQL rerun pending.",
+        "Fixture rerun 1 reduced failures to two alternate anchor setup paths outside the shared builder. Rooted those App/Workspace paths via catalog edges without creating an App model, preserving the missing-model negative case. Fixture rerun 2 running on both adapters.",
+        "Affected fixture selection 2 passed: {\"json\": {\"passed\": 69, \"skipped\": 0}, \"postgres\": {\"passed\": 69, \"skipped\": 0}}. All formerly failing modules plus the smoke fixture exercised on both adapters. Full final 6 follows.",
+        "Full final 6 terminal success: all five lanes exit zero; 979 smoke passes /10 skips, 1583 frontend passes /279 files, 5306 backend passes /300 skips, 603 focused PostgreSQL passes /0 skips, 232 broader PostgreSQL passes /1 explicit restore skip. Frozen source hashes matched after terminal qualification. No finding/use-case closure claimed."
+      ],
+      "limits": [
+        "Qualified narrow source milestone; full finding/use-case and end-to-end qualification remain open. No GitHub CI, deployed transport, production migration, or release claim.",
+        "Ambiguous legacy shared-model rows remain withheld for explicit owner review; access-center repair/UX and complete recovery/restore remain open.",
+        "Model-only View catalog membership is checked separately from caller model authority. Canonical operational-model ownership remains its own open requirement.",
+        "Whole-response/effect fences, complete definition/dependency epochs and all finding/use-case closure requirements remain open.",
+        "Broader model catalog reset/deletion, manifest/projection ownership, materialization probes and legacy View configuration migration consumers remain separate open audit work; this slice does not qualify every model lifecycle path."
+      ],
+      "migration_runbook": "docs/ops/qualification/access-control-review/VIEW_SCOPE_MIGRATION.md",
+      "qualification": {
+        "coordinator": "/tmp/integral-access-view-scope-final-6.status.json",
+        "lanes": [
+          {
+            "lane": "verify",
+            "exit": 0,
+            "log": "/tmp/integral-access-view-scope-final-6-verify.log"
+          },
+          {
+            "lane": "core",
+            "exit": 0,
+            "log": "/tmp/integral-access-view-scope-final-6-core.log"
+          },
+          {
+            "lane": "extension",
+            "exit": 0,
+            "log": "/tmp/integral-access-view-scope-final-6-extension.log"
+          },
+          {
+            "lane": "postgres-focused",
+            "exit": 0,
+            "log": "/tmp/integral-access-view-scope-final-6-postgres-focused.log"
+          },
+          {
+            "lane": "postgres-spikes-contract",
+            "exit": 0,
+            "log": "/tmp/integral-access-view-scope-final-6-postgres-spikes-contract.log"
+          }
+        ],
+        "results": {
+          "smoke": {
+            "tests": 989,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 10,
+            "passed": 979
+          },
+          "backend": {
+            "tests": 5606,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 300,
+            "passed": 5306
+          },
+          "postgres_focused": {
+            "tests": 603,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 0,
+            "passed": 603
+          },
+          "frontend": {
+            "passed": 1583,
+            "files": 279
+          },
+          "postgres_spikes_contract": {
+            "passed": 232,
+            "skipped": 1
+          }
+        },
+        "source_patch_sha256": {
+          "runtime": "e64417eaa06610847e6dd91c0e016a1ed92d55d1f633a4027f1b024aa4945da3",
+          "tests": "2a4c74cf894490942db605ea6681f183862acfadd1b44382f06f1964ca0438a3"
+        },
+        "wheel_sha256": "12247294d10982ec2e7e7347c2a2075abae45f60ea526f89ba442d60c3ed45ae",
+        "validation_scope": "Local source guards/hooks/format/lint/types, reproducible wheel/import, CI-faithful smoke, frontend, full backend, Core-only, extension, focused and broader owned PostgreSQL gates."
+      }
     }
   ],
   "baseline_evidence": {
@@ -1336,22 +1444,65 @@
       "failures": 10,
       "errors": 0,
       "xml": "/tmp/integral-access-function-audience-baseline-2.xml",
-      "meaning": "Reproduced stewardship authority amplification after App admission; template adapter replaced explicitly; unresolved."
+      "meaning": "Reproduced stewardship authority amplification after App admission; template adapter replaced explicitly; unresolved.",
+      "current_disposition": "Ordinary authority across awaited App invocation remediated and qualified in pushed b50dbf3cdefc3ac7a169fd16b334b12bf2f4efd4; exact action permits, retained contexts and release/effect fences remain open."
     },
     "policy_module_workspace_binding": {
       "storage": "JsonDB",
       "failures": 1,
       "xml": "/tmp/integral-access-policy-scope-baseline-3.xml",
-      "meaning": "Legitimate grant on canonical App in B allowed under execution scope A; unresolved."
+      "meaning": "Legitimate grant on canonical App in B allowed under execution scope A; unresolved.",
+      "current_disposition": "App/Track/Entry scope mismatch remediated and qualified in pushed 996d68456809efb8102c8be4124533b890573972; related Model adapters and complete release/effect fences remain open."
     },
     "related_view_execution_scope": {
       "receipt": "/tmp/integral-access-related-view-baseline.xml",
       "source": "/tmp/integral-access-related-view-baseline.py",
-      "status": "open_characterization",
+      "status": "baseline_remediated_at_source_boundary",
       "result": "One assertion failure, zero setup errors: actual shared View in workspace B is allowed under immutable workspace A scope after positive B-scope authorization.",
       "limits": [
         "JSON actual-store probe outside frozen repository source/test tree.",
         "Related-resource ownership repair and PostgreSQL/transport qualification remain open."
+      ],
+      "current_disposition": "Named saved-View Track authority and immutable workspace binding now covered by actual-store regression tests on JSON and PostgreSQL, including final-6 full gates. This remediates the observed module-boundary mismatch; complete View/model lifecycle, transport/release and recovery qualification remain open."
+    },
+    "related_model_execution_scope": {
+      "receipt": "/tmp/integral-access-related-model-baseline-1.xml",
+      "source": "/tmp/integral-access-related-model-baseline-1.py",
+      "status": "open_characterization",
+      "result": "One assertion failure, zero setup errors: actual Track-attached OperationalModel in B allowed under immutable execution scope A after positive B-scope authorization.",
+      "limits": [
+        "Isolated external JsonDB probe with repository pytest configuration and real graph fixtures; source/tests remained frozen.",
+        "Related-model ownership/binding repair and PostgreSQL/transport qualification remain open."
+      ]
+    },
+    "related_model_parent_binding": {
+      "receipt": "/tmp/integral-access-model-binding-baseline-2.xml",
+      "source": "/tmp/integral-access-model-binding-baseline-2.py",
+      "status": "open_characterization",
+      "storage": "JsonDB",
+      "failures": 4,
+      "errors": 0,
+      "skips": 0,
+      "result": "Each positive current Track-model grant passes, then Model reads still allow wrong execution workspace, an unrelated claimed Track, removed named attachment, or conflicting Track model cache.",
+      "limits": [
+        "Actual PolicyModule/service and isolated JSON store; no HTTP/deployed/PostgreSQL exploit claim.",
+        "Probe is outside frozen repository runtime/test trees; no finding or use-case closure.",
+        "Next model adapter must establish named current attachment, exact parent and immutable workspace; drafts/templates/library paths need dedicated ownership semantics."
+      ]
+    },
+    "related_model_shared_mutation": {
+      "receipt": "/tmp/integral-access-model-shared-mutation-baseline-1.xml",
+      "source": "/tmp/integral-access-model-shared-mutation-baseline-1.py",
+      "status": "open_characterization",
+      "storage": "JsonDB",
+      "failures": 1,
+      "errors": 0,
+      "skips": 0,
+      "result": "A direct Track configuration administrator may update its sole attached model; after the model also attaches to an unmanaged sibling, the same update still allows. Shared read remains allowed.",
+      "limits": [
+        "Actual PolicyModule authorization probe only; no persisted mutation, HTTP/deployed/PostgreSQL exploit claim.",
+        "Current authority for every affected named parent and atomic attachment/effect fencing remain open.",
+        "External probe leaves the frozen final-6 runtime/test snapshot unchanged."
       ]
     }
   }

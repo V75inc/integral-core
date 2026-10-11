@@ -14,12 +14,12 @@ from app.api.errors import (
 )
 from app.api.utils import export_node, resolve_principal_id
 from app.api.validators_common import compute_fold, non_empty_after_strip
-from app.models.edges import CATALOGS, CONTAINS
+from app.models.edges import CONTAINS
 from app.models.nodes import Track, View
 from app.schemas.policy import Resource, Subject
 from app.services.app_graph import (
     catalog_view_under_track,
-    get_or_create_views_registry_for_operational_model,
+    create_track_view,
     get_track_attached_operational_model,
 )
 from app.services.change_event import emit_change_event
@@ -32,7 +32,9 @@ from app.services.operational_model_runtime import (
     sync_attached_manifest,
 )
 from app.services.policy_engine import evaluate as policy_evaluate
+from app.services.resource_location import MANAGEMENT_APP_STATES
 from app.services.uniqueness import assert_unique
+from app.services.view_scope import read_scoped_view
 from app.utils.time import utc_now_iso
 from app.views import operational_model_view_types as _view_type_registry
 
@@ -142,26 +144,11 @@ async def _list_track_views(track: Track) -> List[View]:
     )
 
     await ensure_track_views_materialized_from_tier(track)
-    vreg = await get_or_create_views_registry_for_operational_model(cp, track=track)
-    views = await vreg.nodes(edge=[CATALOGS], node=["View"])
-    # One-shot upgrade for Views created before entry_type_keys existed.
-    # Idempotent — writes only when the View is empty AND the manifest spec
-    # carries a value.
+    from app.services.view_scope import list_scoped_track_views
+
+    views = await list_scoped_track_views(track.id)
     await backfill_view_entry_type_constraints_from_manifest(track, views)
-    # Anchored tracks sharing a template CP share one Views registry; scope
-    # to this track BEFORE destructive dedupe so sibling tracks cannot
-    # delete each other's View nodes.
-    track_scoped = [
-        v
-        for v in views
-        if isinstance(v, View) and str(getattr(v, "track_id", "") or "") == track.id
-    ]
-    # Heal legacy duplicate views (same _manifest_view_key + entry_type_keys
-    # + track_id). Pre-idempotency, ensure_track_attached_operational_model +
-    # library merge could each materialize the same view. Collapse them on
-    # read: keep the canonical row (is_default first, then earliest
-    # created_at) and delete the rest. Idempotent on already-clean tracks.
-    return await _dedupe_duplicate_views(track_scoped)
+    return await _dedupe_duplicate_views(views)
 
 
 def _dedupe_key(view: View) -> str:
@@ -352,7 +339,8 @@ async def create_view(
     resolved_keys, resolved_default_key = await _normalize_entry_type_keys(
         track, entry_type_keys, default_entry_type_key
     )
-    view = await View.create(
+    view = await create_track_view(
+        track,
         name=safe_name,
         name_fold=name_fold,
         type=resolved_type,
@@ -394,9 +382,10 @@ async def get_view(request: Request, view_id: str) -> Dict[str, Any]:
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    view = await View.get(view_id)
-    if not view:
+    located = await read_scoped_view(view_id, allowed_app_states=MANAGEMENT_APP_STATES)
+    if located is None:
         raise ResourceNotFoundError(message="View not found")
+    view, _ = located
     _decision = await policy_evaluate(
         subject=Subject(kind="human", id=user_id),
         action="view.read",
@@ -424,7 +413,7 @@ async def update_view(
     entry_type_keys: Optional[List[str]] = None,
     default_entry_type_key: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Update a saved view (editor or owner of the track only)."""
+    """Update a saved View with current Track configuration authority."""
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
@@ -436,9 +425,10 @@ async def update_view(
     if not _decision.allowed:
         raise InsufficientPermissionsError(message="Access denied")
 
-    view = await View.get(view_id)
-    if not view:
+    located = await read_scoped_view(view_id, allowed_app_states=MANAGEMENT_APP_STATES)
+    if located is None:
         raise ResourceNotFoundError(message="View not found")
+    view, _ = located
 
     from app.services.request_scope import require_effect_parent_scope
 
@@ -556,7 +546,12 @@ async def update_view(
                 # Manifest synchronization can replace the stored view config
                 # (including its stable manifest key). Capture the persisted
                 # result for the effect receipt, not this pre-sync instance.
-                view = await View.get(view_id) or view
+                refreshed = await read_scoped_view(
+                    view_id, allowed_app_states=MANAGEMENT_APP_STATES
+                )
+                if refreshed is None or refreshed[1].track_id != view.track_id:
+                    raise ResourceNotFoundError(message="View not found in this track")
+                view = refreshed[0]
 
     # D-05 single emission path. Sync inline emit before HTTP response (D-06).
     await emit_change_event(
@@ -587,9 +582,10 @@ async def delete_view(request: Request, view_id: str) -> Dict[str, Any]:
     if not _decision.allowed:
         raise InsufficientPermissionsError(message="Access denied")
 
-    view = await View.get(view_id)
-    if not view:
+    located = await read_scoped_view(view_id, allowed_app_states=MANAGEMENT_APP_STATES)
+    if located is None:
         raise ResourceNotFoundError(message="View not found")
+    view, _ = located
 
     from app.services.request_scope import require_effect_parent_scope
 

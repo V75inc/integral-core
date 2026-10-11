@@ -48,7 +48,7 @@ from app.middleware.permissions_cache import (
     permissions_cache_get,
 )
 from app.models.edges import COLLABORATES_ON, EXCLUDED_FROM, OWNS
-from app.models.nodes import App, Entry, Track, User, View, Workspace
+from app.models.nodes import App, Entry, Track, User, Workspace
 from app.services.authority_facts import (
     primary_auth_record,
     primary_node_record,
@@ -685,17 +685,13 @@ async def can_view_view(user_id: str, view_id: str) -> bool:
     DEPRECATED — use ``policy_engine.evaluate(action='view.read', ...)``. See
     ``can_view_app`` docstring for the migration contract.
     """
-    try:
-        view = await View.get(view_id)
-        if not view:
-            return False
-        track_id = str(getattr(view, "track_id", "") or "").strip()
-        if not track_id:
-            return False
-        return await can_view_track(user_id, track_id)
-    except Exception as exc:
-        logger.warning("Error checking view permission for %s: %s", user_id, exc)
-        return False
+    from app.services.view_scope import read_scoped_view
+
+    with isolated_permissions_cache():
+        located = await read_scoped_view(view_id)
+        return located is not None and await can_view_track(
+            user_id, located[1].track_id
+        )
 
 
 async def can_edit_view(user_id: str, view_id: str) -> bool:
@@ -711,17 +707,16 @@ async def can_edit_view(user_id: str, view_id: str) -> bool:
     DEPRECATED — use ``policy_engine.evaluate(action='view.update', ...)``. See
     ``can_view_app`` docstring for the migration contract.
     """
-    try:
-        view = await View.get(view_id)
-        if not view:
-            return False
-        track_id = str(getattr(view, "track_id", "") or "").strip()
-        if not track_id:
-            return False
-        return await can_admin_track(user_id, track_id)
-    except Exception as exc:
-        logger.warning("Error checking view edit permission for %s: %s", user_id, exc)
-        return False
+    from app.services.resource_location import MANAGEMENT_APP_STATES
+    from app.services.view_scope import read_scoped_view
+
+    with isolated_permissions_cache():
+        located = await read_scoped_view(
+            view_id, allowed_app_states=MANAGEMENT_APP_STATES
+        )
+        return located is not None and await can_admin_track(
+            user_id, located[1].track_id
+        )
 
 
 # --- Unified resolver ---

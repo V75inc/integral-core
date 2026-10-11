@@ -28,6 +28,16 @@ Use canonical policy evaluation. Agents without applicable policy fail closed. P
 
 Explicit scope is `X-Integral-Scope: ws:<workspace_id>`; malformed supplied scope is rejected. Private workspace access is validated server-side. Ordinary omitted scope uses the personal default; specialized stored-active-scope paths are explicit. Bind chat and approval execution to authenticated scope. Public-read/share exceptions are narrow contracts, not general writes or private enumeration.
 
+Saved Track Views have exactly one incoming `HasView` (`HAS_VIEW`) edge from
+their canonical Track, created with the View in the same unit of work. The
+View's Track and OperationalModel caches must agree with that edge and the
+Track's model attachment and catalog. A shared OperationalModel never merges
+its Tracks' View authority or default configuration. Model-only View templates
+have no Track scope; accessing their exact catalog requires separate model
+authority. Missing, ambiguous or conflicting scope facts withhold access.
+Legacy saved Views receive scope edges only after a unique structural path is
+proven; scalar IDs alone cannot resolve a shared-model ambiguity.
+
 ### I-ROLE-01 — Five-Tier Role Ladder (`role-ladder-five-tier`)
 
 **Statement.** `COLLABORATES_ON.role` accepts exactly five values, ordered

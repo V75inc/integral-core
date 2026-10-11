@@ -874,19 +874,25 @@ async def modify_operational_model(
         vreg = await get_or_create_views_registry_for_operational_model(
             cp, track=track_obj
         )
-        view = await View.create(
-            name=view_name,
-            type=v_type,
-            config=resolved_config,
-            track_id=track_id or "",
-            operational_model_id=cp.id,
-            is_template=False,
-            is_default=make_default,
-            created_by=user_id,
-            created_at=now,
-            updated_at=now,
-        )
-        await ensure_catalog_edge(vreg, view)
+        fields = {
+            "name": view_name,
+            "type": v_type,
+            "config": resolved_config,
+            "track_id": track_id or "",
+            "operational_model_id": cp.id,
+            "is_template": False,
+            "is_default": make_default,
+            "created_by": user_id,
+            "created_at": now,
+            "updated_at": now,
+        }
+        if track_obj is not None:
+            from app.services.app_graph import create_track_view
+
+            view = await create_track_view(track_obj, **fields)
+        else:
+            view = await View.create(**fields)
+            await ensure_catalog_edge(vreg, view)
         await sync_attached_manifest(cp)
         if make_default:
             from app.services.operational_model_runtime import (
@@ -914,9 +920,22 @@ async def modify_operational_model(
     if action == "remove_view":
         if not view_id:
             return {"error": "missing_argument", "detail": "view_id is required"}
-        view = await View.get(view_id)
-        if not view:
-            return {"error": "not_found", "detail": "View not found"}
+        from app.services.resource_location import MANAGEMENT_APP_STATES
+        from app.services.view_scope import get_model_scoped_view, get_scoped_view
+
+        if track_obj is not None:
+            view = await get_scoped_view(
+                view_id, allowed_app_states=MANAGEMENT_APP_STATES
+            )
+            if view is not None and view.track_id != track_obj.id:
+                view = None
+        else:
+            view = await get_model_scoped_view(view_id, cp.id)
+        if view is None:
+            return {
+                "error": "not_found",
+                "detail": "View not found in this model scope",
+            }
         before = await export_node(view)
         await view.delete()
         await sync_attached_manifest(cp)
@@ -938,7 +957,9 @@ async def modify_operational_model(
                 "error": "missing_argument",
                 "detail": "track_id and view_id are required for update_view",
             }
-        view = await View.get(view_id)
+        from app.services.view_scope import get_scoped_view
+
+        view = await get_scoped_view(view_id)
         if view is None or view.track_id != track_id:
             return {"error": "not_found", "detail": "View not found on this track"}
         from app.agentive.staging_executors import _call_endpoint

@@ -56,6 +56,7 @@ from app.agentive.tooling.stagers_scheduling import (
     stage_schedule_task,
     stage_update_routine,
 )
+from app.services.view_scope import get_scoped_view
 
 # Principal bound by :func:`dispatch._dispatch_propose` for the duration of an
 # async stager that needs a substrate read scoped to the acting user (e.g.
@@ -2723,9 +2724,8 @@ async def _stage_save_view(args: Dict[str, Any]) -> Dict[str, Any]:
         "config": config,
     }
     if src.get("view_id"):
-        from app.models.nodes import View
 
-        target = await View.get(str(src["view_id"]))
+        target = await get_scoped_view(str(src["view_id"]))
         if target is None or target.track_id != track_id:
             raise ValueError("save_view: view_id must identify a view on this track")
         payload["view_id"] = target.id

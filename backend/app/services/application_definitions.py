@@ -20,7 +20,6 @@ from app.models.nodes import (
     OperationalModel,
     Skill,
     Track,
-    View,
 )
 from app.services.operational_model_diff import compute_manifest_diff
 from app.services.operational_model_runtime import compile_canonical_manifest
@@ -609,9 +608,13 @@ async def verify_definition_materialization(
             _, track_key, _ = requirement_id.split(":", 2)
             track = definition_tracks.get(track_key)
             if track is not None:
-                found = await View.find(
-                    {"context.track_id": track.id, "context.name": label}
-                )
+                from app.services.view_scope import list_scoped_track_views
+
+                found = [
+                    view
+                    for view in await list_scoped_track_views(track.id)
+                    if view.name == label
+                ]
                 if found:
                     row.update(status="verified", references=[found[0].id])
         if row["status"] == "verified":

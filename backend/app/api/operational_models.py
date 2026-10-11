@@ -33,13 +33,12 @@ from app.models.nodes import (
     OperationalModel,
     OperationalModels,
     Track,
-    View,
 )
 from app.schemas.operational_models import ImportPreviewResponse, PackagePreviewItem
 from app.schemas.policy import Resource, Subject
 from app.services.app_graph import (
+    create_track_view,
     get_app_attached_operational_model,
-    get_or_create_views_registry_for_operational_model,
     get_track_attached_operational_model,
 )
 from app.services.change_event import emit_change_event
@@ -57,6 +56,8 @@ from app.services.permissions import (
     get_user_node,
 )
 from app.services.policy_engine import evaluate as policy_evaluate
+from app.services.resource_location import MANAGEMENT_APP_STATES
+from app.services.view_scope import get_scoped_view, list_scoped_track_views
 from app.utils.time import utc_now_iso
 
 
@@ -707,13 +708,13 @@ async def add_view_to_track_profile(
         )
 
     if is_default:
-        vreg = await get_or_create_views_registry_for_operational_model(cp, track)
-        for v in await vreg.nodes(edge=[CATALOGS], node=["View"]):
+        for v in await list_scoped_track_views(track.id):
             if v.is_default:
                 v.is_default = False
                 await v.save()
 
-    view = await View.create(
+    view = await create_track_view(
+        track,
         name=name,
         type=resolved_type,
         config=normalized_config,
@@ -779,8 +780,8 @@ async def remove_view_from_track_profile(
     if not cp:
         raise ResourceNotFoundError(message="Track has no attached operational model")
 
-    view = await View.get(view_id)
-    if not view or view.track_id != track_id:
+    view = await get_scoped_view(view_id, allowed_app_states=MANAGEMENT_APP_STATES)
+    if view is None or view.track_id != track_id or view.operational_model_id != cp.id:
         raise ResourceNotFoundError(message="View not found in this track")
 
     prior_cp_snapshot = await export_node(cp)  # D-03 before-snapshot
