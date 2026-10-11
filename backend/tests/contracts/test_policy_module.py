@@ -19,14 +19,14 @@ async def test_policy_module_delegates_with_the_immutable_execution_scope() -> N
     expected = Decision(allowed=True, reason="contract")
 
     with patch(
-        "app.modules.policy.evaluate", new=AsyncMock(return_value=expected)
+        "app.modules.policy.evaluate_scoped", new=AsyncMock(return_value=expected)
     ) as evaluate:
         actual = await PolicyModule().evaluate(
             scope=scope, action="app.read", resource=resource
         )
 
     assert actual is expected
-    assert evaluate.await_args.kwargs["subject"].id == "user-1"
+    assert evaluate.await_args.kwargs["scope"] is scope
     assert evaluate.await_args.kwargs["action"] == "app.read"
     assert evaluate.await_args.kwargs["resource"] is resource
 
