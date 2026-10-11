@@ -8,6 +8,7 @@ import {
 } from '../api/members';
 import type { Workspace, WorkspaceMember } from '../api/workspaces';
 import { UserSearchPicker } from '../components/collab/UserSearchPicker';
+import { InvitationAdoptionReview } from '../components/invitations/InvitationAdoptionReview';
 import {
   Avatar,
   AvatarStackedMeta,
@@ -138,6 +139,14 @@ export function WorkspaceMembersPage() {
   }, [members, me]);
 
   const canManage = !isPersonal && (myRole === 'owner' || myRole === 'admin');
+
+  useEffect(() => {
+    if (myRole !== 'owner') {
+      setInviteRole(current => current === 'admin' ? 'member' : current);
+      setInviteCanCreateApps(false);
+      setInviteCanCreateTracks(false);
+    }
+  }, [myRole]);
 
   useSetCrumbs(
     workspace
@@ -514,7 +523,7 @@ export function WorkspaceMembersPage() {
                   }
                   disabled={inviting}
                 >
-                  {ASSIGNABLE_ROLES.map(r => (
+                  {ASSIGNABLE_ROLES.filter(r => myRole === 'owner' || r !== 'admin').map(r => (
                     <option key={r} value={r}>
                       {r.charAt(0).toUpperCase() + r.slice(1)}
                     </option>
@@ -547,8 +556,8 @@ export function WorkspaceMembersPage() {
                 <input
                   type="checkbox"
                   checked={inviteCanCreateApps}
+                  disabled={inviting || myRole !== 'owner'}
                   onChange={e => setInviteCanCreateApps(e.target.checked)}
-                  disabled={inviting}
                 />
                 Can create apps
               </label>
@@ -556,8 +565,8 @@ export function WorkspaceMembersPage() {
                 <input
                   type="checkbox"
                   checked={inviteCanCreateTracks}
+                  disabled={inviting || myRole !== 'owner'}
                   onChange={e => setInviteCanCreateTracks(e.target.checked)}
-                  disabled={inviting}
                 />
                 Can create tracks
               </label>
@@ -638,9 +647,16 @@ export function WorkspaceMembersPage() {
                     <p className="text-xs text-[var(--text-muted)]">
                       {invitationCreationSummary(inv)}
                     </p>
+                    {myRole === 'owner' && workspaceId && (
+                      <InvitationAdoptionReview workspaceId={workspaceId} invitationId={inv.id} onAdopted={url => {
+                        setLastAcceptanceUrl(url);
+                        showToast('Invitation adopted. Send the replacement link to the recipient.', 'success');
+                        load();
+                      }} />
+                    )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <RoleBadge role={inv.role} />
+                    <RoleBadge role={inv.target_resource_role || inv.role} />
                     <InviteStatusPill status={inv.status} />
                     {canManage && (
                       <button

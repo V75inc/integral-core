@@ -85,6 +85,7 @@ class IS_MEMBER_OF(Edge):
     """
 
     role: str = "member"
+    grant_revision: int = 0
     joined_at: Optional[str] = None
     can_create_apps: bool = False
     can_create_tracks: bool = False
@@ -118,6 +119,7 @@ class COLLABORATES_ON(Edge):
     """
 
     role: str = "editor"
+    grant_revision: int = 0
     invited_at: Optional[str] = None
     invited_by: Optional[str] = None
     # Exact private-library creator curation. Legacy grants have no binding;

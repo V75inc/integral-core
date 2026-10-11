@@ -16,7 +16,7 @@ from __future__ import annotations
 import pytest
 from httpx import AsyncClient
 
-from app.models.edges import EXCLUDED_FROM, OWNS
+from app.models.edges import EXCLUDED_FROM, IS_MEMBER_OF, OWNS
 from app.models.nodes import (
     App,
     Entry,
@@ -256,6 +256,7 @@ async def test_workspace_invitation_excluded_from_overview(
     authenticated_client: AsyncClient, test_user
 ):
     ws = await _workspace("OverviewOrg")
+    await test_user.connect(ws, edge=IS_MEMBER_OF, role="owner")
     # workspace_id must be a real organization workspace for create_invitation.
     inv, _, _ = await create_invitation(
         workspace=ws,

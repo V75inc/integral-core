@@ -7,6 +7,7 @@ import { Button, PageHeading, Skeleton } from '../components/ui';
 import { Text } from '../ui';
 import { useToast } from '../context/ToastContext';
 import { usePublishPageContext } from '../hooks/usePublishPageContext';
+import { invitationAcceptanceMessage } from '../utils/invitationAcceptance';
 
 export function InvitationReceivedPage() {
   const { invitationId = '' } = useParams<{ invitationId: string }>();
@@ -49,9 +50,9 @@ export function InvitationReceivedPage() {
     setWorking(true);
     try {
       const res = await sharingApi.acceptMyInvitation(invitation.id);
-      showToast(`Joined as ${res.role}`, 'success');
+      showToast(invitationAcceptanceMessage(res.role, res.grant_receipt), res.role ? 'success' : 'error');
       await qc.invalidateQueries({ queryKey: ['workspaces'] });
-      navigate(res.workspace?.id ? `/workspaces/${res.workspace.id}` : '/');
+      navigate(res.role && res.workspace?.id ? `/workspaces/${res.workspace.id}` : '/');
     } catch (e: unknown) {
       const detail =
         (e as { response?: { data?: { message?: string; detail?: string } } })

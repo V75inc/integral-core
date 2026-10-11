@@ -21,7 +21,7 @@ from __future__ import annotations
 import pytest
 from httpx import AsyncClient
 
-from app.models.edges import OWNS
+from app.models.edges import IS_MEMBER_OF, OWNS
 from app.models.nodes import Track, User, Workspace
 from app.services.app_graph import catalog_track, catalog_workspace
 from app.services.invitations import (
@@ -108,7 +108,7 @@ async def test_revoke_resource_invitation_cross_owner_returns_404(
     """User A owns Track + invitation; User B's DELETE returns 404."""
     if second_user is None or second_user_client is None:
         pytest.skip("second_user / second_user_client fixture unavailable")
-    track = await _track("CrossOwnerT", owner=test_user)
+    track = await _track("CrossOwnerT", owner=second_user)
     # second_user is the OWNER; the authenticated_client (test_user) is NOT.
     await second_user.connect(track, edge=OWNS)
     invitation, _, _ = await create_resource_invitation(
@@ -153,6 +153,7 @@ async def test_revoke_workspace_invitation_via_resource_endpoint_returns_400(
     (two surfaces racing on the same revoke).
     """
     ws = await _workspace("WsScopedOrg")
+    await test_user.connect(ws, edge=IS_MEMBER_OF, role="owner")
     invitation, _, _ = await create_invitation(
         workspace=ws,
         inviter_user_id=test_user.user_id,

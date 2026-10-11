@@ -118,13 +118,41 @@ async def insert_entry_event(
     consumer handles this fact after the graph transaction commits.
     """
     after = dict(event.get("after") or {})
+    return await insert_revision_event(
+        transaction=transaction,
+        workspace_id=workspace_id,
+        namespace="entry-command-v1",
+        subject_id=event["resource_id"],
+        revision=after.get("record_revision", 1),
+        event=event,
+    )
+
+
+async def insert_revision_event(
+    *,
+    transaction: Any,
+    workspace_id: str,
+    namespace: str,
+    subject_id: str,
+    revision: int,
+    event: Dict[str, Any],
+) -> str:
+    """Persist a namespaced lifecycle fact with its actual subject and revision."""
+    if (
+        not namespace
+        or not workspace_id
+        or not subject_id
+        or type(revision) is not int
+        or revision < 0
+    ):
+        raise ValueError("Invalid lifecycle event identity")
     identity = json.dumps(
         [
-            "entry-command-v1",
+            namespace,
             workspace_id,
-            event["resource_id"],
+            subject_id,
             event["action"],
-            after.get("record_revision", 1),
+            revision,
         ],
         separators=(",", ":"),
     )

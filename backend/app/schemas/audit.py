@@ -160,6 +160,7 @@ ChangeEventAction = Literal[
     "workspace.invitation_accept",
     "workspace.invitation_decline",
     "workspace.invitation_revoke",
+    "workspace.invitation_adopt",
     "workspace.invitation_expire",
     # Sharing primitives (resource = space | track | entry)
     "space.collaborator_add",

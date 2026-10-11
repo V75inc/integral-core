@@ -224,10 +224,10 @@ async def test_invitation_rejects_invalid_role(
 
 
 @pytest.mark.asyncio
-async def test_invitation_already_member(
+async def test_invitation_existing_member_can_accept_unchanged_grant(
     client: AsyncClient, authenticated_client: AsyncClient
 ):
-    """Inviting a user who's already a member returns 400."""
+    """Existing members receive a truthful unchanged receipt, not a false new grant."""
     org_r = await authenticated_client.post("/api/workspaces", json={"name": "Dup Org"})
     org_id = org_r.json()["workspace"]["id"]
 
@@ -253,7 +253,19 @@ async def test_invitation_already_member(
         f"/api/workspaces/{org_id}/invitations",
         json={"email": "dup@example.com", "role": "member"},
     )
-    assert dup.status_code == 400
+    assert dup.status_code == 200, dup.text
+    token = dup.json()["acceptance_url"].rsplit("/", 1)[-1]
+    from app.main import app
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {su.json()['access_token']}"},
+    ) as member_client:
+        accepted = await member_client.post(f"/api/invitations/{token}/accept")
+        assert accepted.status_code == 200, accepted.text
+        assert accepted.json()["role"] == "member"
+        assert accepted.json()["invitation"]["grant_receipt"]["outcome"] == "unchanged"
 
 
 @pytest.mark.asyncio
