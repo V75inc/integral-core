@@ -75,8 +75,9 @@ async def prepare_agent_app_operation(
         "summary": f"Run “{label}”",
         "diff_human": (
             f"**{label}**\n\n{spec.get('description') or ''}\n\n"
-            "Nothing has been applied. Approval runs the following inputs:\n\n"
+            "Nothing has been applied. Approval runs the following inputs:\n\n```json\n"
             + json.dumps(body, ensure_ascii=False, indent=2)
+            + "\n```"
         ),
         "diff_machine": {"op": "invoke_app_operation", **payload},
         "payload": payload,

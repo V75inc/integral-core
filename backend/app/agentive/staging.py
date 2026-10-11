@@ -345,6 +345,10 @@ async def _flush_decision_ledger() -> None:
 
     for sc in queued:
         await record_decision(sc)
+        # MCP proposals may have no chat transcript. A short-lived state-only
+        # receipt supports honest UI reconciliation without retaining inputs
+        # or rehydrating a terminal token as executable.
+        await staging_store.persist_decision(sc)
 
 
 async def _flush_expiry_closures() -> None:
@@ -1280,6 +1284,7 @@ async def _push_state_and_record_closure(sc: StagedChange) -> None:
         from app.agentive.decision_ledger import record_decision
 
         await record_decision(sc)
+        await staging_store.persist_decision(sc)
         # Terminal — drop the durable row (reload-correctness for terminal
         # cards is handled by the transcript-snapshot rewrite below, not by the
         # store, which only holds still-actionable pending/blessed changes).

@@ -168,6 +168,21 @@ describe('StagedChangeReviewModal — shares the caller state', () => {
     ).toBeInTheDocument();
   });
 
+  it('keeps a refused decision open and technical details collapsed', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    wrap(<StagedChangeReviewModal
+      staged={makeStaged()}
+      open
+      onClose={onClose}
+      controls={controlsStub({ error: 'Permission changed; reload before approving.' })}
+    />);
+    await user.click(await screen.findByRole('button', { name: /^approve$/i }));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByText('Permission changed; reload before approving.')).toBeInTheDocument();
+    expect(screen.getByText('Technical details').closest('details')).not.toHaveAttribute('open');
+  });
+
   it('says approved-but-not-applied rather than claiming execution', async () => {
     wrap(
       <StagedChangeReviewModal

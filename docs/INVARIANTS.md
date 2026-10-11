@@ -247,6 +247,26 @@ Verification: `tests/test_app_operation_staging.py`, the operation contract and
 staging scope suites. Preserve I-SUBSTRATE-01, I-ROLE-01/02, I-APPROVAL-01/02,
 I-GRAPH-01/02, and I-WORK-05; this boundary adds no new internal actor bypass.
 
+### I-APPROVAL-05 — Review and resolved-state readback are transport-independent
+
+Approvals and Inbox offer the exact proposed change for inspection before
+authorization, using the same live decision controls as chat. Refused execution
+remains visible; a failed refresh cannot silently discard known proposals.
+Technical details are secondary. A proposal need not have a chat session.
+
+Closed staging tokens have a principal-scoped, state-only reconciliation receipt
+for 24 hours. It retains no payload, human diff, summary, idempotency key, or
+execution result, and cannot be hydrated or consumed as an approval. Expired or
+unavailable receipts remain unknown, never inferred successful. Pending/blessed
+durability, the optional decision ledger, and operation outcome receipts remain
+separate contracts. Expired state receipts are pruned in bounded batches on
+subsequent closure writes and individually on read; this is not permanent audit
+history or a background retention SLA.
+
+Verification: `tests/test_staging_decision_readback.py`, staging persistence and
+terminal-durability suites, Approvals/Inbox review and modal shared-state tests.
+Preserve I-SUBSTRATE-01, I-GRAPH-02, I-APPROVAL-01/02/04 and I-ROLE-01/02.
+
 ### I-UX-01 — One provenance presentation
 
 ProvenanceBadge is the sole frontend consumer choosing source styling/popovers. Human, agent, connector, and system variants stay aligned with ActorKind. All relevant surfaces reuse it. Legacy default provenance does not establish a confirmed origin. Add a variant only with backend/frontend type and presentation updates.
