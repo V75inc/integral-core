@@ -1,7 +1,8 @@
 # Workspace graph context
 
-Development feature on `codex/ontology-context`, integrated with JV Spatial dev.
-It is not yet qualified as a published production release.
+Feature on `codex/ontology-context`, integrated with the published PyPI package
+`jvspatial==0.2.0`. See the [dependency qualification](../ops/qualification/ontology-context/PYPI-020.md)
+for verification and remaining production limits.
 
 Integral's resident can answer ordinary questions about dependencies, blockers,
 and alternatives using the relationships already stored in the selected
