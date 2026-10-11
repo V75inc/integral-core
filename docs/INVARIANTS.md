@@ -28,6 +28,12 @@ Use canonical policy evaluation. Agents without applicable policy fail closed. P
 
 Explicit scope is `X-Integral-Scope: ws:<workspace_id>`; malformed supplied scope is rejected. Private workspace access is validated server-side. Ordinary omitted scope uses the personal default; specialized stored-active-scope paths are explicit. Bind chat and approval execution to authenticated scope. Public-read/share exceptions are narrow contracts, not general writes or private enumeration.
 
+### I-UI-SCOPE-01 — Connector views follow the active scope
+
+Connector list and tool caches are partitioned by authenticated principal and active workspace. Switching scope replaces the mounted connector panel, clears open edit/configuration/inspection/authorization state, and requests the new workspace's list without requiring a reload. A delayed response from the previous workspace cannot populate the current list. Cache cleanup alone is insufficient for a mounted observer. Server permissions remain authoritative.
+
+Gate: `ConnectorsSection.test.tsx` exercises mounted workspace switches, delayed old responses, and panel reset using a real query client.
+
 ### I-ROLE-01 — Five-Tier Role Ladder (`role-ladder-five-tier`)
 
 **Statement.** `COLLABORATES_ON.role` accepts exactly five values, ordered

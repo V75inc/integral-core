@@ -42,6 +42,7 @@ vi.mock('../../../../api/connectors', () => ({
     previewMcpRegistryMount: vi.fn(),
     mountFromRegistry: vi.fn(),
     refreshMcp: vi.fn(),
+    reauthorizeMcp: vi.fn(),
     health: vi.fn(),
     patch: vi.fn(),
     delete: vi.fn(),
@@ -68,6 +69,11 @@ vi.mock('../../hooks/useAgentiveCapability', () => ({
   useAgentiveCapability: vi.fn(),
 }));
 
+vi.mock('../../../../context/ScopeContext', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../../context/ScopeContext')>(),
+  useScopeOptional: vi.fn(),
+}));
+
 import {
   connectorsApi,
   type ConnectorResponse,
@@ -76,6 +82,7 @@ import { useAgentiveCapability } from '../../hooks/useAgentiveCapability';
 import { ConnectorsSection } from '../ConnectorsSection';
 import { ToastProvider } from '../../../../context/ToastContext';
 import { ConfirmProvider } from '../../../../context/ConfirmContext';
+import { useScopeOptional } from '../../../../context/ScopeContext';
 
 const mockedList = connectorsApi.list as unknown as ReturnType<typeof vi.fn>;
 const mockedCatalog = connectorsApi.listCatalog as unknown as ReturnType<
@@ -89,6 +96,7 @@ const mockedSearchRegistry = connectorsApi.searchMcpRegistry as unknown as Retur
 const mockedCapability = useAgentiveCapability as unknown as ReturnType<
   typeof vi.fn
 >;
+const mockedScope = vi.mocked(useScopeOptional);
 
 function makeConnector(
   overrides: Partial<ConnectorResponse> = {},
@@ -112,10 +120,9 @@ function makeConnector(
   };
 }
 
-function renderPanel() {
-  const qc = new QueryClient({
+function renderPanel(qc = new QueryClient({
     defaultOptions: { queries: { retry: false } },
-  });
+  })) {
   return render(
     <QueryClientProvider client={qc}>
       <ToastProvider>
@@ -129,6 +136,7 @@ function renderPanel() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockedScope.mockReturnValue(null);
   // Default: agentive layer ON
   mockedCapability.mockReturnValue({ enabled: true, isLoading: false });
   mockedSync.mockResolvedValue({
@@ -316,9 +324,91 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
 });
 
 describe('<ConnectorsSection />', () => {
+  function selectWorkspace(workspaceId: string) {
+    mockedScope.mockReturnValue({
+      scope: { workspaceId },
+      activeWorkspace: { your_role: 'owner' },
+    } as NonNullable<ReturnType<typeof useScopeOptional>>);
+  }
+
+  it('replaces mounted rows and closes the old inspector on workspace switch', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const oldConnector = makeConnector({
+      label: 'Personal prototype', subclass_slug: 'mcp', kind: 'mcp',
+      auth_state: { discovered_tools: [{ name: 'prototype_read' }] },
+    });
+    mockedList.mockResolvedValueOnce({ connectors: [oldConnector], total: 1 });
+    selectWorkspace('personal');
+    const panel = renderPanel(qc);
+    await screen.findByText('Personal prototype');
+    fireEvent.click(screen.getByRole('button', { name: 'View tools for Personal prototype' }));
+    expect(screen.getByText('prototype_read')).toBeInTheDocument();
+
+    let finishNew!: (value: { connectors: ConnectorResponse[]; total: number }) => void;
+    mockedList.mockImplementationOnce(() => new Promise(resolve => { finishNew = resolve; }));
+    selectWorkspace('shared');
+    panel.rerender(
+      <QueryClientProvider client={qc}><ToastProvider><ConfirmProvider>
+        <ConnectorsSection />
+      </ConfirmProvider></ToastProvider></QueryClientProvider>,
+    );
+    expect(screen.queryByText('Personal prototype')).not.toBeInTheDocument();
+    expect(screen.queryByText('prototype_read')).not.toBeInTheDocument();
+    finishNew({ connectors: [makeConnector({ label: 'Shared research' })], total: 1 });
+    await screen.findByText('Shared research');
+    expect(mockedList).toHaveBeenCalledTimes(2);
+  });
+
+  it('ignores a delayed response from the previous workspace', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    let finishOld!: (value: { connectors: ConnectorResponse[]; total: number }) => void;
+    mockedList.mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve; }));
+    selectWorkspace('personal');
+    const panel = renderPanel(qc);
+    mockedList.mockResolvedValueOnce({ connectors: [makeConnector({ label: 'Shared research' })], total: 1 });
+    selectWorkspace('shared');
+    panel.rerender(
+      <QueryClientProvider client={qc}><ToastProvider><ConfirmProvider>
+        <ConnectorsSection />
+      </ConfirmProvider></ToastProvider></QueryClientProvider>,
+    );
+    await screen.findByText('Shared research');
+    finishOld({ connectors: [makeConnector({ label: 'Late personal result' })], total: 1 });
+    await waitFor(() => expect(qc.getQueryData(['connectors', 'list', '', 'personal'])).toBeDefined());
+    expect(screen.queryByText('Late personal result')).not.toBeInTheDocument();
+    expect(screen.getByText('Shared research')).toBeInTheDocument();
+  });
+
+  it('does not open a delayed authorization popup after switching workspace', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    let finishAuthorization!: (value: { connector_id: string; consent_url: string; state: string }) => void;
+    vi.mocked(connectorsApi.reauthorizeMcp).mockImplementationOnce(() => new Promise(resolve => { finishAuthorization = resolve; }));
+    mockedList.mockResolvedValueOnce({ connectors: [makeConnector({
+      id: 'mcp-old', label: 'Personal prototype', subclass_slug: 'mcp', kind: 'mcp',
+      health_status: 'error', auth_state: { oauth: { status: 'pending' } },
+    })], total: 1 });
+    selectWorkspace('personal');
+    const panel = renderPanel(qc);
+    fireEvent.click(await screen.findByRole('button', { name: 'Reconnect mcp-old' }));
+    await waitFor(() => expect(connectorsApi.reauthorizeMcp).toHaveBeenCalledOnce());
+    mockedList.mockResolvedValueOnce({ connectors: [], total: 0 });
+    selectWorkspace('shared');
+    panel.rerender(
+      <QueryClientProvider client={qc}><ToastProvider><ConfirmProvider>
+        <ConnectorsSection />
+      </ConfirmProvider></ToastProvider></QueryClientProvider>,
+    );
+    await screen.findByText(/No connectors yet\./i);
+    finishAuthorization({ connector_id: 'mcp-old', consent_url: 'https://example.com/consent', state: 'test-state' });
+    await waitFor(() => expect(qc.getMutationCache().getAll().find(m => m.state.variables === 'mcp-old')?.state.status).toBe('success'));
+    expect(open).not.toHaveBeenCalled();
+  });
+
   it('renders empty state when list is empty', async () => {
     mockedList.mockResolvedValueOnce({ connectors: [], total: 0 });
     renderPanel();
