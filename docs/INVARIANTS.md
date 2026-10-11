@@ -406,8 +406,23 @@ The central typed Entry-field validator also checks Entry targets against their
 Track workspace before creating a record, advancing its revision, or replacing
 REFERENCES edges. Missing source/target workspace or a missing target Track
 refuses linkage; `allow_cross_track` and `allow_cross_app` do not relax this
-constraint. This structural check does not substitute for current target-read
-permission, declared App ownership, or canonical graph-containment admission.
+constraint. Materializing writers also require current target-read permission
+through the canonical policy engine. Entry containment must agree with its
+Track pointer; its type belongs to that Track. A declared target App resolves
+through the existing workspace/instance contract and must be the unique graph
+parent of the target Track. Cross-App links cannot substitute a matching type
+or display label for the declared owning App. Verified target App IDs are
+materialized on REFERENCES by the server, never taken from the caller's fields.
+
+Authorization and provenance are separate. Delegated UI, approval, connector
+and operation writes retain the authenticated user's authority even when their
+provenance is agentive. Independent agent, connector and system services pass
+an explicit authorization Subject; system provenance alone does not elevate a
+human principal. Actorless schema-impact previews can validate structural shape
+with `materialize=False`, but cannot authorize or create a relation. Denied
+targets leave the source fields, revision and relation edges unchanged. Existing
+invalid links are not silently removed by this check; historical repair and
+cross-worker revocation qualification remain separate gates.
 
 ### I-CRUD-01 — Service-layer canonical mutations
 

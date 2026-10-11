@@ -7,18 +7,28 @@ admission, canonical App authority, transport, or cross-worker revocation.
 import pytest
 
 from app.exceptions import BadRequestError
-from app.models.edges import CONTAINS, REFERENCES
+from app.models.edges import COLLABORATES_ON, CONTAINS, OWNS, REFERENCES
 from app.models.nodes import Entry, EntryType, Track
 from app.services.operational_model_entry_fields import _validate_relation_values
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.smoke]
 
 
-async def _fixture(*, many=False, target_workspace="relation-other-workspace"):
+async def _fixture(
+    *, many=False, target_workspace="relation-other-workspace", writer=None
+):
+    workspace_id = "relation-source-workspace"
+    writer_id = "relation-editor"
+    if writer is not None:
+        from app.services.personal_workspace import ensure_personal_workspace
+
+        workspace = await ensure_personal_workspace(writer)
+        workspace_id = workspace.id
+        writer_id = writer.user_id
     source = await Track.create(
         title="Source",
-        owner_id="relation-editor",
-        workspace_id="relation-source-workspace",
+        owner_id=writer_id,
+        workspace_id=workspace_id,
     )
     local_track = await Track.create(
         title="Local targets",
@@ -47,6 +57,9 @@ async def _fixture(*, many=False, target_workspace="relation-other-workspace"):
         author_id="relation-owner",
     )
     await local_track.connect(local, edge=CONTAINS)
+    if writer is not None:
+        await writer.connect(source, edge=OWNS)
+        await writer.connect(local, edge=COLLABORATES_ON, role="viewer")
     await foreign_track.connect(foreign, edge=CONTAINS)
     source_type = await EntryType.create(
         name="Source Record",
@@ -77,13 +90,13 @@ async def test_update_refuses_foreign_workspace_without_changing_record_or_edges
     from app.services.entry_create import create_entry_in_track
     from app.services.entry_update import update_entry_in_track
 
-    source, entry_type, local, foreign, _ = await _fixture(many=many)
+    source, entry_type, local, foreign, _ = await _fixture(many=many, writer=test_user)
     initial = [local.id] if many else local.id
     entry = await create_entry_in_track(
         track=source,
         entry_type=entry_type,
         title="Retained record",
-        user_id="relation-editor",
+        user_id=test_user.user_id,
         workspace_id=source.workspace_id,
         custom_fields={"related": initial},
         skip_profanity=True,
@@ -97,7 +110,7 @@ async def test_update_refuses_foreign_workspace_without_changing_record_or_edges
     with pytest.raises(BadRequestError, match="workspace"):
         await update_entry_in_track(
             entry_id=entry.id,
-            user_id="relation-editor",
+            user_id=test_user.user_id,
             workspace_id=source.workspace_id,
             custom_fields={"related": proposed},
             expected_record_revision=original_revision,
@@ -124,7 +137,7 @@ async def test_create_refuses_foreign_workspace_before_creating_entry(test_user)
             track=source,
             entry_type=entry_type,
             title="Refused record",
-            user_id="relation-editor",
+            user_id=test_user.user_id,
             workspace_id=source.workspace_id,
             custom_fields={"related": foreign.id},
             skip_profanity=True,

@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from app.exceptions import BadRequestError
 from app.models.nodes import Attachment, Entry, EntryType, Tag, Track
+from app.schemas.policy import Resource, Subject
 from app.services.computed_fields import bind_computed_fields
 from app.services.operational_model_compile import (
     SYSTEM_CUSTOM_FIELD_KEYS,
@@ -76,6 +77,7 @@ async def _resolve_or_create_labeled_relation(
     label: str,
     actor_user_id: str,
     actor_kind: str = "human",
+    authorization_subject: Optional[Subject] = None,
 ) -> Optional[str]:
     """Find or create a target entry by display label for ``create_from_label``.
 
@@ -107,18 +109,37 @@ async def _resolve_or_create_labeled_relation(
     if not workspace_id:
         return None
 
-    # Prefer sibling tracks under the same App (template_id match only — never
-    # fall back to title, which can hit another App's similarly named track).
-    # Track.app_id is not a persisted node field — resolve parent via CONTAINS
-    # (entity name is WorkspaceApp, not App).
+    # Resolve declared App ownership BEFORE finding or creating by label.
+    # A same-template sibling cannot substitute for a cross-App target.
     from app.models.edges import CONTAINS
-    from app.services.query_boundary import parent_app_for_track
+    from app.models.nodes import App
+    from app.services.relation_runtime import (
+        canonical_relation_app,
+        resolve_target_app,
+    )
 
     candidates: List[Track] = []
-    app_node = await parent_app_for_track(source_track)
+    source_app = await canonical_relation_app(source_track)
+    app_node = source_app
+    if relation.get("target_app"):
+        if source_app is None or not relation.get("allow_cross_app"):
+            raise BadRequestError(
+                message="Labeled cross-App relation requires source App and declaration"
+            )
+        app_id = await resolve_target_app(
+            workspace_id=workspace_id,
+            target_app_key=str(relation["target_app"]),
+            resolution=str(relation.get("resolution") or "workspace"),
+            source_app=source_app,
+        )
+        app_node = await App.get(app_id)
+        if app_node is None or app_node.lifecycle_state != "active":
+            raise BadRequestError(
+                message="Labeled relation requires an active target App"
+            )
     if app_node is not None:
         candidates = await app_node.nodes(edge=[CONTAINS], node=["Track"], limit=200)
-    if not candidates:
+    else:
         candidates = await Track.find({"context.workspace_id": workspace_id})
 
     target_track: Optional[Track] = None
@@ -129,6 +150,36 @@ async def _resolve_or_create_labeled_relation(
             break
     if target_track is None:
         return None
+    if target_track.workspace_id != workspace_id:
+        raise BadRequestError(
+            message="Labeled relation target must be in the source workspace"
+        )
+    actual_app = await canonical_relation_app(target_track)
+    if app_node and (actual_app is None or actual_app.id != app_node.id):
+        raise BadRequestError(
+            message="Labeled relation target has invalid App containment"
+        )
+
+    # Finding by label must not read a private Track, and an inferred target
+    # cannot create a record under authority borrowed from its owner.
+    from app.services.policy_engine import evaluate
+
+    subject = authorization_subject
+    if subject is None and actor_user_id:
+        subject = Subject(kind="human", id=actor_user_id)
+    if subject is None:
+        raise BadRequestError(
+            message="Labeled relation requires an authorization subject"
+        )
+    read = await evaluate(
+        subject=subject,
+        action="track.read",
+        resource=Resource(
+            kind="track", id=target_track.id, scope=f"track:{target_track.id}"
+        ),
+    )
+    if not read.allowed:
+        raise BadRequestError(message="Labeled relation requires target read access")
 
     wanted = display.casefold()
     for existing in await Entry.find({"context.track_id": target_track.id}):
@@ -140,6 +191,14 @@ async def _resolve_or_create_labeled_relation(
     # Create a minimal counterparty-style entry on the target track.
     from app.services.entry_create import create_entry_in_track
     from app.services.entry_type_service import materialize_entry_types_from_tier
+
+    create = await evaluate(
+        subject=subject,
+        action="entry.create",
+        resource=Resource(kind="entry", id="", scope=f"track:{target_track.id}"),
+    )
+    if not create.allowed:
+        raise BadRequestError(message="Labeled relation requires target create access")
 
     entry_types = await EntryType.find({"context.track_id": target_track.id})
     if not entry_types:
@@ -157,14 +216,14 @@ async def _resolve_or_create_labeled_relation(
             if key in target_entry_types:
                 resolved_type = et
                 break
-    if resolved_type is None and entry_types:
+    if resolved_type is None and entry_types and not target_entry_types:
         resolved_type = entry_types[0]
     if resolved_type is None:
         return None
 
     created = await create_entry_in_track(
         track=target_track,
-        user_id=actor_user_id or "system",
+        user_id=actor_user_id,
         title=display,
         body="",
         custom_fields={"company_name": display},
@@ -172,6 +231,7 @@ async def _resolve_or_create_labeled_relation(
         type_id=resolved_type.id,
         workspace_id=workspace_id,
         actor_kind=actor_kind or "agent",
+        authorization_subject=subject,
         skip_profanity=True,
     )
     return str(created.id) if created is not None else None
@@ -512,12 +572,15 @@ async def _validate_relation_values(
     value: Any,
     source_track: Track,
     field_key: str,
+    viewer_subject: Optional[Subject] = None,
+    resolved_target_apps: Optional[Dict[str, str]] = None,
 ) -> List[str]:
     """Validate relation field values; return the canonical id list.
 
     Both Entry and Track targets must resolve inside the source workspace.
     Cross-Track/App declarations do not authorize cross-workspace linkage.
-    This structural check is independent of actor and target-App admission.
+    Writer callers pass their authorization subject. Actorless schema previews
+    perform structural validation only; they cannot materialize a relation.
     """
     target_kind = str(relation.get("target") or "entry").strip().lower()
     many = bool(relation.get("many", False))
@@ -551,6 +614,20 @@ async def _validate_relation_values(
                         f"'{target_ws}' != source workspace '{source_ws}')"
                     )
                 )
+            if viewer_subject is not None:
+                from app.services.policy_engine import evaluate
+
+                decision = await evaluate(
+                    subject=viewer_subject,
+                    action="track.read",
+                    resource=Resource(
+                        kind="track", id=tnode.id, scope=f"track:{tnode.id}"
+                    ),
+                )
+                if not decision.allowed:
+                    raise BadRequestError(
+                        message=f"Relation field '{field_key}' requires target read access"
+                    )
             validated.append(rid)
         return validated
 
@@ -581,6 +658,46 @@ async def _validate_relation_values(
             raise BadRequestError(
                 message=f"Relation field '{field_key}' target must be in the source workspace"
             )
+        if viewer_subject is not None or relation.get("target_app"):
+            from app.services.relation_runtime import (
+                assert_relation_entry_containment,
+                canonical_relation_app,
+                resolve_cross_app_relation_target,
+            )
+
+            await assert_relation_entry_containment(target, target_track)
+            source_app = await canonical_relation_app(source_track)
+            target_app = await canonical_relation_app(target_track)
+            if relation.get("target_app"):
+                if source_app is None:
+                    raise BadRequestError(
+                        message=f"Relation field '{field_key}' requires source App containment"
+                    )
+                app_id, _, _ = await resolve_cross_app_relation_target(
+                    source_app=source_app,
+                    relation_spec=relation,
+                    target_entry_id=target.id,
+                )
+                if resolved_target_apps is not None:
+                    resolved_target_apps[target.id] = app_id
+            elif source_app and target_app and source_app.id != target_app.id:
+                raise BadRequestError(
+                    message=f"Relation field '{field_key}' requires a declared target App"
+                )
+            if viewer_subject is not None:
+                from app.services.policy_engine import evaluate
+
+                decision = await evaluate(
+                    subject=viewer_subject,
+                    action="entry.read",
+                    resource=Resource(
+                        kind="entry", id=target.id, scope=f"track:{target.track_id}"
+                    ),
+                )
+                if not decision.allowed:
+                    raise BadRequestError(
+                        message=f"Relation field '{field_key}' requires target read access"
+                    )
         if target_entry_types:
             target_et = await EntryType.get(target.type_id) if target.type_id else None
             # Relation declarations can come from either an Operational Model
@@ -604,7 +721,7 @@ async def _validate_relation_values(
                 raise BadRequestError(
                     message=f"Relation field '{field_key}' target entry type is not allowed"
                 )
-        if target_track_types and target.track_id != source_track.id:
+        if target_track_types:
             tkey = _slug(
                 str(
                     getattr(target_track, "template_id", "")
@@ -630,6 +747,7 @@ async def validate_and_materialize_entry_custom_fields(
     actor_kind: str = "human",
     source_entry_title: str = "",
     materialize: bool = True,
+    authorization_subject: Optional[Subject] = None,
 ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     """Validate custom_fields against entry type spec and extract relation refs.
 
@@ -639,6 +757,11 @@ async def validate_and_materialize_entry_custom_fields(
     doesn't exist yet, so only existence + MIME + max_count are
     enforced; the caller is responsible for uploading and binding the
     attachment first (the standard frontend flow).
+
+    ``actor_kind`` describes provenance, not authorization. Delegated writes
+    retain the authenticated ``actor_user_id`` authority; independent agent,
+    connector, and system callers supply an explicit authorization Subject.
+    Actorless, non-materializing schema previews do not authorize writes.
     """
     spec = resolve_entry_type_spec(entry_type, runtime_tier)
     fields = _as_list(spec.get("fields"), where="entry_type.fields")
@@ -685,6 +808,7 @@ async def validate_and_materialize_entry_custom_fields(
         # before the required check — mirrors Finance create_invoice.
         if (
             ftype == "relation"
+            and materialize
             and entry is None
             and value in (None, "")
             and bool(validation.get("create_from_label"))
@@ -701,6 +825,7 @@ async def validate_and_materialize_entry_custom_fields(
                         label=label,
                         actor_user_id=actor_user_id,
                         actor_kind=actor_kind,
+                        authorization_subject=authorization_subject,
                     )
                 except Exception:  # noqa: BLE001 — fall through to required check
                     logger.exception(
@@ -860,11 +985,21 @@ async def validate_and_materialize_entry_custom_fields(
             continue
         if ftype == "relation":
             relation = _as_dict(fd.get("relation"), where=f"field '{key}' relation")
+            subject = authorization_subject
+            if subject is None and actor_user_id:
+                subject = Subject(kind="human", id=actor_user_id)
+            if subject is None and materialize:
+                raise BadRequestError(
+                    message=f"Relation field '{key}' requires an authorization subject"
+                )
+            target_apps: Dict[str, str] = {}
             rel_ids = await _validate_relation_values(
                 relation=relation,
                 value=value,
                 source_track=track,
                 field_key=key,
+                viewer_subject=subject,
+                resolved_target_apps=target_apps,
             )
             out[key] = (
                 rel_ids if relation.get("many") else (rel_ids[0] if rel_ids else None)
@@ -873,6 +1008,7 @@ async def validate_and_materialize_entry_custom_fields(
                 {
                     "field_key": key,
                     "targets": rel_ids,
+                    "target_app_ids": target_apps,
                     "many": bool(relation.get("many", False)),
                     "allow_cross_track": relation_allows_cross_track(relation),
                     # Phase 3.1 ANC-02: routing keys consumed by sync_relation_edges

@@ -4,6 +4,14 @@ This pre-launch change record describes the supported Integral Core runtime.
 Package publication and deployment are separate release gates; a local version
 bump does not establish that a release is available on a package index.
 
+## Unreleased
+
+- Typed relation writers require current target-read authority and canonical
+  Entry/Track/App containment. Declared cross-App targets resolve through the
+  existing workspace and instance contract, and verified owning App IDs are
+  stored on reference edges. Denials preserve the source record and links;
+  delegated provenance does not supply independent authorization.
+
 ## 0.1.1rc16 — 2026-10-09
 
 - Integral AI, powered by Pydantic AI, is the sole resident harness and is
