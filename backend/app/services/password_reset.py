@@ -35,8 +35,6 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
 
-from jvspatial.api.auth.models import User as AuthUser
-
 from app.bootstrap_admin import _find_user_by_email, _hash_password
 from app.config import settings
 from app.models.nodes import User
@@ -289,7 +287,9 @@ async def consume_reset_token(
         await user_node.save()
         return False, ERR_EXPIRED_TOKEN
 
-    auth_user = await AuthUser.get(user_node.user_id)
+    from app.services.authentication import get_authentication_service
+
+    auth_user = await get_authentication_service()._get_user_by_id(user_node.user_id)
     if not auth_user:
         # Token was valid but AuthUser disappeared — treat as invalid.
         _clear_token_on_user(user_node)
@@ -337,13 +337,18 @@ async def consume_reset_token(
         update = {"$unset": {"context.preferences.reset_token": ""}}
         if native_atomic:
             async with postgres_graph_transaction(database) as transaction:
+                current_auth = await get_authentication_service()._get_user_by_id(
+                    user_node.user_id
+                )
+                if current_auth is None or not current_auth.is_active:
+                    return False
                 claimed = await transaction.find_one_and_update(
                     collection, query, update
                 )
                 if claimed is None:
                     return False
-                auth_user.password_hash = _hash_password(new_password)
-                await auth_user.save()
+                current_auth.password_hash = _hash_password(new_password)
+                await current_auth.save()
         else:
             claimed = await database.find_one_and_update(collection, query, update)
             if claimed is None:

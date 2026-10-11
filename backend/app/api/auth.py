@@ -17,7 +17,6 @@ This module provides additional auth-related endpoints specific to Integral:
 """
 
 import contextlib
-import inspect
 import logging
 from typing import Any, Dict, Optional
 
@@ -25,7 +24,6 @@ from fastapi import Request
 from jvspatial.api import endpoint
 from jvspatial.api.auth.models import User as AuthUser
 from jvspatial.api.auth.models import UserCreate, UserLogin
-from jvspatial.api.auth.service import AuthenticationService
 from pydantic import ValidationError
 
 from app.api.errors import (
@@ -46,6 +44,12 @@ from app.schemas.api.auth import (
     VerifyEmailRequest,
 )
 from app.services.app_graph import catalog_user, catalog_workspace
+from app.services.authentication import (
+    IntegralAuthenticationService as AuthenticationService,
+)
+from app.services.authentication import (
+    get_authentication_service,
+)
 from app.services.change_event import emit_change_event
 from app.services.email_identity import email_proof_matches, verified_current_email
 from app.services.email_verification import (
@@ -147,15 +151,7 @@ def _attach_pending_onboarding_form(user: User, user_data: Dict[str, Any]) -> No
 
 def _get_auth_service() -> AuthenticationService:
     """Construct AuthenticationService from application settings."""
-    from jvspatial.core.context import GraphContext
-    from jvspatial.db import get_prime_database
-
-    ctx = GraphContext(database=get_prime_database())
-    kwargs: Dict[str, Any] = {"jwt_secret": settings.SECRET_KEY}
-    params = inspect.signature(AuthenticationService.__init__).parameters
-    if "registration_open" in params:
-        kwargs["registration_open"] = settings.REGISTRATION_OPEN
-    return AuthenticationService(ctx, **kwargs)
+    return get_authentication_service()
 
 
 async def _enrich_from_auth_user(user_node: User, user_data: Dict[str, Any]) -> None:

@@ -262,18 +262,16 @@ if not _oauth_is_dev:
 from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from jvspatial.api import Server as _BaseServer
 from jvspatial.api.config_groups import (
     AuthConfig,
     CORSConfig,
     DatabaseConfig,
     RateLimitConfig,
 )
-
-Server = _BaseServer
-
 from jvspatial.env import env, parse_bool, parse_csv
 from jvspatial.logging import configure_standard_logging, initialize_logging_database
+
+from app.server import IntegralServer as Server
 
 # Extra auth-exempt paths must be explicitly allowlisted — no wildcards.
 _AUTH_EXEMPT_EXTRA_ALLOWLIST = frozenset(

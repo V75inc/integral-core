@@ -86,11 +86,13 @@
         "HTTP bypasses process TTL role/inventory snapshots; primary live resource/principal reads",
         "Workspace-attached revision and joinable PostgreSQL fence; complete writer/release adoption remains pending",
         "Live graph-profile aliases recheck linked AuthUser active state; connector effects use serialized transaction with safe I/O cleanup",
-        "Authentication runtime stale whole-user save is an additional open revocation repair; primary permission reads alone do not close it"
+        "Authentication runtime stale whole-user save is an additional open revocation repair; primary permission reads alone do not close it",
+        "Pinned runtime adapter binds primary AuthUser/RefreshToken reads and limited snapshot-checked writes to built-in auth routes/middleware; PostgreSQL locks the identity row before comparing complex guards; password reset uses the held transaction"
       ],
       "verification": [
         "Both aliases of missing or disabled linked identities denied; serialized connector and nested-handle proofs passed",
-        "Additional owned-JsonDB characterization: pinned AuthService validates a warmed user after raw-store disable and saves it active again; auth_identity_characterization.json preserves the unsafe observation, not acceptance"
+        "Additional owned-JsonDB characterization: pinned AuthService validates a warmed user after raw-store disable and saves it active again; auth_identity_characterization.json preserves the unsafe observation, not acceptance",
+        "35 PostgreSQL auth/password/mail cases and 104 JSON compatibility cases passed. Full make verify and supplementary lanes passed. The independent held-disable worker and password rollback proofs cover this slice; complete identity/session/effect/release adoption remains open."
       ]
     },
     {
@@ -879,11 +881,24 @@
       "id": "U61",
       "journey": "User logs out/account disabled/session revoked",
       "requirement": "Browser, refresh, MCP and sockets respond under documented session/revocation bound",
-      "status": "open",
-      "authorized_evidence": [],
-      "denied_evidence": [],
-      "surfaces": [],
-      "limits": []
+      "status": "in_progress",
+      "authorized_evidence": [
+        "test_authentication_current_state.py::test_server_auth_routes_and_middleware_use_current_identity (valid login before disable)",
+        "test_authentication_current_state.py::test_auth_context_changes_only_observed_fields"
+      ],
+      "denied_evidence": [
+        "test_authentication_current_state.py::test_warm_validation_cannot_reactivate_disabled_identity",
+        "test_authentication_current_state.py::test_warm_blacklist_miss_does_not_survive_other_service_logout",
+        "test_authentication_current_state.py::test_server_auth_routes_and_middleware_use_current_identity (middleware/refresh after disable)",
+        "contract/test_authentication_current_state_postgres.py::test_other_process_cannot_validate_or_reactivate_disabled_identity"
+      ],
+      "surfaces": [
+        "Pinned built-in auth service, actual HTTP login/middleware/refresh, independent PostgreSQL worker admission"
+      ],
+      "limits": [
+        "Browser storage/transport, sockets and MCP release after revocation remain unqualified",
+        "Account/session epochs, all identity writers and shared identity/effect/release ordering remain pending"
+      ]
     },
     {
       "id": "U62",
@@ -1148,6 +1163,22 @@
         "Canonical owner transfer, strict generic containment and complete authority/release fence adoption pending",
         "Authentication runtime stale whole-user save reproduction remains open under AC-06",
         "Raw malformed/conflicting authority facts and hydration-skipped structural candidates remain open"
+      ]
+    },
+    {
+      "id": "M2-current-authentication-slice",
+      "status": "complete",
+      "evidence": [
+        "35 PostgreSQL current-auth/password/email cases passed",
+        "Actual standalone HTTP server exercises built-in login, middleware and refresh without TestAuthBypassMiddleware",
+        "First held-disable race failed because the pinned PostgreSQL translator fell back for array guards; scalar-only row lock and held snapshot comparison repaired it; final rerun passed",
+        "104 JSON authentication/session/signup/rate-limit/MCP OAuth compatibility cases passed; three existing Authlib deprecation warnings",
+        "Supplementary lanes passed: 9 Core-only, 52 extension-contract and 230 PostgreSQL cases; one restore rehearsal skipped for Docker/macOS network boundary",
+        "make verify passed: staged guards/hooks, pinned format/lint/types, reproducible clean wheel/import, no-env smoke/xdist, 1583 frontend tests and full backend suite"
+      ],
+      "limits": [
+        "Identity/workspace lock ordering, all raw identity writers, session epochs and every effect/release surface remain open",
+        "Pinned protected Server configurator seam is compatibility-tested locally; no live OAuth provider or production deployment qualification"
       ]
     }
   ],
