@@ -49,7 +49,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from app.api.errors import BadRequestError
+from app.api.errors import BadRequestError, JVSpatialAPIException
 from app.models.nodes import App, OperationalModel
 from app.services.app_lifecycle import install_app
 from app.services.operational_model_compile import slug_manifest_key
@@ -408,6 +408,14 @@ async def batch_install(
                     "name": failed_name,
                     "error": str(exc),
                     "error_code": getattr(exc, "error_code", "install_failed"),
+                    # Same public metadata as a single-install API denial; never
+                    # project arbitrary internal exception attributes.
+                    "details": (
+                        exc.details
+                        if isinstance(exc, JVSpatialAPIException)
+                        and isinstance(exc.details, dict)
+                        else None
+                    ),
                 }
             )
 

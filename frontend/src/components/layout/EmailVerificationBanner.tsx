@@ -93,7 +93,7 @@ export function EmailVerificationBanner() {
       type: 'info',
       icon: MailCheck,
       title: 'Verify your email',
-      body: 'You can keep working while you verify.',
+      body: 'Keep working while you verify.',
       actions: [
         { label: 'Enter code', onClick: () => navigate('/verify-email') },
         { label: 'Resend code', onClick: handleResend },

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from decimal import Decimal
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -214,6 +215,58 @@ class QualificationModelUse(BaseModel):
     model_config = {"extra": "forbid"}
 
 
+class QualificationRequestUsage(BaseModel):
+    """JSON projection of source-reported usage, with unknown facts retained."""
+
+    input_tokens: Optional[int] = Field(default=None, ge=0)
+    output_tokens: Optional[int] = Field(default=None, ge=0)
+    cached_input_tokens: Optional[int] = Field(default=None, ge=0)
+    reasoning_tokens: Optional[int] = Field(default=None, ge=0)
+    provider_cost_usd: Optional[Decimal] = Field(default=None, ge=Decimal("0"))
+    litellm_response_cost_usd: Optional[Decimal] = Field(default=None, ge=Decimal("0"))
+    cost_source: Literal[
+        "litellm_response", "provider_response", "litellm_calculated", "unavailable"
+    ]
+    complete: bool
+    model_config = {"extra": "forbid"}
+
+
+class QualificationContextRequest(BaseModel):
+    """Content-free dimensions and usage of one physical model request."""
+
+    request_id: str = Field(min_length=1, max_length=256)
+    model: str = Field(min_length=1, max_length=1024)
+    attempt: int = Field(ge=1)
+    outcome: Literal[
+        "dispatch_intent", "responded", "failed", "cancelled", "outcome_unknown"
+    ]
+    elapsed_ms: Optional[int] = Field(default=None, ge=0)
+    usage: Optional[QualificationRequestUsage] = None
+    instruction_chars: Optional[int] = Field(default=None, ge=0)
+    conversation_chars: Optional[int] = Field(default=None, ge=0)
+    tool_result_chars: Optional[int] = Field(default=None, ge=0)
+    tool_schema_chars: Optional[int] = Field(default=None, ge=0)
+    message_count: Optional[int] = Field(default=None, ge=0)
+    visible_tool_count: Optional[int] = Field(default=None, ge=0)
+    tool_schema_fingerprint: Optional[str] = Field(default=None, max_length=128)
+    repeated_tool_schema_chars: int = Field(default=0, ge=0)
+    model_config = {"extra": "forbid"}
+
+
+class QualificationObservedUsage(BaseModel):
+    """Observed run totals; nullable cost is never replaced with zero."""
+
+    request_count: int = Field(ge=0)
+    completed_request_count: int = Field(ge=0)
+    unresolved_request_count: int = Field(ge=0)
+    reported_input_tokens: int = Field(ge=0)
+    reported_output_tokens: int = Field(ge=0)
+    provider_cost_usd: Optional[Decimal] = Field(default=None, ge=Decimal("0"))
+    token_usage_complete: bool
+    provider_cost_complete: bool
+    model_config = {"extra": "forbid"}
+
+
 class QualificationRunExport(BaseModel):
     """Redacted durable evidence used by the live-model qualification runner."""
 
@@ -222,6 +275,8 @@ class QualificationRunExport(BaseModel):
     provider_configuration: Dict[str, str]
     metrics: Dict[str, Any]
     models: List[QualificationModelUse]
+    context_requests: List[QualificationContextRequest] = Field(default_factory=list)
+    observed_usage: Optional[QualificationObservedUsage] = None
     redacted_trace_ref: str
     steps: List[QualificationRunStep]
     model_config = {"extra": "forbid"}

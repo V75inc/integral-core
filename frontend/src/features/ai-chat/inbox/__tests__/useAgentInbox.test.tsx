@@ -192,3 +192,29 @@ describe('useAgentInbox — staying in sync', () => {
     expect(routines.listRoutines).not.toHaveBeenCalled();
   });
 });
+
+
+describe('useAgentInbox — interrupted refresh recovery', () => {
+  it('marks a cached empty queue as loading until its background refresh settles', async () => {
+    const { result } = renderHook(() => useAgentInbox(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    let release!: (value: never) => void;
+    vi.mocked(agentive.listPendingStagedChanges).mockImplementationOnce(
+      () => new Promise((resolve) => { release = resolve; }),
+    );
+    act(() => result.current.refetch());
+    await waitFor(() => expect(result.current.loading).toBe(true));
+    expect(result.current.actionableCount).toBe(0);
+    await act(async () => release([] as never));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+  });
+
+  it('recovers a failed observed queue without navigation or a new event', async () => {
+    vi.mocked(agentive.listPendingStagedChanges).mockRejectedValueOnce(new Error('offline'));
+    const { result } = renderHook(() => useAgentInbox(), { wrapper });
+    await waitFor(() => expect(result.current.degraded).toBe(true));
+    vi.mocked(agentive.listPendingStagedChanges).mockResolvedValue([stagedChange('recovered')] as never);
+    await waitFor(() => expect(result.current.degraded).toBe(false), { timeout: 12_000 });
+    expect(result.current.actionableCount).toBe(1);
+  }, 15_000);
+});

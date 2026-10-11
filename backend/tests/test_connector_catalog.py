@@ -22,6 +22,7 @@ def test_load_catalog_includes_native_seeds():
     slugs = {e["slug"] for e in entries}
     assert slugs == {
         "calendly",
+        "cloudflare",
         "gmail",
         "github_issues",
         "google_drive",
@@ -95,7 +96,7 @@ def test_load_catalog_includes_native_seeds():
     )
     assert serper_key["secret"] is True
     assert serper_key["required"] is False
-    assert serper["read_only_tools"] == ["search_web"]
+    assert serper["read_only_tools"] == ["search_web", "fetch_web_page"]
     assert qb_mcp["auth"]["type"] == "oauth2"
     qb_mcp_fields = {f["name"] for f in qb_mcp["auth"]["fields"]}
     assert "client_id" in qb_mcp_fields
@@ -184,7 +185,8 @@ async def test_catalog_list_api(authenticated_client):
     assert "google_gmail" in slugs
     assert "google_sheets" in slugs
     assert "quickbooks_mcp" in slugs
-    assert data["total"] == 9
+    assert "cloudflare" in slugs
+    assert data["total"] == 11
 
 
 @pytest.mark.asyncio
@@ -360,7 +362,15 @@ auth:
         boom,
     )
 
-    async def fake_mount(*, owner_id, workspace_id, url, headers=None):
+    async def fake_mount(
+        *,
+        owner_id,
+        workspace_id,
+        url,
+        headers=None,
+        connection_mode="per_user",
+        label="",
+    ):
         class _C:
             id = "c-mcp"
             kind = "mcp"
@@ -435,7 +445,15 @@ auth:
     monkeypatch.setattr(loader, "CATALOG_DIR", tmp_path)
     loader.reset_catalog_cache()
 
-    async def fake_mount(*, owner_id, workspace_id, url, headers=None):
+    async def fake_mount(
+        *,
+        owner_id,
+        workspace_id,
+        url,
+        headers=None,
+        connection_mode="per_user",
+        label="",
+    ):
         class _C:
             id = "c-oauth"
             kind = "mcp"
@@ -818,13 +836,25 @@ async def test_quickbooks_callback_finishes_mcp_stdio_mount(
 
     import httpx as _httpx
 
-    from tests.domain_apps.fixtures.quickbooks_mock import (
-        REALM_ID,
-        TOKEN_EXCHANGE_RESPONSE,
-        quickbooks_mock_transport,
-    )
+    # Token exchange is the only external request in this callback case.
+    # Keep the fixture local: Core qualification must not depend on removed
+    # domain-App fixtures or perform a real Intuit request.
+    realm_id = "synthetic-realm"
+    token_exchange_response = {
+        "access_token": "synthetic-access-token",
+        "refresh_token": "synthetic-refresh-token",
+        "expires_in": 3600,
+        "x_refresh_token_expires_in": 86400,
+    }
 
-    transport = quickbooks_mock_transport()
+    def token_response(request):
+        assert request.method == "POST"
+        assert str(request.url) == (
+            "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
+        )
+        return _httpx.Response(200, json=token_exchange_response)
+
+    transport = _httpx.MockTransport(token_response)
     original_init = _httpx.AsyncClient.__init__
 
     def patched_init(self, *args, **kwargs):
@@ -845,16 +875,16 @@ async def test_quickbooks_callback_finishes_mcp_stdio_mount(
 
     cb = await authenticated_client.post(
         "/api/agentive/connectors/quickbooks/callback",
-        json={"code": "mock-code", "state": state, "realmId": REALM_ID},
+        json={"code": "mock-code", "state": state, "realmId": realm_id},
         headers=headers,
     )
     assert cb.status_code == 200, cb.text
     body = cb.json()
     assert body["connected"] is True
-    assert body["realm_id"] == REALM_ID
-    assert TOKEN_EXCHANGE_RESPONSE["refresh_token"] not in str(body)
+    assert body["realm_id"] == realm_id
+    assert token_exchange_response["refresh_token"] not in str(body)
     assert seen["command"] == "npx"
-    assert seen["env"]["QUICKBOOKS_REALM_ID"] == REALM_ID
+    assert seen["env"]["QUICKBOOKS_REALM_ID"] == realm_id
     # Read-only by default; the spawn env carries the catalog's toggle.
     assert seen["env"]["QUICKBOOKS_DISABLE_WRITE"] == "true"
     files = list((tmp_path / "mcp-stdio").rglob("*.env"))

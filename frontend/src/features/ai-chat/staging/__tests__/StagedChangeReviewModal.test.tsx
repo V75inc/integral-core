@@ -153,6 +153,54 @@ describe('StagedChangeReviewModal — shares the caller state', () => {
     expect(controls.bless).toHaveBeenCalledOnce();
   });
 
+  it('shows bound operation fields instead of narrated replacements and keeps live approval controls', async () => {
+    const user = userEvent.setup();
+    const controls = controlsStub();
+    const staged = makeStaged({
+      kind: 'invoke_app_operation',
+      diff_human: 'Narration\n```json\n{"body":"Invented replacement"}\n```',
+      diff_machine: { op: 'invoke_app_operation', input: { body: 'Exact bound passage' },
+        review: { description: 'Save the selected material.', input_labels: { properties: { body: { title: 'Selected passage' } } } } },
+    });
+    wrap(<StagedChangeReviewModal staged={staged} open onClose={() => {}} controls={controls} />);
+    expect(await screen.findByText('Selected passage')).toBeInTheDocument();
+    expect(screen.getByText('Exact bound passage')).toBeInTheDocument();
+    expect(screen.queryByText('Invented replacement')).not.toBeInTheDocument();
+    expect(screen.getByText('Technical details').closest('details')).not.toHaveAttribute('open');
+    await user.click(screen.getByRole('button', { name: /^Approve$/ }));
+    expect(controls.bless).toHaveBeenCalledOnce();
+    expect(staged.diff_machine.input).toEqual({ body: 'Exact bound passage' });
+  });
+
+  it('shows exact workspace tool inputs while technical details remain collapsed', async () => {
+    const staged = makeStaged({ kind: 'call_workspace_tool',
+      diff_human: 'Run workspace tool with destination input.',
+      diff_machine: { op: 'call_workspace_tool', tool_key: 'prepare_artifact', input: { destination: 'Exact selected resource' } },
+    });
+    wrap(<StagedChangeReviewModal staged={staged} open onClose={() => {}} controls={controlsStub()} />);
+    expect(await screen.findByText('Exact selected resource')).toBeVisible();
+    expect(screen.getByText('Technical details').closest('details')).not.toHaveAttribute('open');
+  });
+
+  it('cancels a refused approved action through the shared controls without offering retry', async () => {
+    const user = userEvent.setup();
+    const controls = controlsStub({ status: { kind: 'error', state: 'blessed', message: 'Source changed.' }, isBlessed: true, error: 'Source changed.' });
+    wrap(<StagedChangeReviewModal staged={makeStaged({ state: 'blessed' })} open onClose={() => {}} controls={controls} />);
+    expect(await screen.findByText('Approved — action incomplete.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Cancel approval' }));
+    expect(controls.revoke).toHaveBeenCalledOnce();
+    expect(controls.bless).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: /Retry|Approve$/ })).not.toBeInTheDocument();
+  });
+
+  it('disables cancellation during a decision and removes it for settled actions', async () => {
+    const controls = controlsStub({ status: { kind: 'loading', state: 'blessed' }, isBlessed: true });
+    const view = wrap(<StagedChangeReviewModal staged={makeStaged({ state: 'blessed' })} open onClose={() => {}} controls={controls} />);
+    expect(await screen.findByRole('button', { name: 'Cancel approval' })).toBeDisabled();
+    view.rerender(<StagedChangeReviewModal staged={makeStaged({ state: 'consumed' })} open onClose={() => {}} controls={controlsStub({ status: { kind: 'idle', state: 'consumed' }, isTerminal: true })} />);
+    expect(screen.queryByRole('button', { name: 'Cancel approval' })).not.toBeInTheDocument();
+  });
+
   it('surfaces the shared error', async () => {
     wrap(
       <StagedChangeReviewModal
@@ -166,6 +214,21 @@ describe('StagedChangeReviewModal — shares the caller state', () => {
     expect(
       await screen.findByText(/cannot add a track to this app/i),
     ).toBeInTheDocument();
+  });
+
+  it('keeps a refused decision open and technical details collapsed', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    wrap(<StagedChangeReviewModal
+      staged={makeStaged()}
+      open
+      onClose={onClose}
+      controls={controlsStub({ error: 'Permission changed; reload before approving.' })}
+    />);
+    await user.click(await screen.findByRole('button', { name: /^approve$/i }));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByText('Permission changed; reload before approving.')).toBeInTheDocument();
+    expect(screen.getByText('Technical details').closest('details')).not.toHaveAttribute('open');
   });
 
   it('says approved-but-not-applied rather than claiming execution', async () => {

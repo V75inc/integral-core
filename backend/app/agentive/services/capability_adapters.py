@@ -82,20 +82,87 @@ async def dispatch_capability(inv: CapabilityInvocation, cap: Dict[str, Any]) ->
                 raise AdapterError("query.invalid", str(exc)) from exc
             return result.model_dump(mode="json")
         if inv.source == "app":
-            from app.services.app_operations.dispatch import invoke_app_operation
+            if inv.origin in {"http", "view"}:
+                # These origins are bound by the authenticated App operation
+                # endpoint, whose button/API request is the human action.
+                from app.services.app_operations.dispatch import invoke_app_operation
 
-            return await invoke_app_operation(
-                user_id=inv.principal_id,
-                workspace_id=inv.workspace_id,
-                app_id=str(inv.app_id or ""),
-                operation_key=inv.capability_key,
-                payload=arguments,
-                idempotency_key=inv.idempotency_key,
+                return await invoke_app_operation(
+                    user_id=inv.principal_id,
+                    workspace_id=inv.workspace_id,
+                    app_id=str(inv.app_id or ""),
+                    operation_key=inv.capability_key,
+                    payload=arguments,
+                    idempotency_key=inv.idempotency_key,
+                    expected_operation_kind="read" if inv.op_class == "read" else None,
+                )
+            if inv.op_class == "read":
+                from app.services.app_operations.dispatch import invoke_app_operation
+
+                # Recheck the current declaration before entering any handler:
+                # a former read must never become a command under a read grant.
+                return await invoke_app_operation(
+                    user_id=inv.principal_id,
+                    workspace_id=inv.workspace_id,
+                    app_id=str(inv.app_id or ""),
+                    operation_key=inv.capability_key,
+                    payload=arguments,
+                    idempotency_key=inv.idempotency_key,
+                    expected_operation_kind="read",
+                )
+            # Directly materialized App commands share the wrapper's review
+            # boundary; discovering the typed capability grants no write bypass.
+            from app.agentive.tooling.dispatch import dispatch_tool
+
+            result = await dispatch_tool(
+                "integral_invoke_app_operation",
+                {
+                    "app_id": str(inv.app_id or ""),
+                    "operation_key": inv.capability_key,
+                    "input": arguments,
+                    "idempotency_key": inv.idempotency_key,
+                },
+                principal_id=inv.principal_id,
+                scope=inv.workspace_id,
+                session_id=inv.session_id,
+                interaction_id=inv.interaction_id,
             )
+            if result.is_error:
+                raise AdapterError(result.error_code or "error", result.message)
+            return result.data
         from app.agentive.tooling.dispatch import dispatch_tool
 
+        dispatch_key = inv.capability_key
+        if inv.source == "connector" and inv.connector_id:
+            from app.agentive.connectors.mcp_mount import tool_key_for
+            from app.agentive.connectors.tool_binding import (
+                resolve_mounted_tool_connector,
+            )
+            from app.services.hooks.registry import get_workspace_tools
+
+            specs = get_workspace_tools(inv.workspace_id)
+            declared = specs.get(inv.capability_key) or {}
+            remote_name = str(declared.get("_mcp_remote_name") or "")
+            dispatch_key = tool_key_for(inv.connector_id, remote_name)
+            try:
+                row, bound_spec = await resolve_mounted_tool_connector(
+                    workspace_id=inv.workspace_id,
+                    principal_id=inv.principal_id,
+                    capability_key=dispatch_key,
+                )
+            except Exception as exc:
+                raise AdapterError(
+                    "capability.revoked", "Bound connector tool is unavailable"
+                ) from exc
+            if (
+                str(row.id) != inv.connector_id
+                or bound_spec.get("_mcp_remote_name") != remote_name
+            ):
+                raise AdapterError(
+                    "capability.revoked", "Bound connector tool is unavailable"
+                )
         result = await dispatch_tool(
-            inv.capability_key,
+            dispatch_key,
             arguments,
             principal_id=inv.principal_id,
             scope=inv.workspace_id,

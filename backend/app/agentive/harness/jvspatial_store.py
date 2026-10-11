@@ -291,10 +291,17 @@ class JvSpatialStepStore:
     async def latest_snapshot(
         self, *, run_id: str, include_interrupted: bool = False
     ) -> ContinuableSnapshot | None:
-        snapshots = await self.list_snapshots(
-            run_id=run_id, include_interrupted=include_interrupted
+        records = await self._find(HarnessSnapshotRecord, run_key=run_id)
+        if not include_interrupted:
+            records = [record for record in records if record.state == "complete"]
+        if not records:
+            return None
+        # A latest read needs one authenticated payload, not every historical
+        # copy of the growing transcript. Ordering mirrors list_snapshots.
+        record = max(
+            records, key=lambda item: (item.step_index, _datetime(item.occurred_at))
         )
-        return snapshots[-1] if snapshots else None
+        return self._snapshot_from(record)
 
     async def record_tool_effect(self, record: ToolEffectRecord) -> None:
         payload = {

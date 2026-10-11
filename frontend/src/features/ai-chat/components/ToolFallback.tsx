@@ -144,7 +144,7 @@ function ToolFallbackTrigger({
     <CollapsibleTrigger
       data-slot="tool-fallback-trigger"
       className={cn(
-        "aui-tool-fallback-trigger group/trigger flex w-full items-center gap-2 px-4 text-sm transition-colors",
+        "aui-tool-fallback-trigger group/trigger flex w-full items-center gap-2 px-4 text-xs transition-colors",
         className,
       )}
       {...props}

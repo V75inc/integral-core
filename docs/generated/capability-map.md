@@ -5,7 +5,7 @@ manifest, bindings, core skills, and App fixtures under `examples/`. Do
 not edit; `tests/test_capability_map.py` fails when this file is stale.
 The JSON beside it carries every field.
 
-124 of 126 manifest tools are advertised (54 read, 68 propose, 2 execute) across 16 core skills.
+124 of 126 manifest tools are advertised (54 read, 69 propose, 1 execute) across 16 core skills.
 
 ## Skills → tools
 
@@ -38,7 +38,7 @@ The JSON beside it carries every field.
 | `integral_list_workspaces` | read | handler: `app.api.workspaces.list_workspaces` | GET /api/workspaces | `integral:read` | integral-workspace |
 | `integral_list_apps` | read | handler: `app.api.apps.list_apps` | GET /api/apps | `integral:read` | integral-attachments, integral-dashboards, integral-insights, integral-model, integral-onboard, integral-review, integral-scaffold, integral-workspace |
 | `integral_get_app` | read | handler: `app.api.apps.get_app` | GET /api/apps/{app_id} | `integral:read` | integral-workspace |
-| `integral_invoke_app_operation` | execute | direct: `app.agentive.services.direct_tools.invoke_app_operation_for_dispatch` | POST /api/extensions/{app_id}/operations/{operation_key} | `integral:execute` | integral-workspace |
+| `integral_invoke_app_operation` | propose | stager: `app.agentive.tooling.bindings._stage_invoke_app_operation` | POST /api/extensions/{app_id}/operations/{operation_key} | `integral:propose` | integral-workspace |
 | `integral_list_tracks` | read | handler: `app.api.tracks.list_tracks` | GET /api/tracks | `integral:read` | integral-attachments, integral-dashboards, integral-entries, integral-filing, integral-insights, integral-model, integral-onboard, integral-organize, integral-review, integral-scaffold, integral-workspace |
 | `integral_get_track_schema` | read | handler: `app.api.tracks.get_track_detail_bundle` | GET /api/tracks/{track_id}/detail | `integral:read` | integral-attachments, integral-entries, integral-filing, integral-insights, integral-model, integral-organize, integral-review, integral-scaffold, integral-workspace |
 | `integral_describe_substrate` | read | handler: `app.api.operational_models.get_operational_model_substrate` | GET /api/operational-models/substrate | `integral:read` | integral-insights, integral-model, integral-models, integral-onboard, integral-scaffold |

@@ -69,6 +69,7 @@ async def create_thread(
         provider_id=provider_id,
         agent_id=agent_id or "",
         title=title or "",
+        title_source="manual" if title else "",
         archived=False,
         created_at=now,
         updated_at=now,
@@ -127,6 +128,7 @@ async def list_threads(
 async def rename_thread(thread: ChatThread, title: str) -> ChatThread:
     """Update a thread's title, refreshing ``updated_at``."""
     thread.title = title or ""
+    thread.title_source = "manual"
     thread.updated_at = _now()
     await thread.save()
     return thread

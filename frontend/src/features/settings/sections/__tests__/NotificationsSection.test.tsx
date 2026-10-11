@@ -2,7 +2,7 @@
  * Phase 9 Plan 09-04 — NotificationsSection toggle matrix (NOTIF-03).
  *
  * Three cases (locked in plan):
- *   1. Renders 5 NotificationKinds × 3 channels = 15 checkboxes, each
+ *   1. Renders 6 NotificationKinds × 3 channels = 18 checkboxes, each
  *      with aria-label `${kind} via ${channel}`.
  *   2. Toggling a cell invokes the PATCH client with the expected
  *      partial body.
@@ -26,6 +26,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 // implementations gives the test deterministic data + mutation capture
 // without bridging through a QueryClient transport.
 vi.mock('../../../../api/notificationPreferences', () => ({
+  NOTIFICATION_PREFS_KEY: ['notification-preferences'],
   useNotificationPreferences: vi.fn(),
   useUpdateNotificationPreferences: vi.fn(),
   fetchNotificationPreferences: vi.fn(),
@@ -39,6 +40,8 @@ import {
   useUpdateNotificationPreferences,
 } from '../../../../api/notificationPreferences';
 import type { NotificationPreferences } from '../../../../api/notificationPreferences';
+vi.mock('../../../../components/settings/WhatsAppSettings', () => ({ WhatsAppSettings: () => <button>Link WhatsApp number</button> }));
+
 import { NotificationsSection } from '../NotificationsSection';
 
 const mockedFetch = fetchNotificationPreferences as unknown as ReturnType<
@@ -61,6 +64,7 @@ function makePrefs(
   return {
     channels: { ...channelMatrix },
     kinds: {
+      entry_update: { ...channelMatrix },
       mention: { ...channelMatrix },
       share: { ...channelMatrix },
       agent_pending_write: { ...channelMatrix },
@@ -107,12 +111,26 @@ afterEach(() => {
 });
 
 describe('<NotificationsSection />', () => {
-  it('renders a 5×3 checkbox matrix with aria-labels', async () => {
+  it('offers retry when the initial query fails without data', () => {
+    const refetch = vi.fn();
+    mockedUseQuery.mockReturnValue({ data: undefined, isLoading: false, isError: true, error: new Error('Unavailable'), refetch });
+    renderSection();
+    expect(screen.getByRole('alert')).toHaveTextContent('Unavailable');
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(refetch).toHaveBeenCalledOnce();
+  });
+  it('prevents overlapping writes while a preference is saving', () => {
+    mockedUseMutation.mockReturnValue({ mutate: mockedPatch, isPending: true });
+    renderSection();
+    for (const box of screen.getAllByRole('checkbox')) expect(box).toBeDisabled();
+  });
+
+  it('renders a 6×3 checkbox matrix with aria-labels', async () => {
     renderSection();
     expect(
       screen.getByRole('checkbox', { name: /mention via in_app/i }),
     ).toBeInTheDocument();
-    const kinds = ['mention', 'share', 'agent_pending_write', 'invitation', 'system'];
+    const kinds = ['entry_update', 'mention', 'share', 'agent_pending_write', 'invitation', 'system'];
     const channels = ['in_app', 'email', 'whatsapp'];
     for (const kind of kinds) {
       for (const channel of channels) {
@@ -122,9 +140,9 @@ describe('<NotificationsSection />', () => {
         expect(box).toBeInTheDocument();
       }
     }
-    // Total: 15 checkboxes for the matrix.
+    // Total: 18 checkboxes for the matrix.
     const all = screen.getAllByRole('checkbox');
-    expect(all.length).toBeGreaterThanOrEqual(15);
+    expect(all.length).toBe(18);
     expect(mockedFetch).toBeDefined();
   });
 
@@ -139,23 +157,20 @@ describe('<NotificationsSection />', () => {
       expect(mockedPatch).toHaveBeenCalledTimes(1);
     });
     const partial = mockedPatch.mock.calls[0][0] as Partial<NotificationPreferences>;
-    // The body must scope the change to share.email = false; other cells
-    // in the same kind must remain true so the deep-merge produces the
-    // expected matrix.
-    expect(partial.kinds?.share?.email).toBe(false);
-    expect(partial.kinds?.share?.in_app).toBe(true);
+    // Send only the changed cell; the server preserves concurrent changes.
+    expect(partial).toEqual({ kinds: { share: { email: false } } });
   });
 
   it('disables WhatsApp column and shows verify-phone link when opted_in_at is null', async () => {
     renderSection();
-    // All five whatsapp cells must be disabled when opted_in_at is null.
+    // All six whatsapp cells must be disabled when opted_in_at is null.
     expect(
       screen.getByRole('checkbox', { name: /mention via whatsapp/i }),
     ).toBeInTheDocument();
     const whatsappCells = screen
       .getAllByRole('checkbox')
       .filter(el => /via whatsapp/i.test(el.getAttribute('aria-label') ?? ''));
-    expect(whatsappCells.length).toBeGreaterThanOrEqual(5);
+    expect(whatsappCells.length).toBe(6);
     for (const cell of whatsappCells) {
       expect(cell).toBeDisabled();
     }

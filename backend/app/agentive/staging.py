@@ -345,6 +345,10 @@ async def _flush_decision_ledger() -> None:
 
     for sc in queued:
         await record_decision(sc)
+        # MCP proposals may have no chat transcript. A short-lived state-only
+        # receipt supports honest UI reconciliation without retaining inputs
+        # or rehydrating a terminal token as executable.
+        await staging_store.persist_decision(sc)
 
 
 async def _flush_expiry_closures() -> None:
@@ -574,6 +578,12 @@ def _staging_target_key(sc: "StagedChange") -> Tuple[str, str]:
     rather than silently both standing.
     """
     sources = (sc.diff_machine or {}, sc.payload or {})
+    if sc.kind == "invoke_app_operation":
+        # Separate typed commands in one App are separate decisions. Never
+        # let the generic app_id target collapse unrelated operation reviews.
+        app_id = _first_str(sources, ("app_id",))
+        key = _first_str(sources, ("operation_key",))
+        return (sc.kind, f"{app_id}|{key}|{_payload_fingerprint(sc.payload or {})}")
     if sc.kind in _TAG_MEMBERSHIP_KINDS:
         entry = _first_str(sources, ("entry_id",))
         tag = _first_str(sources, _TAG_ID_FIELDS) or _payload_fingerprint(
@@ -685,6 +695,7 @@ async def create_staged_change(
     payload: Dict[str, Any],
     ttl_seconds: int = _DEFAULT_TTL_SECONDS,
     interaction_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
 ) -> StagedChange:
     """Mint a new staged change.
 
@@ -712,15 +723,15 @@ async def create_staged_change(
     summary = await _humanize_card_text(summary)
     diff_human = await _humanize_card_text(diff_human)
 
-    # Capture the agent's active workspace now, while we are mid-dispatch and
-    # the scope ContextVar is definitively set. Execution binds this rather
-    # than re-resolving from the FE bless request (which may lack the header).
+    # Dispatch passes its authenticated workspace explicitly: the temporary
+    # stager scope has already been reset. Older internal callers retain the
+    # bound-context fallback. Execution must not inherit a later UI workspace.
     try:
         from app.services.agent_scope import active_workspace_id
 
-        minted_workspace_id = active_workspace_id()
+        minted_workspace_id = workspace_id or active_workspace_id()
     except Exception:  # noqa: BLE001
-        minted_workspace_id = None
+        minted_workspace_id = workspace_id
 
     now = _now()
     idem = str((payload or {}).get("idempotency_key") or "").strip() or None
@@ -1273,6 +1284,7 @@ async def _push_state_and_record_closure(sc: StagedChange) -> None:
         from app.agentive.decision_ledger import record_decision
 
         await record_decision(sc)
+        await staging_store.persist_decision(sc)
         # Terminal — drop the durable row (reload-correctness for terminal
         # cards is handled by the transcript-snapshot rewrite below, not by the
         # store, which only holds still-actionable pending/blessed changes).

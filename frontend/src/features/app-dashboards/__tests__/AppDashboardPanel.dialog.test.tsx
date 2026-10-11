@@ -113,6 +113,40 @@ describe('AppDashboardPanel drill-through dialog', () => {
     expect(modalBody).toHaveClass('px-5', 'sm:px-6', 'py-5', 'space-y-4');
   });
 
+  it('keeps unresolved widgets in a loading state until data arrives', async () => {
+    let resolveData!: (value: Record<string, unknown>) => void;
+    dataMock.mockReturnValueOnce(new Promise(resolve => { resolveData = resolve; }));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <AppDashboardPanel appId="app-1" canEdit={false} />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText('Loading widget data…')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Open chart records' })).not.toBeInTheDocument();
+    resolveData({ 'chart-1': {} });
+    expect(await screen.findByRole('button', { name: 'Open chart records' })).toBeInTheDocument();
+    expect(screen.queryByText('Loading widget data…')).not.toBeInTheDocument();
+  });
+
+  it('shows a retry action after a failed data request', async () => {
+    dataMock.mockRejectedValueOnce(new Error('Request timed out'));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <AppDashboardPanel appId="app-1" canEdit={false} />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText('Could not load widget data.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Open chart records' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByRole('button', { name: 'Open chart records' })).toBeInTheDocument();
+  });
+
   it('shows the API reason when governed drill-through is refused', async () => {
     drillThroughMock.mockRejectedValueOnce({
       response: {

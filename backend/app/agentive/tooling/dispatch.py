@@ -826,6 +826,7 @@ async def _maybe_stage_mcp_write(
 
     sc = await create_staged_change(
         user_id=principal_id,
+        workspace_id=scope,
         session_id=session_id,
         kind="mcp_tool_call",
         summary=summary,
@@ -1501,6 +1502,7 @@ async def _dispatch_propose(
     sc = await create_staged_change(
         user_id=principal_id,
         session_id=session_id,
+        workspace_id=scope,
         kind=staged["kind"],
         summary=staged["summary"],
         diff_human=staged["diff_human"],

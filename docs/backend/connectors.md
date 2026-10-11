@@ -16,6 +16,31 @@ An MCP connector mounts an external server's declared tools. Installation, refre
 
 Inbound MCP exposes Integral to external agents; outbound MCP exposes an external server to the resident. Keep credentials, transport origins, and authority distinct in each direction.
 
+### Cloudflare
+
+The curated Cloudflare entry uses the official Streamable HTTP endpoint at
+`https://mcp.cloudflare.com/mcp`. Add it from Settings → Connectors → Add
+Connector, then complete Cloudflare sign-in and permission selection. Core
+discovers OAuth metadata from the initial authentication challenge; the
+catalog's `auth.type: none` means no credential field is required in Integral's
+install form, not that the provider is unauthenticated. No tools are admitted
+while consent remains pending.
+
+All Cloudflare tools remain subject to Integral's propose/bless approval gate,
+including the provider's broad `search` and `execute` surface. This entry
+certifies no read-only tools. Choose narrow account permissions before granting
+access; do not infer resource limits from a connector label. Installing this
+entry does not change an existing custom MCP connection.
+
+For automation, the provider also supports scoped bearer tokens. The existing
+Custom MCP form can supply an Authorization header; keep the token out of URLs,
+chat, and committed configuration. See the
+[official Cloudflare MCP documentation](https://developers.cloudflare.com/agents/model-context-protocol/cloudflare/servers-for-cloudflare/).
+
+Catalog tests qualify the local OAuth handoff and approval classification with
+a mocked external handshake. Real account consent, tool discovery, deployment,
+and recovery require separate provider qualification.
+
 ## Add and qualify one
 
 Register the implementation through its reviewed module path, declare its package/schema dependencies, and use generic hooks where domain transformation is required. Do not hardcode a domain connector into Core services.

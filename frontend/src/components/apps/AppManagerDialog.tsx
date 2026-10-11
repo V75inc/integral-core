@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom';
 import { Check, ExternalLink, Loader2, Package } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui';
-import { Input, Surface, Text, Textarea } from '../../ui';
+import { AppIcon, Input, Surface, Text, Textarea } from '../../ui';
 import { IncludeSeedDataToggle } from './IncludeSeedDataToggle';
 import { countManifestSeedEntries } from '../../utils/manifestSeeds';
 import {
@@ -416,7 +416,7 @@ export function AppManagerDialog({
     phase === 'settings'
       ? 'Finish app setup'
       : phase === 'results'
-        ? 'Changes applied'
+        ? 'App change results'
         : 'Manage apps';
 
   const closeDialog = () => {
@@ -713,6 +713,7 @@ function InstalledRow({
   return (
     <Surface tone="panel-2" border="subtle" radius="card">
       <div className="flex items-start gap-3 px-3 py-2.5">
+        <AppIcon name={app.name} icon={app.icon} color={app.accent_color} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <Text as="span" variant="body" weight="medium" truncate>
@@ -1065,13 +1066,26 @@ function ResultsView({
               )}
               {batch.failed.length > 0 && (
                 <ResultSection title={`Install failed (${batch.failed.length})`} tone="danger">
-                  {batch.failed.map(row => (
-                    <li key={row.library_cp_id}>
-                      <Text variant="body" tone="danger">
-                        {row.name || row.library_cp_id} — {row.error}
-                      </Text>
-                    </li>
-                  ))}
+                  {batch.failed.map(row => {
+                    const denial = resolveInstallDenial(row);
+                    return (
+                      <li key={row.library_cp_id} className="space-y-2">
+                        <Text as="p" variant="body" tone="danger">
+                          {row.name || row.library_cp_id} — {denial?.message || row.error}
+                        </Text>
+                        {denial?.actionLabel && denial.onAction ? (
+                          <Button variant="outline" size="sm" onClick={denial.onAction}>
+                            {denial.actionLabel}
+                          </Button>
+                        ) : null}
+                        {row.error_code === 'app_dependency_error' ? (
+                          <Text as="p" variant="body-sm" tone="muted">
+                            Resolve the required app installation or update, then return to install this app.
+                          </Text>
+                        ) : null}
+                      </li>
+                    );
+                  })}
                 </ResultSection>
               )}
             </>
