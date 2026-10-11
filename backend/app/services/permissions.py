@@ -46,8 +46,9 @@ from app.middleware.permissions_cache import (
     live_permissions_required,
     permissions_cache_get,
 )
-from app.models.edges import COLLABORATES_ON, EXCLUDED_FROM, IS_MEMBER_OF, OWNS
+from app.models.edges import COLLABORATES_ON, EXCLUDED_FROM, OWNS
 from app.models.nodes import App, Entry, Track, User, View, Workspace
+from app.services.authority_facts import primary_auth_record, relationship_literal
 from app.services.perf_trace import perf_traced
 
 logger = logging.getLogger(__name__)
@@ -62,80 +63,55 @@ def _permission_memo_enabled() -> bool:
     )
 
 
-try:
-    from jvspatial.api.auth.models import User as AuthUser
-except ImportError:
-    # mypy: reassigning an imported class name to None is the canonical
-    # optional-import fallback pattern; the type checker can't express
-    # "this name is a class or None" here without a redefinition.
-    AuthUser = None  # type: ignore[misc]
-
-
 async def get_user_node(user_id: str) -> Optional[User]:
-    """Resolve a User graph node from User id or AuthUser id."""
-    cache = permissions_cache_get() if _permission_memo_enabled() else None
-    ck = ("user_node", user_id)
-    if cache is not None and ck in cache:
-        return cache[ck]
-
-    # AuthUser and graph User share a discriminator; an Object principal
-    # must not be mistaken for its graph profile by an ID-based cache lookup.
-    user = None
-    if not user_id.startswith("o."):
-        user = (
-            await User.find_one({"id": user_id})
-            if live_permissions_required()
-            else await User.get(user_id)
-        )
-    if user:
-        # Deferred work often carries the graph profile ID. Its linked login
-        # must still be active; using this alias must not evade account disable.
-        auth_id = str(getattr(user, "user_id", "") or "")
-        if live_permissions_required() and auth_id.startswith("o.User."):
-            try:
-                identity = (
-                    await AuthUser.find_one({"$and": [{"id": auth_id}]})
-                    if AuthUser
-                    else None
-                )
-            except Exception as exc:
-                raise AuthorizationUnavailableError() from exc
-            if identity is None or not identity.is_active:
-                return None
-        if cache is not None:
-            cache[ck] = user
-        return user
-
-    if not AuthUser:
-        if cache is not None:
-            cache[ck] = None
-        return None
-
+    """Resolve current identity/profile facts without cached or ambiguous grants."""
     try:
-        auth_user = (
-            await AuthUser.find_one({"$and": [{"id": user_id}]})
-            if live_permissions_required()
-            else await AuthUser.get(user_id)
+        user = (
+            None if user_id.startswith("o.") else await User.find_one({"id": user_id})
         )
-        if not auth_user or not auth_user.is_active:
-            if cache is not None:
-                cache[ck] = None
+        auth_id = str(user.user_id or "") if user is not None else user_id
+        if user is not None and not auth_id.startswith("o.User."):
+            # Existing graph-only actors are preserved here. Their explicit
+            # trusted-service contract is separate from linked human identity.
+            return user
+        if not auth_id.startswith("o.User."):
             return None
+        from jvspatial.core.context import get_default_context
 
-        nodes = await User.find({"context.user_id": auth_user.id})
-        if not nodes:
-            nodes = await User.find({"user_id": auth_user.id})
-        user = nodes[0] if nodes else None
-        if cache is not None:
-            cache[ck] = user
-        return user
+        context = (
+            await user.get_context() if user is not None else get_default_context()
+        )
+        identity = await primary_auth_record(context.database, auth_id)
+        if identity is None or identity["context"]["is_active"] is not True:
+            return None
+        # Count raw candidates before hydration: an invalid duplicate profile
+        # must not disappear and make the remaining profile look canonical.
+        profiles = await context.database.find(
+            "node",
+            {
+                "entity": User._entity_name(),
+                "$or": [{"context.user_id": auth_id}, {"user_id": auth_id}],
+            },
+            limit=2,
+        )
+        if not profiles:
+            return None
+        if len(profiles) != 1:
+            raise AuthorizationUnavailableError()
+        row = profiles[0]
+        if relationship_literal(row, "user_id", {auth_id}) != auth_id:
+            raise AuthorizationUnavailableError()
+        if user is not None:
+            if row.get("id") != user.id:
+                raise AuthorizationUnavailableError()
+            return user
+        profile = await context._deserialize_entity(User, row)
+        if profile is None:
+            raise AuthorizationUnavailableError()
+        return profile
     except Exception as exc:
         logger.warning("Failed to resolve User for %s: %s", user_id, exc)
-        if live_permissions_required():
-            raise AuthorizationUnavailableError() from exc
-        if cache is not None:
-            cache[ck] = None
-        return None
+        raise AuthorizationUnavailableError() from exc
 
 
 async def batch_resolve_users_by_principal_ids(
@@ -257,11 +233,9 @@ async def can_create_app_under_workspace(user_id: str, workspace_id: str) -> boo
         return False
     if await _is_workspace_owner_user(ws, user):
         return True
-    ctx = await user.get_context()
-    edges = await ctx.find_edges_between(user.id, workspace_id, edge_class=IS_MEMBER_OF)
-    if not edges:
-        return False
-    return member_edge_bool(edges[0], "can_create_apps")
+    from app.services.workspace_permissions import member_creation_flags
+
+    return (await member_creation_flags(user, workspace_id))[0]
 
 
 async def can_create_track_under_workspace(user_id: str, workspace_id: str) -> bool:
@@ -279,11 +253,9 @@ async def can_create_track_under_workspace(user_id: str, workspace_id: str) -> b
         return False
     if await _is_workspace_owner_user(ws, user):
         return True
-    ctx = await user.get_context()
-    edges = await ctx.find_edges_between(user.id, workspace_id, edge_class=IS_MEMBER_OF)
-    if not edges:
-        return False
-    return member_edge_bool(edges[0], "can_create_tracks")
+    from app.services.workspace_permissions import member_creation_flags
+
+    return (await member_creation_flags(user, workspace_id))[1]
 
 
 async def can_publish_operational_models_under_workspace(
@@ -310,33 +282,20 @@ async def can_publish_operational_models_under_workspace(
     if ws.kind == "personal":
         # Single owner, no member pool — only the owner (handled above) publishes.
         return False
-    ctx = await user.get_context()
-    edges = await ctx.find_edges_between(user.id, workspace_id, edge_class=IS_MEMBER_OF)
-    if not edges:
-        return False
-    edge = edges[0]
-    return member_edge_bool(edge, "can_create_apps") or member_edge_bool(
-        edge, "can_create_tracks"
-    )
+    from app.services.workspace_permissions import member_creation_flags
+
+    return any(await member_creation_flags(user, workspace_id))
 
 
 async def _user_in_workspace_member_pool(user: User, workspace_id: str) -> bool:
     """True if user has any IS_MEMBER_OF edge to the workspace (incl. guest)."""
     try:
-        ctx = await user.get_context()
-        edges = await ctx.find_edges_between(
-            user.id, workspace_id, edge_class=IS_MEMBER_OF
-        )
-        return len(edges) == 1 and str(getattr(edges[0], "role", "") or "").lower() in (
-            "owner",
-            "admin",
-            "member",
-            "guest",
-        )
+        from app.services.workspace_permissions import read_member_facts
+
+        return await read_member_facts(user, workspace_id) is not None
     except Exception as exc:
         logger.warning("workspace membership check failed: %s", exc)
         raise AuthorizationUnavailableError() from exc
-    return False
 
 
 # --- App-level ---
@@ -834,25 +793,40 @@ async def _direct_role_on_resource(user: User, resource_id: str) -> Optional[str
     """Direct OWNS or COLLABORATES_ON role on this exact resource, or None."""
     try:
         ctx = await user.get_context()
-        owns_edges = await ctx.find_edges_between(user.id, resource_id, edge_class=OWNS)
-        if owns_edges:
-            return "owner"
-        collab_edges = await ctx.find_edges_between(
-            user.id, resource_id, edge_class=COLLABORATES_ON
+        rows = await ctx.database.find(
+            "edge",
+            {
+                "source": user.id,
+                "target": resource_id,
+                "entity": {"$in": [OWNS.__name__, COLLABORATES_ON.__name__]},
+            },
+            limit=3,
         )
-        if not collab_edges:
+        if any(
+            row.get("source") != user.id
+            or row.get("target") != resource_id
+            or row.get("entity") not in {OWNS.__name__, COLLABORATES_ON.__name__}
+            for row in rows
+        ):
+            raise AuthorizationUnavailableError()
+        owns = [row for row in rows if row.get("entity") == OWNS.__name__]
+        collaborators = [
+            row for row in rows if row.get("entity") == COLLABORATES_ON.__name__
+        ]
+        if len(owns) > 1 or len(collaborators) > 1:
+            raise AuthorizationUnavailableError()
+        role = (
+            relationship_literal(collaborators[0], "role", ROLE_RANK)
+            if collaborators
+            else None
+        )
+        if owns:
+            relationship_literal(owns[0], "role", {"owner"})
+            # Optional audit metadata cannot hide this complete direct path.
+            return "owner"
+        if role is None:
             return None
-        if len(collab_edges) != 1:
-            raise AuthorizationUnavailableError()
-        edge = collab_edges[0]
-        role_val = getattr(edge, "role", None)
-        if role_val is None:
-            rctx = getattr(edge, "context", None) or {}
-            role_val = rctx.get("role") if isinstance(rctx, dict) else None
-        cand = str(role_val or "").strip().lower()
-        if cand not in ROLE_RANK:
-            raise AuthorizationUnavailableError()
-        return cand
+        return role
     except Exception as exc:
         logger.warning(
             "Error reading direct role on %s for %s: %s", resource_id, user.id, exc

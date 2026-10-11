@@ -23,6 +23,7 @@ from app.exceptions import AuthorizationUnavailableError
 from app.middleware.permissions_cache import isolated_permissions_cache
 from app.models.edges import IS_MEMBER_OF
 from app.models.nodes import App, Track, User, Workspace
+from app.services.authority_facts import relationship_flag, relationship_literal
 
 logger = logging.getLogger(__name__)
 
@@ -30,20 +31,12 @@ WorkspaceRole = Literal["owner", "admin", "member", "guest", "none"]
 
 
 def _member_row_role(row: dict) -> Optional[str]:
-    """Read the canonical typed literal; unknown vocabulary grants no role."""
-    context = row.get("context")
-    role = (context.get("role") if isinstance(context, dict) else None) or row.get(
-        "role"
-    )
-    return (
-        role
-        if isinstance(role, str) and role in {"owner", "admin", "member", "guest"}
-        else None
-    )
+    """Require the stored literal; malformed facts never activate legacy grants."""
+    return relationship_literal(row, "role", {"owner", "admin", "member", "guest"})
 
 
-async def _read_member_edge_role(user: User, workspace_id: str) -> Optional[str]:
-    """Return the role stored on the IS_MEMBER_OF edge, or None."""
+async def read_member_facts(user: User, workspace_id: str) -> Optional[dict]:
+    """Read the complete single membership and validate its grant vocabulary."""
     try:
         ctx = await user.get_context()
         rows = await ctx.database.find(
@@ -53,10 +46,40 @@ async def _read_member_edge_role(user: User, workspace_id: str) -> Optional[str]
                 "target": workspace_id,
                 "entity": IS_MEMBER_OF.__name__,
             },
+            limit=2,
         )
-        if len(rows) != 1:
+        if not rows:
             return None
-        return _member_row_role(rows[0])
+        if len(rows) != 1:
+            raise AuthorizationUnavailableError()
+        if (
+            rows[0].get("source") != user.id
+            or rows[0].get("target") != workspace_id
+            or rows[0].get("entity") != IS_MEMBER_OF.__name__
+        ):
+            raise AuthorizationUnavailableError()
+        _member_row_role(rows[0])
+        return rows[0]
+    except Exception as exc:
+        raise AuthorizationUnavailableError() from exc
+
+
+async def member_creation_flags(user: User, workspace_id: str) -> Tuple[bool, bool]:
+    """Return explicit, uncoerced grants from the unique current membership."""
+    row = await read_member_facts(user, workspace_id)
+    if row is None:
+        return False, False
+    return (
+        relationship_flag(row, "can_create_apps"),
+        relationship_flag(row, "can_create_tracks"),
+    )
+
+
+async def _read_member_edge_role(user: User, workspace_id: str) -> Optional[str]:
+    """Return the role stored on the IS_MEMBER_OF edge, or None."""
+    try:
+        row = await read_member_facts(user, workspace_id)
+        return _member_row_role(row) if row is not None else None
     except Exception as exc:
         logger.exception(
             "_read_member_edge_role failed for %s → %s", user.id, workspace_id

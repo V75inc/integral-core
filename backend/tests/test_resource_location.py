@@ -296,19 +296,26 @@ async def test_indeterminate_authority_does_not_activate_another_grant(
 
     user, _, _, _, entry = await graph()
     context = await entry.get_context()
-    real_find = context.find_edges_between
+    real_find = context.database.find
     failing_kind = {
         "membership": IS_MEMBER_OF,
         "direct_ownership": OWNS,
         "direct_collaboration": COLLABORATES_ON,
     }[lookup]
 
-    async def fault(source, target=None, edge_class=None, **kwargs):
-        if edge_class is failing_kind:
+    async def fault(collection, query=None, *args, **kwargs):
+        entity = (query or {}).get("entity")
+        if collection == "edge" and (
+            entity == failing_kind.__name__
+            or (
+                isinstance(entity, dict)
+                and failing_kind.__name__ in entity.get("$in", [])
+            )
+        ):
             raise RuntimeError("injected authority-store failure")
-        return await real_find(source, target, edge_class=edge_class, **kwargs)
+        return await real_find(collection, query, *args, **kwargs)
 
-    monkeypatch.setattr(context, "find_edges_between", fault)
+    monkeypatch.setattr(context.database, "find", fault)
     with isolated_permissions_cache(), pytest.raises(AuthorizationUnavailableError):
         await resolve_role(user.id, "entry", entry.id)
 
