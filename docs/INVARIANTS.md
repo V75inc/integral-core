@@ -398,6 +398,13 @@ Required absent/unsatisfied dependencies block install. Inbound hard dependencie
 
 Cross-App resolution and explicit instance pins stay inside the source workspace. A manifest cannot publish data through a cross-workspace target pin. Resolve ambiguous instances through the supported declaration contract.
 
+The central typed Entry-field validator also checks Entry targets against their
+Track workspace before creating a record, advancing its revision, or replacing
+REFERENCES edges. Missing source/target workspace or a missing target Track
+refuses linkage; `allow_cross_track` and `allow_cross_app` do not relax this
+constraint. This structural check does not substitute for current target-read
+permission, declared App ownership, or canonical graph-containment admission.
+
 ### I-CRUD-01 — Service-layer canonical mutations
 
 Routes delegate persisted writes to named services; direct graph creation/connection in API modules is forbidden. Internal operations use the appropriate shared writer, not a second mutation implementation. Staged-index guards and behavior tests enforce this boundary.
