@@ -29,6 +29,20 @@ describe('literal operation review', () => {
     expect(screen.getByText('Trace value')).toBeInTheDocument();
     expect(JSON.stringify(proposal)).toBe(before);
   });
+  it('uses the durable order array after object members have been reordered, retaining unknown fields once', () => {
+    const proposal = staged({ a_source: 'Source', z_main: 'Choice', extra: 'Other' }, {
+      review: { input_labels: {
+        property_order: ['z_main', 'a_source', 'z_main', 'missing', null],
+        properties: { a_source: { title: 'Source detail' }, z_main: { title: 'Main choice' } },
+      } },
+    });
+    const before = JSON.stringify(proposal);
+    const { container } = render(<StagedOperationInputs staged={proposal} />);
+    expect([...container.querySelectorAll('dt')].map(node => node.textContent)).toEqual(['Main choice', 'Source detail', 'Extra']);
+    expect(screen.getAllByText('Choice')).toHaveLength(1);
+    expect(screen.getByText('Other')).toBeInTheDocument();
+    expect(JSON.stringify(proposal)).toBe(before);
+  });
   it('groups exact input with App titles, links record references and keeps the input untouched', () => {
     const proposal = staged({ owner_id: 'n.Entry.123abc', choices: [{ passage: 'Line one\nLine two', partial: true, cost: 0 }] }, {
       review: { input_labels: { properties: {

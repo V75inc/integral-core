@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -113,16 +114,36 @@ def test_review_labels_preserve_app_titles_without_execution_schema_or_authority
     assert len(_input_review_labels(wide)["properties"]) <= 256
 
 
+def test_review_order_array_survives_unordered_object_roundtrip():
+    schema = {
+        "x-review-order": ["z_main", "a_source", "z_main", None, "missing"],
+        "properties": {
+            "z_main": {"title": "Main choice"},
+            "a_source": {"title": "Source detail"},
+        },
+    }
+    # Reordered object members reproduce the relevant JSONB transport behavior.
+    reordered = json.loads(json.dumps(schema, sort_keys=True))
+    projected = _input_review_labels(reordered)
+    assert list(projected["properties"]) == ["a_source", "z_main"]
+    assert projected["property_order"] == ["z_main", "a_source"]
+    persisted = json.loads(json.dumps(projected, sort_keys=True))
+    assert persisted["property_order"] == ["z_main", "a_source"]
+    assert reordered == json.loads(json.dumps(schema, sort_keys=True))
+
+
 @pytest.mark.asyncio
 async def test_review_presentation_does_not_enter_execution_payload(operation_contract):
     spec, handler, _ = operation_contract
     spec["input_schema"]["properties"]["title"]["title"] = "Finding title"
+    spec["input_schema"]["x-review-order"] = ["title"]
     register_app_operations(WS, APP, "reference-review-app", [spec])
     staged = await prepare_agent_app_operation(
         _args(), principal_id="u1", workspace_id=WS
     )
     assert staged["diff_machine"]["review"]["input_labels"] == {
-        "properties": {"title": {"title": "Finding title"}}
+        "properties": {"title": {"title": "Finding title"}},
+        "property_order": ["title"],
     }
     assert "review" not in staged["payload"]
     assert staged["diff_machine"]["input"] == {"title": "Checked vendor page"}

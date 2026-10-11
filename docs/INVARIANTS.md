@@ -256,7 +256,9 @@ Technical details are secondary. A proposal need not have a chat session.
 The global Inbox counts and displays pending/blessed proposals alongside policy
 approvals; a loading or failed proposal read must not claim that all is clear.
 Typed App operation review renders the bound input as literal, read-only fields.
-App schema titles and declared property order supply field presentation; every
+App schema titles and optional `x-review-order` arrays supply field presentation;
+order-critical presentation must not depend on object-member order. The bounded
+projection retains the sequence as a `property_order` array across storage. Every
 unlabelled input remains inspectable. Presentation metadata never enters the
 execution payload. The full Approvals page shares its proposal collection with
 its counts and suppresses empty-success claims until both queues are read; failed

@@ -5,6 +5,7 @@ import type { StagedChange } from './types';
 
 interface InputLabels {
   title?: string;
+  property_order?: string[];
   properties?: Record<string, InputLabels>;
   items?: InputLabels;
 }
@@ -59,10 +60,10 @@ export function StagedOperationInputs({ staged, onNavigate }: {
       // App schema order is presentation only. Keep every unlabelled input too;
       // object arrival/storage order must not push the main decision to the end.
       const declared = schema?.properties ?? {};
-      const keys = [
-        ...Object.keys(declared).filter(key => Object.prototype.hasOwnProperty.call(value, key)),
-        ...Object.keys(value).filter(key => !Object.prototype.hasOwnProperty.call(declared, key)),
-      ];
+      const preferred = Array.isArray(schema?.property_order)
+        ? schema.property_order.slice(0, 256).filter(key => typeof key === 'string') : [];
+      const keys = [...new Set([...preferred, ...Object.keys(declared), ...Object.keys(value)])]
+        .filter(key => Object.prototype.hasOwnProperty.call(value, key));
       const entries = keys.map(key => [key, value[key]] as const);
       if (!entries.length) return <Text variant="body-sm" tone="muted">None</Text>;
       return <dl className="flex min-w-0 flex-col gap-3">
