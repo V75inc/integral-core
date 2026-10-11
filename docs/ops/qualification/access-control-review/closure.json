@@ -104,7 +104,9 @@
       "status": "open",
       "description": "**Invitation authority and status can become stale.** A resource admin can issue an invite, lose all authority, and the invite still grants editor. Acceptance can observe pending, then complete after revoke has persisted. `invitations.py:371,437,477,517,763`. Probes `test_stale_inviter_still_confers_resource_grant`, `test_invite_accept_can_win_after_revoke`. Bind invitations to issuing authority and target workspace/policy revision; atomically claim pending status and materialize grants. Define authorized workspace-owner adoption of outstanding invitations.",
       "implementation": [],
-      "verification": []
+      "verification": [
+        "Current external rooted JsonDB recheck: /tmp/integral-invitation-lifecycle-current-baseline.xml, three secure assertions failed, zero setup errors. Stale issuer, revoke-before-materialize and viewer/editor receipt mismatch persist. Independent PostgreSQL lifecycle qualification still required."
+      ]
     },
     {
       "id": "AC-08",
@@ -125,7 +127,9 @@
       "status": "open",
       "description": "**Selective creation grants can be self-assigned by workspace admins.** An admin with both creation flags False can PATCH its own membership to True. `api/workspaces.py:779,791,825`; `permissions.py:210,235`. Probe `test_workspace_admin_self_assigns_creation_rights`. If administrators are intentionally allowed to do this, false flags are advisory limits. Recommended: explicit delegation permissions and ceilings, with owner-controlled grant administration.",
       "implementation": [],
-      "verification": []
+      "verification": [
+        "Current external authenticated-handler JsonDB probe: admin with both creation flags false can issue invitation granting both true. /tmp/integral-invitation-admin-ceiling-baseline.xml: one secure assertion failed, zero setup errors; outbound email mocked. Canonical issue/accept ceilings still required."
+      ]
     },
     {
       "id": "AC-10",
@@ -242,7 +246,9 @@
       "status": "open",
       "description": "**Accepted invitation metadata can overstate the resulting grant.** An existing viewer accepts an editor invitation; acceptance is saved as successful/editor while effective access remains viewer. `_materialize_invitation_grants` calls `ensure_edge`, which returns an existing edge without updating its attributes. Acceptance endpoints report the invitation's requested role rather than a verified effective result. Probe `test_accepted_invitation_reports_role_not_materialized`; `invitations.py::_materialize_invitation_grants`, `edge_upsert.py::ensure_edge`, `api/shared_with_me.py::post_accept_my_invitation`. This is a grant/receipt consistency defect, not an escalation. Define explicit existing-member/collaborator upgrade, no-op and conflict semantics, protected by version checks; never blindly overwrite newer grants.",
       "implementation": [],
-      "verification": []
+      "verification": [
+        "Current external rooted JsonDB recheck: /tmp/integral-invitation-lifecycle-current-baseline.xml, three secure assertions failed, zero setup errors. Stale issuer, revoke-before-materialize and viewer/editor receipt mismatch persist. Independent PostgreSQL lifecycle qualification still required."
+      ]
     }
   ],
   "use_cases": [
@@ -1088,13 +1094,13 @@
     }
   ],
   "qualification": {
-    "full_local_gate": "Latest saved-View milestone passed make verify: 979 smoke passes (10 skips), 1583 frontend passes, 5306 backend passes (300 skips). Final goal-wide gate remains pending.",
+    "full_local_gate": "Latest creator curation foundation passed make verify: 1096 smoke passes (10 skips), 1583 frontend passes, 5419 backend passes (300 skips). Final goal-wide gate remains pending.",
     "postgres_multiprocess": "pending",
-    "core_only_contract": "Latest saved-View milestone passed Core-only, extension, 603 focused PostgreSQL tests (zero skips), and 232 broader PostgreSQL tests (one explicit restore skip). Final goal-wide qualification remains pending.",
+    "core_only_contract": "Creator curation foundation passed Core-only; extension 52 passed / 232 skips; focused PostgreSQL 836 passed / zero skips; broader PostgreSQL passed with one explicit restore skip. Final goal-wide qualification remains pending.",
     "independent_artifacts": "pending",
     "browser_mcp": "pending",
     "migration_restore": "pending",
-    "latest_milestone": "M2-saved-view-scope-working"
+    "latest_milestone": "M2-model-creator-curation-foundation"
   },
   "milestones": [
     {
@@ -1473,7 +1479,7 @@
     },
     {
       "id": "M2-model-admission-foundation",
-      "status": "qualified_partial",
+      "status": "pushed_partial",
       "deliverable": "Canonical current Model authority and exact selected boundary admission across producers, API/authoring/library/dependency/install consumers and production membership departure",
       "invariants": [
         "Authority and access",
@@ -1494,6 +1500,46 @@
         "Immutable creation action/sentinel execution binding, definition/dependency epochs, atomic effect/release fencing and durable worker/replay authority remain open.",
         "Restore rehearsal skipped: container pg_dump could not reach host loopback database. Restore/current-authorization qualification remains open.",
         "Browser/MCP parity, clean artifact runtime flows and absent external App artifact qualification remain open."
+      ],
+      "commit": "5bac17e4b50278b6695547cda76566a9ef60a526"
+    },
+    {
+      "id": "M2-model-creator-curation-working",
+      "status": "in_progress",
+      "implementation": [
+        "Exact new private Model curator designation with typed recipient membership lifetime binding",
+        "Current structural/private/workspace admission before consuming bound grants",
+        "No implicit ordinary App curation from protected owner-only creation",
+        "Private creation field allowlist prevents caller-selected identity upsert and provenance input before writes"
+      ],
+      "verification": [
+        "Actual-store baseline: creation succeeded, subsequent authoring forbidden; one expected failure in /tmp/integral-model-creator-baseline.xml",
+        "Focused-1: 163 JSON / 163 PostgreSQL passes; focused-2: 164 JSON / 164 PostgreSQL passes after captured membership role/flag coherence guard. Zero skips/errors/failures. Full milestone gates pending.",
+        "External service-boundary baseline-2 persisted an existing private Model replacement (one failure, no setup errors); current fixed HTTP producers do not supply identity. Full-1 deliberately interrupted terminal 130 after Core-only pass; new focused-3/full qualification pending.",
+        "Focused-3: 173 JSON / 173 PostgreSQL passed, zero skips/errors/failures. Full-2 pending.",
+        "Full-2 partial gates: Core-only exit 0; extension 52 passed / 232 explicit skips, zero errors/failures; focused PostgreSQL 836 passed, zero skips/errors/failures. Broader PostgreSQL and make verify pending."
+      ],
+      "limits": [
+        "No finding or use-case closure",
+        "Legacy binding migration, suspension, multiple grant sources, creation sentinel/action binding, atomic effect/release fences and full milestone gates remain open"
+      ]
+    },
+    {
+      "id": "M2-model-creator-curation-foundation",
+      "status": "qualified_partial",
+      "evidence": [
+        "model_creator_qualification.json: all five frozen-source lanes exit zero",
+        "173 JSON / 173 PostgreSQL focused cases; 836 focused PostgreSQL full gate cases",
+        "Full backend 5419 passed / 300 skipped; smoke 1096 passed / 10 skipped; 1583 frontend tests passed",
+        "Caller-selected identity/provenance input rejected before writes; exact Model curation bound to current recipient membership lifetime"
+      ],
+      "limits": [
+        "No review finding or use-case closure; this qualifies the current creator designation and creation-identity repair slice.",
+        "Only newly issued private-library creator grants have current recipient membership lifetime binding. Legacy grants/migration, complete suspension/re-entry and multiple independent source projections remain open.",
+        "No atomic creation/revocation/effect or release fence, complete dependency/definition epoch or immutable creation action execution-binding claim.",
+        "Fresh invitation probes retain AC-07 stale issuer/revoke interleave, AC-21 effective receipt mismatch and AC-09 invitation ceiling bypass. Their next shared lifecycle repair remains required.",
+        "The required broader PostgreSQL lane retained one explicit loopback-route restore skip. External gateway round-trip evidence is recorded separately; current-revocation quarantine/restore acceptance remains open.",
+        "No GitHub CI, deployment, production migration, release or browser/MCP parity claim."
       ]
     }
   ],
