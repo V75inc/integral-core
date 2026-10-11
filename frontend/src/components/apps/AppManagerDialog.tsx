@@ -416,7 +416,7 @@ export function AppManagerDialog({
     phase === 'settings'
       ? 'Finish app setup'
       : phase === 'results'
-        ? 'Changes applied'
+        ? 'App change results'
         : 'Manage apps';
 
   const closeDialog = () => {
@@ -1069,7 +1069,7 @@ function ResultsView({
                     const denial = resolveInstallDenial(row);
                     return (
                       <li key={row.library_cp_id} className="space-y-2">
-                        <Text variant="body" tone="danger">
+                        <Text as="p" variant="body" tone="danger">
                           {row.name || row.library_cp_id} — {denial?.message || row.error}
                         </Text>
                         {denial?.actionLabel && denial.onAction ? (
@@ -1078,7 +1078,7 @@ function ResultsView({
                           </Button>
                         ) : null}
                         {row.error_code === 'app_dependency_error' ? (
-                          <Text variant="body-sm" tone="muted">
+                          <Text as="p" variant="body-sm" tone="muted">
                             Resolve the required app installation or update, then return to install this app.
                           </Text>
                         ) : null}

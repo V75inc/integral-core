@@ -421,6 +421,7 @@ describe('AppManagerDialog', () => {
     expect(
       await screen.findByText("HR Suite — Review your app access."),
     ).toBeInTheDocument();
+    expect(screen.getByText("HR Suite — Review your app access.").tagName).toBe('P');
     expect(screen.queryByText(/Raw access denial/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Review access" }));
     expect(onAction).toHaveBeenCalledTimes(1);
@@ -482,6 +483,8 @@ describe('AppManagerDialog', () => {
         /Resolve the required app installation or update/,
       ),
     ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'App change results' })).toBeInTheDocument();
+    expect(screen.getByText(/Resolve the required app installation or update/).tagName).toBe('P');
     expect(mockBatchInstall).toHaveBeenCalledTimes(1);
   });
 });
