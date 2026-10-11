@@ -1211,9 +1211,12 @@ async def test_execute_op_class_dispatches_direct_or_fails_closed(
     registry = load_manifest()
     execute_tools = [s.name for s in registry.values() if s.op_class == "execute"]
     assert execute_tools == [
-        "integral_invoke_app_operation",
         "integral_mark_notification_read",
     ], execute_tools
+    app_command = registry["integral_invoke_app_operation"]
+    assert app_command.op_class == "propose"
+    assert TOOL_BINDINGS[app_command.name].stager is not None
+    assert TOOL_BINDINGS[app_command.name].direct_ref is None
     for tool_name in execute_tools:
         binding = TOOL_BINDINGS.get(tool_name)
         assert binding is not None and binding.direct_ref is not None, binding
