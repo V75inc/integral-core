@@ -53,7 +53,7 @@ function classify(err: unknown, contextLabel?: string): {
   if (status === 408) {
     return {
       title: `Slow connection${ctx}`,
-      body: 'Request timed out. Try again.',
+      body: 'Try again when your connection improves.',
       severity: 'warning',
       skip: false,
     };
@@ -61,7 +61,7 @@ function classify(err: unknown, contextLabel?: string): {
   if (status === 429) {
     return {
       title: 'Too many requests',
-      body: 'Slow down a moment and try again.',
+      body: 'Wait a moment, then try again.',
       severity: 'warning',
       skip: false,
     };
@@ -69,7 +69,7 @@ function classify(err: unknown, contextLabel?: string): {
   if (status && status >= 500) {
     return {
       title: 'Integral is having trouble',
-      body: `Server returned ${status}${codeFromResp ? ` (${codeFromResp})` : ''}. We're on it.`,
+      body: 'Try again in a moment.',
       severity: 'error',
       skip: false,
     };
