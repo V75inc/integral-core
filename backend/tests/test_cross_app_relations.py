@@ -24,11 +24,10 @@ import pytest
 from app.exceptions import (
     AmbiguousCrossAppTargetError,
     AppUninstallBlockedError,
-    BadRequestError,
     CrossWorkspaceTargetRejectedError,
 )
-from app.models.edges import CONTAINS, REFERENCES
-from app.models.nodes import App, Entry, OperationalModel, Track, Workspace
+from app.models.edges import CONTAINS
+from app.models.nodes import App, Entry, OperationalModel, Workspace
 from app.schemas.policy import Subject
 from app.services.app_lifecycle import install_app, uninstall_app
 from app.services.relation_runtime import (
@@ -38,7 +37,8 @@ from app.services.relation_runtime import (
 )
 from app.services.walkers.cross_app_resolver import find_inbound_references
 from app.utils.time import utc_now_iso
-from tests.fixtures.workspaces import make_org_workspace
+from tests.fixtures.library_models import publish_library_manifest
+from tests.fixtures.workspaces import make_org_workspace, workspace_owner_id
 
 # ---------------------------------------------------------------------------
 # App manifest factories — minimal but realistic
@@ -202,21 +202,30 @@ async def _make_workspace(name: str = "ws-cross-app") -> Workspace:
 
 
 async def _make_library_cp(manifest: Dict[str, Any]) -> OperationalModel:
-    now = utc_now_iso()
-    return await OperationalModel.create(
-        name=manifest["package"]["name"],
-        scope="app",
+    return await publish_library_manifest(
         manifest=manifest,
-        library_package=True,
+        name=manifest["package"]["name"],
         version=manifest["package"].get("version") or "1.0.0",
-        created_at=now,
-        updated_at=now,
     )
+
+
+async def _workspace_actor(workspace_id: str) -> str:
+    workspace = await Workspace.get(workspace_id)
+    assert workspace is not None
+    return await workspace_owner_id(workspace)
+
+
+async def _app_actor(app_id: str) -> str:
+    app = await App.get(app_id)
+    assert app is not None
+    return await _workspace_actor(app.workspace_id)
 
 
 async def _install(ws_id: str, manifest: Dict[str, Any]) -> str:
     lib = await _make_library_cp(manifest)
-    result = await install_app(workspace_id=ws_id, library_cp_id=lib.id, actor_id="u_1")
+    result = await install_app(
+        workspace_id=ws_id, library_cp_id=lib.id, actor_id=await _workspace_actor(ws_id)
+    )
     assert result["status"] == "active"
     return result["app_id"]
 
@@ -230,7 +239,7 @@ async def _install_additional_copy(ws_id: str, manifest: Dict[str, Any]) -> str:
     """
     from app.services.app_graph import (
         catalog_app,
-        get_app_attached_operational_model,
+        ensure_app_attached_operational_model,
         wire_app_owner,
     )
     from app.services.operational_model_merge import (
@@ -243,7 +252,7 @@ async def _install_additional_copy(ws_id: str, manifest: Dict[str, Any]) -> str:
     app = await App.create(
         name=pkg["name"],
         name_fold=pkg["name"].casefold(),
-        owner_user_id="u_1",
+        owner_user_id=await _workspace_actor(ws_id),
         workspace_id=ws_id,
         description=pkg.get("description") or "",
         visibility="private",
@@ -255,12 +264,16 @@ async def _install_additional_copy(ws_id: str, manifest: Dict[str, Any]) -> str:
         created_at=now,
         updated_at=now,
     )
-    await wire_app_owner(app, "u_1", workspace_id=ws_id)
+    await wire_app_owner(app, await _workspace_actor(ws_id), workspace_id=ws_id)
     await catalog_app(app)
-    attached_cp = await get_app_attached_operational_model(app)
+    attached_cp = await ensure_app_attached_operational_model(app)
     if attached_cp:
         await merge_library_manifest_into_operational_model(
-            lib, attached_cp, track=None, for_space=True
+            lib,
+            attached_cp,
+            track=None,
+            for_space=True,
+            user_id=await _workspace_actor(ws_id),
         )
     return app.id
 
@@ -290,7 +303,7 @@ async def _make_entry_in_app(
         tags=[],
         custom_fields=custom_fields or {},
         track_id=target_track.id,
-        author_id="u_1",
+        author_id=await _app_actor(app_id),
         status="active",
         created_at=now,
         updated_at=now,
@@ -352,7 +365,9 @@ async def test_uninstall_blocked_by_inbound_cross_app_references():
 
     # Uninstall provider (block policy on the source field) — must 409.
     with pytest.raises(AppUninstallBlockedError) as exc_info:
-        await uninstall_app(app_id=provider_app_id, actor_id="u_1")
+        await uninstall_app(
+            app_id=provider_app_id, actor_id=await _app_actor(provider_app_id)
+        )
     details = exc_info.value.details
     blocking_refs = details.get("blocking_references", [])
     assert len(blocking_refs) == 1
@@ -374,7 +389,9 @@ async def test_uninstall_blocked_by_reference_has_no_force_bypass():
         target_app_id=provider_app_id,
     )
     with pytest.raises(AppUninstallBlockedError) as exc_info:
-        await uninstall_app(app_id=provider_app_id, actor_id="u_1")
+        await uninstall_app(
+            app_id=provider_app_id, actor_id=await _app_actor(provider_app_id)
+        )
     assert exc_info.value.details.get("blocking_references")
 
 
@@ -406,7 +423,9 @@ async def test_uninstall_null_cascade_clears_source_field():
     )
 
     # Uninstall provider — null policy clears the source field.
-    out = await uninstall_app(app_id=provider_app_id, actor_id="u_1")
+    out = await uninstall_app(
+        app_id=provider_app_id, actor_id=await _app_actor(provider_app_id)
+    )
     assert out["status"] == "uninstalled"
 
     refreshed = await Entry.get(pay_run.id)
@@ -440,7 +459,9 @@ async def test_uninstall_archive_self_cascade_archives_source_entry():
         target_app_id=provider_app_id,
     )
 
-    out = await uninstall_app(app_id=provider_app_id, actor_id="u_1")
+    out = await uninstall_app(
+        app_id=provider_app_id, actor_id=await _app_actor(provider_app_id)
+    )
     assert out["status"] == "uninstalled"
 
     refreshed = await Entry.get(pay_run.id)
@@ -580,7 +601,9 @@ async def test_three_app_dependency_chain_blocks_provider_uninstall_via_both():
     await _install(ws.id, _consumer_manifest("block"))
     await _install(ws.id, _downstream_manifest())
     with pytest.raises(AppUninstallBlockedError) as exc_info:
-        await uninstall_app(app_id=provider_app_id, actor_id="u_1")
+        await uninstall_app(
+            app_id=provider_app_id, actor_id=await _app_actor(provider_app_id)
+        )
     deps = exc_info.value.details.get("blocking_dependents", [])
     # Both consumer and downstream declare provider_app as a hard dep.
     dep_app_names = {d["app_name"] for d in deps}
@@ -634,6 +657,10 @@ def test_label_field_single_source_grep_gate():
         "app/services/operational_model_compile.py",
         "app/schemas/cross_app_relations.py",
         "app/models/edges.py",
+        # Reviewed declarations only: region manifest/schema descriptions never
+        # hydrate target field content; migration rewrites config field names.
+        "app/plugins/region_system/__init__.py",
+        "app/services/operational_model_migrations.py",
     }
     forbidden = []
     for path in hits:

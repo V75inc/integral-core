@@ -42,3 +42,12 @@ async def make_org_workspace(
     await catalog_user(owner)
     await owner.connect(ws, edge=IS_MEMBER_OF, role="owner", joined_at=now)
     return ws
+
+
+async def workspace_owner_id(workspace: Workspace) -> str:
+    """Use the fixture's actual current graph owner rather than a placeholder."""
+    from app.services.workspace_permissions import get_workspace_owner_user_id
+
+    owner_id = await get_workspace_owner_user_id(workspace.id)
+    assert owner_id is not None
+    return owner_id

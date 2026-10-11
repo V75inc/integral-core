@@ -26,14 +26,17 @@ from app.services.app_graph import (
 from app.services.app_lifecycle import install_app, pause_app, resume_app, uninstall_app
 from app.services.app_operations.context import OperationContext
 from app.services.app_operations.dispatch import invoke_app_operation
-from app.services.hooks.registry import get_workspace_tools
+from app.services.hooks.registry import (
+    get_workspace_tools,
+    unregister_bundle_registrations,
+)
 from app.services.hooks.tool_dispatch import run_tool
 from app.services.operational_model_loader import (
     load_library_operational_models_with_issues,
 )
 from app.services.permissions import get_user_accessible_apps
 from tests.contract.asset_register_helpers import seed_asset_register_library_cp
-from tests.fixtures.workspaces import make_org_workspace
+from tests.fixtures.workspaces import make_org_workspace, workspace_owner_id
 
 REPO = Path(__file__).resolve().parents[3]
 BUILD_SCRIPT = REPO / "examples" / "asset-register" / "build.py"
@@ -146,7 +149,7 @@ async def test_extracted_asset_register_materializes_its_warranty_schedule(
     installed = await install_app(
         workspace_id=workspace.id,
         library_cp_id=library_cp.id,
-        actor_id="u_archive_warranty",
+        actor_id=await workspace_owner_id(workspace),
         include_seed_data=False,
     )
     routines = await RoutineTask.find({"source_app_id": installed["app_id"]})
@@ -206,14 +209,13 @@ async def test_extracted_asset_register_rehydrates_tools_without_duplicate_sched
     )
     from app.agentive.nodes import RoutineTask
     from app.services.hooks.install_hook import rehydrate_all_installed_bundles
-    from app.services.hooks.registry import unregister_bundle_registrations
 
     workspace = await make_org_workspace("ws-archive-rehydrate")
     library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
     installed = await install_app(
         workspace_id=workspace.id,
         library_cp_id=library_cp.id,
-        actor_id="u_archive_rehydrate",
+        actor_id=await workspace_owner_id(workspace),
         include_seed_data=False,
     )
     original_routines = await RoutineTask.find({"source_app_id": installed["app_id"]})
@@ -248,7 +250,6 @@ async def test_c6_a13_populated_upgrade_fences_due_work_across_restart_and_unins
 
     from app.agentive.nodes import RoutineTask
     from app.services.app_lifecycle import update_app_from_library
-    from app.services.hooks.registry import unregister_bundle_registrations
     from app.services.operational_model_loader import compute_bundle_fingerprint
     from app.services.routine_task_scheduler import run_scheduler_pass
     from app.utils.time import utc_now_iso
@@ -359,7 +360,7 @@ import asyncio, json, os
 from app.agentive.nodes import RoutineTask
 from app.models.nodes import App
 from app.services.hooks.install_hook import rehydrate_all_installed_bundles
-from app.services.hooks.registry import get_workspace_tools
+from app.services.hooks.registry import get_workspace_tools, unregister_bundle_registrations
 import app.services.routine_task_scheduler as scheduler
 from app.services.routine_task_scheduler import run_scheduler_pass
 

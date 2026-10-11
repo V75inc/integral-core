@@ -19,8 +19,6 @@ Coverage:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 import pytest
 
 # Module-level top-of-file imports kept minimal so test collection in
@@ -72,23 +70,17 @@ async def _seed_library_space_package(name: str = "Onboarding Test App") -> str:
     space provisioner doesn't fan out to additional tracks beyond what the
     tool itself creates.
     """
-    from app.models.nodes import OperationalModel
+    from tests.fixtures.library_models import publish_library_manifest
 
-    now = datetime.now(timezone.utc).isoformat()
-    cp = await OperationalModel.create(
+    cp = await publish_library_manifest(
         name=name,
-        name_fold=name.casefold(),
         version="0.0.1",
+        description="Test library package for onboarding flow.",
         manifest={
             "scope": "app",
             "operational_model_schema_version": 2,
             "app": {"tracks": [], "relations": []},
         },
-        scope="app",
-        library_package=True,
-        description="Test library package for onboarding flow.",
-        created_at=now,
-        updated_at=now,
     )
     return cp.id
 

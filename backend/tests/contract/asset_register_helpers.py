@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Dict
 
@@ -10,7 +11,7 @@ from app.models.nodes import OperationalModel
 from app.services.operational_model_loader import (
     load_library_operational_models_with_issues,
 )
-from app.utils.time import utc_now_iso
+from tests.fixtures.library_models import publish_library_spec
 
 REPO = Path(__file__).resolve().parents[3]
 ASSET_APP = REPO / "examples" / "asset-register"
@@ -38,23 +39,12 @@ async def seed_asset_register_library_cp(
         manifest.update(manifest_override)
     manifest.setdefault("package", {})
     manifest["package"]["version"] = version
-    now = utc_now_iso()
-    return await OperationalModel.create(
-        name=spec.name or "Asset Register",
-        scope="app",
-        manifest=manifest,
-        library_package=True,
-        version=version,
-        metadata={
-            "slug": spec.slug,
-            "bundle_fingerprint": getattr(spec, "bundle_fingerprint", "") or "test-fp",
-            "package_class": spec.package_class,
-            "bundle_dir_path": (
-                str(spec.bundle_dir)
-                if spec.bundle_dir
-                else str(bundle_dir or ASSET_APP)
-            ),
-        },
-        created_at=now,
-        updated_at=now,
+    return await publish_library_spec(
+        replace(
+            spec,
+            manifest=manifest,
+            version=version,
+            bundle_fingerprint=spec.bundle_fingerprint or "test-fp",
+            bundle_dir=spec.bundle_dir or bundle_dir or ASSET_APP,
+        )
     )

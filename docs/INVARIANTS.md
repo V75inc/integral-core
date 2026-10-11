@@ -38,6 +38,16 @@ authority. Missing, ambiguous or conflicting scope facts withhold access.
 Legacy saved Views receive scope edges only after a unique structural path is
 proven; scalar IDs alone cannot resolve a shared-model ambiguity.
 
+OperationalModel authority follows current named attachments, draft links and
+template definitions into the canonical root. Explicitly shared models validate
+their complete parent set within one workspace; mutations require configuration
+authority over every affected parent. Draft/source and ownership caches are
+checked against those paths rather than granting authority themselves. Consumed
+versions retain current parent-based read access but do not regain mutable
+configuration authority. Public library publication and private library ownership
+are separate named contracts; global catalog membership or an absent workspace
+cache cannot declare a private model public.
+
 ### I-ROLE-01 — Five-Tier Role Ladder (`role-ladder-five-tier`)
 
 **Statement.** `COLLABORATES_ON.role` accepts exactly five values, ordered

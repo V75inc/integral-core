@@ -142,7 +142,9 @@ async def enqueue_install_work(
             message=f"OperationalModel {library_cp_id!r} is not a library package",
             details={"library_cp_id": library_cp_id},
         )
-    await assert_library_package_installable_in_workspace(library_cp, workspace_id)
+    library_cp = await assert_library_package_installable_in_workspace(
+        library_cp, workspace_id, user_id=actor_id
+    )
 
     # One in-flight install per package is the point of the key (a double click
     # reuses it). A FINISHED install must not block installing again later, e.g.
@@ -446,7 +448,9 @@ async def install_app(
     )
     from app.services.package_trust import assert_library_artifact_trusted
 
-    await assert_library_package_installable_in_workspace(library_cp, workspace_id)
+    library_cp = await assert_library_package_installable_in_workspace(
+        library_cp, workspace_id, user_id=actor_id
+    )
     assert_library_artifact_trusted(library_cp)
 
     manifest = library_cp.manifest or {}
@@ -685,7 +689,7 @@ async def install_app(
                 details={"app_id": app_node.id},
             )
         await merge_library_manifest_into_operational_model(
-            library_cp, attached_cp, track=None, for_space=True
+            library_cp, attached_cp, track=None, for_space=True, user_id=actor_id
         )
 
         # Materialize Tracks (uses the merged manifest).
@@ -1616,15 +1620,14 @@ async def update_app_from_library(
     )
 
     migration_safety = await assert_package_upgrade_migration_safe(
-        attached_profile=attached_cp,
-        library_profile=library_cp,
+        attached_profile=attached_cp, library_profile=library_cp, user_id=actor_id
     )
     version_before = app_node.version
     fingerprint_before = getattr(app_node, "installed_artifact_fingerprint", None)
     manifest_snapshot = dict(getattr(attached_cp, "manifest", None) or {})
     try:
         await merge_library_manifest_into_operational_model(
-            library_cp, attached_cp, track=None, for_space=True
+            library_cp, attached_cp, track=None, for_space=True, user_id=actor_id
         )
     except Exception as exc:
         # F0 rollback: restore prior attached manifest + fingerprint.

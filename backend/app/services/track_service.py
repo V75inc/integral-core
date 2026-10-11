@@ -280,7 +280,7 @@ async def create_track_in_space(
         if not tcp:
             raise BadRequestError(message="Track operational model missing")
         await merge_library_manifest_into_operational_model(
-            lib, tcp, track, for_space=False
+            lib, tcp, track, for_space=False, user_id=user_id
         )
         track.library_merge_source_id = library_operational_model_id
         await track.save()

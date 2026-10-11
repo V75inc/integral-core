@@ -20,7 +20,6 @@ seeded-package coupling).
 
 from __future__ import annotations
 
-import os
 from typing import Any, Dict
 
 import pytest
@@ -28,10 +27,8 @@ import pytest
 from app.exceptions import (
     AppDependencyError,
     AppInstallTokenExpiredError,
-    AppInstallTokenInvalidError,
     AppLifecycleStateError,
     AppUninstallBlockedError,
-    BadRequestError,
     OperationalModelValidationError,
 )
 from app.models.edges import CONTAINS, HAS_APPLICATION_DEFINITION
@@ -41,14 +38,11 @@ from app.models.nodes import (
     Entry,
     EntryType,
     OperationalModel,
-    Track,
-    User,
     Workspace,
 )
 from app.services.app_install_reaper import run_reaper_pass
 from app.services.app_install_token import (
     issue_install_token,
-    verify_install_token,
 )
 from app.services.app_lifecycle import (
     InstallTransaction,
@@ -62,7 +56,7 @@ from app.services.app_lifecycle import (
     update_app_settings,
 )
 from app.utils.time import utc_now_iso
-from tests.fixtures.workspaces import make_org_workspace
+from tests.fixtures.workspaces import make_org_workspace, workspace_owner_id
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
@@ -158,15 +152,12 @@ def _minimal_app_manifest(
 
 async def _make_library_cp(manifest: Dict[str, Any]) -> OperationalModel:
     """Create a library-package OperationalModel row carrying ``manifest``."""
-    now = utc_now_iso()
-    return await OperationalModel.create(
-        name=manifest["package"]["name"],
-        scope="app",
+    from tests.fixtures.library_models import publish_library_manifest
+
+    return await publish_library_manifest(
         manifest=manifest,
-        library_package=True,
+        name=manifest["package"]["name"],
         version=manifest["package"].get("version") or "1.0.0",
-        created_at=now,
-        updated_at=now,
     )
 
 
@@ -217,10 +208,13 @@ async def test_install_transaction_empty_compensate_is_noop():
 @pytest.mark.asyncio
 async def test_install_with_no_settings_schema_completes_immediately():
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     manifest = _minimal_app_manifest(package_name="basic-app")
     lib = await _make_library_cp(manifest)
 
-    result = await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id="u_1")
+    result = await install_app(
+        workspace_id=ws.id, library_cp_id=lib.id, actor_id=lifecycle_actor_id
+    )
     assert result["status"] == "active"
     assert result["app_id"]
     assert result["installed_at"]
@@ -257,12 +251,15 @@ async def test_install_with_no_settings_schema_completes_immediately():
 @pytest.mark.asyncio
 async def test_install_with_settings_schema_pauses_at_step_9():
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     manifest = _minimal_app_manifest(
         package_name="settings-app", with_settings_schema=True
     )
     lib = await _make_library_cp(manifest)
 
-    result = await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id="u_1")
+    result = await install_app(
+        workspace_id=ws.id, library_cp_id=lib.id, actor_id=lifecycle_actor_id
+    )
     assert result["status"] == "awaiting_settings"
     assert result["install_token"]
     assert "publish_cadence" in (result["settings_schema"] or {}).get("properties", {})
@@ -274,6 +271,7 @@ async def test_install_with_settings_schema_pauses_at_step_9():
 @pytest.mark.asyncio
 async def test_install_with_settings_pre_supplied_skips_pause():
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     manifest = _minimal_app_manifest(
         package_name="pre-supplied-app", with_settings_schema=True
     )
@@ -282,7 +280,7 @@ async def test_install_with_settings_pre_supplied_skips_pause():
     result = await install_app(
         workspace_id=ws.id,
         library_cp_id=lib.id,
-        actor_id="u_1",
+        actor_id=lifecycle_actor_id,
         settings={"publish_cadence": "weekly"},
     )
     assert result["status"] == "active"
@@ -298,19 +296,22 @@ async def test_install_with_settings_pre_supplied_skips_pause():
 @pytest.mark.asyncio
 async def test_resume_install_with_valid_token_completes():
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     manifest = _minimal_app_manifest(
         package_name="resume-ok", with_settings_schema=True
     )
     lib = await _make_library_cp(manifest)
 
-    first = await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id="u_1")
+    first = await install_app(
+        workspace_id=ws.id, library_cp_id=lib.id, actor_id=lifecycle_actor_id
+    )
     assert first["status"] == "awaiting_settings"
 
     second = await finalize_install(
         app_id=first["app_id"],
         install_token=first["install_token"],
         settings={"publish_cadence": "daily"},
-        actor_id="u_1",
+        actor_id=lifecycle_actor_id,
     )
     assert second["status"] == "active"
     app = await App.get(first["app_id"])
@@ -321,12 +322,15 @@ async def test_resume_install_with_valid_token_completes():
 @pytest.mark.asyncio
 async def test_resume_install_with_expired_token_rejected():
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     manifest = _minimal_app_manifest(
         package_name="resume-expired", with_settings_schema=True
     )
     lib = await _make_library_cp(manifest)
 
-    first = await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id="u_1")
+    first = await install_app(
+        workspace_id=ws.id, library_cp_id=lib.id, actor_id=lifecycle_actor_id
+    )
     # Mint a fresh expired token for this app_id, replacing the in-flight one.
     expired = issue_install_token(first["app_id"], ttl_hours=-1 / 3600.0)
     with pytest.raises(AppInstallTokenExpiredError):
@@ -334,7 +338,7 @@ async def test_resume_install_with_expired_token_rejected():
             app_id=first["app_id"],
             install_token=expired,
             settings={"publish_cadence": "weekly"},
-            actor_id="u_1",
+            actor_id=lifecycle_actor_id,
         )
 
 
@@ -342,17 +346,20 @@ async def test_resume_install_with_expired_token_rejected():
 async def test_resume_install_replay_rejected_after_active():
     """Token replay against an already-active App raises AppLifecycleStateError."""
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     manifest = _minimal_app_manifest(
         package_name="replay-app", with_settings_schema=True
     )
     lib = await _make_library_cp(manifest)
 
-    first = await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id="u_1")
+    first = await install_app(
+        workspace_id=ws.id, library_cp_id=lib.id, actor_id=lifecycle_actor_id
+    )
     await finalize_install(
         app_id=first["app_id"],
         install_token=first["install_token"],
         settings={"publish_cadence": "weekly"},
-        actor_id="u_1",
+        actor_id=lifecycle_actor_id,
     )
     # Replay the same token after the App is active.
     with pytest.raises(AppLifecycleStateError):
@@ -360,25 +367,28 @@ async def test_resume_install_replay_rejected_after_active():
             app_id=first["app_id"],
             install_token=first["install_token"],
             settings={"publish_cadence": "daily"},
-            actor_id="u_1",
+            actor_id=lifecycle_actor_id,
         )
 
 
 @pytest.mark.asyncio
 async def test_resume_install_with_invalid_settings_rejected():
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     manifest = _minimal_app_manifest(
         package_name="bad-settings", with_settings_schema=True
     )
     lib = await _make_library_cp(manifest)
-    first = await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id="u_1")
+    first = await install_app(
+        workspace_id=ws.id, library_cp_id=lib.id, actor_id=lifecycle_actor_id
+    )
     # publish_cadence must be one of ["weekly", "daily"]
     with pytest.raises(OperationalModelValidationError):
         await finalize_install(
             app_id=first["app_id"],
             install_token=first["install_token"],
             settings={"publish_cadence": "monthly"},
-            actor_id="u_1",
+            actor_id=lifecycle_actor_id,
         )
 
 
@@ -390,6 +400,7 @@ async def test_resume_install_with_invalid_settings_rejected():
 @pytest.mark.asyncio
 async def test_settings_round_trip():
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     manifest = _minimal_app_manifest(
         package_name="settings-rt", with_settings_schema=True
     )
@@ -397,13 +408,13 @@ async def test_settings_round_trip():
     first = await install_app(
         workspace_id=ws.id,
         library_cp_id=lib.id,
-        actor_id="u_1",
+        actor_id=lifecycle_actor_id,
         settings={"publish_cadence": "weekly"},
     )
     out = await update_app_settings(
         app_id=first["app_id"],
         settings={"publish_cadence": "daily"},
-        actor_id="u_1",
+        actor_id=lifecycle_actor_id,
     )
     assert out["settings"] == {"publish_cadence": "daily"}
     app = await App.get(first["app_id"])
@@ -413,6 +424,7 @@ async def test_settings_round_trip():
 @pytest.mark.asyncio
 async def test_settings_validation_against_schema():
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     manifest = _minimal_app_manifest(
         package_name="settings-validate", with_settings_schema=True
     )
@@ -420,14 +432,14 @@ async def test_settings_validation_against_schema():
     first = await install_app(
         workspace_id=ws.id,
         library_cp_id=lib.id,
-        actor_id="u_1",
+        actor_id=lifecycle_actor_id,
         settings={"publish_cadence": "weekly"},
     )
     with pytest.raises(OperationalModelValidationError):
         await update_app_settings(
             app_id=first["app_id"],
             settings={"publish_cadence": "monthly"},
-            actor_id="u_1",
+            actor_id=lifecycle_actor_id,
         )
 
 
@@ -481,9 +493,12 @@ def test_apply_schema_defaults_fills_missing_and_preserves_caller_values():
 @pytest.mark.asyncio
 async def test_seeds_planted_on_install():
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     manifest = _minimal_app_manifest(package_name="seeds-app", with_seeds=True)
     lib = await _make_library_cp(manifest)
-    result = await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id="u_1")
+    result = await install_app(
+        workspace_id=ws.id, library_cp_id=lib.id, actor_id=lifecycle_actor_id
+    )
     app = await App.get(result["app_id"])
     tracks = await app.nodes(edge=[CONTAINS], node=["Track"])
     assert len(tracks) >= 1
@@ -505,9 +520,12 @@ async def test_seeds_repair_mistyped_entries_on_replant():
     from app.services.operational_model_runtime import compile_canonical_manifest
 
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     manifest = _minimal_app_manifest(package_name="seeds-retype", with_seeds=True)
     lib = await _make_library_cp(manifest)
-    result = await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id="u_1")
+    result = await install_app(
+        workspace_id=ws.id, library_cp_id=lib.id, actor_id=lifecycle_actor_id
+    )
     app = await App.get(result["app_id"])
     track = (await app.nodes(edge=[CONTAINS], node=["Track"]))[0]
     canonical = compile_canonical_manifest(manifest=manifest)
@@ -522,7 +540,7 @@ async def test_seeds_repair_mistyped_entries_on_replant():
     legacy.type_id = ""
     await legacy.save()
 
-    await _plant_seeds(app, canonical, "u_1")
+    await _plant_seeds(app, canonical, lifecycle_actor_id)
     refreshed = await Entry.get(legacy.id)
     assert refreshed is not None
     assert refreshed.type_id == expected_type_id
@@ -531,6 +549,7 @@ async def test_seeds_repair_mistyped_entries_on_replant():
 @pytest.mark.asyncio
 async def test_install_idempotent_when_bundle_already_active():
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     manifest = _minimal_app_manifest(
         package_name="idem-app",
         with_settings_schema=True,
@@ -541,14 +560,14 @@ async def test_install_idempotent_when_bundle_already_active():
     first = await install_app(
         workspace_id=ws.id,
         library_cp_id=lib.id,
-        actor_id="u_1",
+        actor_id=lifecycle_actor_id,
         settings={"publish_cadence": "weekly"},
     )
     assert first["status"] == "active"
     second = await install_app(
         workspace_id=ws.id,
         library_cp_id=lib.id,
-        actor_id="u_1",
+        actor_id=lifecycle_actor_id,
         settings={"publish_cadence": "weekly"},
     )
     assert second["status"] == "active"
@@ -561,6 +580,7 @@ async def test_install_idempotent_when_bundle_already_active():
 async def test_install_purges_duplicate_bundle_apps():
     """Re-installing a bundle removes stray duplicate Apps in the workspace."""
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     manifest = _minimal_app_manifest(
         package_name="Fixed Asset Management",
         with_seeds=False,
@@ -574,7 +594,7 @@ async def test_install_purges_duplicate_bundle_apps():
             name_fold="fixed asset management",
             workspace_id=ws.id,
             lifecycle_state="active",
-            owner_user_id="u_1",
+            owner_user_id=lifecycle_actor_id,
             created_at=now,
             updated_at=now,
         )
@@ -582,7 +602,7 @@ async def test_install_purges_duplicate_bundle_apps():
     result = await install_app(
         workspace_id=ws.id,
         library_cp_id=lib.id,
-        actor_id="u_1",
+        actor_id=lifecycle_actor_id,
     )
     assert result["status"] == "active"
 
@@ -596,13 +616,14 @@ async def test_install_purges_duplicate_bundle_apps():
 async def test_install_idempotent_replants_and_repairs_seed_types():
     """Re-installing an active bundle re-runs seed planting and fixes entry types."""
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     manifest = _minimal_app_manifest(package_name="replant-app", with_seeds=True)
     manifest["package"]["slug"] = "replant-app"
     lib = await _make_library_cp(manifest)
     first = await install_app(
         workspace_id=ws.id,
         library_cp_id=lib.id,
-        actor_id="u_1",
+        actor_id=lifecycle_actor_id,
     )
     app = await App.get(first["app_id"])
     track = (await app.nodes(edge=[CONTAINS], node=["Track"]))[0]
@@ -626,7 +647,7 @@ async def test_install_idempotent_replants_and_repairs_seed_types():
     second = await install_app(
         workspace_id=ws.id,
         library_cp_id=lib.id,
-        actor_id="u_1",
+        actor_id=lifecycle_actor_id,
     )
     assert second["app_id"] == first["app_id"]
     refreshed = await Entry.get(legacy.id)
@@ -642,13 +663,16 @@ async def test_seeds_idempotent_via_deterministic_id():
     from app.services.operational_model_runtime import compile_canonical_manifest
 
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     manifest = _minimal_app_manifest(package_name="seeds-idemp", with_seeds=True)
     lib = await _make_library_cp(manifest)
-    result = await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id="u_1")
+    result = await install_app(
+        workspace_id=ws.id, library_cp_id=lib.id, actor_id=lifecycle_actor_id
+    )
     app = await App.get(result["app_id"])
     canonical = compile_canonical_manifest(manifest=manifest)
     # Call _plant_seeds again — should plant zero new entries.
-    n = await _plant_seeds(app, canonical, "u_1")
+    n = await _plant_seeds(app, canonical, lifecycle_actor_id)
     assert n == 0
 
 
@@ -660,28 +684,34 @@ async def test_seeds_idempotent_via_deterministic_id():
 @pytest.mark.asyncio
 async def test_pause_then_resume():
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     manifest = _minimal_app_manifest(package_name="pause-resume")
     lib = await _make_library_cp(manifest)
-    result = await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id="u_1")
-    paused = await pause_app(app_id=result["app_id"], actor_id="u_1")
+    result = await install_app(
+        workspace_id=ws.id, library_cp_id=lib.id, actor_id=lifecycle_actor_id
+    )
+    paused = await pause_app(app_id=result["app_id"], actor_id=lifecycle_actor_id)
     assert paused["status"] == "paused"
     app = await App.get(result["app_id"])
     assert app.lifecycle_state == "paused"
-    resumed = await resume_app(app_id=result["app_id"], actor_id="u_1")
+    resumed = await resume_app(app_id=result["app_id"], actor_id=lifecycle_actor_id)
     assert resumed["status"] == "active"
 
 
 @pytest.mark.asyncio
 async def test_pause_rejects_non_active_state():
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     manifest = _minimal_app_manifest(
         package_name="pause-bad", with_settings_schema=True
     )
     lib = await _make_library_cp(manifest)
     # App is in awaiting_settings, not active.
-    result = await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id="u_1")
+    result = await install_app(
+        workspace_id=ws.id, library_cp_id=lib.id, actor_id=lifecycle_actor_id
+    )
     with pytest.raises(AppLifecycleStateError):
-        await pause_app(app_id=result["app_id"], actor_id="u_1")
+        await pause_app(app_id=result["app_id"], actor_id=lifecycle_actor_id)
 
 
 # ---------------------------------------------------------------------------
@@ -692,10 +722,13 @@ async def test_pause_rejects_non_active_state():
 @pytest.mark.asyncio
 async def test_uninstall_archives_by_default():
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     manifest = _minimal_app_manifest(package_name="uninstall-archive")
     lib = await _make_library_cp(manifest)
-    result = await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id="u_1")
-    out = await uninstall_app(app_id=result["app_id"], actor_id="u_1")
+    result = await install_app(
+        workspace_id=ws.id, library_cp_id=lib.id, actor_id=lifecycle_actor_id
+    )
+    out = await uninstall_app(app_id=result["app_id"], actor_id=lifecycle_actor_id)
     assert out["status"] == "uninstalled"
     assert out["archived"] is True
     # App row should still exist with lifecycle_state="uninstalled".
@@ -708,10 +741,15 @@ async def test_uninstall_archives_by_default():
 async def test_uninstall_purge_archives_false():
     """archive=False hard-purges; status remains uninstalled (no force path)."""
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     manifest = _minimal_app_manifest(package_name="uninstall-purge")
     lib = await _make_library_cp(manifest)
-    result = await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id="u_1")
-    out = await uninstall_app(app_id=result["app_id"], actor_id="u_1", archive=False)
+    result = await install_app(
+        workspace_id=ws.id, library_cp_id=lib.id, actor_id=lifecycle_actor_id
+    )
+    out = await uninstall_app(
+        app_id=result["app_id"], actor_id=lifecycle_actor_id, archive=False
+    )
     assert out["status"] == "uninstalled"
     assert out["archived"] is False
 
@@ -720,13 +758,16 @@ async def test_uninstall_purge_archives_false():
 async def test_uninstall_in_awaiting_settings_succeeds():
     """Uninstall during awaiting_settings uses the normal uninstalled status."""
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     manifest = _minimal_app_manifest(
         package_name="aw-uninstall", with_settings_schema=True
     )
     lib = await _make_library_cp(manifest)
-    result = await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id="u_1")
+    result = await install_app(
+        workspace_id=ws.id, library_cp_id=lib.id, actor_id=lifecycle_actor_id
+    )
     assert result["status"] == "awaiting_settings"
-    out = await uninstall_app(app_id=result["app_id"], actor_id="u_1")
+    out = await uninstall_app(app_id=result["app_id"], actor_id=lifecycle_actor_id)
     assert out["status"] == "uninstalled"
 
 
@@ -734,6 +775,7 @@ async def test_uninstall_in_awaiting_settings_succeeds():
 async def test_uninstall_blocked_by_hard_dep():
     """Installing a dependent then uninstalling the dependency is always blocked."""
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     dep_manifest = _minimal_app_manifest(package_name="dep-app")
     dep_lib = await _make_library_cp(dep_manifest)
     dependent_manifest = _minimal_app_manifest(
@@ -743,18 +785,18 @@ async def test_uninstall_blocked_by_hard_dep():
     dependent_lib = await _make_library_cp(dependent_manifest)
 
     dep_result = await install_app(
-        workspace_id=ws.id, library_cp_id=dep_lib.id, actor_id="u_1"
+        workspace_id=ws.id, library_cp_id=dep_lib.id, actor_id=lifecycle_actor_id
     )
     dependent_result = await install_app(
-        workspace_id=ws.id, library_cp_id=dependent_lib.id, actor_id="u_1"
+        workspace_id=ws.id, library_cp_id=dependent_lib.id, actor_id=lifecycle_actor_id
     )
     assert dependent_result["status"] == "active"
 
     with pytest.raises(AppUninstallBlockedError):
-        await uninstall_app(app_id=dep_result["app_id"], actor_id="u_1")
+        await uninstall_app(app_id=dep_result["app_id"], actor_id=lifecycle_actor_id)
     # Still blocked on retry — no force bypass.
     with pytest.raises(AppUninstallBlockedError):
-        await uninstall_app(app_id=dep_result["app_id"], actor_id="u_1")
+        await uninstall_app(app_id=dep_result["app_id"], actor_id=lifecycle_actor_id)
 
 
 @pytest.mark.asyncio
@@ -763,6 +805,7 @@ async def test_uninstall_preflight_reports_dependents_and_entries():
     from app.services.app_lifecycle import get_uninstall_preflight
 
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     dep_manifest = _minimal_app_manifest(package_name="pf-dep")
     dep_lib = await _make_library_cp(dep_manifest)
     dependent_manifest = _minimal_app_manifest(
@@ -772,10 +815,10 @@ async def test_uninstall_preflight_reports_dependents_and_entries():
     dependent_lib = await _make_library_cp(dependent_manifest)
 
     dep_result = await install_app(
-        workspace_id=ws.id, library_cp_id=dep_lib.id, actor_id="u_1"
+        workspace_id=ws.id, library_cp_id=dep_lib.id, actor_id=lifecycle_actor_id
     )
     await install_app(
-        workspace_id=ws.id, library_cp_id=dependent_lib.id, actor_id="u_1"
+        workspace_id=ws.id, library_cp_id=dependent_lib.id, actor_id=lifecycle_actor_id
     )
 
     pf = await get_uninstall_preflight(dep_result["app_id"])
@@ -786,7 +829,7 @@ async def test_uninstall_preflight_reports_dependents_and_entries():
     leaf_manifest = _minimal_app_manifest(package_name="pf-leaf")
     leaf_lib = await _make_library_cp(leaf_manifest)
     leaf = await install_app(
-        workspace_id=ws.id, library_cp_id=leaf_lib.id, actor_id="u_1"
+        workspace_id=ws.id, library_cp_id=leaf_lib.id, actor_id=lifecycle_actor_id
     )
     pf_leaf = await get_uninstall_preflight(leaf["app_id"])
     assert pf_leaf["can_uninstall"] is True
@@ -798,6 +841,7 @@ async def test_uninstall_preflight_reports_dependents_and_entries():
 async def test_pause_provider_is_blocked_while_hard_dependent_is_active():
     """A Payroll-like consumer cannot remain active after HR is paused."""
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     provider_lib = await _make_library_cp(_minimal_app_manifest(package_name="hr"))
     consumer_lib = await _make_library_cp(
         _minimal_app_manifest(
@@ -806,20 +850,20 @@ async def test_pause_provider_is_blocked_while_hard_dependent_is_active():
         )
     )
     provider = await install_app(
-        workspace_id=ws.id, library_cp_id=provider_lib.id, actor_id="u_1"
+        workspace_id=ws.id, library_cp_id=provider_lib.id, actor_id=lifecycle_actor_id
     )
     consumer = await install_app(
-        workspace_id=ws.id, library_cp_id=consumer_lib.id, actor_id="u_1"
+        workspace_id=ws.id, library_cp_id=consumer_lib.id, actor_id=lifecycle_actor_id
     )
 
     with pytest.raises(AppLifecycleStateError) as exc_info:
-        await pause_app(app_id=provider["app_id"], actor_id="u_1")
+        await pause_app(app_id=provider["app_id"], actor_id=lifecycle_actor_id)
     assert (
         exc_info.value.details["blocking_dependents"][0]["app_id"] == consumer["app_id"]
     )
 
-    await pause_app(app_id=consumer["app_id"], actor_id="u_1")
-    assert (await pause_app(app_id=provider["app_id"], actor_id="u_1"))[
+    await pause_app(app_id=consumer["app_id"], actor_id=lifecycle_actor_id)
+    assert (await pause_app(app_id=provider["app_id"], actor_id=lifecycle_actor_id))[
         "status"
     ] == "paused"
 
@@ -828,6 +872,7 @@ async def test_pause_provider_is_blocked_while_hard_dependent_is_active():
 async def test_resume_dependent_requires_active_provider():
     """A paused dependent cannot resume if its hard provider is unavailable."""
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     provider_lib = await _make_library_cp(
         _minimal_app_manifest(package_name="hr-resume")
     )
@@ -838,27 +883,28 @@ async def test_resume_dependent_requires_active_provider():
         )
     )
     provider = await install_app(
-        workspace_id=ws.id, library_cp_id=provider_lib.id, actor_id="u_1"
+        workspace_id=ws.id, library_cp_id=provider_lib.id, actor_id=lifecycle_actor_id
     )
     consumer = await install_app(
-        workspace_id=ws.id, library_cp_id=consumer_lib.id, actor_id="u_1"
+        workspace_id=ws.id, library_cp_id=consumer_lib.id, actor_id=lifecycle_actor_id
     )
-    await pause_app(app_id=consumer["app_id"], actor_id="u_1")
-    await pause_app(app_id=provider["app_id"], actor_id="u_1")
+    await pause_app(app_id=consumer["app_id"], actor_id=lifecycle_actor_id)
+    await pause_app(app_id=provider["app_id"], actor_id=lifecycle_actor_id)
 
     with pytest.raises(AppDependencyError):
-        await resume_app(app_id=consumer["app_id"], actor_id="u_1")
+        await resume_app(app_id=consumer["app_id"], actor_id=lifecycle_actor_id)
 
 
 @pytest.mark.asyncio
 async def test_active_definition_records_satisfied_dependency_evidence():
     """An active App definition names the exact active dependency it relies on."""
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     dependency_lib = await _make_library_cp(
         _minimal_app_manifest(package_name="definition-dependency", version="2.1.0")
     )
     dependency = await install_app(
-        workspace_id=ws.id, library_cp_id=dependency_lib.id, actor_id="u_1"
+        workspace_id=ws.id, library_cp_id=dependency_lib.id, actor_id=lifecycle_actor_id
     )
     dependent_lib = await _make_library_cp(
         _minimal_app_manifest(
@@ -874,7 +920,7 @@ async def test_active_definition_records_satisfied_dependency_evidence():
     )
 
     dependent = await install_app(
-        workspace_id=ws.id, library_cp_id=dependent_lib.id, actor_id="u_1"
+        workspace_id=ws.id, library_cp_id=dependent_lib.id, actor_id=lifecycle_actor_id
     )
     app = await App.get(dependent["app_id"])
     assert app is not None
@@ -897,6 +943,7 @@ async def test_active_definition_records_satisfied_dependency_evidence():
 @pytest.mark.asyncio
 async def test_install_blocked_by_missing_hard_dep():
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     dependent_manifest = _minimal_app_manifest(
         package_name="needs-missing",
         requires_apps=[{"key": "absent-app", "optional": False}],
@@ -904,7 +951,9 @@ async def test_install_blocked_by_missing_hard_dep():
     dependent_lib = await _make_library_cp(dependent_manifest)
     with pytest.raises(AppDependencyError):
         await install_app(
-            workspace_id=ws.id, library_cp_id=dependent_lib.id, actor_id="u_1"
+            workspace_id=ws.id,
+            library_cp_id=dependent_lib.id,
+            actor_id=lifecycle_actor_id,
         )
 
 
@@ -912,12 +961,15 @@ async def test_install_blocked_by_missing_hard_dep():
 async def test_install_soft_dep_missing_proceeds():
     """Soft (optional=True) deps generate a warning but do not block install."""
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     manifest = _minimal_app_manifest(
         package_name="soft-dep",
         requires_apps=[{"key": "absent-app", "optional": True}],
     )
     lib = await _make_library_cp(manifest)
-    out = await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id="u_1")
+    out = await install_app(
+        workspace_id=ws.id, library_cp_id=lib.id, actor_id=lifecycle_actor_id
+    )
     assert out["status"] == "active"
 
 
@@ -934,9 +986,12 @@ async def test_awaiting_settings_reaper_compensates_abandoned(monkeypatch):
     monkeypatch.setenv("APP_INSTALL_TOKEN_TTL_HOURS", "0")
 
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     manifest = _minimal_app_manifest(package_name="reap-me", with_settings_schema=True)
     lib = await _make_library_cp(manifest)
-    result = await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id="u_1")
+    result = await install_app(
+        workspace_id=ws.id, library_cp_id=lib.id, actor_id=lifecycle_actor_id
+    )
     assert result["status"] == "awaiting_settings"
 
     # Reaper sweep.
@@ -954,11 +1009,14 @@ async def test_reaper_leaves_fresh_apps_alone(monkeypatch):
     monkeypatch.setenv("APP_INSTALL_TOKEN_TTL_HOURS", "24")  # 24h — fresh apps safe
 
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     manifest = _minimal_app_manifest(
         package_name="not-yet-abandoned", with_settings_schema=True
     )
     lib = await _make_library_cp(manifest)
-    result = await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id="u_1")
+    result = await install_app(
+        workspace_id=ws.id, library_cp_id=lib.id, actor_id=lifecycle_actor_id
+    )
     # Reaper sweep should NOT touch this fresh App.
     n = await run_reaper_pass()
     assert n == 0
@@ -975,9 +1033,12 @@ async def test_reaper_leaves_fresh_apps_alone(monkeypatch):
 async def test_update_from_library_bumps_version():
     """Update-from-library re-merges and updates the version."""
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     manifest_v1 = _minimal_app_manifest(package_name="upd-app", version="1.0.0")
     lib = await _make_library_cp(manifest_v1)
-    result = await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id="u_1")
+    result = await install_app(
+        workspace_id=ws.id, library_cp_id=lib.id, actor_id=lifecycle_actor_id
+    )
     assert result["version"] == "1.0.0"
 
     # Bump the library's manifest version in place + re-merge.
@@ -990,7 +1051,7 @@ async def test_update_from_library_bumps_version():
     await lib.save()
 
     update_result = await update_app_from_library(
-        app_id=result["app_id"], actor_id="u_1"
+        app_id=result["app_id"], actor_id=lifecycle_actor_id
     )
     assert update_result["version_before"] == "1.0.0"
     assert update_result["version_after"] == "2.0.0"
@@ -1000,6 +1061,7 @@ async def test_update_from_library_bumps_version():
 async def test_update_from_library_materializes_new_prescribed_track_fields():
     """A package upgrade must expose added fields on already-provisioned tracks."""
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     manifest_v1 = _minimal_app_manifest(
         package_name="upd-track-schema", version="1.0.0"
     )
@@ -1007,7 +1069,7 @@ async def test_update_from_library_materializes_new_prescribed_track_fields():
     installed = await install_app(
         workspace_id=ws.id,
         library_cp_id=lib.id,
-        actor_id="u_1",
+        actor_id=lifecycle_actor_id,
         include_seed_data=False,
     )
     app = await App.get(installed["app_id"])
@@ -1030,7 +1092,7 @@ async def test_update_from_library_materializes_new_prescribed_track_fields():
     lib.version = "2.0.0"
     await lib.save()
 
-    await update_app_from_library(app_id=app.id, actor_id="u_1")
+    await update_app_from_library(app_id=app.id, actor_id=lifecycle_actor_id)
 
     refreshed = await EntryType.get(note.id)
     assert refreshed is not None
@@ -1123,9 +1185,12 @@ async def test_seed_resolver_falls_back_to_manifest_name_for_legacy_types():
     from app.services.operational_model_runtime import compile_canonical_manifest
 
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     manifest = _divergent_key_manifest("legacy-resolve-app")
     lib = await _make_library_cp(manifest)
-    result = await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id="u_1")
+    result = await install_app(
+        workspace_id=ws.id, library_cp_id=lib.id, actor_id=lifecycle_actor_id
+    )
     app = await App.get(result["app_id"])
     track = (await app.nodes(edge=[CONTAINS], node=["Track"]))[0]
 
@@ -1148,9 +1213,12 @@ async def test_rematerialize_backfills_manifest_key_on_adopted_entry_types():
     from app.services.app_install import materialize_tracks_for_app
 
     ws = await _make_workspace()
+    lifecycle_actor_id = await workspace_owner_id(ws)
     manifest = _divergent_key_manifest("legacy-heal-app")
     lib = await _make_library_cp(manifest)
-    result = await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id="u_1")
+    result = await install_app(
+        workspace_id=ws.id, library_cp_id=lib.id, actor_id=lifecycle_actor_id
+    )
     app = await App.get(result["app_id"])
     track = (await app.nodes(edge=[CONTAINS], node=["Track"]))[0]
 
@@ -1158,7 +1226,7 @@ async def test_rematerialize_backfills_manifest_key_on_adopted_entry_types():
 
     # Re-materialize (what a reinstall/update does) — adopt path must
     # backfill the manifest key instead of leaving the node keyless.
-    await materialize_tracks_for_app(app, "u_1")
+    await materialize_tracks_for_app(app, lifecycle_actor_id)
     keys = {
         (et.form_schema or {}).get("_manifest_entry_type_key")
         for et in await EntryType.find({"context.track_id": track.id})

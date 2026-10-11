@@ -50,6 +50,24 @@ class HasView(Edge):
 HAS_VIEW = HasView
 
 
+class HasLibraryModel(Edge):
+    """Workspace → its private library Model; cataloging is not ownership."""
+
+    bidirectional: bool = False
+
+
+HAS_LIBRARY_MODEL = HasLibraryModel
+
+
+class PublishesLibraryModel(Edge):
+    """IntegralApp → an explicitly published platform library Model."""
+
+    bidirectional: bool = False
+
+
+PUBLISHES_LIBRARY_MODEL = PublishesLibraryModel
+
+
 class IS_MEMBER_OF(Edge):
     """Workspace membership: User → Workspace.
 

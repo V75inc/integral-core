@@ -1320,7 +1320,7 @@
     },
     {
       "id": "M2-saved-view-scope-working",
-      "status": "qualified_partial",
+      "status": "pushed_partial",
       "deliverable": "Named saved-View Track scope, raw canonical point/list/config consumers, common transactional creation and unique-path migration",
       "evidence": [
         "External JSON baseline: legitimate shared View B admitted under immutable scope A; one assertion failure and zero setup errors.",
@@ -1422,7 +1422,79 @@
         },
         "wheel_sha256": "12247294d10982ec2e7e7347c2a2075abae45f60ea526f89ba442d60c3ed45ae",
         "validation_scope": "Local source guards/hooks/format/lint/types, reproducible wheel/import, CI-faithful smoke, frontend, full backend, Core-only, extension, focused and broader owned PostgreSQL gates."
-      }
+      },
+      "commit": "d9eecdcf54a2130af5cd208f8a2ab2cdc8053cd0"
+    },
+    {
+      "id": "M2-model-authority-working",
+      "status": "in_progress",
+      "deliverable": "Canonical attached/draft/template/library Model authority, exact execution binding, all-affected-parent configuration permission, current API/facade consumers and migration qualification",
+      "invariants": [
+        "Authority and access",
+        "I-GRAPH-01",
+        "I-ROLE-01",
+        "I-ROLE-02",
+        "I-GOVERN-01"
+      ],
+      "evidence": [
+        "External actual-store baselines reproduce four read-binding unsafe allows and one shared-mutation unsafe allow, with zero setup errors.",
+        "First attached-model repair passes all five original cases on JSON; focused-1 terminal exit zero.",
+        "Focused-2 passed 81 cases on JSON and 81 on PostgreSQL, with zero skips/errors/failures: named App/Track model, draft/template links and cache conflicts, consumed-version read-only admission, shared all-parent grants and revocation, wrong action-kind denial, plus existing policy/View regression coverage.",
+        "Focused-3 passed 84 cases per adapter; focused-4 passed 91 per adapter; focused-5 passed 95 per adapter. Every lane has zero skips/errors/failures. Receipts: /tmp/integral-access-model-authority-focused-{3,4,5}-{json,postgres}.xml. These are partial Model-boundary qualification snapshots, not full milestone gates.",
+        "Focused-6 completed 102 cases on JSON and 102 on PostgreSQL, with zero skips/errors/failures. This snapshot covers canonical workspace-role vocabulary, no ambient admin draft/config privilege, named library templates, conflicting owners and missing provenance. Both coordinator lanes exited zero.",
+        "Focused-7 completed 105 cases on JSON and 105 on PostgreSQL, zero skips/errors/failures; terminal coordinator exit zero. Three added regressions confirm typed unavailable after a positive warmed result when the primary Model, attachment or actual-parent source fails. Runtime/consumer/producer/atomic-effect qualification remains partial.",
+        "Platform seed producer/refinement focused-1 passed 58 tests per adapter, zero skips/errors/failures; terminal exit zero. Focused-2 passed 16 production-selection cases per adapter after stable-slug and creation-rollback refinements. Actual-store coverage preserves private same-slug/name content, private content with erased workspace cache, unmarked catalog content, distinct seeded slugs with same display name and inactive-publication identity restoration.",
+        "Private-library/Model API focused-1 completed 56 tests on JSON and 56 on PostgreSQL, zero skips/errors/failures. Focused-2 completed 89 per adapter, zero skips/errors/failures, including existing draft/diff suites and actual named pending privacy, corrupt parent claims and duplicate pending draft admission. Both coordinators terminal.",
+        "Model API focused-3 completed 92 tests on JSON and 92 on PostgreSQL, zero skips/errors/failures, terminal coordinator exit zero. New actual-store handler tests preserve an unadmitted orphan draft, separately admit/revoke a diff reference and reject a foreign-workspace reference despite legitimate caller authority there. Existing draft/diff and Model family/producer coverage also pass. This is service/handler and test-ASGI evidence, not deployed browser/MCP or whole effect/release proof.",
+        "Working current dependency Walker admits named source families before declaration traversal and complete ordered merge; raw canonical target ownership/all-parent configuration, actor propagation, public-source execution membership and fresh install body are integrated. Revert preflight validates dependency/target before destructive cleanup. Dependency focused-1 failed six invalid versionless fixtures; focused-2 completed 29 tests per adapter with zero skips/errors/failures and terminal exit zero. This is partial dependency/handler qualification.",
+        "Library consumer focused-3 completed 83 JSON tests and 83 PostgreSQL tests, zero skips/errors/failures; terminal coordinator exit zero. Coverage includes public/private dependency mixtures, no alias substitution for inaccessible exact IDs, current visibility/body capture, scoped in-process listing, foreign batch source denial before install invocation, and existing batch-install, lifecycle hook, upgrade, authoring and HTTP workspace-isolation suites. Earlier consumer runs preserved 14 and 1 JSON failures respectively; repaired fixtures, mocks and preflight are included. Full milestone gates remain unrun for this slice.",
+        "Initial private library lifecycle focused-2 passed 101 tests per adapter, zero skips/errors/failures, terminal exit zero. Exact first-publication authority, stable private identity, stale review and HTTP execution binding are working-source qualifications; full effect/release and curator lifecycle remain open.",
+        "Full qualification-2 passed CI-faithful smoke (1061 passed, 10 skipped), frontend (1583 tests, 279 files), guards/pre-commit/type/lint and reproducible wheel. Full backend was intentionally interrupted after known failures; partial receipt is 269 cases with 10 failures, 37 skips, zero errors, not full qualification. Exact failing Asset Register contract repair then passed all 10 cases per adapter with no skips/errors/failures.",
+        "External direct-removal and actual membership-departure probes each reproduced stale Model grant reentry with one unsafe assertion failure and zero setup errors. Canonical Model target cleanup now passes 12 JSON cases (2 PostgreSQL-only skips) and all 14 PostgreSQL cases, zero failures/errors. Actual private/draft cleanup, cross-workspace preservation and unresolved-scope membership/grant retention are qualified; generation/issuer/suspension/replay closure remains open.",
+        "Consumer integration focused-1 completed 73 JSON passes with 3 skips and 76 PostgreSQL passes, zero failures/errors. Canonical library summary privacy, current identity/membership, lifecycle/onboarding and App contract fixtures qualified. Prior 71-case baseline preserved 38 failures and 3 skips. Full milestone gate must requalify the repaired snapshot; no closure claimed.",
+        "Full qualification-3 passed guards/hooks/types/lint, wheel/import, 1067 smoke passes with 10 skips and all 1583 frontend tests. Backend intentionally interrupted after six known failures; partial XML 2780 cases, 6 failures, 53 skips, zero errors. Migration endpoint fixtures are being repaired with actual rooted Models/current owner admission; full milestone qualification remains incomplete.",
+        "Migration consumer focused-1 passed 37 JSON and 37 PostgreSQL cases, zero skips/errors/failures, terminal exit zero. The six full-3 fixture failures now use actual rooted/current Model admission; new membership revocation prevents a second enqueue. Durable worker/effect/replay and full gates remain open.",
+        "Full-4 smoke (1067 passes/10 skips), frontend (1583 tests), guards/hooks/types/lint and wheel passed. Backend intentionally interrupted after one failure; partial XML 3681 cases/1 failure/56 skips/0 errors. Operational sync fixture actor repaired; dependency/cross-App suites now explicitly included in focused qualification after canonical producer/actor repairs. No full milestone or use-case closure.",
+        "Opted-in install consumer focused-3 passed 70 JSON and 70 PostgreSQL cases, one explicit absent external CRM artifact skip on each, zero failures/errors. Generic requires-App/cross-App behavior, lifecycle/update/teardown and multi-instance fixtures execute with canonical publication/current actors. Focused-2 preserved 3 fixture/guard failures before repair.",
+        "Full-5 reached complete backend report: 5690 cases, 5388 passes, 300 skips, 2 warranty fixture actor failures, zero errors; terminal exit 2. Guards/hooks/lint/types, wheel/import, 1067 smoke passes (10 skips) and 1583 frontend tests passed. Warranty fixtures now use actual workspace owner; paired qualification/full-6 pending, no milestone closure.",
+        "Warranty consumer focused-1 passed 20 JSON cases (3 explicit PostgreSQL-only skips) and all 23 PostgreSQL cases, zero failures/errors, terminal exit zero. Exact full-5 actor-fixture failures repaired without runtime bypass; full-6 supplementary/broad gates pending.",
+        "Full-6 terminal: all five lanes exit zero; backend 5390 passes/300 skips, smoke 1067 passes/10 skips, frontend 1583 tests/279 files, PostgreSQL focused 807 passes/0 skips; zero failures/errors. Source fingerprints verified unchanged. Durable receipt index model_admission_qualification.json; restore rehearsal retains one infrastructure skip."
+      ],
+      "limits": [
+        "Selected Model admission foundation is qualified for commit/push by complete full-6 gates. The larger family/migration/effect requirements remain incomplete; no finding/use-case closure.",
+        "Named private/platform producers, selected API/authoring/list/dependency consumers, pending draft selection and initial private publication have focused paired qualification. Complete related child/impact/materialization projections and immutable creation action/sentinel execution binding remain open.",
+        "Existing direct Model grants require live issuer/adoption and membership-generation binding. Production workspace departure now cleans canonical private/draft Model grants, but direct membership deletion, suspension, restore/replay and in-flight work remain unqualified. No creator curator auto-grants have been introduced.",
+        "Legacy library rows need reviewed ownership/publication marker migration, quarantine disposition and reference preservation; new marked producers do not migrate historical data.",
+        "Per-boundary current reads and graph transactions do not establish shared atomic authorization/effect/attachment fences, complete definition/dependency epochs or whole-response release.",
+        "Declared dependency version compatibility, source/target/definition fencing, complete materialized child permissions and explicit service-actor effect authority remain open. Actorless internal public-source reads are not effect-authority proof.",
+        "Defensive traversal ceilings (16 lineage nodes/256 attached parents) and dependency capture limits are not whole-query physical-work/byte budget qualification; catalog summary scans remain unbounded.",
+        "No finding or use-case closure; browser/MCP parity, clean artifact runtime flow and current-authorization restore remain open."
+      ]
+    },
+    {
+      "id": "M2-model-admission-foundation",
+      "status": "qualified_partial",
+      "deliverable": "Canonical current Model authority and exact selected boundary admission across producers, API/authoring/library/dependency/install consumers and production membership departure",
+      "invariants": [
+        "Authority and access",
+        "I-GRAPH-01",
+        "I-ROLE-01",
+        "I-ROLE-02",
+        "I-GOVERN-01"
+      ],
+      "qualification": "model_admission_qualification.json",
+      "evidence": [
+        "Complete full-6 five-lane qualification passed; staged runtime/test fingerprints verified unchanged.",
+        "Earlier complete failing full-5 and interrupted full-2/3/4 receipts remain preserved; final fixtures use actual named publication/rooted principals."
+      ],
+      "limits": [
+        "No finding or use-case closure; this is qualified Model admission foundation.",
+        "Creator curator designation, issuer/adoption and membership-generation binding remain open.",
+        "Legacy marker migration/quarantine and complete child/impact/materialization projections remain open.",
+        "Immutable creation action/sentinel execution binding, definition/dependency epochs, atomic effect/release fencing and durable worker/replay authority remain open.",
+        "Restore rehearsal skipped: container pg_dump could not reach host loopback database. Restore/current-authorization qualification remains open.",
+        "Browser/MCP parity, clean artifact runtime flows and absent external App artifact qualification remain open."
+      ]
     }
   ],
   "baseline_evidence": {
@@ -1504,6 +1576,22 @@
         "Current authority for every affected named parent and atomic attachment/effect fencing remain open.",
         "External probe leaves the frozen final-6 runtime/test snapshot unchanged."
       ]
+    },
+    "library_seed_private_collision": {
+      "status": "open_characterization",
+      "storage": "JsonDB",
+      "source": "/tmp/integral-access-library-seed-ownership-baseline-4.py",
+      "receipt": "/tmp/integral-access-library-seed-ownership-baseline-4.xml",
+      "failures": 2,
+      "errors": 0,
+      "skips": 0,
+      "result": "Trusted seed upsert overwrites a canonically workspace-owned private library manifest when either slug or display name matches the platform specification. Raw persisted node read confirms both overwrites; source and private manifests are valid v2 Models.",
+      "limits": [
+        "Actual persisted service-path reproduction; no deployed or HTTP exploit claim.",
+        "Initial probe-1 failed on async pytest configuration; probe-2 used a nonexistent config path. Probe-3 reproduced an overwrite but used a noncanonical private manifest. These remain preserved and are not acceptance evidence.",
+        "Trusted publication identity, atomic producer wiring, removal/reactivation and legacy quarantine/repair remain required."
+      ],
+      "current_disposition": "Observed overwrite remediated in working seed service; paired JSON/PostgreSQL tests pass. Complete API/private producer/migration/concurrency/full-gate qualification remains open; no finding or use-case closure."
     }
   }
 }

@@ -42,9 +42,8 @@ from app.services.app_graph import (
     get_track_attached_operational_model,
 )
 from app.services.change_event import emit_change_event
-from app.services.library_package_visibility import (
-    is_library_package_visible_for_workspace,
-)
+from app.services.library_package_visibility import visible_library_model
+from app.services.model_authority import admitted_model_draft, get_current_model
 from app.services.operational_model_runtime import (
     compile_canonical_manifest,
     normalize_entry_type_form_schema,
@@ -84,36 +83,19 @@ async def _bind_create_workspace_scope(
 async def _require_operational_model_scope(
     request: Request, user_id: str, cp: OperationalModel
 ) -> None:
-    """Resolve an attached model's workspace before scoped reads or effects."""
-    if request is None or request.headers.get("x-integral-scope") is None:
-        return
+    """Bind request scope to the Model's current complete named provenance."""
+    from app.services.model_authority import resolve_model_authority
 
-    workspace_id = str(getattr(cp, "workspace_id", "") or "") or None
-    if not workspace_id and getattr(cp, "app_id", None):
-        app = await App.get(cp.app_id)
-        workspace_id = str(getattr(app, "workspace_id", "") or "") or None
-    if not workspace_id:
-        candidate_ids = [cp.id]
-        if getattr(cp, "draft_of_id", None):
-            candidate_ids.append(cp.draft_of_id)
-        for candidate_id in candidate_ids:
-            tracks = await Track.find(
-                {"context.attached_operational_model_id": candidate_id}
-            )
-            if tracks:
-                workspace_id = str(getattr(tracks[0], "workspace_id", "") or "")
-                if workspace_id:
-                    break
-            apps = await App.find(
-                {"context.attached_operational_model_id": candidate_id}
-            )
-            if apps:
-                workspace_id = str(getattr(apps[0], "workspace_id", "") or "")
-                if workspace_id:
-                    break
-    if not workspace_id and cp.library_package:
+    authority = await resolve_model_authority(
+        cp.id, allowed_app_states=MANAGEMENT_APP_STATES
+    )
+    if authority is None:
+        raise ResourceNotFoundError(message="Operational Model not found")
+    if authority.platform:
+        if request is not None and request.headers.get("x-integral-scope") is not None:
+            await _resolve_active_workspace_for_library_list(request, user_id)
         return
-    await _require_workspace_scope(request, user_id, workspace_id)
+    await _require_workspace_scope(request, user_id, authority.workspace_id)
 
 
 # These packages were merged/retired, but older development databases can
@@ -173,19 +155,16 @@ async def list_library_operational_models(
         node=["OperationalModel"],
         limit=500,
     )
-    lib_only = [
-        p
-        for p in packages
-        if getattr(p, "library_package", False)
-        and (getattr(p, "metadata", None) or {}).get("seed_status") != "inactive"
-        and _is_visible_library_profile(p)
-        and is_library_package_visible_for_workspace(p, active_ws)
-    ]
+    lib_only = []
+    for candidate in packages:
+        current = await visible_library_model(candidate.id, active_ws, user_id=user_id)
+        if current is not None and _is_visible_library_profile(current):
+            lib_only.append(current)
     items = [await export_node(p) for p in lib_only]
     response: Dict[str, Any] = {"operational_models": items, "total": len(items)}
     if type_hint:
         response["_type_hint_matches"] = await resolve_type_hint(
-            type_hint, workspace_id=active_ws
+            type_hint, workspace_id=active_ws, user_id=user_id
         )
     return response
 
@@ -203,11 +182,12 @@ async def get_library_operational_model(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    cp = await OperationalModel.get(operational_model_id)
+    cp = await get_current_model(operational_model_id)
     if not cp or not getattr(cp, "library_package", False):
         raise ResourceNotFoundError(message="Operational Model not found")
     active_ws = await _resolve_active_workspace_for_library_list(request, user_id)
-    if not is_library_package_visible_for_workspace(cp, active_ws):
+    cp = await visible_library_model(operational_model_id, active_ws, user_id=user_id)
+    if cp is None:
         raise ResourceNotFoundError(message="Operational Model not found")
     await _require_operational_model_scope(request, user_id, cp)
     return {"operational_model": await export_node(cp)}
@@ -236,9 +216,16 @@ async def list_workspace_operational_models(
     cps = await OperationalModel.find(
         {"context.library_package": True, "context.workspace_id": workspace_id}
     )
+    admitted = []
+    for candidate in cps:
+        current = await visible_library_model(
+            candidate.id, workspace_id, user_id=user_id, include_drafts=True
+        )
+        if current is not None:
+            admitted.append(current)
     return {
-        "operational_models": [await export_node(cp) for cp in cps],
-        "total": len(cps),
+        "operational_models": [await export_node(cp) for cp in admitted],
+        "total": len(admitted),
         "workspace_id": workspace_id,
     }
 
@@ -296,7 +283,10 @@ async def publish_operational_model(
     if not reg:
         raise ResourceNotFoundError(message="Operational Models registry missing")
     now = utc_now_iso()
-    cp = await OperationalModel.create(
+    from app.services.library_model_creation import create_private_library_model
+
+    cp = await create_private_library_model(
+        user_id=user_id,
         name=safe_name,
         name_fold=name_fold,
         description=description or "",
@@ -304,11 +294,9 @@ async def publish_operational_model(
         workspace_id=workspace_id,
         manifest=canonical,
         scope=str(canonical.get("scope") or ""),
-        library_package=True,
         created_at=now,
         updated_at=now,
     )
-    await reg.connect(cp, edge=CATALOGS, cataloged_at=now)
 
     # D-05 single emission path. Sync inline emit before HTTP response (D-06).
     await emit_change_event(
@@ -354,33 +342,14 @@ async def update_library_operational_model(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    cp = await OperationalModel.get(operational_model_id)
+    cp = await get_current_model(operational_model_id)
     if not cp:
         raise ResourceNotFoundError(message="Operational Model not found")
 
-    is_draft = getattr(cp, "status", "published") == "draft"
-    if is_draft:
-        # Draft mutations: delegate permission to the published parent.
-        parent = await OperationalModel.get(cp.draft_of_id) if cp.draft_of_id else None
-        if parent is not None:
-            await _require_operational_model_scope(request, user_id, parent)
-        if parent is None or not await _resolve_cp_edit_permission(
-            user_id=user_id, cp=parent, request=request
-        ):
-            raise InsufficientPermissionsError(message="Access denied")
-    else:
-        if not getattr(cp, "library_package", False):
-            raise ResourceNotFoundError(message="Operational Model not found")
-        workspace_id = getattr(cp, "workspace_id", None) or ""
-        await _require_workspace_scope(request, user_id, workspace_id)
-        if not workspace_id:
-            raise InsufficientPermissionsError(
-                message="Only workspace-scoped packages can be updated via this API"
-            )
-        if not await can_publish_operational_models_under_workspace(
-            user_id, workspace_id
-        ):
-            raise InsufficientPermissionsError(message="Access denied")
+    if not cp.library_package and cp.status != "draft":
+        raise ResourceNotFoundError(message="Operational Model not found")
+    if not await _resolve_cp_edit_permission(user_id=user_id, cp=cp, request=request):
+        raise InsufficientPermissionsError(message="Access denied")
     prior_snapshot = await export_node(cp)  # D-03 before-snapshot
     if name is not None:
         cp.name = name
@@ -431,16 +400,12 @@ async def deprecate_library_operational_model(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    cp = await OperationalModel.get(operational_model_id)
+    cp = await get_current_model(operational_model_id)
     if not cp or not getattr(cp, "library_package", False):
         raise ResourceNotFoundError(message="Operational Model not found")
-    workspace_id = getattr(cp, "workspace_id", None) or ""
-    await _require_workspace_scope(request, user_id, workspace_id)
-    if not workspace_id:
-        raise InsufficientPermissionsError(
-            message="Only workspace-scoped packages can be deleted via this API"
-        )
-    if not await can_publish_operational_models_under_workspace(user_id, workspace_id):
+    if not await _resolve_cp_edit_permission(
+        user_id=user_id, cp=cp, request=request, action="operational_model.delete"
+    ):
         raise InsufficientPermissionsError(message="Access denied")
     prior_snapshot = await export_node(cp)  # D-03 before-snapshot
     await cp.delete()
@@ -938,7 +903,7 @@ async def revert_track_profile_customizations(
             message="Track has no library provenance — cannot revert customizations"
         )
 
-    lib_cp = await OperationalModel.get(lib_id)
+    lib_cp = await get_current_model(lib_id)
     if not lib_cp or not getattr(lib_cp, "library_package", False):
         raise ResourceNotFoundError(
             message="Referenced library Operational Model not found"
@@ -948,6 +913,15 @@ async def revert_track_profile_customizations(
     cp = await get_track_attached_operational_model(track)
     if not cp:
         raise ResourceNotFoundError(message="Track has no attached operational model")
+
+    if not await _resolve_cp_edit_permission(user_id=user_id, cp=cp, request=request):
+        raise InsufficientPermissionsError(message="Access denied")
+    from app.services.library_dependencies import admitted_library_dependency_chain
+
+    chain = await admitted_library_dependency_chain(
+        lib_cp.id, track.workspace_id, user_id=user_id
+    )
+    lib_cp = chain[-1]
 
     # Plan 07-02 / I-LIB-05 reject-gate — consult Phase 5 impact helper BEFORE
     # the destructive re-apply. force=true is the only escape past a blocking
@@ -996,9 +970,7 @@ async def revert_track_profile_customizations(
 
     prior_cp_snapshot = await export_node(cp)  # D-03 before-snapshot
     await merge_library_manifest_into_operational_model(
-        lib_cp,
-        cp,
-        track,
+        lib_cp, cp, track, user_id=user_id
     )
 
     # D-05 single emission path. Sync inline emit before HTTP response (D-06).
@@ -1095,21 +1067,19 @@ async def derive_library_profile_from_track(
 
     now = utc_now_iso()
     derived_name = name or f"{track.title} Profile"
-    derived = await OperationalModel.create(
+    from app.services.library_model_creation import create_private_library_model
+
+    derived = await create_private_library_model(
+        user_id=user_id,
         name=derived_name,
         description=description or f"Derived from track: {track.title}",
         version=version or "1.0.0",
         workspace_id=workspace_id,
         manifest=manifest,
         scope="platform" if not workspace_id else "organization",
-        library_package=True,
         created_at=now,
         updated_at=now,
     )
-
-    reg = await OperationalModels.get(OPERATIONAL_MODELS_REGISTRY_ID)
-    if reg:
-        await reg.connect(derived, edge=CATALOGS, cataloged_at=now)
 
     # D-05 single emission path. Sync inline emit before HTTP response (D-06).
     await emit_change_event(
@@ -1319,21 +1289,19 @@ async def derive_library_profile_from_space(
     manifest["package"] = pkg
 
     now = utc_now_iso()
-    derived = await OperationalModel.create(
+    from app.services.library_model_creation import create_private_library_model
+
+    derived = await create_private_library_model(
+        user_id=user_id,
         name=derived_name,
         description=description or f"Derived from App: {app_node.name}",
         version=version or "1.0.0",
         workspace_id=workspace_id,
         manifest=manifest,
         scope="platform" if not workspace_id else "organization",
-        library_package=True,
         created_at=now,
         updated_at=now,
     )
-
-    reg = await OperationalModels.get(OPERATIONAL_MODELS_REGISTRY_ID)
-    if reg:
-        await reg.connect(derived, edge=CATALOGS, cataloged_at=now)
 
     # D-05 single emission path. Sync inline emit before HTTP response (D-06).
     await emit_change_event(
@@ -1503,7 +1471,7 @@ async def revert_space_profile_customizations(
             message=("App has no library provenance — cannot revert customizations")
         )
 
-    lib_cp = await OperationalModel.get(lib_id)
+    lib_cp = await get_current_model(lib_id)
     if not lib_cp or not getattr(lib_cp, "library_package", False):
         raise ResourceNotFoundError(
             message="Referenced library Operational Model not found"
@@ -1512,6 +1480,15 @@ async def revert_space_profile_customizations(
     cp = await get_app_attached_operational_model(app_node)
     if not cp:
         raise ResourceNotFoundError(message="App has no attached operational model")
+
+    if not await _resolve_cp_edit_permission(user_id=user_id, cp=cp, request=request):
+        raise InsufficientPermissionsError(message="Access denied")
+    from app.services.library_dependencies import admitted_library_dependency_chain
+
+    chain = await admitted_library_dependency_chain(
+        lib_cp.id, app_node.workspace_id, user_id=user_id
+    )
+    lib_cp = chain[-1]
 
     # I-LIB-05 reject-gate — consults the Phase 5 impact helper BEFORE the
     # destructive re-apply. Phase 5 force-flag escape hatch is the ONLY way
@@ -1563,10 +1540,7 @@ async def revert_space_profile_customizations(
 
     prior_cp_snapshot = await export_node(cp)  # D-03 before-snapshot
     await merge_library_manifest_into_operational_model(
-        lib_cp,
-        cp,
-        track=None,
-        for_space=True,
+        lib_cp, cp, track=None, for_space=True, user_id=user_id
     )
 
     # D-05 single emission path. Sync inline emit before HTTP response (D-06).
@@ -1601,56 +1575,25 @@ async def _resolve_cp_edit_permission(
     user_id: str,
     cp: OperationalModel,
     request: Optional[Request] = None,
+    action: str = "operational_model.update",
 ) -> bool:
-    """Whether ``user_id`` may fork/publish/discard/diff a draft of ``cp``.
+    """Require configuration rights on the exact Model and every affected parent."""
+    from app.middleware.permissions_cache import isolated_permissions_cache
 
-    Track-attached: caller needs ``can_edit_track`` on the owning Track.
-    App-attached: caller needs ``can_edit_app`` on the owning App.
-    Library:        caller needs publish rights under the CP's workspace.
-    """
     if request is not None:
         await _require_operational_model_scope(request, user_id, cp)
-    if cp.library_package:
-        return await can_publish_operational_models_under_workspace(
-            user_id, cp.workspace_id or ""
-        )
-    # A draft CP holds the parent's scope but is attached to no Track/App; resolve
-    # the owning resource via the published parent too, so a draft passed directly
-    # (not pre-resolved to its parent by the caller) doesn't deny a user who owns
-    # the underlying track/app. Mirrors operational_model_authoring._user_can_edit_cp.
-    candidate_cp_ids = [cp.id]
-    draft_of = getattr(cp, "draft_of_id", None)
-    if draft_of:
-        candidate_cp_ids.append(draft_of)
-    if cp.scope == "track":
-        for cid in candidate_cp_ids:
-            owner_tracks = await Track.find(
-                {"context.attached_operational_model_id": cid}
+    with isolated_permissions_cache():
+        return (
+            await policy_evaluate(
+                subject=Subject(kind="human", id=user_id),
+                action=action,
+                resource=Resource(
+                    kind="operational_model",
+                    id=cp.id,
+                    scope=f"operational_model:{cp.id}",
+                ),
             )
-            for t in owner_tracks:  # noqa: SIM110 — short-circuit on await
-                _decision = await policy_evaluate(
-                    subject=Subject(kind="human", id=user_id),
-                    action="track.update",
-                    resource=Resource(kind="track", id=t.id, scope=f"track:{t.id}"),
-                )
-                if _decision.allowed:
-                    return True
-        return False
-    if cp.scope == "app":
-        for cid in candidate_cp_ids:
-            owner_spaces = await App.find(
-                {"context.attached_operational_model_id": cid}
-            )
-            for sp in owner_spaces:  # noqa: SIM110 — short-circuit on await
-                _decision = await policy_evaluate(
-                    subject=Subject(kind="human", id=user_id),
-                    action="app.update",
-                    resource=Resource(kind="app", id=sp.id, scope=f"app:{sp.id}"),
-                )
-                if _decision.allowed:
-                    return True
-        return False
-    return False
+        ).allowed
 
 
 @endpoint(
@@ -1667,7 +1610,7 @@ async def get_operational_model_migration_status(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    cp = await OperationalModel.get(operational_model_id)
+    cp = await get_current_model(operational_model_id)
     if cp is None:
         raise ResourceNotFoundError(message="Operational Model not found")
     if not await _resolve_cp_edit_permission(user_id=user_id, cp=cp, request=request):
@@ -1696,7 +1639,7 @@ async def retry_operational_model_migration(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    cp = await OperationalModel.get(operational_model_id)
+    cp = await get_current_model(operational_model_id)
     if cp is None:
         raise ResourceNotFoundError(message="Operational Model not found")
     if not await _resolve_cp_edit_permission(user_id=user_id, cp=cp, request=request):
@@ -1780,14 +1723,18 @@ async def fork_operational_model_draft(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    cp = await OperationalModel.get(operational_model_id)
+    cp = await get_current_model(operational_model_id)
     if cp is None:
         raise ResourceNotFoundError(message="Operational Model not found")
     if not await _resolve_cp_edit_permission(user_id=user_id, cp=cp, request=request):
         raise InsufficientPermissionsError(message="Access denied")
     from app.services.operational_model_atomic_swap import fork_draft
 
-    draft = await fork_draft(published=cp, actor_id=user_id)
+    draft = await admitted_model_draft(
+        user_id, cp.id, action="operational_model.update"
+    )
+    if draft is None:
+        draft = await fork_draft(published=cp, actor_id=user_id)
     return {
         "draft": await export_node(draft),
         "from_id": cp.id,
@@ -1822,18 +1769,28 @@ async def publish_operational_model_draft(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    draft = await OperationalModel.get(operational_model_id)
+    draft = await get_current_model(operational_model_id)
     if draft is None:
         raise ResourceNotFoundError(message="Operational Model not found")
     if draft.status != "draft":
         raise BadRequestError(message="Only draft CPs can be published")
     if not draft.draft_of_id:
-        raise BadRequestError(message="Draft is not linked to a published parent")
-    parent = await OperationalModel.get(draft.draft_of_id)
+        if not await _resolve_cp_edit_permission(
+            user_id=user_id, cp=draft, request=request
+        ):
+            raise InsufficientPermissionsError(message="Access denied")
+        if force:
+            raise BadRequestError(
+                message="Initial library publication does not use forced migration"
+            )
+        from app.services.library_model_publication import publish_initial_library_draft
+
+        return await publish_initial_library_draft(model_id=draft.id, user_id=user_id)
+    parent = await get_current_model(draft.draft_of_id)
     if parent is None:
         raise BadRequestError(message="Draft's published parent has been deleted")
     if not await _resolve_cp_edit_permission(
-        user_id=user_id, cp=parent, request=request
+        user_id=user_id, cp=draft, request=request
     ):
         raise InsufficientPermissionsError(message="Access denied")
 
@@ -1888,7 +1845,7 @@ async def diff_operational_model(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    candidate = await OperationalModel.get(operational_model_id)
+    candidate = await get_current_model(operational_model_id)
     if candidate is None:
         raise ResourceNotFoundError(message="Operational Model not found")
     if not await _resolve_cp_edit_permission(
@@ -1896,7 +1853,7 @@ async def diff_operational_model(
     ):
         # Drafts also need edit permission on their published parent.
         if candidate.draft_of_id:
-            parent = await OperationalModel.get(candidate.draft_of_id)
+            parent = await get_current_model(candidate.draft_of_id)
             if parent is None or not await _resolve_cp_edit_permission(
                 user_id=user_id, cp=parent, request=request
             ):
@@ -1913,9 +1870,29 @@ async def diff_operational_model(
         raise BadRequestError(
             message="No reference CP to diff against (provide ?against=<id>)"
         )
-    reference = await OperationalModel.get(against_id)
+    reference = await get_current_model(against_id)
     if reference is None:
         raise ResourceNotFoundError(message="Reference operational model not found")
+
+    await _require_operational_model_scope(request, user_id, reference)
+    from app.services.model_authority import model_action_authorized
+
+    if not await model_action_authorized(
+        user_id,
+        "operational_model.read",
+        Resource(
+            kind="operational_model",
+            id=reference.id,
+            scope=f"operational_model:{reference.id}",
+        ),
+    ):
+        raise ResourceNotFoundError(message="Reference operational model not found")
+    if include_entry_impact and not await _resolve_cp_edit_permission(
+        user_id=user_id, cp=reference, request=request
+    ):
+        raise InsufficientPermissionsError(
+            message="Configuration authority required for entry impact"
+        )
 
     from app.services.operational_model_diff import compute_manifest_diff
 
@@ -2030,21 +2007,13 @@ async def discard_operational_model_draft(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    draft = await OperationalModel.get(operational_model_id)
+    draft = await get_current_model(operational_model_id)
     if draft is None:
         raise ResourceNotFoundError(message="Operational Model not found")
     if draft.status != "draft":
         raise BadRequestError(message="Only drafts can be discarded")
-    parent = (
-        await OperationalModel.get(draft.draft_of_id) if draft.draft_of_id else None
-    )
-    if parent is None:
-        # Orphan draft — anyone with auth can discard it (cleanup path).
-        from app.services.operational_model_atomic_swap import discard_draft
-
-        return await discard_draft(draft=draft, actor_id=user_id)
     if not await _resolve_cp_edit_permission(
-        user_id=user_id, cp=parent, request=request
+        user_id=user_id, cp=draft, request=request, action="operational_model.delete"
     ):
         raise InsufficientPermissionsError(message="Access denied")
     from app.services.operational_model_atomic_swap import discard_draft
@@ -2176,7 +2145,7 @@ async def get_operational_model_substrate(request: Request) -> Dict[str, Any]:
 
 
 async def resolve_type_hint(
-    hint: str, *, workspace_id: Optional[str] = None
+    hint: str, *, workspace_id: Optional[str] = None, user_id: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """Resolve a free-text type_hint to ranked library packages.
 
@@ -2218,7 +2187,8 @@ async def resolve_type_hint(
             continue
         if not _is_visible_library_profile(cp):
             continue
-        if not is_library_package_visible_for_workspace(cp, workspace_id):
+        cp = await visible_library_model(cp.id, workspace_id, user_id=user_id)
+        if cp is None:
             continue
         pkg = (cp.manifest or {}).get("package") or {}
         # Plan 07-01 / I-LIB-01 — include manifest.package.tags in the
@@ -2344,12 +2314,14 @@ async def author_operational_model(
     now = utc_now_iso()
     name = (manifest.get("package") or {}).get("name") or "authored-profile"
     name_fold = compute_fold(name)
-    cp = await OperationalModel.create(
+    from app.services.library_model_creation import create_private_library_model
+
+    cp = await create_private_library_model(
+        user_id=user_id,
         name=name,
         name_fold=name_fold,
         scope=target_scope,
         workspace_id=workspace_id,
-        library_package=True,
         manifest=manifest,
         status=cp_status,
         published_at=now if cp_status == "published" else None,
@@ -2360,10 +2332,6 @@ async def author_operational_model(
     # Catalog under OperationalModels registry so list_library_operational_models
     # surfaces it (only when published — drafts stay invisible until
     # explicitly published via the publish endpoint).
-    if cp_status == "published":
-        reg = await OperationalModels.get(OPERATIONAL_MODELS_REGISTRY_ID)
-        if reg:
-            await reg.connect(cp, edge=CATALOGS, cataloged_at=now)
 
     await emit_change_event(
         actor_kind="human",
@@ -2421,7 +2389,7 @@ async def modify_operational_model(
     if not operations or not isinstance(operations, list):
         raise BadRequestError(message="operations must be a non-empty list")
 
-    cp = await OperationalModel.get(operational_model_id)
+    cp = await get_current_model(operational_model_id)
     if cp is None:
         raise ResourceNotFoundError(message="Operational Model not found")
     if not await _resolve_cp_edit_permission(user_id=user_id, cp=cp, request=request):
@@ -2537,7 +2505,10 @@ async def _publish_single_manifest(
         scope_label="in this workspace",
     )
 
-    cp = await OperationalModel.create(
+    from app.services.library_model_creation import create_private_library_model
+
+    cp = await create_private_library_model(
+        user_id=user_id,
         name=safe_name,
         name_fold=name_fold,
         description=package_description or "",
@@ -2545,11 +2516,9 @@ async def _publish_single_manifest(
         workspace_id=workspace_id,
         manifest=canonical,
         scope=str(canonical.get("scope") or ""),
-        library_package=True,
         created_at=now,
         updated_at=now,
     )
-    await reg.connect(cp, edge=CATALOGS, cataloged_at=now)
 
     await emit_change_event(
         actor_kind="human",

@@ -223,7 +223,9 @@ async def create_app(
             )
         from app.api.operational_models import resolve_type_hint
 
-        matches = await resolve_type_hint(type_hint, workspace_id=workspace_id)
+        matches = await resolve_type_hint(
+            type_hint, workspace_id=workspace_id, user_id=user_id
+        )
         if not matches:
             type_hint_warning = (
                 "type_hint did not resolve to any library package; "
@@ -1141,8 +1143,21 @@ async def _record_effective_definition_after_library_apply(
 
 
 async def _preview_app_library_apply(
-    app_node: App, library_cp: OperationalModel
+    app_node: App, library_cp: OperationalModel, *, user_id: Optional[str] = None
 ) -> Dict[str, Any]:
+    from app.services.library_dependencies import admitted_library_dependency_chain
+    from app.services.resource_location import MANAGEMENT_APP_STATES, locate_resource
+
+    location = await locate_resource(
+        "app", app_node.id, allowed_app_states=MANAGEMENT_APP_STATES
+    )
+    if location is None:
+        raise ResourceNotFoundError(message="App not found")
+    library_cp = (
+        await admitted_library_dependency_chain(
+            library_cp.id, location.workspace_id, user_id=user_id
+        )
+    )[-1]
     canonical = compile_canonical_manifest(manifest=library_cp.manifest or {})
     scope = str(canonical.get("scope") or "")
     preview: Dict[str, Any] = {
@@ -1190,6 +1205,7 @@ async def _preview_app_library_apply(
             preview["migration_safety"] = await assert_package_upgrade_migration_safe(
                 attached_profile=attached_profile,
                 library_profile=library_cp,
+                user_id=user_id,
             )
         except OperationalModelValidationError as exc:
             preview["migration_safety"] = {
@@ -1384,12 +1400,11 @@ async def merge_library_into_app_operational_model(
     )
 
     migration_safety = await assert_package_upgrade_migration_safe(
-        attached_profile=sacp,
-        library_profile=lib,
+        attached_profile=sacp, library_profile=lib, user_id=user_id
     )
     prior_snapshot = await export_node(sacp)  # D-03 before-snapshot
     await merge_library_manifest_into_operational_model(
-        lib, sacp, track=None, for_space=True
+        lib, sacp, track=None, for_space=True, user_id=user_id
     )
     sp.library_merge_source_id = lib.id
     await sp.save()
@@ -1467,7 +1482,7 @@ async def preview_app_operational_model_merge(
     assert_library_artifact_trusted(lib)
     return {
         "app_id": app_id,
-        "preview": await _preview_app_library_apply(sp, lib),
+        "preview": await _preview_app_library_apply(sp, lib, user_id=user_id),
     }
 
 
@@ -1500,7 +1515,7 @@ async def apply_app_operational_model_library(
     from app.services.package_trust import assert_library_artifact_trusted
 
     assert_library_artifact_trusted(lib)
-    preview = await _preview_app_library_apply(sp, lib)
+    preview = await _preview_app_library_apply(sp, lib, user_id=user_id)
     if (preview.get("definition_upgrade") or {}).get("status") == "conflicts":
         from app.exceptions import ApplicationDefinitionUpgradeConflictError
 
@@ -1513,12 +1528,11 @@ async def apply_app_operational_model_library(
     )
 
     migration_safety = await assert_package_upgrade_migration_safe(
-        attached_profile=sacp,
-        library_profile=lib,
+        attached_profile=sacp, library_profile=lib, user_id=user_id
     )
     prior_snapshot = await export_node(sacp)  # D-03 before-snapshot
     await merge_library_manifest_into_operational_model(
-        lib, sacp, track=None, for_space=True
+        lib, sacp, track=None, for_space=True, user_id=user_id
     )
     sp.library_merge_source_id = lib.id
     await sp.save()
