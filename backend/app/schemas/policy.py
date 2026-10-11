@@ -85,6 +85,7 @@ PolicyAction = Literal[
     # (test_policy_action_strict_supersets_change_event_action) keeps these
     # in lockstep with the audit.py additions.
     "notification.mark_all_read",
+    "notification.respond",
     # Prompt Sheet queue mutations — mirror of the audit.py additions, kept in
     # lockstep by test_policy_action_strict_supersets_change_event_action.
     "prompt_queue.resolve_question",
@@ -112,6 +113,7 @@ PolicyAction = Literal[
     "workspace.update",
     "workspace.delete",
     "workspace.member_add",
+    "workspace.member_provision",
     "workspace.member_update",
     "workspace.member_remove",
     "workspace.member_leave",
