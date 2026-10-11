@@ -52,13 +52,16 @@
       "implementation": [
         "Exclusion storage errors raise authorization_unavailable (503)",
         "Deny existence uses typed relationship count, independent of malformed optional audit metadata; broader authority helper audit remains pending",
-        "Workspace authority reads current membership facts, rejects ambiguous owners/unknown grant roles and refuses partial paginated inventory results"
+        "Workspace authority reads current membership facts, rejects ambiguous owners/unknown grant roles and refuses partial paginated inventory results",
+        "Shared primary raw-fact readers reject missing/conflicting role literals, coerced creation flags, duplicate grants/profiles and missing/coerced identity active state. Direct ownership/collaboration candidates are read together before hydration."
       ],
       "verification": [
         "Authorized inheritance, exclusion denial and injected exclusion lookup failure",
-        "Temporary JsonDB probe reproduced malformed optional deny metadata being skipped by hydration; typed count still sees the edge. Relationship-presence repair pending.",
+        "Temporary JsonDB probe reproduced malformed optional deny metadata being skipped by hydration; typed count still sees the edge. The subsequent typed-count repair is covered by the secure cases below.",
         "Malformed optional deny metadata remains denied through point/list/page/count projections; real PostgreSQL selection passed",
-        "Five authority-fact regressions passed on JSON and PostgreSQL; make verify passed. Raw grant/lifecycle defaults, conflicting representations and generic canonical containment remain open."
+        "Five authority-fact regressions passed on JSON and PostgreSQL; make verify passed. Raw grant/lifecycle defaults, conflicting representations and generic canonical containment remain open.",
+        "Initial targeted selection passed 115 JSON cases including unchanged query budgets; expanded JSON selection passed 150. First PostgreSQL selection passed 89 and failed two duplicate-insertion fixtures because the existing edge uniqueness constraint rejected them; corrected tests separately qualify constraint rejection and JsonDB corrupt-state denial. Full qualification pending.",
+        "Repaired current slice passed 129 JSON / 100 PostgreSQL targeted cases, make verify and 9 Core-only / 52 extension / 232 PostgreSQL supplementary cases. Strict generic containment and other authority helpers remain open."
       ]
     },
     {
@@ -1069,9 +1072,9 @@
     }
   ],
   "qualification": {
-    "full_local_gate": "M2 authority-facts/legacy-disposition slice passed make verify; final goal-wide gate pending",
+    "full_local_gate": "M2 raw-authority-facts and entry-transaction slice passed make verify; final goal-wide gate pending",
     "postgres_multiprocess": "pending",
-    "core_only_contract": "pending",
+    "core_only_contract": "Current slice passed 9 Core-only, 52 extension-contract and 232 PostgreSQL cases; final goal-wide qualification pending",
     "independent_artifacts": "pending",
     "browser_mcp": "pending",
     "migration_restore": "pending"
@@ -1179,6 +1182,27 @@
       "limits": [
         "Identity/workspace lock ordering, all raw identity writers, session epochs and every effect/release surface remain open",
         "Pinned protected Server configurator seam is compatibility-tested locally; no live OAuth provider or production deployment qualification"
+      ]
+    },
+    {
+      "id": "M2-raw-authority-facts",
+      "status": "complete",
+      "evidence": [
+        "115 initial and 150 expanded JSON focused cases passed with unchanged query-budget limits",
+        "First PostgreSQL selection: 89 passed, two fixtures could not insert duplicates under the existing source/target/type unique constraint; corrected successful reruns recorded below",
+        "Passive source inventory rebuilt: 384 REST and 45 facade declarations",
+        "Final focused selections passed 151 JSON cases in 59.12 seconds and 92 PostgreSQL cases in 51.89 seconds, including all unchanged query-budget tests and independent held-disable auth worker proofs",
+        "First full gate reached backend completion but failed one WhatsApp fixture relying on fake login ID/global User.get mock; PostgreSQL supplementary lane failed three real entry paths because raw PostgresTransaction lacks find_one. Both complete attempts are retained as failed.",
+        "Canonical entry scope now opens/joins the shared serialized transaction; new PG tests verify concurrent current-principal reads, rollback and outer rollback after a caught inner failure. Uniqueness/cardinality reads are bounded to the minimum extra candidate and verify row identities.",
+        "Repaired targeted selection passed 129 JSON cases (two PostgreSQL-only skips) in 64.14 seconds and 100 PostgreSQL cases in 94.86 seconds, including the three previously failing real command paths and two new shared-entry rollback assertions.",
+        "Repaired supplementary gates finished with exit 0: 9 Core-only, 52 extension-contract and 232 PostgreSQL spike/contract cases passed; one restore rehearsal retains the explicit Docker/macOS network skip. PostgreSQL-only cases are exercised in that lane, not claimed by the JSON extension selection.",
+        "Repaired make verify finished with exit 0: staged guards/hooks, pinned format/lint/types, reproducible wheel/import, no-env smoke/xdist, 1583 frontend cases in 279 files and the complete backend suite passed. Working-tree wheel SHA-256: 1e160fb1b99634af433695cee8d780f1e108aebfdced14caaa554ee7a0b70c76"
+      ],
+      "limits": [
+        "Strict generic canonical resolver, raw structural paging/cardinality and legacy identity/grant migration remain open",
+        "Trusted graph-only service actor contract, every mutation/release fence and protected owner governance remain open",
+        "Several older membership writers still hydrate metadata and recreate edges; canonical atomic lifecycle service remains pending",
+        "Qualification is local/disposable-store evidence; no GitHub CI, browser, release, provider or migration/restore proof is claimed by this slice"
       ]
     }
   ],

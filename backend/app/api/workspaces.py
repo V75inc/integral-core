@@ -40,6 +40,7 @@ from app.schemas.avatar import (
 from app.schemas.workspace_provisioning import WorkspaceProvisioningSummary
 from app.services.app_graph import catalog_workspace
 from app.services.attachment_storage import get_attachment_storage_service
+from app.services.authority_facts import relationship_flag, relationship_literal
 from app.services.avatar_resize import resize_avatar
 from app.services.change_event import emit_change_event
 from app.services.host_hooks import enrich_workspace_export
@@ -49,6 +50,8 @@ from app.services.workspace_permissions import (
     count_owned_personal_workspaces,
     is_workspace_owner,
     list_accessible_workspaces,
+    member_creation_flags,
+    read_member_facts,
 )
 from app.utils.time import utc_now_iso
 
@@ -117,7 +120,7 @@ async def _caller_member_creation_flags(
 ) -> tuple[bool, bool]:
     """Return ``(can_create_apps, can_create_tracks)`` for the caller.
 
-    Owners (and any caller in their own personal workspace) hold both rights
+    Owners hold both rights
     unconditionally. For org members — INCLUDING admins — creation rights are
     a selective, explicitly-granted capability carried on the ``IS_MEMBER_OF``
     edge (per the access model's "selective creation rights for apps/tracks"
@@ -128,21 +131,11 @@ async def _caller_member_creation_flags(
     if await is_workspace_owner(user_id, ws.id):
         return True, True
     if ws.kind == "personal":
-        return True, True
+        return False, False
     user = await get_user_node(user_id)
     if not user:
         return False, False
-    ctx = await user.get_context()
-    edges = await ctx.find_edges_between(
-        source_id=user.id, target_id=ws.id, edge_class=IS_MEMBER_OF
-    )
-    if not edges:
-        return False, False
-    e0 = edges[0]
-    return (
-        member_edge_bool(e0, "can_create_apps"),
-        member_edge_bool(e0, "can_create_tracks"),
-    )
+    return await member_creation_flags(user, ws.id)
 
 
 async def _export_workspace(
@@ -690,23 +683,16 @@ async def list_workspace_members(request: Request, workspace_id: str) -> Dict[st
         # PUBLIC_USER_FIELDS for every other caller of the view.
         if getattr(u, "user_id", None):
             data["user_id"] = u.user_id
-        ctx = await u.get_context()
-        edges = await ctx.find_edges_between(
-            source_id=u.id, target_id=ws.id, edge_class=IS_MEMBER_OF
+        row = await read_member_facts(u, ws.id)
+        if row is None:
+            from app.exceptions import AuthorizationUnavailableError
+
+            raise AuthorizationUnavailableError()
+        data["role"] = relationship_literal(
+            row, "role", {"owner", "admin", "member", "guest"}
         )
-        if edges:
-            e0 = edges[0]
-            r = getattr(e0, "role", None)
-            if r is None:
-                rctx = getattr(e0, "context", None)
-                r = rctx.get("role", "member") if isinstance(rctx, dict) else "member"
-            data["role"] = r
-            data["can_create_apps"] = member_edge_bool(e0, "can_create_apps")
-            data["can_create_tracks"] = member_edge_bool(e0, "can_create_tracks")
-        else:
-            data["role"] = "member"
-            data["can_create_apps"] = False
-            data["can_create_tracks"] = False
+        data["can_create_apps"] = relationship_flag(row, "can_create_apps")
+        data["can_create_tracks"] = relationship_flag(row, "can_create_tracks")
         members.append(data)
     return {"members": members, "total": len(members), "workspace_id": ws.id}
 

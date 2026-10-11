@@ -71,7 +71,7 @@
     "backend/app/api/views.py": "0e8d1754a32fbff9a3822dfd5eda376aa7fb069eeef5587c06208148b789b533",
     "backend/app/api/work_items.py": "e33c707a36c6b6bbb0790f7e4ee856aecf80868bb8caf55fc697f566c65ba119",
     "backend/app/api/workspace_member_hire.py": "dd21d4b5a0b2e2eac4e9a71055491c9d7637f7ec73e3bd366665fb3e251b132f",
-    "backend/app/api/workspaces.py": "95b4f4bcc64ebf161735c64ef3e3ad88c2a27c97b580a32e931111e344592326",
+    "backend/app/api/workspaces.py": "a262acdfcbe392261bc381f1c14c1b2a7c001971ae337e04e37d5714242f070d",
     "backend/app/services/app_operations/context.py": "b3fccdd91ebfc401a830b26dd5b497ef63bfb8bf01f598377be040c2b732174f",
     "backend/app/services/hooks/registry.py": "5a5a0790b27797875e8e7156b0963fefb6c7f1aa487cda984326b9980f33ef6d"
   },
@@ -4109,7 +4109,7 @@
       "methods_expression": "['GET']",
       "auth_expression": "True",
       "file": "backend/app/api/workspaces.py",
-      "line": 216,
+      "line": 209,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4120,7 +4120,7 @@
       "methods_expression": "['GET']",
       "auth_expression": "True",
       "file": "backend/app/api/workspaces.py",
-      "line": 238,
+      "line": 231,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4131,7 +4131,7 @@
       "methods_expression": "['GET']",
       "auth_expression": "True",
       "file": "backend/app/api/workspaces.py",
-      "line": 266,
+      "line": 259,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4142,7 +4142,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/workspaces.py",
-      "line": 276,
+      "line": 269,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4153,7 +4153,7 @@
       "methods_expression": "['PATCH']",
       "auth_expression": "True",
       "file": "backend/app/api/workspaces.py",
-      "line": 471,
+      "line": 464,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4164,7 +4164,7 @@
       "methods_expression": "['DELETE']",
       "auth_expression": "True",
       "file": "backend/app/api/workspaces.py",
-      "line": 523,
+      "line": 516,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4175,7 +4175,7 @@
       "methods_expression": "['GET']",
       "auth_expression": "True",
       "file": "backend/app/api/workspaces.py",
-      "line": 583,
+      "line": 576,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4186,7 +4186,7 @@
       "methods_expression": "['GET']",
       "auth_expression": "True",
       "file": "backend/app/api/workspaces.py",
-      "line": 611,
+      "line": 604,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4197,7 +4197,7 @@
       "methods_expression": "['GET']",
       "auth_expression": "True",
       "file": "backend/app/api/workspaces.py",
-      "line": 663,
+      "line": 656,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4208,7 +4208,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/workspaces.py",
-      "line": 720,
+      "line": 706,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4219,7 +4219,7 @@
       "methods_expression": "['PATCH']",
       "auth_expression": "True",
       "file": "backend/app/api/workspaces.py",
-      "line": 779,
+      "line": 765,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4230,7 +4230,7 @@
       "methods_expression": "['DELETE']",
       "auth_expression": "True",
       "file": "backend/app/api/workspaces.py",
-      "line": 909,
+      "line": 895,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4241,7 +4241,7 @@
       "methods_expression": "['DELETE']",
       "auth_expression": "True",
       "file": "backend/app/api/workspaces.py",
-      "line": 958,
+      "line": 944,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4252,7 +4252,7 @@
       "methods_expression": "['GET']",
       "auth_expression": "True",
       "file": "backend/app/api/workspaces.py",
-      "line": 1010,
+      "line": 996,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4263,7 +4263,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/workspaces.py",
-      "line": 1032,
+      "line": 1018,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4274,7 +4274,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/workspaces.py",
-      "line": 1168,
+      "line": 1154,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4285,7 +4285,7 @@
       "methods_expression": "['GET']",
       "auth_expression": "True",
       "file": "backend/app/api/workspaces.py",
-      "line": 1283,
+      "line": 1269,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4296,7 +4296,7 @@
       "methods_expression": "['PATCH']",
       "auth_expression": "True",
       "file": "backend/app/api/workspaces.py",
-      "line": 1331,
+      "line": 1317,
       "qualification": "unmapped",
       "evidence": []
     },

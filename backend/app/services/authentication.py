@@ -23,6 +23,7 @@ from jvspatial.db.database import Database
 from jvspatial.db.query import QueryEngine
 
 from app.exceptions import AuthorizationUnavailableError
+from app.services.authority_facts import primary_auth_record
 
 _local_identity_locks: WeakValueDictionary[tuple, asyncio.Lock] = WeakValueDictionary()
 _OBSERVED_TYPES = (AuthUser, RefreshToken)
@@ -74,6 +75,13 @@ class AuthenticationContext(GraphContext):
         if entity_class not in _OBSERVED_TYPES:
             return await super().get(entity_class, entity_id)
         try:
+            if entity_class is AuthUser:
+                row = await primary_auth_record(self.database, entity_id)
+                return (
+                    await self._deserialize_entity(entity_class, row)
+                    if row is not None
+                    else None
+                )
             rows = await self.database.find(
                 "object", {"id": entity_id, "entity": entity_class._entity_name()}
             )
