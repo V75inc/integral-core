@@ -657,6 +657,17 @@ Preserve the 80% global coverage requirement and 90% per-file requirement for ca
 
 **Verification:** `tests/test_work_approvals.py`.
 
+For legacy staged workspace tools, an explicit dictionary result `ok: false`
+is a refused outcome, even when dispatch returned normally. The approval must
+remain unapplied with a recorded explanation. Preserve the original tool output
+(including any retained partial-effect references) for reconciliation; refusal
+does not prove rollback or authorize automatic re-execution. Legacy data outputs
+without this explicit boolean signal retain their existing contract.
+
+**Additional verification:** `tests/test_workspace_tool_outcomes.py` covers the
+real workspace-tool executor and shared approval apply path, plus successful and
+legacy data output compatibility.
+
 ### I-WORK-06 — Production store posture
 
 **Scope:** `work_lifecycle.py`, `main.py` startup.
