@@ -73,6 +73,8 @@ async def test_prepare_mutation_validates_without_handler_and_freezes_input(
     staged = await prepare_agent_app_operation(args, principal_id="u1", workspace_id=WS)
     assert staged["kind"] == "invoke_app_operation"
     assert "Checked vendor page" in staged["diff_human"]
+    assert "```json\n" in staged["diff_human"]
+    assert staged["diff_human"].endswith("\n```")
     assert staged["payload"]["declaration_fingerprint"]
     args["input"]["title"] = "Changed after preparation"
     assert staged["payload"]["input"]["title"] == "Checked vendor page"

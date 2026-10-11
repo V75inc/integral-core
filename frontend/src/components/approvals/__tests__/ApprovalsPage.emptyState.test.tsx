@@ -12,6 +12,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ConfirmProvider } from '../../../context/ConfirmContext';
 import '@testing-library/jest-dom/vitest';
 
 vi.mock('../../../api/approvals', () => ({
@@ -53,9 +54,9 @@ function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter>
+      <ConfirmProvider><MemoryRouter>
         <ApprovalsPage />
-      </MemoryRouter>
+      </MemoryRouter></ConfirmProvider>
     </QueryClientProvider>,
   );
 }
