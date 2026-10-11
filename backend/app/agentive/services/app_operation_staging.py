@@ -42,6 +42,18 @@ def _input_review_labels(
         }
         if projected:
             labels["properties"] = projected
+        # Object-member order is not durable in JSONB. Authors may declare a
+        # presentation array; transport/storage preserve its sequence.
+        order = schema.get("x-review-order")
+        if isinstance(order, list):
+            seen: set[str] = set()
+            ordered = []
+            for key in order[:256]:
+                if isinstance(key, str) and key in properties and key not in seen:
+                    seen.add(key)
+                    ordered.append(key)
+            if ordered:
+                labels["property_order"] = ordered
     items = _input_review_labels(
         schema.get("items"), depth=depth + 1, remaining=remaining
     )
