@@ -120,6 +120,12 @@ class COLLABORATES_ON(Edge):
     role: str = "editor"
     invited_at: Optional[str] = None
     invited_by: Optional[str] = None
+    # Exact private-library creator curation. Legacy grants have no binding;
+    # their migration remains separate from this producer's grant contract.
+    grant_source: Optional[str] = None
+    grant_workspace_id: Optional[str] = None
+    grant_membership_id: Optional[str] = None
+    grant_issuer_id: Optional[str] = None
     bidirectional: bool = False
 
 

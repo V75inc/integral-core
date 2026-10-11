@@ -105,8 +105,20 @@ trusted platform publication uses
 organizes both families and grants neither ownership nor publication. Pending
 drafts require configuration authority or an explicit current reviewer grant;
 published-parent viewers do not automatically become draft reviewers. Workspace
-administrator membership and creation flags do not designate a private Model
-curator. Protected workspace-owner governance remains available in Core and
+administrator membership and creation flags do not authorize configuration of
+existing private Models. Successful private-library creation by a principal
+with explicit creation rights designates that principal as curator of exactly
+the new Model. Its typed grant records the workspace, recipient membership
+edge identity and issuer provenance. Removing creation flags blocks new
+creation but preserves that existing curation; removing and recreating the
+membership does not revive the old grant. This is an ordinary durable human
+grant, not a live issuer delegation chain. Protected owner creation alone
+does not mint an ordinary App configuration grant. Private Model creation
+always allocates a server-owned identity; creation rights cannot replace an
+existing Model through an upsert or supply attachment, lineage, seed or audit
+provenance. Legacy unbound grants still
+require their separately reviewed migration; this producer contract does not
+claim atomic revocation/effect fencing. Protected workspace-owner governance remains available in Core and
 does not amplify ordinary App operations. These contracts require producer,
 legacy migration and all consumer adoption before runtime closure.
 

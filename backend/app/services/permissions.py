@@ -851,7 +851,9 @@ async def _none() -> None:
     return None
 
 
-def _direct_role_from_rows(rows: list[dict]) -> Optional[str]:
+def _direct_role_from_rows(
+    rows: list[dict], *, creator_bindings_validated: bool = False
+) -> Optional[str]:
     """Validate the complete raw grant set before selecting its strongest role."""
     owns = [row for row in rows if row.get("entity") == OWNS.__name__]
     collaborators = [
@@ -859,6 +861,13 @@ def _direct_role_from_rows(rows: list[dict]) -> Optional[str]:
     ]
     if len(owns) > 1 or len(collaborators) > 1:
         raise AuthorizationUnavailableError()
+    from app.services.model_creator_grants import creator_grant_binding
+
+    for row in collaborators:
+        if creator_grant_binding(row) and not creator_bindings_validated:
+            # Bulk App/Track/Entry resolvers must not treat Model-only metadata
+            # as an ordinary role without validating its current lifetime.
+            raise AuthorizationUnavailableError()
     role = (
         relationship_literal(collaborators[0], "role", ROLE_RANK)
         if collaborators
@@ -893,7 +902,20 @@ async def _direct_role_on_resource(user: User, resource_id: str) -> Optional[str
             for row in rows
         ):
             raise AuthorizationUnavailableError()
-        return _direct_role_from_rows(rows)
+        from app.services.model_creator_grants import current_creator_grant
+
+        # Validate cardinality and role vocabulary before removing a stale
+        # lifetime: corruption must not disappear into a valid weaker path.
+        _direct_role_from_rows(rows, creator_bindings_validated=True)
+        current = []
+        for row in rows:
+            if row.get(
+                "entity"
+            ) != COLLABORATES_ON.__name__ or await current_creator_grant(
+                user, resource_id, row
+            ):
+                current.append(row)
+        return _direct_role_from_rows(current, creator_bindings_validated=True)
     except Exception as exc:
         logger.warning(
             "Error reading direct role on %s for %s: %s", resource_id, user.id, exc
