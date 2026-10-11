@@ -90,12 +90,15 @@ async def test_transactional_permission_fanout_preserves_entries_and_denials(
         catalog_track,
         catalog_user,
         catalog_workspace,
+        ensure_integral_app_graph,
     )
     from app.services.permissions import get_user_accessible_entries
+    from app.services.workspace_governance import ordinary_authority_only
     from app.utils.time import utc_now_iso
 
     token = set_default_context(GraphContext(database=postgres_raw_db))
     try:
+        await ensure_integral_app_graph(include_library=False)
         suffix = uuid.uuid4().hex
         now = utc_now_iso()
         user = await User.create(user_id=f"fanout-{suffix}")
@@ -126,12 +129,22 @@ async def test_transactional_permission_fanout_preserves_entries_and_denials(
         await user.connect(entries[-1], edge=EXCLUDED_FROM)
 
         kwargs = {"app_id": app.id, "workspace_id": workspace.id, "strict": True}
-        expected = {entry.id for entry in entries[:-1]}
+        # Protected workspace stewardship sees every canonical data record;
+        # a declared App function instead uses ordinary grants and exclusions.
+        # Exercise both audiences on each side of the transaction adapter.
+        governed = {entry.id for entry in entries}
+        ordinary = {entry.id for entry in entries[:-1]}
         outside = await get_user_accessible_entries(user.id, **kwargs)
-        assert {entry.id for entry in outside} == expected
+        assert {entry.id for entry in outside} == governed
+        with ordinary_authority_only():
+            outside = await get_user_accessible_entries(user.id, **kwargs)
+            assert {entry.id for entry in outside} == ordinary
         async with postgres_graph_transaction(postgres_raw_db):
             inside = await get_user_accessible_entries(user.id, **kwargs)
-            assert {entry.id for entry in inside} == expected
+            assert {entry.id for entry in inside} == governed
+            with ordinary_authority_only():
+                inside = await get_user_accessible_entries(user.id, **kwargs)
+                assert {entry.id for entry in inside} == ordinary
     finally:
         _default_context_var.reset(token)
 

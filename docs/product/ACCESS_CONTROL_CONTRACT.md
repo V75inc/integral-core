@@ -104,6 +104,19 @@ does not confer general workspace membership or facade rights. Anonymous
 audiences cannot enforce identity-specific suspension. Public writes require
 separate active declarations and validation.
 
+Entry discovery, pages, counts and streams admit each candidate through the
+current canonical Entry audience. A direct Entry grant remains discoverable
+without a parent App/Track read grant. Excluded or noncanonical rows contribute
+neither payload nor totals; a failed authority read is unavailable rather than
+an empty success. Cursors carry position only and preserve every configured
+sort key, including the trailing null/missing values.
+
+Embedded parents are navigation projections: Track `id`, `title`, `icon` and
+`workspace_id`; App `id`, `name`, `icon` and `workspace_id`. Entry access never
+exports a parent's description, configuration or other private content. Full
+parent endpoints apply their own admission. A temporary navigation payload is
+response data, never a persisted grant, permission cache or release fence.
+
 ## Effects, grants and release
 
 Identity and workspace authorization changes serialize with protected effects

@@ -1223,7 +1223,7 @@
     },
     {
       "id": "M2-M3-canonical-governance-working",
-      "status": "qualified_partial",
+      "status": "pushed_partial",
       "deliverable": "Strict generic raw containment and protected workspace owner governance; active ordinary function/skill audiences, batched fresh resource inventory and limited scope preference patch",
       "evidence": [
         "Initial raw selection: 86 JSON cases passed.",
@@ -1246,7 +1246,34 @@
         "Complete Entry projections, raw membership pagination, lifecycle mutations, declarative action permits, all effect/release fences and migration/browser evidence remain open.",
         "Function admission/callable audiences do not qualify nested handler effects: exact permits, target workspace/action intersection and release fences remain open.",
         "Direct Entry sharing still needs minimal parent navigation projections; complete owner recovery inventory/metadata and retained-state sharing require API/browser qualification."
-      ]
+      ],
+      "commit": "6c48cb6021020b4ab26ffc3a3851fff45c29afc2"
+    },
+    {
+      "id": "M2-entry-projection-working",
+      "status": "qualified_partial",
+      "deliverable": "One canonical current Entry audience for list/page/count/stream/query and narrow parent navigation",
+      "evidence": [
+        "Baseline 1 against pushed 6c48cb60: 44 failed and 11 passed across 55 adversarial cases; runtime repair pending.",
+        "Focused JSON 3: 97 passed, including all five unchanged query budgets; /tmp/integral-access-entry-projection-focused-3.xml.",
+        "Extended JSON 5: 141 passed with permission and protected-owner suites; /tmp/integral-access-entry-projection-extended-5.xml.",
+        "Deterministic compound-sort baseline 7 reproduced skipped admitted rows. Compound/refill/ephemeral payload regressions 8 pass; full qualification pending.",
+        "Final 11: full local gate passed 855 smoke (7 skips), 1583 frontend, 5182 backend (297 skips), Core-only and extension. PostgreSQL focused lane reproduced two explicit-null paging omissions; snapshot superseded before commit.",
+        "Cache baseline 12 reproduced temporary parent payload retained by Entry.save; save now clears it before framework caching. JSON and PostgreSQL cache/null tests pass.",
+        "Numeric baseline 15 reproduced eight PostgreSQL custom numeric sort failures. Portable admitted-row ranking repairs numeric/compound/null/missing ordering without unbounded full-result materialization.",
+        "Portable 16: 79 passed on each adapter, including five unchanged query budgets. Heap 17: 25 candidates retain at most eight offset/page/lookahead records on each adapter. Native date 18: explicit null and missing tails pass on both adapters.",
+        "Ordinary inventory baseline reproduced private App exposure through the protected-owner fast path in active/paused states. Inventories now honor ordinary-authority mode. Lifecycle tests preserve the existing active/paused data gate; retained recovery is separate.",
+        "Extended 20: 127 passed on JSON and 127 passed on PostgreSQL; full final qualification pending.",
+        "Final 21 passed full local gates (899 smoke, 1583 frontend, 5226 backend), Core-only, extension, 229 focused PG; broader PG failed an obsolete owner-exclusion expectation. Test strengthened for protected and ordinary audiences both outside/inside transactions, with explicit rooted raw-store fixture. Standalone transaction 23 passes; exact final gates pending.",
+        "Final 24 terminal success: 899 smoke (7 skips), 1583 frontend / 279 files, 5226 backend (297 skips), Core-only, extension, 229 focused PG and broader PG spike/contract all pass. Frozen runtime/test patches rechecked before commit; wheel SHA-256 9348064eeb2f02d9023b93c2f6565fe2085ab9967d03a4bc53710ebdf697d052."
+      ],
+      "limits": [
+        "All finding/use-case closure statuses remain unchanged.",
+        "Portable custom/label ranking scans the candidate audience; typed indexed sorting and agreed whole-query work/byte budgets remain open.",
+        "Whole-response/stream authorization fences, complete related-record projections, saved View scope, App action/effect audience and recovery UI/browser qualification remain open.",
+        "Restore rehearsal remains explicitly skipped; no current-auth restore, GitHub CI, deployment or release qualification claimed."
+      ],
+      "qualification_receipt": "/tmp/integral-access-entry-projection-final-24.status.json"
     }
   ],
   "baseline_evidence": {
@@ -1261,6 +1288,20 @@
     "ci_smoke_xdist_no_env": "passed",
     "frontend_node23": "1582 passed, 1 streaming test failed",
     "frontend_node24": "1583 passed, 279 files, 99.14 seconds",
-    "backend_full": "Optional baseline-only run stopped before runtime integration; no full-suite pass claimed. Full runtime milestone gate required."
+    "backend_full": "Optional baseline-only run stopped before runtime integration; no full-suite pass claimed. Full runtime milestone gate required.",
+    "app_function_audience": {
+      "snapshot": "frozen Entry final-24, unchanged dispatcher/module from 6c48cb60",
+      "storage": "JsonDB",
+      "failures": 10,
+      "errors": 0,
+      "xml": "/tmp/integral-access-function-audience-baseline-2.xml",
+      "meaning": "Reproduced stewardship authority amplification after App admission; template adapter replaced explicitly; unresolved."
+    },
+    "policy_module_workspace_binding": {
+      "storage": "JsonDB",
+      "failures": 1,
+      "xml": "/tmp/integral-access-policy-scope-baseline-3.xml",
+      "meaning": "Legitimate grant on canonical App in B allowed under execution scope A; unresolved."
+    }
   }
 }

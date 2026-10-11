@@ -1470,6 +1470,7 @@ async def _filter_canonical_resource_inventory(
     if not candidates:
         return []
     from app.services.resource_location import DATA_APP_STATES, locate_resources
+    from app.services.workspace_governance import owner_governance_allowed
     from app.services.workspace_permissions import _current_workspace_role
 
     user = principal if principal is not None else await get_user_node(user_id)
@@ -1527,7 +1528,7 @@ async def _filter_canonical_resource_inventory(
                 continue
             role = workspace_roles.get(location.workspace_id, "none")
             if (
-                role == "owner"
+                (role == "owner" and owner_governance_allowed())
                 or (role != "none" and direct[node.id] is not None)
                 or await resolve_role(user_id, kind, node.id) is not None
             ):
@@ -1542,68 +1543,26 @@ async def _collect_entries_for_tracks(
     include_author_entries: bool = True,
     candidate_query: Optional[Dict[str, Any]] = None,
 ) -> List[Entry]:
-    """Gather entries for the given tracks via ``context.track_id`` (deduped).
-
-    When ``include_author_entries`` is True (global feed / unscoped list), also include
-    any entries authored by the user. App- and track-scoped calls pass False so only
-    that scope's tracks contribute.
-    """
-    candidate_seen: set = set()
-    candidates: List[Entry] = []
-
-    if include_author_entries:
-        author_query: Dict[str, Any] = {"context.author_id": user_id}
-        if candidate_query:
-            author_query = {"$and": [author_query, candidate_query]}
-        for e in await Entry.find(author_query):
-            if e.id not in candidate_seen:
-                candidate_seen.add(e.id)
-                candidates.append(e)
-
-    if track_ids:
-        track_query: Dict[str, Any] = {"context.track_id": {"$in": track_ids}}
-        if candidate_query:
-            track_query = {"$and": [track_query, candidate_query]}
-        by_prop = await Entry.find(track_query)
-        for e in by_prop:
-            if e.id not in candidate_seen:
-                candidate_seen.add(e.id)
-                candidates.append(e)
-
-    return candidates
-
-
-async def _filter_entries_by_access_overrides(
-    user: User, entries: List[Entry]
-) -> List[Entry]:
-    """Apply Entry-level grants and exclusions after Track access is proven.
-
-    Callers pass only Entries whose parent Track has already been resolved as
-    accessible. In that state, the Entry role resolver can only change the
-    inherited Track role through a direct Entry grant (which wins) or an
-    ``EXCLUDED_FROM`` edge (which blocks inheritance). Read those two edge sets
-    once each instead of resolving every Entry independently.
-
-    The workspace gate remains enforced by the caller's accessible-Track
-    selection and workspace pruning. Entries discovered through an author
-    search still pass the same parent-Track check before reaching this helper.
-    """
-    if not entries:
-        return []
-
-    direct_owns, direct_collaborations, exclusions = await asyncio.gather(
-        user.nodes(edge=["OWNS"], node=["Entry"]),
-        user.nodes(edge=["COLLABORATES_ON"], node=["Entry"]),
-        user.nodes(edge=["EXCLUDED_FROM"], node=["Entry"]),
+    """Discover requested candidates and admit every Entry before exposure."""
+    from app.services.entry_access_projection import (
+        hydrate_records,
+        iter_records,
+        merge_queries,
     )
-    direct_ids = {entry.id for entry in direct_owns}
-    direct_ids.update(entry.id for entry in direct_collaborations)
-    excluded_ids = {entry.id for entry in exclusions}
-    return [
-        entry
-        for entry in entries
-        if entry.id in direct_ids or entry.id not in excluded_ids
-    ]
+
+    sources = [{"context.track_id": {"$in": track_ids}}] if track_ids else []
+    if include_author_entries:
+        user = await get_user_node(user_id)
+        if user is None:
+            return []
+        sources.append({"context.author_id": {"$in": [user.id, user.user_id]}})
+    if not sources:
+        return []
+    query = merge_queries({"$or": sources}, candidate_query or {})
+    result = []
+    async for records in iter_records(user_id, query):
+        result.extend(await hydrate_records(records))
+    return result
 
 
 @perf_traced("permissions.get_user_accessible_entries")
@@ -1616,124 +1575,32 @@ async def get_user_accessible_entries(
     strict: bool = False,
     candidate_query: Optional[Dict[str, Any]] = None,
 ) -> List[Entry]:
-    """List entries visible to the user, optionally scoped by track or app_node.
+    """List the current canonical Entry audience in bounded raw windows.
 
-    When ``workspace_id`` is provided, results are pruned to entries whose
-    parent track (or parent app_node) resolves to that workspace. Callers that
-    omit it preserve the legacy cross-workspace behaviour, so internal
-    helpers and agentive code paths are unaffected. Exact-query and aggregate
-    callers pass ``strict=True`` so a failed source read cannot masquerade as
-    an empty result.
+    ``strict`` remains a source-compatible argument. All callers propagate
+    unavailable authority; a failed read never becomes an empty success.
     """
-    from app.services.request_scope import (
-        _effective_workspace_id_of,
-        matches_workspace,
+    from app.services.entry_access_projection import candidate_query as discover
+    from app.services.entry_access_projection import (
+        hydrate_records,
+        iter_records,
+        merge_queries,
     )
 
-    try:
-        candidates: List[Entry]
-        if track_id and app_id:
-            app_id = None
-        if app_id:
-            if not await can_view_app(user_id, app_id):
-                return []
-            sp = await _load_resource_node("app", app_id)
-            if not sp:
-                return []
-            if workspace_id and _effective_workspace_id_of(sp) != workspace_id:
-                return []
-            tracks = await sp.nodes(edge=["CONTAINS"], node=["Track"])
-            track_checks = await asyncio.gather(
-                *(can_view_track(user_id, tr.id) for tr in tracks)
-            )
-            visible_track_ids = [tr.id for tr, ok in zip(tracks, track_checks) if ok]
-            verified_track_set = set(visible_track_ids)
-            candidates = await _collect_entries_for_tracks(
-                user_id,
-                visible_track_ids,
-                include_author_entries=False,
-                candidate_query=candidate_query,
-            )
-            # Track visibility is not sufficient: an Entry can carry an
-            # EXCLUDED_FROM edge that revokes inherited App/Track access.
-        elif track_id:
-            if not await can_view_track(user_id, track_id):
-                return []
-            track = await _load_resource_node("track", track_id)
-            if workspace_id and (
-                track is None or _effective_workspace_id_of(track) != workspace_id
-            ):
-                return []
-            candidates = []
-            candidate_seen: set = set()
-            verified_track_set = {track_id}
-            track_query: Dict[str, Any] = {"context.track_id": track_id}
-            if candidate_query:
-                track_query = {"$and": [track_query, candidate_query]}
-            for e in await Entry.find(track_query):
-                candidate_seen.add(e.id)
-                candidates.append(e)
-            # Preserve the entry-level policy pass below for direct track
-            # scans as well; otherwise a per-entry revoke leaks into lists.
-        else:
-            tracks = await get_user_accessible_tracks(user_id)
-            if workspace_id:
-                tracks = [t for t in tracks if matches_workspace(t, workspace_id)]
-            track_ids = [t.id for t in tracks]
-            verified_track_set = set(track_ids)
-            # When scoping to a workspace, drop the author-authored fan-out
-            # in ``_collect_entries_for_tracks`` so we never pick up
-            # entries whose parent track lives in another workspace.
-            candidates = await _collect_entries_for_tracks(
-                user_id,
-                track_ids,
-                include_author_entries=workspace_id is None,
-                candidate_query=candidate_query,
-            )
-
-        result = []
-        pending_track_checks: List[Tuple[Any, str]] = []
-        for entry in candidates:
-            t_id: Optional[str] = entry.track_id
-            if not t_id:
-                etracks = await entry.nodes(
-                    edge=["CONTAINS"], direction="in", node=["Track"]
-                )
-                t_id = str(etracks[0].id) if etracks else None
-
-            if not t_id:
-                continue
-
-            if workspace_id:
-                if t_id in verified_track_set:
-                    result.append(entry)
-                continue
-
-            if t_id in verified_track_set:
-                result.append(entry)
-            else:
-                pending_track_checks.append((entry, t_id))
-
-        if pending_track_checks:
-            checks = await asyncio.gather(
-                *(can_view_track(user_id, t_id) for _, t_id in pending_track_checks)
-            )
-            for (entry, _), ok in zip(pending_track_checks, checks):
-                if ok:
-                    result.append(entry)
-
-        # The parent Track is verified above. Preserve Entry-level explicit
-        # deny and direct-grant precedence with two batched edge reads rather
-        # than one full role-cascade query per Entry.
-        user = await get_user_node(user_id)
-        if not user:
-            return []
-        return await _filter_entries_by_access_overrides(user, result)
-    except Exception as exc:
-        logger.warning("Error getting accessible entries for %s: %s", user_id, exc)
-        if strict:
-            raise
+    scope = {
+        "track_id": track_id,
+        "app_id": None if track_id else app_id,
+        "workspace_id": workspace_id,
+    }
+    query = await discover(user_id, **scope)
+    if query is None:
         return []
+    result = []
+    async for records in iter_records(
+        user_id, merge_queries(query, candidate_query or {}), **scope
+    ):
+        result.extend(await hydrate_records(records))
+    return result
 
 
 async def count_user_accessible_entries_for_tracks(
@@ -1761,47 +1628,16 @@ async def count_user_accessible_entries_for_tracks(
 
 
 async def count_user_accessible_entries(user_id: str, track_id: str) -> int:
-    """Count visible Entries without hydrating the Track's full collection."""
-    if not await can_view_track(user_id, track_id):
+    """Count only Entries admitted by current canonical authority."""
+    from app.services.entry_access_projection import candidate_query, iter_records
+
+    query = await candidate_query(user_id, track_id=track_id)
+    if query is None:
         return 0
-    try:
-        # Authorization above has already loaded the Track and principal.
-        # An empty collection needs no deny/direct-grant filtering, so defer
-        # those additional primary reads until there are entries to count.
-        total = await Entry.count({"track_id": track_id})
-        if not total:
-            return 0
-        track = await _load_resource_node("track", track_id)
-        user = await get_user_node(user_id)
-        if not track or not user:
-            return 0
-        context = await track.get_context()
-        node_collection = context._get_collection_name("n")
-        exclusions = await user.nodes(edge=["EXCLUDED_FROM"], node=["Entry"])
-        denied_ids = {node.id for node in exclusions}
-        if not denied_ids:
-            return int(total)
-        owned, collaborators = await asyncio.gather(
-            user.nodes(edge=["OWNS"], node=["Entry"]),
-            user.nodes(edge=["COLLABORATES_ON"], node=["Entry"]),
-        )
-        directly_allowed = {node.id for node in owned}
-        directly_allowed.update(node.id for node in collaborators)
-        denied_ids -= directly_allowed
-        if not denied_ids:
-            return int(total)
-        excluded_query = {
-            "entity": "Entry",
-            "context.track_id": track_id,
-            "id": {"$in": list(denied_ids)},
-        }
-        excluded = await context.database.count(node_collection, excluded_query)
-        return max(0, int(total) - int(excluded))
-    except Exception:
-        # Strict callers need an exact result; silently hydrating the whole
-        # collection on a count failure recreates the scale failure this helper
-        # is meant to avoid.
-        raise
+    total = 0
+    async for records in iter_records(user_id, query, track_id=track_id):
+        total += len(records)
+    return total
 
 
 async def get_user_accessible_entry_page(
@@ -1814,90 +1650,30 @@ async def get_user_accessible_entry_page(
     candidate_query: Optional[Dict[str, Any]] = None,
     workspace_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Return one persisted Entry page with exact visible total for one Track."""
-    if limit < 1 or offset < 0 or not await can_view_track(user_id, track_id):
-        return {"entries": [], "total": 0, "next_cursor": None}
-    track = await _load_resource_node("track", track_id)
-    user = await get_user_node(user_id)
-    if not track or not user:
-        return {"entries": [], "total": 0, "next_cursor": None}
-    from app.services.request_scope import _effective_workspace_id_of
+    """Return an admitted offset page and its exact current audience total."""
+    from app.services.entry_access_projection import candidate_query as discover
+    from app.services.entry_access_projection import merge_queries, select_page
 
-    if workspace_id and _effective_workspace_id_of(track) != workspace_id:
+    if limit < 1 or offset < 0:
         return {"entries": [], "total": 0, "next_cursor": None}
-
-    context = await track.get_context()
-    node_collection = context._get_collection_name("n")
-    base_query: Dict[str, Any] = {"entity": "Entry", "context.track_id": track_id}
-    if candidate_query:
-        base_query = {"$and": [base_query, candidate_query]}
-    total = await context.database.count(node_collection, base_query)
-    owned, collaborators, exclusions = await asyncio.gather(
-        user.nodes(edge=["OWNS"], node=["Entry"]),
-        user.nodes(edge=["COLLABORATES_ON"], node=["Entry"]),
-        user.nodes(edge=["EXCLUDED_FROM"], node=["Entry"]),
+    scope = {"track_id": track_id, "workspace_id": workspace_id}
+    query = await discover(user_id, **scope)
+    if query is None:
+        return {"entries": [], "total": 0, "next_cursor": None}
+    entries, response = await select_page(
+        user_id,
+        merge_queries(query, candidate_query or {}),
+        limit=limit,
+        offset=offset,
+        sort=sort,
+        include_total=True,
+        **scope,
     )
-    directly_allowed = {node.id for node in owned}
-    directly_allowed.update(node.id for node in collaborators)
-    denied_ids = {node.id for node in exclusions} - directly_allowed
-    if denied_ids:
-        excluded_query: Dict[str, Any] = {
-            "entity": "Entry",
-            "context.track_id": track_id,
-            "id": {"$in": list(denied_ids)},
-        }
-        if candidate_query:
-            excluded_query = {"$and": [excluded_query, candidate_query]}
-        total -= await context.database.count(node_collection, excluded_query)
-
-    # Keyset pages are filtered for explicit Entry exclusions after hydration.
-    # Keep fetching until the requested visible offset/page is full or exhausted.
-    cursor: Optional[str] = None
-    skipped = 0
-    visible: List[Entry] = []
-    batch_size = max(100, min(500, limit + offset))
-    from jvspatial.core.pager import (
-        decode_keyset_cursor,
-        encode_keyset_cursor,
-        keyset_filter,
-        keyset_sort_fields,
-    )
-
-    sort_fields = keyset_sort_fields(sort)
-    while len(visible) < limit:
-        final_query = dict(base_query)
-        after = keyset_filter(sort_fields, decode_keyset_cursor(cursor))
-        if after is not None:
-            final_query = {"$and": [final_query, after]}
-        found = await context.database.find(
-            node_collection,
-            final_query,
-            limit=batch_size + 1,
-            sort=sort_fields,
-        )
-        records = found[:batch_size]
-        cursor = (
-            encode_keyset_cursor(records[-1], sort_fields)
-            if len(found) > batch_size and records
-            else None
-        )
-        for record in records:
-            if record.get("id") in denied_ids:
-                continue
-            if skipped < offset:
-                skipped += 1
-                continue
-            entry_data = dict(record.get("context") or {})
-            entry_data.update(
-                {"id": record.get("id"), "entity": record.get("entity", "Entry")}
-            )
-            entry = Entry.model_validate(entry_data)
-            visible.append(entry)
-            if len(visible) >= limit:
-                break
-        if not cursor:
-            break
-    return {"entries": visible, "total": max(0, int(total)), "next_cursor": cursor}
+    return {
+        "entries": entries,
+        "total": response["total"],
+        "next_cursor": response["next_cursor"],
+    }
 
 
 async def iter_user_accessible_entry_batches(
@@ -1908,66 +1684,24 @@ async def iter_user_accessible_entry_batches(
     candidate_query: Optional[Dict[str, Any]] = None,
     workspace_id: Optional[str] = None,
 ) -> AsyncIterator[List[Entry]]:
-    """Stream visible Entry batches from one authorized Track in key order."""
-    if batch_size < 1 or not await can_view_track(user_id, track_id):
-        return
-    track = await _load_resource_node("track", track_id)
-    user = await get_user_node(user_id)
-    if not track or not user:
-        return
-    from app.services.request_scope import _effective_workspace_id_of
-
-    if workspace_id and _effective_workspace_id_of(track) != workspace_id:
-        return
-    context = await track.get_context()
-    node_collection = context._get_collection_name("n")
-    base_query: Dict[str, Any] = {"entity": "Entry", "context.track_id": track_id}
-    if candidate_query:
-        base_query = {"$and": [base_query, candidate_query]}
-    owned, collaborators, exclusions = await asyncio.gather(
-        user.nodes(edge=["OWNS"], node=["Entry"]),
-        user.nodes(edge=["COLLABORATES_ON"], node=["Entry"]),
-        user.nodes(edge=["EXCLUDED_FROM"], node=["Entry"]),
-    )
-    directly_allowed = {node.id for node in owned}
-    directly_allowed.update(node.id for node in collaborators)
-    denied_ids = {node.id for node in exclusions} - directly_allowed
-    from jvspatial.core.pager import (
-        decode_keyset_cursor,
-        encode_keyset_cursor,
-        keyset_filter,
-        keyset_sort_fields,
+    """Stream admitted Entries while bounding every raw database window."""
+    from app.services.entry_access_projection import candidate_query as discover
+    from app.services.entry_access_projection import (
+        hydrate_records,
+        iter_records,
+        merge_queries,
     )
 
-    sort_fields = keyset_sort_fields(None)
-    cursor: Optional[str] = None
-    while True:
-        final_query = dict(base_query)
-        after = keyset_filter(sort_fields, decode_keyset_cursor(cursor))
-        if after is not None:
-            final_query = {"$and": [final_query, after]}
-        found = await context.database.find(
-            node_collection,
-            final_query,
-            limit=batch_size + 1,
-            sort=sort_fields,
-        )
-        records = found[:batch_size]
-        cursor = (
-            encode_keyset_cursor(records[-1], sort_fields)
-            if len(found) > batch_size and records
-            else None
-        )
-        entries = []
-        for record in records:
-            if record.get("id") in denied_ids:
-                continue
-            entry_data = dict(record.get("context") or {})
-            entry_data.update(
-                {"id": record.get("id"), "entity": record.get("entity", "Entry")}
-            )
-            entries.append(Entry.model_validate(entry_data))
-        if entries:
-            yield entries
-        if not cursor:
-            break
+    if batch_size < 1:
+        return
+    scope = {"track_id": track_id, "workspace_id": workspace_id}
+    query = await discover(user_id, **scope)
+    if query is None:
+        return
+    async for records in iter_records(
+        user_id,
+        merge_queries(query, candidate_query or {}),
+        batch_size=batch_size,
+        **scope,
+    ):
+        yield await hydrate_records(records)
