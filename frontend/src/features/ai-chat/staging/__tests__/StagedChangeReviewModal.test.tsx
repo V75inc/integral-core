@@ -153,6 +153,25 @@ describe('StagedChangeReviewModal — shares the caller state', () => {
     expect(controls.bless).toHaveBeenCalledOnce();
   });
 
+  it('shows bound operation fields instead of narrated replacements and keeps live approval controls', async () => {
+    const user = userEvent.setup();
+    const controls = controlsStub();
+    const staged = makeStaged({
+      kind: 'invoke_app_operation',
+      diff_human: 'Narration\n```json\n{"body":"Invented replacement"}\n```',
+      diff_machine: { op: 'invoke_app_operation', input: { body: 'Exact bound passage' },
+        review: { description: 'Save the selected material.', input_labels: { properties: { body: { title: 'Selected passage' } } } } },
+    });
+    wrap(<StagedChangeReviewModal staged={staged} open onClose={() => {}} controls={controls} />);
+    expect(await screen.findByText('Selected passage')).toBeInTheDocument();
+    expect(screen.getByText('Exact bound passage')).toBeInTheDocument();
+    expect(screen.queryByText('Invented replacement')).not.toBeInTheDocument();
+    expect(screen.getByText('Technical details').closest('details')).not.toHaveAttribute('open');
+    await user.click(screen.getByRole('button', { name: /^Approve$/ }));
+    expect(controls.bless).toHaveBeenCalledOnce();
+    expect(staged.diff_machine.input).toEqual({ body: 'Exact bound passage' });
+  });
+
   it('surfaces the shared error', async () => {
     wrap(
       <StagedChangeReviewModal
