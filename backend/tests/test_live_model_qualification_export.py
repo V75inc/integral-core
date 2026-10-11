@@ -98,6 +98,11 @@ async def test_qualification_export_projects_only_safe_receipt_fields(
     assert "input_fingerprint" not in exported["steps"][0]
     assert "customer_name" not in str(exported)
     assert "secret_declaration" not in str(exported)
+    from app.schemas.api.ai_chat import QualificationRunExport
+
+    public = QualificationRunExport.model_validate(exported).model_dump(mode="json")
+    assert public["context_requests"] == []
+    assert public["observed_usage"] is None
 
 
 @pytest.mark.asyncio
@@ -174,6 +179,70 @@ async def test_qualification_export_endpoint_is_scope_bound(
 
 
 @pytest.mark.asyncio
+async def test_qualification_endpoint_accepts_actual_exporter_shape(
+    authenticated_client: AsyncClient,
+    test_user: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exercise the real projection and route schema, not a legacy fake shape."""
+    from app.agentive.harness import model_observations
+
+    created = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Actual qualification receipt"}
+    )
+    assert created.status_code == 200, created.text
+    workspace_id = created.json()["workspace"]["id"]
+    run = _Record(
+        run_id="run-actual",
+        user_id=test_user.user_id,
+        workspace_id=workspace_id,
+        thread_id="thread-actual",
+        status="succeeded",
+        metadata={},
+    )
+
+    async def find_run(query):
+        return run
+
+    async def no_steps(query):
+        return []
+
+    async def no_observations(**identity):
+        return []
+
+    monkeypatch.setattr(execution_runs.AgentRun, "find_one", find_run)
+    monkeypatch.setattr(execution_runs.RunStep, "find", no_steps)
+    monkeypatch.setattr(
+        model_observations, "list_run_model_request_observations", no_observations
+    )
+    response = await authenticated_client.get(
+        "/api/chat/runs/run-actual/qualification-export",
+        headers={"X-Integral-Scope": f"ws:{workspace_id}"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["context_requests"] == []
+    assert response.json()["observed_usage"] is None
+    original_owner = run.user_id
+    run.user_id = "another-owner"
+    denied = await authenticated_client.get(
+        "/api/chat/runs/run-actual/qualification-export",
+        headers={"X-Integral-Scope": f"ws:{workspace_id}"},
+    )
+    assert denied.status_code == 404, denied.text
+    run.user_id = original_owner
+    other = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Other qualification scope"}
+    )
+    assert other.status_code == 200, other.text
+    other_workspace = other.json()["workspace"]["id"]
+    denied = await authenticated_client.get(
+        "/api/chat/runs/run-actual/qualification-export",
+        headers={"X-Integral-Scope": f"ws:{other_workspace}"},
+    )
+    assert denied.status_code == 404, denied.text
+
+
+@pytest.mark.asyncio
 async def test_cancelled_qualification_reads_known_usage_and_cost_from_ledger(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -183,6 +252,7 @@ async def test_cancelled_qualification_reads_known_usage_and_cost_from_ledger(
     from app.agentive.harness import model_observations
     from app.agentive.harness.contracts import (
         HarnessExecutionScope,
+        ModelRequestContextObservation,
         ModelUsageObservation,
         PhysicalModelRequest,
     )
@@ -214,6 +284,15 @@ async def test_cancelled_qualification_reads_known_usage_and_cost_from_ledger(
         attempt=1,
         dispatched_at=datetime.now(timezone.utc),
         outcome="dispatch_intent",
+        request_context=ModelRequestContextObservation(
+            instruction_chars=100,
+            conversation_chars=200,
+            tool_result_chars=25,
+            tool_schema_chars=300,
+            message_count=4,
+            visible_tool_count=2,
+            tool_schema_fingerprint="schema-hash",
+        ),
     )
     cancelled = intent.model_copy(
         update={
@@ -258,6 +337,14 @@ async def test_cancelled_qualification_reads_known_usage_and_cost_from_ledger(
     assert receipt["observed_usage"]["provider_cost_usd"] == "0.00001234"
     assert receipt["observed_usage"]["token_usage_complete"] is False
     assert receipt["observed_usage"]["unresolved_request_count"] == 1
+    from app.schemas.api.ai_chat import QualificationRunExport
+
+    public = QualificationRunExport.model_validate(receipt).model_dump(mode="json")
+    assert public["observed_usage"]["provider_cost_usd"] == "0.00001234"
+    assert public["observed_usage"]["provider_cost_complete"] is False
+    assert public["context_requests"][0]["instruction_chars"] == 100
+    assert public["context_requests"][0]["tool_schema_chars"] == 300
+    assert public["context_requests"][0]["repeated_tool_schema_chars"] == 0
     # A later terminal observation enriches the read without adding another billable call.
     transitions.append(
         cancelled.model_copy(
@@ -277,3 +364,54 @@ async def test_cancelled_qualification_reads_known_usage_and_cost_from_ledger(
     assert receipt["observed_usage"]["token_usage_complete"] is True
     assert receipt["observed_usage"]["provider_cost_complete"] is True
     assert receipt["observed_usage"]["provider_cost_usd"] == "0.00001234"
+
+
+@pytest.mark.parametrize(
+    "location", ["export", "context", "request_usage", "run_usage"]
+)
+def test_qualification_schema_refuses_unrecognized_content_fields(location):
+    """Adding accounting metadata must not open arbitrary content projections."""
+    from pydantic import ValidationError
+
+    from app.schemas.api.ai_chat import QualificationRunExport
+
+    payload = {
+        "run_id": "run-1",
+        "status": "succeeded",
+        "provider_configuration": {},
+        "metrics": {},
+        "models": [],
+        "redacted_trace_ref": "agent-run:run-1",
+        "steps": [],
+        "context_requests": [
+            {
+                "request_id": "request-1",
+                "model": "example-model",
+                "attempt": 1,
+                "outcome": "responded",
+                "usage": {"cost_source": "unavailable", "complete": False},
+            }
+        ],
+        "observed_usage": {
+            "request_count": 1,
+            "completed_request_count": 1,
+            "unresolved_request_count": 0,
+            "reported_input_tokens": 0,
+            "reported_output_tokens": 0,
+            "token_usage_complete": False,
+            "provider_cost_complete": False,
+        },
+    }
+    public = QualificationRunExport.model_validate(payload).model_dump(mode="json")
+    assert public["observed_usage"]["provider_cost_usd"] is None
+    assert public["context_requests"][0]["usage"]["provider_cost_usd"] is None
+    assert public["context_requests"][0]["instruction_chars"] is None
+    target = {
+        "export": payload,
+        "context": payload["context_requests"][0],
+        "request_usage": payload["context_requests"][0]["usage"],
+        "run_usage": payload["observed_usage"],
+    }[location]
+    target["private_content"] = "must-not-export"
+    with pytest.raises(ValidationError, match="private_content"):
+        QualificationRunExport.model_validate(payload)

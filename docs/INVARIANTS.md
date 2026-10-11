@@ -28,6 +28,18 @@ Use canonical policy evaluation. Agents without applicable policy fail closed. P
 
 Explicit scope is `X-Integral-Scope: ws:<workspace_id>`; malformed supplied scope is rejected. Private workspace access is validated server-side. Ordinary omitted scope uses the personal default; specialized stored-active-scope paths are explicit. Bind chat and approval execution to authenticated scope. Public-read/share exceptions are narrow contracts, not general writes or private enumeration.
 
+### I-UI-SCOPE-01 — Connector views follow the active scope
+
+Connector list and tool caches are partitioned by authenticated principal and active workspace. Switching scope replaces the mounted connector panel, clears open edit/configuration/inspection/authorization state, and requests the new workspace's list without requiring a reload. A delayed response from the previous workspace cannot populate the current list. Cache cleanup alone is insufficient for a mounted observer. Server permissions remain authoritative.
+
+Gate: `ConnectorsSection.test.tsx` exercises mounted workspace switches, delayed old responses, and panel reset using a real query client.
+
+### I-UI-COPY-01 — JSON copy feedback follows clipboard completion
+
+The JSON inspector reports success only after the browser clipboard write resolves. Pending writes disable duplicate clicks; denied or unavailable clipboard access produces visible, retryable feedback. Row copies preserve complete values even when their display is truncated. Completion for replaced data or an unmounted inspector cannot set current success feedback or leave a reset timer running. A browser accepting a write does not by itself qualify paste delivery in an external application.
+
+Gate: `JsonViewer.test.tsx` exercises delayed success, rejection and retry, missing browser support, complete identifiers, duplicate clicks, replacement, and unmount cleanup. Actual clipboard readback and paste delivery remain separate runtime checks.
+
 ### I-ROLE-01 — Five-Tier Role Ladder (`role-ladder-five-tier`)
 
 **Statement.** `COLLABORATES_ON.role` accepts exactly five values, ordered
@@ -230,6 +242,66 @@ Rejection emits policy.deny with approval/original-action/agent/reason detail, n
 
 Every new ChangeEventAction appears in PolicyAction unless the canonical test whitelist identifies it as audit-only. Policy-only approval, migration, authoring, and conflict gates need no fabricated change-event twin. Update the existing definitions and tests together.
 
+### I-APPROVAL-04 — Agent App commands share the review boundary
+
+An agent invoking a typed App mutation through the generic wrapper or a directly
+materialized App capability stages the command without calling its handler.
+Read declarations execute immediately through the same authorized dispatcher.
+Human HTTP and SDK calls retain their explicit execution semantics. A command's
+declaration, inputs, App, workspace, principal, and idempotency identity are bound
+at preparation; review execution rechecks current permissions and the registered
+declaration. A changed declaration requires a new proposal. Rejection produces
+no App operation effect. Discovery, an open batch, or a skill's instruction text
+cannot confer an execution exemption. Durable autonomous-work admission remains
+a separate qualification requirement.
+
+Verification: `tests/test_app_operation_staging.py`, the operation contract and
+staging scope suites. Preserve I-SUBSTRATE-01, I-ROLE-01/02, I-APPROVAL-01/02,
+I-GRAPH-01/02, and I-WORK-05; this boundary adds no new internal actor bypass.
+
+### I-APPROVAL-05 — Review and resolved-state readback are transport-independent
+
+Approvals and Inbox offer the exact proposed change for inspection before
+authorization, using the same live decision controls as chat. Refused execution
+remains visible; a failed refresh cannot silently discard known proposals.
+Technical details are secondary. A proposal need not have a chat session.
+The global Inbox counts and displays pending/blessed proposals alongside policy
+approvals; a loading or failed proposal read must not claim that all is clear.
+Approved but unapplied proposals remain cancelable in chat, review, Approvals and
+Inbox, including after explicit tool refusal. These surfaces must not imply that
+execution or safe retry is underway; revoking approval does not assert rollback
+of partial effects. Workspace tool review and typed App operation review render
+the bound input as literal, read-only fields outside collapsed technical details.
+App schema titles and optional `x-review-order` arrays supply field presentation;
+order-critical presentation must not depend on object-member order. The bounded
+projection retains the sequence as a `property_order` array across storage. Every
+unlabelled input remains inspectable. Presentation metadata never enters the
+execution payload. The full Approvals page shares its proposal collection with
+its counts and suppresses empty-success claims until both queues are read; failed
+reads remain explicit. Assistant Inbox likewise suppresses its empty-success
+message during initial or background refresh and when any collection read is
+degraded. Failed reads retain available rows, expose a local Retry control and
+retry every ten seconds while observed; successful queues remain event-driven.
+Supported record references use the existing scoped label/link
+resolver. Large input projections explicitly direct inspection to the complete
+technical payload; narrated JSON is never substituted for the execution input.
+
+Closed staging tokens have a principal-scoped, state-only reconciliation receipt
+for 24 hours. It retains no payload, human diff, summary, idempotency key, or
+execution result, and cannot be hydrated or consumed as an approval. Expired or
+unavailable receipts remain unknown, never inferred successful. Pending/blessed
+durability, the optional decision ledger, and operation outcome receipts remain
+separate contracts. Expired state receipts are pruned in bounded batches on
+subsequent closure writes and individually on read; this is not permanent audit
+history or a background retention SLA.
+
+Verification: `tests/test_staging_decision_readback.py`, staging persistence and
+terminal-durability suites, Approvals/Inbox review and modal shared-state tests,
+and `NotificationsHeaderButton.approvals.test.tsx`.
+Literal input and App-owned label projection are covered by
+`StagedOperationInputs.test.tsx` and `test_app_operation_staging.py`.
+Preserve I-SUBSTRATE-01, I-GRAPH-02, I-APPROVAL-01/02/04 and I-ROLE-01/02.
+
 ### I-UX-01 — One provenance presentation
 
 ProvenanceBadge is the sole frontend consumer choosing source styling/popovers. Human, agent, connector, and system variants stay aligned with ActorKind. All relevant surfaces reuse it. Legacy default provenance does not establish a confirmed origin. Add a variant only with backend/frontend type and presentation updates.
@@ -330,6 +402,28 @@ Required absent/unsatisfied dependencies block install. Inbound hard dependencie
 
 Cross-App resolution and explicit instance pins stay inside the source workspace. A manifest cannot publish data through a cross-workspace target pin. Resolve ambiguous instances through the supported declaration contract.
 
+The central typed Entry-field validator also checks Entry targets against their
+Track workspace before creating a record, advancing its revision, or replacing
+REFERENCES edges. Missing source/target workspace or a missing target Track
+refuses linkage; `allow_cross_track` and `allow_cross_app` do not relax this
+constraint. Materializing writers also require current target-read permission
+through the canonical policy engine. Entry containment must agree with its
+Track pointer; its type belongs to that Track. A declared target App resolves
+through the existing workspace/instance contract and must be the unique graph
+parent of the target Track. Cross-App links cannot substitute a matching type
+or display label for the declared owning App. Verified target App IDs are
+materialized on REFERENCES by the server, never taken from the caller's fields.
+
+Authorization and provenance are separate. Delegated UI, approval, connector
+and operation writes retain the authenticated user's authority even when their
+provenance is agentive. Independent agent, connector and system services pass
+an explicit authorization Subject; system provenance alone does not elevate a
+human principal. Actorless schema-impact previews can validate structural shape
+with `materialize=False`, but cannot authorize or create a relation. Denied
+targets leave the source fields, revision and relation edges unchanged. Existing
+invalid links are not silently removed by this check; historical repair and
+cross-worker revocation qualification remain separate gates.
+
 ### I-CRUD-01 — Service-layer canonical mutations
 
 Routes delegate persisted writes to named services; direct graph creation/connection in API modules is forbidden. Internal operations use the appropriate shared writer, not a second mutation implementation. Staged-index guards and behavior tests enforce this boundary.
@@ -337,6 +431,11 @@ Routes delegate persisted writes to named services; direct graph creation/connec
 ### I-APP-06 — One library installation path
 
 Library Apps install through `app_lifecycle.install_app` or its canonical HTTP route. Partial create-and-merge cannot omit settings, definitions, seeds, skills, tools, or lifecycle. Seed/provisioning callers delegate rather than reconstructing install.
+
+Batch failures retain the same public typed error code/details as a single-install
+denial. The generic installer offers registered host guidance per failed App,
+while preserving partial successes and unknown-outcome protection; it does not
+infer commercial plans or automatically retry a denied install.
 
 ### I-APP-07 — Personal workspace at signup
 
@@ -581,6 +680,17 @@ Preserve the 80% global coverage requirement and 90% per-file requirement for ca
 **Rule:** Human waits require a pending `WorkApproval`. Approve requeues the original WorkItem; reject/expiry terminalize. A bounded mandate review cannot use ordinary approval to bypass current-grant and shared-limit admission: it remains non-runnable until the dedicated admission path is implemented and qualified. Cards without `work_approval_id` keep the legacy inline path.
 
 **Verification:** `tests/test_work_approvals.py`.
+
+For legacy staged workspace tools, an explicit dictionary result `ok: false`
+is a refused outcome, even when dispatch returned normally. The approval must
+remain unapplied with a recorded explanation. Preserve the original tool output
+(including any retained partial-effect references) for reconciliation; refusal
+does not prove rollback or authorize automatic re-execution. Legacy data outputs
+without this explicit boolean signal retain their existing contract.
+
+**Additional verification:** `tests/test_workspace_tool_outcomes.py` covers the
+real workspace-tool executor and shared approval apply path, plus successful and
+legacy data output compatibility.
 
 ### I-WORK-06 — Production store posture
 

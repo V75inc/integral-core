@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import copy
+import hashlib
+import json
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -114,17 +117,38 @@ async def list_app_operations(
     }
 
 
-async def invoke_app_operation(
+def operation_declaration_fingerprint(spec: Dict[str, Any], app: Any = None) -> str:
+    """Bind a review to the registered contract, handler, and package identity."""
+    return hashlib.sha256(
+        json.dumps(
+            {
+                "operation": spec,
+                "installed_identity": {
+                    key: getattr(app, key, None)
+                    for key in (
+                        "installed_package_slug",
+                        "installed_package_version",
+                        "installed_artifact_fingerprint",
+                        "active_definition_id",
+                        "active_definition_revision",
+                    )
+                },
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+
+
+async def prepare_app_operation(
     *,
     user_id: str,
     workspace_id: str,
     app_id: str,
     operation_key: str,
     payload: Optional[Dict[str, Any]] = None,
-    idempotency_key: Optional[str] = None,
-    correlation_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Execute a typed operation with policy, validation, and idempotency."""
+    """Authorize and validate an operation without calling its handler."""
     try:
         execution_scope = ExecutionScope.create(
             principal_id=user_id, workspace_id=workspace_id, origin="app_operation"
@@ -153,6 +177,7 @@ async def invoke_app_operation(
     if spec is None:
         raise ResourceNotFoundError(message=f"operation {key!r} not found for app")
 
+    spec = copy.deepcopy(spec)
     operation_kind = str(spec.get("kind") or "execute").strip().lower()
     if operation_kind not in _READ_KINDS | _MUTATION_KINDS:
         raise BadRequestError(message=f"unsupported operation kind {operation_kind!r}")
@@ -176,8 +201,65 @@ async def invoke_app_operation(
         decision=decision,
     )
 
-    body = dict(payload or {})
+    body = copy.deepcopy(dict(payload or {}))
     validate_input(body, spec.get("input_schema") or {})
+
+    return {
+        "execution_scope": execution_scope,
+        "spec": copy.deepcopy(spec),
+        "body": body,
+        "key": key,
+        "operation_kind": operation_kind,
+        "policy_revision": policy_revision,
+        "decision": decision,
+        "app": app,
+        "declaration_fingerprint": operation_declaration_fingerprint(spec, app),
+    }
+
+
+async def invoke_app_operation(
+    *,
+    user_id: str,
+    workspace_id: str,
+    app_id: str,
+    operation_key: str,
+    payload: Optional[Dict[str, Any]] = None,
+    idempotency_key: Optional[str] = None,
+    correlation_id: Optional[str] = None,
+    expected_declaration_fingerprint: Optional[str] = None,
+    expected_operation_kind: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Execute a typed operation with policy, validation, and idempotency."""
+    prepared = await prepare_app_operation(
+        user_id=user_id,
+        workspace_id=workspace_id,
+        app_id=app_id,
+        operation_key=operation_key,
+        payload=payload,
+    )
+    execution_scope = prepared["execution_scope"]
+    user_id, workspace_id = execution_scope.principal_id, execution_scope.workspace_id
+    spec, body, key = prepared["spec"], prepared["body"], prepared["key"]
+    operation_kind = prepared["operation_kind"]
+    policy_revision = prepared["policy_revision"]
+    decision, app = prepared["decision"], prepared["app"]
+    if (
+        expected_operation_kind is not None
+        and operation_kind != expected_operation_kind
+    ):
+        raise BadRequestError(message="App operation execution class changed")
+    if expected_declaration_fingerprint is not None and (
+        (
+            operation_kind != expected_operation_kind
+            if expected_operation_kind
+            else operation_kind not in _MUTATION_KINDS
+        )
+        or prepared["declaration_fingerprint"] != expected_declaration_fingerprint
+    ):
+        raise BadRequestError(
+            message="App operation changed since review; prepare a new proposal",
+            details={"error_code": "operation_declaration_changed"},
+        )
 
     from app.services.app_invariant_guards import (
         reset_operation_write_active,

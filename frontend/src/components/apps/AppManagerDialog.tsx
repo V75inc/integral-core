@@ -416,7 +416,7 @@ export function AppManagerDialog({
     phase === 'settings'
       ? 'Finish app setup'
       : phase === 'results'
-        ? 'Changes applied'
+        ? 'App change results'
         : 'Manage apps';
 
   const closeDialog = () => {
@@ -1066,13 +1066,26 @@ function ResultsView({
               )}
               {batch.failed.length > 0 && (
                 <ResultSection title={`Install failed (${batch.failed.length})`} tone="danger">
-                  {batch.failed.map(row => (
-                    <li key={row.library_cp_id}>
-                      <Text variant="body" tone="danger">
-                        {row.name || row.library_cp_id} — {row.error}
-                      </Text>
-                    </li>
-                  ))}
+                  {batch.failed.map(row => {
+                    const denial = resolveInstallDenial(row);
+                    return (
+                      <li key={row.library_cp_id} className="space-y-2">
+                        <Text as="p" variant="body" tone="danger">
+                          {row.name || row.library_cp_id} — {denial?.message || row.error}
+                        </Text>
+                        {denial?.actionLabel && denial.onAction ? (
+                          <Button variant="outline" size="sm" onClick={denial.onAction}>
+                            {denial.actionLabel}
+                          </Button>
+                        ) : null}
+                        {row.error_code === 'app_dependency_error' ? (
+                          <Text as="p" variant="body-sm" tone="muted">
+                            Resolve the required app installation or update, then return to install this app.
+                          </Text>
+                        ) : null}
+                      </li>
+                    );
+                  })}
                 </ResultSection>
               )}
             </>

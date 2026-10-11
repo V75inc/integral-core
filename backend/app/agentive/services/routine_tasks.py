@@ -431,10 +431,14 @@ async def enqueue_routine_turn_work(
 async def execute_routine_turn_under_lease(item: Any, ctx: Any) -> None:
     """Worker body: run the existing agent-turn path under a WorkItem lease."""
     from app.agentive.nodes import RoutineTask
+    from app.agentive.services.work_execution import assert_effect_boundary_allowed
     from app.schemas.agentive.work import WorkError
-    from app.services.routine_task_scheduler import _run_agent_turn, _TurnBusy
+    from app.services.routine_task_scheduler import (
+        _permission_gate,
+        _run_agent_turn,
+        _TurnBusy,
+    )
 
-    _ = ctx  # lease already asserted by the worker boundary
     payload = dict(getattr(item, "input_payload", None) or {})
     routine_id = str(payload.get("routine_id") or "").strip()
     if not routine_id:
@@ -442,6 +446,26 @@ async def execute_routine_turn_under_lease(item: Any, ctx: Any) -> None:
     task = await RoutineTask.get(routine_id)
     if task is None:
         raise WorkError("work.permanent", f"routine {routine_id} not found")
+    # The scheduler's checks are not authority for a fire recovered directly
+    # by the worker. Bind the saved routine to this claimed principal/scope
+    # and repeat live admission before reaching the resident harness.
+    for field, expected in (
+        ("principal_id", task.user_id),
+        ("workspace_id", task.workspace_id),
+        ("thread_id", task.thread_id),
+    ):
+        if str(getattr(item, field, "") or "") != str(expected or "") or str(
+            getattr(ctx, field, "") or ""
+        ) != str(expected or ""):
+            raise WorkError("work.policy_denied", "routine execution binding mismatch")
+    if task.status != "active":
+        raise WorkError("work.policy_denied", "routine is no longer active")
+    reason = await _permission_gate(task)
+    if reason is not None:
+        raise WorkError("work.policy_denied", reason)
+    # Permission reads may await I/O while the work lease is cancelled or
+    # expires. Recheck the existing effect fence after those reads as well.
+    await assert_effect_boundary_allowed(ctx)
     try:
         success, error_reason = await _run_agent_turn(task)
     except _TurnBusy:

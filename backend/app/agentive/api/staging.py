@@ -269,17 +269,20 @@ async def token_state_endpoint(request: Request, token: str) -> Dict[str, Any]:
     preventing the "card reverts to AWAITING APPROVAL after navigating
     away" bug.
 
-    Returns ``{ok: false, error_code: 'unknown_token'}`` when the
-    token is no longer in the in-memory store (typically because it
-    was consumed long enough ago to be swept, or the backend was
-    restarted). Callers should fall back to the staged.state from the
-    message context in that case — the most common terminal state we
-    can't represent here is ``consumed``, which is also the user's
-    expected interpretation of a missing token.
+    Closed changes have a principal-scoped, state-only readback receipt for
+    24 hours, including proposals with no chat transcript. It contains no
+    executable input or result. Once that receipt expires, an unknown token
+    does not imply approval or execution; retain only independently known
+    terminal transcript/operation receipts.
     """
     user_id = _resolve_user(request)
     sc = await get_token(token)
     if sc is None:
+        from app.agentive.staging_store import load_decision_state
+
+        closed = await load_decision_state(token, user_id)
+        if closed is not None:
+            return _ok(closed)
         return {"ok": False, "error_code": "unknown_token"}
     if sc.user_id != user_id:
         return {"ok": False, "error_code": "wrong_user"}

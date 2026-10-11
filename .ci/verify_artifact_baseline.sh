@@ -82,12 +82,29 @@ from app.agentive.tooling.manifest import DEFAULT_MANIFEST_PATH
 from app.connectors.catalog_loader import load_catalog
 from app.views import dashboard_widget_types
 from app.views.view_contract_catalog import load_view_contract_catalog
+from app.services.tool_source_observations import source_projection
+from app.schemas.capability_broker import ReceiptRef
 
 assert str(Path(app.__file__).resolve()).startswith(str(site)), app.__file__
 assert DEFAULT_MANIFEST_PATH.is_file(), DEFAULT_MANIFEST_PATH
 assert load_catalog(), "connector catalogue missing from wheel"
 assert dashboard_widget_types.get_spec("metric_card") is not None
 assert load_view_contract_catalog(), "view contracts missing from wheel"
+source = source_projection({
+    "url": "https://example.org/source",
+    "text": "A retained source passage.",
+    "retrieved_at": "2026-10-10T12:00:00+00:00",
+    "truncated": True,
+    "credential": "must not project",
+})
+assert source is not None and source["truncated"] is True
+assert source["content_trust"] == "untrusted" and "credential" not in source
+receipt = ReceiptRef(
+    step_id="o.RunStep.example", run_id="run", step_key="read",
+    idempotency_key="read-key", status="succeeded",
+    capability_key="source_read", origin="chat",
+)
+assert receipt.step_id == "o.RunStep.example"
 with zipfile.ZipFile(wheel) as archive:
     assert not any(name.startswith("app/packages/") for name in archive.namelist())
     skill_names = sorted(

@@ -241,6 +241,7 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
       'entries',
       'entryTypes',
       'skills',
+      'connectors',
     ] as const;
     if (prevWid) {
       for (const prefix of scopedPrefixes) {
