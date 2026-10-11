@@ -1251,7 +1251,7 @@
     },
     {
       "id": "M2-entry-projection-working",
-      "status": "qualified_partial",
+      "status": "pushed_partial",
       "deliverable": "One canonical current Entry audience for list/page/count/stream/query and narrow parent navigation",
       "evidence": [
         "Baseline 1 against pushed 6c48cb60: 44 failed and 11 passed across 55 adversarial cases; runtime repair pending.",
@@ -1265,7 +1265,8 @@
         "Ordinary inventory baseline reproduced private App exposure through the protected-owner fast path in active/paused states. Inventories now honor ordinary-authority mode. Lifecycle tests preserve the existing active/paused data gate; retained recovery is separate.",
         "Extended 20: 127 passed on JSON and 127 passed on PostgreSQL; full final qualification pending.",
         "Final 21 passed full local gates (899 smoke, 1583 frontend, 5226 backend), Core-only, extension, 229 focused PG; broader PG failed an obsolete owner-exclusion expectation. Test strengthened for protected and ordinary audiences both outside/inside transactions, with explicit rooted raw-store fixture. Standalone transaction 23 passes; exact final gates pending.",
-        "Final 24 terminal success: 899 smoke (7 skips), 1583 frontend / 279 files, 5226 backend (297 skips), Core-only, extension, 229 focused PG and broader PG spike/contract all pass. Frozen runtime/test patches rechecked before commit; wheel SHA-256 9348064eeb2f02d9023b93c2f6565fe2085ab9967d03a4bc53710ebdf697d052."
+        "Final 24 terminal success: 899 smoke (7 skips), 1583 frontend / 279 files, 5226 backend (297 skips), Core-only, extension, 229 focused PG and broader PG spike/contract all pass. Frozen runtime/test patches rechecked before commit; wheel SHA-256 9348064eeb2f02d9023b93c2f6565fe2085ab9967d03a4bc53710ebdf697d052.",
+        "Commit hooks passed; pushed sole designated branch and verified local/remote revision equality before the App invocation slice."
       ],
       "limits": [
         "All finding/use-case closure statuses remain unchanged.",
@@ -1273,7 +1274,26 @@
         "Whole-response/stream authorization fences, complete related-record projections, saved View scope, App action/effect audience and recovery UI/browser qualification remain open.",
         "Restore rehearsal remains explicitly skipped; no current-auth restore, GitHub CI, deployment or release qualification claimed."
       ],
-      "qualification_receipt": "/tmp/integral-access-entry-projection-final-24.status.json"
+      "qualification_receipt": "/tmp/integral-access-entry-projection-final-24.status.json",
+      "commit": "c22c1fb7e56a81cd2d41dff0a49c3d830e64d7ad"
+    },
+    {
+      "id": "M2-app-function-audience-working",
+      "status": "qualified_partial",
+      "deliverable": "Ordinary delegated authority throughout declared App operation/query invocation",
+      "evidence": [
+        "External baseline 2 reproduced post-admission stewardship amplification; 10 failures, no setup errors.",
+        "Focused 4: 80 passed on JSON and 80 on PostgreSQL.",
+        "Focused 5: 88 passed on JSON and 88 on PostgreSQL; 18 new direct-handler, registered-tool, template-adapter, direct-grant, failure and cancellation/concurrency cases.",
+        "Final 6 terminal success: 917 smoke (7 skips), 1583 frontend / 279 files, 5244 backend (297 skips), Core-only, extension, 298 focused PG and 232 broader PG tests (1 restore skip). Frozen runtime/test patches confirmed; wheel SHA-256 eed10f95c4a4a94179c998b0a01b99f70d208aa4c880a4ade31ffaadc540b1c3."
+      ],
+      "limits": [
+        "Exact action permits, groups/conditions, policy epochs, release/dependency fences and retained-context leases remain open.",
+        "Actual PolicyModule foreign-workspace baseline 3 remains unresolved separately.",
+        "No finding/U-case fully closed by this slice.",
+        "ASGI/stream release fences, restore rehearsal/current-auth recovery and GitHub CI/deployment remain unverified."
+      ],
+      "qualification_receipt": "/tmp/integral-access-function-audience-final-6.status.json"
     }
   ],
   "baseline_evidence": {

@@ -33,6 +33,7 @@ from app.services.hooks.tool_dispatch import (
     validate_output,
 )
 from app.services.permissions import resolve_role
+from app.services.workspace_governance import ordinary_authority_call
 from app.services.workspace_permissions import can_access_workspace
 
 logger = logging.getLogger(__name__)
@@ -114,6 +115,7 @@ async def list_app_operations(
     }
 
 
+@ordinary_authority_call
 async def invoke_app_operation(
     *,
     user_id: str,

@@ -8,7 +8,8 @@ action, personal credential export, or host execution.
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Iterator
+from functools import wraps
+from typing import Awaitable, Callable, Iterator, ParamSpec, TypeVar
 
 from app.middleware.permissions_cache import isolated_permissions_cache
 from app.models.nodes import Workspace
@@ -49,6 +50,32 @@ def ordinary_authority_only() -> Iterator[None]:
         yield
     finally:
         _owner_governance_allowed.reset(token)
+
+
+_FunctionArgs = ParamSpec("_FunctionArgs")
+_FunctionResult = TypeVar("_FunctionResult")
+
+
+def ordinary_authority_call(
+    function: Callable[_FunctionArgs, Awaitable[_FunctionResult]],
+) -> Callable[_FunctionArgs, Awaitable[_FunctionResult]]:
+    """Keep a declared App invocation in its ordinary delegated audience.
+
+    Admission alone cannot constrain nested policy checks, handler effects,
+    result construction or receipt replay. Bind the mode for the complete
+    awaited invocation; ContextVar tokens restore it on errors/cancellation
+    and keep concurrent Core stewardship requests independent.
+    """
+
+    @wraps(function)
+    async def invoke(
+        *args: _FunctionArgs.args, **kwargs: _FunctionArgs.kwargs
+    ) -> _FunctionResult:
+        """Invoke the declaration without consuming protected stewardship."""
+        with ordinary_authority_only():
+            return await function(*args, **kwargs)
+
+    return invoke
 
 
 @dataclass(frozen=True)
