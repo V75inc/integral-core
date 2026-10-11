@@ -286,9 +286,10 @@ async def _run_agent_turn(task: RoutineTask) -> Tuple[bool, Optional[str]]:
     # StreamingResponse — drain so persistence side-effects complete.
     body_iterator = getattr(result, "body_iterator", None)
     if body_iterator is not None:
+        from app.services.chat_sse import settled_chat_turn_outcome
+
         try:
-            async for _chunk in body_iterator:
-                pass
+            return await settled_chat_turn_outcome(body_iterator)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "routine_task_scheduler: agent-turn stream failed for %s: %s",
@@ -297,7 +298,18 @@ async def _run_agent_turn(task: RoutineTask) -> Tuple[bool, Optional[str]]:
                 exc_info=True,
             )
             return False, f"Agent turn stream failed: {exc}"
-    return True, None
+        finally:
+            close = getattr(body_iterator, "aclose", None)
+            if callable(close):
+                try:
+                    await close()
+                except Exception:  # cleanup must not hide the actual outcome
+                    logger.warning(
+                        "routine_task_scheduler: failed to close agent stream for %s",
+                        task.id,
+                        exc_info=True,
+                    )
+    return False, "Agent turn did not return a completion stream"
 
 
 async def _snapshot_pending_tokens(task: RoutineTask) -> Optional[Set[str]]:
