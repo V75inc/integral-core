@@ -15,6 +15,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import wraps
 from typing import Any, AsyncIterator
+from weakref import WeakSet
 
 from jvspatial.core.context import TransactionUnavailable as _JvTxnUnavailable
 from jvspatial.core.context import graph_transaction as _jv_graph_transaction
@@ -23,6 +24,7 @@ from jvspatial.db import get_prime_database
 from app.middleware.permissions_cache import reset_permissions_cache
 
 _TRANSACTION_COUNT_PAGE_SIZE = 256
+_prepared_transaction_databases: WeakSet[Any] = WeakSet()
 
 
 class OperationTransactionUnavailable(RuntimeError):
@@ -230,6 +232,18 @@ async def postgres_graph_transaction(
         if graph_transaction_available(concrete)
         else concrete
     )
+    if (
+        isinstance(adapter, _SerializedTransactionDatabase)
+        and concrete not in _prepared_transaction_databases
+    ):
+        # The pinned adapter bootstraps a cold collection through its pool,
+        # even when CRUD runs on an already-held transaction connection.
+        # Prepare Core's three persistence collections before acquisition so
+        # a one-connection pool cannot deadlock waiting for itself. Public,
+        # bounded reads retain adapter-owned schema/index initialization.
+        for collection in ("node", "edge", "object"):
+            await concrete.find(collection, {"id": ""}, limit=1)
+        _prepared_transaction_databases.add(concrete)
     try:
         async with _jv_graph_transaction(adapter) as ctx:
             # Memoized User nodes retain the GraphContext that loaded them.

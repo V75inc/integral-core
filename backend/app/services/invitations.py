@@ -59,6 +59,8 @@ def _invitation_snapshot(invitation: Invitation) -> dict:
         "email": invitation.email,
         "status": invitation.status,
         "role": invitation.role,
+        "can_create_apps": invitation.can_create_apps,
+        "can_create_tracks": invitation.can_create_tracks,
         "target_resource_type": invitation.target_resource_type or None,
         "target_resource_id": invitation.target_resource_id or None,
         "target_resource_role": invitation.target_resource_role or None,
@@ -68,7 +70,10 @@ def _invitation_snapshot(invitation: Invitation) -> dict:
         "granted_can_create_apps": invitation.granted_can_create_apps,
         "granted_can_create_tracks": invitation.granted_can_create_tracks,
         "original_issuer_id": invitation.invited_by_user_id,
+        "issuer_membership_id": invitation.issuer_membership_id,
+        "grant_baseline": invitation.grant_baseline,
         "adopted_by_user_id": invitation.adopted_by_user_id,
+        "adopted_membership_id": invitation.adopted_membership_id,
         "adopted_at": invitation.adopted_at,
     }
 

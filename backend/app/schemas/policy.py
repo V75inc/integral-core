@@ -114,6 +114,7 @@ PolicyAction = Literal[
     "workspace.member_add",
     "workspace.member_update",
     "workspace.member_remove",
+    "workspace.member_leave",
     "workspace.invitation_create",
     "workspace.invitation_accept",
     "workspace.invitation_decline",
