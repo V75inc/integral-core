@@ -6,6 +6,7 @@ for every tool call; no model argument can replace the authenticated principal.
 
 from __future__ import annotations
 
+import asyncio
 import contextvars
 from typing import Any, Dict, List, Optional, TypeVar
 
@@ -86,6 +87,31 @@ async def accessible_apps_for_scope(
 
     apps = await get_user_accessible_apps(user_id)
     return filter_nodes_by_active_workspace(apps, workspace_id)
+
+
+async def callable_apps_for_scope(
+    user_id: str, *, workspace_id: Optional[str] = None
+) -> List[App]:
+    """Active Apps with ordinary role authority for function/skill discovery.
+
+    Protected data inventory alone cannot delegate an App function. Both the
+    ordinary role and execution lifecycle come from current canonical facts.
+    """
+    from app.services.permissions import resolve_role
+    from app.services.resource_location import locate_resources
+
+    apps = await accessible_apps_for_scope(user_id, workspace_id=workspace_id)
+    if not apps:
+        return []
+    locations = await locate_resources("app", [app.id for app in apps])
+    roles = await asyncio.gather(
+        *(resolve_role(user_id, "app", app.id) for app in apps)
+    )
+    return [
+        app
+        for app, role in zip(apps, roles)
+        if role is not None and locations[app.id] is not None
+    ]
 
 
 def scope_violation_envelope(message: str) -> Dict[str, Any]:

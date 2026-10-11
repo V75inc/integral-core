@@ -6,8 +6,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from jvspatial.core import Edge, Walker
+from jvspatial.core.context import get_default_context
 from jvspatial.core.decorators import on_visit
 from jvspatial.core.entities import Root
+from pydantic import PrivateAttr
 
 from app.exceptions import AuthorizationUnavailableError
 from app.models.edges import CATALOGS, CONTAINS
@@ -23,6 +25,20 @@ from app.models.nodes import (
     Workspace,
     Workspaces,
 )
+from app.services.authority_facts import (
+    primary_node_record,
+    relationship_literal,
+    required_node_text,
+)
+
+# Internal capability paths select an exact lifecycle set. The default is
+# execution-safe; no HTTP caller can supply or expand these sets.
+ACTIVE_APP_STATES = frozenset({"active"})
+DATA_APP_STATES = frozenset({"active", "paused"})
+KNOWN_APP_STATES = frozenset(
+    {"installing", "awaiting_settings", "active", "paused", "failed", "uninstalled"}
+)
+MANAGEMENT_APP_STATES = KNOWN_APP_STATES - {"uninstalled"}
 
 
 @dataclass(frozen=True)
@@ -33,35 +49,169 @@ class ResourceLocation:
 
 
 class ResourceLocationWalker(Walker):
-    """Resolve one bounded structural parent chain and reject inconsistent facts."""
+    """Resolve the complete raw parent set before hydrating or granting."""
 
     workspace_id: str = ""
     app_id: str = ""
     track_id: str = ""
     valid: bool = True
+    allowed_app_states: frozenset[str] = ACTIVE_APP_STATES
+    _records: dict[str, dict] = PrivateAttr(default_factory=dict)
+    _root_checked: set[str] = PrivateAttr(default_factory=set)
+    _parents: dict[tuple[str, str], list[dict]] = PrivateAttr(default_factory=dict)
+    _missing: set[str] = PrivateAttr(default_factory=set)
+
+    async def read_node(self, model: Any, node_id: str, context: Any) -> Any:
+        row = self._records.get(node_id)
+        if row is None and node_id in self._missing:
+            return None
+        if row is None:
+            row = await primary_node_record(context.database, model, node_id)
+            if row is None:
+                return None
+            self._records[node_id] = row
+        if row.get("entity") != model._entity_name():
+            raise AuthorizationUnavailableError()
+        node = await context._deserialize_entity(model, row)
+        if node is None:
+            raise AuthorizationUnavailableError()
+        return node
+
+    async def parent_rows(
+        self, node_id: str, edge: Any, maximum: int, context: Any
+    ) -> list[dict]:
+        """Bound candidates with one extra row; never let hydration hide an edge."""
+        key = (node_id, edge._entity_name())
+        rows = self._parents.get(key)
+        if rows is None:
+            rows = await context.database.find(
+                "edge",
+                {"target": node_id, "entity": edge._entity_name()},
+                limit=maximum + 1,
+            )
+        if any(
+            row.get("target") != node_id
+            or row.get("entity") != edge._entity_name()
+            or not isinstance(row.get("source"), str)
+            or not row["source"]
+            for row in rows
+        ):
+            raise AuthorizationUnavailableError()
+        return rows
+
+    async def source_record(
+        self, row: dict, models: tuple, context: Any
+    ) -> dict | None:
+        """Check every parent discriminator before selecting its visit hook."""
+        cached = self._records.get(row["source"])
+        if row["source"] in self._missing:
+            return None
+        rows = (
+            [cached]
+            if cached is not None
+            else await context.database.find("node", {"id": row["source"]}, limit=2)
+        )
+        if not rows:
+            return None
+        if len(rows) != 1 or rows[0].get("id") != row["source"]:
+            raise AuthorizationUnavailableError()
+        model = next(
+            (
+                model
+                for model in models
+                if rows[0].get("entity") == model._entity_name()
+            ),
+            None,
+        )
+        if model is None:
+            return None
+        if not isinstance(rows[0].get("context"), dict):
+            raise AuthorizationUnavailableError()
+        self._records[row["source"]] = rows[0]
+        return rows[0]
+
+    async def source_node(self, row: dict, models: tuple, context: Any) -> Any:
+        record = await self.source_record(row, models, context)
+        if record is None:
+            return None
+        model = next(
+            model for model in models if record["entity"] == model._entity_name()
+        )
+        return await self.read_node(model, record["id"], context)
 
     async def check_workspace_root(self, workspace_id: str, context: Any) -> bool:
-        """Verify the named Root-to-Workspace catalog path from current facts."""
-        for model, node_id in (
-            (Root, "n.Root.root"),
-            (IntegralApp, APP_NODE_ID),
-            (Workspaces, WORKSPACES_REGISTRY_ID),
-        ):
-            if await model.find_one({"id": node_id}) is None:
-                return False
-        # all() cannot consume the async generator suggested by SIM111.
-        for source, target, edge in (  # noqa: SIM111
-            ("n.Root.root", APP_NODE_ID, Edge),
-            (APP_NODE_ID, WORKSPACES_REGISTRY_ID, Edge),
-            (WORKSPACES_REGISTRY_ID, workspace_id, CATALOGS),
-        ):
-            if not await context.find_edges_between(source, target, edge_class=edge):
-                return False
+        """Require the unique named catalog path, ignoring optional edge metadata."""
+        if workspace_id in self._root_checked:
+            return True
+        roots = {
+            "n.Root.root": Root,
+            APP_NODE_ID: IntegralApp,
+            WORKSPACES_REGISTRY_ID: Workspaces,
+        }
+        if all(node_id in self._records for node_id in roots):
+            rows = [self._records[node_id] for node_id in roots]
+        else:
+            rows = await context.database.find(
+                "node", {"id": {"$in": list(roots)}}, limit=len(roots) + 1
+            )
+        if len(rows) != len(roots) or {row.get("id") for row in rows} != set(roots):
+            return False
+        for row in rows:
+            if row.get("entity") != roots[row["id"]]._entity_name() or not isinstance(
+                row.get("context"), dict
+            ):
+                raise AuthorizationUnavailableError()
+            self._records[row["id"]] = row
+        # One bounded raw read proves both shell edges and the complete incoming
+        # workspace authority-parent set. An extra or malformed parent remains
+        # visible; optional audit metadata never enters the proof.
+        shell = (
+            ("n.Root.root", APP_NODE_ID, Edge._entity_name()),
+            (APP_NODE_ID, WORKSPACES_REGISTRY_ID, Edge._entity_name()),
+        )
+        rows = await context.database.find(
+            "edge",
+            {
+                "$or": [
+                    {"source": source, "target": target, "entity": entity}
+                    for source, target, entity in shell
+                ]
+                + [
+                    {
+                        "target": workspace_id,
+                        "entity": {
+                            "$in": [CATALOGS._entity_name(), CONTAINS._entity_name()]
+                        },
+                    }
+                ]
+            },
+            limit=4,
+        )
+        if len(rows) != 3:
+            return False
+        identities = [
+            (row.get("source"), row.get("target"), row.get("entity")) for row in rows
+        ]
+        expected = [
+            *shell,
+            (WORKSPACES_REGISTRY_ID, workspace_id, CATALOGS._entity_name()),
+        ]
+        if any(identities.count(identity) != 1 for identity in expected):
+            return False
+        self._root_checked.add(workspace_id)
         return True
 
     @on_visit(Workspace)
     async def on_workspace(self, here: Workspace) -> None:
-        if not await self.check_workspace_root(here.id, await here.get_context()):
+        context = await here.get_context()
+        here = await self.read_node(Workspace, here.id, context)
+        if here is None:
+            self.valid = False
+            return
+        relationship_literal(
+            self._records[here.id], "kind", {"personal", "organization"}
+        )
+        if not await self.check_workspace_root(here.id, context):
             self.valid = False
             return
         self.workspace_id = here.id
@@ -69,88 +219,126 @@ class ResourceLocationWalker(Walker):
     async def check_workspace_catalog(self, node: Any, kind: str) -> bool:
         from app.services.app_graph import _workspace_branch_id
 
-        workspace_id = str(getattr(node, "workspace_id", "") or "").strip()
-        if not workspace_id or (
-            self.workspace_id and self.workspace_id != workspace_id
-        ):
+        context = await node.get_context()
+        workspace_id = required_node_text(self._records[node.id], "workspace_id")
+        if self.workspace_id and self.workspace_id != workspace_id:
             return False
-        workspace = await Workspace.find_one({"id": workspace_id})
+        workspace = await self.read_node(Workspace, workspace_id, context)
+        if workspace is None:
+            return False
+        relationship_literal(
+            self._records[workspace_id], "kind", {"personal", "organization"}
+        )
         registry_class = Apps if kind == "apps" else Tracks
         branch_id = _workspace_branch_id(workspace_id, kind)
-        branch = await registry_class.find_one({"id": branch_id})
-        if workspace is None or branch is None or branch.workspace_id != workspace_id:
+        branch = await self.read_node(registry_class, branch_id, context)
+        if branch is None or (
+            required_node_text(self._records[branch_id], "workspace_id") != workspace_id
+        ):
             return False
-        context = await node.get_context()
         if not await self.check_workspace_root(workspace_id, context):
             return False
-        if not await context.find_edges_between(
-            workspace_id, branch_id, edge_class=CONTAINS
-        ):
+        parents = await self.parent_rows(branch_id, CONTAINS, 1, context)
+        if len(parents) != 1 or parents[0]["source"] != workspace_id:
             return False
-        registries = await node.nodes(
-            edge=[CATALOGS], node=[registry_class], direction="in", limit=2
-        )
-        if len(registries) != 1 or registries[0].id != branch_id:
-            return False
-        workspace_parents = await node.nodes(
-            edge=[CONTAINS], node=[Workspace], direction="in", limit=2
-        )
-        if len(workspace_parents) > 1 or any(
-            parent.id != workspace_id for parent in workspace_parents
-        ):
-            return False
-        if not await context.find_edges_between(
-            branch_id, node.id, edge_class=CATALOGS
-        ):
+        registries = await self.parent_rows(node.id, CATALOGS, 1, context)
+        if len(registries) != 1 or registries[0]["source"] != branch_id:
             return False
         self.workspace_id = workspace_id
         return True
 
     @on_visit(Entry)
     async def on_entry(self, here: Entry) -> None:
-        parents = await here.nodes(
-            edge=[CONTAINS], direction="in", node=["Track"], limit=2
+        context = await here.get_context()
+        relationship_literal(
+            self._records[here.id], "visibility", {"inherit", "private"}
         )
-        if len(parents) != 1 or (here.track_id and here.track_id != parents[0].id):
+        parents = await self.parent_rows(here.id, CONTAINS, 1, context)
+        if len(parents) != 1 or (
+            required_node_text(self._records[here.id], "track_id")
+            != parents[0]["source"]
+        ):
             self.valid = False
             return
-        await self.visit(parents)
+        parent = await self.source_node(parents[0], (Track,), context)
+        if parent is None:
+            self.valid = False
+            return
+        await self.visit(parent)
 
     @on_visit(Track)
     async def on_track(self, here: Track) -> None:
-        here = await Track.find_one({"id": here.id})
-        if here is None:
-            self.valid = False
-            return
+        context = await here.get_context()
+        relationship_literal(
+            self._records[here.id],
+            "visibility",
+            {"inherit", "private", "workspace", "organization", "public"},
+        )
         if not await self.check_workspace_catalog(here, "tracks"):
             self.valid = False
             return
         self.track_id = here.id
-        parents = await here.nodes(
-            edge=[CONTAINS], direction="in", node=["WorkspaceApp"], limit=2
-        )
-        if len(parents) > 1:
+        parents = await self.parent_rows(here.id, CONTAINS, 2, context)
+        if len(parents) > 2:
             self.valid = False
             return
-        if parents:
-            await self.visit(parents)
+        apps = []
+        workspace_parents = []
+        for row in parents:
+            parent = await self.source_record(row, (Workspace, App), context)
+            if parent is None:
+                self.valid = False
+                return
+            if parent["entity"] == Workspace._entity_name():
+                workspace_parents.append(parent)
+            else:
+                apps.append(parent)
+        if (
+            len(apps) > 1
+            or len(workspace_parents) > 1
+            or any(parent["id"] != self.workspace_id for parent in workspace_parents)
+        ):
+            self.valid = False
+            return
+        if apps:
+            parent = await self.read_node(App, apps[0]["id"], context)
+            await self.visit(parent)
 
     @on_visit(App)
     async def on_app(self, here: App) -> None:
-        here = await App.find_one({"id": here.id})
-        if here is None:
+        context = await here.get_context()
+        relationship_literal(
+            self._records[here.id],
+            "visibility",
+            {"private", "workspace", "organization", "public"},
+        )
+        state = relationship_literal(
+            self._records[here.id], "lifecycle_state", set(KNOWN_APP_STATES)
+        )
+        if state not in self.allowed_app_states:
             self.valid = False
             return
         if not await self.check_workspace_catalog(here, "apps"):
             self.valid = False
             return
-        if str(getattr(here, "lifecycle_state", "active") or "") != "active":
+        parents = await self.parent_rows(here.id, CONTAINS, 1, context)
+        if len(parents) > 1:
             self.valid = False
             return
+        for row in parents:
+            parent = await self.source_node(row, (Workspace,), context)
+            if parent is None or parent.id != self.workspace_id:
+                self.valid = False
+                return
         self.app_id = here.id
 
 
-async def locate_resource(kind: str, resource_id: str) -> ResourceLocation | None:
+async def locate_resource(
+    kind: str,
+    resource_id: str,
+    *,
+    allowed_app_states: frozenset[str] = ACTIVE_APP_STATES,
+) -> ResourceLocation | None:
     """Resolve live canonical scope; deny corrupt facts and surface read outages."""
     model = {"entry": Entry, "track": Track, "app": App, "workspace": Workspace}.get(
         kind
@@ -158,10 +346,11 @@ async def locate_resource(kind: str, resource_id: str) -> ResourceLocation | Non
     if model is None or not resource_id:
         return None
     try:
-        node = await model.find_one({"id": resource_id})
+        context = get_default_context()
+        walker = ResourceLocationWalker(allowed_app_states=allowed_app_states)
+        node = await walker.read_node(model, resource_id, context)
         if node is None:
             return None
-        walker = ResourceLocationWalker()
         await walker.spawn(node)
         if any(
             isinstance(report, dict) and "hook_error" in report
@@ -171,5 +360,134 @@ async def locate_resource(kind: str, resource_id: str) -> ResourceLocation | Non
         if not walker.valid or not walker.workspace_id:
             return None
         return ResourceLocation(walker.workspace_id, walker.app_id, walker.track_id)
+    except Exception as exc:
+        raise AuthorizationUnavailableError() from exc
+
+
+async def locate_resources(
+    kind: str,
+    resource_ids: list[str],
+    *,
+    workspace_hints: list[str] | None = None,
+    allowed_app_states: frozenset[str] = ACTIVE_APP_STATES,
+) -> dict[str, ResourceLocation | None]:
+    """Batch fresh raw ancestors; each candidate still traverses its complete path.
+
+    Facts exist only inside this invocation, never as a reusable allow. Bounded
+    raw frontiers preserve extra parents and unhydratable nodes for the Walker.
+    """
+    from app.services.app_graph import _workspace_branch_id
+
+    model = {"entry": Entry, "track": Track, "app": App}.get(kind)
+    if model is None or not resource_ids:
+        return {}
+    ids = list(dict.fromkeys(resource_ids))
+    if len(ids) > 500:
+        bulk_result: dict[str, ResourceLocation | None] = {}
+        for offset in range(0, len(ids), 500):
+            bulk_result.update(
+                await locate_resources(
+                    kind,
+                    ids[offset : offset + 500],
+                    workspace_hints=workspace_hints,
+                    allowed_app_states=allowed_app_states,
+                )
+            )
+        return bulk_result
+    try:
+        context = get_default_context()
+        records: dict[str, dict] = {}
+        missing: set[str] = set()
+        parents: dict[tuple[str, str], list[dict]] = {}
+        seen: set[str] = set()
+        pending = set(ids) | {"n.Root.root", APP_NODE_ID, WORKSPACES_REGISTRY_ID}
+        # Hints only widen the fresh prefetch. Raw facts still prove all links;
+        # a stale scalar can never determine the returned scope.
+        for workspace_id in list(dict.fromkeys(workspace_hints or []))[:500]:
+            pending.update(
+                {
+                    workspace_id,
+                    _workspace_branch_id(workspace_id, "apps"),
+                    _workspace_branch_id(workspace_id, "tracks"),
+                }
+            )
+        for _ in range(5):
+            frontier = pending - seen
+            if not frontier:
+                break
+            seen.update(frontier)
+            rows = await context.database.find(
+                "node", {"id": {"$in": sorted(frontier)}}, limit=len(frontier) + 1
+            )
+            row_ids = [row.get("id") for row in rows]
+            if len(row_ids) != len(set(row_ids)) or not set(row_ids).issubset(frontier):
+                raise AuthorizationUnavailableError()
+            if any(not isinstance(row.get("context"), dict) for row in rows):
+                raise AuthorizationUnavailableError()
+            records.update({row["id"]: row for row in rows})
+            missing.update(frontier - set(row_ids))
+            edge_rows = await context.database.find(
+                "edge",
+                {
+                    "target": {"$in": sorted(frontier)},
+                    "entity": {
+                        "$in": [CATALOGS._entity_name(), CONTAINS._entity_name()]
+                    },
+                },
+                limit=4 * len(frontier) + 1,
+            )
+            if len(edge_rows) > 4 * len(frontier):
+                raise AuthorizationUnavailableError()
+            for target in frontier:
+                for edge in (CATALOGS, CONTAINS):
+                    parents[(target, edge._entity_name())] = []
+            pending = set()
+            for row in edge_rows:
+                target, entity, source = (
+                    row.get("target"),
+                    row.get("entity"),
+                    row.get("source"),
+                )
+                if (
+                    (target, entity) not in parents
+                    or not isinstance(source, str)
+                    or not source
+                ):
+                    raise AuthorizationUnavailableError()
+                parents[(target, entity)].append(row)
+                pending.add(source)
+            for row in rows:
+                entity = row.get("entity")
+                if entity in (App._entity_name(), Track._entity_name()):
+                    workspace_id = required_node_text(row, "workspace_id")
+                    pending.add(workspace_id)
+                    kind_name = "apps" if entity == App._entity_name() else "tracks"
+                    pending.add(_workspace_branch_id(workspace_id, kind_name))
+        if pending - seen:
+            raise AuthorizationUnavailableError()
+        result: dict[str, ResourceLocation | None] = {}
+        checked: set[str] = set()
+        for node_id in ids:
+            walker = ResourceLocationWalker(allowed_app_states=allowed_app_states)
+            walker._records = records
+            walker._parents = parents
+            walker._missing = missing
+            walker._root_checked = checked
+            node = await walker.read_node(model, node_id, context)
+            if node is None:
+                result[node_id] = None
+                continue
+            await walker.spawn(node)
+            if any(
+                isinstance(report, dict) and "hook_error" in report
+                for report in await walker.get_report()
+            ):
+                raise AuthorizationUnavailableError()
+            result[node_id] = (
+                ResourceLocation(walker.workspace_id, walker.app_id, walker.track_id)
+                if walker.valid and walker.workspace_id
+                else None
+            )
+        return result
     except Exception as exc:
         raise AuthorizationUnavailableError() from exc

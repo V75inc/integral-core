@@ -44,6 +44,12 @@ from app.models.edges import (
 )
 from app.models.nodes import App, Entry, Track, User, Workspace
 from app.schemas.policy import Resource, Subject
+from app.services.app_graph import (
+    catalog_app,
+    catalog_track,
+    catalog_user,
+    catalog_workspace,
+)
 from app.services.permissions import resolve_role
 from app.services.policy_engine import evaluate as policy_evaluate
 
@@ -84,6 +90,9 @@ async def _org_fixture(label: str):
         title=f"Track {label}", title_fold=f"track {label}", workspace_id=ws.id
     )
     entry = await Entry.create(title=f"Entry {label}", track_id=track.id)
+    await catalog_workspace(ws)
+    await catalog_app(app)
+    await catalog_track(track)
     await ws.connect(app, edge=CONTAINS)
     await app.connect(track, edge=CONTAINS)
     await track.connect(entry, edge=CONTAINS)
@@ -92,6 +101,7 @@ async def _org_fixture(label: str):
 
 async def _member(ws: Workspace, label: str, role: str) -> User:
     user = await User.create(user_id=f"cm_{label}", display_name=f"User {label}")
+    await catalog_user(user)
     await user.connect(ws, edge=IS_MEMBER_OF, role=role)
     return user
 

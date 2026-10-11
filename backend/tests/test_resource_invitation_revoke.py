@@ -23,24 +23,31 @@ from httpx import AsyncClient
 
 from app.models.edges import OWNS
 from app.models.nodes import Track, User, Workspace
+from app.services.app_graph import catalog_track, catalog_workspace
 from app.services.invitations import (
     create_invitation,
     create_resource_invitation,
 )
+from app.services.personal_workspace import ensure_personal_workspace
 
 # ---------------------------------------------------------------------------
 # Helpers — isolated per-test data so reset_test_db keeps things clean.
 # ---------------------------------------------------------------------------
 
 
-async def _track(title: str, workspace_id: str = "") -> Track:
-    return await Track.create(
-        title=title, title_fold=title.casefold(), workspace_id=workspace_id
+async def _track(title: str, *, owner: User) -> Track:
+    workspace = await ensure_personal_workspace(owner)
+    track = await Track.create(
+        title=title, title_fold=title.casefold(), workspace_id=workspace.id
     )
+    await catalog_track(track)
+    return track
 
 
 async def _workspace(name: str, kind: str = "organization") -> Workspace:
-    return await Workspace.create(kind=kind, name=name, name_fold=name.casefold())
+    workspace = await Workspace.create(kind=kind, name=name, name_fold=name.casefold())
+    await catalog_workspace(workspace)
+    return workspace
 
 
 async def _user(suffix: str) -> User:
@@ -59,7 +66,7 @@ async def test_revoke_resource_invitation_by_owner_returns_200(
     authenticated_client: AsyncClient, test_user
 ):
     """Owner of a Track revokes a pending resource-level invitation."""
-    track = await _track("OwnerRevokeT")
+    track = await _track("OwnerRevokeT", owner=test_user)
     await test_user.connect(track, edge=OWNS)
     principal_id = test_user.user_id
 
@@ -101,7 +108,7 @@ async def test_revoke_resource_invitation_cross_owner_returns_404(
     """User A owns Track + invitation; User B's DELETE returns 404."""
     if second_user is None or second_user_client is None:
         pytest.skip("second_user / second_user_client fixture unavailable")
-    track = await _track("CrossOwnerT")
+    track = await _track("CrossOwnerT", owner=test_user)
     # second_user is the OWNER; the authenticated_client (test_user) is NOT.
     await second_user.connect(track, edge=OWNS)
     invitation, _, _ = await create_resource_invitation(

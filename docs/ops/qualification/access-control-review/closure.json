@@ -109,10 +109,15 @@
     {
       "id": "AC-08",
       "priority_and_review_evidence": "P1 / R + invariant",
-      "status": "open",
+      "status": "in_progress",
       "description": "**Workspace owners cannot govern all workspace resources.** A member's private App can be invisible to the workspace owner. Non-private inventory grants only commenter. Parent owner/admin caps at editor. `workspace_permissions.py:158`; `permissions.py:1030,1060`; I-ROLE-02; `test_app_owner_grant.py:151`. Probe `test_owner_governance_mismatch`. Introduce governance as a separately evaluated source of authority and revise the existing invariant deliberately.",
-      "implementation": [],
-      "verification": []
+      "implementation": [
+        "Unqualified working integration adds separate protected workspace-owner capabilities over canonically rooted private resources; no ordinary OWNS/COLLABORATES_ON grant is manufactured.",
+        "Point read/write/config/delete and access snapshot policy helpers admit protected governance; complete counts/pages, lifecycle/release fencing, delegation and frontend capability projection remain open."
+      ],
+      "verification": [
+        "Four owner/creator/admin/foreign-workspace/business-action golden cases passed in the initial JSON and PostgreSQL integration selections; complete repaired package and full gates remain unqualified."
+      ]
     },
     {
       "id": "AC-09",
@@ -145,7 +150,8 @@
       "description": "**Missing scope anchors disable the workspace membership gate.** If workspace lookup returns None, resolution continues with direct/inherited grants. Default workspace deletion unlinks resources and clears `workspace_id`, manufacturing this condition; it also conflicts with rooted inclusion. `permissions.py:879,1017`; `workspace_lifecycle.py:72,104`; `api/workspaces.py:523`. Probe `test_missing_workspace_anchor_allows_direct_grant`. Corrupt/unresolved containment must fail closed. Delete/archive/explicitly rehome resources in a validated transaction; never create unscoped survivors.",
       "implementation": [
         "Canonical/rooted containment required for facade point reads; generic resolver and legacy lifecycle cutover pending",
-        "Reject additional foreign registry/workspace parents; rooted Workspace required before authorization-state bootstrap; incomplete Walker reports unavailable"
+        "Reject additional foreign registry/workspace parents; rooted Workspace required before authorization-state bootstrap; incomplete Walker reports unavailable",
+        "Unqualified generic resolver cutover validates primary raw containment and exact visibility/kind/lifecycle facts. Bounded raw ancestor/grant batching preserves malformed extra parents and requires canonical catalog paths; complete projection/lifecycle/migration cutover remains open."
       ],
       "verification": []
     },
@@ -424,11 +430,21 @@
       "id": "U18",
       "journey": "Owner inventories member-created private content",
       "requirement": "Complete inventory and effective access; private restricts ordinary members",
-      "status": "open",
-      "authorized_evidence": [],
-      "denied_evidence": [],
-      "surfaces": [],
-      "limits": []
+      "status": "in_progress",
+      "authorized_evidence": [
+        "Initial point/App/Track inventory owner-governance golden passed on JSON and PostgreSQL; full repaired integration still under qualification."
+      ],
+      "denied_evidence": [
+        "Initial ordinary-admin and foreign-workspace private-governance golden passed on JSON and PostgreSQL."
+      ],
+      "surfaces": [
+        "Generic role/governance services",
+        "App/Track inventory",
+        "sharing.list_access"
+      ],
+      "limits": [
+        "No complete Entry count/page/query parity, independent-account browser/MCP, migration or release-fence closure is claimed."
+      ]
     },
     {
       "id": "U19",
@@ -1072,9 +1088,9 @@
     }
   ],
   "qualification": {
-    "full_local_gate": "M2 raw-authority-facts and entry-transaction slice passed make verify; final goal-wide gate pending",
+    "full_local_gate": "Canonical-governance milestone passed make verify with 796 smoke, 1583 frontend and 5123 backend cases; final goal-wide gate pending",
     "postgres_multiprocess": "pending",
-    "core_only_contract": "Current slice passed 9 Core-only, 52 extension-contract and 232 PostgreSQL cases; final goal-wide qualification pending",
+    "core_only_contract": "Canonical-governance milestone passed 9 Core-only, 52 extension-contract, 166 focused PostgreSQL and 232 PostgreSQL spikes/contracts (1 restore skip); final goal-wide qualification pending",
     "independent_artifacts": "pending",
     "browser_mcp": "pending",
     "migration_restore": "pending"
@@ -1203,6 +1219,33 @@
         "Trusted graph-only service actor contract, every mutation/release fence and protected owner governance remain open",
         "Several older membership writers still hydrate metadata and recreate edges; canonical atomic lifecycle service remains pending",
         "Qualification is local/disposable-store evidence; no GitHub CI, browser, release, provider or migration/restore proof is claimed by this slice"
+      ]
+    },
+    {
+      "id": "M2-M3-canonical-governance-working",
+      "status": "qualified_partial",
+      "deliverable": "Strict generic raw containment and protected workspace owner governance; active ordinary function/skill audiences, batched fresh resource inventory and limited scope preference patch",
+      "evidence": [
+        "Initial raw selection: 86 JSON cases passed.",
+        "Initial integration after collection repair: 70 passed, 38 failed; PostgreSQL: 88 passed, two cache setup failures. Four golden owner cases passed on both stores.",
+        "Successive performance repairs retained unchanged ceilings; latest five query-budget cases passed. A legacy uncatalogued-Track positive expectation was corrected to paired denial/catalog-repair admission.",
+        "Expanded repaired selections passed 195 JSON and 106 PostgreSQL cases; broader compatibility passed 104 cases. These are focused evidence, not complete gate qualification.",
+        "Full attempt 1 stopped on mypy no-redef; repaired. Full attempt 2 passed guards, pinned checks, types and reproducible wheel, then failed 39 no-env smoke cases. Frontend and full backend were not reached.",
+        "Supplementary attempt passed 9 Core-only cases and failed 2 extension-contract cases; final PostgreSQL selections were not reached.",
+        "Known lifecycle sets now distinguish active execution from active/paused data access and explicit recovery authority. Remaining normal fixtures use canonical catalogs; source-frozen focused repair 13 is running.",
+        "Broader repair 18: 211 passed, 1 failed, 1 skipped. Canonical Entry fixture repair passed three watcher cases.",
+        "Full attempt 5 passed guards/pinned checks/types/reproducible wheel, 795 smoke (7 skipped), 1583 frontend and 5122 backend (297 skipped). This receipt precedes the subsequent query-origin and PostgreSQL fixture refinements.",
+        "Supplement 5 passed 9 Core-only / 52 extension-contract / 165 current PostgreSQL cases, then failed two PostgreSQL contracts; restore remained skipped. No complete supplementary qualification claimed.",
+        "Actual declared query origin app_query now uses ordinary function authority; legacy warm worker allow and canonical transaction count repairs are in focused PostgreSQL attempt 20. Full final gate still pending.",
+        "Repair 20 passed all 29 PostgreSQL cases, preserving real second-process revocation and transactional count assertions.",
+        "Final attempt 6 passed the complete local gate on refined source: 796 smoke (7 skipped), 1583 frontend, 5123 backend (297 skipped), guards/pinned checks/types/reproducible wheel/import; Core-only passed. Remaining supplementary lanes are running.",
+        "Final attempt 6 completed with exit 0 for all scheduled lanes: make verify, 9 Core-only, 52 extension-contract, 166 focused PostgreSQL and 232 PostgreSQL spikes/contracts (1 restore skip). Known restore transport skip remains an open W7 requirement. Wheel SHA256 17304562803d83c6ce018af1a37d64e7d8903c3b52c425b269faae5ed5310a90."
+      ],
+      "limits": [
+        "Qualified only for this partial canonical governance/data/admission milestone. All findings and 76 use cases retain their existing closure statuses; final goal-wide qualification remains pending.",
+        "Complete Entry projections, raw membership pagination, lifecycle mutations, declarative action permits, all effect/release fences and migration/browser evidence remain open.",
+        "Function admission/callable audiences do not qualify nested handler effects: exact permits, target workspace/action intersection and release fences remain open.",
+        "Direct Entry sharing still needs minimal parent navigation projections; complete owner recovery inventory/metadata and retained-state sharing require API/browser qualification."
       ]
     }
   ],

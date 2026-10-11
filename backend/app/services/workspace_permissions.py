@@ -91,20 +91,37 @@ async def _canonical_owner_id(workspace: Workspace) -> Optional[str]:
     """Resolve one owner from complete current membership facts."""
     ctx = await workspace.get_context()
     rows = await ctx.database.find(
-        "edge", {"target": workspace.id, "entity": IS_MEMBER_OF.__name__}
+        "edge",
+        {
+            "target": workspace.id,
+            "entity": IS_MEMBER_OF.__name__,
+            "$or": [{"context.role": "owner"}, {"role": "owner"}],
+        },
+        limit=2,
     )
     owners = []
     for row in rows:
+        if (
+            row.get("target") != workspace.id
+            or row.get("entity") != IS_MEMBER_OF.__name__
+            or not isinstance(row.get("source"), str)
+        ):
+            raise AuthorizationUnavailableError()
         if _member_row_role(row) == "owner":
-            owners.append(str(row.get("source") or ""))
+            owners.append(row["source"])
     if len(owners) != 1 or not owners[0]:
-        return None
-    if sum(row.get("source") == owners[0] for row in rows) != 1:
         return None
     from app.services.permissions import get_user_node
 
     owner = await get_user_node(owners[0])
-    return owner.id if owner is not None and owner.id == owners[0] else None
+    if owner is None or owner.id != owners[0]:
+        return None
+    membership = await read_member_facts(owner, workspace.id)
+    return (
+        owner.id
+        if membership is not None and _member_row_role(membership) == "owner"
+        else None
+    )
 
 
 async def get_workspace_owner_user_id(workspace_id: str) -> Optional[str]:
@@ -138,8 +155,23 @@ async def _current_workspace_role(user: User, workspace: Workspace) -> Workspace
                     {"role": "owner"},
                 ],
             },
+            limit=3,
         )
+        # One caller membership plus one owner is the largest valid set.
+        # A third candidate proves ambiguity, regardless of row order.
+        if len(rows) > 2:
+            return "none"
+        for row in rows:
+            if (
+                row.get("target") != workspace.id
+                or row.get("entity") != IS_MEMBER_OF.__name__
+                or not isinstance(row.get("source"), str)
+            ):
+                raise AuthorizationUnavailableError()
+            _member_row_role(row)
         memberships = [row for row in rows if row.get("source") == user.id]
+        if len(memberships) > 1:
+            raise AuthorizationUnavailableError()
         if len(memberships) != 1:
             return "none"
         role = _member_row_role(memberships[0])
@@ -241,16 +273,16 @@ async def workspace_staff_implicit_resource_role(
 async def collect_org_workspace_staff_inventory(
     workspace: Workspace,
 ) -> Tuple[list[App], list[Track]]:
-    """Active apps + all tracks for org workspace owner/admin inventory.
+    """Candidate Apps and Tracks for protected/staff resource inventory.
 
-    Returns catalogued active apps, standalone tracks from the workspace
+    Returns catalogued App candidates, standalone tracks from the workspace
     Tracks branch, and tracks ``CONTAINS``-ed under each app. Deduped by id.
 
     Apps are unioned from the workspace Apps branch registry **and**
     ``App.find(workspace_id=...)`` so legacy or partially-provisioned installs
     (track catalogued but app branch edge missing) still appear in inventory.
     """
-    if getattr(workspace, "kind", "") != "organization":
+    if getattr(workspace, "kind", "") not in {"organization", "personal"}:
         return [], []
 
     from app.services.workspace_lifecycle import _collect_contained
@@ -258,12 +290,11 @@ async def collect_org_workspace_staff_inventory(
     apps_by_id: dict[str, App] = {}
 
     for app in await _collect_contained(workspace, kind="apps"):
-        if str(getattr(app, "lifecycle_state", "") or "active") == "active":
-            apps_by_id[app.id] = app
+        # Discovery never establishes lifecycle authority. The final raw
+        # canonical admission selects retained data states for this audience.
+        apps_by_id[app.id] = app
 
     for app in await App.find({"workspace_id": workspace.id}):
-        if str(getattr(app, "lifecycle_state", "") or "active") != "active":
-            continue
         apps_by_id.setdefault(app.id, app)
 
     apps = list(apps_by_id.values())
@@ -296,8 +327,6 @@ async def collect_org_workspace_member_visibility_inventory(
     tracks_by_id: dict[str, Track] = {}
 
     for app in await App.find({"workspace_id": workspace.id}):
-        if str(getattr(app, "lifecycle_state", "") or "active") != "active":
-            continue
         if await effective_resource_visibility("app", app) != "private":
             apps_by_id[app.id] = app
 
@@ -337,29 +366,36 @@ async def list_accessible_workspaces(user_id: str) -> list[Workspace]:
             user = await get_user_node(user_id)
             if not user:
                 return []
-            out: dict[str, Workspace] = {}
-            cursor = None
-            seen_cursors = set()
-            while True:
-                page, cursor = await user.nodes_page(
-                    edge=[IS_MEMBER_OF],
-                    node=[Workspace],
-                    direction="out",
-                    limit=200,
-                    cursor=cursor,
-                )
-                for candidate in page:
-                    ws = await Workspace.find_one({"id": candidate.id})
-                    if (
-                        ws is not None
-                        and await _current_workspace_role(user, ws) != "none"
-                    ):
-                        out[ws.id] = ws
-                if not cursor:
-                    return list(out.values())
-                if cursor in seen_cursors:
-                    raise AuthorizationUnavailableError()
-                seen_cursors.add(cursor)
+            return await _list_current_accessible_workspaces(user)
     except Exception as exc:
         logger.exception("list_accessible_workspaces traversal failed")
         raise AuthorizationUnavailableError() from exc
+
+
+async def _list_current_accessible_workspaces(
+    user: User, *, roles_out: dict[str, str] | None = None
+) -> list[Workspace]:
+    """Continue one admitted principal evaluation; never cache its result."""
+    out: dict[str, Workspace] = {}
+    cursor = None
+    seen_cursors = set()
+    while True:
+        page, cursor = await user.nodes_page(
+            edge=[IS_MEMBER_OF],
+            node=[Workspace],
+            direction="out",
+            limit=200,
+            cursor=cursor,
+        )
+        for candidate in page:
+            ws = await Workspace.find_one({"id": candidate.id})
+            role = await _current_workspace_role(user, ws) if ws is not None else "none"
+            if ws is not None and role != "none":
+                out[ws.id] = ws
+                if roles_out is not None:
+                    roles_out[ws.id] = role
+        if not cursor:
+            return list(out.values())
+        if cursor in seen_cursors:
+            raise AuthorizationUnavailableError()
+        seen_cursors.add(cursor)

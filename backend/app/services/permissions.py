@@ -43,12 +43,17 @@ from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
 from app.exceptions import AuthorizationUnavailableError
 from app.middleware.permissions_cache import (
+    isolated_permissions_cache,
     live_permissions_required,
     permissions_cache_get,
 )
 from app.models.edges import COLLABORATES_ON, EXCLUDED_FROM, OWNS
 from app.models.nodes import App, Entry, Track, User, View, Workspace
-from app.services.authority_facts import primary_auth_record, relationship_literal
+from app.services.authority_facts import (
+    primary_auth_record,
+    primary_node_record,
+    relationship_literal,
+)
 from app.services.perf_trace import perf_traced
 
 logger = logging.getLogger(__name__)
@@ -196,6 +201,15 @@ def member_edge_bool(edge, key: str) -> bool:
 # --- Workspace creation gates ---
 
 
+async def _governs(user_id: str, kind: str, resource_id: str, capability: str) -> bool:
+    from app.services.workspace_governance import resolve_owner_governance
+
+    return (
+        await resolve_owner_governance(user_id, kind, resource_id, capability)
+        is not None
+    )
+
+
 async def _is_workspace_owner_user(workspace: Workspace, user: User) -> bool:
     """True iff ``user`` holds the ``IS_MEMBER_OF{role:"owner"}`` edge.
 
@@ -313,7 +327,9 @@ async def can_view_app(user_id: str, app_id: str) -> bool:
     app = await _load_resource_node("app", app_id)
     if not app or str(getattr(app, "lifecycle_state", "") or "") == "uninstalled":
         return False
-    return await resolve_role(user_id, "app", app_id) is not None
+    return await resolve_role(user_id, "app", app_id) is not None or await _governs(
+        user_id, "app", app_id, "resource.read"
+    )
 
 
 def invalidate_user_accessible_caches(user_id: str) -> None:
@@ -351,6 +367,12 @@ def invalidate_user_accessible_caches(user_id: str) -> None:
 
 
 async def get_user_accessible_apps(user_id: str) -> List[App]:
+    """List current data access, including protected workspace stewardship."""
+    with isolated_permissions_cache():
+        return await _get_current_accessible_apps(user_id)
+
+
+async def _get_current_accessible_apps(user_id: str) -> List[App]:
     """Apps via ownership, collaboration, staff inventory, and visibility grants.
 
     Org workspace members additionally see apps with ``visibility`` workspace
@@ -382,20 +404,20 @@ async def get_user_accessible_apps(user_id: str) -> List[App]:
         result: List[App] = []
 
         def _add(sp: App) -> None:
-            if str(getattr(sp, "lifecycle_state", "") or "") == "uninstalled":
-                return
             if sp.id not in seen:
                 seen.add(sp.id)
                 result.append(sp)
 
         from app.services.workspace_permissions import (
-            can_access_workspace,
+            _list_current_accessible_workspaces,
             collect_org_workspace_member_visibility_inventory,
             collect_org_workspace_staff_inventory,
-            list_accessible_workspaces,
         )
 
-        workspaces = await list_accessible_workspaces(user_id)
+        workspace_roles: dict[str, str] = {}
+        workspaces = await _list_current_accessible_workspaces(
+            user, roles_out=workspace_roles
+        )
         accessible_workspace_ids = {ws.id for ws in workspaces}
 
         direct_apps: List[App] = []
@@ -423,13 +445,14 @@ async def get_user_accessible_apps(user_id: str) -> List[App]:
         # Org workspace owner/admin: full catalogued inventory without
         # per-app COLLABORATES_ON edges (members still require explicit grants).
         for ws in workspaces:
-            if getattr(ws, "kind", "") != "organization":
-                continue
-            ws_role = await can_access_workspace(user_id, ws.id)
+            ws_role = workspace_roles[ws.id]
             if ws_role in ("owner", "admin"):
                 staff_apps, _ = await collect_org_workspace_staff_inventory(ws)
                 for sp in staff_apps:
-                    if await effective_resource_visibility("app", sp) == "private":
+                    if (
+                        ws_role != "owner"
+                        and await effective_resource_visibility("app", sp) == "private"
+                    ):
                         continue
                     _add(sp)
             elif ws_role == "member":
@@ -445,6 +468,9 @@ async def get_user_accessible_apps(user_id: str) -> List[App]:
                         if role is not None:
                             _add(sp)
 
+        result = await _filter_canonical_resource_inventory(
+            user_id, "app", result, principal=user, admitted_workspaces=workspace_roles
+        )
         if cache is not None:
             cache[ck] = result
         _ppc.set_cached(
@@ -456,9 +482,7 @@ async def get_user_accessible_apps(user_id: str) -> List[App]:
         return result
     except Exception as exc:
         logger.warning("Error getting accessible apps for %s: %s", user_id, exc)
-        if cache is not None:
-            cache[ck] = []
-        return []
+        raise AuthorizationUnavailableError() from exc
 
 
 async def can_edit_app(user_id: str, app_id: str) -> bool:
@@ -471,7 +495,35 @@ async def can_edit_app(user_id: str, app_id: str) -> bool:
     DEPRECATED — use ``policy_engine.evaluate(action='app.update', ...)``.
     See ``can_view_app`` docstring for the migration contract.
     """
-    return await resolve_role(user_id, "app", app_id) in ("owner", "admin", "editor")
+    return await resolve_role(user_id, "app", app_id) in (
+        "owner",
+        "admin",
+        "editor",
+    ) or await _governs(user_id, "app", app_id, "resource.write")
+
+
+async def _direct_management_role(
+    user_id: str, kind: str, resource_id: str
+) -> str | None:
+    """Retain direct stewardship of non-executing installations for recovery.
+
+    Inherited roles cannot acquire config authority from this path. Current
+    identity, canonical containment and workspace membership remain mandatory.
+    """
+    from app.services.resource_location import MANAGEMENT_APP_STATES, locate_resource
+
+    with isolated_permissions_cache():
+        user = await get_user_node(user_id)
+        if user is None:
+            return None
+        location = await locate_resource(
+            kind, resource_id, allowed_app_states=MANAGEMENT_APP_STATES
+        )
+        if location is None or not await _user_in_workspace_member_pool(
+            user, location.workspace_id
+        ):
+            return None
+        return await _direct_role_on_resource(user, resource_id)
 
 
 async def can_admin_app(user_id: str, app_id: str) -> bool:
@@ -481,7 +533,15 @@ async def can_admin_app(user_id: str, app_id: str) -> bool:
     template-track edits, library-derivation. NOT editor-accessible —
     editors get entry CRUD only.
     """
-    return await resolve_role(user_id, "app", app_id) in ("owner", "admin")
+    return (
+        await resolve_role(user_id, "app", app_id)
+        in (
+            "owner",
+            "admin",
+        )
+        or await _direct_management_role(user_id, "app", app_id) in ("owner", "admin")
+        or await _governs(user_id, "app", app_id, "resource.configure")
+    )
 
 
 async def can_delete_app(user_id: str, app_id: str) -> bool:
@@ -490,7 +550,11 @@ async def can_delete_app(user_id: str, app_id: str) -> bool:
     DEPRECATED — use ``policy_engine.evaluate(action='app.delete', ...)``.
     See ``can_view_app`` docstring for the migration contract.
     """
-    return await resolve_role(user_id, "app", app_id) == "owner"
+    return (
+        await resolve_role(user_id, "app", app_id) == "owner"
+        or await _direct_management_role(user_id, "app", app_id) == "owner"
+        or await _governs(user_id, "app", app_id, "resource.delete")
+    )
 
 
 # --- Track-level ---
@@ -502,22 +566,9 @@ async def can_view_track(user_id: str, track_id: str) -> bool:
     DEPRECATED — use ``policy_engine.evaluate(action='track.read', ...)``. See
     ``can_view_app`` docstring for the migration contract.
     """
-    track = await _load_resource_node("track", track_id)
-    if not track:
-        return False
-    try:
-        parent_apps = await track.nodes(
-            edge=["CONTAINS"], direction="in", node=["WorkspaceApp"]
-        )
-        if parent_apps and all(
-            str(getattr(app, "lifecycle_state", "") or "") == "uninstalled"
-            for app in parent_apps
-        ):
-            return False
-    except Exception as exc:
-        logger.warning("track parent app lookup failed for %s: %s", track_id, exc)
-        return False
-    return await resolve_role(user_id, "track", track_id) is not None
+    return await resolve_role(user_id, "track", track_id) is not None or await _governs(
+        user_id, "track", track_id, "resource.read"
+    )
 
 
 async def can_edit_track(user_id: str, track_id: str) -> bool:
@@ -537,7 +588,7 @@ async def can_edit_track(user_id: str, track_id: str) -> bool:
         "owner",
         "admin",
         "editor",
-    )
+    ) or await _governs(user_id, "track", track_id, "resource.write")
 
 
 async def can_admin_track(user_id: str, track_id: str) -> bool:
@@ -547,7 +598,16 @@ async def can_admin_track(user_id: str, track_id: str) -> bool:
     migrations, default view, detach/revert). Editors do NOT pass — they
     get entry CRUD only.
     """
-    return await resolve_role(user_id, "track", track_id) in ("owner", "admin")
+    return (
+        await resolve_role(user_id, "track", track_id)
+        in (
+            "owner",
+            "admin",
+        )
+        or await _direct_management_role(user_id, "track", track_id)
+        in ("owner", "admin")
+        or await _governs(user_id, "track", track_id, "resource.configure")
+    )
 
 
 async def can_delete_track(user_id: str, track_id: str) -> bool:
@@ -556,7 +616,11 @@ async def can_delete_track(user_id: str, track_id: str) -> bool:
     DEPRECATED — use ``policy_engine.evaluate(action='track.delete', ...)``.
     See ``can_view_app`` docstring for the migration contract.
     """
-    return await resolve_role(user_id, "track", track_id) == "owner"
+    return (
+        await resolve_role(user_id, "track", track_id) == "owner"
+        or await _direct_management_role(user_id, "track", track_id) == "owner"
+        or await _governs(user_id, "track", track_id, "resource.delete")
+    )
 
 
 # --- Entry-level ---
@@ -572,7 +636,9 @@ async def can_view_entry(user_id: str, entry_id: str) -> bool:
     DEPRECATED — use ``policy_engine.evaluate(action='entry.read', ...)``. See
     ``can_view_app`` docstring for the migration contract.
     """
-    return await resolve_role(user_id, "entry", entry_id) is not None
+    return await resolve_role(user_id, "entry", entry_id) is not None or await _governs(
+        user_id, "entry", entry_id, "resource.read"
+    )
 
 
 async def can_edit_entry(user_id: str, entry_id: str) -> bool:
@@ -587,6 +653,8 @@ async def can_edit_entry(user_id: str, entry_id: str) -> bool:
     """
     role = await resolve_role(user_id, "entry", entry_id)
     if role in ("owner", "admin", "editor"):
+        return True
+    if await _governs(user_id, "entry", entry_id, "resource.write"):
         return True
     # EXCLUDED_FROM / no grant → resolve_role is None; do not let author shortcut
     # resurrect edit after an explicit deny.
@@ -681,33 +749,32 @@ async def effective_resource_visibility(resource_type: str, node: Any) -> str:
     Track ``inherit`` walks the parent App via ``CONTAINS`` in; standalone
     tracks with ``inherit`` and no parent App resolve to ``private``.
     """
-    if resource_type == "app":
-        vis = canonicalize_visibility(getattr(node, "visibility", None))
-        if vis == "inherit":
-            return "private"
-        return vis if vis in ("private", "workspace", "public") else "private"
-
-    if resource_type == "track":
-        vis = canonicalize_visibility(getattr(node, "visibility", None))
-        if vis not in ("", "inherit"):
-            return vis if vis in ("private", "workspace", "public") else "private"
-        try:
-            apps = await node.nodes(
-                edge=["CONTAINS"], direction="in", node=["WorkspaceApp"]
-            )
-            if apps:
-                parent = await _load_resource_node("app", apps[0].id)
-                if parent is not None:
-                    return await effective_resource_visibility("app", parent)
-        except Exception as exc:
-            logger.warning(
-                "effective_resource_visibility parent lookup failed for track %s: %s",
-                getattr(node, "id", "?"),
-                exc,
-            )
+    if resource_type not in {"app", "track"}:
         return "private"
+    from app.services.resource_location import DATA_APP_STATES, locate_resource
 
-    return "private"
+    context = await node.get_context()
+    model = App if resource_type == "app" else Track
+    row = await primary_node_record(context.database, model, node.id)
+    if row is None:
+        raise AuthorizationUnavailableError()
+    allowed = {"private", "workspace", "organization", "public"}
+    if resource_type == "track":
+        allowed.add("inherit")
+    vis = relationship_literal(row, "visibility", allowed)
+    if vis != "inherit":
+        return _VISIBILITY_ALIASES.get(vis, vis)
+    location = await locate_resource(
+        "track", node.id, allowed_app_states=DATA_APP_STATES
+    )
+    if location is None:
+        raise AuthorizationUnavailableError()
+    if not location.app_id:
+        return "private"
+    parent = await App.find_one({"id": location.app_id})
+    if parent is None:
+        raise AuthorizationUnavailableError()
+    return await effective_resource_visibility("app", parent)
 
 
 async def _is_publicly_readable_resource(resource_type: str, node: Any) -> bool:
@@ -789,6 +856,28 @@ async def _none() -> None:
     return None
 
 
+def _direct_role_from_rows(rows: list[dict]) -> Optional[str]:
+    """Validate the complete raw grant set before selecting its strongest role."""
+    owns = [row for row in rows if row.get("entity") == OWNS.__name__]
+    collaborators = [
+        row for row in rows if row.get("entity") == COLLABORATES_ON.__name__
+    ]
+    if len(owns) > 1 or len(collaborators) > 1:
+        raise AuthorizationUnavailableError()
+    role = (
+        relationship_literal(collaborators[0], "role", ROLE_RANK)
+        if collaborators
+        else None
+    )
+    if owns:
+        relationship_literal(owns[0], "role", {"owner"})
+        # Optional audit metadata cannot hide this complete direct path.
+        return "owner"
+    if role is None:
+        return None
+    return role
+
+
 async def _direct_role_on_resource(user: User, resource_id: str) -> Optional[str]:
     """Direct OWNS or COLLABORATES_ON role on this exact resource, or None."""
     try:
@@ -809,24 +898,7 @@ async def _direct_role_on_resource(user: User, resource_id: str) -> Optional[str
             for row in rows
         ):
             raise AuthorizationUnavailableError()
-        owns = [row for row in rows if row.get("entity") == OWNS.__name__]
-        collaborators = [
-            row for row in rows if row.get("entity") == COLLABORATES_ON.__name__
-        ]
-        if len(owns) > 1 or len(collaborators) > 1:
-            raise AuthorizationUnavailableError()
-        role = (
-            relationship_literal(collaborators[0], "role", ROLE_RANK)
-            if collaborators
-            else None
-        )
-        if owns:
-            relationship_literal(owns[0], "role", {"owner"})
-            # Optional audit metadata cannot hide this complete direct path.
-            return "owner"
-        if role is None:
-            return None
-        return role
+        return _direct_role_from_rows(rows)
     except Exception as exc:
         logger.warning(
             "Error reading direct role on %s for %s: %s", resource_id, user.id, exc
@@ -851,28 +923,17 @@ async def _is_excluded_from_resource(user: User, resource_id: str) -> bool:
 async def _parent_of_resource(resource_type: str, resource_id: str) -> Optional[tuple]:
     """Return (parent_type, parent_id) or None if the resource has no parent."""
     try:
+        from app.services.resource_location import DATA_APP_STATES, locate_resource
+
+        location = await locate_resource(
+            resource_type, resource_id, allowed_app_states=DATA_APP_STATES
+        )
+        if location is None:
+            return None
         if resource_type == "entry":
-            entry = await _load_resource_node("entry", resource_id)
-            if not entry:
-                return None
-            if entry.track_id:
-                return ("track", entry.track_id)
-            tracks = await entry.nodes(
-                edge=["CONTAINS"], direction="in", node=["Track"]
-            )
-            if tracks:
-                return ("track", tracks[0].id)
-            return None
-        if resource_type == "track":
-            track = await _load_resource_node("track", resource_id)
-            if not track:
-                return None
-            apps = await track.nodes(
-                edge=["CONTAINS"], direction="in", node=["WorkspaceApp"]
-            )
-            if apps:
-                return ("app", apps[0].id)
-            return None
+            return ("track", location.track_id)
+        if resource_type == "track" and location.app_id:
+            return ("app", location.app_id)
         # App and Workspace have no inherited-access parent (workspace
         # membership does not cascade).
         return None
@@ -906,26 +967,14 @@ async def _load_resource_node(resource_type: str, resource_id: str) -> Any:
 
 
 async def _workspace_id_for_resource(resource_type: str, node: Any) -> Optional[str]:
-    """Best-effort workspace anchor lookup for app/track/entry resources."""
+    """Require the same complete canonical anchor used by point authorization."""
     try:
-        if resource_type in ("app", "track"):
-            workspace_id = getattr(node, "workspace_id", "") or ""
-            return workspace_id or None
-        if resource_type == "entry":
-            track_id = getattr(node, "track_id", "") or ""
-            if not track_id:
-                tracks = await node.nodes(
-                    edge=["CONTAINS"], direction="in", node=["Track"]
-                )
-                if tracks:
-                    track_id = tracks[0].id
-            if not track_id:
-                return None
-            track = await _load_resource_node("track", track_id)
-            if not track:
-                return None
-            workspace_id = getattr(track, "workspace_id", "") or ""
-            return workspace_id or None
+        from app.services.resource_location import DATA_APP_STATES, locate_resource
+
+        location = await locate_resource(
+            resource_type, node.id, allowed_app_states=DATA_APP_STATES
+        )
+        return location.workspace_id if location is not None else None
     except Exception as exc:
         logger.warning("workspace anchor lookup failed for %s: %s", resource_type, exc)
         raise AuthorizationUnavailableError() from exc
@@ -936,6 +985,17 @@ async def resolve_role(
     user_id: str,
     resource_type: str,
     resource_id: str,
+) -> Optional[str]:
+    """Resolve ordinary roles from current facts, never protected governance."""
+    # All callers, including workers outside the HTTP middleware, need current
+    # facts. Epoch-keyed memoization requires adoption by every ACL writer;
+    # a TTL or process-local generation cannot establish that guarantee.
+    with isolated_permissions_cache():
+        return await _resolve_current_role(user_id, resource_type, resource_id)
+
+
+async def _resolve_current_role(
+    user_id: str, resource_type: str, resource_id: str
 ) -> Optional[str]:
     """Return the user's effective role on a resource, or None.
 
@@ -999,8 +1059,11 @@ async def resolve_role(
         # workApp role onto the owner/editor/commenter/viewer enum so
         # callers can use a single gate. WorkApp role does NOT cascade
         # to children (rule 2).
+        from app.services.resource_location import locate_resource
         from app.services.workspace_permissions import can_access_workspace
 
+        if await locate_resource("workspace", resource_id) is None:
+            return _finish(None)
         role = await can_access_workspace(user.id, resource_id)
         return _finish(
             {
@@ -1039,11 +1102,16 @@ async def resolve_role(
     # workspace anchor are independent and now run concurrently, and the anchor
     # is resolved once instead of twice — the candidates block below used to
     # recompute the same value with a second query.
-    direct, workspace_id = await asyncio.gather(
+    from app.services.resource_location import DATA_APP_STATES, locate_resource
+
+    direct, location = await asyncio.gather(
         _direct_role_on_resource(user, resource_id),
-        _workspace_id_for_resource(resource_type, node),
+        locate_resource(resource_type, resource_id, allowed_app_states=DATA_APP_STATES),
     )
-    if workspace_id and not await _user_in_workspace_member_pool(user, workspace_id):
+    if location is None:
+        return _finish(None)
+    workspace_id = location.workspace_id
+    if not await _user_in_workspace_member_pool(user, workspace_id):
         ws = await _load_resource_node("workspace", workspace_id)
         # A resource OWNS edge survives a workspace-membership revoke. It
         # must not bypass the workspace gate: former members may retain that
@@ -1103,7 +1171,11 @@ async def resolve_role(
         if vis_grant:
             candidates.append(vis_grant)
 
-    parent = await _parent_of_resource(resource_type, resource_id)
+    parent = None
+    if resource_type == "entry":
+        parent = ("track", location.track_id)
+    elif resource_type == "track" and location.app_id:
+        parent = ("app", location.app_id)
     if parent is not None:
         skip_cascade = (
             resource_type == "track"
@@ -1131,6 +1203,12 @@ async def resolve_role(
 
 @perf_traced("permissions.get_user_accessible_tracks")
 async def get_user_accessible_tracks(user_id: str) -> List[Track]:
+    """List current data access, including protected workspace stewardship."""
+    with isolated_permissions_cache():
+        return await _get_current_accessible_tracks(user_id)
+
+
+async def _get_current_accessible_tracks(user_id: str) -> List[Track]:
     """Tracks via ownership, collaboration, app-cascade, staff inventory, visibility.
 
     Direct grants require live workspace membership or a public-read role;
@@ -1179,27 +1257,27 @@ async def get_user_accessible_tracks(user_id: str) -> List[Track]:
                 lifecycle = str(getattr(app_node, "lifecycle_state", "") or "")
                 if lifecycle == "uninstalled":
                     continue
-                if await resolve_role(user_id, "app", app_node.id) is not None:
+                if await can_view_app(user_id, app_node.id):
                     return True
             return False
 
         from app.services.workspace_permissions import (
-            can_access_workspace,
+            _list_current_accessible_workspaces,
             collect_org_workspace_member_visibility_inventory,
             collect_org_workspace_staff_inventory,
-            list_accessible_workspaces,
         )
 
-        workspaces = await list_accessible_workspaces(user_id)
+        workspace_roles: dict[str, str] = {}
+        workspaces = await _list_current_accessible_workspaces(
+            user, roles_out=workspace_roles
+        )
         accessible_workspace_ids = {ws.id for ws in workspaces}
 
         # deviation: Reuse the workspace inventory for direct-grant checks —
         # measured 65 vs 55 DB round-trips for a 3-track list when calling
         # resolve_role on every direct Track. Direct edges beat exclusions;
         # only out-of-pool candidates need the full public-read resolution.
-        direct_tracks: List[Track] = []
-        direct_tracks.extend(await user.nodes(edge=["OWNS"], node=["Track"]))
-        direct_tracks.extend(await user.nodes(edge=["COLLABORATES_ON"], node=["Track"]))
+        cascade_apps, direct_tracks = await _direct_inventory_candidates(user)
         if direct_tracks:
             listable = await asyncio.gather(
                 *(_track_listable(t) for t in direct_tracks)
@@ -1228,11 +1306,6 @@ async def get_user_accessible_tracks(user_id: str) -> List[Track]:
         # its parent app, which is now a cache hit rather than a fresh walk.
         candidate_tracks: dict = {}
         candidate_app_of: dict = {}
-        cascade_apps: List[Any] = []
-        cascade_apps.extend(await user.nodes(edge=["OWNS"], node=["WorkspaceApp"]))
-        cascade_apps.extend(
-            await user.nodes(edge=["COLLABORATES_ON"], node=["WorkspaceApp"])
-        )
         active_cascade_apps = [
             ts
             for ts in cascade_apps
@@ -1267,9 +1340,7 @@ async def get_user_accessible_tracks(user_id: str) -> List[Track]:
                     _add(track)
 
         for ws in workspaces:
-            if getattr(ws, "kind", "") != "organization":
-                continue
-            ws_role = await can_access_workspace(user_id, ws.id)
+            ws_role = workspace_roles[ws.id]
             if ws_role in ("owner", "admin"):
                 _, staff_tracks = await collect_org_workspace_staff_inventory(ws)
                 if staff_tracks:
@@ -1279,7 +1350,11 @@ async def get_user_accessible_tracks(user_id: str) -> List[Track]:
                     for t, ok in zip(staff_tracks, listable):
                         if not ok:
                             continue
-                        if await effective_resource_visibility("track", t) == "private":
+                        if (
+                            ws_role != "owner"
+                            and await effective_resource_visibility("track", t)
+                            == "private"
+                        ):
                             continue
                         _add(t)
             elif ws_role == "member":
@@ -1299,6 +1374,13 @@ async def get_user_accessible_tracks(user_id: str) -> List[Track]:
                         if role is not None:
                             _add(t)
 
+        result = await _filter_canonical_resource_inventory(
+            user_id,
+            "track",
+            result,
+            principal=user,
+            admitted_workspaces=workspace_roles,
+        )
         if cache is not None:
             cache[ck] = result
         _ppc.set_cached(
@@ -1310,9 +1392,147 @@ async def get_user_accessible_tracks(user_id: str) -> List[Track]:
         return result
     except Exception as exc:
         logger.warning("Error getting accessible tracks for %s: %s", user_id, exc)
-        if cache is not None:
-            cache[ck] = []
+        raise AuthorizationUnavailableError() from exc
+
+
+async def _direct_inventory_candidates(user: User) -> tuple[list[App], list[Track]]:
+    """Read complete raw direct-grant pages, then hydrate only candidate resources."""
+    context = await user.get_context()
+    cursor = ""
+    apps: dict[str, App] = {}
+    tracks: dict[str, Track] = {}
+    while True:
+        query: dict[str, Any] = {
+            "source": user.id,
+            "entity": {"$in": [OWNS.__name__, COLLABORATES_ON.__name__]},
+        }
+        if cursor:
+            query["id"] = {"$gt": cursor}
+        rows = await context.database.find("edge", query, limit=501, sort=[("id", 1)])
+        page = rows[:500]
+        if not page:
+            break
+        targets = set()
+        for row in page:
+            if (
+                row.get("source") != user.id
+                or not isinstance(row.get("target"), str)
+                or not row["target"]
+                or not isinstance(row.get("id"), str)
+                or row["id"] <= cursor
+            ):
+                raise AuthorizationUnavailableError()
+            entity = row.get("entity")
+            if entity == OWNS.__name__:
+                relationship_literal(row, "role", {"owner"})
+            elif entity == COLLABORATES_ON.__name__:
+                relationship_literal(row, "role", ROLE_RANK)
+            else:
+                raise AuthorizationUnavailableError()
+            targets.add(row["target"])
+        records = await context.database.find(
+            "node", {"id": {"$in": sorted(targets)}}, limit=len(targets) + 1
+        )
+        node_ids = [row.get("id") for row in records]
+        if len(node_ids) != len(set(node_ids)) or not set(node_ids).issubset(targets):
+            raise AuthorizationUnavailableError()
+        for row in records:
+            entity = row.get("entity")
+            model = (
+                App
+                if entity == App._entity_name()
+                else Track if entity == Track._entity_name() else None
+            )
+            if model is None:
+                continue
+            node = await context._deserialize_entity(model, row)
+            if node is None:
+                raise AuthorizationUnavailableError()
+            if model is App:
+                apps[node.id] = node
+            else:
+                tracks[node.id] = node
+        if len(rows) <= 500:
+            break
+        cursor = page[-1]["id"]
+    return list(apps.values()), list(tracks.values())
+
+
+async def _filter_canonical_resource_inventory(
+    user_id: str,
+    kind: str,
+    candidates: list[Any],
+    *,
+    principal: User | None = None,
+    admitted_workspaces: dict[str, str] | None = None,
+) -> list[Any]:
+    """Batch fresh containment and direct facts; resolve remaining ordinary paths."""
+    if not candidates:
         return []
+    from app.services.resource_location import DATA_APP_STATES, locate_resources
+    from app.services.workspace_permissions import _current_workspace_role
+
+    user = principal if principal is not None else await get_user_node(user_id)
+    if user is None:
+        return []
+    result = []
+    for offset in range(0, len(candidates), 500):
+        page = candidates[offset : offset + 500]
+        ids = list(dict.fromkeys(node.id for node in page))
+        locations = await locate_resources(
+            kind,
+            ids,
+            allowed_app_states=DATA_APP_STATES,
+            workspace_hints=[
+                node.workspace_id for node in page if getattr(node, "workspace_id", "")
+            ],
+        )
+        context = await user.get_context()
+        rows = await context.database.find(
+            "edge",
+            {
+                "source": user.id,
+                "target": {"$in": ids},
+                "entity": {"$in": [OWNS.__name__, COLLABORATES_ON.__name__]},
+            },
+            limit=2 * len(ids) + 1,
+        )
+        if len(rows) > 2 * len(ids):
+            raise AuthorizationUnavailableError()
+        grants: dict[str, list[dict]] = {node_id: [] for node_id in ids}
+        for row in rows:
+            if (
+                row.get("source") != user.id
+                or row.get("target") not in grants
+                or row.get("entity") not in (OWNS.__name__, COLLABORATES_ON.__name__)
+            ):
+                raise AuthorizationUnavailableError()
+            grants[row["target"]].append(row)
+        direct = {
+            node_id: _direct_role_from_rows(group) for node_id, group in grants.items()
+        }
+        workspace_roles = dict(admitted_workspaces or {})
+        for location in locations.values():
+            if location is None or location.workspace_id in workspace_roles:
+                continue
+            workspace = await _load_resource_node("workspace", location.workspace_id)
+            workspace_roles[location.workspace_id] = (
+                await _current_workspace_role(user, workspace)
+                if workspace is not None
+                else "none"
+            )
+        for node in page:
+            location = locations[node.id]
+            if location is None:
+                continue
+            role = workspace_roles.get(location.workspace_id, "none")
+            if (
+                role == "owner"
+                or (role != "none" and direct[node.id] is not None)
+                or await resolve_role(user_id, kind, node.id) is not None
+            ):
+                result.append(node)
+    return result
 
 
 async def _collect_entries_for_tracks(
@@ -1514,6 +1734,30 @@ async def get_user_accessible_entries(
         if strict:
             raise
         return []
+
+
+async def count_user_accessible_entries_for_tracks(
+    user_id: str, tracks: list[Track]
+) -> dict[str, int]:
+    """Batch admission and the empty-collection probe for a response page."""
+    result = {track.id: 0 for track in tracks}
+    admitted = await _filter_canonical_resource_inventory(user_id, "track", tracks)
+    if not admitted:
+        return result
+    ids = [track.id for track in admitted]
+    context = await admitted[0].get_context()
+    candidates = await context.database.find(
+        "node",
+        {"entity": Entry._entity_name(), "context.track_id": {"$in": ids}},
+        limit=1,
+    )
+    if not candidates:
+        return result
+    counts = await asyncio.gather(
+        *(count_user_accessible_entries(user_id, track.id) for track in admitted)
+    )
+    result.update({track.id: count for track, count in zip(admitted, counts)})
+    return result
 
 
 async def count_user_accessible_entries(user_id: str, track_id: str) -> int:

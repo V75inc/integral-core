@@ -65,6 +65,7 @@ async def _org_workspace_with_inventory(
         created_at=now,
         updated_at=now,
     )
+    await catalog_track(nested)
     await app.connect(nested, edge=CONTAINS, added_at=now)
 
     standalone = await Track.create(
@@ -142,8 +143,8 @@ async def test_workspace_member_without_grants_sees_no_private_inventory():
 
 
 @pytest.mark.asyncio
-async def test_staff_inventory_includes_apps_missing_branch_catalog_edge():
-    """Apps with workspace_id but no CATALOGS branch edge still surface for staff."""
+async def test_staff_access_denies_scalar_only_app_missing_catalog_edge():
+    """Scalar discovery may find legacy content but cannot authorize it."""
     await ensure_integral_app_graph(include_library=False)
     now = datetime.now().isoformat()
     owner = await User.create(user_id="staff_owner4", display_name="Owner")
@@ -196,7 +197,10 @@ async def test_staff_inventory_includes_apps_missing_branch_catalog_edge():
     assert {t.id for t in tracks} == {standalone.id}
 
     admin_apps = await get_user_accessible_apps(admin.id)
-    assert {a.id for a in admin_apps} == {app.id}
+    assert admin_apps == []
+    from app.services.permissions import can_admin_app
+
+    assert not await can_admin_app(owner.id, app.id)
 
 
 @pytest.mark.asyncio

@@ -68,44 +68,35 @@ def test_resolve_role_invalidation_fences_stale_result(monkeypatch):
 async def test_track_aggregate_does_not_cache_stale_in_flight_result(monkeypatch):
     """Keep a pre-invalidation aggregate read out of the process cache."""
     import app.services.permissions as permissions_mod
-    import app.services.workspace_permissions as workspace_permissions
 
     monkeypatch.setattr(ppc, "_ENABLED", True)
     ppc.clear_all()
+    from tests.test_resource_location import graph
+
+    owner, _, _, track, _ = await graph()
     started = asyncio.Event()
     release = asyncio.Event()
+    real_discovery = permissions_mod._direct_inventory_candidates
 
-    class SlowUser:
-        def __init__(self):
-            self.calls = 0
+    async def paused_discovery(user):
+        started.set()
+        await asyncio.wait_for(release.wait(), timeout=5)
+        return await real_discovery(user)
 
-        async def nodes(self, **_kwargs):
-            self.calls += 1
-            if self.calls == 1:
-                started.set()
-                await release.wait()
-            return []
-
-    user = SlowUser()
-
-    async def _get_user_node(_user_id):
-        return user
-
-    async def _list_workspaces(_user_id):
-        return []
-
-    monkeypatch.setattr(permissions_mod, "get_user_node", _get_user_node)
     monkeypatch.setattr(
-        workspace_permissions, "list_accessible_workspaces", _list_workspaces
+        permissions_mod, "_direct_inventory_candidates", paused_discovery
     )
-
-    pending = asyncio.create_task(permissions_mod.get_user_accessible_tracks("u-race"))
-    await started.wait()
-    ppc.invalidate_user("u-race")
-    release.set()
-
-    assert await pending == []
-    assert ppc.get_cached("u-race", "accessible_tracks") is None
+    ppc.set_cached(owner.id, "accessible_tracks", ["stale-result"])
+    pending = asyncio.create_task(permissions_mod.get_user_accessible_tracks(owner.id))
+    try:
+        await asyncio.wait_for(started.wait(), timeout=5)
+        ppc.invalidate_user(owner.id)
+    finally:
+        release.set()
+    assert {node.id for node in await asyncio.wait_for(pending, timeout=10)} == {
+        track.id
+    }
+    assert ppc.get_cached(owner.id, "accessible_tracks") is None
 
 
 def test_ttl_expiry(monkeypatch):

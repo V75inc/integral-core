@@ -39,26 +39,47 @@ from app.services.sharing import add_exclusion
 
 
 async def _user(suffix: str) -> User:
-    return await User.create(
-        user_id=f"overview_user_{suffix}",
-        display_name=f"Overview User {suffix}",
+    from app.services.app_graph import catalog_user
+
+    user = await User.create(
+        user_id=f"overview_user_{suffix}", display_name=f"Overview User {suffix}"
     )
+    await catalog_user(user)
+    return user
 
 
 async def _workspace(name: str, kind: str = "organization") -> Workspace:
-    return await Workspace.create(kind=kind, name=name, name_fold=name.casefold())
+    from app.services.app_graph import catalog_workspace
+
+    ws = await Workspace.create(kind=kind, name=name, name_fold=name.casefold())
+    await catalog_workspace(ws)
+    return ws
 
 
-async def _track(title: str, workspace_id: str = "") -> Track:
-    return await Track.create(
+async def _track(title: str, *, owner: User, workspace_id: str = "") -> Track:
+    from app.services.app_graph import catalog_track
+    from app.services.personal_workspace import ensure_personal_workspace
+
+    if not workspace_id:
+        workspace_id = (await ensure_personal_workspace(owner)).id
+    track = await Track.create(
         title=title, title_fold=title.casefold(), workspace_id=workspace_id
     )
+    await catalog_track(track)
+    return track
 
 
-async def _space(name: str, workspace_id: str = "") -> App:
-    return await App.create(
+async def _space(name: str, *, owner: User, workspace_id: str = "") -> App:
+    from app.services.app_graph import catalog_app
+    from app.services.personal_workspace import ensure_personal_workspace
+
+    if not workspace_id:
+        workspace_id = (await ensure_personal_workspace(owner)).id
+    app = await App.create(
         name=name, name_fold=name.casefold(), workspace_id=workspace_id
     )
+    await catalog_app(app)
+    return app
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +129,7 @@ async def test_share_link_appears_after_mint(
     we pass; we use the AuthUser id so the aggregator's
     ``{created_by: principal_id}`` filter matches.
     """
-    track = await _track("OverviewT", workspace_id="")
+    track = await _track("OverviewT", workspace_id="", owner=test_user)
     await test_user.connect(track, edge=OWNS)
     principal_id = test_user.user_id
     minted = await mint_share_link(principal_id, "track", track.id, role="viewer")
@@ -135,7 +156,7 @@ async def test_share_link_appears_after_mint(
 async def test_revoked_share_link_excluded(
     authenticated_client: AsyncClient, test_user
 ):
-    track = await _track("RevokeT")
+    track = await _track("RevokeT", owner=test_user)
     await test_user.connect(track, edge=OWNS)
     principal_id = test_user.user_id
     minted = await mint_share_link(principal_id, "track", track.id, role="viewer")
@@ -159,8 +180,8 @@ async def test_exclusion_appears_for_owned_resource(
     authenticated_client: AsyncClient, test_user
 ):
     other = await _user("excl_other")
-    app_node = await _space("ExclS")
-    track = await _track("ExclT")
+    app_node = await _space("ExclS", owner=test_user)
+    track = await _track("ExclT", owner=test_user)
     await test_user.connect(app_node, edge=OWNS)
     await test_user.connect(track, edge=OWNS)
     # ``add_exclusion`` requires the target to have inherited access — give
@@ -198,7 +219,7 @@ async def test_exclusion_appears_for_owned_resource(
 async def test_resource_level_invitation_appears(
     authenticated_client: AsyncClient, test_user
 ):
-    track = await _track("InviteT")
+    track = await _track("InviteT", owner=test_user)
     await test_user.connect(track, edge=OWNS)
     principal_id = test_user.user_id
     invitation, _, _ = await create_resource_invitation(
@@ -267,7 +288,7 @@ async def test_cross_user_share_link_not_leaked(
     """User B mints a link on B's resource; User A's overview MUST NOT include it."""
     if second_user is None:
         pytest.skip("second_user fixture unavailable")
-    track = await _track("LeakT")
+    track = await _track("LeakT", owner=second_user)
     await second_user.connect(track, edge=OWNS)
     minted = await mint_share_link(second_user.id, "track", track.id, role="viewer")
     other_link_id = minted["share_link"]["id"]
@@ -295,8 +316,8 @@ async def test_cross_user_exclusion_not_leaked(
     if second_user is None:
         pytest.skip("second_user fixture unavailable")
     third = await _user("third_party")
-    app_node = await _space("LeakS")
-    track = await _track("LeakXT")
+    app_node = await _space("LeakS", owner=second_user)
+    track = await _track("LeakXT", owner=second_user)
     # second_user owns these resources.
     await second_user.connect(app_node, edge=OWNS)
     await second_user.connect(track, edge=OWNS)

@@ -100,6 +100,7 @@ async def _bind_connector_to_track(connector: Connector, track: Track) -> None:
     from app.models.edges import CONTAINS, OWNS
     from app.models.nodes import User
     from app.services.app_graph import (
+        catalog_track,
         catalog_user,
         ensure_track_attached_operational_model,
     )
@@ -110,6 +111,7 @@ async def _bind_connector_to_track(connector: Connector, track: Track) -> None:
     ws = await ensure_personal_workspace(user)
     track.workspace_id = ws.id
     await track.save()
+    await catalog_track(track)
     await ws.connect(track, edge=CONTAINS)
     await user.connect(track, edge=OWNS)
     await ensure_track_attached_operational_model(track)

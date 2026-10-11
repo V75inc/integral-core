@@ -10,7 +10,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 #   ("user_node", user_id)                                          — Phase 0
 #   ("etr", uid, tid)                                               — Phase 0 effective track role
 #   ("rr", resource_type, resource_id, user_id)                     — Phase 1 resolve_role
-#   ("policy", subject_kind, subject_id, action, complete_resource_json)
+#   ("policy", subject_kind, subject_id, action, authority_mode, complete_resource_json)
 PermissionCacheKey = Tuple[str, ...]
 
 _permissions_cache_var: ContextVar[Optional[Dict[PermissionCacheKey, Any]]] = (
@@ -68,7 +68,7 @@ def policy_decision_clear_for_subject(subject_kind: str, subject_id: str) -> int
     fresh cache via ``reset_permissions_cache``).
 
     Cache keys touched start with
-    ``("policy", subject_kind, subject_id, action, complete_resource_json)``
+    ``("policy", subject_kind, subject_id, action, authority_mode, complete_resource_json)``
     written by ``policy_engine.evaluate``. Other key shapes (Phase 0 user_node,
     Phase 0 etr, Phase 1 rr) are not touched.
 

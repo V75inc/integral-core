@@ -171,6 +171,8 @@ async def test_install_invalidates_cached_app_inventory_for_owner(monkeypatch):
     library_cp = await seed_asset_register_library_cp()
 
     assert await get_user_accessible_apps(owner.id) == []
+    # A legacy stale aggregate must not become authority after installation.
+    permissions_process_cache.set_cached(owner.id, "accessible_apps", [])
     assert permissions_process_cache.get_cached(owner.id, "accessible_apps") == []
 
     installed = await install_app(

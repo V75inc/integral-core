@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.services.app_graph import catalog_track, catalog_user, catalog_workspace
 from app.services.share_links import (
     _is_expired,
     link_intent,
@@ -35,6 +36,7 @@ async def test_mint_share_link_rejects_owner_role():
     from app.utils.time import utc_now_iso
 
     owner = await User.create(display_name="Owner")
+    await catalog_user(owner)
     now = utc_now_iso()
     ws = await Workspace.create(
         kind="personal",
@@ -44,8 +46,10 @@ async def test_mint_share_link_rejects_owner_role():
         created_at=now,
         updated_at=now,
     )
+    await catalog_workspace(ws)
     await owner.connect(ws, edge=IS_MEMBER_OF, role="owner", added_at=now)
     track = await Track.create(title="T", owner_id=owner.id, workspace_id=ws.id)
+    await catalog_track(track)
     await owner.connect(track, edge=COLLABORATES_ON, role="owner", added_at=now)
 
     with pytest.raises(BadRequestError, match="Role must be one of"):
@@ -60,7 +64,9 @@ async def test_public_intent_mint_and_redeem_paths():
     from app.utils.time import utc_now_iso
 
     owner = await User.create(display_name="Owner")
+    await catalog_user(owner)
     other = await User.create(display_name="Other")
+    await catalog_user(other)
     now = utc_now_iso()
     ws = await Workspace.create(
         kind="personal",
@@ -70,8 +76,10 @@ async def test_public_intent_mint_and_redeem_paths():
         created_at=now,
         updated_at=now,
     )
+    await catalog_workspace(ws)
     await owner.connect(ws, edge=IS_MEMBER_OF, role="owner", added_at=now)
     track = await Track.create(title="T", owner_id=owner.id, workspace_id=ws.id)
+    await catalog_track(track)
     et = await EntryType.create(name="Note", name_fold="note", track_id=track.id)
     entry = await Entry.create(
         title="E",
@@ -102,7 +110,9 @@ async def test_get_attached_operational_model_forbidden_without_view():
     from app.utils.time import utc_now_iso
 
     owner = await User.create(display_name="Owner")
+    await catalog_user(owner)
     stranger = await User.create(display_name="Stranger")
+    await catalog_user(stranger)
     now = utc_now_iso()
     ws = await Workspace.create(
         kind="organization",
@@ -112,8 +122,10 @@ async def test_get_attached_operational_model_forbidden_without_view():
         created_at=now,
         updated_at=now,
     )
+    await catalog_workspace(ws)
     await owner.connect(ws, edge=IS_MEMBER_OF, role="owner", added_at=now)
     track = await Track.create(title="Private", owner_id=owner.id, workspace_id=ws.id)
+    await catalog_track(track)
     et = await EntryType.create(name="Note", name_fold="note", track_id=track.id)
     entry = await Entry.create(
         title="E",

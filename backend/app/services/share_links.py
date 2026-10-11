@@ -480,7 +480,15 @@ async def list_active_links(
     from app.api.errors import InsufficientPermissionsError
 
     role_on_resource = await resolve_role(actor_user_id, resource_type, resource_id)
-    if role_on_resource not in ("owner", "admin"):
+    from app.services.workspace_governance import resolve_owner_governance
+
+    if (
+        role_on_resource not in ("owner", "admin")
+        and await resolve_owner_governance(
+            actor_user_id, resource_type, resource_id, "resource.access.review"
+        )
+        is None
+    ):
         raise InsufficientPermissionsError(
             message="Only the resource owner or admin may list share links."
         )

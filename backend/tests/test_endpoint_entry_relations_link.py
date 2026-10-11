@@ -14,6 +14,7 @@ from httpx import AsyncClient
 
 from app.models.edges import COLLABORATES_ON, CONTAINS, IS_MEMBER_OF, OWNS, REFERENCES
 from app.models.nodes import Entry, Track, User, Workspace
+from app.services.app_graph import catalog_track, catalog_workspace
 from app.utils.time import utc_now_iso
 
 
@@ -27,12 +28,14 @@ async def _make_workspace_and_entries(owner: User):
         created_at=now,
         updated_at=now,
     )
+    await catalog_workspace(ws)
     await owner.connect(ws, edge=IS_MEMBER_OF, role="owner", added_at=now)
     project_track = await Track.create(
         title="Projects",
         owner_id=owner.id,
         workspace_id=ws.id,
     )
+    await catalog_track(project_track)
     project = await Entry.create(
         title="Project P",
         body="",
@@ -47,6 +50,7 @@ async def _make_workspace_and_entries(owner: User):
         owner_id=owner.id,
         workspace_id=ws.id,
     )
+    await catalog_track(comm_track)
     thread = await Entry.create(
         title="Thread A",
         body="",

@@ -214,23 +214,31 @@ async def test_canonical_location_rejects_corrupt_or_inactive_containment(fault)
 @pytest.mark.asyncio
 async def test_scope_storage_failure_is_unavailable(monkeypatch):
     _, _, _, _, entry = await graph()
+    context = await entry.get_context()
+    real_find = context.database.find
 
-    async def fail(*args, **kwargs):
-        raise RuntimeError("injected primary read failure")
+    async def fail(collection, query=None, *args, **kwargs):
+        if collection == "node" and query and query.get("id") == entry.id:
+            raise RuntimeError("injected primary read failure")
+        return await real_find(collection, query, *args, **kwargs)
 
-    monkeypatch.setattr(Entry, "find_one", fail)
+    monkeypatch.setattr(context.database, "find", fail)
     with pytest.raises(AuthorizationUnavailableError):
         await locate_resource("entry", entry.id)
 
 
 @pytest.mark.asyncio
 async def test_parent_visit_fault_cannot_return_a_partial_location(monkeypatch):
-    _, _, _, _, entry = await graph()
+    _, _, app, _, entry = await graph()
+    context = await entry.get_context()
+    real_find = context.database.find
 
-    async def fail(*args, **kwargs):
-        raise RuntimeError("injected App primary read fault")
+    async def fail(collection, query=None, *args, **kwargs):
+        if collection == "node" and query and query.get("id") == app.id:
+            raise RuntimeError("injected App primary read fault")
+        return await real_find(collection, query, *args, **kwargs)
 
-    monkeypatch.setattr(App, "find_one", fail)
+    monkeypatch.setattr(context.database, "find", fail)
     with pytest.raises(AuthorizationUnavailableError):
         await locate_resource("entry", entry.id)
 
@@ -337,6 +345,7 @@ async def test_http_boundary_ignores_warm_process_role_and_stale_visibility(
     monkeypatch.setattr(cache, "_ENABLED", True)
     try:
         assert await resolve_role(reader.id, "app", app.id) == "viewer"
+        cache.set_resolve_role_cached(reader.id, "app", app.id, "viewer")
         assert cache.get_resolve_role_cached(reader.id, "app", app.id) == "viewer"
         context = await app.get_context()
         await context.database.find_one_and_update(
@@ -454,6 +463,7 @@ async def test_facade_live_read_ignores_warm_process_grant(monkeypatch):
     monkeypatch.setattr(cache, "_ENABLED", True)
     try:
         assert await resolve_role(reader.id, "entry", entry.id) == "viewer"
+        cache.set_resolve_role_cached(reader.id, "entry", entry.id, "viewer")
         assert cache.get_resolve_role_cached(reader.id, "entry", entry.id) == "viewer"
         await grant.delete()
         context = ToolContext(

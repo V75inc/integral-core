@@ -86,18 +86,12 @@ def matches_workspace(item: Any, workspace_id: str) -> bool:
 async def _persist_active_workspace(
     user_id: str, workspace_id: str, *, explicit: bool
 ) -> None:
-    """Best-effort write of ``User.active_workspace_id``. Logs + swallows
-    storage failures because every list endpoint funnels through here and
-    we never want a write hiccup to turn into a 500 on read paths.
+    """Persist an explicit scope preference without replacing profile state.
 
-    ``explicit=True`` marks the write as a user-driven preference (header
-    matched live membership, or a ``PUT /users/me/scope`` call). Auto-
-    default picks (most-recent org / Personal fallback) pass
-    ``explicit=False`` — these get persisted for caching/observability
-    but the resolver re-evaluates them on the next request, so a user
-    who later gains org membership flips to the org automatically.
+    Automatic defaults are recomputed; a read does not need to store them.
+    Preference writes are advisory and never establish workspace authority.
     """
-    if not workspace_id:
+    if not workspace_id or not explicit:
         return
     try:
         from app.services.permissions import get_user_node
@@ -109,9 +103,19 @@ async def _persist_active_workspace(
         current_explicit = bool(getattr(user, "active_workspace_id_explicit", False))
         if current == workspace_id and current_explicit == explicit:
             return
-        user.active_workspace_id = workspace_id
-        user.active_workspace_id_explicit = explicit
-        await user.save()
+        from app.models.nodes import User
+
+        context = await user.get_context()
+        await context.database.find_one_and_update(
+            "node",
+            {"id": user.id, "entity": User._entity_name()},
+            {
+                "$set": {
+                    "context.active_workspace_id": workspace_id,
+                    "context.active_workspace_id_explicit": explicit,
+                }
+            },
+        )
     except Exception:
         logger.warning(
             "request_scope: failed to persist active_workspace_id=%s for user=%s",

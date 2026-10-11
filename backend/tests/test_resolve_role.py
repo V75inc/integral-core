@@ -27,49 +27,48 @@ from app.models.edges import (
 )
 from app.models.nodes import App, Entry, Track, User, Workspace
 from app.services.permissions import resolve_role
+from tests.rooted_access_fixture import rooted_access_graph  # noqa: F401
 
 # Part of the per-PR smoke gate (see pyproject [tool.pytest.ini_options] markers).
 # CI bills only this subset; the full suite runs locally via `make verify` and nightly.
 pytestmark = pytest.mark.smoke
 
 
-async def _mk_user(suffix: str) -> User:
-    return await User.create(user_id=f"rr_user_{suffix}", display_name=f"User {suffix}")
+async def _mk_user(rooted, suffix: str) -> User:
+    return await rooted.user(user_id=f"rr_user_{suffix}", display_name=f"User {suffix}")
 
 
-async def _mk_workspace(name: str, kind: str = "organization") -> Workspace:
-    return await Workspace.create(kind=kind, name=name, name_fold=name.casefold())
+async def _mk_workspace(rooted, name: str, kind: str = "organization") -> Workspace:
+    return await rooted.workspace(kind=kind, name=name, name_fold=name.casefold())
 
 
 async def _mk_space(
-    name: str, workspace_id: str = "", visibility: str = "inherit"
+    rooted, name: str, workspace_id: str = "", visibility: str = "private"
 ) -> App:
-    sp = await App.create(
+    return await rooted.app(
         name=name,
         name_fold=name.casefold(),
-        workspace_id=workspace_id,
+        workspace_id=workspace_id or rooted.workspace_node.id,
         visibility=visibility,
     )
-    return sp
 
 
 async def _mk_track(
-    title: str, workspace_id: str = "", visibility: str = "inherit"
+    rooted, title: str, workspace_id: str = "", visibility: str = "inherit"
 ) -> Track:
-    return await Track.create(
+    return await rooted.track(
         title=title,
         title_fold=title.casefold(),
-        workspace_id=workspace_id,
+        workspace_id=workspace_id or rooted.workspace_node.id,
         visibility=visibility,
     )
 
 
-async def _mk_entry(title: str, track_id: str, visibility: str = "inherit") -> Entry:
-    return await Entry.create(
-        title=title,
-        track_id=track_id,
-        visibility=visibility,
-        author_id="rr_author",
+async def _mk_entry(
+    rooted, title: str, track_id: str, visibility: str = "inherit"
+) -> Entry:
+    return await rooted.entry(
+        title=title, track_id=track_id, visibility=visibility, author_id="rr_author"
     )
 
 
@@ -79,29 +78,29 @@ async def _mk_entry(title: str, track_id: str, visibility: str = "inherit") -> E
 
 
 @pytest.mark.asyncio
-async def test_owns_edge_grants_owner_on_track():
-    user = await _mk_user("owns_track")
-    track = await _mk_track("T")
+async def test_owns_edge_grants_owner_on_track(rooted_access_graph):
+    user = await _mk_user(rooted_access_graph, "owns_track")
+    track = await _mk_track(rooted_access_graph, "T")
     await user.connect(track, edge=OWNS)
     assert await resolve_role(user.id, "track", track.id) == "owner"
 
 
 @pytest.mark.asyncio
-async def test_collab_role_returned_verbatim_on_track():
-    owner = await _mk_user("collab_track_owner")
-    track = await _mk_track("T")
+async def test_collab_role_returned_verbatim_on_track(rooted_access_graph):
+    owner = await _mk_user(rooted_access_graph, "collab_track_owner")
+    track = await _mk_track(rooted_access_graph, "T")
     await owner.connect(track, edge=OWNS)
 
     for role in ("editor", "commenter", "viewer"):
-        u = await _mk_user(f"collab_track_{role}")
+        u = await _mk_user(rooted_access_graph, f"collab_track_{role}")
         await u.connect(track, edge=COLLABORATES_ON, role=role)
         assert await resolve_role(u.id, "track", track.id) == role
 
 
 @pytest.mark.asyncio
-async def test_no_grant_no_role_on_track():
-    stranger = await _mk_user("stranger_track")
-    track = await _mk_track("T", visibility="private")
+async def test_no_grant_no_role_on_track(rooted_access_graph):
+    stranger = await _mk_user(rooted_access_graph, "stranger_track")
+    track = await _mk_track(rooted_access_graph, "T", visibility="private")
     assert await resolve_role(stranger.id, "track", track.id) is None
 
 
@@ -111,7 +110,7 @@ async def test_no_grant_no_role_on_track():
 
 
 @pytest.mark.asyncio
-async def test_space_owner_cascades_to_track_as_editor():
+async def test_space_owner_cascades_to_track_as_editor(rooted_access_graph):
     """Inherited 'owner' is capped to 'editor' on children (I-ROLE-02).
 
     Track-config authority NEVER cascades — must be granted directly
@@ -121,20 +120,20 @@ async def test_space_owner_cascades_to_track_as_editor():
     grant on that specific Track. Owner-only carve-outs (delete /
     collab mgmt / share-link mint) likewise never cascade.
     """
-    sp_owner = await _mk_user("sp_owner_1")
-    sp = await _mk_space("S")
-    track = await _mk_track("T")
+    sp_owner = await _mk_user(rooted_access_graph, "sp_owner_1")
+    sp = await _mk_space(rooted_access_graph, "S")
+    track = await _mk_track(rooted_access_graph, "T")
     await sp_owner.connect(sp, edge=OWNS)
     await sp.connect(track, edge=CONTAINS)
     assert await resolve_role(sp_owner.id, "track", track.id) == "editor"
 
 
 @pytest.mark.asyncio
-async def test_space_editor_cascades_to_track_as_editor():
-    owner = await _mk_user("sp_ed_owner")
-    editor = await _mk_user("sp_ed_editor")
-    sp = await _mk_space("S")
-    track = await _mk_track("T")
+async def test_space_editor_cascades_to_track_as_editor(rooted_access_graph):
+    owner = await _mk_user(rooted_access_graph, "sp_ed_owner")
+    editor = await _mk_user(rooted_access_graph, "sp_ed_editor")
+    sp = await _mk_space(rooted_access_graph, "S")
+    track = await _mk_track(rooted_access_graph, "T")
     await owner.connect(sp, edge=OWNS)
     await editor.connect(sp, edge=COLLABORATES_ON, role="editor")
     await sp.connect(track, edge=CONTAINS)
@@ -142,11 +141,11 @@ async def test_space_editor_cascades_to_track_as_editor():
 
 
 @pytest.mark.asyncio
-async def test_space_viewer_cascades_to_track_as_viewer():
-    owner = await _mk_user("sp_vw_owner")
-    viewer = await _mk_user("sp_vw_viewer")
-    sp = await _mk_space("S")
-    track = await _mk_track("T")
+async def test_space_viewer_cascades_to_track_as_viewer(rooted_access_graph):
+    owner = await _mk_user(rooted_access_graph, "sp_vw_owner")
+    viewer = await _mk_user(rooted_access_graph, "sp_vw_viewer")
+    sp = await _mk_space(rooted_access_graph, "S")
+    track = await _mk_track(rooted_access_graph, "T")
     await owner.connect(sp, edge=OWNS)
     await viewer.connect(sp, edge=COLLABORATES_ON, role="viewer")
     await sp.connect(track, edge=CONTAINS)
@@ -154,11 +153,11 @@ async def test_space_viewer_cascades_to_track_as_viewer():
 
 
 @pytest.mark.asyncio
-async def test_space_commenter_cascades_to_track_as_commenter():
-    owner = await _mk_user("sp_cm_owner")
-    commenter = await _mk_user("sp_cm_commenter")
-    sp = await _mk_space("S")
-    track = await _mk_track("T")
+async def test_space_commenter_cascades_to_track_as_commenter(rooted_access_graph):
+    owner = await _mk_user(rooted_access_graph, "sp_cm_owner")
+    commenter = await _mk_user(rooted_access_graph, "sp_cm_commenter")
+    sp = await _mk_space(rooted_access_graph, "S")
+    track = await _mk_track(rooted_access_graph, "T")
     await owner.connect(sp, edge=OWNS)
     await commenter.connect(sp, edge=COLLABORATES_ON, role="commenter")
     await sp.connect(track, edge=CONTAINS)
@@ -171,15 +170,15 @@ async def test_space_commenter_cascades_to_track_as_commenter():
 
 
 @pytest.mark.asyncio
-async def test_track_visibility_field_does_not_block_cascade():
+async def test_track_visibility_field_does_not_block_cascade(rooted_access_graph):
     """``Track.visibility="private"`` opts out of workspace-wide visibility
     grants on the parent App but does not block App ``COLLABORATES_ON``
     cascade. Per-user ``EXCLUDED_FROM`` is the per-user override.
     """
-    owner = await _mk_user("priv_track_owner")
-    sp_collab = await _mk_user("priv_track_sp_collab")
-    sp = await _mk_space("S")
-    track = await _mk_track("T", visibility="private")
+    owner = await _mk_user(rooted_access_graph, "priv_track_owner")
+    sp_collab = await _mk_user(rooted_access_graph, "priv_track_sp_collab")
+    sp = await _mk_space(rooted_access_graph, "S")
+    track = await _mk_track(rooted_access_graph, "T", visibility="private")
     await owner.connect(sp, edge=OWNS)
     await sp_collab.connect(sp, edge=COLLABORATES_ON, role="editor")
     await sp.connect(track, edge=CONTAINS)
@@ -187,10 +186,12 @@ async def test_track_visibility_field_does_not_block_cascade():
 
 
 @pytest.mark.asyncio
-async def test_direct_grant_on_track_with_private_visibility_still_works():
+async def test_direct_grant_on_track_with_private_visibility_still_works(
+    rooted_access_graph,
+):
     """Direct grants behave normally regardless of track visibility."""
-    user = await _mk_user("priv_track_direct")
-    track = await _mk_track("T", visibility="private")
+    user = await _mk_user(rooted_access_graph, "priv_track_direct")
+    track = await _mk_track(rooted_access_graph, "T", visibility="private")
     await user.connect(track, edge=COLLABORATES_ON, role="viewer")
     assert await resolve_role(user.id, "track", track.id) == "viewer"
 
@@ -201,51 +202,57 @@ async def test_direct_grant_on_track_with_private_visibility_still_works():
 
 
 @pytest.mark.asyncio
-async def test_entry_inherits_from_track_collaborator():
-    owner = await _mk_user("entry_inh_owner")
-    collab = await _mk_user("entry_inh_collab")
-    track = await _mk_track("T")
+async def test_entry_inherits_from_track_collaborator(rooted_access_graph):
+    owner = await _mk_user(rooted_access_graph, "entry_inh_owner")
+    collab = await _mk_user(rooted_access_graph, "entry_inh_collab")
+    track = await _mk_track(rooted_access_graph, "T")
     await owner.connect(track, edge=OWNS)
     await collab.connect(track, edge=COLLABORATES_ON, role="editor")
-    entry = await _mk_entry("E", track_id=track.id)
+    entry = await _mk_entry(rooted_access_graph, "E", track_id=track.id)
     await track.connect(entry, edge=CONTAINS)
     assert await resolve_role(collab.id, "entry", entry.id) == "editor"
 
 
 @pytest.mark.asyncio
-async def test_entry_inherits_from_space_cascade_chain():
+async def test_entry_inherits_from_space_cascade_chain(rooted_access_graph):
     """Entry → Track → App cascade walks the full chain."""
-    sp_collab = await _mk_user("entry_sp_chain")
-    sp = await _mk_space("S")
-    track = await _mk_track("T")
+    sp_collab = await _mk_user(rooted_access_graph, "entry_sp_chain")
+    sp = await _mk_space(rooted_access_graph, "S")
+    track = await _mk_track(rooted_access_graph, "T")
     await sp_collab.connect(sp, edge=COLLABORATES_ON, role="viewer")
     await sp.connect(track, edge=CONTAINS)
-    entry = await _mk_entry("E", track_id=track.id)
+    entry = await _mk_entry(rooted_access_graph, "E", track_id=track.id)
     await track.connect(entry, edge=CONTAINS)
     assert await resolve_role(sp_collab.id, "entry", entry.id) == "viewer"
 
 
 @pytest.mark.asyncio
-async def test_entry_visibility_field_does_not_block_cascade():
+async def test_entry_visibility_field_does_not_block_cascade(rooted_access_graph):
     """``Entry.visibility="private"`` is a forward-compat slot only — the
     resolver does not consult it. Entry access follows parent Track unless
     a per-user ``EXCLUDED_FROM`` edge intervenes.
     """
-    track_collab = await _mk_user("priv_entry_collab")
-    track = await _mk_track("T")
+    track_collab = await _mk_user(rooted_access_graph, "priv_entry_collab")
+    track = await _mk_track(rooted_access_graph, "T")
     await track_collab.connect(track, edge=COLLABORATES_ON, role="editor")
-    entry = await _mk_entry("E", track_id=track.id, visibility="private")
+    entry = await _mk_entry(
+        rooted_access_graph, "E", track_id=track.id, visibility="private"
+    )
     await track.connect(entry, edge=CONTAINS)
     assert await resolve_role(track_collab.id, "entry", entry.id) == "editor"
 
 
 @pytest.mark.asyncio
-async def test_entry_exclusion_blocks_cascade_even_when_visibility_inherit():
+async def test_entry_exclusion_blocks_cascade_even_when_visibility_inherit(
+    rooted_access_graph,
+):
     """``EXCLUDED_FROM`` is the only cascade-override under the new model."""
-    user = await _mk_user("entry_excl_cascade")
-    track = await _mk_track("T")
+    user = await _mk_user(rooted_access_graph, "entry_excl_cascade")
+    track = await _mk_track(rooted_access_graph, "T")
     await user.connect(track, edge=COLLABORATES_ON, role="editor")
-    entry = await _mk_entry("E", track_id=track.id, visibility="inherit")
+    entry = await _mk_entry(
+        rooted_access_graph, "E", track_id=track.id, visibility="inherit"
+    )
     await track.connect(entry, edge=CONTAINS)
     await user.connect(entry, edge=EXCLUDED_FROM)
     assert await resolve_role(user.id, "entry", entry.id) is None
@@ -257,10 +264,10 @@ async def test_entry_exclusion_blocks_cascade_even_when_visibility_inherit():
 
 
 @pytest.mark.asyncio
-async def test_exclusion_blocks_space_cascade_on_track():
-    user = await _mk_user("excl_track")
-    sp = await _mk_space("S")
-    track = await _mk_track("T")
+async def test_exclusion_blocks_space_cascade_on_track(rooted_access_graph):
+    user = await _mk_user(rooted_access_graph, "excl_track")
+    sp = await _mk_space(rooted_access_graph, "S")
+    track = await _mk_track(rooted_access_graph, "T")
     await user.connect(sp, edge=COLLABORATES_ON, role="editor")
     await sp.connect(track, edge=CONTAINS)
     await user.connect(track, edge=EXCLUDED_FROM)
@@ -268,32 +275,34 @@ async def test_exclusion_blocks_space_cascade_on_track():
 
 
 @pytest.mark.asyncio
-async def test_exclusion_does_not_block_direct_grant():
-    user = await _mk_user("excl_direct")
-    track = await _mk_track("T")
+async def test_exclusion_does_not_block_direct_grant(rooted_access_graph):
+    user = await _mk_user(rooted_access_graph, "excl_direct")
+    track = await _mk_track(rooted_access_graph, "T")
     await user.connect(track, edge=COLLABORATES_ON, role="editor")
     await user.connect(track, edge=EXCLUDED_FROM)
     assert await resolve_role(user.id, "track", track.id) == "editor"
 
 
 @pytest.mark.asyncio
-async def test_entry_exclusion_blocks_track_cascade():
-    user = await _mk_user("excl_entry")
-    track = await _mk_track("T")
+async def test_entry_exclusion_blocks_track_cascade(rooted_access_graph):
+    user = await _mk_user(rooted_access_graph, "excl_entry")
+    track = await _mk_track(rooted_access_graph, "T")
     await user.connect(track, edge=COLLABORATES_ON, role="editor")
-    entry = await _mk_entry("E", track_id=track.id)
+    entry = await _mk_entry(rooted_access_graph, "E", track_id=track.id)
     await track.connect(entry, edge=CONTAINS)
     await user.connect(entry, edge=EXCLUDED_FROM)
     assert await resolve_role(user.id, "entry", entry.id) is None
 
 
 @pytest.mark.asyncio
-async def test_space_exclusion_blocks_nothing_for_direct_space_collab():
+async def test_space_exclusion_blocks_nothing_for_direct_space_collab(
+    rooted_access_graph,
+):
     """A direct space collaborator with an exclusion on App itself: the
     direct grant wins (exclusion blocks inheritance only). Tests that
     EXCLUDED_FROM is correctly scoped per-resource."""
-    user = await _mk_user("excl_space_self")
-    sp = await _mk_space("S")
+    user = await _mk_user(rooted_access_graph, "excl_space_self")
+    sp = await _mk_space(rooted_access_graph, "S")
     await user.connect(sp, edge=COLLABORATES_ON, role="editor")
     await user.connect(sp, edge=EXCLUDED_FROM)
     assert await resolve_role(user.id, "app", sp.id) == "editor"
@@ -305,45 +314,47 @@ async def test_space_exclusion_blocks_nothing_for_direct_space_collab():
 
 
 @pytest.mark.asyncio
-async def test_workspace_member_no_implicit_space_access():
+async def test_workspace_member_no_implicit_space_access(rooted_access_graph):
     from app.models.edges import IS_MEMBER_OF
 
-    user = await _mk_user("ws_member_no_cascade")
-    ws = await _mk_workspace("W")
-    sp = await _mk_space("S", workspace_id=ws.id)
+    user = await _mk_user(rooted_access_graph, "ws_member_no_cascade")
+    ws = await _mk_workspace(rooted_access_graph, "W")
+    sp = await _mk_space(rooted_access_graph, "S", workspace_id=ws.id)
     await user.connect(ws, edge=IS_MEMBER_OF, role="member")
     # Member of workspace but no explicit space grant → no access.
     assert await resolve_role(user.id, "app", sp.id) is None
 
 
 @pytest.mark.asyncio
-async def test_workspace_member_no_implicit_track_access():
+async def test_workspace_member_no_implicit_track_access(rooted_access_graph):
     from app.models.edges import IS_MEMBER_OF
 
-    user = await _mk_user("ws_member_no_track")
-    ws = await _mk_workspace("W")
-    track = await _mk_track("T", workspace_id=ws.id)
+    user = await _mk_user(rooted_access_graph, "ws_member_no_track")
+    ws = await _mk_workspace(rooted_access_graph, "W")
+    track = await _mk_track(rooted_access_graph, "T", workspace_id=ws.id)
     await user.connect(ws, edge=IS_MEMBER_OF, role="member")
     assert await resolve_role(user.id, "track", track.id) is None
 
 
 @pytest.mark.asyncio
-async def test_workspace_membership_resolved_at_workspace_resource():
+async def test_workspace_membership_resolved_at_workspace_resource(rooted_access_graph):
     """WorkApp role itself surfaces; just doesn't cascade to children."""
     from app.models.edges import IS_MEMBER_OF
 
-    user = await _mk_user("ws_role_self")
-    ws = await _mk_workspace("W")
+    user = await _mk_user(rooted_access_graph, "ws_role_self")
+    ws = await _mk_workspace(rooted_access_graph, "W")
     await user.connect(ws, edge=IS_MEMBER_OF, role="member")
     assert await resolve_role(user.id, "workspace", ws.id) == "editor"
 
 
 @pytest.mark.asyncio
-async def test_workspace_membership_gate_blocks_direct_app_grant_after_removal():
-    owner = await _mk_user("ws_gate_app_owner")
-    collaborator = await _mk_user("ws_gate_app_collab")
-    ws = await _mk_workspace("W")
-    app_node = await _mk_space("S", workspace_id=ws.id)
+async def test_workspace_membership_gate_blocks_direct_app_grant_after_removal(
+    rooted_access_graph,
+):
+    owner = await _mk_user(rooted_access_graph, "ws_gate_app_owner")
+    collaborator = await _mk_user(rooted_access_graph, "ws_gate_app_collab")
+    ws = await _mk_workspace(rooted_access_graph, "W")
+    app_node = await _mk_space(rooted_access_graph, "S", workspace_id=ws.id)
     await owner.connect(ws, edge=IS_MEMBER_OF, role="owner")
     await collaborator.connect(ws, edge=IS_MEMBER_OF, role="guest")
     await collaborator.connect(app_node, edge=COLLABORATES_ON, role="viewer")
@@ -359,12 +370,14 @@ async def test_workspace_membership_gate_blocks_direct_app_grant_after_removal()
 
 
 @pytest.mark.asyncio
-async def test_workspace_membership_gate_blocks_entry_grant_after_removal():
-    owner = await _mk_user("ws_gate_entry_owner")
-    collaborator = await _mk_user("ws_gate_entry_collab")
-    ws = await _mk_workspace("W")
-    track = await _mk_track("T", workspace_id=ws.id)
-    entry = await _mk_entry("E", track_id=track.id)
+async def test_workspace_membership_gate_blocks_entry_grant_after_removal(
+    rooted_access_graph,
+):
+    owner = await _mk_user(rooted_access_graph, "ws_gate_entry_owner")
+    collaborator = await _mk_user(rooted_access_graph, "ws_gate_entry_collab")
+    ws = await _mk_workspace(rooted_access_graph, "W")
+    track = await _mk_track(rooted_access_graph, "T", workspace_id=ws.id)
+    entry = await _mk_entry(rooted_access_graph, "E", track_id=track.id)
     await track.connect(entry, edge=CONTAINS)
     await owner.connect(ws, edge=IS_MEMBER_OF, role="owner")
     await collaborator.connect(ws, edge=IS_MEMBER_OF, role="guest")
@@ -386,18 +399,18 @@ async def test_workspace_membership_gate_blocks_entry_grant_after_removal():
 
 
 @pytest.mark.asyncio
-async def test_personal_workspace_owner_short_circuit():
-    user = await _mk_user("personal_owner")
-    ws = await Workspace.create(kind="personal", name="Personal")
+async def test_personal_workspace_owner_short_circuit(rooted_access_graph):
+    user = await _mk_user(rooted_access_graph, "personal_owner")
+    ws = await rooted_access_graph.workspace(kind="personal", name="Personal")
     await user.connect(ws, edge=IS_MEMBER_OF, role="owner")
     assert await resolve_role(user.id, "workspace", ws.id) == "owner"
 
 
 @pytest.mark.asyncio
-async def test_personal_workspace_non_owner_no_access():
-    owner = await _mk_user("p_owner")
-    other = await _mk_user("p_other")
-    ws = await Workspace.create(kind="personal", name="Personal")
+async def test_personal_workspace_non_owner_no_access(rooted_access_graph):
+    owner = await _mk_user(rooted_access_graph, "p_owner")
+    other = await _mk_user(rooted_access_graph, "p_other")
+    ws = await rooted_access_graph.workspace(kind="personal", name="Personal")
     await owner.connect(ws, edge=IS_MEMBER_OF, role="owner")
     assert await resolve_role(other.id, "workspace", ws.id) is None
 
@@ -408,11 +421,13 @@ async def test_personal_workspace_non_owner_no_access():
 
 
 @pytest.mark.asyncio
-async def test_standalone_track_inherit_yields_no_role_without_direct_grant():
+async def test_standalone_track_inherit_yields_no_role_without_direct_grant(
+    rooted_access_graph,
+):
     """Track with visibility=inherit but no App parent has no one to inherit
     from; resolver returns None (unless the user has a direct grant)."""
-    user = await _mk_user("standalone_inh")
-    track = await _mk_track("T", visibility="inherit")
+    user = await _mk_user(rooted_access_graph, "standalone_inh")
+    track = await _mk_track(rooted_access_graph, "T", visibility="inherit")
     assert await resolve_role(user.id, "track", track.id) is None
 
 
@@ -422,12 +437,12 @@ async def test_standalone_track_inherit_yields_no_role_without_direct_grant():
 
 
 @pytest.mark.asyncio
-async def test_track_direct_grant_beats_space_inheritance():
+async def test_track_direct_grant_beats_space_inheritance(rooted_access_graph):
     """If the user has a direct COLLABORATES_ON on the Track, that role wins
     even when the App would grant something else."""
-    user = await _mk_user("direct_beats_cascade")
-    sp = await _mk_space("S")
-    track = await _mk_track("T")
+    user = await _mk_user(rooted_access_graph, "direct_beats_cascade")
+    sp = await _mk_space(rooted_access_graph, "S")
+    track = await _mk_track(rooted_access_graph, "T")
     await user.connect(sp, edge=COLLABORATES_ON, role="viewer")
     await sp.connect(track, edge=CONTAINS)
     # Direct editor grant on Track — should win over inherited viewer.
@@ -436,11 +451,11 @@ async def test_track_direct_grant_beats_space_inheritance():
 
 
 @pytest.mark.asyncio
-async def test_entry_direct_grant_beats_track_inheritance():
-    user = await _mk_user("entry_direct_beats")
-    track = await _mk_track("T")
+async def test_entry_direct_grant_beats_track_inheritance(rooted_access_graph):
+    user = await _mk_user(rooted_access_graph, "entry_direct_beats")
+    track = await _mk_track(rooted_access_graph, "T")
     await user.connect(track, edge=COLLABORATES_ON, role="viewer")
-    entry = await _mk_entry("E", track_id=track.id)
+    entry = await _mk_entry(rooted_access_graph, "E", track_id=track.id)
     await track.connect(entry, edge=CONTAINS)
     await user.connect(entry, edge=COLLABORATES_ON, role="editor")
     assert await resolve_role(user.id, "entry", entry.id) == "editor"
@@ -452,9 +467,9 @@ async def test_entry_direct_grant_beats_track_inheritance():
 
 
 @pytest.mark.asyncio
-async def test_owns_beats_exclusion():
-    user = await _mk_user("owns_beats_excl")
-    track = await _mk_track("T")
+async def test_owns_beats_exclusion(rooted_access_graph):
+    user = await _mk_user(rooted_access_graph, "owns_beats_excl")
+    track = await _mk_track(rooted_access_graph, "T")
     await user.connect(track, edge=OWNS)
     await user.connect(track, edge=EXCLUDED_FROM)
     assert await resolve_role(user.id, "track", track.id) == "owner"
@@ -466,22 +481,22 @@ async def test_owns_beats_exclusion():
 
 
 @pytest.mark.asyncio
-async def test_unknown_resource_type_returns_none():
-    user = await _mk_user("unknown_type")
+async def test_unknown_resource_type_returns_none(rooted_access_graph):
+    user = await _mk_user(rooted_access_graph, "unknown_type")
     assert await resolve_role(user.id, "view", "irrelevant") is None
     assert await resolve_role(user.id, "garbage", "irrelevant") is None
 
 
 @pytest.mark.asyncio
-async def test_nonexistent_resource_id_returns_none():
-    user = await _mk_user("missing_resource")
+async def test_nonexistent_resource_id_returns_none(rooted_access_graph):
+    user = await _mk_user(rooted_access_graph, "missing_resource")
     assert await resolve_role(user.id, "track", "n.Track.does-not-exist") is None
     assert await resolve_role(user.id, "entry", "n.Entry.does-not-exist") is None
 
 
 @pytest.mark.asyncio
-async def test_missing_user_returns_none():
-    track = await _mk_track("T")
+async def test_missing_user_returns_none(rooted_access_graph):
+    track = await _mk_track(rooted_access_graph, "T")
     assert await resolve_role("rr_user_nobody", "track", track.id) is None
 
 
@@ -491,17 +506,17 @@ async def test_missing_user_returns_none():
 
 
 @pytest.mark.asyncio
-async def test_space_owner_to_entry_caps_at_editor_each_level():
+async def test_space_owner_to_entry_caps_at_editor_each_level(rooted_access_graph):
     """App owner → Track (editor) → Entry (editor). Cap applies at each
     inheritance hop, never promotes back to owner / admin (I-ROLE-02).
     Track-config authority (admin tier) MUST be granted directly per
     resource — never inherited."""
-    owner = await _mk_user("cap_owner_chain")
-    sp = await _mk_space("S")
-    track = await _mk_track("T")
+    owner = await _mk_user(rooted_access_graph, "cap_owner_chain")
+    sp = await _mk_space(rooted_access_graph, "S")
+    track = await _mk_track(rooted_access_graph, "T")
     await owner.connect(sp, edge=OWNS)
     await sp.connect(track, edge=CONTAINS)
-    entry = await _mk_entry("E", track_id=track.id)
+    entry = await _mk_entry(rooted_access_graph, "E", track_id=track.id)
     await track.connect(entry, edge=CONTAINS)
     assert await resolve_role(owner.id, "track", track.id) == "editor"
     assert await resolve_role(owner.id, "entry", entry.id) == "editor"

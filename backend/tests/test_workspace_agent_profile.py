@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.agentive.services.skill_registry import register_skill
+from app.agentive.services.skill_registry import register_skill as _register_skill
 from app.agentive.workspace_agent_profile import (
     clear_turn_workspace_profile,
     compose_workspace_agent_profile,
@@ -89,6 +89,14 @@ def test_bundle_without_always_active_remains_conditional(tmp_path: Path):
 
     assert doc is not None
     assert doc.always_active is False
+
+
+async def register_skill(**kwargs):
+    """Persist a self-contained profile fixture, independent of library cache."""
+    skill = await _register_skill(**kwargs)
+    skill.body_override = "A fixture skill body for profile composition."
+    await skill.save()
+    return skill
 
 
 async def _make_app(
