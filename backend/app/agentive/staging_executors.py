@@ -31,6 +31,9 @@ import re as _re
 import types
 from typing import Any, Awaitable, Callable, Dict, List, NamedTuple, Optional, Tuple
 
+from app.services.resource_location import MANAGEMENT_APP_STATES
+from app.services.view_scope import get_scoped_view
+
 logger = logging.getLogger(__name__)
 
 
@@ -1606,12 +1609,11 @@ async def _resolve_scope_ids(rule: _ScopeRule, payload: Dict[str, Any]) -> List[
         )
         return [p.id for p in parents if getattr(p, "id", None)]
     if rule.resolve == "view":
-        from app.models.nodes import View
 
         view_id = _first_present(payload, ("view_id",))
         if not view_id:
             return []
-        view = await View.get(view_id)
+        view = await get_scoped_view(view_id, allowed_app_states=MANAGEMENT_APP_STATES)
         track_id = getattr(view, "track_id", "") if view is not None else ""
         return [track_id] if track_id else []
     if rule.resolve == "tag":
@@ -1704,6 +1706,7 @@ async def _validate_kind_scope(
         active_workspace_id,
         check_entry_in_active_scope,
         check_track_in_active_scope,
+        scope_violation_envelope,
     )
 
     if not active_workspace_id():
@@ -1718,6 +1721,10 @@ async def _validate_kind_scope(
     ids: List[str] = []
     if rule.resolve:
         ids.extend(await _resolve_scope_ids(rule, payload))
+        if rule.resolve == "view" and not ids:
+            return scope_violation_envelope(
+                "The saved View has no verifiable scope in the active workspace."
+            )
     for key in rule.keys:
         val = payload.get(key)
         if isinstance(val, str) and val:

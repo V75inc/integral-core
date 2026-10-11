@@ -23,6 +23,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Literal, Optional, Set
 
 from app.services.notification_paths import entry_path, resolve_resource_action_url
+from app.services.view_scope import get_scoped_view
 
 logger = logging.getLogger(__name__)
 
@@ -1702,9 +1703,8 @@ async def save_view(
     if view_id:
         from app.agentive.staging_executors import _call_endpoint
         from app.api.views import update_view
-        from app.models.nodes import View
 
-        existing = await View.get(view_id)
+        existing = await get_scoped_view(view_id)
         if existing is None or existing.track_id != track_id:
             return {"error": "not_found", "detail": "View not found on this track"}
         result = await _call_endpoint(

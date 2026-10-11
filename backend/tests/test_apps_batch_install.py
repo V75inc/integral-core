@@ -19,6 +19,7 @@ import pytest
 from app.models.edges import IS_MEMBER_OF
 from app.models.nodes import App, OperationalModel, Workspace
 from app.services.app_batch_install import _has_path, _topo_sort, batch_install
+from app.services.app_graph import catalog_workspace
 from app.utils.time import utc_now_iso
 
 # ---------------------------------------------------------------------------
@@ -28,7 +29,7 @@ from app.utils.time import utc_now_iso
 
 async def _make_workspace(name: str = "Batch WS") -> Workspace:
     now = utc_now_iso()
-    return await Workspace.create(
+    workspace = await Workspace.create(
         kind="organization",
         workspace_type="company",
         name=name,
@@ -36,6 +37,8 @@ async def _make_workspace(name: str = "Batch WS") -> Workspace:
         created_at=now,
         updated_at=now,
     )
+    await catalog_workspace(workspace)
+    return workspace
 
 
 def _manifest(

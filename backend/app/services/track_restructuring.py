@@ -33,6 +33,7 @@ from app.models.nodes import (
 from app.schemas.policy import Resource, Subject
 from app.services.app_graph import (
     _resolve_workspace_branch,
+    create_track_view,
     ensure_catalog_edge,
     ensure_track_attached_operational_model,
     get_app_attached_operational_model,
@@ -83,12 +84,9 @@ async def _track_views(
     if not registries:
         return None, []
     registry = registries[0]
-    views = await registry.nodes(edge=[CATALOGS], node=["View"])
-    if any(view.track_id != track.id for view in views):
-        raise ValueError(
-            f"Views registry for Track {track.id} contains another Track's Views"
-        )
-    return registry, list(views)
+    from app.services.view_scope import list_scoped_track_views
+
+    return registry, await list_scoped_track_views(track.id)
 
 
 def _custom_field_keys(entry_type: EntryType) -> List[str]:
@@ -610,7 +608,8 @@ async def merge_tracks(
             default_key = prepared["entry_type_mapping"].get(
                 _slug(str(view.default_entry_type_key or "")), ""
             )
-            clone = await View.create(
+            clone = await create_track_view(
+                target,
                 name=target_name,
                 name_fold=target_name.casefold(),
                 type=view.type,
@@ -1124,7 +1123,8 @@ async def split_track(
             )
             source_registry, source_views = await _track_views(source, source_model)
             for view in source_views:
-                clone = await View.create(
+                clone = await create_track_view(
+                    created_track,
                     name=view.name,
                     name_fold=view.name_fold,
                     type=view.type,

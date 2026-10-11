@@ -28,6 +28,7 @@ from app.models.nodes import (
 from app.services.app_graph import (
     catalog_track,
     catalog_view_under_track,
+    create_track_view,
     ensure_catalog_edge,
     get_app_attached_operational_model,
     get_or_create_views_registry_for_operational_model,
@@ -544,7 +545,8 @@ async def merge_template_operational_model_into_track(
         template_cp, track=None
     )
     for v in await tvreg.nodes(edge=[CATALOGS], node=["View"]):
-        new_v = await View.create(
+        new_v = await create_track_view(
+            track,
             name=v.name,
             type=getattr(v, "type", None) or "feed",
             config=normalize_view_config(
@@ -1136,7 +1138,14 @@ async def merge_library_manifest_into_operational_model(
     # config in place without conflating shared template rows with per-track copies.
     existing_views_by_key: Dict[str, View] = {}
     legacy_views_by_identity: Dict[str, View] = {}
-    for ev in await vreg.nodes(edge=[CATALOGS], node=["View"]):
+    from app.services.view_scope import list_scoped_track_views
+
+    scoped_views = (
+        await list_scoped_track_views(track.id)
+        if track
+        else await vreg.nodes(edge=[CATALOGS], node=["View"])
+    )
+    for ev in scoped_views:
         if not isinstance(ev, View):
             continue
         ev_cfg = ev.config or {}
@@ -1219,7 +1228,8 @@ async def merge_library_manifest_into_operational_model(
                 pending_view_updates.append(ev)
             continue
         if track:
-            new_v = await View.create(
+            new_v = await create_track_view(
+                track,
                 name=vname,
                 type=view_type,
                 config=normalized_config,
@@ -1284,7 +1294,7 @@ async def merge_library_manifest_into_operational_model(
         vreg = await get_or_create_views_registry_for_operational_model(
             target_cp, track=track
         )
-        views = await vreg.nodes(edge=[CATALOGS], node=["View"])
+        views = await list_scoped_track_views(track.id)
         await write_view_entry_type_constraints_from_manifest(track, list(views or []))
 
 

@@ -277,8 +277,16 @@ async def _build_space_with_template(
     template_key: str,
     template_name: str = "Detail Track",
 ):
-    from app.models.edges import HAS_OPERATIONAL_MODEL
-    from app.models.nodes import App, OperationalModel
+    from app.models.edges import CONTAINS, HAS_OPERATIONAL_MODEL
+    from app.models.nodes import App, OperationalModel, Workspace
+    from app.services.app_graph import catalog_app, catalog_workspace
+
+    workspace = await Workspace.get(workspace_id)
+    if workspace is None:
+        workspace = await Workspace.create(
+            id=workspace_id, kind="organization", name="Governance fixture"
+        )
+    await catalog_workspace(workspace)
 
     app_node = await App.create(
         name=space_name,
@@ -322,17 +330,21 @@ async def _build_space_with_template(
     await app_node.connect(cp, edge=HAS_OPERATIONAL_MODEL)
     app_node.attached_operational_model_id = cp.id
     await app_node.save()
+    await workspace.connect(app_node, edge=CONTAINS)
+    await catalog_app(app_node)
     return app_node, cp
 
 
 async def _track_inside(app_node, *, title: str, workspace_id: str):
     from app.models.edges import CONTAINS
     from app.models.nodes import Track
+    from app.services.app_graph import catalog_track
 
     track = await Track.create(
         title=title, owner_id="user-gov-1", workspace_id=workspace_id
     )
     await app_node.connect(track, edge=CONTAINS)
+    await catalog_track(track)
     return track
 
 

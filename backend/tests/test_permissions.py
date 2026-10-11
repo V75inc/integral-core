@@ -9,7 +9,7 @@ from app.models.edges import (
     IS_MEMBER_OF,
     OWNS,
 )
-from app.models.nodes import View
+from app.services.app_graph import create_track_view
 from app.services.permissions import (
     can_delete_track,
     can_edit_app,
@@ -281,8 +281,8 @@ async def test_view_inherits_track_access(rooted_access_graph):
     owner = await rooted_access_graph.user(user_id="vp_1", display_name="Owner")
     viewer = await rooted_access_graph.user(user_id="vp_2", display_name="Viewer")
     track = await rooted_access_graph.track(title="View Track", owner_id=owner.id)
-    view = await View.create(
-        name="Board", type="kanban", track_id=track.id, created_by=owner.id
+    view = await create_track_view(
+        track, name="Board", type="kanban", track_id=track.id, created_by=owner.id
     )
     await owner.connect(track, edge=OWNS)
     await viewer.connect(track, edge=COLLABORATES_ON, role="viewer")
@@ -421,8 +421,8 @@ async def test_view_admin_can_edit_editor_cannot(rooted_access_graph):
     admin = await rooted_access_graph.user(user_id="vp_admin", display_name="Admin")
     editor = await rooted_access_graph.user(user_id="vp_4", display_name="Editor")
     track = await rooted_access_graph.track(title="Edit View Track", owner_id=owner.id)
-    view = await View.create(
-        name="Table", type="table", track_id=track.id, created_by=owner.id
+    view = await create_track_view(
+        track, name="Table", type="table", track_id=track.id, created_by=owner.id
     )
     await owner.connect(track, edge=OWNS)
     await admin.connect(track, edge=COLLABORATES_ON, role="admin")

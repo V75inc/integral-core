@@ -16,8 +16,9 @@ compilation, and provisioning still creates no link.
 
 import pytest
 
-from app.models.edges import HAS_OPERATIONAL_MODEL, OWNS
+from app.models.edges import CONTAINS, HAS_OPERATIONAL_MODEL, OWNS
 from app.models.nodes import App, OperationalModel, ShareLink, Track, User, Workspace
+from app.services.app_graph import catalog_app, catalog_user, catalog_workspace
 from app.services.operational_model_compile import compile_canonical_manifest
 from app.services.operational_model_merge import (
     provision_prescribed_tracks_from_app_manifest,
@@ -55,6 +56,7 @@ _MANIFEST = {
 async def _provisioned_track() -> Track:
     now = utc_now_iso()
     user = await User.create(user_id="auth-pubshare-prov", display_name="Owner")
+    await catalog_user(user)
     ws = await Workspace.create(
         kind="organization",
         workspace_type="company",
@@ -63,12 +65,17 @@ async def _provisioned_track() -> Track:
         created_at=now,
         updated_at=now,
     )
+    await catalog_workspace(ws)
     app_node = await App.create(
         name="Provision App", owner_id=user.id, workspace_id=ws.id
     )
     await user.connect(app_node, edge=OWNS, added_at=now)
     cp = await OperationalModel.create(name="Provision CP", manifest=_MANIFEST)
     await app_node.connect(cp, edge=HAS_OPERATIONAL_MODEL, added_at=now)
+    app_node.attached_operational_model_id = cp.id
+    await app_node.save()
+    await ws.connect(app_node, edge=CONTAINS)
+    await catalog_app(app_node)
 
     await provision_prescribed_tracks_from_app_manifest(app_node, user.id)
 

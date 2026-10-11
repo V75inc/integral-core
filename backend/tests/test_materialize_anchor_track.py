@@ -25,9 +25,21 @@ from __future__ import annotations
 import pytest
 
 from app.exceptions import BadRequestError
-from app.models.edges import ANCHORS, CONTAINS, HAS_OPERATIONAL_MODEL, TEMPLATED_FROM
-from app.models.nodes import App, Entry, EntryType, OperationalModel, Track
-from app.services.app_graph import get_track_attached_operational_model
+from app.models.edges import (
+    ANCHORS,
+    CATALOGS,
+    CONTAINS,
+    HAS_OPERATIONAL_MODEL,
+    TEMPLATED_FROM,
+)
+from app.models.nodes import App, Entry, EntryType, OperationalModel, Track, Workspace
+from app.services.app_graph import (
+    catalog_app,
+    catalog_track,
+    catalog_workspace,
+    ensure_workspace_branches,
+    get_track_attached_operational_model,
+)
 from app.services.operational_model_compile import _normalize_field_spec
 from app.services.operational_model_entry_fields import (
     validate_and_materialize_entry_custom_fields,
@@ -77,6 +89,12 @@ async def _build_space_with_template(
     template_name: str = "Detail Track",
 ):
     """Create a App + space-attached OperationalModel declaring one track template."""
+    workspace = await Workspace.get(workspace_id)
+    if workspace is None:
+        workspace = await Workspace.create(
+            id=workspace_id, kind="organization", name="Anchor fixture"
+        )
+    await catalog_workspace(workspace)
     app_node = await App.create(
         name=space_name,
         workspace_id=workspace_id,
@@ -93,15 +111,29 @@ async def _build_space_with_template(
     await app_node.connect(cp, edge=HAS_OPERATIONAL_MODEL)
     app_node.attached_operational_model_id = cp.id
     await app_node.save()
+    await workspace.connect(app_node, edge=CONTAINS)
+    await catalog_app(app_node)
     return app_node, cp
 
 
 async def _track_inside(app_node: App, *, title: str, workspace_id: str) -> Track:
     """Create a Track contained by the given App."""
+    workspace = await Workspace.get(workspace_id)
+    if workspace is None:
+        workspace = await Workspace.create(
+            id=workspace_id, kind="organization", name="Source fixture"
+        )
+    await catalog_workspace(workspace)
+    apps, _, _ = await ensure_workspace_branches(workspace)
+    await workspace.connect(app_node, edge=CONTAINS)
+    # Root the fixture without inventing an App model: the missing-model
+    # negative case must still reach its intended rejection.
+    await apps.connect(app_node, edge=CATALOGS)
     track = await Track.create(
         title=title, owner_id="user-anc-1", workspace_id=workspace_id
     )
     await app_node.connect(track, edge=CONTAINS)
+    await catalog_track(track)
     return track
 
 

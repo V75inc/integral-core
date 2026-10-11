@@ -37,6 +37,19 @@ class HasAuthorizationState(Edge):
 HAS_AUTHORIZATION_STATE = HasAuthorizationState
 
 
+class HasView(Edge):
+    """Track → its saved View; canonical scope independent of shared models.
+
+    A View has exactly one incoming scope edge. Operational-model catalog
+    membership organizes configuration but does not confer Track ownership.
+    """
+
+    bidirectional: bool = False
+
+
+HAS_VIEW = HasView
+
+
 class IS_MEMBER_OF(Edge):
     """Workspace membership: User → Workspace.
 

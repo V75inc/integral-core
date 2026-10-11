@@ -484,20 +484,9 @@ async def ensure_track_views_materialized_from_tier(track: Track) -> bool:
 
 
 async def _catalog_views_for_track(track: Track) -> List[View]:
-    cp = await get_track_attached_operational_model(track)
-    if not cp:
-        return []
-    vreg = await get_or_create_views_registry_for_operational_model(cp, track=track)
-    views = await vreg.nodes(edge=[CATALOGS], node=["View"])
-    # Anchored tracks share one Views registry per template CP. Default-flag
-    # sync and pickers must only see this track's rows — otherwise one
-    # track's default clears ``is_default`` on every sibling.
-    return [
-        v
-        for v in views
-        if isinstance(v, View)
-        and str(getattr(v, "track_id", "") or "") == str(track.id)
-    ]
+    from app.services.view_scope import list_scoped_track_views
+
+    return await list_scoped_track_views(track.id)
 
 
 async def pick_default_view_id_for_track(

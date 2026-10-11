@@ -36,7 +36,10 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, get_args
 
 from app.contracts.runtime import ExecutionScope
 from app.exceptions import PayloadTooLargeError
-from app.middleware.permissions_cache import permissions_cache_get
+from app.middleware.permissions_cache import (
+    live_permissions_required,
+    permissions_cache_get,
+)
 from app.schemas.policy import Decision, PolicyAction, Resource, Subject
 from app.services.change_event import emit_change_event
 from app.services.permissions import (
@@ -349,6 +352,10 @@ async def _evaluate_human_default(
                 return await can_edit_track(user_id, scope_str.split(":", 1)[1])
             return False
     if rk == "view":
+        if action == "view.create":
+            if not resource.id and scope_str.startswith("track:"):
+                return await can_admin_track(user_id, scope_str.split(":", 1)[1])
+            return False
         if action == "view.read":
             return await can_view_view(user_id, rid)
         if action == "view.update" or action == "view.delete":
@@ -762,7 +769,12 @@ async def evaluate(
             resource.model_dump(mode="json"), sort_keys=True, separators=(",", ":")
         ),
     )
-    cacheable = not _dry_run and payload is None and not _is_write_action(action)
+    cacheable = (
+        not _dry_run
+        and payload is None
+        and not _is_write_action(action)
+        and not live_permissions_required()
+    )
     if cacheable and cache_key in cache:
         return cache[cache_key]
 

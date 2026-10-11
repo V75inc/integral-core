@@ -205,17 +205,16 @@ async def test_merge_tags_gates_both_tags_in_active_scope(scoped, monkeypatch):
 @pytest.mark.asyncio
 async def test_delete_view_resolves_view_to_its_track(scoped, monkeypatch):
     """A view id names no scope of its own — it is resolved to its track."""
-    from app.models.nodes import View
 
     class _View:
         def __init__(self, track_id: str) -> None:
             self.id = "v1"
             self.track_id = track_id
 
-    async def fake_get(view_id: str):
+    async def fake_get(view_id: str, **_kwargs: Any):
         return _View(FOREIGN_TRACK) if view_id == "v1" else None
 
-    monkeypatch.setattr(View, "get", fake_get)
+    monkeypatch.setattr(se, "get_scoped_view", fake_get)
     err = await se._validate_kind_scope("delete_view", {"view_id": "v1"}, user_id="u1")
     assert _violation(err)
 
