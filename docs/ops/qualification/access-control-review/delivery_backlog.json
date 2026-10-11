@@ -1,0 +1,1114 @@
+{
+  "schema_version": 1,
+  "source_head": "c7c51216",
+  "runtime_state": "R1 first checkpoint qualified: canonical member provisioning and notification consent; remaining package integration open.",
+  "findings": [
+    {
+      "id": "AC-01",
+      "package": "R1",
+      "status": "in_progress",
+      "existing_implementation": [
+        "Bound server-owned verified_email and OTP delivery address to current AuthUser email",
+        "Gate by-ID invitation actions/discovery; token path does not verify account"
+      ],
+      "named_baseline_assertions": [
+        "test_unverified_email_can_discover_and_accept_invitation_without_token"
+      ],
+      "acceptance_requirement": "**Unverified email can claim invitations without the token.** Signup under an unverified address, then `/me/invitations` discovers invitations for that email; `/me/invitations/{id}/accept` accepts them, including workspace admin. Email equality is not mailbox proof. `api/shared_with_me.py:261,335`; `services/invitations.py:152,517`. Probe `test_unverified_email_can_discover_and_accept_invitation_without_token`. Require verified ownership of the current email for discovery/by-ID acceptance. A valid invitation token can authorize that specific invitation under a defined bearer/recipient contract; it must not automatically verify the account email, because the issuer also receives the acceptance URL. Keep ordinary login non-blocking.",
+      "closure_rule": "Current source must satisfy the defect regression and relevant package exit; historical failures and suite totals alone do not establish closure."
+    },
+    {
+      "id": "AC-02",
+      "package": "R1",
+      "status": "in_progress",
+      "existing_implementation": [
+        "Per-message/per-row fresh read-only authorization on Entry/App/Track/View; comment/attachment parent Entry gates",
+        "Scrub nested verification/reset/password fields from wire snapshots",
+        "Unknown resource snapshots withheld pending declared audience contracts"
+      ],
+      "named_baseline_assertions": [
+        "test_entry_exclusion_does_not_filter_event_payload"
+      ],
+      "acceptance_requirement": "**Entry exclusions do not protect event snapshots.** A Track viewer excluded from an Entry receives its `entry.update` event `after` payload. Broadcast authorizes only `track:<id>`. Audit and polling use the same scope-only policy dispatch, so they require equivalent repair. `event_subscription_registry.py:85,106`; `policy_engine.py:273`; `api/audit_log.py:104`; `api/events_polling.py:103`. Probe `test_entry_exclusion_does_not_filter_event_payload`. Authorize the affected resource and snapshot contents, including nested references; define deletion-event access without bypassing former exclusions.",
+      "closure_rule": "Current source must satisfy the defect regression and relevant package exit; historical failures and suite totals alone do not establish closure."
+    },
+    {
+      "id": "AC-03",
+      "package": "R1",
+      "status": "in_progress",
+      "existing_implementation": [
+        "Complete serialized Resource cache identity; no payload/effect memoization"
+      ],
+      "named_baseline_assertions": [
+        "test_policy_cache_ignores_scope_and_tags",
+        "test_event_subscription_decision_cache_crosses_track_scope"
+      ],
+      "acceptance_requirement": "**Policy memoization omits inputs that change the decision.** Key contains subject/action/resource kind/id, but omits scope, entry type, tags, approval payload and policy revision. An allowed request can authorize another scope in the same context. The event subscription helper uses constant kind/id, so two Track scopes collide directly. `policy_engine.py:685`; `middleware/permissions_cache.py:15`; `event_subscription_registry.py:94`. Probes `test_policy_cache_ignores_scope_and_tags`, `test_event_subscription_decision_cache_crosses_track_scope`. Include complete immutable decision inputs; do not cache effect/approval creation. Start fresh, live authorization for each event.",
+      "closure_rule": "Current source must satisfy the defect regression and relevant package exit; historical failures and suite totals alone do not establish closure."
+    },
+    {
+      "id": "AC-04",
+      "package": "R1",
+      "status": "in_progress",
+      "existing_implementation": [
+        "Exclusion storage errors raise authorization_unavailable (503)",
+        "Deny existence uses typed relationship count, independent of malformed optional audit metadata; broader authority helper audit remains pending",
+        "Workspace authority reads current membership facts, rejects ambiguous owners/unknown grant roles and refuses partial paginated inventory results",
+        "Shared primary raw-fact readers reject missing/conflicting role literals, coerced creation flags, duplicate grants/profiles and missing/coerced identity active state. Direct ownership/collaboration candidates are read together before hydration."
+      ],
+      "named_baseline_assertions": [
+        "test_exclusion_storage_error_allows_inheritance"
+      ],
+      "acceptance_requirement": "**Exclusion read fails open.** `_is_excluded_from_resource` catches an exception and returns False; an excluded user then inherits editor. `permissions.py:817`. Probe `test_exclusion_storage_error_allows_inheritance`. An indeterminate denial lookup must produce denied/unavailable, not \u201cno exclusion.\u201d Review all authority helpers for equivalent exception/default behavior.",
+      "closure_rule": "Current source must satisfy the defect regression and relevant package exit; historical failures and suite totals alone do not establish closure."
+    },
+    {
+      "id": "AC-05",
+      "package": "R1",
+      "status": "in_progress",
+      "existing_implementation": [
+        "Canonical containment Walker on point-read facade; workspace and bound operation App checked",
+        "Canonical bound-App containment and fresh role checks added to system reads, discovery, relations, settings and files; query target gate runs before counts/pagination/handler selection",
+        "Generic conditional writes routed through typed schema/policy facade; exact action permits and remaining facade contracts still pending",
+        "Rollups refuse restricted dependencies and Walker hook-error reports; attachment scalar caches no longer grant file access",
+        "Remaining conditional-write source issues: normalized validation values are discarded and state-only CAS lacks an observed record-revision condition; protected action permits remain pending"
+      ],
+      "named_baseline_assertions": [
+        "test_facade_point_read_crosses_bound_workspace"
+      ],
+      "acceptance_requirement": "**Point reads cross the bound workspace.** `ToolContext.get_entry/get` checks the user's resource role, but not the context's workspace or permitted App scope. A user authorized in workspaces A and B can read B through an A-bound facade; `get` labels the result as A. `hooks/registry.py:212,226`; inherited by `OperationContext`. Probe `test_facade_point_read_crosses_bound_workspace`. Resolve structural ownership and enforce execution workspace and App-declared reference authority for every facade method. This reproduces a scope breach for a principal authorized in both workspaces, not arbitrary-user access to B.",
+      "closure_rule": "Current source must satisfy the defect regression and relevant package exit; historical failures and suite totals alone do not establish closure."
+    },
+    {
+      "id": "AC-06",
+      "package": "R1",
+      "status": "in_progress",
+      "existing_implementation": [
+        "HTTP bypasses process TTL role/inventory snapshots; primary live resource/principal reads",
+        "Workspace-attached revision and joinable PostgreSQL fence; complete writer/release adoption remains pending",
+        "Live graph-profile aliases recheck linked AuthUser active state; connector effects use serialized transaction with safe I/O cleanup",
+        "Authentication runtime stale whole-user save is an additional open revocation repair; primary permission reads alone do not close it",
+        "Pinned runtime adapter binds primary AuthUser/RefreshToken reads and limited snapshot-checked writes to built-in auth routes/middleware; PostgreSQL locks the identity row before comparing complex guards; password reset uses the held transaction"
+      ],
+      "named_baseline_assertions": [
+        "test_ownership_transfer_leaves_warm_owner_cache"
+      ],
+      "acceptance_requirement": "**Revocation is not reliable across all caches.** Transfer leaves the former owner's warmed process role at owner until TTL expiry, enabling owner-only gates to remain open. Process cache defaults to 20 seconds and invalidation is in-memory per process. `ownership_transfer.py:16,86`; `permissions_process_cache.py:32,36,94`; `permissions.py:939`. Probe `test_ownership_transfer_leaves_warm_owner_cache`. Audit visibility/parent/lifecycle changes too. Durable authorization revisions must fence every worker and effect; local invalidation is only an optimization.",
+      "closure_rule": "Current source must satisfy the defect regression and relevant package exit; historical failures and suite totals alone do not establish closure."
+    },
+    {
+      "id": "AC-07",
+      "package": "R1",
+      "status": "in_progress",
+      "existing_implementation": [
+        "Canonical invitation issuer/lifecycle/baseline and adoption repairs are committed; staged notification cutover has passed targeted PostgreSQL and designated native smoke. Whole finding awaits remaining producer/fence and integrated acceptance obligations."
+      ],
+      "named_baseline_assertions": [
+        "test_stale_inviter_still_confers_resource_grant",
+        "test_invite_accept_can_win_after_revoke"
+      ],
+      "acceptance_requirement": "**Invitation authority and status can become stale.** A resource admin can issue an invite, lose all authority, and the invite still grants editor. Acceptance can observe pending, then complete after revoke has persisted. `invitations.py:371,437,477,517,763`. Probes `test_stale_inviter_still_confers_resource_grant`, `test_invite_accept_can_win_after_revoke`. Bind invitations to issuing authority and target workspace/policy revision; atomically claim pending status and materialize grants. Define authorized workspace-owner adoption of outstanding invitations.",
+      "closure_rule": "Current source must satisfy the defect regression and relevant package exit; historical failures and suite totals alone do not establish closure."
+    },
+    {
+      "id": "AC-08",
+      "package": "R1",
+      "status": "in_progress",
+      "existing_implementation": [
+        "Unqualified working integration adds separate protected workspace-owner capabilities over canonically rooted private resources; no ordinary OWNS/COLLABORATES_ON grant is manufactured.",
+        "Point read/write/config/delete and access snapshot policy helpers admit protected governance; complete counts/pages, lifecycle/release fencing, delegation and frontend capability projection remain open."
+      ],
+      "named_baseline_assertions": [
+        "test_owner_governance_mismatch"
+      ],
+      "acceptance_requirement": "**Workspace owners cannot govern all workspace resources.** A member's private App can be invisible to the workspace owner. Non-private inventory grants only commenter. Parent owner/admin caps at editor. `workspace_permissions.py:158`; `permissions.py:1030,1060`; I-ROLE-02; `test_app_owner_grant.py:151`. Probe `test_owner_governance_mismatch`. Introduce governance as a separately evaluated source of authority and revise the existing invariant deliberately.",
+      "closure_rule": "Current source must satisfy the defect regression and relevant package exit; historical failures and suite totals alone do not establish closure."
+    },
+    {
+      "id": "AC-09",
+      "package": "R1",
+      "status": "in_progress",
+      "existing_implementation": [],
+      "named_baseline_assertions": [
+        "test_workspace_admin_self_assigns_creation_rights"
+      ],
+      "acceptance_requirement": "**Selective creation grants can be self-assigned by workspace admins.** An admin with both creation flags False can PATCH its own membership to True. `api/workspaces.py:779,791,825`; `permissions.py:210,235`. Probe `test_workspace_admin_self_assigns_creation_rights`. If administrators are intentionally allowed to do this, false flags are advisory limits. Recommended: explicit delegation permissions and ceilings, with owner-controlled grant administration.",
+      "closure_rule": "Current source must satisfy the defect regression and relevant package exit; historical failures and suite totals alone do not establish closure."
+    },
+    {
+      "id": "AC-10",
+      "package": "R2",
+      "status": "open",
+      "existing_implementation": [],
+      "named_baseline_assertions": [
+        "test_removed_member_can_rejoin_via_existing_share_link",
+        "test_share_redeem_overrides_exclusion_and_link_revoke_retains_access"
+      ],
+      "acceptance_requirement": "**Offboarding does not prevent re-entry.** Removing membership/grants does not create a suspension/removal embargo; a valid old share token adds guest membership again. Exclusions likewise lose to a redeemed direct grant. `workspace_departure.py:44`; `sharing.py:185`; `share_links.py:342`. Probes `test_removed_member_can_rejoin_via_existing_share_link`, `test_share_redeem_overrides_exclusion_and_link_revoke_retains_access`. Distinguish voluntary leave, resource removal and owner suspension; suspended users must not rejoin through old invitations/links.",
+      "closure_rule": "Current source must satisfy the defect regression and relevant package exit; historical failures and suite totals alone do not establish closure."
+    },
+    {
+      "id": "AC-11",
+      "package": "R2",
+      "status": "open",
+      "existing_implementation": [],
+      "named_baseline_assertions": [
+        "test_transfer_write_failure_leaves_no_owns_edge",
+        "test_collaborator_owner_can_delete_but_cannot_transfer"
+      ],
+      "acceptance_requirement": "**Ownership transfer is not an atomic ownership operation.** The service deletes owner/target collaborator edges before writing the replacement; a failed wire leaves no OWNS edge. Neither App nor Track transfer opens the graph transaction used by departure. Collaborator role owner passes delete but fails canonical OWNS-based transfer. `ownership_transfer.py:16,86`; `permissions.py:490,556`; `sharing.py:386`. Probes `test_transfer_write_failure_leaves_no_owns_edge`, `test_collaborator_owner_can_delete_but_cannot_transfer`. Separate canonical ownership from delegable role bundles; single-owner uniqueness, compare-and-swap transfer, receipts and cache fencing are required.",
+      "closure_rule": "Current source must satisfy the defect regression and relevant package exit; historical failures and suite totals alone do not establish closure."
+    },
+    {
+      "id": "AC-12",
+      "package": "R1",
+      "status": "in_progress",
+      "existing_implementation": [
+        "Canonical/rooted containment required for facade point reads; generic resolver and legacy lifecycle cutover pending",
+        "Reject additional foreign registry/workspace parents; rooted Workspace required before authorization-state bootstrap; incomplete Walker reports unavailable",
+        "Unqualified generic resolver cutover validates primary raw containment and exact visibility/kind/lifecycle facts. Bounded raw ancestor/grant batching preserves malformed extra parents and requires canonical catalog paths; complete projection/lifecycle/migration cutover remains open."
+      ],
+      "named_baseline_assertions": [
+        "test_missing_workspace_anchor_allows_direct_grant"
+      ],
+      "acceptance_requirement": "**Missing scope anchors disable the workspace membership gate.** If workspace lookup returns None, resolution continues with direct/inherited grants. Default workspace deletion unlinks resources and clears `workspace_id`, manufacturing this condition; it also conflicts with rooted inclusion. `permissions.py:879,1017`; `workspace_lifecycle.py:72,104`; `api/workspaces.py:523`. Probe `test_missing_workspace_anchor_allows_direct_grant`. Corrupt/unresolved containment must fail closed. Delete/archive/explicitly rehome resources in a validated transaction; never create unscoped survivors.",
+      "closure_rule": "Current source must satisfy the defect regression and relevant package exit; historical failures and suite totals alone do not establish closure."
+    },
+    {
+      "id": "AC-13",
+      "package": "R3",
+      "status": "open",
+      "existing_implementation": [],
+      "named_baseline_assertions": [
+        "test_policy_authority_scope_is_not_intersected"
+      ],
+      "acceptance_requirement": "**Administering a policy subject is not a target-authority ceiling.** Policy CRUD checks that the caller owns/administers the agent/connector, but accepts wildcard scope/actions without checking all target authority. Engine matches an agent/connector Policy without intersecting the owner's current membership/resource authority. `api/policies.py:71,180`; `policy_engine.py:710`; `policy_registry.py:62`. Probe `test_policy_authority_scope_is_not_intersected` uses a synthetic wildcard Policy and confirms engine behavior, not an end-to-end connector exploit. Native resident dispatch commonly uses the human perimeter, so this is not evidence every resident call bypasses human access. Constrain issuance and intersect at every execution boundary.",
+      "closure_rule": "Current source must satisfy the defect regression and relevant package exit; historical failures and suite totals alone do not establish closure."
+    },
+    {
+      "id": "AC-14",
+      "package": "R3",
+      "status": "open",
+      "existing_implementation": [],
+      "named_baseline_assertions": [],
+      "acceptance_requirement": "**Declarative App functions are not fully delegable.** Human Policies are bypassed by the human default branch; operation `capability` is metadata while execution uses coarse `policy_action`. No complete user/group-to-App-action grant contract appears in the reviewed dispatcher. `policy_engine.py:701`; `app_operations/dispatch.py:59,153`; `schemas/app_operations.py:10`. Need namespaced actions, role bindings, bounded conditions, grant administration and identical enforcement across surfaces.",
+      "closure_rule": "Current source must satisfy the defect regression and relevant package exit; historical failures and suite totals alone do not establish closure."
+    },
+    {
+      "id": "AC-15",
+      "package": "R1",
+      "status": "open",
+      "existing_implementation": [],
+      "named_baseline_assertions": [
+        "test_viewer_legacy_collaborators_enumerates_other_people"
+      ],
+      "acceptance_requirement": "**Directory privacy differs by endpoint.** A viewer receives a reduced `/access`, but legacy `/apps/{id}/collaborators` returns other people and roles. Any guest can list the workspace member pool; public Track mention candidates can search graph Users. `sharing.py:959`; `api/apps.py:901`; `api/tracks.py:765,1076`; `api/workspaces.py:663`. Probe `test_viewer_legacy_collaborators_enumerates_other_people`. Define separately permission to read content, mention eligible people, and inspect access administration. Apply it consistently, with minimal user-field projections.",
+      "closure_rule": "Current source must satisfy the defect regression and relevant package exit; historical failures and suite totals alone do not establish closure."
+    },
+    {
+      "id": "AC-16",
+      "package": "R1",
+      "status": "closed",
+      "existing_implementation": [
+        "Compare WorkspaceRole to none before avatar storage reads"
+      ],
+      "named_baseline_assertions": [
+        "test_avatar_non_member_truthiness"
+      ],
+      "acceptance_requirement": "**Workspace avatar gate treats \u201cnone\u201d as truthy.** `if not await can_access_workspace(...)` does not deny the nonempty string `\"none\"`; a non-member can fetch the logo. `api/workspaces.py:1312`. Probe `test_avatar_non_member_truthiness`. Low-sensitivity payload, clear IDOR-style gate defect. Use typed decisions or explicit role comparisons; audit other truthiness callers.",
+      "closure_rule": "Current source must satisfy the defect regression and relevant package exit; historical failures and suite totals alone do not establish closure."
+    },
+    {
+      "id": "AC-17",
+      "package": "R2",
+      "status": "in_progress",
+      "existing_implementation": [
+        "Pool direct and inherited role candidates before strongest-role selection; exclusions keep direct candidate only",
+        "Viewer author edits denied; commenter author identity accepts graph/Auth forms"
+      ],
+      "named_baseline_assertions": [
+        "test_viewer_author_can_edit_own_entry",
+        "test_direct_viewer_suppresses_inherited_editor"
+      ],
+      "acceptance_requirement": "**Roles and helper behavior disagree.** Viewer authors can edit/delete their own Entry through the author shortcut; I-ROLE-01 says viewer cannot mutate. The comparison is against the supplied principal ID, making graph/auth aliases another consistency concern. Direct viewer overrides stronger parent editor; resource owner and canonical owner differ. `permissions.py:581,1030`; I-ROLE-01. Probes `test_viewer_author_can_edit_own_entry`, `test_direct_viewer_suppresses_inherited_editor`. Specify author rights as an explicit capability/condition, canonicalize identity, and make precedence explicit.",
+      "closure_rule": "Current source must satisfy the defect regression and relevant package exit; historical failures and suite totals alone do not establish closure."
+    },
+    {
+      "id": "AC-18",
+      "package": "R2",
+      "status": "open",
+      "existing_implementation": [],
+      "named_baseline_assertions": [],
+      "acceptance_requirement": "**Governance lifecycle and evidence are incomplete.** No workspace ownership-transfer endpoint was found, although leave/account deletion messages require transfer. Workspace member changes live in API code with delete/recreate rollback, unlike the transactional departure service. Resource admins can issue invitations, but the resource invitation-revoke endpoint accepts only owner. Workspace changes often emit `scope=user:<actor>`, so the workspace owner lacks a complete workspace-governance audit view. Scope schemas even omit workspace as a ResourceKind despite workspace action branches. `api/workspaces.py:779,832,963`; `api/invitations.py:370`; `schemas/policy.py`; `api/policies.py:521`. Need canonical membership services, transfer/recovery, consistent scope types, workspace audit, bounded/paginated inventories and verified migration/repair.",
+      "closure_rule": "Current source must satisfy the defect regression and relevant package exit; historical failures and suite totals alone do not establish closure."
+    },
+    {
+      "id": "AC-19",
+      "package": "closed-disposition",
+      "status": "closed",
+      "existing_implementation": [
+        "Removed three inactive, unsupported legacy document modules after whole-repository call-site inspection; retained GeneratedDocument records/registration and supported rendering/field contracts"
+      ],
+      "named_baseline_assertions": [],
+      "acceptance_requirement": "**The legacy generated-document list has the same truthiness pattern and insufficient row filtering.** `documents/generate.py:361` treats workspace role `\"none\"` as allowed. With no context Entry filter, the source returns all matching GeneratedDocument rows without per-document/context authorization; rows can contain resolved snapshots. Attempted service reproduction could not import the module because `template_lifecycle.py` imports missing `HAS_TEMPLATE_VERSION`. No external HTTP caller of this function was found. This is source-confirmed legacy debt, not a reproduced document-disclosure exploit. Reconcile/remove the inactive module, or repair its imports and authorization before exposing it. Treat this as a release blocker only if the affected module is included as a supported reachable surface; do not revive dead code merely to fix it.",
+      "closure_rule": "Current source must satisfy the defect regression and relevant package exit; historical failures and suite totals alone do not establish closure."
+    },
+    {
+      "id": "AC-20",
+      "package": "R1",
+      "status": "in_progress",
+      "existing_implementation": [
+        "Revalidate stored Entry dependencies at read and command response replay without rerunning committed effects"
+      ],
+      "named_baseline_assertions": [
+        "test_read_operation_replays_entry_after_exclusion"
+      ],
+      "acceptance_requirement": "**Operation replay can expose a now-excluded Entry.** A synthetic read handler checks the actual Entry permission and returns a validated Entry reference. After exclusion, a fresh operation invocation denies, but retrying the old idempotency key returns the original title/reference without rerunning the handler or reference authorization. App-level invocation permission still holds. `app_operations/dispatch.py::invoke_app_operation` returns `lookup_idempotent_result` before `build_result`; durable command replay similarly returns `execution.result`. Probe `test_read_operation_replays_entry_after_exclusion` exercises real policy, the warm in-process read-result cache and dispatch with only the App handler substituted. Clearing that cache did not reproduce persistent replay in this JsonDB fixture; do not infer cross-restart disclosure from this probe. Command/PostgreSQL replay is source-confirmed and still needs runtime qualification. Preserve effect idempotency while reauthorizing result disclosure; do not rerun an already committed mutation to regenerate its response.",
+      "closure_rule": "Current source must satisfy the defect regression and relevant package exit; historical failures and suite totals alone do not establish closure."
+    },
+    {
+      "id": "AC-21",
+      "package": "R2",
+      "status": "in_progress",
+      "existing_implementation": [],
+      "named_baseline_assertions": [
+        "test_accepted_invitation_reports_role_not_materialized"
+      ],
+      "acceptance_requirement": "**Accepted invitation metadata can overstate the resulting grant.** An existing viewer accepts an editor invitation; acceptance is saved as successful/editor while effective access remains viewer. `_materialize_invitation_grants` calls `ensure_edge`, which returns an existing edge without updating its attributes. Acceptance endpoints report the invitation's requested role rather than a verified effective result. Probe `test_accepted_invitation_reports_role_not_materialized`; `invitations.py::_materialize_invitation_grants`, `edge_upsert.py::ensure_edge`, `api/shared_with_me.py::post_accept_my_invitation`. This is a grant/receipt consistency defect, not an escalation. Define explicit existing-member/collaborator upgrade, no-op and conflict semantics, protected by version checks; never blindly overwrite newer grants.",
+      "closure_rule": "Current source must satisfy the defect regression and relevant package exit; historical failures and suite totals alone do not establish closure."
+    },
+    {
+      "id": "AC-22",
+      "package": "R1",
+      "status": "open",
+      "existing_implementation": [
+        "Explicit recipient and workspace admission in label resolver; supported metadata uses current canonical read contracts, unknown families remain opaque; streaming, persistence and approval/result text propagate recipient identity. Committed c7c51216 after full qualification; remaining cross-surface release requirements remain open."
+      ],
+      "named_baseline_assertions": [],
+      "acceptance_requirement": "Denied private resource IDs disclose exact stored labels through unscoped host output enrichment after a forbidden native tool result. Additional implementation scrutiny finding on 11 October 2026.",
+      "closure_rule": "Current source must satisfy the defect regression and relevant package exit; historical failures and suite totals alone do not establish closure."
+    }
+  ],
+  "use_cases": [
+    {
+      "id": "U01",
+      "package": "R1",
+      "journey": "Owner creates collaborative workspace",
+      "acceptance": "Exactly one canonical owner; owner can govern all descendants",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U02",
+      "package": "R1",
+      "journey": "Owner invites existing verified user",
+      "acceptance": "Preview exact workspace/role/creation rights; acceptance adds membership once",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U03",
+      "package": "R1",
+      "journey": "Owner invites new user",
+      "acceptance": "Verified current email or invitation-specific token authority binds the intended acceptance; wrong email or unverified by-ID claim denied",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U04",
+      "package": "R1",
+      "journey": "Owner invites workspace administrator",
+      "acceptance": "Explicit governance preset/ceiling; recipient cannot appoint owner or self-expand",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U05",
+      "package": "R1",
+      "journey": "Owner invites ordinary member",
+      "acceptance": "No creation/config/write authority beyond granted rights; visible audience rules apply",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U06",
+      "package": "R1",
+      "journey": "Owner invites external guest to one App/Track/Entry",
+      "acceptance": "Narrow guest membership plus exact resource grant; no unrelated resources/member directory",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U07",
+      "package": "R1",
+      "journey": "User has several workspaces",
+      "acceptance": "Explicit scope isolates reads, effects, cache, relations and receipts; A cannot bleed into B",
+      "status": "in_progress",
+      "existing_allow_evidence": [
+        "test_resource_location.py::test_bound_facade_rejects_other_workspace_despite_legitimate_user_access (authorized own-workspace branch)",
+        "test_tool_context_find_entries_scope.py::test_find_entries_keeps_only_in_workspace (both legitimate workspace memberships)"
+      ],
+      "existing_deny_evidence": [
+        "test_resource_location.py::test_bound_facade_rejects_other_workspace_despite_legitimate_user_access",
+        "test_tool_context_find_entries_scope.py::test_find_entries_keeps_only_in_workspace"
+      ],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U08",
+      "package": "R1",
+      "journey": "Owner resends/replaces invitation",
+      "acceptance": "Previous token revoked; pending invitation version and deliverability outcome explicit",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U09",
+      "package": "R1",
+      "journey": "Invitation expires, is declined or revoked",
+      "acceptance": "No grant; terminal transitions atomic; generic invalid-state error avoids enumeration",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U10",
+      "package": "R1",
+      "journey": "Invitation issuer loses authority",
+      "acceptance": "Pending grant invalidated or explicitly adopted by owner; no stale issuer grant",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U11",
+      "package": "R1",
+      "journey": "Two clients accept, or accept races revoke",
+      "acceptance": "One durable transition; retry returns receipt; revocation ordering defined",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U12",
+      "package": "R1",
+      "journey": "Member already joined by another path",
+      "acceptance": "Invitation cannot silently overwrite a newer role/ceiling",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U13",
+      "package": "R1",
+      "journey": "Owner edits membership role or creation rights",
+      "acceptance": "Atomic versioned update, previous/effective rights shown, immediate worker-wide effect",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U14",
+      "package": "R1",
+      "journey": "Delegated admin manages members",
+      "acceptance": "Restricted to its grant ceiling; cannot alter owner or protected peer governance",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U15",
+      "package": "R1",
+      "journey": "Admin tries self-assigned creation/sharing privileges",
+      "acceptance": "Denied unless separately delegated grant-administration authority covers them",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U16",
+      "package": "R1",
+      "journey": "Member creates App/standalone Track",
+      "acceptance": "Creation flag checked; rooted resource; owner retains governance",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U17",
+      "package": "R1",
+      "journey": "Member creates Track within App",
+      "acceptance": "Workspace creation + App configuration requirements both enforced",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U18",
+      "package": "R1",
+      "journey": "Owner inventories member-created private content",
+      "acceptance": "Complete inventory and effective access; private restricts ordinary members",
+      "status": "in_progress",
+      "existing_allow_evidence": [
+        "Initial point/App/Track inventory owner-governance golden passed on JSON and PostgreSQL; full repaired integration still under qualification."
+      ],
+      "existing_deny_evidence": [
+        "Initial ordinary-admin and foreign-workspace private-governance golden passed on JSON and PostgreSQL."
+      ],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U19",
+      "package": "R2",
+      "journey": "App steward adds viewer/commenter/editor/admin",
+      "acceptance": "Each advertised permission is enforced; resource admin does not implicitly gain canonical ownership or workspace deletion/transfer",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U20",
+      "package": "R2",
+      "journey": "App grant reaches contained Tracks/Entries",
+      "acceptance": "Explicit inheritance semantics; scope/cap shown; no accidental config delegation",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U21",
+      "package": "R2",
+      "journey": "Owner delegates subtree configuration",
+      "acceptance": "Separate scoped governance grant where intended; App admin alone is not an undocumented blanket grant",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U22",
+      "package": "R2",
+      "journey": "Standalone Track is shared",
+      "acceptance": "No App assumed; same grant/revocation semantics as contained Track",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U23",
+      "package": "R2",
+      "journey": "Track opts out of parent audience",
+      "acceptance": "Explicit inherited-access setting; effective audience preview before change",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U24",
+      "package": "R2",
+      "journey": "Entry is shared without sharing Track/App contents",
+      "acceptance": "Only minimal parent navigation metadata; related records remain independently authorized",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U25",
+      "package": "R2",
+      "journey": "Direct grant meets inherited exclusion",
+      "acceptance": "Exclusion only removes inheritance; UI clearly shows remaining direct access",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U26",
+      "package": "R2",
+      "journey": "Owner blocks a user absolutely",
+      "acceptance": "Named block/suspension beats identified ordinary grants/redemption in the defined subtree; owner remains protected; anonymous-public limit disclosed",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U27",
+      "package": "R2",
+      "journey": "Owner removes one collaborator grant",
+      "acceptance": "Other grant paths may remain; effective after-state reported, not \u201caccess revoked\u201d by assumption",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U28",
+      "package": "R2",
+      "journey": "Different direct/inherited roles overlap",
+      "acceptance": "One documented precedence rule; test lower direct role and stronger parent role",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U29",
+      "package": "R2",
+      "journey": "Viewer/commenter edits authored Entry",
+      "acceptance": "Only explicit author-edit/delete capability permits it; viewer default remains read-only",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U30",
+      "package": "R2",
+      "journey": "Commenter posts, reacts, edits own comment",
+      "acceptance": "Entry authorization applies; viewer posting and excluded-Entry posting denied",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U31",
+      "package": "R2",
+      "journey": "Curator moderates another's comment",
+      "acceptance": "Moderation action distinct from commenting; rewriting another's text denied",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U32",
+      "package": "R2",
+      "journey": "Owner transfers App/Track stewardship",
+      "acceptance": "Live eligible target, single owner, atomic receipt, failure/replay safety",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U33",
+      "package": "R2",
+      "journey": "Owner reclaims orphaned resource",
+      "acceptance": "Governed repair with audit; missing scalar/edge consistency cannot strand authority",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U34",
+      "package": "R2",
+      "journey": "Collaborative workspace owner transfers ownership",
+      "acceptance": "Eligible verified member accepts; personal workspace transfer denied; old/new authority atomic; last-owner protection",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U35",
+      "package": "R2",
+      "journey": "Member leaves voluntarily",
+      "acceptance": "Grants cleaned up, resource stewardship reassigned, personal scope restored",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U36",
+      "package": "R2",
+      "journey": "Owner removes/suspends departing employee",
+      "acceptance": "No re-entry via outstanding credentials; grants, routines, approvals and shared integrations fenced",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U37",
+      "package": "R2",
+      "journey": "Suspended member resumes",
+      "acceptance": "Owner explicitly restores reviewed membership/grants; stale grants do not automatically resurrect",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U38",
+      "package": "R2",
+      "journey": "Owner mints authenticated collaborator link",
+      "acceptance": "Owner-controlled external-sharing policy, role ceiling, expiry and redemption cap",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U39",
+      "package": "R2",
+      "journey": "Link reaches wrong/forwarded person",
+      "acceptance": "Bearer audience explicit; email/domain binding where required; stronger authority never implicit",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U40",
+      "package": "R2",
+      "journey": "Same user redeems link repeatedly",
+      "acceptance": "Idempotent grant; receipt distinguishes existing access, upgrade and no-op; cap policy explicit",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U41",
+      "package": "R2",
+      "journey": "Redemption races expiry/revoke/cap",
+      "acceptance": "Atomic reservation + grant/receipt, no grant after winning revocation, no wasted capacity on retry",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U42",
+      "package": "R2",
+      "journey": "Owner revokes link versus recipients",
+      "acceptance": "\u201cDisable future redemption\u201d and \u201crevoke grants sourced from link\u201d are separate explicit actions",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U43",
+      "package": "R2",
+      "journey": "Owner shares anonymously",
+      "acceptance": "Explicit public contract; minimal fields/relations/attachments/actions; anonymous token grants no general workspace rights",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U44",
+      "package": "R2",
+      "journey": "Public form/comment/upload is enabled",
+      "acceptance": "Each write is separately declared and abuse-limited; declared public-audience/token/validation constraints apply; identity-specific restrictions require authentication",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U45",
+      "package": "R2",
+      "journey": "App exports public-share extension",
+      "acceptance": "Active trusted declaration, typed input/output, server scope and action gate; no handler bypass",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U46",
+      "package": "R1",
+      "journey": "Reader requests member/collaborator/mention lists",
+      "acceptance": "Minimum directory visibility; content read does not imply full access-administration inspection",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U47",
+      "package": "R1",
+      "journey": "Excluded Entry changes",
+      "acceptance": "WebSocket, poll, audit, notification and webhook representations do not disclose denied payload",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U48",
+      "package": "R1",
+      "journey": "User searches/counts/aggregates/exports",
+      "acceptance": "Authorized rows, fields, totals, labels and relation paths agree with direct reads",
+      "status": "in_progress",
+      "existing_allow_evidence": [
+        "test_resource_location.py::test_bound_query_filters_before_count_and_pagination",
+        "test_resource_location.py::test_rollup_refuses_foreign_or_excluded_dependencies (authorized complete rollup)",
+        "test_id_label_authority.py::test_current_owned_labels_require_exact_workspace_scope"
+      ],
+      "existing_deny_evidence": [
+        "test_resource_location.py::test_bound_query_filters_before_count_and_pagination (foreign App does not influence count/cursor)",
+        "test_resource_location.py::test_rollup_refuses_foreign_or_excluded_dependencies",
+        "test_id_label_authority.py::test_private_app_name_denied_in_stream_persistence_and_card_helpers",
+        "test_id_label_authority.py::test_labels_recheck_revocation_and_corrupt_containment"
+      ],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U49",
+      "package": "R3",
+      "journey": "Owner assigns App function roles",
+      "acceptance": "Named users/groups receive exact functions; approver \u2260 editor \u2260 schema admin",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U50",
+      "package": "R3",
+      "journey": "Business action has state/author condition",
+      "acceptance": "Bounded server-derived condition; generic CRUD cannot bypass transition or separation-of-duty rule",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U51",
+      "package": "R3",
+      "journey": "Group membership grants App access",
+      "acceptance": "Rooted workspace group; changes revoke downstream grants consistently",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U52",
+      "package": "R3",
+      "journey": "App update adds/changes functions",
+      "acceptance": "New authority reviewed; immutable definition revision; stale action grants fail closed",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U53",
+      "package": "R1",
+      "journey": "Resident or MCP acts for a user",
+      "acceptance": "Same scope/data/function rights; prompt, client subject or tool argument cannot elevate actor",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U54",
+      "package": "R2",
+      "journey": "Approval waits while permission changes",
+      "acceptance": "Execution rechecks actor, reviewer, scope, policy, revision and target state; no stale approval authority",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U55",
+      "package": "R2",
+      "journey": "Routine/hook/connector resumes after revocation",
+      "acceptance": "Fresh boundary, current owner/delegation intersection; provider side effect not assumed reversible",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U56",
+      "package": "R1",
+      "journey": "App calls sibling tool or point-read facade",
+      "acceptance": "Declared installed capability/reference, user permission and bound workspace all required",
+      "status": "in_progress",
+      "existing_allow_evidence": [
+        "test_resource_location.py::test_facade_discovery_relations_and_settings_stay_in_bound_app"
+      ],
+      "existing_deny_evidence": [
+        "test_resource_location.py::test_facade_discovery_relations_and_settings_stay_in_bound_app",
+        "test_resource_location.py::test_bound_declared_query_rejects_foreign_handler_before_invocation"
+      ],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U57",
+      "package": "R2",
+      "journey": "Owner configures shared integrations",
+      "acceptance": "Shared configuration manageable; personal provider secrets remain separately scoped and non-exportable",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U58",
+      "package": "R1",
+      "journey": "Permission database/cache/network fails",
+      "acceptance": "Denied or unavailable; never broaden access; no fabricated empty success",
+      "status": "in_progress",
+      "existing_allow_evidence": [
+        "test_resource_location.py::test_bound_facade_rejects_other_workspace_despite_legitimate_user_access (healthy canonical scope)",
+        "test_resource_location.py::test_rollup_refuses_foreign_or_excluded_dependencies (healthy rollup)"
+      ],
+      "existing_deny_evidence": [
+        "test_resource_location.py::test_parent_visit_fault_cannot_return_a_partial_location",
+        "test_resource_location.py::test_rollup_relationship_fault_is_unavailable",
+        "test_resource_location.py::test_indeterminate_authority_does_not_activate_another_grant"
+      ],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U59",
+      "package": "R2",
+      "journey": "Concurrent grant/transfer/offboard operations",
+      "acceptance": "Storage uniqueness, locking/CAS, fencing and immutable receipts prevent partial authority",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U60",
+      "package": "R2",
+      "journey": "Owner deletes/archives/re-homes workspace data",
+      "acceptance": "No unscoped survivors; complete lifecycle handling, audit and recovery semantics",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U61",
+      "package": "R1",
+      "journey": "User logs out/account disabled/session revoked",
+      "acceptance": "Browser, refresh, MCP and sockets respond under documented session/revocation bound",
+      "status": "in_progress",
+      "existing_allow_evidence": [
+        "test_authentication_current_state.py::test_server_auth_routes_and_middleware_use_current_identity (valid login before disable)",
+        "test_authentication_current_state.py::test_auth_context_changes_only_observed_fields"
+      ],
+      "existing_deny_evidence": [
+        "test_authentication_current_state.py::test_warm_validation_cannot_reactivate_disabled_identity",
+        "test_authentication_current_state.py::test_warm_blacklist_miss_does_not_survive_other_service_logout",
+        "test_authentication_current_state.py::test_server_auth_routes_and_middleware_use_current_identity (middleware/refresh after disable)",
+        "contract/test_authentication_current_state_postgres.py::test_other_process_cannot_validate_or_reactivate_disabled_identity"
+      ],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U62",
+      "package": "R4",
+      "journey": "Owner asks \u201cwho can do what, and why?\u201d",
+      "acceptance": "Effective user/group/action/resource report including direct/inherited/token/governance sources",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U63",
+      "package": "R1",
+      "journey": "Malformed/omitted scope or inconsistent parent supplied",
+      "acceptance": "Supplied malformed scope rejected; omitted ordinary scope deliberately defaults personal; corrupt parent denies",
+      "status": "in_progress",
+      "existing_allow_evidence": [
+        "test_resource_location.py::test_bound_facade_rejects_other_workspace_despite_legitimate_user_access"
+      ],
+      "existing_deny_evidence": [
+        "test_resource_location.py::test_canonical_location_rejects_corrupt_or_inactive_containment",
+        "contract/test_authorization_scope_postgres.py::test_uncataloged_workspace_cannot_bootstrap_authorization_state"
+      ],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U64",
+      "package": "R2",
+      "journey": "Access review at scale",
+      "acceptance": "Complete paginated inventory and receipts; no silent truncation, wildcard overgrant or misleading totals",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U65",
+      "package": "R1",
+      "journey": "Client retries an operation after record access is revoked",
+      "acceptance": "Committed effect is not repeated; historical output/references are filtered or withheld under current access",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U66",
+      "package": "R2",
+      "journey": "Invite accepted by an existing collaborator/member",
+      "acceptance": "Receipt reports granted/upgraded/unchanged/conflict and actual effective rights; advertised role is not assumed materialized",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U67",
+      "package": "R1",
+      "journey": "User changes email or invitation token is forwarded",
+      "acceptance": "Verification belongs to the current email; token consumption authorizes only the intended invitation, not global email verification",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U68",
+      "package": "R2",
+      "journey": "Entry/Track is moved, copied or bulk imported",
+      "acceptance": "Source and destination actions checked; inherited audience/provenance diff explicit; no owner/workspace/security-field mass assignment",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U69",
+      "package": "R3",
+      "journey": "App install/update/uninstall/restore changes access definitions",
+      "acceptance": "Lifecycle is owner-delegated; no silent new grant, stale group/action binding, public audience or old token resurrection",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U70",
+      "package": "R3",
+      "journey": "User belongs to overlapping App groups",
+      "acceptance": "Each allow is satisfied as one complete grant; scope/action constraints cannot be mixed; block wins; cross-workspace membership denied",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U71",
+      "package": "R1",
+      "journey": "User opens an attachment/download URL after revocation",
+      "acceptance": "Metadata, thumbnail, file bytes and external URL issuance all authorized; independently valid URL expiry/revocation bound is explicit",
+      "status": "in_progress",
+      "existing_allow_evidence": [
+        "test_resource_location.py::test_file_relationship_is_authoritative_and_rechecked_after_storage (authorized relationship)"
+      ],
+      "existing_deny_evidence": [
+        "test_resource_location.py::test_file_relationship_is_authoritative_and_rechecked_after_storage (forged scalar and revoked relationship)"
+      ],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U72",
+      "package": "R2",
+      "journey": "Routine writes through shared integration after creator leaves",
+      "acceptance": "Workspace-owned service delegation is adopted/reviewed explicitly; personal credentials are not silently transferred; unknown provider outcome reconciled",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U73",
+      "package": "R3",
+      "journey": "Owner changes workflow rules or requests emergency override",
+      "acceptance": "Definition-change and override authority are explicit and audited; execution conditions cannot be silently bypassed by a generic operation flag",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U74",
+      "package": "R4",
+      "journey": "Viewer asks why another person has access",
+      "acceptance": "Safe caller explanation; full grant-path/user/policy details require access-review authority",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U75",
+      "package": "R4",
+      "journey": "Backup is restored after revocation",
+      "acceptance": "Quarantined restore reconciles live revocations/epochs/credentials before serving; revoked actors and public tokens cannot reappear silently",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    },
+    {
+      "id": "U76",
+      "package": "R1",
+      "journey": "Permission service is partitioned or a long stream is active",
+      "acceptance": "Unknown current authority fails closed; release-point semantics and already-delivered data limits tested and documented",
+      "status": "open",
+      "existing_allow_evidence": [],
+      "existing_deny_evidence": [],
+      "next_evidence_task": "Map existing named tests first; add only missing positive/negative and required surface assertions in assigned package."
+    }
+  ],
+  "first_checkpoint": [
+    "Canonical member-provision service admission and strict HTTP adapter",
+    "Existing unverified account denied; workspace admin cannot grant admin; owner and basic admin allowed",
+    "New account remains email-unverified; credential delivery follows successful commit",
+    "Membership/history/audit rollback on PostgreSQL",
+    "Pending notification cutover retained and qualified"
+  ],
+  "known_reporting_limits": [
+    "2/22 findings and 0/76 journeys are closed after exact AC-16 evidence reconciliation; these counts are not implementation-effort estimates.",
+    "R0 establishes complete primary ownership and requirement backlog; full test-to-surface mapping is completed while closing each bounded change, not through a second whole-repository audit.",
+    "Original assessment descriptions remain historical baseline evidence; repaired tests must be tied to current source."
+  ]
+}

@@ -278,6 +278,7 @@ async def _emit_invitation_in_app_notification(
             kind="invitation",
             payload={
                 "invitation_id": invitation.id,
+                "invitation_revision": invitation.invitation_revision,
                 "workspace_id": invitation.workspace_id or "",
                 "actor_name": actor,
                 "role": summary_role,
@@ -287,7 +288,10 @@ async def _emit_invitation_in_app_notification(
             actor_id=inviter_user_id,
             actor_kind="human",
             channels=["in_app"],
-            idempotency_key=f"invitation:{invitation.id}:{invited_user_id}",
+            idempotency_key=(
+                f"invitation:{invitation.id}:{invitation.invitation_revision}:"
+                f"{invited_user_id}"
+            ),
         )
     except Exception:
         logger.exception(
@@ -417,7 +421,9 @@ async def _deliver_new_invitation(
         await _emit_invitation_in_app_notification(
             invitation=invitation,
             invited_user_id=invitation.invited_user_id,
-            inviter_user_id=invitation.invited_by_user_id,
+            inviter_user_id=(
+                invitation.adopted_by_user_id or invitation.invited_by_user_id
+            ),
             inviter_display_name=inviter_display_name,
             target_label=label,
             role=role,

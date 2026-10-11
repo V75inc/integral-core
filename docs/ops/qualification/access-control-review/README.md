@@ -152,3 +152,5 @@ passed one complete case. Full repository qualification remains pending.
 These are synthetic in-process authenticated fixtures, not independent-account
 browser or production identity qualification. Original characterization results
 above are retained as their historical baseline and do not include AC-22.
+
+[grant_writer_inventory.json](grant_writer_inventory.json) records 46 conservative authority-writer candidates: 20 typed authority edge connects, one typed authority upsert, 18 delegated command calls and 7 raw edge-write calls. Rebuild with `build_grant_writer_inventory.py`. Every candidate remains unmapped; raw writes can be locks/history or unrelated edges, and dynamic families, framework/bootstrap/import/restore and domain writers require further inventory. This index guides all-producer convergence and does not prove exhaustiveness or enforcement.

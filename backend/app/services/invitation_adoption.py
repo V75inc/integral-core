@@ -230,4 +230,15 @@ async def adopt_invitation(
         )
     await invitation.set_context(caller_context)
     await _deliver_invitation_audit(invitation)
+    from app.services.entry_write_scope import is_postgres_entry_transaction
+    from app.services.invitations import _deliver_new_invitation
+
+    if not is_postgres_entry_transaction(get_default_context().database):
+        await _deliver_new_invitation(
+            invitation,
+            _build_acceptance_url(token),
+            send_email_notification=False,
+            inviter_display_name=None,
+            resource_label=(f"{kind} invitation" if kind else ""),
+        )
     return invitation, token, _build_acceptance_url(token)

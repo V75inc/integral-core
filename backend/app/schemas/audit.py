@@ -125,6 +125,7 @@ ChangeEventAction = Literal[
     # notifications.mark_all_notifications_as_read).
     "notification.read",
     "notification.mark_all_read",
+    "notification.respond",
     # Prompt Sheet queue (ADR-003 one-audit-trail): answering a clarifying
     # question, resolving a staged write, and cancelling the queue all mutate
     # ChatThread.prompt_queue and were previously unaudited.
@@ -154,6 +155,7 @@ ChangeEventAction = Literal[
     "workspace.update",
     "workspace.delete",
     "workspace.member_add",
+    "workspace.member_provision",
     "workspace.member_update",
     "workspace.member_remove",
     "workspace.member_leave",

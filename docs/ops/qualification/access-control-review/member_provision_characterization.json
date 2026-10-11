@@ -1,0 +1,64 @@
+{
+  "status": "reproduced_remaining_gaps",
+  "source_head": "c7c51216aa0278f61e102f9ec9995bf382dfb866",
+  "source_note": "Member-provision route/service unchanged from source_head; notification cutover working tree is under full qualification.",
+  "http_route": {
+    "path": "/workspaces/{workspace_id}/members/provision",
+    "result": "ImportError before grant effect: _validate_member_role no longer exported by app.api.workspaces. HTTP privilege bypass is not established."
+  },
+  "service_receipts": [
+    {
+      "service_created": false,
+      "current_verified_mailbox_proof": false,
+      "resulting_roles": [
+        "admin"
+      ],
+      "scope": "Direct service after authorized workspace-owner HTTP setup; email-based provisioning of an existing unverified account; no ordinary-user notification forgery or independent-browser claim."
+    },
+    {
+      "service_created": false,
+      "actor_workspace_role": "admin",
+      "recipient_current_verified_mailbox_proof": true,
+      "resulting_roles": [
+        "admin"
+      ],
+      "scope": "Direct service after registered actor accepted owner-issued admin invitation. Existing recipient separately completed OTP; isolates admin delegation ceiling from mailbox proof."
+    }
+  ],
+  "evidence": [
+    {
+      "path": "/tmp/test_integral_member_provision_authority_gap.py",
+      "sha256": "72a965f47f36180f1ca0ae713f468e7f04901f46b83dd6d32f32334e73bca18f"
+    },
+    {
+      "path": "/tmp/test_integral_member_provision_service_gap.py",
+      "sha256": "40de9007bd734bfc45a2b0a076b862bc0fc5a7dfc32543da72cc38640ef80f27"
+    },
+    {
+      "path": "/tmp/integral-member-provision-authority-gap-2-json.xml",
+      "sha256": "76fe65741b9ded05132f5ffd636f586b1cabc01a6ac137f0d67158adc616bed6"
+    },
+    {
+      "path": "/tmp/integral-member-provision-service-gap-1-json.xml",
+      "sha256": "48e877d90b5bb46623ed57ccbb44df59c1740634946577effb3ac87aac84a9ab"
+    },
+    {
+      "path": "/tmp/integral-member-provision-unverified-email-service-gap.json",
+      "sha256": "727d5e9c026efedd26823a30875c8fa664d043a5d086aa0a8a80fb07a10472c8"
+    },
+    {
+      "path": "/tmp/integral-member-provision-admin-ceiling-service-gap.json",
+      "sha256": "f7431af2c9317846be8292e94ea217ab399208b7b916dcaacf4e86f2a9f66877"
+    }
+  ],
+  "limits": [
+    "Authenticated HTTP account/owner/admin setup followed by direct service characterization in JsonDB; not independent browser, PostgreSQL, or current HTTP grant-bypass proof.",
+    "HTTP probe-1 stopped on client reuse; corrected HTTP probe-2 fails inside the runtime route import. Direct-service probe has two failed secure assertions and no setup errors.",
+    "Known-producer gaps remain for the next cutover; no complete finding/use-case closure."
+  ],
+  "source_sha256": {
+    "backend/app/api/workspace_member_hire.py": "dd21d4b5a0b2e2eac4e9a71055491c9d7637f7ec73e3bd366665fb3e251b132f",
+    "backend/app/services/member_provision.py": "3591a8f66f50b4982d56c6f93ecb04b8cef8e40d5fb4f1c538747a230a88bd10",
+    "backend/app/api/workspaces.py": "83e62b1e841ae1def071d7b7d632befc155c5c96730ce9a3ed71d828d4a6333b"
+  }
+}

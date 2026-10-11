@@ -1,0 +1,16 @@
+{
+  "finding": "AC-16",
+  "status": "closed",
+  "source_commit": "c7c51216aa0278f61e102f9ec9995bf382dfb866",
+  "assertion": "test_workspace_avatar_denies_outsider_before_storage_read",
+  "outcomes": [
+    "Outsider receives denial before attachment storage read",
+    "Authorized workspace reader receives expected bytes with exactly one storage read"
+  ],
+  "qualification_xml_sha256": "1b998503997786d81348c8d3c45b58756d6850e56cc5309e2194c26998fd7ce7",
+  "source_files": {
+    "backend/app/api/workspaces.py": "83e62b1e841ae1def071d7b7d632befc155c5c96730ce9a3ed71d828d4a6333b",
+    "backend/tests/test_access_perimeter_regressions.py": "66901ed5027456d470af4eab5e06e13873b5a5f6b4a5e714f176377603abdc48"
+  },
+  "limits": "Closes the avatar truthiness defect; U71 general file revocation and URL lifecycle remain separately open."
+}

@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, StrictBool, StrictStr
 
 
 class ProvisionWorkspaceMemberRequest(BaseModel):
     """Request body for ``POST /workspaces/{id}/members/provision``."""
 
+    model_config = ConfigDict(extra="forbid")
+
     email: EmailStr
-    display_name: str = Field(min_length=1)
-    role: str = "member"
-    send_credentials: bool = True
-    welcome_message: Optional[str] = None
+    display_name: StrictStr = Field(min_length=1)
+    role: Literal["admin", "member", "guest"] = "member"
+    send_credentials: StrictBool = True
+    welcome_message: Optional[StrictStr] = None
     credentials_email: Optional[EmailStr] = None
 
 

@@ -48,7 +48,7 @@
     "backend/app/api/mission_control.py": "6e1abcecb6a3eb5704951b7b8a9b4a152173a48c4473f094bd7ed0faa92b01f2",
     "backend/app/api/model_credentials.py": "772ac07f4c228ef2dddafca2461af4afeda7045c2dc840987b9015d68bd57b38",
     "backend/app/api/notification_preferences.py": "9b573e42038cae66b65c8e1d9b8df76fab2b6d8c55724a503efc316134aaab8c",
-    "backend/app/api/notifications.py": "b09d7f1440247a5cb84ced8d3a5fdd29c417492b6c03c5171708d36c9e6b5c83",
+    "backend/app/api/notifications.py": "2f3df95f462c9060c5f932f8b72f135b41c35ef673fe8415d4325e1a37ad4374",
     "backend/app/api/oauth_consent.py": "5d3b33c1fc5c55e6d6b57d33690370cd37d582c86b0beae7bb126de97c1ad977",
     "backend/app/api/operational_models.py": "803fcfa7a6b545d2aad80814bd567c550e5dfb3581273ae74d073d416fa98132",
     "backend/app/api/policies.py": "703d1cba7be48a614b24b5ad840735050b2b0b2c3b5e87a9ea14f2e969ecaa24",
@@ -2602,7 +2602,7 @@
       "methods_expression": "['GET']",
       "auth_expression": "True",
       "file": "backend/app/api/notifications.py",
-      "line": 37,
+      "line": 36,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2613,7 +2613,7 @@
       "methods_expression": "['PUT']",
       "auth_expression": "True",
       "file": "backend/app/api/notifications.py",
-      "line": 111,
+      "line": 110,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2624,7 +2624,7 @@
       "methods_expression": "['PUT']",
       "auth_expression": "True",
       "file": "backend/app/api/notifications.py",
-      "line": 169,
+      "line": 168,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2635,7 +2635,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/notifications.py",
-      "line": 237,
+      "line": 236,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2646,7 +2646,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/notifications.py",
-      "line": 329,
+      "line": 266,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2657,7 +2657,7 @@
       "methods_expression": "['DELETE']",
       "auth_expression": "True",
       "file": "backend/app/api/notifications.py",
-      "line": 418,
+      "line": 355,
       "qualification": "unmapped",
       "evidence": []
     },
