@@ -320,10 +320,27 @@ export function SettingsPage() {
         triggerRef.current?.focus();
       }
     };
+    const sizeMenu = () => {
+      const trigger = triggerRef.current;
+      const menu = compactRef.current?.querySelector<HTMLElement>('#settings-compact-nav');
+      if (!trigger || !menu) return;
+      const rect = trigger.getBoundingClientRect();
+      const below = window.innerHeight - rect.bottom - 16;
+      const above = rect.top - 16;
+      const upward = below < 200 && above > below;
+      menu.style.top = upward ? 'auto' : 'calc(100% + 0.5rem)';
+      menu.style.bottom = upward ? 'calc(100% + 0.5rem)' : 'auto';
+      menu.style.setProperty('--settings-menu-space', `${Math.max(0, upward ? above : below)}px`);
+    };
+    window.addEventListener('resize', sizeMenu);
+    document.addEventListener('scroll', sizeMenu, true);
     document.addEventListener('pointerdown', dismiss);
     document.addEventListener('keydown', escape);
-    compactRef.current?.querySelector<HTMLInputElement>('input')?.focus();
+    compactRef.current?.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true });
+    sizeMenu();
     return () => {
+      window.removeEventListener('resize', sizeMenu);
+      document.removeEventListener('scroll', sizeMenu, true);
       document.removeEventListener('pointerdown', dismiss);
       document.removeEventListener('keydown', escape);
     };

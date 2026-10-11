@@ -81,30 +81,58 @@ function SectionEyebrow({ children }: { children: ReactNode }) {
 
 /** Hover/focus reveal tooltip for collapsed-rail items. Anchored to the
  *  right of the rail so it floats over the page surface without resizing
- *  the rail. Visible only on parent `group` hover or focus-within.
+ *  the rail. Portaled outside the scrolling rail on parent hover or focus.
  *
  *  Color: bg=--text, fg=--bg — the inverse of the surrounding canvas in
  *  both themes. Yields a high-contrast popover that doesn't blend into
  *  the near-black --bg of dark mode (where --panel is only 7 points
  *  lighter and gets lost). */
 function CollapsedTooltip({ label }: { label: string }) {
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
+
+  useEffect(() => {
+    const parent = anchorRef.current?.parentElement;
+    if (!parent) return;
+    const show = () => {
+      const rect = parent.getBoundingClientRect();
+      setPosition({ left: rect.right + 12, top: rect.top + rect.height / 2 });
+    };
+    const hide = () => setPosition(null);
+    const reposition = () => {
+      if (parent.matches(':hover, :focus-within')) show();
+      else hide();
+    };
+    parent.addEventListener('mouseenter', show);
+    parent.addEventListener('mouseleave', hide);
+    parent.addEventListener('focusin', show);
+    parent.addEventListener('focusout', hide);
+    window.addEventListener('resize', hide);
+    document.addEventListener('scroll', reposition, true);
+    return () => {
+      parent.removeEventListener('mouseenter', show);
+      parent.removeEventListener('mouseleave', hide);
+      parent.removeEventListener('focusin', show);
+      parent.removeEventListener('focusout', hide);
+      window.removeEventListener('resize', hide);
+      document.removeEventListener('scroll', reposition, true);
+    };
+  }, []);
+
   return (
-    <span
-      aria-hidden
-      className="
-        pointer-events-none
-        absolute left-full top-1/2 -translate-y-1/2 ml-3
-        px-2.5 py-1.5 rounded-md
-        bg-[var(--text)] text-[var(--bg)]
-        shadow-[var(--shadow-pop)]
-        text-xs font-medium whitespace-nowrap
-        opacity-0 group-hover:opacity-100 group-focus-within:opacity-100
-        transition-opacity duration-fast
-        z-50
-      "
-    >
-      {label}
-    </span>
+    <>
+      <span ref={anchorRef} hidden />
+      {position && createPortal(
+        <span
+          aria-hidden
+          className="pointer-events-none fixed -translate-y-1/2 px-2.5 py-1.5 rounded-md bg-[var(--text)] text-[var(--bg)] shadow-[var(--shadow-pop)] text-xs font-medium whitespace-nowrap z-50"
+          style={position}
+        >
+          {label}
+        </span>,
+        document.body,
+      )}
+    </>
   );
 }
 
@@ -914,10 +942,9 @@ export function Sidebar({
       aria-hidden={!isDesktop && !mobileOpen}
       className={[
         'fixed left-0 z-drawer md:z-rail',
-        'flex flex-col py-7',
+        'sidebar-shell flex flex-col',
         railCollapsed ? 'px-2.5' : 'px-[22px]',
-        // overflow-visible required so the collapsed-rail hover tooltips
-        // can extend past the right edge of the rail; horizontal-overflow
+        // Portaled menus and tooltips can extend past the rail; horizontal-overflow
         // never appears in collapsed mode because all labels are hidden.
         // Owns transitions for width, transform, padding, top, and
         // height. Top/height share the layout's slower easing so the
@@ -935,14 +962,14 @@ export function Sidebar({
       ].join(' ')}
       style={{
         top: 'var(--system-bar-h, 0px)',
-        height: 'calc(100vh - var(--system-bar-h, 0px))',
+        height: 'calc(100dvh - var(--system-bar-h, 0px))',
       }}
     >
       {/* Header — Logo primitive (mark + wordmark). Generous bottom
           margin so the brand sits as its own beat above the nav. */}
       <div
         className={[
-          'flex items-center gap-2 mb-[72px] min-h-[24px]',
+          'sidebar-brand flex shrink-0 items-center gap-2 min-h-[24px]',
           railCollapsed ? 'justify-center' : 'justify-between',
         ].join(' ')}
       >
@@ -993,7 +1020,7 @@ export function Sidebar({
       <SidebarScroller
         disabled={railCollapsed}
         contentSignal={`${pinnedEntries.length}:${pinnedTracks.length}:${pinnedApps.length}`}
-        className={railCollapsed ? 'overflow-visible' : ''}
+        className={railCollapsed ? 'sidebar-rail-scroll' : ''}
       >
       <nav
         aria-label="Sidebar navigation"
@@ -1150,7 +1177,6 @@ export function Sidebar({
         )}
 
       </nav>
-      </SidebarScroller>
 
       {/* Secondary nav — Approvals + Notifications + Settings. Inconspicuous,
           sits just above the user/footer separator. No active inversion;
@@ -1199,8 +1225,10 @@ export function Sidebar({
         </div>
       </div>
 
+      </SidebarScroller>
+
       {/* Footer — account menu. Theme toggle lives in TopBar. */}
-      <div className="px-1 pt-3 mt-3 border-t border-[var(--border-subtle)]">
+      <div className="shrink-0 px-1 pt-3 mt-3 border-t border-[var(--border-subtle)]">
         <SidebarAccountMenu
           user={user}
           collapsed={railCollapsed}
