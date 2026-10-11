@@ -689,10 +689,12 @@ export function WorkspaceMembersPage() {
               const rawRole = String(m.role || 'member').toLowerCase();
               const isRowOwner = rawRole === 'owner';
               const memberKey = m.user_id || m.id;
-              const canEditRow =
-                canManage && !isRowOwner && !isSamePrincipal(me, memberKey);
-              const canRemove =
-                canManage && !isRowOwner && !isSamePrincipal(me, memberKey);
+              const protectedPeer = rawRole === 'admin' ||
+                m.can_create_apps === true || m.can_create_tracks === true;
+              const canEditRow = canManage && !isRowOwner &&
+                !isSamePrincipal(me, memberKey) &&
+                (myRole === 'owner' || !protectedPeer);
+              const canRemove = canEditRow;
               return (
                 <div
                   key={m.id}
@@ -736,7 +738,7 @@ export function WorkspaceMembersPage() {
                             })
                           }
                         >
-                          {ASSIGNABLE_ROLES.map(r => (
+                          {ASSIGNABLE_ROLES.filter(r => myRole === 'owner' || r !== 'admin').map(r => (
                             <option key={r} value={r}>
                               {r.charAt(0).toUpperCase() + r.slice(1)}
                             </option>
@@ -745,7 +747,8 @@ export function WorkspaceMembersPage() {
                         <label className="flex items-center gap-1.5 cursor-pointer">
                           <input
                             type="checkbox"
-                            checked={Boolean(m.can_create_apps)}
+                            checked={m.can_create_apps === true}
+                            disabled={myRole !== 'owner'}
                             onChange={e =>
                               patchMember(memberKey, {
                                 can_create_apps: e.target.checked
@@ -757,7 +760,8 @@ export function WorkspaceMembersPage() {
                         <label className="flex items-center gap-1.5 cursor-pointer">
                           <input
                             type="checkbox"
-                            checked={Boolean(m.can_create_tracks)}
+                            checked={m.can_create_tracks === true}
+                            disabled={myRole !== 'owner'}
                             onChange={e =>
                               patchMember(memberKey, {
                                 can_create_tracks: e.target.checked

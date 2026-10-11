@@ -918,3 +918,135 @@ remain open. Nested issuance now denies before effects until deferred outer
 commit delivery exists. The owner UI has rendered test coverage, not
 independent-account browser qualification. No GitHub CI, deployment or release
 claim. Commit/push proceeds on the single authorized branch.
+
+
+### M3 invitation milestone pushed; member-source foundation in progress
+
+Invitation foundation commit `3b49c29bf8fc24ae5269599d82a78bb3cf6981be` is
+pushed on the single authorized branch; a fresh remote read returned that SHA.
+
+Direct membership management now delegates to a current service boundary.
+Ordinary administrators cannot assign administrator/creation rights, change
+themselves, or edit/remove protected administrator/creator peers. Generic
+member APIs cannot change the owner. Updates retain the membership ID and join
+time, advance a technical grant revision, and preserve unrelated edge facts.
+Duplicate additions fail without replacing existing rights. Self departure
+remains distinct and cleans current grants within the shared workspace fence.
+The UI matches these ceilings; two rendered interaction cases pass.
+
+PostgreSQL writes and before/after audit intent commit together; postcommit
+sink failures retain recoverable intent. Fault-injection covers add, update
+and remove rollback. Independent pools qualify demotion versus invitation
+acceptance and another member addition. The first race run exposed the pinned
+adapter's cold collection bootstrap deadlock on a one-connection pool. The
+common transaction seam now prepares Core collections through bounded public
+reads before acquisition, once per live adapter. A separate cold-pool test
+qualifies this fix; race pools are preinitialized to isolate the authority lock.
+
+HTTP probes showed the endpoint binder coercing strings/numbers despite a
+StrictBool annotation. Original JSON is now admitted with a schema; query
+rights and supplied nulls are rejected. Service kwargs independently require
+actual bools. Creator-curator grants survive legitimate membership edits,
+while role round trips advance the captured invitation baseline and conflict.
+Invitation upgrades mirror legacy revisions; invitation audit snapshots now
+include requested flags, original/adopted membership binding and grant baseline.
+
+Retained focused receipts: focused-1 JSON124/PG128 passes plus two bootstrap
+timeouts; focused-2 UI2 passes and JSON188 passes plus eight coercion failures;
+focused-3 JSON196/PG204 passes plus one incorrect test return-shape expectation.
+Focused-4 passed JSON202/PG211 cases without skips/failures/errors and UI2;
+its formatter lane requested one contract-test reformat. Source jobs are terminal
+before edits. Full staged/Core-only/extension/PostgreSQL/full-suite gates remain
+pending. No new member-source commit or finding/use-case closure yet.
+
+Invariant review: I-GRAPH-01 keeps rooted workspace/resource cleanup; I-GRAPH-02
+reuses Object-shaped outbox facts; membership vocabulary remains separate from
+I-ROLE-01's canonical resource ladder. I-CRUD-01 removes membership graph writes
+from API handlers; I-EXT-01 remains domain-neutral and receives Core-only and
+module-boundary qualification. Complete identity/source/release fences, all peer
+writers, offboarding blocks, migration/restore and independent browser evidence
+remain part of the active whole-goal ledger.
+
+
+### User-designated live smoke model
+
+The user requires DeepSeek 4.1 Flash Cloud for live smoke testing. The current
+local Ollama inventory reports `deepseek-v4.1-flash:cloud`, remote model
+`deepseek-v4.1-flash` at `https://ollama.com`. An actual request through the
+current Core LiteLLM/Pydantic model transport returned `READY` on
+`ollama_chat/deepseek-v4.1-flash:cloud`; its physical request observations are
+retained at `/tmp/integral-access-deepseek-transport-smoke.json`. No workspace
+data or tool was supplied in that transport check. It does not establish native
+conversation persistence, workspace authorization, browser behavior or complete
+ACL qualification. A synthetic native tool/readback smoke is prepared as a
+separate opt-in lane. Deterministic pytest smoke contracts continue alongside
+real cloud smoke; their passing counts cannot be attributed to model inference.
+
+The separate native smoke now passed on isolated PostgreSQL: **1 passed,
+zero skips/failures/errors**. Real DeepSeek Flash Cloud calls completed capability
+search and `integral_get_app`, returned the exact owned synthetic App name,
+finished the native turn and persisted an API-readable transcript. Physical
+model steps identify the requested route. The first JSON attempt correctly
+refused nontransactional session activation; the first PostgreSQL attempt passed
+its body but failed teardown on LiteLLM tokenizer environment mutation. The
+repaired fixture contained that setting and the complete rerun passed.
+[Sanitized receipt](deepseek-native-smoke.json) records source attribution,
+model steps and evidence digests. This in-process authenticated fixture does
+not qualify independent-account browser behavior, all ACL cases or migrations.
+The membership full repository gate remains live; no new commit is claimed.
+
+
+### Next producer convergence: grant history remains open
+
+Two current rooted JSON probes independently confirm remaining AC-21 stale
+baseline defects. `viewer → editor → viewer` preserves the collaborator edge
+identity, leaves `grant_revision=0`, and restores the exact baseline fingerprint.
+Workspace membership `absent → member → absent` returns the identical
+`absent-v1` baseline after actual canonical add/remove calls. Failed security
+assertions are retained at `/tmp/integral-collaborator-revision-gap-2.xml` and
+`/tmp/integral-absent-membership-baseline-gap.xml`; neither is counted as a pass.
+The current membership milestone preserves existing edge revisions but does
+not yet preserve negative history after deletion. All invitation, membership,
+collaboration, share, departure and ownership writers need a common versioned
+source history and fence. Suspension and re-entry policy remain separate
+explicit controls; history alone does not manufacture a permanent deny.
+
+The next relationship-clock helper was prepared outside the frozen checkout
+at `/tmp/integral-grant-history-next/` with candidate typed membership and
+collaboration history edges. Independent candidate tests passed **13 JSON
+cases with one explicit PostgreSQL-only skip** and **14 PostgreSQL cases with
+zero skips/failures/errors**, including joint grant/history rollback. They
+check absent/create/remove/recreate, role roundtrips, no-op stability, malformed
+clock denial, recipient/target binding and untracked-write denial. Logs/XML:
+`/tmp/integral-grant-history-candidate-json-2.{log,xml}` and
+`/tmp/integral-grant-history-candidate-pg.{log,xml}`. These are helper candidate
+proofs, not integrated writer or complete invitation qualification. Apply and
+qualify the helper and all producers after the current frozen membership gate
+and milestone commit; preserve the failing current-source probes above.
+
+
+### M3 membership source foundation qualified for milestone commit
+
+The frozen membership source completed all six lanes with exit 0. Preflight
+staged guards, actual precommit, pinned formatting/lint and types passed;
+Core-only passed; extension passed 52 with 244 explicit PostgreSQL-only skips;
+the focused real PostgreSQL selection passed all 1,098 cases with no skips;
+and broader PostgreSQL spikes/contracts passed. `make verify` passed the
+CI-faithful smoke (1,211 passed / 11 skipped), all 1,590 frontend cases in 282
+files and full backend suite (5,534 passed / 320 skipped), with no failures or
+errors. The reproducible wheel/import gate passed with SHA-256
+`b7339a64439a1ca2062b627d0b348b57f56aa9b18463ded6730c30333a47f732`.
+Logs, terminal coordinator status and XML remain under
+`/tmp/integral-membership-full-2*`. Full-1 stopped on an unused import after
+passing guards; that import was removed before this complete passing run.
+The failed preflight record remains retained.
+
+The separate designated DeepSeek native smoke passed as recorded above.
+These results qualify this participating source-writer foundation for the
+authorized milestone commit/push. They do not close AC-09/21, other findings
+or U01–U76: negative source history, complete producer convergence, explicit
+delegation, identity/release fencing, suspension, migration/restore and
+independent-account browser/MCP remain required. The next implementation is
+the qualified relationship-clock candidate and all producer cutovers, including
+legacy notification acceptance and provision/account lifecycle paths found in
+the producer inventory. No PR, release or deployment is authorized here.

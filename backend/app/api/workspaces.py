@@ -37,6 +37,7 @@ from app.schemas.avatar import (
     AvatarValidationError,
     AvatarVariant,
 )
+from app.schemas.workspace_membership import WorkspaceMembershipInput
 from app.schemas.workspace_provisioning import WorkspaceProvisioningSummary
 from app.services.app_graph import catalog_workspace
 from app.services.attachment_storage import get_attachment_storage_service
@@ -44,7 +45,7 @@ from app.services.authority_facts import relationship_flag, relationship_literal
 from app.services.avatar_resize import resize_avatar
 from app.services.change_event import emit_change_event
 from app.services.host_hooks import enrich_workspace_export
-from app.services.permissions import get_user_node, member_edge_bool
+from app.services.permissions import get_user_node
 from app.services.workspace_permissions import (
     can_access_workspace,
     count_owned_personal_workspaces,
@@ -57,16 +58,24 @@ from app.utils.time import utc_now_iso
 
 logger = logging.getLogger(__name__)
 
-ORG_MEMBER_ROLES = {"admin", "member", "guest"}
 
+async def _validate_raw_member_rights(request: Request) -> None:
+    """Reject raw HTTP rights coercion; in-process kwargs are service-validated.
 
-def _invalidate_member_permission_cache(member: Any) -> None:
-    """Clear graph-ID and auth-principal cache entries after membership writes."""
-    from app.services.permissions_process_cache import invalidate_user_aliases
-
-    # HTTP authorization resolves by AuthUser id, while member endpoints
-    # receive a graph User id. Either key may hold a cached resolve_role.
-    invalidate_user_aliases(member)
+    The pinned endpoint binder reduces Annotated StrictBool to bool. Validate
+    the original JSON with the schema before trusting the bound parameters.
+    Rights supplied via query strings are not JSON booleans and are refused.
+    """
+    if request.method not in {"POST", "PATCH"}:
+        return
+    fields = {"role", "can_create_apps", "can_create_tracks"}
+    if any(field in request.query_params for field in fields):
+        raise BadRequestError(message="Membership rights must be supplied as JSON")
+    try:
+        body = await request.json()
+        WorkspaceMembershipInput.model_validate(body)
+    except ValueError as exc:
+        raise BadRequestError(message="Invalid membership rights") from exc
 
 
 # Suggested workspace-type categories surfaced in the UI. The set is
@@ -104,15 +113,6 @@ def _validate_workspace_type(value: Optional[str]) -> str:
             message="workspace_type may contain only letters, digits, '-' or '_'"
         )
     return raw
-
-
-def _validate_member_role(role: str) -> str:
-    normalized = str(role or "").strip().lower()
-    if normalized not in ORG_MEMBER_ROLES:
-        raise BadRequestError(
-            message=f"role must be one of: {', '.join(sorted(ORG_MEMBER_ROLES))}"
-        )
-    return normalized
 
 
 async def _caller_member_creation_flags(
@@ -715,45 +715,19 @@ async def add_workspace_member(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    ws, _ = await _require_workspace_role(workspace_id, user_id, "admin")
-    if ws.kind == "personal":
-        raise BadRequestError(message="Personal workspaces have no members to manage")
+    from app.services.workspace_membership import add_member
+
+    await _validate_raw_member_rights(request)
     if not member_user_id:
         raise BadRequestError(message="member_user_id is required")
-    validated_role = _validate_member_role(role)
-    member = await get_user_node(member_user_id)
-    if not member:
-        raise ResourceNotFoundError(message="User not found")
-    now = utc_now_iso()
-    await member.connect(
-        ws,
-        edge=IS_MEMBER_OF,
-        role=validated_role,
-        joined_at=now,
+    return await add_member(
+        actor_id=user_id,
+        workspace_id=workspace_id,
+        member_id=member_user_id,
+        role=role,
         can_create_apps=can_create_apps,
         can_create_tracks=can_create_tracks,
     )
-    _invalidate_member_permission_cache(member)
-    await emit_change_event(
-        actor_kind="human",
-        actor_id=user_id,
-        action="workspace.member_add",
-        resource_type="Workspace",
-        resource_id=ws.id,
-        before=None,
-        after={
-            "workspace_id": ws.id,
-            "member_user_id": member.id,
-            "role": validated_role,
-        },
-        scope=f"user:{user_id}",
-    )
-    return {
-        "message": "Member added",
-        "workspace_id": ws.id,
-        "member_user_id": member.id,
-        "role": validated_role,
-    }
 
 
 @endpoint(
@@ -774,116 +748,17 @@ async def patch_workspace_member(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    ws, _ = await _require_workspace_role(workspace_id, user_id, "admin")
-    if ws.kind == "personal":
-        raise BadRequestError(message="Personal workspaces have no members to manage")
-    member = await get_user_node(member_user_id)
-    if not member:
-        raise ResourceNotFoundError(message="User not found")
-    if await is_workspace_owner(member.id, ws.id):
-        raise BadRequestError(
-            message="Cannot change the workspace owner via members API"
-        )
+    from app.services.workspace_membership import update_member
 
-    if role is None and can_create_apps is None and can_create_tracks is None:
-        raise BadRequestError(message="No fields to update")
-    if role is not None:
-        role = _validate_member_role(role)
-
-    ctx = await member.get_context()
-    edges = await ctx.find_edges_between(
-        source_id=member.id, target_id=ws.id, edge_class=IS_MEMBER_OF
-    )
-    if not edges:
-        raise ResourceNotFoundError(message="User is not a member of this workspace")
-
-    e0 = edges[0]
-    old_role = getattr(e0, "role", None)
-    if old_role is None:
-        rctx = getattr(e0, "context", None)
-        old_role = rctx.get("role", "member") if isinstance(rctx, dict) else "member"
-    old_cs = member_edge_bool(e0, "can_create_apps")
-    old_ct = member_edge_bool(e0, "can_create_tracks")
-    old_joined_at = getattr(e0, "joined_at", None)
-    if not old_joined_at:
-        jctx = getattr(e0, "context", None)
-        old_joined_at = jctx.get("joined_at") if isinstance(jctx, dict) else None
-    new_role = role if role is not None else old_role
-    new_cs = old_cs if can_create_apps is None else can_create_apps
-    new_ct = old_ct if can_create_tracks is None else can_create_tracks
-
-    # Role changes are a delete-then-recreate of IS_MEMBER_OF, and there is no
-    # cross-entity transaction. A failure between the two steps used to leave
-    # the member with no membership edge at all -- silently evicted from the
-    # workspace by what was meant to be a role tweak.
-    #
-    # The ordering is deliberately delete-first: recreating first and deleting
-    # after would, on failure, leave BOTH edges present, and a demotion would
-    # silently retain the old higher role. Losing access fails closed; retaining
-    # privilege fails open. So keep the safe ordering and add a rollback.
-    for edge in edges:
-        await edge.delete()
-    try:
-        await member.connect(
-            ws,
-            edge=IS_MEMBER_OF,
-            role=new_role,
-            joined_at=utc_now_iso(),
-            can_create_apps=new_cs,
-            can_create_tracks=new_ct,
-        )
-    except Exception:
-        try:
-            await member.connect(
-                ws,
-                edge=IS_MEMBER_OF,
-                role=old_role,
-                joined_at=old_joined_at or utc_now_iso(),
-                can_create_apps=old_cs,
-                can_create_tracks=old_ct,
-            )
-        except Exception:  # pragma: no cover - restore-of-a-restore
-            logger.error(
-                "workspace.member_update: failed to apply the new membership "
-                "edge AND failed to restore the previous one for user=%s "
-                "workspace=%s. The member now has NO membership edge and must "
-                "be re-added.",
-                member.id,
-                ws.id,
-            )
-        raise
-
-    # The permission process cache aggregates per user. Without this, a
-    # demotion (admin -> guest) keeps serving the old role for up to
-    # PERMISSION_PROCESS_CACHE_TTL seconds. remove_workspace_member already
-    # invalidates; this path did not.
-    _invalidate_member_permission_cache(member)
-
-    await emit_change_event(
-        actor_kind="human",
+    await _validate_raw_member_rights(request)
+    return await update_member(
         actor_id=user_id,
-        action="workspace.member_update",
-        resource_type="Workspace",
-        resource_id=ws.id,
-        before=None,
-        after={
-            "workspace_id": ws.id,
-            "member_user_id": member.id,
-            "role": new_role,
-            "can_create_apps": new_cs,
-            "can_create_tracks": new_ct,
-        },
-        scope=f"user:{user_id}",
+        workspace_id=workspace_id,
+        member_id=member_user_id,
+        role=role,
+        can_create_apps=can_create_apps,
+        can_create_tracks=can_create_tracks,
     )
-
-    return {
-        "message": "Member updated",
-        "workspace_id": ws.id,
-        "member_user_id": member.id,
-        "role": new_role,
-        "can_create_apps": new_cs,
-        "can_create_tracks": new_ct,
-    }
 
 
 @endpoint(
@@ -901,38 +776,11 @@ async def remove_workspace_member(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    ws, _ = await _require_workspace_role(workspace_id, user_id, "admin")
-    if ws.kind == "personal":
-        raise BadRequestError(message="Personal workspaces have no members to manage")
-    member = await get_user_node(member_user_id)
-    if not member:
-        raise ResourceNotFoundError(message="User not found")
-    if await is_workspace_owner(member.id, ws.id):
-        raise BadRequestError(message="Cannot remove the workspace owner")
+    from app.services.workspace_membership import remove_member
 
-    from app.services.workspace_departure import remove_workspace_membership
-
-    await remove_workspace_membership(member=member, workspace_id=ws.id)
-
-    await emit_change_event(
-        actor_kind="human",
-        actor_id=user_id,
-        action="workspace.member_remove",
-        resource_type="Workspace",
-        resource_id=ws.id,
-        before=None,
-        after={"workspace_id": ws.id, "member_user_id": member.id},
-        scope=f"user:{user_id}",
+    return await remove_member(
+        actor_id=user_id, workspace_id=workspace_id, member_id=member_user_id
     )
-
-    # Revoked workspace access — drop the removed member's cached access
-    # aggregates so they stop seeing workspace-visible resources immediately.
-    _invalidate_member_permission_cache(member)
-    return {
-        "message": "Member removed",
-        "workspace_id": ws.id,
-        "removed_member_id": member.id,
-    }
 
 
 @endpoint(
@@ -951,40 +799,11 @@ async def leave_workspace(request: Request, workspace_id: str) -> Dict[str, Any]
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    ws = await Workspace.get(workspace_id)
-    if not ws:
-        raise ResourceNotFoundError(message="Workspace not found")
-    if await is_workspace_owner(user_id, ws.id):
-        raise BadRequestError(
-            message="Workspace owners cannot leave; transfer ownership or delete the workspace"
-        )
+    from app.services.workspace_membership import remove_member
 
-    member = await get_user_node(user_id)
-    if not member:
-        raise ResourceNotFoundError(message="User not found")
-    from app.services.workspace_departure import remove_workspace_membership
-
-    removed = await remove_workspace_membership(
-        member=member, workspace_id=ws.id, clear_active_workspace=True
+    return await remove_member(
+        actor_id=user_id, workspace_id=workspace_id, member_id=user_id, leave=True
     )
-
-    if removed:
-        _invalidate_member_permission_cache(member)
-        await emit_change_event(
-            actor_kind="human",
-            actor_id=user_id,
-            action="workspace.member_leave",
-            resource_type="Workspace",
-            resource_id=ws.id,
-            before={"workspace_id": ws.id, "member_user_id": member.id},
-            after=None,
-            scope=f"user:{user_id}",
-        )
-
-    return {
-        "message": "Workspace removed from your list",
-        "workspace_id": ws.id,
-    }
 
 
 @endpoint(

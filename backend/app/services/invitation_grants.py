@@ -51,6 +51,10 @@ async def _current_grant(source_id: str, target_id: str, edge: Any) -> dict | No
     revision = row["context"].get("grant_revision", 0)
     if type(revision) is not int or revision < 0:
         raise AuthorizationUnavailableError()
+    if "grant_revision" in row and (
+        type(row["grant_revision"]) is not int or row["grant_revision"] != revision
+    ):
+        raise AuthorizationUnavailableError()
     return row
 
 
@@ -172,6 +176,8 @@ async def apply_invitation_grant(
         return _receipt(row, "unchanged", edge, ranks)
     updates = {f"context.{key}": value for key, value in values.items()}
     updates.update({key: value for key, value in values.items() if key in row})
+    if "grant_revision" in row:
+        updates["grant_revision"] = row["context"].get("grant_revision", 0) + 1
     result = await database.find_one_and_update(
         "edge",
         {"id": row["id"], "entity": edge.__name__},

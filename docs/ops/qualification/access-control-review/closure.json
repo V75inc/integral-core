@@ -247,7 +247,8 @@
       "description": "**Accepted invitation metadata can overstate the resulting grant.** An existing viewer accepts an editor invitation; acceptance is saved as successful/editor while effective access remains viewer. `_materialize_invitation_grants` calls `ensure_edge`, which returns an existing edge without updating its attributes. Acceptance endpoints report the invitation's requested role rather than a verified effective result. Probe `test_accepted_invitation_reports_role_not_materialized`; `invitations.py::_materialize_invitation_grants`, `edge_upsert.py::ensure_edge`, `api/shared_with_me.py::post_accept_my_invitation`. This is a grant/receipt consistency defect, not an escalation. Define explicit existing-member/collaborator upgrade, no-op and conflict semantics, protected by version checks; never blindly overwrite newer grants.",
       "implementation": [],
       "verification": [
-        "Current external rooted JsonDB recheck: /tmp/integral-invitation-lifecycle-current-baseline.xml, three secure assertions failed, zero setup errors. Stale issuer, revoke-before-materialize and viewer/editor receipt mismatch persist. Independent PostgreSQL lifecycle qualification still required."
+        "Current external rooted JsonDB recheck: /tmp/integral-invitation-lifecycle-current-baseline.xml, three secure assertions failed, zero setup errors. Stale issuer, revoke-before-materialize and viewer/editor receipt mismatch persist. Independent PostgreSQL lifecycle qualification still required.",
+        "Current rooted JSON producer probes: collaborator viewer/editor/viewer retains revision 0 and exact issuance baseline; membership absent/add/remove returns the same absent-v1 baseline. Failed security assertions retained in /tmp/integral-collaborator-revision-gap-2.xml and /tmp/integral-absent-membership-baseline-gap.xml. These gaps require persistent negative grant history and all-writer revision adoption; they are not closed by current invitation outcome receipts."
       ]
     }
   ],
@@ -1094,13 +1095,14 @@
     }
   ],
   "qualification": {
-    "full_local_gate": "Latest creator curation foundation passed make verify: 1096 smoke passes (10 skips), 1583 frontend passes, 5419 backend passes (300 skips). Final goal-wide gate remains pending.",
+    "full_local_gate": "Membership source foundation passed make verify: 1211 smoke passes (11 skips), 1590 frontend passes, 5534 backend passes (320 skips). Full goal-wide gate remains pending.",
     "postgres_multiprocess": "pending",
-    "core_only_contract": "Creator curation foundation passed Core-only; extension 52 passed / 232 skips; focused PostgreSQL 836 passed / zero skips; broader PostgreSQL passed with one explicit restore skip. Final goal-wide qualification remains pending.",
+    "core_only_contract": "Membership source foundation passed Core-only, extension (52 passed / 244 PostgreSQL-only skips), focused PostgreSQL (1098 passed / zero skips) and broader PostgreSQL spikes/contracts. Final goal-wide qualification remains pending.",
     "independent_artifacts": "pending",
     "browser_mcp": "pending",
     "migration_restore": "pending",
-    "latest_milestone": "M2-model-creator-curation-foundation"
+    "latest_milestone": "M3-workspace-membership-source-foundation",
+    "live_smoke_model": "Designated ollama_chat/deepseek-v4.1-flash:cloud passed current Core cloud transport and native PostgreSQL tool/readback smoke (1 passed, no skips/failures/errors). See deepseek-native-smoke.json. Synthetic authenticated fixture; independent-account browser, complete ACL, effect, migration and restore smoke remain pending."
   },
   "milestones": [
     {
@@ -1546,7 +1548,7 @@
     },
     {
       "id": "M3-invitation-authority-working",
-      "status": "qualified_partial",
+      "status": "pushed_partial",
       "implementation": [
         "Current canonical issuer/target authority at workspace and resource issuance service boundaries",
         "Owner-only administrator/creation delegation until explicit scoped administration grants exist",
@@ -1640,7 +1642,45 @@
         "frontend_passed": 1588,
         "wheel_sha256": "5eb7745d64d8a98ef8fa2281cf80235738e21e8d7a526e3514f6ceb9cb5a17ed",
         "branch": "codex/access-control-review"
-      }
+      },
+      "commit": "3b49c29bf8fc24ae5269599d82a78bb3cf6981be",
+      "remote_verified": true
+    },
+    {
+      "id": "M3-workspace-membership-source-foundation",
+      "status": "qualified_partial",
+      "implementation": [
+        "Current service-boundary admission for add, patch, remove and self departure; generic member editing cannot mutate owner membership",
+        "Ordinary administrator cannot assign administrator/creation rights, alter its own rights, or edit/remove protected administrator/creator peers; owner and ordinary App authority remain separate",
+        "Primary unique membership facts reject invalid roles, flags, duplicate sources and malformed/conflicting technical revisions",
+        "Updates preserve membership identity, joined_at and other relationship facts while advancing grant_revision; duplicate additions conflict without replacing rights",
+        "PostgreSQL membership writers and departure join the shared workspace authorization fence; admin demotion orders invitation consumption and peer member additions across independent pools",
+        "Member audit intent records before/after roles, flags, lifetime and actual revision in the same PostgreSQL unit; sink failure retains recoverable outbox facts",
+        "Raw HTTP JSON schema refuses boolean string/number/null coercion and query rights; rendered owner/admin controls match current ceilings",
+        "Core transaction seam prepares persistence collections once per live database before acquisition, avoiding pinned-adapter cold single-connection bootstrap deadlock",
+        "Invitation upgrade mirrors legacy technical revision when present; invitation audit includes requested flags, original/adopted membership source and grant baseline"
+      ],
+      "evidence": [
+        "Focused-1: 124 JSON passes; PostgreSQL 128 passes / 2 cold one-connection bootstrap timeouts; retained failed receipt",
+        "Focused-2: rendered UI 2 passes; JSON 188 passes / 8 raw HTTP boolean coercion failures despite StrictBool annotation; repaired raw JSON admission",
+        "Focused-3: 196 JSON passes; PostgreSQL 204 passes / 1 test return-shape assertion mismatch; denial already returned pending invitation and error, not None",
+        "Focused-4: 202 JSON / 211 PostgreSQL passes, zero skips/failures/errors; rendered UI 2 passes; pinned formatter then requested one contract-test reformat; full qualification pending",
+        "Full-1 stopped at preflight on unused import after all guards passed; repaired before the new complete run. Failed receipt /tmp/integral-membership-full-1.status.json retained.",
+        "Full-2 all six lanes exit 0: staged guards/precommit/pinned format/lint/types, Core-only, extension 52 passes / 244 explicit skips, focused PostgreSQL 1098 passes / zero skips, broader PostgreSQL spikes/contracts and make verify.",
+        "Full make verify: backend 5534 passed / 320 explicit skips; CI-faithful smoke 1211 passed / 11 skips; frontend 1590 passed / 282 files; zero failures/errors. Reproducible wheel SHA256 b7339a64439a1ca2062b627d0b348b57f56aa9b18463ded6730c30333a47f732.",
+        "Designated DeepSeek Flash Cloud native PostgreSQL smoke: 1 passed / no skips/errors/failures; actual tool and transcript readback, source/model receipts in deepseek-native-smoke.json."
+      ],
+      "limits": [
+        "No whole review finding or use-case closure. This is a participating member-source writer foundation.",
+        "Identity-before-workspace ordering, all collaborator/share/service/canonical transfer writers, source dependency history, suspension/reentry blocks and restore/migration remain open.",
+        "Low-level departure cleanup is fenced, but its callers must provide current human/service authorization and complete lifecycle audit integration.",
+        "JSON/memory path has local ordering only; no distributed fence or transaction rollback claim.",
+        "Current delegation ceiling reserves protected rights to the owner until explicit scoped administrator grants exist.",
+        "No independent-account browser/MCP, GitHub CI, production migration, deployment or release qualification.",
+        "Current external role-roundtrip and absent/member/absent probes still fail secure stale-baseline requirements. Persistent negative grant history and all-writer cutover are the next required integration, not a closure claim."
+      ],
+      "source_head": "3b49c29bf8fc24ae5269599d82a78bb3cf6981be",
+      "staged_runtime_diff_sha256": "0515946433fbbb79582c34439b8272fc99a4dd0908356a792aefb063e53c5674"
     }
   ],
   "baseline_evidence": {
