@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source_head": "c7c51216",
-  "runtime_state": "R1 first checkpoint qualified: canonical member provisioning and notification consent; remaining package integration open.",
+  "runtime_state": "R1 primary-proof/policy/directory milestone qualified; AC-03 and AC-15 local defects closed; lifecycle, declarative delegation, shared effect/release and R4 integration remain open.",
   "findings": [
     {
       "id": "AC-01",
@@ -35,16 +35,25 @@
     {
       "id": "AC-03",
       "package": "R1",
-      "status": "in_progress",
+      "status": "closed",
       "existing_implementation": [
-        "Complete serialized Resource cache identity; no payload/effect memoization"
+        "Remove policy-decision memoization until every policy writer has an admitted durable revision; each call rechecks current policies and full Resource inputs. Payload/approval effects never use cached allow."
       ],
       "named_baseline_assertions": [
         "test_policy_cache_ignores_scope_and_tags",
         "test_event_subscription_decision_cache_crosses_track_scope"
       ],
       "acceptance_requirement": "**Policy memoization omits inputs that change the decision.** Key contains subject/action/resource kind/id, but omits scope, entry type, tags, approval payload and policy revision. An allowed request can authorize another scope in the same context. The event subscription helper uses constant kind/id, so two Track scopes collide directly. `policy_engine.py:685`; `middleware/permissions_cache.py:15`; `event_subscription_registry.py:94`. Probes `test_policy_cache_ignores_scope_and_tags`, `test_event_subscription_decision_cache_crosses_track_scope`. Include complete immutable decision inputs; do not cache effect/approval creation. Start fresh, live authorization for each event.",
-      "closure_rule": "Current source must satisfy the defect regression and relevant package exit; historical failures and suite totals alone do not establish closure."
+      "closure_rule": "Current source must satisfy the defect regression and relevant package exit; historical failures and suite totals alone do not establish closure.",
+      "current_evidence": [
+        "test_access_perimeter_regressions.py::test_policy_memo_distinguishes_complete_resource",
+        "test_access_perimeter_regressions.py::test_write_policy_is_not_memoized_across_payloads",
+        "test_access_perimeter_regressions.py::test_policy_reduction_is_seen_within_same_request",
+        "test_access_perimeter_regressions.py::test_live_event_rechecks_entry_and_revocation",
+        "test_policy_engine.py::test_policy_decision_rechecks_on_second_call",
+        "primary_directory_policy_qualification.json"
+      ],
+      "remaining": []
     },
     {
       "id": "AC-04",
@@ -197,13 +206,23 @@
     {
       "id": "AC-15",
       "package": "R1",
-      "status": "open",
-      "existing_implementation": [],
+      "status": "closed",
+      "existing_implementation": [
+        "Unify legacy App/Track directory review with owner/admin/protected-owner governance; readers receive reduced standing only. Workspace member directory requires administration. Public Track mention candidates remain current named participants, minimally projected without global user search or email enrichment."
+      ],
       "named_baseline_assertions": [
         "test_viewer_legacy_collaborators_enumerates_other_people"
       ],
       "acceptance_requirement": "**Directory privacy differs by endpoint.** A viewer receives a reduced `/access`, but legacy `/apps/{id}/collaborators` returns other people and roles. Any guest can list the workspace member pool; public Track mention candidates can search graph Users. `sharing.py:959`; `api/apps.py:901`; `api/tracks.py:765,1076`; `api/workspaces.py:663`. Probe `test_viewer_legacy_collaborators_enumerates_other_people`. Define separately permission to read content, mention eligible people, and inspect access administration. Apply it consistently, with minimal user-field projections.",
-      "closure_rule": "Current source must satisfy the defect regression and relevant package exit; historical failures and suite totals alone do not establish closure."
+      "closure_rule": "Current source must satisfy the defect regression and relevant package exit; historical failures and suite totals alone do not establish closure.",
+      "current_evidence": [
+        "test_access_directory_contract.py::test_reader_cannot_enumerate_legacy_access_but_owner_can",
+        "test_access_directory_contract.py::test_guest_member_pool_is_restricted_to_administration",
+        "test_access_directory_contract.py::test_public_track_mention_picker_cannot_search_global_users",
+        "test_mention_candidates.py::TestMentionCandidatesEndpoint::test_public_visibility_does_not_expand_to_global_search",
+        "primary_directory_policy_qualification.json"
+      ],
+      "remaining": []
     },
     {
       "id": "AC-16",
@@ -1107,7 +1126,7 @@
     "Pending notification cutover retained and qualified"
   ],
   "known_reporting_limits": [
-    "2/22 findings and 0/76 journeys are closed after exact AC-16 evidence reconciliation; these counts are not implementation-effort estimates.",
+    "4/22 findings and 0/76 journeys are closed; closure counts are not implementation-effort estimates.",
     "R0 establishes complete primary ownership and requirement backlog; full test-to-surface mapping is completed while closing each bounded change, not through a second whole-repository audit.",
     "Original assessment descriptions remain historical baseline evidence; repaired tests must be tied to current source."
   ]

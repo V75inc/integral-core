@@ -31,8 +31,6 @@ from app.services.app_operations.transaction_scope import (
 from app.services.authentication import get_authentication_service
 from app.services.authority_facts import (
     primary_auth_record,
-    primary_node_record,
-    required_node_text,
 )
 from app.services.email_identity import verified_current_email
 from app.services.email_service import render_member_provision_email, send_email
@@ -212,33 +210,8 @@ async def provision_workspace_member(
                 )
             if auth_user is not None:
                 user_node = await get_user_node(auth_user.id)
-                proof_row = (
-                    await primary_node_record(
-                        get_default_context().database, User, user_node.id
-                    )
-                    if user_node
-                    else None
-                )
-                if proof_row is not None and (
-                    type(proof_row["context"].get("email_verified")) is not bool
-                    or (
-                        "email_verified" in proof_row
-                        and (
-                            type(proof_row["email_verified"]) is not bool
-                            or proof_row["email_verified"]
-                            != proof_row["context"]["email_verified"]
-                        )
-                    )
-                ):
-                    raise AuthorizationUnavailableError()
                 if (
                     user_node is None
-                    or proof_row is None
-                    or proof_row["context"].get("email_verified") is not True
-                    or required_node_text(
-                        proof_row, "verified_email", allow_empty=True
-                    ).lower()
-                    != email_norm
                     or await verified_current_email(user_node) != email_norm
                 ):
                     raise InsufficientPermissionsError(

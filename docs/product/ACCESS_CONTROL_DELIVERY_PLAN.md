@@ -1,10 +1,10 @@
 # Access-control delivery reset
 
-Date: 11 October 2026. Status: authorized execution resumed; R1 collaboration baseline milestone under qualification. Branch: `codex/access-control-review`. Last committed milestone: `c7c51216`. This document governs sequencing and checkpoints; ACCESS_CONTROL_CONTRACT.md remains normative and ACCESS_CONTROL_PLAN.md retains the detailed requirements. No requirement is silently removed.
+Date: 11 October 2026. Status: authorized execution resumed; R1 primary-proof/policy/directory checkpoint qualified; R2/R3 parallel preparation. Branch: `codex/access-control-review`. Last committed milestone: `cb8670df`. This document governs sequencing and checkpoints; ACCESS_CONTROL_CONTRACT.md remains normative and ACCESS_CONTROL_PLAN.md retains the detailed requirements. No requirement is silently removed.
 
 ## Reassessment
 
-The branch contains substantial implementation, but its closure ledger is stale and mixes historical failures with current qualification. The ledger has 1/22 findings closed and 0/76 use cases closed; these are recorded closure counts, not estimates of code completion or effort remaining. AC-02 contains unrelated member-provision evidence; AC-21 and AC-22 still include qualification language predating subsequent repairs/gates. Reconcile evidence before reporting a new completion percentage. Do not bulk-close rows from test totals.
+The branch contains substantial implementation, but its closure ledger is stale and mixes historical failures with current qualification. At reassessment the ledger had 1/22 findings closed and 0/76 use cases closed; these are recorded closure counts, not estimates of code completion or effort remaining. AC-02 contains unrelated member-provision evidence; AC-21 and AC-22 still include qualification language predating subsequent repairs/gates. Reconcile evidence before reporting a new completion percentage. Do not bulk-close rows from test totals.
 
 The notification cutover is staged and uncommitted. Its focused PostgreSQL and designated DeepSeek smoke passed. Its comprehensive run was interrupted on user instruction and is incomplete, not passed or a product failure. Preserve it and the prior failed characterization receipts. Member provisioning has an import-broken HTTP route and separately reproduced direct-service mailbox/delegation defects. Both require repair; restoring the route alone would expose an unsafe service.
 

@@ -1,0 +1,116 @@
+{
+  "source_base": "cb8670df",
+  "state": "required full gates passed; exact final hook/commit/push pending",
+  "runtime_diff_sha256": "6e56f83a84049979f2bab005846629d9d7a1d58a1e26c60be75e55a55d5cec22",
+  "evidence": [
+    {
+      "path": "/tmp/integral-primary-directory-policy-1-json.xml",
+      "counts": {
+        "tests": 147,
+        "failures": 5,
+        "errors": 0,
+        "skipped": 2,
+        "passed": 140
+      },
+      "sha256": "949b2639823491c5796e13cc3211423bdb55000c19f09a21984db01f3dce7feb"
+    },
+    {
+      "path": "/tmp/integral-primary-directory-policy-2-json.xml",
+      "counts": {
+        "tests": 147,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 2,
+        "passed": 145
+      },
+      "sha256": "6660069365741a456b14a0f0b512698a40bb557afdfe29ed3629b78066c22935"
+    },
+    {
+      "path": "/tmp/integral-primary-directory-policy-2-postgres.xml",
+      "counts": {
+        "tests": 147,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 1,
+        "passed": 146
+      },
+      "sha256": "4ada1e7a5e53cb2d05bc5ad73b3bbefa5a8656ff7d25f4ef09969df5d617727b"
+    },
+    {
+      "path": "/tmp/integral-primary-directory-deepseek-1-postgres.xml",
+      "counts": {
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 1
+      },
+      "sha256": "3e0d679e42aca0e4aa39fdc410269a8c2872d435b4c648f138b3c2b2d6d3c7f7"
+    }
+  ],
+  "changes": [
+    "Primary exact mailbox proof replaces cached/hydrated proof and duplicate provision checks",
+    "Policy decisions are re-evaluated instead of memoized without durable policy revision",
+    "Legacy access directories share owner/admin/protected governance contract; readers get explicit reduced standing",
+    "Member pool requires administrative authority",
+    "Public mention picker is constrained to current named resource participants and minimal profile fields"
+  ],
+  "live_model": "ollama_chat/deepseek-v4.1-flash:cloud",
+  "limits": [
+    "Synthetic in-process authenticated accounts; not independent browser/MCP or production deployment proof",
+    "Directory pagination, full capability UX and universal identity/effect/release fencing remain separate open obligations",
+    "Retain first-run code regressions and obsolete-contract assertion failures; no acceptance derived from them"
+  ],
+  "supplemental": "Visibility compatibility and isolated sharing import recheck: 29 JSON and 29 PostgreSQL passes; no skips/failures/errors. Earlier visibility failure and import-cycle collection error retained in /tmp/integral-directory-visibility-{3,4} receipts.",
+  "nonblocking_login": "42 JSON and 42 PostgreSQL passes, zero skips/failures/errors. Real login and /auth/me succeed with unavailable proof; proof cannot admit a grant. Shared helper converts uncertain proof reads to explicit authorization-unavailable.",
+  "retained_gate_failures": [
+    "full-1 unused import preflight",
+    "full-2 missing readable visibility hint in reduced directory response",
+    "full-3 duplicate variable mypy preflight",
+    "full-4 interrupted to add nonblocking account projection; no pass claim"
+  ],
+  "qualification": {
+    "state": "passed",
+    "backend": {
+      "path": "/tmp/integral-primary-directory-policy-full-5.xml",
+      "sha256": "ef07a87ffdbc42c8b6919ca4f88bf9915ea005940ddce870e41244bfc74ee386",
+      "counts": {
+        "tests": 5938,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 332,
+        "passed": 5606
+      }
+    },
+    "ci_smoke": {
+      "path": "/tmp/integral-primary-directory-policy-full-5-smoke.xml",
+      "sha256": "a0b15bd51046756f82e9d2eb4b09a7ed6e4153aa00b4cca7e3197c13c58388ac",
+      "counts": {
+        "tests": 1297,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 13,
+        "passed": 1284
+      }
+    },
+    "extension": {
+      "path": "/tmp/integral-primary-directory-policy-full-5-extension.xml",
+      "sha256": "6207cf586755da5091f8420884c425a991ee0c5c9c61c43e6bc31eccbc48826d",
+      "counts": {
+        "tests": 301,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 249,
+        "passed": 52
+      }
+    },
+    "frontend": {
+      "passed": 1590,
+      "files_passed": 282
+    },
+    "core_only": "passed",
+    "wheel_sha256": "5a9556b9bf25bc679d0246cfc8cddc39e3274b326b6e91e933a1a2a5623b47d7",
+    "runtime_diff_sha256": "6e56f83a84049979f2bab005846629d9d7a1d58a1e26c60be75e55a55d5cec22"
+  },
+  "live_smoke_source_limit": "Fresh designated cloud smoke covers primary-proof/directory/policy runtime changes. Later login projection fallback, sharing lazy import and readable visibility hint preserve normal native/tool boundary; not a fresh provider run from the final wheel."
+}

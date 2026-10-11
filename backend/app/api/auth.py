@@ -51,7 +51,7 @@ from app.services.authentication import (
     get_authentication_service,
 )
 from app.services.change_event import emit_change_event
-from app.services.email_identity import email_proof_matches, verified_current_email
+from app.services.email_identity import verified_current_email
 from app.services.email_verification import (
     ERR_ALREADY_VERIFIED,
     ERR_ATTEMPTS_EXCEEDED,
@@ -112,7 +112,17 @@ async def _self_user_view(user: User) -> Dict[str, Any]:
             target["preferences"] = _scrub_sensitive_preferences(
                 target.get("preferences")
             )
-    verified = bool(await verified_current_email(user))
+    from app.exceptions import AuthorizationUnavailableError
+
+    try:
+        verified = bool(await verified_current_email(user))
+    except AuthorizationUnavailableError:
+        # Optional mailbox status cannot gate ordinary account login. This
+        # projection is never mailbox admission; grant callers still fail closed.
+        verified = False
+        user_data["email_verification_unavailable"] = True
+        if isinstance(context, dict):
+            context["email_verification_unavailable"] = True
     user_data["email_verified"] = verified
     if isinstance(context, dict):
         context["email_verified"] = verified
@@ -555,7 +565,7 @@ async def resend_verification(request: Request) -> Dict[str, Any]:
     email = getattr(auth_user, "email", "") or ""
     if not email:
         raise BadRequestError(message="No email address on file")
-    if email_proof_matches(user, email):
+    if await verified_current_email(user) == email:
         return {"ok": True, "message": "Email already verified"}
 
     # Rate-limit: if an unexpired code is already pending, don't generate a
