@@ -146,6 +146,7 @@ async def _sync_reference_edges(
                 field_key=field_key,
                 relation_type="operational_model",
                 cross_track=allow_cross_track,
+                target_app_id=(rel.get("target_app_ids") or {}).get(str(target_id)),
             )
 
 

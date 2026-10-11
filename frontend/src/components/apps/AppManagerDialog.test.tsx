@@ -2,6 +2,7 @@
  * AppManagerDialog — install-only Apply; per-row Uninstall.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { registerInstallDenialResolver } from '../../host/registry';
 import type { ComponentProps } from 'react';
 import {
   render,
@@ -161,7 +162,10 @@ describe('AppManagerDialog', () => {
       LIB_OTHER_WORKSPACE,
     ]);
   });
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    registerInstallDenialResolver(null);
+  });
 
   it('hides private templates belonging to another workspace', async () => {
     renderDialog();
@@ -382,4 +386,105 @@ describe('AppManagerDialog', () => {
     expect(mockBatchInstall).toHaveBeenCalledTimes(1);
   });
 
+  it("offers the host action for a failed row in a partially successful batch", async () => {
+    const onAction = vi.fn();
+    const onChanged = vi.fn();
+    const failure = {
+      library_cp_id: "lib-hr",
+      name: "HR Suite",
+      error: "Raw access denial",
+      error_code: "access.required",
+      details: { required_capability: "example" },
+    };
+    const resolver = vi.fn((err: unknown) =>
+      err === failure
+        ? {
+            message: "Review your app access.",
+            actionLabel: "Review access",
+            onAction,
+          }
+        : null,
+    );
+    registerInstallDenialResolver(resolver);
+    mockBatchInstall.mockResolvedValue({
+      installed: [{ library_cp_id: "lib-other", name: "Another app" }],
+      skipped: [],
+      failed: [failure],
+    });
+    renderDialog({ onChanged });
+    fireEvent.click(
+      (await screen.findByTestId("app-manager-row-hr-suite")).querySelector(
+        "button",
+      )!,
+    );
+    fireEvent.click(screen.getByTestId("app-manager-apply"));
+    expect(
+      await screen.findByText("HR Suite — Review your app access."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("HR Suite — Review your app access.").tagName).toBe('P');
+    expect(screen.queryByText(/Raw access denial/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Review access" }));
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(resolver).toHaveBeenCalledWith(failure);
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    expect(mockBatchInstall).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves an unmapped installation failure without promising recovery", async () => {
+    mockBatchInstall.mockResolvedValue({
+      installed: [],
+      skipped: [],
+      failed: [
+        {
+          library_cp_id: "lib-hr",
+          name: "HR Suite",
+          error: "Unsupported configuration",
+          error_code: "install_failed",
+        },
+      ],
+    });
+    renderDialog();
+    fireEvent.click(
+      (await screen.findByTestId("app-manager-row-hr-suite")).querySelector(
+        "button",
+      )!,
+    );
+    fireEvent.click(screen.getByTestId("app-manager-apply"));
+    expect(
+      await screen.findByText("HR Suite — Unsupported configuration"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Review access" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("explains a blocked dependency without retrying the install", async () => {
+    mockBatchInstall.mockResolvedValue({
+      installed: [],
+      skipped: [],
+      failed: [
+        {
+          library_cp_id: "lib-hr",
+          name: "HR Suite",
+          error: "Dependency blocked",
+          error_code: "app_dependency_error",
+        },
+      ],
+    });
+    renderDialog();
+    fireEvent.click(
+      (await screen.findByTestId("app-manager-row-hr-suite")).querySelector(
+        "button",
+      )!,
+    );
+    fireEvent.click(screen.getByTestId("app-manager-apply"));
+    expect(
+      await screen.findByText(
+        /Resolve the required app installation or update/,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'App change results' })).toBeInTheDocument();
+    expect(screen.getByText(/Resolve the required app installation or update/).tagName).toBe('P');
+    expect(mockBatchInstall).toHaveBeenCalledTimes(1);
+  });
 });

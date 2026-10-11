@@ -772,7 +772,7 @@ async def export_qualification_run(request: Request, run_id: str) -> Dict[str, A
     if payload is None:
         # Do not reveal whether a run exists outside the caller's scope.
         raise ResourceNotFoundError(message="Run not found")
-    return QualificationRunExport.model_validate(payload).model_dump()
+    return QualificationRunExport.model_validate(payload).model_dump(mode="json")
 
 
 @endpoint(

@@ -51,8 +51,8 @@ from app.exceptions import (
     CrossAppTargetNotFoundError,
     CrossWorkspaceTargetRejectedError,
 )
-from app.models.edges import REFERENCES
-from app.models.nodes import App, Entry
+from app.models.edges import CONTAINS, REFERENCES
+from app.models.nodes import App, Entry, EntryType, Track
 from app.schemas.cross_app_relations import (
     CrossAppRelationLabel,
     RestrictedRelationStub,
@@ -226,20 +226,47 @@ def _app_matches_key(app_node: App, target_app_key: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-async def validate_cross_app_relation_set(
+async def canonical_relation_app(track: Track) -> Optional[App]:
+    """Resolve unique graph containment; a scalar hint cannot choose an App."""
+    parents = await track.nodes(
+        edge=[CONTAINS], node=["WorkspaceApp"], direction="in", limit=2
+    )
+    if len(parents) > 1:
+        raise BadRequestError(
+            message="Relation target Track has ambiguous App containment"
+        )
+    parent = parents[0] if parents else None
+    if parent and parent.workspace_id != track.workspace_id:
+        raise BadRequestError(
+            message="Relation App containment is outside the Track workspace"
+        )
+    return parent
+
+
+async def assert_relation_entry_containment(target: Entry, track: Track) -> None:
+    """A target's Track pointer and its canonical CONTAINS edge must agree."""
+    parents = await target.nodes(
+        edge=[CONTAINS], node=["Track"], direction="in", limit=2
+    )
+    if len(parents) != 1 or parents[0].id != track.id:
+        raise BadRequestError(
+            message="Relation target Entry has invalid Track containment"
+        )
+    if target.type_id:
+        target_type = await EntryType.get(target.type_id)
+        if target_type is None or target_type.track_id != track.id:
+            raise BadRequestError(
+                message="Relation target Entry type does not belong to its Track"
+            )
+
+
+async def resolve_cross_app_relation_target(
     *,
     source_app: App,
     relation_spec: Dict[str, Any],
     target_entry_id: str,
-    viewer_subject: Subject,
 ) -> Tuple[str, App, Entry]:
-    """Validate a single cross-App relation reference (one target entry id).
-
-    Returns ``(target_app_id, target_app, target_entry)`` on success.
-
-    Raises BadRequestError-family for steps 1-4 failures; relays
-    CrossAppPermissionDenied on step 5.
-    """
+    """Resolve declared App ownership before authorization or materialization."""
     # Step 1: allow_cross_app: true.
     if not bool(relation_spec.get("allow_cross_app", False)):
         raise BadRequestError(
@@ -291,13 +318,55 @@ async def validate_cross_app_relation_set(
             ),
             details={"target_entry_id": target_entry_id},
         )
-    # NOTE: target_track_types / target_entry_types matching mirrors the
-    # intra-App _validate_relation_values logic. Caller is responsible for
-    # passing the resolved relation_spec dict (post-compile). The runtime here
-    # accepts the spec verbatim — if the manifest declares a target_track_types
-    # filter, callers should already have validated against it before calling
-    # this function. This service focuses on the cross-App-specific gates.
+    target_track = await Track.get(target_entry.track_id)
+    if target_track is None or target_track.workspace_id != source_app.workspace_id:
+        raise BadRequestError(
+            message="Relation target Track must be in the source workspace"
+        )
+    await assert_relation_entry_containment(target_entry, target_track)
+    actual_app = await canonical_relation_app(target_track)
+    if actual_app is None or actual_app.id != target_app_id:
+        raise BadRequestError(
+            message="Relation target Entry does not belong to the declared App"
+        )
+    allowed_tracks = {
+        slug_manifest_key(str(x)) for x in relation_spec.get("target_track_types") or []
+    }
+    track_key = slug_manifest_key(str(target_track.template_id or target_track.title))
+    if allowed_tracks and track_key not in allowed_tracks:
+        raise BadRequestError(message="Relation target Track type is not allowed")
+    allowed_types = {
+        slug_manifest_key(str(x)) for x in relation_spec.get("target_entry_types") or []
+    }
+    if allowed_types:
+        target_type = (
+            await EntryType.get(target_entry.type_id) if target_entry.type_id else None
+        )
+        aliases = set()
+        if target_type:
+            aliases.add(slug_manifest_key(target_type.name))
+            key = (target_type.form_schema or {}).get("_manifest_entry_type_key")
+            if key:
+                aliases.add(slug_manifest_key(str(key)))
+        if not aliases.intersection(allowed_types):
+            raise BadRequestError(message="Relation target Entry type is not allowed")
 
+    return target_app_id, target_app, target_entry
+
+
+async def validate_cross_app_relation_set(
+    *,
+    source_app: App,
+    relation_spec: Dict[str, Any],
+    target_entry_id: str,
+    viewer_subject: Subject,
+) -> Tuple[str, App, Entry]:
+    """Validate declared containment and current entry.read for one target."""
+    target_app_id, target_app, target_entry = await resolve_cross_app_relation_target(
+        source_app=source_app,
+        relation_spec=relation_spec,
+        target_entry_id=target_entry_id,
+    )
     # Step 5: caller has entry.read permission via policy_engine.evaluate.
     decision = await policy_evaluate(
         subject=viewer_subject,

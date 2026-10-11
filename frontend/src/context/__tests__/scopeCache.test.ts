@@ -22,12 +22,15 @@ describe('removeUnscopedCachesOnWorkspaceSwitch', () => {
     qc.setQueryData(['tracks', 'list', 'app', 'app-1'], []);
     qc.setQueryData(['tracks', 'list', 'for-bindings'], []);
     qc.setQueryData(['tracks', 'for-library-merge'], []);
+    qc.setQueryData(['connectors', 'list'], ['old']);
+    qc.setQueryData(['connectors', 'con-1', 'bindings'], ['old']);
+    qc.setQueryData(['connectors', 'list', 'user-1', 'ws-new'], ['new']);
 
     removeUnscopedCachesOnWorkspaceSwitch(qc);
 
-    // One removeQueries per unscoped prefix + one predicate for unscoped tracks lists.
+    // One per prefix plus predicates for legacy tracks and connector keys.
     expect(removeSpy).toHaveBeenCalledTimes(
-      WORKSPACE_SWITCH_UNSCOPED_PREFIXES.length + 1,
+      WORKSPACE_SWITCH_UNSCOPED_PREFIXES.length + 2,
     );
     for (const prefix of WORKSPACE_SWITCH_UNSCOPED_PREFIXES) {
       expect(removeSpy).toHaveBeenCalledWith({ queryKey: [prefix] });
@@ -45,6 +48,9 @@ describe('removeUnscopedCachesOnWorkspaceSwitch', () => {
     expect(qc.getQueryData(['tracks', 'list', 'app', 'app-1'])).toBeUndefined();
     expect(qc.getQueryData(['tracks', 'list', 'for-bindings'])).toBeUndefined();
     expect(qc.getQueryData(['tracks', 'for-library-merge'])).toBeUndefined();
+    expect(qc.getQueryData(['connectors', 'list'])).toBeUndefined();
+    expect(qc.getQueryData(['connectors', 'con-1', 'bindings'])).toBeUndefined();
+    expect(qc.getQueryData(['connectors', 'list', 'user-1', 'ws-new'])).toEqual(['new']);
   });
 });
 

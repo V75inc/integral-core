@@ -9,9 +9,10 @@
  */
 
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, cleanup, waitFor } from '@testing-library/react';
+import { act, render, screen, cleanup, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ConfirmProvider } from '../../../context/ConfirmContext';
 import '@testing-library/jest-dom/vitest';
 
 vi.mock('../../../api/approvals', () => ({
@@ -37,6 +38,7 @@ vi.mock('../../../context/CrumbsContext', () => ({
 }));
 
 import * as agentiveApi from '../../../api/agentive';
+import * as approvalsApi from '../../../api/approvals';
 import { ApprovalsPage } from '../ApprovalsPage';
 
 const stagedChange = {
@@ -53,14 +55,15 @@ function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter>
+      <ConfirmProvider><MemoryRouter>
         <ApprovalsPage />
-      </MemoryRouter>
+      </MemoryRouter></ConfirmProvider>
     </QueryClientProvider>,
   );
 }
 
 beforeEach(() => {
+  vi.mocked(approvalsApi.listApprovals).mockResolvedValue({ approvals: [], next_cursor: null, has_more: false });
   vi.mocked(agentiveApi.listPendingStagedChanges).mockResolvedValue([]);
 });
 
@@ -70,6 +73,33 @@ afterEach(() => {
 });
 
 describe('ApprovalsPage empty state', () => {
+  it('does not announce all clear while the proposal read is still loading', async () => {
+    let release!: (rows: never[]) => void;
+    vi.mocked(agentiveApi.listPendingStagedChanges).mockReturnValueOnce(new Promise(resolve => { release = resolve; }));
+    renderPage();
+    expect(await screen.findByText('Checking approvals…')).toBeInTheDocument();
+    expect(screen.queryByText('All clear')).not.toBeInTheDocument();
+    expect(screen.queryByText('No pending approvals')).not.toBeInTheDocument();
+    await act(async () => release([]));
+    expect(await screen.findByText('All clear')).toBeInTheDocument();
+  });
+
+  it('does not declare an unreadable proposal queue empty', async () => {
+    vi.mocked(agentiveApi.listPendingStagedChanges).mockRejectedValue(new Error('offline'));
+    renderPage();
+    expect(await screen.findByText('Could not refresh approvals')).toBeInTheDocument();
+    expect(screen.queryByText('All clear')).not.toBeInTheDocument();
+    expect(screen.queryByText('No pending approvals')).not.toBeInTheDocument();
+  });
+  it('reports a failed initial policy read instead of remaining in checking or all clear', async () => {
+    vi.mocked(approvalsApi.listApprovals).mockRejectedValue(new Error('policy queue offline'));
+    renderPage();
+    expect(await screen.findByText('Could not refresh approvals')).toBeInTheDocument();
+    expect(screen.queryByText('Checking approvals…')).not.toBeInTheDocument();
+    expect(screen.queryByText('All clear')).not.toBeInTheDocument();
+    expect(screen.queryByText('No pending approvals')).not.toBeInTheDocument();
+  });
+
   it('says nothing is pending only when both queues are empty', async () => {
     renderPage();
     expect(await screen.findByText('No pending approvals')).toBeInTheDocument();

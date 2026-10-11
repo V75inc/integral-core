@@ -10,6 +10,7 @@ export interface BatchInstallEntry {
   reason?: string | null;
   error?: string | null;
   error_code?: string | null;
+  details?: Record<string, unknown> | null;
   install_token?: string | null;
   settings_schema?: Record<string, unknown> | null;
 }
