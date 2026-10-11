@@ -267,7 +267,11 @@ remains visible; a failed refresh cannot silently discard known proposals.
 Technical details are secondary. A proposal need not have a chat session.
 The global Inbox counts and displays pending/blessed proposals alongside policy
 approvals; a loading or failed proposal read must not claim that all is clear.
-Typed App operation review renders the bound input as literal, read-only fields.
+Approved but unapplied proposals remain cancelable in chat, review, Approvals and
+Inbox, including after explicit tool refusal. These surfaces must not imply that
+execution or safe retry is underway; revoking approval does not assert rollback
+of partial effects. Workspace tool review and typed App operation review render
+the bound input as literal, read-only fields outside collapsed technical details.
 App schema titles and optional `x-review-order` arrays supply field presentation;
 order-critical presentation must not depend on object-member order. The bounded
 projection retains the sequence as a `property_order` array across storage. Every

@@ -123,7 +123,7 @@ function StagedChangeRow({
   // nothing invalidated the caches.
   //
   // No `onNeedsAgentNudge`: this surface has no conversation to nudge. When
-  // a bless lands without a write, the agent picks it up on its next turn.
+  // a bless lands without a write, do not imply execution or retry is underway.
   const [reviewOpen, setReviewOpen] = useState(false);
   const confirm = useConfirm();
   const controls = useStagedChange(staged, {
@@ -136,7 +136,7 @@ function StagedChangeRow({
     }),
   });
   const { busy, error, state, revoke } = controls;
-  const awaitingExecution = state === 'blessed';
+  const approved = state === 'blessed';
 
   return (
     <div className="flex items-start gap-3 rounded-lg border border-[var(--panel-border)] bg-[var(--nav-active-bg)] p-4">
@@ -149,8 +149,8 @@ function StagedChangeRow({
           {staged.summary}
         </Text>
         <Text as="p" variant="meta" tone="muted" className="mt-0.5 block">
-          {awaitingExecution
-            ? 'Authorized · waiting for the agent to apply it'
+          {approved
+            ? (error ? 'Approved · action incomplete' : 'Approved · not yet applied')
             : `Awaiting authorization · staged ${formatRelativeTime(staged.created_at)}`}
           <span className="mx-1.5" aria-hidden>
             ·
@@ -174,7 +174,7 @@ function StagedChangeRow({
           </div>
         )}
       </div>
-      {!awaitingExecution && (
+      {(state === 'pending' || approved) && (
         <div className="flex shrink-0 items-center gap-1">
           <button
             type="button"
@@ -189,7 +189,8 @@ function StagedChangeRow({
             type="button"
             disabled={busy}
             onClick={() => void revoke()}
-            aria-label="Reject staged change"
+            aria-label={approved ? 'Cancel approved change' : 'Reject staged change'}
+            title={approved ? 'Cancel approval' : 'Reject change'}
             className="rounded-lg p-1.5 text-[var(--danger-fg)] transition-colors hover:bg-[var(--nav-active-bg)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <X size={14} strokeWidth={LINE_ICON_STROKE} />

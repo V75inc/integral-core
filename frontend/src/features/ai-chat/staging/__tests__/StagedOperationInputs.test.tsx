@@ -79,6 +79,29 @@ describe('literal operation review', () => {
     expect(screen.getByText(/Inspect the complete input in Technical details/)).toBeInTheDocument();
     expect((proposal.diff_machine.input as typeof input).values).toHaveLength(300);
   });
+  it('renders exact workspace tool arguments outside technical details without trusting narrated replacements', () => {
+    const proposal = { ...staged({}), kind: 'call_workspace_tool',
+      diff_human: 'Narration says a different destination',
+      diff_machine: { op: 'call_workspace_tool', tool_key: 'prepare_artifact', input: {
+        entry_id: 'n.Entry.123abc', destination: 'Exact resource', fingerprint: 'a'.repeat(64),
+        enabled: false, options: [{ text: '<script>do not execute</script>' }],
+      } },
+    };
+    const before = JSON.stringify(proposal);
+    expect(operationInput(proposal)).toBe(proposal.diff_machine.input);
+    const { container } = render(<StagedOperationInputs staged={proposal} />);
+    expect(screen.getByText('Exact resource')).toBeInTheDocument();
+    expect(screen.getByText('a'.repeat(64))).toBeInTheDocument();
+    expect(screen.getByText('No')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Resolved record title' })).toBeInTheDocument();
+    expect(container.querySelector('script')).toBeNull();
+    expect(JSON.stringify(proposal)).toBe(before);
+  });
+  it('rejects mismatched tool kinds and non-object arguments', () => {
+    const proposal = { ...staged({}), kind: 'call_workspace_tool' };
+    expect(operationInput(proposal)).toBeNull();
+    expect(operationInput({ ...proposal, diff_machine: { op: 'call_workspace_tool', input: [] } })).toBeNull();
+  });
   it('only applies to a correctly shaped typed App operation', () => {
     expect(operationInput(staged(['not an object']))).toBeNull();
     expect(operationInput({ ...staged({ exact: 'value' }), kind: 'batch' })).toBeNull();
