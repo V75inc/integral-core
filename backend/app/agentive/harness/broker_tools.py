@@ -339,12 +339,34 @@ def _make_handler(
         )
 
         async def dispatch() -> Any:
+            connector_id = None
+            if capability_source == "connector":
+                from app.agentive.connectors.connector_resolution import ResolutionError
+                from app.agentive.connectors.tool_binding import (
+                    resolve_mounted_tool_connector,
+                )
+                from app.schemas.capability_broker import CapabilityResult
+
+                try:
+                    connector, _ = await resolve_mounted_tool_connector(
+                        workspace_id=scope.workspace_id,
+                        principal_id=scope.principal_id,
+                        capability_key=capability_name,
+                    )
+                except ResolutionError as exc:
+                    return CapabilityResult(
+                        ok=False,
+                        error_code=exc.error_code,
+                        message="Connector tool is unavailable in this scope.",
+                    )
+                connector_id = str(connector.id)
             return await invoke_declared(
                 principal_id=scope.principal_id,
                 workspace_id=scope.workspace_id,
                 capability_key=capability_name,
                 origin="chat",
                 source=capability_source,
+                connector_id=connector_id,
                 op_class=capability_op_class,
                 arguments=arguments,
                 run_id=scope.run_id,
@@ -376,6 +398,22 @@ def _make_handler(
                     await assert_chat_attachment_read_inputs(item=item)
                 result = await dispatch()
         model_result = _resource_links_for_model(result.for_model())
+        if (
+            capability_source == "connector"
+            and capability_op_class == "read"
+            and result.ok
+            and not result.replayed
+            and result.receipt is not None
+            and result.receipt.step_id
+        ):
+            from app.services.tool_source_observations import source_projection
+
+            if source_projection(result.data) is not None:
+                model_result["_observation_ref"] = {
+                    "kind": "tool_observation",
+                    "id": result.receipt.step_id,
+                    "session_id": scope.session_id,
+                }
         if capability_name == "integral_build_approved_design":
             call_state["build_succeeded"] = bool(result.ok)
             if not result.ok and result.error_code in {

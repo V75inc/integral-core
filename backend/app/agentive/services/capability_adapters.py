@@ -94,8 +94,37 @@ async def dispatch_capability(inv: CapabilityInvocation, cap: Dict[str, Any]) ->
             )
         from app.agentive.tooling.dispatch import dispatch_tool
 
+        dispatch_key = inv.capability_key
+        if inv.source == "connector" and inv.connector_id:
+            from app.agentive.connectors.mcp_mount import tool_key_for
+            from app.agentive.connectors.tool_binding import (
+                resolve_mounted_tool_connector,
+            )
+            from app.services.hooks.registry import get_workspace_tools
+
+            specs = get_workspace_tools(inv.workspace_id)
+            declared = specs.get(inv.capability_key) or {}
+            remote_name = str(declared.get("_mcp_remote_name") or "")
+            dispatch_key = tool_key_for(inv.connector_id, remote_name)
+            try:
+                row, bound_spec = await resolve_mounted_tool_connector(
+                    workspace_id=inv.workspace_id,
+                    principal_id=inv.principal_id,
+                    capability_key=dispatch_key,
+                )
+            except Exception as exc:
+                raise AdapterError(
+                    "capability.revoked", "Bound connector tool is unavailable"
+                ) from exc
+            if (
+                str(row.id) != inv.connector_id
+                or bound_spec.get("_mcp_remote_name") != remote_name
+            ):
+                raise AdapterError(
+                    "capability.revoked", "Bound connector tool is unavailable"
+                )
         result = await dispatch_tool(
-            inv.capability_key,
+            dispatch_key,
             arguments,
             principal_id=inv.principal_id,
             scope=inv.workspace_id,
