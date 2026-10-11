@@ -230,6 +230,23 @@ Rejection emits policy.deny with approval/original-action/agent/reason detail, n
 
 Every new ChangeEventAction appears in PolicyAction unless the canonical test whitelist identifies it as audit-only. Policy-only approval, migration, authoring, and conflict gates need no fabricated change-event twin. Update the existing definitions and tests together.
 
+### I-APPROVAL-04 — Agent App commands share the review boundary
+
+An agent invoking a typed App mutation through the generic wrapper or a directly
+materialized App capability stages the command without calling its handler.
+Read declarations execute immediately through the same authorized dispatcher.
+Human HTTP and SDK calls retain their explicit execution semantics. A command's
+declaration, inputs, App, workspace, principal, and idempotency identity are bound
+at preparation; review execution rechecks current permissions and the registered
+declaration. A changed declaration requires a new proposal. Rejection produces
+no App operation effect. Discovery, an open batch, or a skill's instruction text
+cannot confer an execution exemption. Durable autonomous-work admission remains
+a separate qualification requirement.
+
+Verification: `tests/test_app_operation_staging.py`, the operation contract and
+staging scope suites. Preserve I-SUBSTRATE-01, I-ROLE-01/02, I-APPROVAL-01/02,
+I-GRAPH-01/02, and I-WORK-05; this boundary adds no new internal actor bypass.
+
 ### I-UX-01 — One provenance presentation
 
 ProvenanceBadge is the sole frontend consumer choosing source styling/popovers. Human, agent, connector, and system variants stay aligned with ActorKind. All relevant surfaces reuse it. Legacy default provenance does not establish a confirmed origin. Add a variant only with backend/frontend type and presentation updates.
