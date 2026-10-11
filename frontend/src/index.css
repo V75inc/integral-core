@@ -1117,6 +1117,13 @@
      left rail tracks the main content's downward shift. Layered on
      the sidebar's own width/transform/padding transition (Tailwind's
      `transition-[…]` utility omits top/height by default). */
+  .sidebar-shell {
+    padding-block: clamp(12px, 3dvh, 28px);
+  }
+  .sidebar-brand {
+    margin-bottom: clamp(16px, 8dvh, 72px);
+  }
+  .sidebar-rail-scroll { overflow-y: auto; overflow-x: hidden; }
   .system-bar-sidebar {
     transition:
       width 200ms ease-out,
@@ -1274,7 +1281,7 @@
     left: 0;
     display: flex;
     width: min(20rem, 100cqw);
-    max-height: min(70vh, 34rem);
+    max-height: min(70dvh, 34rem, var(--settings-menu-space, 70dvh));
     flex-direction: column;
     gap: 0.125rem;
     overflow-y: auto;

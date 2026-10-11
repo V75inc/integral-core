@@ -37,6 +37,28 @@ describe('Settings navigation', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Find a setting' }), { target: { value: 'nonexistent' } });
     expect(screen.getByText('No matching settings.')).toBeInTheDocument();
   });
+  it('keeps the compact menu inside a short viewport as it resizes', () => {
+    show();
+    const trigger = screen.getByRole('button', { name: /Settings menu/ });
+    const originalHeight = window.innerHeight;
+    Object.defineProperty(window, 'innerHeight', { value: 350, configurable: true });
+    const bounds = vi.spyOn(trigger, 'getBoundingClientRect').mockReturnValue({ top: 250, bottom: 294 } as DOMRect);
+    try {
+      fireEvent.click(trigger);
+      const menu = document.getElementById('settings-compact-nav')!;
+      expect(menu.style.bottom).toBe('calc(100% + 0.5rem)');
+      expect(menu.style.getPropertyValue('--settings-menu-space')).toBe('234px');
+      bounds.mockReturnValue({ top: 80, bottom: 124 } as DOMRect);
+      Object.defineProperty(window, 'innerHeight', { value: 300, configurable: true });
+      fireEvent(window, new Event('resize'));
+      expect(menu.style.top).toBe('calc(100% + 0.5rem)');
+      expect(menu.style.getPropertyValue('--settings-menu-space')).toBe('160px');
+    } finally {
+      Object.defineProperty(window, 'innerHeight', { value: originalHeight, configurable: true });
+      bounds.mockRestore();
+    }
+  });
+
   it('focuses compact search and restores focus on Escape', () => {
     show();
     const trigger = screen.getByRole('button', { name: /Settings menu/ });
