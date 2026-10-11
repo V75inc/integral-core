@@ -1,7 +1,5 @@
 """Version-aware invitation grant changes and truthful terminal outcomes."""
 
-import hashlib
-import json
 from typing import Any
 
 from jvspatial.core.context import get_default_context
@@ -10,6 +8,12 @@ from app.exceptions import AuthorizationUnavailableError
 from app.models.edges import COLLABORATES_ON, IS_MEMBER_OF
 from app.services.authority_facts import relationship_flag, relationship_literal
 from app.services.entry_write_scope import is_postgres_entry_transaction
+from app.services.grant_history import (
+    grant_baseline,
+    grant_baseline_matches,
+    record_grant_change,
+    unresolved_grant_baseline,
+)
 from app.services.permissions import ROLE_RANK
 
 ABSENT_GRANT = "absent-v1"
@@ -58,21 +62,6 @@ async def _current_grant(source_id: str, target_id: str, edge: Any) -> dict | No
     return row
 
 
-def _fingerprint(row: dict | None) -> str:
-    if row is None:
-        return ABSENT_GRANT
-    # This technical version field is introduced on legacy rows while locking;
-    # absence denotes its pre-versioning zero, never an implicit role grant.
-    normalized = dict(row)
-    normalized["context"] = dict(row["context"])
-    normalized["context"].setdefault("grant_revision", 0)
-    return hashlib.sha256(
-        json.dumps(
-            normalized, sort_keys=True, separators=(",", ":"), allow_nan=False
-        ).encode()
-    ).hexdigest()
-
-
 def _receipt(row: dict | None, outcome: str, edge: Any, ranks: dict) -> dict:
     """Describe the stored role and flags, including an absent conflicted grant."""
     return {
@@ -95,10 +84,15 @@ async def capture_grant_baseline(
     user_id: str | None, target_id: str, *, workspace_membership: bool
 ) -> str:
     """Bind issuance to the exact observed existing grant, or explicit absence."""
-    if user_id is None:
-        return ABSENT_GRANT
     edge = IS_MEMBER_OF if workspace_membership else COLLABORATES_ON
-    return _fingerprint(await _current_grant(user_id, target_id, edge))
+    if user_id is None:
+        return unresolved_grant_baseline(target_id, edge)
+    return await grant_baseline(
+        source_id=user_id,
+        target_id=target_id,
+        grant_class=edge,
+        grant=await _current_grant(user_id, target_id, edge),
+    )
 
 
 async def invitation_effective_role(invitation: Any, user_id: str) -> str | None:
@@ -141,7 +135,13 @@ async def apply_invitation_grant(
             {"$inc": {"context.grant_revision": 0}},
         )
         row = await _current_grant(user.id, target.id, edge) if locked else None
-    if _fingerprint(row) != baseline:
+    if not await grant_baseline_matches(
+        baseline=baseline,
+        source_id=user.id,
+        target_id=target.id,
+        grant_class=edge,
+        grant=row,
+    ):
         return _receipt(row, "conflict", edge, ranks)
     if row is None:
         fields = {"role": role, **metadata}
@@ -153,6 +153,9 @@ async def apply_invitation_grant(
         created = await _current_grant(user.id, target.id, edge)
         if created is None:
             raise AuthorizationUnavailableError()
+        await record_grant_change(
+            source=user, target=target, grant_class=edge, before=None, after=created
+        )
         return _receipt(created, "created", edge, ranks)
     old_role = relationship_literal(row, "role", ranks)
     new_role = role if ranks[role] > ranks[old_role] else old_role
@@ -188,4 +191,7 @@ async def apply_invitation_grant(
     current = await _current_grant(user.id, target.id, edge)
     if current is None:
         raise AuthorizationUnavailableError()
+    await record_grant_change(
+        source=user, target=target, grant_class=edge, before=row, after=current
+    )
     return _receipt(current, "upgraded", edge, ranks)

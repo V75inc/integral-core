@@ -1,0 +1,40 @@
+{
+  "finding": "AC-22",
+  "result": "reproduced_disclosure",
+  "date": "2026-10-11",
+  "formatter_source_head": "05a8d0280e34fa65e9de354865d5f430c5cd349c",
+  "model": "ollama_chat/deepseek-v4.1-flash:cloud",
+  "tool": "integral_get_app",
+  "tool_result": {
+    "error": true,
+    "error_code": "forbidden",
+    "message": "Policy denied app.read"
+  },
+  "synthetic_private_name": "Synthetic Forbidden Cloud App Secret 2026-10-11",
+  "wire_disclosed_private_name": true,
+  "inspected_model_request_private_marker_matches": [],
+  "cause": "Recipient-free host ID humanization resolved private graph metadata after the model emitted the denied resource ID.",
+  "evidence": [
+    {
+      "path": "/tmp/integral-grant-history-deepseek-native-smoke-pg-1.xml",
+      "sha256": "64260ccd2bb002616bd3c526543af67fc96974b898db9828cf736dd581841a4d"
+    },
+    {
+      "path": "/tmp/integral-grant-history-deepseek-native-smoke-pg-2.xml",
+      "sha256": "bedbe01e6089170d84aa58eab2591d9795a18635c77875e69216c91d376178c9"
+    },
+    {
+      "path": "/tmp/integral-grant-history-deepseek-native-failed-1-denied-sse.txt",
+      "sha256": "bffbedd3583b97401e435c471177b4a4bbe4840cff36d212375838c7b2d7afe5"
+    },
+    {
+      "path": "/tmp/integral-grant-history-deepseek-context-observations.json",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    }
+  ],
+  "limits": [
+    "Synthetic in-process authenticated native fixture, not independent-account browser or production authentication proof.",
+    "Working source also contained uncommitted grant-history changes; the unscoped formatter itself is unchanged from formatter_source_head.",
+    "Failed smoke is not a qualified current repair pass."
+  ]
+}

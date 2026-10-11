@@ -48,12 +48,18 @@ from app.models.nodes import (
 )
 from app.schemas.audit import ChangeEventAction
 from app.services.change_event import emit_change_event
+from app.services.grant_history import grant_baseline, record_grant_change
 from app.services.permissions import (
     get_user_node,
     resolve_role,
 )
 from app.services.permissions_process_cache import (
     invalidate_user_aliases as _invalidate_perm_cache,
+)
+from app.services.sharing_write_scope import (
+    collaboration_mutation,
+    emit_sharing_change,
+    sharing_write_scope,
 )
 from app.utils.time import utc_now_iso
 
@@ -72,34 +78,24 @@ VALID_ROLES: Tuple[str, ...] = ("owner", "admin", "editor", "commenter", "viewer
 
 async def _load_resource(resource_type: ResourceType, resource_id: str) -> Any:
     if resource_type == "app":
-        return await App.get(resource_id)
+        return await App.find_one({"id": resource_id})
     if resource_type == "track":
-        return await Track.get(resource_id)
+        return await Track.find_one({"id": resource_id})
     if resource_type == "entry":
-        return await Entry.get(resource_id)
+        return await Entry.find_one({"id": resource_id})
     return None
 
 
 async def _resource_workspace_id(
     resource_type: ResourceType, resource: Any
 ) -> Optional[str]:
-    """Return the workspace id of a resource by walking up to its anchor."""
-    if resource_type in ("app", "track"):
-        wid = getattr(resource, "workspace_id", "") or ""
-        return wid or None
-    if resource_type == "entry":
-        track_id = getattr(resource, "track_id", "") or ""
-        if not track_id:
-            tracks = await resource.nodes(
-                edge=["CONTAINS"], direction="in", node=["Track"]
-            )
-            if tracks:
-                track_id = tracks[0].id
-        if not track_id:
-            return None
-        track = await Track.get(track_id)
-        return getattr(track, "workspace_id", "") if track else None
-    return None
+    """Resolve canonical rooted containment, never scalar-cache fallback."""
+    from app.services.resource_location import MANAGEMENT_APP_STATES, locate_resource
+
+    location = await locate_resource(
+        resource_type, resource.id, allowed_app_states=MANAGEMENT_APP_STATES
+    )
+    return location.workspace_id if location is not None else None
 
 
 async def _resource_label(resource_type: ResourceType, resource: Any) -> str:
@@ -118,6 +114,22 @@ async def _resource_label(resource_type: ResourceType, resource: Any) -> str:
 
 
 async def _materialize_guest_membership(
+    collaborator: User, workspace_id: str, inviter_user_id: str, source_label: str = ""
+) -> bool:
+    if not workspace_id:
+        return False
+    async with sharing_write_scope(workspace_id):
+        current = await get_user_node(collaborator.id)
+        if current is None:
+            from app.api.errors import ResourceNotFoundError
+
+            raise ResourceNotFoundError(message="User not found")
+        return await _materialize_guest_membership_unlocked(
+            current, workspace_id, inviter_user_id, source_label
+        )
+
+
+async def _materialize_guest_membership_unlocked(
     collaborator: User,
     workspace_id: str,
     inviter_user_id: str,
@@ -126,25 +138,44 @@ async def _materialize_guest_membership(
     """Core guest-membership materialization — shared by add_collaborator."""
     if not workspace_id:
         return False
-    ws = await Workspace.get(workspace_id)
+    ws = await Workspace.find_one({"id": workspace_id})
     if not ws:
         return False
     now = utc_now_iso()
-    from app.services.edge_upsert import ensure_edge, find_existing_edge
+    from app.services.invitation_grants import _current_grant
 
-    existing = await find_existing_edge(collaborator, ws, IS_MEMBER_OF)
-    if existing:
+    existing = await _current_grant(collaborator.id, ws.id, IS_MEMBER_OF)
+    await grant_baseline(
+        source_id=collaborator.id,
+        target_id=ws.id,
+        grant_class=IS_MEMBER_OF,
+        grant=existing,
+    )
+    if existing is not None:
         return False
-    await ensure_edge(
-        collaborator,
+    await collaborator.connect(
         ws,
-        IS_MEMBER_OF,
+        edge=IS_MEMBER_OF,
         role="guest",
         joined_at=now,
         can_create_apps=False,
         can_create_tracks=False,
     )
-    await emit_change_event(
+    current = await _current_grant(collaborator.id, ws.id, IS_MEMBER_OF)
+    clock = await record_grant_change(
+        source=collaborator,
+        target=ws,
+        grant_class=IS_MEMBER_OF,
+        before=None,
+        after=current,
+    )
+    if current is None or clock is None:
+        from app.exceptions import AuthorizationUnavailableError
+
+        raise AuthorizationUnavailableError()
+    await emit_sharing_change(
+        clock=clock,
+        emitter=emit_change_event,
         actor_kind="human",
         actor_id=inviter_user_id,
         action="workspace.member_add",
@@ -211,9 +242,60 @@ async def revoke_workspace_resource_grants(
             edges = await ctx.find_edges_between(
                 user.id, resource.id, edge_class=edge_class
             )
-            for edge in edges:
-                await edge.delete()
+            before = None
+            current_resource = resource
+            if edge_class is COLLABORATES_ON:
+                from app.exceptions import AuthorizationUnavailableError
+
+                rows = await ctx.database.find(
+                    "edge",
+                    {
+                        "source": user.id,
+                        "target": resource.id,
+                        "entity": edge_class.__name__,
+                    },
+                    limit=2,
+                )
+                if len(rows) > 1:
+                    raise AuthorizationUnavailableError()
+                before = rows[0] if rows else None
+                await grant_baseline(
+                    source_id=user.id,
+                    target_id=resource.id,
+                    grant_class=edge_class,
+                    grant=before,
+                )
+                current_resource = await type(resource).find_one({"id": resource.id})
+                if current_resource is None:
+                    raise AuthorizationUnavailableError()
+            if edge_class is COLLABORATES_ON and before is not None:
+                # The complete primary image is authoritative. A malformed
+                # legacy grant can disappear from edge hydration; do not
+                # advance negative history while leaving its raw grant alive.
+                await ctx.database.delete("edge", before["id"])
+                remaining = await ctx.database.find(
+                    "edge",
+                    {
+                        "source": user.id,
+                        "target": resource.id,
+                        "entity": edge_class.__name__,
+                    },
+                    limit=1,
+                )
+                if remaining:
+                    raise AuthorizationUnavailableError()
                 deleted[key] += 1
+                await record_grant_change(
+                    source=user,
+                    target=current_resource,
+                    grant_class=edge_class,
+                    before=before,
+                    after=None,
+                )
+            elif edge_class is EXCLUDED_FROM:
+                for edge in edges:
+                    await edge.delete()
+                    deleted[key] += 1
 
     if deleted["collaborates_on"] or deleted["excluded_from"]:
         _invalidate_perm_cache(user)
@@ -405,6 +487,7 @@ async def _require_true_owner_for_owner_grant(
 # ---------------------------------------------------------------------------
 
 
+@collaboration_mutation
 async def add_collaborator(
     actor_user_id: str,
     resource_type: ResourceType,
@@ -452,18 +535,49 @@ async def add_collaborator(
             source_label=f"{resource_type}:{resource_id}",
         )
 
-    now = utc_now_iso()
-    from app.services.edge_upsert import ensure_edge
+    from app.services.invitation_grants import _current_grant
 
-    await ensure_edge(
-        collaborator,
+    before = await _current_grant(collaborator.id, resource_id, COLLABORATES_ON)
+    await grant_baseline(
+        source_id=collaborator.id,
+        target_id=resource_id,
+        grant_class=COLLABORATES_ON,
+        grant=before,
+    )
+    if before is not None:
+        # Add is not an implicit role replacement; report the actual stored grant.
+        actual_role = before["context"].get("role", before.get("role"))
+        _invalidate_perm_cache(collaborator)
+        return {
+            "resource_type": resource_type,
+            "resource_id": resource_id,
+            "collaborator_user_id": collaborator.id,
+            "role": actual_role,
+            "auto_added_to_workspace_pool": auto_added_guest,
+            "workspace_id": workspace_id,
+            "outcome": "unchanged",
+            "grant_id": before["id"],
+            "grant_revision": before["context"].get("grant_revision", 0),
+        }
+    await collaborator.connect(
         resource,
-        COLLABORATES_ON,
+        edge=COLLABORATES_ON,
         role=role,
-        invited_at=now,
+        invited_at=utc_now_iso(),
         invited_by=actor_user_id,
     )
+    current = await _current_grant(collaborator.id, resource_id, COLLABORATES_ON)
+    clock = await record_grant_change(
+        source=collaborator,
+        target=resource,
+        grant_class=COLLABORATES_ON,
+        before=None,
+        after=current,
+    )
+    if current is None or clock is None:
+        from app.exceptions import AuthorizationUnavailableError
 
+        raise AuthorizationUnavailableError()
     label = await _resource_label(resource_type, resource)
     await _emit_share_notification(
         recipient_user_id=collaborator.id,
@@ -474,7 +588,9 @@ async def add_collaborator(
         resource_id=resource_id,
     )
 
-    await emit_change_event(
+    await emit_sharing_change(
+        clock=clock,
+        emitter=emit_change_event,
         actor_kind="human",
         actor_id=actor_user_id,
         action=cast(ChangeEventAction, f"{resource_type}.collaborator_add"),
@@ -486,6 +602,9 @@ async def add_collaborator(
             "resource_id": resource_id,
             "collaborator_user_id": collaborator.id,
             "role": role,
+            "grant_id": current["id"],
+            "grant_revision": current["context"].get("grant_revision", 0),
+            "history_revision": clock["context"]["revision"],
         },
         scope=f"{resource_type}:{resource_id}",
     )
@@ -503,6 +622,7 @@ async def add_collaborator(
     }
 
 
+@collaboration_mutation
 async def update_collaborator_role(
     actor_user_id: str,
     resource_type: ResourceType,
@@ -543,28 +663,63 @@ async def update_collaborator_role(
     if collaborator is None:
         raise ResourceNotFoundError(message="User not found.")
 
-    ctx = await collaborator.get_context()
-    edges = await ctx.find_edges_between(
-        collaborator.id, resource_id, edge_class=COLLABORATES_ON
-    )
-    if not edges:
+    from jvspatial.core.context import get_default_context
+
+    from app.exceptions import AuthorizationUnavailableError
+    from app.services.authority_facts import relationship_literal
+    from app.services.invitation_grants import _current_grant
+
+    before = await _current_grant(collaborator.id, resource_id, COLLABORATES_ON)
+    if before is None:
         raise ResourceNotFoundError(
             message="No direct collaborator grant exists to update."
         )
-
-    edge = edges[0]
-    prior_role = (
-        getattr(edge, "role", None)
-        or (
-            (edge.context or {}).get("role")
-            if isinstance(getattr(edge, "context", None), dict)
-            else None
-        )
-        or "viewer"
+    await grant_baseline(
+        source_id=collaborator.id,
+        target_id=resource_id,
+        grant_class=COLLABORATES_ON,
+        grant=before,
     )
-    edge.role = role
-    await edge.save()
-
+    prior_role = relationship_literal(before, "role", VALID_ROLES)
+    if prior_role == role:
+        _invalidate_perm_cache(collaborator)
+        return {
+            "resource_type": resource_type,
+            "resource_id": resource_id,
+            "collaborator_user_id": collaborator.id,
+            "prior_role": prior_role,
+            "role": prior_role,
+            "outcome": "unchanged",
+            "grant_id": before["id"],
+            "grant_revision": before["context"].get("grant_revision", 0),
+        }
+    values = {"context.role": role}
+    if "role" in before:
+        values["role"] = role
+    if "grant_revision" in before:
+        values["grant_revision"] = before["context"].get("grant_revision", 0) + 1
+    result = await get_default_context().database.find_one_and_update(
+        "edge",
+        {
+            "id": before["id"],
+            "source": collaborator.id,
+            "target": resource_id,
+            "entity": COLLABORATES_ON.__name__,
+        },
+        {"$set": values, "$inc": {"context.grant_revision": 1}},
+    )
+    if result is None:
+        raise AuthorizationUnavailableError()
+    current = await _current_grant(collaborator.id, resource_id, COLLABORATES_ON)
+    clock = await record_grant_change(
+        source=collaborator,
+        target=resource,
+        grant_class=COLLABORATES_ON,
+        before=before,
+        after=current,
+    )
+    if current is None or clock is None:
+        raise AuthorizationUnavailableError()
     if prior_role != role:
         label = await _resource_label(resource_type, resource)
         await _emit_share_notification(
@@ -576,7 +731,9 @@ async def update_collaborator_role(
             resource_id=resource_id,
         )
 
-    await emit_change_event(
+    await emit_sharing_change(
+        clock=clock,
+        emitter=emit_change_event,
         actor_kind="human",
         actor_id=actor_user_id,
         action=cast(ChangeEventAction, f"{resource_type}.collaborator_role_update"),
@@ -587,12 +744,17 @@ async def update_collaborator_role(
             "resource_id": resource_id,
             "collaborator_user_id": collaborator.id,
             "role": prior_role,
+            "grant_id": before["id"],
+            "grant_revision": before["context"].get("grant_revision", 0),
         },
         after={
             "resource_type": resource_type,
             "resource_id": resource_id,
             "collaborator_user_id": collaborator.id,
             "role": role,
+            "grant_id": current["id"],
+            "grant_revision": current["context"].get("grant_revision", 0),
+            "history_revision": clock["context"]["revision"],
         },
         scope=f"{resource_type}:{resource_id}",
     )
@@ -607,6 +769,7 @@ async def update_collaborator_role(
     }
 
 
+@collaboration_mutation
 async def remove_collaborator(
     actor_user_id: str,
     resource_type: ResourceType,
@@ -630,14 +793,38 @@ async def remove_collaborator(
     if collaborator is None:
         raise ResourceNotFoundError(message="User not found.")
 
-    ctx = await collaborator.get_context()
-    edges = await ctx.find_edges_between(
-        collaborator.id, resource_id, edge_class=COLLABORATES_ON
-    )
-    for edge in edges:
-        await edge.delete()
-    removed = len(edges)
+    from jvspatial.core.context import get_default_context
 
+    from app.exceptions import AuthorizationUnavailableError
+    from app.services.invitation_grants import _current_grant
+
+    before = await _current_grant(collaborator.id, resource_id, COLLABORATES_ON)
+    await grant_baseline(
+        source_id=collaborator.id,
+        target_id=resource_id,
+        grant_class=COLLABORATES_ON,
+        grant=before,
+    )
+    if before is None:
+        return {
+            "resource_type": resource_type,
+            "resource_id": resource_id,
+            "collaborator_user_id": collaborator.id,
+            "removed_edges": 0,
+        }
+    await get_default_context().database.delete("edge", before["id"])
+    if await _current_grant(collaborator.id, resource_id, COLLABORATES_ON) is not None:
+        raise AuthorizationUnavailableError()
+    clock = await record_grant_change(
+        source=collaborator,
+        target=resource,
+        grant_class=COLLABORATES_ON,
+        before=before,
+        after=None,
+    )
+    if clock is None:
+        raise AuthorizationUnavailableError()
+    removed = 1
     label = await _resource_label(resource_type, resource)
     await _emit_share_notification(
         recipient_user_id=collaborator.id,
@@ -648,7 +835,9 @@ async def remove_collaborator(
         resource_id=resource_id,
     )
 
-    await emit_change_event(
+    await emit_sharing_change(
+        clock=clock,
+        emitter=emit_change_event,
         actor_kind="human",
         actor_id=actor_user_id,
         action=cast(ChangeEventAction, f"{resource_type}.collaborator_remove"),
@@ -658,6 +847,8 @@ async def remove_collaborator(
             "resource_type": resource_type,
             "resource_id": resource_id,
             "collaborator_user_id": collaborator.id,
+            "grant_id": before["id"],
+            "grant_revision": before["context"].get("grant_revision", 0),
         },
         after=None,
         scope=f"{resource_type}:{resource_id}",

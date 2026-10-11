@@ -67,7 +67,7 @@ def test_pick_label_snippets_long_text():
 
 @pytest.mark.asyncio
 async def test_humanize_ids_replaces_via_resolver(monkeypatch):
-    async def fake_resolve(ids):
+    async def fake_resolve(ids, **kwargs):
         return {
             "n.Workspace.5280a8e4b5ec43a2b76e38ff": "Acme Inc.",
             "n.Entry.c602f48625754ad28f4079ec": "Founder",
@@ -84,7 +84,7 @@ async def test_humanize_ids_replaces_via_resolver(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_humanize_ids_idempotent_and_safe(monkeypatch):
-    async def fake_resolve(ids):
+    async def fake_resolve(ids, **kwargs):
         return {i: "Name" for i in ids}
 
     monkeypatch.setattr(id_resolver, "resolve_id_labels", fake_resolve)
@@ -115,7 +115,7 @@ async def test_delta_humanizer_buffers_across_chunks(monkeypatch):
     """An id split across deltas is only released (and humanized) once whole."""
     from app.services import chat_streaming
 
-    async def fake_humanize(text):
+    async def fake_humanize(text, **kwargs):
         return text.replace("n.Workspace.5280a8e4b5ec43a2b76e38ff", "Acme Inc.")
 
     monkeypatch.setattr(
@@ -144,65 +144,36 @@ async def test_delta_humanizer_buffers_across_chunks(monkeypatch):
     assert joined == "You are in Acme Inc. now."
 
 
-@pytest.mark.asyncio
-async def test_operational_model_label_via_owning_track(monkeypatch):
-    """A draft profile names itself by the track it shapes (via its parent)."""
+def test_model_label_uses_own_admitted_metadata():
+    """A model name must not resolve arbitrary attached parent metadata."""
 
-    class _CP:
-        id = "n.OperationalModel.draft1"
-        library_package = False
-        draft_of_id = "n.OperationalModel.parent"
-        name = "Default"
-
-    class _Track:
-        title = "Opportunities"
-
-    async def fake_track_find(query):
-        if (
-            query.get("context.attached_operational_model_id")
-            == "n.OperationalModel.parent"
-        ):
-            return [_Track()]
-        return []
-
-    async def fake_app_find(query):
-        return []
-
-    monkeypatch.setattr("app.models.nodes.Track.find", staticmethod(fake_track_find))
-    monkeypatch.setattr("app.models.nodes.App.find", staticmethod(fake_app_find))
+    class Model:
+        name = "Admitted Model"
 
     assert (
-        await id_resolver._operational_model_label(_CP()) == "the Opportunities profile"
+        id_resolver._pick_label(Model(), "n.OperationalModel.model") == "Admitted Model"
     )
 
 
 @pytest.mark.asyncio
-async def test_operational_model_label_library_keeps_own_name():
-    class _CP:
-        id = "n.OperationalModel.lib"
-        library_package = True
-        name = "hr_app"
+async def test_resolve_only_own_principal_label(monkeypatch):
+    """User metadata requires the exact current recipient identity."""
+    from types import SimpleNamespace
 
-    assert await id_resolver._operational_model_label(_CP()) == "hr_app"
+    identity = "o.User.986efd658db44746907d2a9f"
+    graph_id = "n.User.aaaaaaaaaaaaaaaaaaaaaaaa"
+    foreign_id = "o.User.bbbbbbbbbbbbbbbbbbbbbbbb"
 
+    async def current_user(user_id):
+        assert user_id == identity
+        return SimpleNamespace(id=graph_id, user_id=identity, display_name="Own User")
 
-@pytest.mark.asyncio
-async def test_resolve_user_ids_via_principal_resolver(monkeypatch):
-    """o.User / n.User ids route through the canonical principal resolver."""
-
-    class _User:
-        display_name = "Eldon Marks"
-
-    async def fake_batch_users(ids):
-        return {i: _User() for i in ids}
-
-    monkeypatch.setattr(
-        "app.services.permissions.batch_resolve_users_by_principal_ids",
-        fake_batch_users,
+    monkeypatch.setattr("app.services.permissions.get_user_node", current_user)
+    labels = await id_resolver.resolve_id_labels(
+        [identity, graph_id, foreign_id], user_id=identity
     )
-    # No node ids → the node/object branches are skipped entirely.
-    out = await id_resolver.resolve_id_labels(["o.User.986efd658db44746907d2a9f"])
-    assert out == {"o.User.986efd658db44746907d2a9f": "Eldon Marks"}
+    assert labels[identity] == labels[graph_id] == "Own User"
+    assert labels[foreign_id] == id_resolver._short(foreign_id)
 
 
 @pytest.mark.asyncio
@@ -210,7 +181,7 @@ async def test_humanize_ids_preserves_markdown_link_targets(monkeypatch):
     track_id = "n.Track.aaaaaaaaaaaaaaaaaaaaaaaa"
     entry_id = "n.Entry.bbbbbbbbbbbbbbbbbbbbbbbb"
 
-    async def fake_resolve(ids):
+    async def fake_resolve(ids, **kwargs):
         return {i: "Human Label" for i in ids}
 
     monkeypatch.setattr(id_resolver, "resolve_id_labels", fake_resolve)
@@ -229,7 +200,7 @@ async def test_humanize_ids_preserves_markdown_link_targets(monkeypatch):
 async def test_humanize_ids_preserves_bare_internal_routes(monkeypatch):
     track_id = "n.Track." + "c" * 24
 
-    async def fake_resolve(ids):
+    async def fake_resolve(ids, **kwargs):
         return {track_id: "Roadmap"}
 
     monkeypatch.setattr(id_resolver, "resolve_id_labels", fake_resolve)

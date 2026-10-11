@@ -453,7 +453,9 @@ def _prettify_placeholders(text: str) -> str:
     return _BATCH_PLACEHOLDER_RE.sub(_repl, text)
 
 
-async def _humanize_card_text(text: str) -> str:
+async def _humanize_card_text(
+    text: str, *, user_id: str | None = None, workspace_id: str | None = None
+) -> str:
     """Resolve raw node ids → names and prettify batch placeholders in card text.
 
     Best-effort: a resolution failure leaves the text as-is (the card still
@@ -464,7 +466,7 @@ async def _humanize_card_text(text: str) -> str:
     try:
         from app.services.id_resolver import humanize_ids
 
-        text = await humanize_ids(text)
+        text = await humanize_ids(text, user_id=user_id, workspace_id=workspace_id)
     except Exception:  # noqa: BLE001
         logger.debug("staging.humanize_failed", exc_info=True)
     return _prettify_placeholders(text)
@@ -706,12 +708,6 @@ async def create_staged_change(
     if not kind:
         raise ValueError("kind is required")
 
-    # Resolve raw node ids → human names (and prettify batch placeholders) in
-    # the human-facing card strings. ``diff_machine``/``payload`` keep their
-    # ids — the agent/executor need them; only what the USER reads is humanized.
-    summary = await _humanize_card_text(summary)
-    diff_human = await _humanize_card_text(diff_human)
-
     # Capture the agent's active workspace now, while we are mid-dispatch and
     # the scope ContextVar is definitively set. Execution binds this rather
     # than re-resolving from the FE bless request (which may lack the header).
@@ -721,6 +717,16 @@ async def create_staged_change(
         minted_workspace_id = active_workspace_id()
     except Exception:  # noqa: BLE001
         minted_workspace_id = None
+
+    # Resolve raw node ids → human names (and prettify batch placeholders) in
+    # the human-facing card strings. ``diff_machine``/``payload`` keep their
+    # ids — the agent/executor need them; only what the USER reads is humanized.
+    summary = await _humanize_card_text(
+        summary, user_id=user_id, workspace_id=minted_workspace_id
+    )
+    diff_human = await _humanize_card_text(
+        diff_human, user_id=user_id, workspace_id=minted_workspace_id
+    )
 
     now = _now()
     idem = str((payload or {}).get("idempotency_key") or "").strip() or None

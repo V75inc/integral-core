@@ -13,7 +13,7 @@ This is substrate work. Keep domain-specific role names, business transitions an
 | Package | Ownership / deliverable | Depends on | Required completion evidence |
 |---|---|---|---|
 | W0 Contract and fixtures | Access specification, invariants, golden scenario fixture, endpoint/action inventory | None | Signed-off owner/governance/privacy contract; U01–U76 mapped to named assertions and surfaces |
-| W1 Immediate perimeter fixes | Invitation mailbox proof, event payload authorization, policy memoization, denial lookup failure, avatar/legacy-directory gates, replay-result disclosure and legacy-module disposition | W0 authority-neutral subset can start immediately | AC-01–04, AC-15–16, AC-20 paired allow/deny tests; AC-19 removed/unreachable or repaired disposition; HTTP by-ID invite proof; excluded Entry withheld from live event, polling and audit |
+| W1 Immediate perimeter fixes | Invitation mailbox proof, event payload authorization, policy memoization, denial lookup failure, avatar/legacy-directory gates, replay-result disclosure and legacy-module disposition | W0 authority-neutral subset can start immediately | AC-01–04, AC-15–16, AC-20, AC-22 paired allow/deny tests; AC-19 removed/unreachable or repaired disposition; HTTP by-ID invite proof; excluded Entry withheld from live event, polling and audit |
 | W2 Canonical scope and live authority | Resolver, all ToolContext point/read/write methods, process/request cache fencing, typed scope/resource contracts | W0; integrates W1 | AC-05–06, AC-12; all-worker revocation/effect tests; foreign workspace facade rejected; malformed containment denied |
 | W3 Governance and membership lifecycle | Workspace owner governance, delegation ceilings, canonical membership services, owner recovery/transfer | W0, W2 | AC-08–09, AC-18; full owner/member/private-resource matrix; self-grant/peer-owner changes denied; atomic ownership proof |
 | W4 Durable grants/invitations/shares | Versioned grant sources, atomic invite/link lifecycle, suspension/offboarding, canonical ownership transfers and receipts | W0, W2; integrates W3 | AC-07, AC-10–11, AC-17, AC-21; real PostgreSQL races and fault/replay tests; no unscoped resources or revived suspended membership |
@@ -158,13 +158,13 @@ Minimum cross-cutting acceptance assertions:
 - Query pagination, result caching, signed file access and audit/event delivery are exercised after permission reduction. Test authorized empty results separately from unavailable/denied results; a result cursor is never an authorization credential.
 - Establish representative workspace/resource/group sizes and agreed latency/work budgets before optimization. Bound graph/condition evaluation, detect cycles/corruption and paginate inventories; exhaustion fails unavailable/denied rather than returning a permissive partial decision.
 
-AC-01–21 retain their evidence category and closure disposition in that ledger. G0 explicitly includes AC-20; AC-21 belongs to W4/U66; AC-19 is disposition work unless a supported route can reach the helper. Final qualification must use an identified clean artifact; the second-review working tree contains unrelated App/UI edits and is not a release artifact.
+AC-01–22 retain their evidence category and closure disposition in that ledger. G0 explicitly includes AC-20; AC-21 belongs to W4/U66; AC-19 is disposition work unless a supported route can reach the helper. Final qualification must use an identified clean artifact; the second-review working tree contains unrelated App/UI edits and is not a release artifact.
 
 ## Completion gates
 
 | Gate | Pass condition |
 |---|---|
-| G0 Security baseline | AC-01–07 and AC-20 perimeter issues fixed with paired authorized/denied regressions; no known disclosure retained as “expected behavior” |
+| G0 Security baseline | AC-01–07, AC-20 and AC-22 perimeter issues fixed with paired authorized/denied regressions; no known disclosure retained as “expected behavior” |
 | G1 Owner governance | Owner administers every canonical resource in its workspace, including member-created private content; cannot cross tenant/credential boundaries |
 | G2 Revocation and durability | Real multiprocess/PostgreSQL proof; no stale privileged effect, suspended re-entry, ambiguous owner, unscoped survivor or partial grant-success |
 | G3 Declarative delegation | Two independent Apps can delegate functions and conditions without Core domain imports or generic-CRUD bypass |
@@ -172,3 +172,23 @@ AC-01–21 retain their evidence category and closure disposition in that ledger
 | G5 Release qualification | Full required repository gates, artifact and runtime evidence, reviewed migration diff/runbook; deployment authorization remains separate |
 
 Do not declare the system closed until every assessment finding has a concrete disposition (fixed with evidence, deliberate policy decision with acceptance tests, proven unsupported/unreachable, or open), every U-case has allowed and denied evidence, and residual limitations are explicit. An open P0 blocks G0; a source-only issue does not become closed merely by calling it “qualified.” Accepted product semantics must not waive a demonstrated disclosure while still claiming a secure baseline. Passing the characterization probes in their original form is an audit observation; repaired behaviors must replace those observations with requirement assertions.
+
+
+AC-22 implementation scrutiny extends W1/U48: resource-label enrichment is a
+protected metadata read, including generated denied-read prose. Bind the actual
+recipient and workspace at streaming, transcript persistence, staging cards and
+execution-result display. Use current resource admission and an opaque fallback
+for unavailable or undeclared metadata families. Model profile labels cannot
+select another parent's name without independently admitting that parent.
+Qualify actual cloud tool denial, SSE text and persisted API readback separately
+from deterministic formatting contracts; preserve failed smoke receipts.
+
+### Canonical invitation notification cutover acceptance contract
+
+The reproduced legacy notification response is a remaining AC-01/AC-07 bypass: an authenticated recipient without current mailbox proof can accept privileged notification metadata and receive workspace-admin membership even when no Invitation exists. Notification creation in this probe is a synthetic privileged delivery; ordinary-user forgery is not established.
+
+1. Treat the notification as delivery and navigation only. Acceptance/decline must identify one canonical Invitation, prove the current recipient, and run the current issuer, expiry, revocation, grant-baseline and target-topology checks through the same authoritative lifecycle service used by direct invitation actions. Never turn notification role/workspace/track metadata into rights. Pointerless legacy deliveries require explicit reissue or governed adoption before acceptance.
+2. Admit one explicit JSON action without an acceptance default or query-string fallback. Require a fresh primary notification image and its unique rooted recipient relationship; foreign-recipient and malformed topology cannot reveal or mutate the invitation. Preserve the existing AuthUser-subject notification recipient normalization.
+3. Bind actionable delivery to the displayed invitation proposal revision. Adoption/reissue that changes a proposal must refresh delivery identity; a stale delivery must request renewed consent. Check revision inside the held invitation lifecycle unit, including retries, rather than comparing a cached preflight image.
+4. Join grant, terminal invitation state, notification response and durable audit intent in one supported storage unit. Failed admission or storage must not mark the notification accepted/read. Report actual grant outcome and current role; retries must not duplicate grants, audit facts or delivery. Keep external audit delivery outside open transactions. JSON development storage is not PostgreSQL rollback/concurrency qualification.
+5. Qualify actual authenticated HTTP accept/decline, both principal aliases, pointerless legacy denial, missing/unverified mailbox, nonrecipient, stale revision/issuer, expiry/revocation, malformed/duplicate rooted relationships, no-op/conflict outcomes and retries. Require PostgreSQL rollback injection and independent connection races, then the complete repository gates and designated DeepSeek cloud smoke. Preserve failed characterization receipts separately. This cutover does not close unrelated grant-source, identity-fence, migration or release-fence requirements.

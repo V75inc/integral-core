@@ -1,0 +1,96 @@
+{
+  "status": "qualified_focused_partial",
+  "model": "ollama_chat/deepseek-v4.1-flash:cloud",
+  "source_head": "05a8d0280e34fa65e9de354865d5f430c5cd349c",
+  "source_runtime_diff_sha256": "0ed7933e8944d5669d25046569d1d42c0789f54ff3d090176978ca6832c49954",
+  "allowed_tool": "integral_get_app",
+  "denied_tool": "integral_get_app",
+  "allowed_owned_app_read": true,
+  "denied_foreign_private_app_read": true,
+  "private_marker_absent_from_sse_and_transcript": true,
+  "model_steps": [
+    {
+      "modelId": "ollama_chat/deepseek-v4.1-flash:cloud",
+      "provider": "ollama_chat",
+      "requestId": "27661d33-d65f-4c01-886f-4b5d6ce5a727",
+      "attempt": 1,
+      "outcome": "responded",
+      "usage": {
+        "inputTokens": 3598,
+        "outputTokens": 128
+      },
+      "costSource": "unavailable"
+    },
+    {
+      "modelId": "ollama_chat/deepseek-v4.1-flash:cloud",
+      "provider": "ollama_chat",
+      "requestId": "534514bb-76ef-4b51-b366-a808ba07636f",
+      "attempt": 1,
+      "outcome": "responded",
+      "usage": {
+        "inputTokens": 5456,
+        "outputTokens": 68
+      },
+      "costSource": "unavailable"
+    },
+    {
+      "modelId": "ollama_chat/deepseek-v4.1-flash:cloud",
+      "provider": "ollama_chat",
+      "requestId": "da495e27-9dc3-43d3-86aa-00376b33de26",
+      "attempt": 1,
+      "outcome": "responded",
+      "usage": {
+        "inputTokens": 6016,
+        "outputTokens": 78
+      },
+      "costSource": "unavailable"
+    },
+    {
+      "modelId": "ollama_chat/deepseek-v4.1-flash:cloud",
+      "provider": "ollama_chat",
+      "requestId": "65997b41-def3-4726-b578-9857d1a4cef0",
+      "attempt": 1,
+      "outcome": "responded",
+      "usage": {
+        "inputTokens": 6146,
+        "outputTokens": 66
+      },
+      "costSource": "unavailable"
+    },
+    {
+      "modelId": "ollama_chat/deepseek-v4.1-flash:cloud",
+      "provider": "ollama_chat",
+      "requestId": "0b079725-6e4d-4ccb-8a16-d26f34114b61",
+      "attempt": 1,
+      "outcome": "responded",
+      "usage": {
+        "inputTokens": 6403,
+        "outputTokens": 90
+      },
+      "costSource": "unavailable"
+    }
+  ],
+  "evidence": [
+    {
+      "path": "/tmp/integral-id-label-authority-deepseek-2.xml",
+      "sha256": "346e7f0337ead66050ed38340159940310023bc22fe318faf2594ece5e18275c"
+    },
+    {
+      "path": "/tmp/integral-grant-history-deepseek-native-sse.txt",
+      "sha256": "aaec94d60cfa1d41e27275ac3aa4eb07c5d77c8fde25a62c31a77ac831183ff3"
+    },
+    {
+      "path": "/tmp/integral-grant-history-deepseek-native-denied-sse.txt",
+      "sha256": "dab253fe6786c84bbac3999ce43149a581df4a3722066e5e2fe8d470aa55ca6d"
+    },
+    {
+      "path": "/tmp/integral-grant-history-deepseek-native-denied-readback.json",
+      "sha256": "3d25a0e423e2eecea3b50ffe1d73c60a7043cbebaad23b5ea646abca4317b5be"
+    }
+  ],
+  "limits": [
+    "Synthetic in-process authenticated fixture, not independent-account browser/MCP or production authentication evidence.",
+    "Full repository gates pending; no complete finding closure.",
+    "Provider cost unavailable."
+  ]
+}

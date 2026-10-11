@@ -4,6 +4,7 @@ from app.api.errors import BadRequestError, ResourceNotFoundError
 from app.models.edges import IS_MEMBER_OF
 from app.models.nodes import User, Workspace
 from app.services.authority_facts import relationship_flag, relationship_literal
+from app.services.grant_history import grant_baseline, record_grant_change
 from app.services.ownership_transfer import reassign_departing_member_ownership
 from app.services.permissions_process_cache import invalidate_user_aliases
 from app.services.sharing import revoke_workspace_resource_grants
@@ -36,7 +37,7 @@ async def _remove_membership(
     """Apply the complete departure inside the caller's store scope."""
     if member is None:
         raise ResourceNotFoundError(message="User not found")
-    workspace = await Workspace.get(workspace_id)
+    workspace = await Workspace.find_one({"id": workspace_id})
     if workspace is None:
         raise ResourceNotFoundError(message="Workspace not found")
     context = await member.get_context()
@@ -55,6 +56,9 @@ async def _remove_membership(
         raise BadRequestError(message="Cannot remove the workspace owner")
     if not edges:
         return False
+    await grant_baseline(
+        source_id=member.id, target_id=workspace.id, grant_class=IS_MEMBER_OF, grant=row
+    )
     await reassign_departing_member_ownership(member, workspace_id)
     await revoke_workspace_resource_grants(member, workspace_id)
     if clear_active_workspace and member.active_workspace_id == workspace_id:
@@ -64,4 +68,11 @@ async def _remove_membership(
     # Cleanup failures must propagate before membership disappears.
     for edge in edges:
         await edge.delete()
+    await record_grant_change(
+        source=member,
+        target=workspace,
+        grant_class=IS_MEMBER_OF,
+        before=row,
+        after=None,
+    )
     return True

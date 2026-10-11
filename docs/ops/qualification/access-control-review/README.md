@@ -2,7 +2,7 @@
 
 Date: 10 October 2026. Baseline: `9d13b44e`.
 
-[Assessment, 21 findings and 76 use cases](../../../product/ACCESS_CONTROL_REVIEW.md). [Implementation plan](../../../product/ACCESS_CONTROL_PLAN.md). [Machine-readable results](results.json).
+[Assessment, 22 findings and 76 use cases](../../../product/ACCESS_CONTROL_REVIEW.md). [Implementation plan](../../../product/ACCESS_CONTROL_PLAN.md). [Machine-readable results](results.json).
 
 ## Results and interpretation
 
@@ -109,7 +109,7 @@ Source line references in the review belong to the baseline and may move during 
 
 ## Source surface inventory
 
-[surface_inventory.json](surface_inventory.json) indexes 384 REST endpoint declarations and 45 ToolContext/OperationContext method declarations (including overrides). It records source hashes and leaves qualification/evidence explicitly unmapped. Rebuild it with `backend/.venv/bin/python docs/ops/qualification/access-control-review/build_surface_inventory.py`. This is a source index; worker, public, event, file and runtime registration boundaries still need mapping and paired acceptance evidence.
+[surface_inventory.json](surface_inventory.json) indexes 386 REST endpoint declarations and 45 ToolContext/OperationContext method declarations (including overrides). It records source hashes and leaves qualification/evidence explicitly unmapped. Rebuild it with `backend/.venv/bin/python docs/ops/qualification/access-control-review/build_surface_inventory.py`. This is a source index; worker, public, event, file and runtime registration boundaries still need mapping and paired acceptance evidence.
 
 
 ## Authority-facts and legacy-disposition milestone
@@ -133,3 +133,22 @@ Canonical entry commands now join the shared serialized PostgreSQL transaction h
 ## Saved-View scope migration
 
 The [operator runbook](VIEW_SCOPE_MIGRATION.md) explains the read-only inventory and transactional unique-path apply. Ambiguous shared-model paths remain withheld. Runtime and migration qualification are tracked in the [execution record](EXECUTION.md) and [closure ledger](closure.json); this migration does not close broader recovery or model authority requirements.
+
+
+## Implementation scrutiny on 11 October 2026
+
+Actual `ollama_chat/deepseek-v4.1-flash:cloud` native smoke exposed AC-22: a
+forbidden private-App tool read remained denied, but host ID humanization
+disclosed its exact stored name in SSE. Inspected model request bodies contained
+no private marker. The same unscoped helper was used by transcript persistence
+and staging/result text; these additional paths were source-confirmed, not
+pre-fix denied-transcript runtime receipts.
+
+[Failed disclosure receipt](output_label_disclosure.json) and
+[repaired native allow/deny smoke](deepseek-output-label-smoke.json) preserve
+separate evidence. The repaired focused selection passed 56 JSON and 56
+PostgreSQL contracts; actual cloud allow/deny and transcript API readback
+passed one complete case. Full repository qualification remains pending.
+These are synthetic in-process authenticated fixtures, not independent-account
+browser or production identity qualification. Original characterization results
+above are retained as their historical baseline and do not include AC-22.

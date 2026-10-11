@@ -14,7 +14,7 @@
     "backend/app/api/admin_users.py": "abd03606b243bb2cbf0d75a6c061726b1ba56960fce2b65e96d9f735be3f7aab",
     "backend/app/api/admin_workspaces.py": "c944ca1a96596336afa3467f7e0b54e229abc9f2ff240ad9a37756632175c870",
     "backend/app/api/agent_preferences.py": "533707b484b8f33be9643725289491d6f7151c9493523268d8e0a2d3e5e41b8f",
-    "backend/app/api/ai_chat.py": "56b9aae68a05bc543f13f93a228fae809a010a78b8e527348444a30e248b3d12",
+    "backend/app/api/ai_chat.py": "10717679c1acf1c0c4aa87522354525e0d1b49cc838d9d6f4c089478e7f0507f",
     "backend/app/api/app_extensions.py": "1a11ec8d43470307804ac453ae5dbcf036039485ef9d246e113277c24e0c793b",
     "backend/app/api/approvals.py": "726297bc7298b22c7cf87c80ebc7e60c357d77f4e8cdfd99170bd94cbf835502",
     "backend/app/api/apps.py": "7f4f1c64c00f652bc2fb1f4dd03ca6c3779ac416286ac0bd21fa0e8ae5507837",
@@ -40,7 +40,7 @@
     "backend/app/api/events_polling.py": "6ce5c1b4956e806154ff8a05b8ee0e4c5e90ae2f4d39880cd3da9a511574cd02",
     "backend/app/api/events_ws.py": "588c6faa064246328b1884235005a466d2d796f591f96a96dc87009ae249c6e1",
     "backend/app/api/feed.py": "e62e802cd361e0a05d45f063fe222e2bf26987f4a9df759e6e10f5278cc03e09",
-    "backend/app/api/invitations.py": "221e1617c4a89e7fe1c8b7c1e0b695200aa0455bc4e5275426c369e6c63ec235",
+    "backend/app/api/invitations.py": "d9cff3020f8ab80904f95b6229f3242b252dfc47d9cef63e7a0d6633e41ad085",
     "backend/app/api/link_preview.py": "ba2380da091b07714008a00b380ee99819b531fc1f4567c1db81cc5b777050a4",
     "backend/app/api/me_assigned_form.py": "49f94f9fcc4845df6181a6aa263bb749a22cfe847b3ddaa469116399d0b3f8cb",
     "backend/app/api/me_onboarding_form.py": "0255dc66b221bd8c47f23012e2812631ecda33c0a6496ac122788c0a54e5050b",
@@ -55,7 +55,7 @@
     "backend/app/api/query_spec.py": "2189dba4b69e6e4dd5184d44b5489d95c407e63bb576ff4b1b1eeb8657fe7fd1",
     "backend/app/api/retrieval_config.py": "21e063169c409882a7a2cfe1b65cbcf25104284ed8848277f23551b71c225d77",
     "backend/app/api/retrieve.py": "b5c37cf96121f86444d6bc9df31f577392fa43074ae4654521996380b81302f7",
-    "backend/app/api/shared_with_me.py": "1bb1dfbb59022238a86dc14176baa731e3b7bca1bbc0d04b4f66f0e89e1c8ae5",
+    "backend/app/api/shared_with_me.py": "3047ae674e35be5df2487ae27bf273a4e561cd45b41840d743f134bc283afe1e",
     "backend/app/api/shares.py": "fbc2d86f6f165745d657391f70952b697a7862ca10670e5ddb2f7443ccb52108",
     "backend/app/api/speech_preferences.py": "81d9890b124d4e7816f68c5744739a355d15c8672535baafb0856bab8ad87262",
     "backend/app/api/tags.py": "0ee364e9f5861caf76a7d16e4b08c9ec02e66053d2f5d7b039aefff90f4f7dff",
@@ -71,7 +71,7 @@
     "backend/app/api/views.py": "569fc6e2a47422f362d0e16d4bfe881ef71b2adae561bf122c54fe0899d3f55b",
     "backend/app/api/work_items.py": "e33c707a36c6b6bbb0790f7e4ee856aecf80868bb8caf55fc697f566c65ba119",
     "backend/app/api/workspace_member_hire.py": "dd21d4b5a0b2e2eac4e9a71055491c9d7637f7ec73e3bd366665fb3e251b132f",
-    "backend/app/api/workspaces.py": "a262acdfcbe392261bc381f1c14c1b2a7c001971ae337e04e37d5714242f070d",
+    "backend/app/api/workspaces.py": "83e62b1e841ae1def071d7b7d632befc155c5c96730ce9a3ed71d828d4a6333b",
     "backend/app/services/app_operations/context.py": "b3fccdd91ebfc401a830b26dd5b497ef63bfb8bf01f598377be040c2b732174f",
     "backend/app/services/hooks/registry.py": "5a5a0790b27797875e8e7156b0963fefb6c7f1aa487cda984326b9980f33ef6d"
   },
@@ -611,7 +611,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/ai_chat.py",
-      "line": 1765,
+      "line": 1792,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -622,7 +622,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/ai_chat.py",
-      "line": 2746,
+      "line": 2773,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -633,7 +633,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/ai_chat.py",
-      "line": 2956,
+      "line": 2983,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -644,7 +644,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/ai_chat.py",
-      "line": 2973,
+      "line": 3000,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2146,12 +2146,34 @@
     },
     {
       "kind": "rest_declaration",
+      "callable": "get_invitation_adoption",
+      "path_expression": "'/workspaces/{workspace_id}/invitations/{invitation_id}/adoption'",
+      "methods_expression": "['GET']",
+      "auth_expression": "True",
+      "file": "backend/app/api/invitations.py",
+      "line": 140,
+      "qualification": "unmapped",
+      "evidence": []
+    },
+    {
+      "kind": "rest_declaration",
+      "callable": "post_invitation_adoption",
+      "path_expression": "'/workspaces/{workspace_id}/invitations/{invitation_id}/adoption'",
+      "methods_expression": "['POST']",
+      "auth_expression": "True",
+      "file": "backend/app/api/invitations.py",
+      "line": 165,
+      "qualification": "unmapped",
+      "evidence": []
+    },
+    {
+      "kind": "rest_declaration",
       "callable": "post_create_invitation",
       "path_expression": "'/workspaces/{workspace_id}/invitations'",
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/invitations.py",
-      "line": 172,
+      "line": 244,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2162,7 +2184,7 @@
       "methods_expression": "['GET']",
       "auth_expression": "True",
       "file": "backend/app/api/invitations.py",
-      "line": 250,
+      "line": 322,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2173,7 +2195,7 @@
       "methods_expression": "['DELETE']",
       "auth_expression": "True",
       "file": "backend/app/api/invitations.py",
-      "line": 285,
+      "line": 357,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2184,7 +2206,7 @@
       "methods_expression": "['DELETE']",
       "auth_expression": "True",
       "file": "backend/app/api/invitations.py",
-      "line": 325,
+      "line": 397,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2195,7 +2217,7 @@
       "methods_expression": "['GET']",
       "auth_expression": "False",
       "file": "backend/app/api/invitations.py",
-      "line": 389,
+      "line": 461,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2206,7 +2228,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/invitations.py",
-      "line": 419,
+      "line": 491,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2217,7 +2239,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/invitations.py",
-      "line": 456,
+      "line": 532,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2228,7 +2250,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/invitations.py",
-      "line": 574,
+      "line": 650,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2239,7 +2261,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/invitations.py",
-      "line": 591,
+      "line": 667,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -2250,7 +2272,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/invitations.py",
-      "line": 610,
+      "line": 686,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -3108,7 +3130,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/shared_with_me.py",
-      "line": 384,
+      "line": 395,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -3119,7 +3141,7 @@
       "methods_expression": "['GET']",
       "auth_expression": "True",
       "file": "backend/app/api/shared_with_me.py",
-      "line": 466,
+      "line": 477,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4219,7 +4241,7 @@
       "methods_expression": "['PATCH']",
       "auth_expression": "True",
       "file": "backend/app/api/workspaces.py",
-      "line": 765,
+      "line": 739,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4230,7 +4252,7 @@
       "methods_expression": "['DELETE']",
       "auth_expression": "True",
       "file": "backend/app/api/workspaces.py",
-      "line": 895,
+      "line": 770,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4241,7 +4263,7 @@
       "methods_expression": "['DELETE']",
       "auth_expression": "True",
       "file": "backend/app/api/workspaces.py",
-      "line": 944,
+      "line": 792,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4252,7 +4274,7 @@
       "methods_expression": "['GET']",
       "auth_expression": "True",
       "file": "backend/app/api/workspaces.py",
-      "line": 996,
+      "line": 815,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4263,7 +4285,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/workspaces.py",
-      "line": 1018,
+      "line": 837,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4274,7 +4296,7 @@
       "methods_expression": "['POST']",
       "auth_expression": "True",
       "file": "backend/app/api/workspaces.py",
-      "line": 1154,
+      "line": 973,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4285,7 +4307,7 @@
       "methods_expression": "['GET']",
       "auth_expression": "True",
       "file": "backend/app/api/workspaces.py",
-      "line": 1269,
+      "line": 1088,
       "qualification": "unmapped",
       "evidence": []
     },
@@ -4296,7 +4318,7 @@
       "methods_expression": "['PATCH']",
       "auth_expression": "True",
       "file": "backend/app/api/workspaces.py",
-      "line": 1317,
+      "line": 1136,
       "qualification": "unmapped",
       "evidence": []
     },
