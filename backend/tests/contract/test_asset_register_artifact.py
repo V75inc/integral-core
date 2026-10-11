@@ -40,6 +40,30 @@ BUILD_SCRIPT = REPO / "examples" / "asset-register" / "build.py"
 SDK_ROOT = REPO / "sdk" / "python"
 
 
+@pytest.fixture(autouse=True)
+def isolated_archive_imports():
+    """Each extracted archive has a new root; don't reuse a deleted temp path."""
+    from app.services.operational_model_library_sync import (
+        reset_library_operational_models_cache_for_testing,
+    )
+
+    prefix = "integral_bundle_asset_register"
+    previous = {
+        name: module
+        for name, module in sys.modules.items()
+        if name == prefix or name.startswith(prefix + ".")
+    }
+    for name in previous:
+        sys.modules.pop(name, None)
+    reset_library_operational_models_cache_for_testing()
+    yield
+    for name in list(sys.modules):
+        if name == prefix or name.startswith(prefix + "."):
+            sys.modules.pop(name, None)
+    sys.modules.update(previous)
+    reset_library_operational_models_cache_for_testing()
+
+
 def _build(output_dir: Path, *, signing_key: Path | None = None) -> Path:
     command = [sys.executable, str(BUILD_SCRIPT), "--out-dir", str(output_dir)]
     if signing_key is not None:
@@ -995,7 +1019,7 @@ async def test_extracted_asset_register_mutation_replays_one_receipt(
 async def test_c6_a12_asset_write_reuses_one_receipt_across_transports(
     tmp_path, monkeypatch, test_user, authenticated_client
 ):
-    """View, HTTP, resident, and MCP retries share one durable App effect."""
+    """Human writes and reviewed resident/MCP retries share one durable effect."""
     import uuid
 
     archive = _build(tmp_path / "package")
@@ -1030,6 +1054,44 @@ async def test_c6_a12_asset_write_reuses_one_receipt_across_transports(
     }
     route = f"/api/extensions/{app_id}/operations/register_asset"
 
+    resident = await dispatch_tool(
+        "integral_invoke_app_operation",
+        {
+            "app_id": app_id,
+            "operation_key": "register_asset",
+            "input": operation_input,
+            "idempotency_key": idempotency_key,
+        },
+        principal_id=principal_id,
+        scope=workspace.id,
+    )
+    assert resident.is_error is False, resident.message
+    assert resident.data["_kind"] == "staged_change"
+    from app.agentive.staging import get_token
+    from app.services.app_queries.dispatch import invoke_app_query
+
+    proposal = await get_token(resident.data["token"])
+    assert proposal.state == "pending"
+    assert proposal.workspace_id == workspace.id
+    before_approval = await invoke_app_query(
+        user_id=principal_id,
+        workspace_id=workspace.id,
+        app_id=app_id,
+        query_key="available_assets",
+        params={"limit": 5000, "offset": 0},
+    )
+    assert before_approval["output"]["total"] == 0
+    from app.agentive.services.staging_apply import bless_and_execute
+
+    reviewed_resident = await bless_and_execute(
+        user_id=principal_id,
+        token=resident.data["token"],
+        autonomy="single",
+    )
+    assert reviewed_resident["ok"] is True, reviewed_resident
+    assert reviewed_resident["consumed"] is True, reviewed_resident["execute_result"]
+    resident_result = reviewed_resident["execute_result"]
+
     # The host view uses this same public operation route with origin=view.
     view_response = await authenticated_client.post(
         route,
@@ -1045,19 +1107,6 @@ async def test_c6_a12_asset_write_reuses_one_receipt_across_transports(
     assert http_response.status_code == 200, http_response.text
     http_result = http_response.json()
 
-    resident = await dispatch_tool(
-        "integral_invoke_app_operation",
-        {
-            "app_id": app_id,
-            "operation_key": "register_asset",
-            "input": operation_input,
-            "idempotency_key": idempotency_key,
-        },
-        principal_id=principal_id,
-        scope=workspace.id,
-    )
-    assert resident.is_error is False, resident.message
-
     from app.agentive.mcp.server import _call_tool_impl
 
     mcp = await _call_tool_impl(
@@ -1072,17 +1121,26 @@ async def test_c6_a12_asset_write_reuses_one_receipt_across_transports(
         scope=workspace.id,
     )
     assert isinstance(mcp, dict), mcp
+    assert mcp["_kind"] == "staged_change"
+    reviewed_mcp = await bless_and_execute(
+        user_id=principal_id,
+        token=mcp["token"],
+        autonomy="single",
+    )
+    assert reviewed_mcp["ok"] is True, reviewed_mcp
+    assert reviewed_mcp["consumed"] is True, reviewed_mcp["execute_result"]
+    mcp_result = reviewed_mcp["execute_result"]
 
     receipts = [
+        resident_result["operation_receipt"],
         view_result["operation_receipt"],
         http_result["operation_receipt"],
-        resident.data["operation_receipt"],
-        mcp["operation_receipt"],
+        mcp_result["operation_receipt"],
     ]
     receipt_ids = {
-        "view": receipts[0]["id"],
-        "http": receipts[1]["id"],
-        "resident": receipts[2]["id"],
+        "resident": receipts[0]["id"],
+        "view": receipts[1]["id"],
+        "http": receipts[2]["id"],
         "mcp": receipts[3]["id"],
     }
     assert len(set(receipt_ids.values())) == 1, receipt_ids
@@ -1090,7 +1148,7 @@ async def test_c6_a12_asset_write_reuses_one_receipt_across_transports(
     assert all(receipt["replayed"] is True for receipt in receipts[1:])
     asset_ids = {
         result["output"]["asset"]["entry_id"]
-        for result in (view_result, http_result, resident.data, mcp)
+        for result in (view_result, http_result, resident_result, mcp_result)
     }
     assert len(asset_ids) == 1
     asset_id = next(iter(asset_ids))

@@ -1164,3 +1164,19 @@ async def test_rematerialize_backfills_manifest_key_on_adopted_entry_types():
         for et in await EntryType.find({"context.track_id": track.id})
     }
     assert "source_material" in keys
+
+
+@pytest.mark.asyncio
+async def test_install_sets_app_identity_before_completion():
+    """Install preserves the chosen icon in the canonical App identity."""
+    ws = await _make_workspace()
+    lib = await _make_library_cp(_minimal_app_manifest(package_name="identity-app"))
+    result = await install_app(
+        workspace_id=ws.id,
+        library_cp_id=lib.id,
+        actor_id="u_1",
+        icon_override="book",
+    )
+    assert result["status"] == "active"
+    installed = await App.get(result["app_id"])
+    assert installed.icon == "book"

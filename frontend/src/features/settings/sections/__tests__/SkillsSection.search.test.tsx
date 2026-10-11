@@ -45,6 +45,15 @@ function renderSection() {
 }
 
 describe('AI Skills search', () => {
+  it('keeps the technical tool catalogue collapsed until requested', async () => {
+    renderSection();
+    const summary = await screen.findByText('Advanced · Available tools (2)');
+    const details = summary.closest('details')!;
+    expect(details.open).toBe(false);
+    fireEvent.click(summary);
+    expect(details.open).toBe(true);
+  });
+
   beforeEach(() => {
     listSkills.mockResolvedValue({
       total: 2,

@@ -138,6 +138,9 @@ interface ModalProps {
   allowAssistantDock?: boolean;
 }
 
+let scrollLocks = 0;
+let previousBodyOverflow = '';
+
 function focusElement(el: HTMLElement) {
   el.focus({ preventScroll: true });
   if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
@@ -175,7 +178,6 @@ export function Modal({
   useEffect(() => {
     if (open) {
       prevFocus.current = document.activeElement as HTMLElement | null;
-      document.body.style.overflow = 'hidden';
       window.setTimeout(() => {
         const explicit = initialFocusRef?.current;
         if (explicit) {
@@ -189,17 +191,25 @@ export function Modal({
         if (focusable) focusElement(focusable);
       }, 0);
     } else {
-      document.body.style.overflow = '';
       prevFocus.current?.focus?.();
     }
-    return () => {
-      document.body.style.overflow = '';
-    };
   }, [open, initialFocusRef]);
+
+  // Nested dialogs share one body lock; closing a child keeps its parent locked.
+  useEffect(() => {
+    if (!open) return;
+    if (scrollLocks++ === 0) previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      if (--scrollLocks === 0) document.body.style.overflow = previousBodyOverflow;
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open || disableEscape) return;
     const onKey = (e: KeyboardEvent) => {
+      const modals = document.querySelectorAll('[data-integral-modal]');
+      if (modals[modals.length - 1] !== panelRef.current) return;
       if (e.key === 'Escape') {
         e.preventDefault();
         onClose();
@@ -237,6 +247,8 @@ export function Modal({
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Tab') return;
+      const modals = document.querySelectorAll('[data-integral-modal]');
+      if (modals[modals.length - 1] !== root) return;
       const focusable = getFocusable();
       if (focusable.length === 0) return;
       const active = document.activeElement as HTMLElement | null;
@@ -417,6 +429,7 @@ export function Modal({
       />
       <div
         ref={panelRef}
+        data-integral-modal
         role="dialog"
         /* Honest semantics: `aria-modal="true"` tells assistive tech the rest
            of the page is inert. With `allowAssistantDock` the dock is

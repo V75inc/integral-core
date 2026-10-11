@@ -12,12 +12,13 @@ import { ArrowRight } from 'lucide-react';
 
 import { operationalModelsApi } from '../../../api/operationalModels';
 import { SettingsSection } from '../components/Field';
+import { Button, Skeleton } from '../../../components/ui';
 import { Text } from '../../../ui';
 
 const LIBRARY_QUERY_KEY = ['library', 'list'] as const;
 
 export function LibrarySection() {
-  const { data } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: LIBRARY_QUERY_KEY,
     queryFn: () => operationalModelsApi.list(),
   });
@@ -45,7 +46,7 @@ export function LibrarySection() {
         title="Available models"
         description="The catalog page lets you browse every available model or App Package and import one."
       >
-        {totalCount > 0 && (
+        {isError ? <div role="alert"><Text as="p" variant="body-sm" tone="danger">Could not load available models.</Text><Button variant="secondary" size="sm" onClick={() => void refetch()}>Try again</Button></div> : isLoading ? <Skeleton className="h-6 w-40" /> : totalCount > 0 ? (
           <Text variant="body" tone="muted" as="p">
             {totalCount} {totalCount === 1 ? 'model' : 'models'} available
             {platformCount > 0 && (
@@ -53,7 +54,7 @@ export function LibrarySection() {
             )}
             .
           </Text>
-        )}
+        ) : <Text as="p" variant="body-sm" tone="muted">No models available yet.</Text>}
 
         <div>
           <Link

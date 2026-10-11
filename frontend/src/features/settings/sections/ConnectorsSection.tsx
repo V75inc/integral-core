@@ -7,7 +7,7 @@
  * shared warning banner above the list. Admins can still read, edit, and
  * delete existing rows.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -50,8 +50,6 @@ import {
 import { mcpConnectorDetails } from "../connectors/mcpConnectorDetails";
 import { QuickBooksConnectorSettings } from "../../../components/settings/QuickBooksConnectorSettings";
 import { GmailConnectorSetup } from "../../../components/settings/connectors/GmailConnectorSetup";
-
-const CONNECTORS_QUERY_KEY = ["connectors", "list"] as const;
 
 function formatLastSynced(iso: string | null): string {
   if (!iso) return "never";
@@ -142,6 +140,34 @@ function McpConnectorSummary({
 }
 
 export function ConnectorsSection() {
+  const auth = useAuthOptional();
+  const scope = useScopeOptional();
+  const principalId = auth?.user?.id ?? "";
+  const workspaceId = scope?.scope?.workspaceId ?? "";
+
+  // A scope switch must change the mounted observer and discard open panels.
+  // Removing an unscoped cache alone leaves its observer displaying old rows.
+  return (
+    <ScopedConnectorsSection
+      key={JSON.stringify([principalId, workspaceId])}
+      principalId={principalId}
+      workspaceId={workspaceId}
+    />
+  );
+}
+
+function ScopedConnectorsSection({
+  principalId,
+  workspaceId,
+}: {
+  principalId: string;
+  workspaceId: string;
+}) {
+  const isCurrentPanel = useRef(true);
+  useEffect(() => {
+    isCurrentPanel.current = true;
+    return () => { isCurrentPanel.current = false; };
+  }, []);
   const qc = useQueryClient();
   const toast = useToast();
   const confirm = useConfirm();
@@ -171,7 +197,7 @@ export function ConnectorsSection() {
   );
 
   const list = useQuery({
-    queryKey: CONNECTORS_QUERY_KEY,
+    queryKey: ["connectors", "list", principalId, workspaceId],
     queryFn: () => connectorsApi.list(),
   });
 
@@ -179,14 +205,14 @@ export function ConnectorsSection() {
     (list.data?.connectors ?? []).find((c) => c.id === inspectingId) ?? null;
   const inspectingIsNative = !!inspecting && inspecting.subclass_slug !== "mcp";
   const inspectedTools = useQuery({
-    queryKey: ["connectors", "tools", inspectingId],
+    queryKey: ["connectors", "tools", principalId, workspaceId, inspectingId],
     queryFn: () => connectorsApi.listTools(inspectingId as string),
     enabled: !!inspectingId && inspectingIsNative,
     staleTime: 30_000,
   });
 
   const catalog = useQuery({
-    queryKey: ["connectors", "catalog"],
+    queryKey: ["connectors", "catalog", principalId, workspaceId],
     queryFn: () => connectorsApi.listCatalog(),
   });
 
@@ -237,6 +263,9 @@ export function ConnectorsSection() {
   const reauthMut = useMutation({
     mutationFn: (id: string) => connectorsApi.reauthorizeMcp(id),
     onSuccess: (res) => {
+      // An authorization response arriving after a switch belongs to the old
+      // panel. Do not open its consent popup in the user's new workspace.
+      if (!isCurrentPanel.current) return;
       const popup = window.open(
         res.consent_url,
         `mcp-reauth-${res.connector_id}`,

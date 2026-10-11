@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo } from 'react';
+import { AppIcon } from '../ui';
 import { notifyApiFailure } from '../components/system';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -419,11 +420,10 @@ export function MissionControlPage() {
                           hover:bg-[var(--panel)]
                         "
                       >
-                        <TrackDot
+                        <AppIcon
+                          name={app.name}
+                          icon={app.icon}
                           color={resolveIdentityColor(app.accent_color, chip?.accent)}
-                          size="md"
-                          className="mt-[8px] shrink-0"
-                          title={app.name}
                         />
                         <div className="min-w-0">
                           <div className="flex min-w-0 flex-col items-start gap-1 lg:flex-row lg:items-center lg:gap-2">

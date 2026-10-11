@@ -34,6 +34,8 @@ export interface PageHeadingProps {
   accentLabel?: string;
   /** Optional id forwarded to the `<h1>` for aria-labelledby links. */
   id?: string;
+  /** App identity may replace the default accent bar. */
+  icon?: ReactNode;
   /** Optional className appended to the `<h1>` for one-off tweaks. */
   className?: string;
 }
@@ -41,6 +43,7 @@ export interface PageHeadingProps {
 export function PageHeading({
   children,
   accentColor,
+  icon,
   accentLabel,
   id,
   className,
@@ -80,7 +83,7 @@ export function PageHeading({
         className ?? '',
       ].join(' ')}
     >
-      <span
+      {icon ?? <span
         aria-hidden
         title={accentLabel}
         /* Bar dimensions tuned to the cap-line of the title at each
@@ -92,7 +95,7 @@ export function PageHeading({
           width: 4,
           backgroundColor: accentColor || 'var(--brand-accent)',
         }}
-      />
+      />}
       <span className="min-w-0 break-words sm:truncate">{children}</span>
     </h1>
   );

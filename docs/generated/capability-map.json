@@ -865,8 +865,8 @@
     "advertised": 124,
     "apps": 3,
     "by_op_class": {
-      "execute": 2,
-      "propose": 68,
+      "execute": 1,
+      "propose": 69,
       "read": 54
     },
     "core_skills": 16,
@@ -1018,16 +1018,16 @@
     {
       "advertised": true,
       "dispatch": {
-        "seam": "direct",
+        "seam": "stager",
         "targets": [
-          "app.agentive.services.direct_tools.invoke_app_operation_for_dispatch"
+          "app.agentive.tooling.bindings._stage_invoke_app_operation"
         ]
       },
       "domain": "A_discovery",
       "http": "POST /api/extensions/{app_id}/operations/{operation_key}",
-      "mcp_min_scope": "integral:execute",
+      "mcp_min_scope": "integral:propose",
       "name": "integral_invoke_app_operation",
-      "op_class": "execute",
+      "op_class": "propose",
       "policy_action": "app.read",
       "skills": [
         "integral-workspace"

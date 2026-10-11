@@ -49,6 +49,7 @@ class CapabilityInvocation(BaseModel):
 
 
 class ReceiptRef(BaseModel):
+    step_id: str = ""
     run_id: str
     step_key: str
     idempotency_key: str

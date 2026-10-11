@@ -11,6 +11,7 @@ import { NotificationsListBody } from '../notifications/NotificationsListBody';
 import { useNotifications } from '../../hooks/useNotifications';
 import { LINE_ICON_STROKE } from '../ui';
 import { ApprovalsListBody } from '../approvals/ApprovalsListBody';
+import { StagedApprovalsList, useStagedApprovals } from '../approvals/StagedChatApprovals';
 import {
   listApprovals,
   type ApprovalResponse,
@@ -35,6 +36,7 @@ export function NotificationsHeaderButton() {
   const [approvals, setApprovals] = useState<ApprovalResponse[]>([]);
   const [approvalsLoading, setApprovalsLoading] = useState(false);
   const [approvalsError, setApprovalsError] = useState<string | null>(null);
+  const stagedApprovals = useStagedApprovals();
 
   const refetchApprovals = useCallback(async () => {
     setApprovalsLoading(true);
@@ -65,7 +67,7 @@ export function NotificationsHeaderButton() {
     }
   }, [open, refetch, refetchApprovals]);
 
-  const approvalsCount = approvals.length;
+  const approvalsCount = approvals.length + stagedApprovals.rows.length;
   const totalCount = unreadCount + approvalsCount;
   const badge =
     totalCount > 0 ? (totalCount > 99 ? '99+' : String(totalCount)) : null;
@@ -135,6 +137,7 @@ export function NotificationsHeaderButton() {
           ) : (
             <ApprovalsBody
               rows={approvals}
+              staged={stagedApprovals}
               loading={approvalsLoading}
               error={approvalsError}
               onRefetch={refetchApprovals}
@@ -251,12 +254,14 @@ function NotificationsBody({
 
 function ApprovalsBody({
   rows,
+  staged,
   loading,
   error,
   onRefetch,
   onClose,
 }: {
   rows: ApprovalResponse[];
+  staged: ReturnType<typeof useStagedApprovals>;
   loading: boolean;
   error: string | null;
   onRefetch: () => void;
@@ -265,12 +270,14 @@ function ApprovalsBody({
   return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-2 shrink-0">
-        {rows.length > 0 ? (
+        {rows.length + staged.rows.length > 0 ? (
           <p className="text-xs text-[var(--text-muted)]">
-            {rows.length} pending
+            {rows.length + staged.rows.length} pending
           </p>
         ) : (
-          <span className="text-xs text-[var(--text-muted)]">All clear</span>
+          <span className="text-xs text-[var(--text-muted)]">
+            {loading || !staged.loaded ? 'Checking approvals…' : error || staged.refreshFailed ? 'Could not refresh approvals' : 'All clear'}
+          </span>
         )}
         <Link
           to="/approvals"
@@ -287,8 +294,10 @@ function ApprovalsBody({
           error={error}
           onRetry={onRefetch}
           onDecide={onRefetch}
+          hideEmptyState={staged.rows.length > 0 || !staged.loaded || staged.refreshFailed}
           compact
         />
+        <StagedApprovalsList {...staged} />
       </div>
     </>
   );

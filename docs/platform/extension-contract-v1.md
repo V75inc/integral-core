@@ -12,6 +12,30 @@ Core must not import `app.packages` or `app.plugins` from services, APIs, models
 
 The preferred facade supplies `get(object_ref)`, `query(query_spec)`, and `invoke(operation_key, payload)`. Query modes are `declared_capability` and `core_open`; mode selects a contract, never a permission bypass. Field and revision contracts distinguish base values, custom fields, relation definitions, and record/schema revisions.
 
+### Retained tool source observations
+
+On distributions supporting this contract, a successful native connector read
+that returns bounded HTTP source text includes `_observation_ref`. Pass that
+server-generated dictionary to `ctx.get(ref)` to obtain the authenticated
+`source` projection: exact `text`, `url`, `retrieved_at`, `truncated`, optional
+title/type metadata, and `content_trust: untrusted`. The result also includes the
+server receipt identity and output fingerprint. A verified retrieval is not
+proof of publisher accuracy, customer demand or any domain outcome.
+
+Core requires the original actor, current workspace access, private thread/session
+containment and current authority on the original connector row. A shared App
+does not grant access to another actor's tool transcript. Revoked, missing,
+unbound legacy, corrupted, incomplete or oversized observations return `None`;
+the operation must report unavailable evidence rather than trust a model copy.
+Lookup never refetches or reexecutes a tool. Apps own quote/claim validation,
+interpretation and approved persistence through their declared operations.
+
+This is an input/read reference, not an owning-App mutation `object_refs` value.
+Keep it as structured machine data. See the [implementation and invariant
+review](../backend/TOOL_SOURCE_OBSERVATIONS_PLAN.md). Older distributions may
+return `None` for this kind; package adoption requires qualification against a
+Core release carrying the contract.
+
 OperationContext is injected by Core. Its identity includes principal, workspace, scope, bundle slug, installed App, operation key, and optional idempotency/correlation keys. It offers validated create/update helpers, conditional updates, audit emission, deduplicated notifications, and the preferred facade. Raw private Core imports are forbidden.
 
 ## Declaration requirements

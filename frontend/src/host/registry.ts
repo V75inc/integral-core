@@ -41,7 +41,7 @@ export type SidebarAccountAction = {
   testId?: string;
 };
 
-/** Optional host mapping from a failed install/API error to a CTA. */
+/** Optional host mapping from an API error or a structured batch failure row to a CTA. */
 export type InstallDenialAction = {
   message: string;
   actionLabel?: string;

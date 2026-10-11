@@ -290,7 +290,7 @@ export function WorkspaceSwitcher({ collapsed = false }: Props) {
           open ? 'bg-[var(--panel)] text-[var(--text)]' : '',
         ].join(' ')}
       >
-        <WorkspaceAvatar name={triggerLabel} url={triggerAvatarUrl} accentColor={triggerAccentColor} />
+        <span aria-hidden="true"><WorkspaceAvatar name={triggerLabel} url={triggerAvatarUrl} accentColor={triggerAccentColor} /></span>
         <span className="flex-1 min-w-0 truncate font-medium">{triggerLabel}</span>
         {busyElsewhere ? (
           <Loader2

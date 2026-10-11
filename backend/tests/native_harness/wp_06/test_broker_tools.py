@@ -1732,6 +1732,16 @@ async def test_identical_read_recovers_and_observes_new_state(
 async def test_vetted_connector_read_crosses_broker_on_no_save_turn(monkeypatch):
     invocations = []
 
+    async def resolve_mounted(**kwargs):
+        assert kwargs["principal_id"] == _scope().principal_id
+        assert kwargs["workspace_id"] == _scope().workspace_id
+        return SimpleNamespace(id="mounted-search"), {}
+
+    monkeypatch.setattr(
+        "app.agentive.connectors.tool_binding.resolve_mounted_tool_connector",
+        resolve_mounted,
+    )
+
     async def invoke(**kwargs):
         invocations.append(kwargs)
         return CapabilityResult(ok=True, data={"results": []})
@@ -1764,6 +1774,7 @@ async def test_vetted_connector_read_crosses_broker_on_no_save_turn(monkeypatch)
     assert read.sequential is False
     result = await read.function_schema.call({"query": "public documentation"}, context)
     assert result["results"] == []
+    assert invocations[0]["connector_id"] == "mounted-search"
     assert invocations[0]["source"] == "connector"
     assert invocations[0]["op_class"] == "read"
     assert invocations[0]["workspace_id"] == "workspace-1"

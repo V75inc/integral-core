@@ -294,12 +294,14 @@ domains:
         privacy: "PC-3 on the exact app — the caller's effective role on this app is resolved at the boundary (app.read)."
       - name: integral_invoke_app_operation
         status: existing
-        op_class: execute
+        op_class: propose
+        staging_kind: invoke_app_operation
         priority: P1
         summary: >-
-          Invoke a typed app operation registered on an installed App instance.
-          Same dispatcher as POST /api/extensions/{app_id}/operations/{key} and
-          the in-process operation bridge — AC-04 shared semantics.
+          Invoke a typed App read immediately, or stage a typed App command for
+          review without executing its handler. Approved commands use the same
+          dispatcher as POST /api/extensions/{app_id}/operations/{key} and the
+          in-process operation bridge, with current permission checks.
         http: "POST /api/extensions/{app_id}/operations/{operation_key}"
         policy_action: app.read
         params:
@@ -2589,7 +2591,7 @@ summary:
   total_tools: 126
   existing_tools: 124    # status: existing
   gap_tools_proposed: 2  # status: gap (workspace_setup, onboard_user deferred)
-  by_op_class: { read: 54, propose: 70, execute: 2 }
+  by_op_class: { read: 54, propose: 71, execute: 1 }
   by_priority: { P0: 16, P1: 41, P2: 69 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"

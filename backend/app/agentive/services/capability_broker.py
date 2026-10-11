@@ -117,8 +117,6 @@ def resolve_from_snapshot(
         capabilities = env.get("capabilities") or []
         if key in tool_keys or key in capabilities or connector_id == key:
             return env
-        if inv.connector_id and connector_id == str(inv.connector_id):
-            return env
     return None
 
 
@@ -134,6 +132,7 @@ def _kind_for(inv: CapabilityInvocation) -> str:
 
 def _receipt_ref(step: Any) -> ReceiptRef:
     return ReceiptRef(
+        step_id=str(getattr(step, "id", "") or ""),
         run_id=str(getattr(step, "run_id", "") or ""),
         step_key=str(getattr(step, "step_key", "") or ""),
         idempotency_key=str(getattr(step, "idempotency_key", "") or ""),

@@ -1,0 +1,20 @@
+slug: cloudflare
+display_name: Cloudflare
+description: Search Cloudflare API capabilities and manage authorized resources through its official MCP server. Requires Cloudflare sign-in and account permission selection. Tool calls require Integral approval.
+category: mcp_server
+kind: mcp
+icon: mcp
+transport: streamable_http
+url: https://mcp.cloudflare.com/mcp
+auth:
+  # Core discovers the provider's OAuth metadata on the initial 401 challenge.
+  # No pre-registered client or account credential is required in this form.
+  type: none
+  fields: []
+# Official endpoint/authentication:
+# https://developers.cloudflare.com/agents/model-context-protocol/cloudflare/servers-for-cloudflare/
+# The provider exposes a broad search/execute surface. Neither provider tool
+# hints nor generated code may bypass the existing propose/bless gate. Keep
+# every tool approval-gated until a separate provider qualification certifies
+# exact read-only names. This catalog entry does not grant account access.
+read_only_tools: []
