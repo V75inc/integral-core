@@ -402,6 +402,7 @@
         "integral_describe_substrate",
         "integral_get_digest",
         "integral_get_feed",
+        "integral_get_graph_context",
         "integral_get_track_schema",
         "integral_governed_query",
         "integral_list_apps",
@@ -423,6 +424,7 @@
         "integral_count_entries",
         "integral_get_digest",
         "integral_get_feed",
+        "integral_get_graph_context",
         "integral_get_track_schema",
         "integral_list_notifications",
         "integral_list_tracks",
@@ -438,7 +440,7 @@
         "integral-filing",
         "integral-models"
       ],
-      "intent": "Search existing Integral records and current workspace state to answer one-time questions. Find whether information is already filed, search entries by meaning, summarize, count, rank, compare, or break down current data; optionally save a query as a View. For a new operational app, use integral-scaffold. For periodic or recurring review deliverables, use integral-review.",
+      "intent": "Read workflow instructions. Load with load_capability; this skill name is never a callable tool. Search existing Integral records and current workspace state to answer one-time questions. Find whether information is already filed, search entries by meaning, explain what could hold up work, dependencies, risks, fallback options and stored intra-workspace relationships; summarize, count, rank, compare, or break down current data; optionally save a query as a View. For a new operational app, use integral-scaffold. For periodic or recurring review deliverables, use integral-review.",
       "name": "integral-insights",
       "source": "agent/skills/integral-insights/SKILL.md",
       "unresolved_refs": []
@@ -860,15 +862,15 @@
     }
   ],
   "counts": {
-    "advertised": 123,
+    "advertised": 124,
     "apps": 3,
     "by_op_class": {
       "execute": 2,
       "propose": 68,
-      "read": 53
+      "read": 54
     },
     "core_skills": 16,
-    "tools": 125
+    "tools": 126
   },
   "diagnostics": {
     "advertised_tools_without_skill": [
@@ -1228,6 +1230,25 @@
         "integral-models",
         "integral-onboard",
         "integral-scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
+          "app.api.graph_context.get_graph_context"
+        ]
+      },
+      "domain": "B_retrieval",
+      "http": "POST /api/graph-context",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_get_graph_context",
+      "op_class": "read",
+      "policy_action": null,
+      "skills": [
+        "integral-insights"
       ],
       "status": "existing"
     },

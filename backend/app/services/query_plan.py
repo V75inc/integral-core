@@ -399,7 +399,8 @@ async def plan_query(
     question: str,
     timezone: str = "UTC",
     workspace_id: Optional[str] = None,
+    user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Plan a question in the caller's timezone. Reads nothing."""
-    del workspace_id
+    """Accept broker-bound authority while planning only the supplied question."""
+    del workspace_id, user_id
     return build_query_plan(question, timezone_name=timezone or "UTC")
