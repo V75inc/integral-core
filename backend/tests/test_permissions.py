@@ -444,3 +444,69 @@ async def test_private_track_cascades_from_space_editor_with_workspace_membershi
 
     assert await can_view_track(member.id, track.id) is True
     assert await can_edit_track(member.id, track.id) is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("track_scoped", [True, False])
+async def test_feed_listing_excludes_entries_before_pagination_and_counts(track_scoped):
+    from app.services.entry_listing import fetch_accessible_entries_page
+
+    user = await User.create(user_id="feed_entry_acl", display_name="Reader")
+    track = await Track.create(title="Feed ACL Track", owner_id=user.id)
+    await user.connect(track, edge=OWNS)
+    hidden = await Entry.create(title="Hidden", track_id=track.id, author_id=user.id)
+    direct = await Entry.create(title="Direct", track_id=track.id, author_id=user.id)
+    inherited = await Entry.create(
+        title="Inherited", track_id=track.id, author_id=user.id
+    )
+    for entry in (hidden, direct, inherited):
+        entry.created_at = entry.updated_at = "2026-10-11T12:00:00+00:00"
+        await entry.save()
+        await track.connect(entry, edge=CONTAINS)
+    await user.connect(hidden, edge=EXCLUDED_FROM)
+    await user.connect(hidden, edge=COLLABORATES_ON, role="invalid_legacy_role")
+    await user.connect(direct, edge=EXCLUDED_FROM)
+    await user.connect(direct, edge=COLLABORATES_ON, role="viewer")
+
+    seen = []
+    cursor = None
+    for _ in range(3):
+        page, response = await fetch_accessible_entries_page(
+            user.id,
+            track_id=track.id if track_scoped else None,
+            cursor=cursor,
+            limit=1,
+            include_total=True,
+        )
+        assert response["total"] == 2
+        assert len(page) == 1
+        seen.extend(entry.id for entry in page)
+        cursor = response["next_cursor"]
+        if not response["has_more"]:
+            break
+    assert set(seen) == {direct.id, inherited.id}
+    assert len(seen) == 2
+
+
+@pytest.mark.asyncio
+async def test_feed_listing_resolves_authenticated_principal_to_graph_user(
+    authenticated_client, test_user
+):
+    assert test_user.id != test_user.user_id
+    response = await authenticated_client.post(
+        "/api/tracks", json={"title": "Authenticated feed privacy"}
+    )
+    assert response.status_code == 200
+    track_id = response.json()["track"]["id"]
+    response = await authenticated_client.post(
+        "/api/entries", json={"track_id": track_id, "title": "Private feed record"}
+    )
+    assert response.status_code == 200
+    entry = await Entry.get(response.json()["entry"]["id"])
+    await test_user.connect(entry, edge=EXCLUDED_FROM)
+    response = await authenticated_client.get(
+        "/api/entries", params={"track_id": track_id, "include_total": True}
+    )
+    assert response.status_code == 200
+    assert response.json()["entries"] == []
+    assert response.json()["total"] == 0

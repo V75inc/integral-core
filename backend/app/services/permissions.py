@@ -88,10 +88,9 @@ async def get_user_node(user_id: str) -> Optional[User]:
                 cache[ck] = None
             return None
 
-        nodes = await User.find({"context.user_id": auth_user.id})
-        if not nodes:
-            nodes = await User.find({"user_id": auth_user.id})
-        user = nodes[0] if nodes else None
+        user = await User.find_one({"context.user_id": auth_user.id})
+        if user is None:
+            user = await User.find_one({"user_id": auth_user.id})
         if cache is not None:
             cache[ck] = user
         return user

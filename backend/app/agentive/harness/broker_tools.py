@@ -57,6 +57,14 @@ _REQUIRED_SKILLS_BY_TOOL = {
     "integral_verify_build": "integral-scaffold",
 }
 
+# These three read instruments cover subject discovery and relationship
+# capture. Disclose them only after an owning workflow is loaded; the rest of
+# the catalogue stays deferred. This avoids repeated unknown-tool turns while
+# preserving model selection, host scope and broker authorization.
+_PRIMARY_INSIGHT_READS = frozenset(
+    {"integral_query", "integral_query_entries", "integral_get_graph_context"}
+)
+
 
 def _resource_links_for_model(payload: dict[str, Any]) -> dict[str, Any]:
     """Supply canonical navigation URLs on Core resource read results.
@@ -669,6 +677,11 @@ def build_brokered_tools(
                         else frozenset()
                     ),
                     call_state,
+                    eager_read_owners=(
+                        frozenset(skill_owners.get(name, ()))
+                        if op_class == "read" and name in _PRIMARY_INSIGHT_READS
+                        else frozenset()
+                    ),
                 ),
                 defer_loading=name not in immediately_available,
                 # Public Pydantic barriers preserve model-emitted order for
@@ -699,6 +712,8 @@ def _prepare_capability_tool(
     required_skill: str | None,
     skill_owners: frozenset[str] = frozenset(),
     call_state: dict[str, Any] | None = None,
+    *,
+    eager_read_owners: frozenset[str] = frozenset(),
 ):
     """Disclose skill tools while preserving the build authority boundary."""
 
@@ -717,6 +732,8 @@ def _prepare_capability_tool(
             # The build tool is the model's semantic selection at this saved
             # design decision point. Its handler persists approval against the
             # exact current turn before any build effect.
+            return replace(tool_def, defer_loading=False)
+        if eager_read_owners.intersection(ctx.active_capability_ids):
             return replace(tool_def, defer_loading=False)
         # Core validates the typed blueprint and live coverage on proposal
         # dispatch. Hiding the proposal here would break amendments because

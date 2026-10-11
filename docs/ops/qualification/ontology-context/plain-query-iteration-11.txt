@@ -1,0 +1,534 @@
+Browser tab: 3, Title: "Integral", URL: "http://127.0.0.1:61315/".
+1 AXWebArea Integral, URL: 127.0.0.1:61315/
+	2 container root
+		3 container
+			4 text Verify your email You can keep working while you verify.
+			496 button Enter code
+			497 button Resend code
+			7 button Dismiss notification
+				8 image
+		9 link Description: Skip to main content, Value: 127.0.0.1:61315/#main-content
+		10 container app-sidebar-nav
+			11 link Description: Integral — go to dashboard, Value: 127.0.0.1:61315/
+			12 button Expand sidebar
+				13 image
+			14 container Sidebar navigation
+				15 link Description: Home, Value: 127.0.0.1:61315/
+				16 pop up button (collapsed) Description: Switch workspace (currently Maya Chen), Secondary Actions: Expand
+				17 link Description: Agent — talk to your Integral coworker, Value: 127.0.0.1:61315/agent
+				18 link Description: Feed, Value: 127.0.0.1:61315/feed
+				19 link Description: Apps, Value: 127.0.0.1:61315/apps
+				20 link Description: Tracks, Value: 127.0.0.1:61315/tracks
+			21 link Description: Approvals, Value: 127.0.0.1:61315/approvals
+			22 link Description: Background Tasks, Value: 127.0.0.1:61315/background-tasks
+			23 link Description: Notifications, Value: 127.0.0.1:61315/notifications
+			24 link Description: Settings, Value: 127.0.0.1:61315/settings
+			25 pop up button (collapsed) Description: Noah Patel menu, Secondary Actions: Expand
+		26 container main-content
+			27 container
+				28 container Breadcrumb
+					29 text Home
+				30 button Switch to light mode
+				31 button Inbox
+					32 image
+			33 container
+				34 heading Home, Value: 1
+					35 text Home
+				36 text 2  workspace s 0  unread  notifications Last activity across workspaces about 2 hours ago Your workspaces and recent activity in one place. Choose a workspace to get started.
+			37 container At a glance
+				38 text WORKSPACES
+				39 text 2
+				40 text TOTAL TRACKS
+				41 text 3
+				42 link Description: ENTRIES TODAY 6, Value: 127.0.0.1:61315/feed
+				43 text UNREAD
+				44 text 0
+				45 text ACTIVE TRACKS
+				46 text 3
+			47 heading Approval inbox, Value: 2
+				48 text Approval inbox
+			49 text No pending approvals.
+			50 link Description: Review approvals →, Value: 127.0.0.1:61315/approvals
+			51 container WORKSPACES
+				52 heading WORKSPACES, Value: 2, ID: mc-workspaces
+					53 text WORKSPACES
+				54 link Description: View all →, Value: 127.0.0.1:61315/workspaces
+				55 content list
+					56 link Description: NP Noah Patel Your private tracks and apps about 2 hours ago, Value: 127.0.0.1:61315/tracks
+					57 link Description: MC Maya Chen Invited workspace about 2 hours ago, Value: 127.0.0.1:61315/workspaces/n.Workspace.d5df6c7ea06d4e8ba3c2d851
+			58 container RECENT APPS
+				59 heading RECENT APPS, Value: 2, ID: mc-apps
+					60 text RECENT APPS
+				61 link Description: View all →, Value: 127.0.0.1:61315/apps
+				62 content list
+					63 link Description: Launch Readiness Lab MC MAYA CHEN Dummy-data ontology and privacy qualification about 2 hours ago, Value: 127.0.0.1:61315/apps/n.WorkspaceApp.98f594423b9b43f1b62e2679
+			64 container TRACKS IN MOTION
+				65 heading TRACKS IN MOTION, Value: 2, ID: mc-tracks
+					66 text TRACKS IN MOTION
+				67 link Description: View all →, Value: 127.0.0.1:61315/tracks
+				68 content list
+					69 link Description: Separate Portfolio NP NOAH PATEL Readable but outside the launch workspace 1 entry about 2 hours ago, Value: 127.0.0.1:61315/tracks/n.Track.c9c680b020ae4b9fa2221df6
+					70 link Value: 127.0.0.1:61315/tracks/n.Track.4dd9b6b03a72419baa67e847, Description: Dependencies and Risks MC MAYA CHEN Evidence for launch go/no-go decisions 4 entries about 2 hours ago
+					71 link Description: Launch Decisions MC MAYA CHEN Evidence for launch go/no-go decisions 1 entry about 2 hours ago, Value: 127.0.0.1:61315/tracks/n.Track.81d1a2d2a8d64131a714ed58
+			72 container LATEST ACTIVITY
+				73 heading LATEST ACTIVITY, Value: 2, ID: mc-latest
+					74 text LATEST ACTIVITY
+				75 link Description: View feed →, Value: 127.0.0.1:61315/feed
+				76 content list
+					77 link Value: 127.0.0.1:61315/tracks/n.Track.c9c680b020ae4b9fa2221df6?entry=n.Entry.59dbca873ff245cf948c2189, Description: FOREIGN: separate portfolio funding NP NOAH PATEL FOREIGN_SENTINEL: readable in another workspace but never launch context. about 2 hours ago
+					78 link Value: 127.0.0.1:61315/tracks/n.Track.4dd9b6b03a72419baa67e847?entry=n.Entry.7cfb7d160a204af6a171bd3e, Description: Unlinked sensitive forecast MC MAYA CHEN HIDDENBRIDGESENTINEL: accessible only through a denied intermediary in reference traversal. about 2 hours ago
+					79 link Description: Reserve a backup supplier MC MAYA CHEN Mitigation option for a capacity shortfall. about 2 hours ago, Value: 127.0.0.1:61315/tracks/n.Track.4dd9b6b03a72419baa67e847?entry=n.Entry.411ee6640fcf40fcbddda854
+					80 link Value: 127.0.0.1:61315/tracks/n.Track.4dd9b6b03a72419baa67e847?entry=n.Entry.cc2f2e4fdd00476e912b62d4, Description: Complete reliability validation MC MAYA CHEN Validate the pilot operating envelope. about 2 hours ago
+					81 link Value: 127.0.0.1:61315/tracks/n.Track.4dd9b6b03a72419baa67e847?entry=n.Entry.6ba5e901adbc47919a3237de, Description: Supplier capacity confirmation MC MAYA CHEN Capacity evidence is due before approval. about 2 hours ago
+					82 link Value: 127.0.0.1:61315/tracks/n.Track.81d1a2d2a8d64131a714ed58?entry=n.Entry.c05a620cfce1478cb79bc1f9, Description: Launch regional pilot on 1 November MC MAYA CHEN Illustrative decision: pilot depends on supplier capacity and validation. about 2 hours ago
+		83 container AI chat
+			84 splitter Description: Resize assistant panel, Value: 420
+			85 container
+				86 button (collapsed) Description: Show conversations, Secondary Actions: Expand
+					87 image
+					88 text Conversations
+				89 checkbox Chat, Value: 1
+				90 checkbox Inbox, Value: 0
+				91 link Description: Open full chat, Value: 127.0.0.1:61315/agent
+				92 button Close chat
+					93 image
+			94 container
+				299 container Conversations
+					300 button Close conversations
+						301 image
+					302 container
+						303 button (disabled) Active agent
+							304 text Integral AI Your workspace assistant
+						305 text CONVERSATIONS
+						306 button New conversation
+							307 image
+						308 search text field (settable) Search conversations
+						663 text TODAY · MORNING
+						310 container
+							311 button What could hold up our regional pilot launch on 1 November, … 07:58 AM
+								312 container What could hold up our regional pilot launch on 1 November, …
+									313 text What could hold up our regional pilot launch on 1 November, …
+									314 text 07:58 AM
+							315 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:ra:, Secondary Actions: Expand
+								316 image
+						317 container
+							318 button What could hold up our regional pilot launch on 1 November, … 07:50 AM
+								319 container What could hold up our regional pilot launch on 1 November, …
+									320 text What could hold up our regional pilot launch on 1 November, …
+									321 text 07:50 AM
+							322 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:rd:, Secondary Actions: Expand
+								323 image
+						324 container
+							325 button What could hold up our regional pilot launch on 1 November, … 07:43 AM
+								326 container What could hold up our regional pilot launch on 1 November, …
+									327 text What could hold up our regional pilot launch on 1 November, …
+									328 text 07:43 AM
+							329 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:rg:, Secondary Actions: Expand
+								330 image
+						331 container
+							332 button What could hold up our regional pilot launch on 1 November, … 07:41 AM
+								333 container What could hold up our regional pilot launch on 1 November, …
+									334 text What could hold up our regional pilot launch on 1 November, …
+									335 text 07:41 AM
+							336 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:rj:, Secondary Actions: Expand
+								337 image
+						338 container
+							339 button What could hold up our regional pilot launch on 1 November, … 07:30 AM
+								340 container What could hold up our regional pilot launch on 1 November, …
+									341 text What could hold up our regional pilot launch on 1 November, …
+									342 text 07:30 AM
+							343 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:rm:, Secondary Actions: Expand
+								344 image
+						345 container
+							346 button What could hold up our regional pilot launch on 1 November, … 07:17 AM
+								347 container What could hold up our regional pilot launch on 1 November, …
+									348 text What could hold up our regional pilot launch on 1 November, …
+									349 text 07:17 AM
+							350 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:rp:, Secondary Actions: Expand
+								351 image
+						352 container
+							353 button What could hold up our regional pilot launch on 1 November, … 07:12 AM
+								354 container What could hold up our regional pilot launch on 1 November, …
+									355 text What could hold up our regional pilot launch on 1 November, …
+									356 text 07:12 AM
+							357 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:rs:, Secondary Actions: Expand
+								358 image
+						359 container
+							360 button What could hold up our regional pilot launch on 1 November, … 07:07 AM
+								361 container What could hold up our regional pilot launch on 1 November, …
+									362 text What could hold up our regional pilot launch on 1 November, …
+									363 text 07:07 AM
+							364 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:rv:, Secondary Actions: Expand
+								365 image
+						366 container
+							367 button What could hold up our regional pilot launch on 1 November, … 06:54 AM
+								368 container What could hold up our regional pilot launch on 1 November, …
+									369 text What could hold up our regional pilot launch on 1 November, …
+									370 text 06:54 AM
+							371 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r12:, Secondary Actions: Expand
+								372 image
+						373 container
+							374 button What could hold up our regional pilot launch on 1 November, … 06:49 AM
+								375 container What could hold up our regional pilot launch on 1 November, …
+									376 text What could hold up our regional pilot launch on 1 November, …
+									377 text 06:49 AM
+							378 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r15:, Secondary Actions: Expand
+								379 image
+						380 container
+							381 button What could hold up our regional pilot launch on 1 November, … 06:40 AM
+								382 container What could hold up our regional pilot launch on 1 November, …
+									383 text What could hold up our regional pilot launch on 1 November, …
+									384 text 06:40 AM
+							385 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r18:, Secondary Actions: Expand
+								386 image
+						387 container
+							388 button What could hold up our regional pilot launch on 1 November, … 06:33 AM
+								389 container What could hold up our regional pilot launch on 1 November, …
+									390 text What could hold up our regional pilot launch on 1 November, …
+									391 text 06:33 AM
+							392 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r1b:, Secondary Actions: Expand
+								393 image
+						395 container
+							396 button What could hold up our regional pilot launch on 1 November, … 06:30 AM
+								397 container What could hold up our regional pilot launch on 1 November, …
+									398 text What could hold up our regional pilot launch on 1 November, …
+									399 text 06:30 AM
+							400 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r1l:, Secondary Actions: Expand
+								401 image
+						499 container
+							500 button What could hold up our regional pilot launch on 1 November, … 06:29 AM
+								501 container What could hold up our regional pilot launch on 1 November, …
+									502 text What could hold up our regional pilot launch on 1 November, …
+									503 text 06:29 AM
+							504 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r1t:, Secondary Actions: Expand
+								505 image
+						664 container
+							665 button Use integral-insights and integral_get_graph_context to expl… 06:21 AM
+								666 container Use integral-insights and integral_get_graph_context to expl…
+									667 text Use integral-insights and integral_get_graph_context to expl…
+									668 text 06:21 AM
+							669 pop up button (collapsed) Description: Options for Use integral-insights and integral_get_graph_context to expl…, ID: radix-:r27:, Secondary Actions: Expand
+								670 image
+				95 text Get started with your workspace Say hello and I’ll help you set up your Apps and Tracks.
+				96 button Skip workspace introduction
+				671 container
+					672 text What could hold up our regional pilot launch on 1 November, and how would a backup supplier help?
+				673 container
+					703 text Based on the available workspace records, there are two stored prerequisites for the regional pilot launch on 1 November:
+					704 content list
+						705 container
+							706 AXListMarker 1.
+							707 text Supplier capacity confirmation:  The launch depends on ensuring confirmed supplier capacity.
+						708 container
+							709 AXListMarker 2.
+							710 text Complete reliability validation:  The launch requires documentation showing the completion of reliability validation.
+					711 text The backup supplier addresses the first dependency. The process indicates that "Reserve a backup supplier" is a mitigation measure for "Supplier capacity confirmation." Please note that the presence of these stored dependencies and mitigations does not confirm that the readiness criteria have been met or that the backup supplier will definitively solve the issue; it only documents the necessary steps and fallback options recorded in the workspace.
+					674 button (expanded) Secondary Actions: Collapse
+						675 image
+						712 text Worked · 3 steps · gemma4:latest
+					680 container radix-:r29:
+						681 text Activity and tool results are shown here. Private model reasoning is not displayed.
+						713 table
+							714 row
+								715 cell
+									716 text CALL
+								717 cell
+									718 text MODEL
+								719 cell
+									720 text IN
+								721 cell
+									722 text OUT
+								723 cell
+									724 text COST
+								725 cell
+									726 text TIME
+								727 cell
+									728 text STATE
+							729 row
+								730 cell
+									731 text 1
+								732 cell
+									733 text ollama_chat/gemma4:latest
+								734 cell
+									735 text 3,593
+								736 cell
+									737 text 266
+								738 cell Source: unavailable
+									739 text —
+								740 cell
+									741 text 24.5s
+								742 cell
+									743 text responded
+							744 row
+								745 cell
+									746 text 2
+								747 cell
+									748 text ollama_chat/gemma4:latest
+								749 cell
+									750 text 11,622
+								751 cell
+									752 text 240
+								753 cell Source: unavailable
+									754 text —
+								755 cell
+									756 text 53.9s
+								757 cell
+									758 text responded
+							759 row
+								760 cell
+									761 text 3
+								762 cell
+									763 text ollama_chat/gemma4:latest
+								764 cell
+									765 text 12,911
+								766 cell
+									767 text 328
+								768 cell Source: unavailable
+									769 text —
+								770 cell
+									771 text 65.5s
+								772 cell
+									773 text responded
+							774 row
+								775 cell
+									776 text 4
+								777 cell
+									778 text ollama_chat/gemma4:latest
+								779 cell
+									780 text 14,934
+								781 cell
+									782 text 697
+								783 cell Source: unavailable
+									784 text —
+								785 cell
+									786 text 42.3s
+								787 cell
+									788 text responded
+							789 row
+								790 cell
+									791 text Total
+								792 cell
+									793 text 43,060
+								794 cell
+									795 text 1,531
+								796 cell
+									797 text —
+						798 text TTFT:  181.7s Total:  188.6s 44,591  tokens Provider cost unavailable for some calls
+						682 text Steps
+						683 button (collapsed) Used tool: load_capability, Secondary Actions: Expand
+							684 image
+							685 text Used tool
+							686 text :
+							687 text load_capability
+							688 image
+						690 button (collapsed) Used tool: integral_query, Secondary Actions: Expand
+							691 image
+							692 text Used tool
+							693 text :
+							694 text integral_query
+							695 image
+						697 button (expanded) Used tool: integral_get_graph_context, Secondary Actions: Collapse
+							698 image
+							699 text Used tool
+							700 text :
+							701 text integral_get_graph_context
+							702 image
+						799 container radix-:r2c:
+							800 text {
+  "spec": {
+    "view": "ontology",
+    "root_id": "n.Entry.c05a620cfce1478cb79bc1f9",
+    "direction": "out",
+    "max_depth": 3,
+    "max_edges": 5,
+    "max_nodes": 5,
+    "edge_types": [
+      "REFERENCES"
+    ]
+  }
+}
+							801 text Result:
+							802 text {
+  "meta": {
+    "view": "ontology",
+    "scope": "ws:n.Workspace.d5df6c7ea06d4e8ba3c2d851",
+    "root_id": "n.Entry.c05a620cfce1478cb79bc1f9",
+    "complete": true,
+    "ordering": "breadth_first_edge_id",
+    "direction": "out",
+    "max_depth": 3,
+    "captured_at": "2026-10-11T11:57:42.382353+00:00",
+    "consistency": "best_effort",
+    "edge_policy": "traversal",
+    "continuation": "new_live_capture",
+    "stop_reasons": [],
+    "execution_mode": "native",
+    "root_available": true,
+    "detail_complete": true,
+    "read_finished_at": "2026-10-11T11:57:42.538986+00:00",
+    "request_fingerprint": "bb9facf94df772f4e0d6ff2c3578224968833463b6cac57c95cbd3aa5ca3f392"
+  },
+  "edges": [
+    {
+      "id": "e.REFERENCES.18ee96205ead4600ae0750e1",
+      "entity": "REFERENCES",
+      "source": "n.Entry.c05a620cfce1478cb79bc1f9",
+      "target": "n.Entry.6ba5e901adbc47919a3237de",
+      "context": {
+        "field_key": "depends_on",
+        "cross_track": true,
+        "relation_type": "operational_model"
+      },
+      "bidirectional": false,
+      "traversed_from": "n.Entry.c05a620cfce1478cb79bc1f9",
+      "truncated_fields": []
+    },
+    {
+      "id": "e.REFERENCES.e27088f5d2904847abf979e6",
+      "entity": "REFERENCES",
+      "source": "n.Entry.c05a620cfce1478cb79bc1f9",
+      "target": "n.Entry.cc2f2e4fdd00476e912b62d4",
+      "context": {
+        "field_key": "requires",
+        "cross_track": true,
+        "relation_type": "operational_model"
+      },
+      "bidirectional": false,
+      "traversed_from": "n.Entry.c05a620cfce1478cb79bc1f9",
+      "truncated_fields": []
+    },
+    {
+      "id": "e.REFERENCES.c88f545dd65d4365a816c37d",
+      "entity": "REFERENCES",
+      "source": "n.Entry.6ba5e901adbc47919a3237de",
+      "target": "n.Entry.411ee6640fcf40fcbddda854",
+      "context": {
+        "field_key": "mitigated_by",
+        "cross_track": true,
+        "relation_type": "operational_model"
+      },
+      "bidirectional": false,
+      "traversed_from": "n.Entry.6ba5e901adbc47919a3237de",
+      "truncated_fields": []
+    }
+  ],
+  "nodes": [
+    {
+      "id": "n.Entry.c05a620cfce1478cb79bc1f9",
+      "label": "Launch regional pilot on 1 November",
+      "entity": "Entry",
+      "context": {
+        "title": "Launch regional pilot on 1 November",
+        "status": "active"
+      },
+      "truncated_fields": []
+    },
+    {
+      "id": "n.Entry.6ba5e901adbc47919a3237de",
+      "label": "Supplier capacity confirmation",
+      "entity": "Entry",
+      "context": {
+        "title": "Supplier capacity confirmation",
+        "status": "active"
+      },
+      "truncated_fields": []
+    },
+    {
+      "id": "n.Entry.cc2f2e4fdd00476e912b62d4",
+      "label": "Complete reliability validation",
+      "entity": "Entry",
+      "context": {
+        "title": "Complete reliability validation",
+        "status": "active"
+      },
+      "truncated_fields": []
+    },
+    {
+      "id": "n.Entry.411ee6640fcf40fcbddda854",
+      "label": "Reserve a backup supplier",
+      "entity": "Entry",
+      "context": {
+        "title": "Reserve a backup supplier",
+        "status": "active"
+      },
+      "truncated_fields": []
+    }
+  ],
+  "paths": {
+    "n.Entry.411ee6640fcf40fcbddda854": {
+      "edges": [
+        "e.REFERENCES.18ee96205ead4600ae0750e1",
+        "e.REFERENCES.c88f545dd65d4365a816c37d"
+      ],
+      "nodes": [
+        "n.Entry.c05a620cfce1478cb79bc1f9",
+        "n.Entry.6ba5e901adbc47919a3237de",
+        "n.Entry.411ee6640fcf40fcbddda854"
+      ]
+    },
+    "n.Entry.6ba5e901adbc47919a3237de": {
+      "edges": [
+        "e.REFERENCES.18ee96205ead4600ae0750e1"
+      ],
+      "nodes": [
+        "n.Entry.c05a620cfce1478cb79bc1f9",
+        "n.Entry.6ba5e901adbc47919a3237de"
+      ]
+    },
+    "n.Entry.c05a620cfce1478cb79bc1f9": {
+      "edges": [],
+      "nodes": [
+        "n.Entry.c05a620cfce1478cb79bc1f9"
+      ]
+    },
+    "n.Entry.cc2f2e4fdd00476e912b62d4": {
+      "edges": [
+        "e.REFERENCES.e27088f5d2904847abf979e6"
+      ],
+      "nodes": [
+        "n.Entry.c05a620cfce1478cb79bc1f9",
+        "n.Entry.cc2f2e4fdd00476e912b62d4"
+      ]
+    }
+  },
+  "_receipt": {
+    "origin": "chat",
+    "run_id": "89024376-e095-4cf2-9591-f1e40755b686",
+    "status": "succeeded",
+    "step_key": "capability:native:2852ad17c",
+    "capability_key": "integral_get_graph_context",
+    "idempotency_key": "native:2852ad17c7073b843e4687e722d9891908263ac4a7429f175f85b59cc4a3bde3",
+    "snapshot_fingerprint": "86dc1132b581c984f7fef45fc7dca67c80d0138722a7b5778dc7f3138dd33ee3"
+  },
+  "ontology": {
+    "coverage": "represented_types_only",
+    "edge_types": {
+      "REFERENCES": "Source entry references target entry via a declared field."
+    },
+    "node_types": {
+      "Entry": "A readable information record; title and substrate status only."
+    },
+    "evidence_class": "application_declared"
+  },
+  "replayed": false,
+  "format_version": 1,
+  "expansion_points": []
+}
+					803 button Copy
+						804 image
+					805 button Regenerate
+						806 image
+					807 button Message debug
+						808 image
+					809 pop up button (collapsed) Description: More, ID: radix-:r2d:, Secondary Actions: Expand
+						810 image
+				811 container
+					812 text entry area (settable) Message input
+					813 button Description: Attach a file, Help: Attach an image or file
+						814 image
+					815 checkbox Description: Dictate (⇧⌘Space), Value: 0
+					816 text @people, #apps/tracks
+					817 button (disabled) Send message
+						818 image
+
+The focused UI element is 697 button (expanded) Used tool: integral_get_graph_context, Secondary Actions: Collapse

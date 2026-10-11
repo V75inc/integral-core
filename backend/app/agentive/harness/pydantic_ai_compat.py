@@ -220,6 +220,87 @@ class IntegralToolDisclosure(ToolSearch):
 
         return settings
 
+    async def after_model_request(self, ctx, *, request_context, response):
+        """Enforce discovery even when a provider cannot force tool choice.
+
+        This validates structural turn state, never the user's wording. A
+        pending decision, authorized continuation or already disclosed Integral
+        workflow retains its existing path. No capability is executed here.
+        """
+        response = await super().after_model_request(
+            ctx, request_context=request_context, response=response
+        )
+        if (
+            not self.require_initial_search
+            or self.pending_decision_tool
+            or self.continuation_tools
+            or any(part.part_kind == "tool-call" for part in response.parts)
+        ):
+            return response
+        turn_start = next(
+            (
+                index
+                for index in range(len(ctx.messages) - 1, -1, -1)
+                if isinstance(ctx.messages[index], ModelRequest)
+                and any(
+                    isinstance(part, UserPromptPart)
+                    for part in ctx.messages[index].parts
+                )
+            ),
+            0,
+        )
+        outcomes = [
+            part
+            for message in ctx.messages[turn_start:]
+            if isinstance(message, ModelRequest)
+            for part in message.parts
+            if isinstance(part, ToolReturnPart)
+        ]
+        searches = [
+            part
+            for part in outcomes
+            if part.tool_name == "search_capabilities"
+            and not (isinstance(part.content, dict) and part.content.get("error"))
+        ]
+        if not searches and not any(
+            name.startswith("integral_") for name in ctx.available_tool_names
+        ):
+            raise ModelRetry(
+                "This turn has not searched Integral's authorized capabilities. "
+                "Call search_capabilities now with the user's requested outcome. "
+                "A promise to search or request for workspace context does not "
+                "complete discovery. Use the returned skill/tool schemas; only "
+                "then answer or explain an observed limitation."
+            )
+        candidates = {
+            item.get("load_with", {}).get("id")
+            for part in searches
+            if isinstance(part.content, dict)
+            for item in part.content.get("results", ())
+            if isinstance(item, dict)
+            and item.get("kind") == "skill"
+            and isinstance(item.get("load_with"), dict)
+            and item["load_with"].get("tool") == "load_capability"
+        }
+        candidates.discard(None)
+        if (
+            candidates
+            and not candidates.intersection(ctx.active_capability_ids)
+            and not self.workflow_skill_ids.intersection(ctx.active_capability_ids)
+            and not any(part.tool_name.startswith("integral_") for part in outcomes)
+        ):
+            raise ModelRetry(
+                "Discovery returned available workflow skills, but none has been "
+                "loaded. Call the load_capability tool now. Its id argument must "
+                f"be one of these authorized ids: {', '.join(sorted(candidates))}. "
+                "Choose the id whose returned description fits the user's question. "
+                "Loading reads the skill instructions; it does not grant access or "
+                "modify workspace records. Follow its procedure and "
+                "perform the required authorized reads before answering. Do not "
+                "ask the user to supply records you have not attempted to read."
+            )
+        return response
+
     def get_wrapper_toolset(self, toolset):
         def should_disclose(ctx: RunContext[Any], definition) -> bool:
             if definition.name == self.function_tool_name:
@@ -306,6 +387,12 @@ def build_integral_run_instructions(
         active_ids = sorted(ctx.active_capability_ids)
         blocks = [
             base_instructions,
+            "Integral callable-tool contract: skill identifiers name instructions, "
+            "not functions. Never invoke a skill name as a tool or convert its "
+            "hyphens to underscores. Activate a chosen skill with load_capability "
+            "using its exact id. Invoke only a tool whose exact name and argument "
+            "schema are disclosed for this request. If a needed tool is absent, "
+            "call search_capabilities to discover it before invoking it.",
             "Integral trusted clock: this invocation started at "
             f"{run_started_at.isoformat()}; current UTC date is "
             f"{run_started_at.date().isoformat()}. Use this date for today's "
@@ -326,6 +413,11 @@ def build_integral_run_instructions(
             "query or operation with read effects. If none exists, explain "
             "that the current App exposes no permitted read for this question.",
         ]
+        available = sorted(getattr(ctx, "available_tool_names", ()))
+        if available:
+            blocks.append(
+                "Callable tool names for this request: " + ", ".join(available) + "."
+            )
         if active_ids:
             blocks.append(
                 "Integral runtime state: these capabilities are already loaded and "
