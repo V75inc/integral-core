@@ -1766,6 +1766,19 @@ class PydanticAIProvider:
                 if updated_session.last_checkpoint_id != persisted_id:
                     raise RuntimeError("safe checkpoint pointer did not advance")
 
+            # Use the same scoped, admitted and metered model transport, with
+            # no tools or conversation instructions in this presentation task.
+            from app.services.chat_titles import infer_conversation_title
+
+            await infer_conversation_title(
+                thread_id=ctx.thread_id,
+                model=getattr(agent, "model", None),
+                assistant_text=str((settled_event or {}).get("delta") or ""),
+                work_execution_context=work_execution_context,
+            )
+
+            observations = await list_model_request_observations(scope=scope)
+
             # Expose one safe row per physical request. The source records are
             # persisted before this point and retain unknown token/cost fields
             # as unknown; no character-based estimates enter the UI.

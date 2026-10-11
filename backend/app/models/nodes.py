@@ -829,6 +829,7 @@ class ChatThread(Node):
     # one-active-turn-per-thread admission a single-row PostgreSQL CAS.
     active_work_item_id: str = ""
     title: str = ""
+    title_source: Literal["", "fallback", "generated", "manual"] = ""
     archived: bool = False
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
