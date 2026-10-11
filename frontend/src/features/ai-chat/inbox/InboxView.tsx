@@ -46,6 +46,7 @@ export function InboxView() {
 
   const empty =
     !loading &&
+    !degraded &&
     writeStaged.length === 0 &&
     approvals.length === 0 &&
     routines.length === 0;

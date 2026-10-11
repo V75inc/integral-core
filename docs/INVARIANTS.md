@@ -256,8 +256,12 @@ Technical details are secondary. A proposal need not have a chat session.
 The global Inbox counts and displays pending/blessed proposals alongside policy
 approvals; a loading or failed proposal read must not claim that all is clear.
 Typed App operation review renders the bound input as literal, read-only fields.
-App schema titles supply field vocabulary; presentation metadata never enters the
-execution payload. Supported record references use the existing scoped label/link
+App schema titles and declared property order supply field presentation; every
+unlabelled input remains inspectable. Presentation metadata never enters the
+execution payload. The full Approvals page shares its proposal collection with
+its counts and suppresses empty-success claims until both queues are read; failed
+reads remain explicit. Assistant Inbox likewise suppresses its empty-success
+message when any collection read is degraded. Supported record references use the existing scoped label/link
 resolver. Large input projections explicitly direct inspection to the complete
 technical payload; narrated JSON is never substituted for the execution input.
 
