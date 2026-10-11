@@ -515,14 +515,9 @@ async def _validate_relation_values(
 ) -> List[str]:
     """Validate relation field values; return the canonical id list.
 
-    Phase 3.1 (ANC-02 + ANC-08 defense-in-depth):
-      - target='entry' (default): validate against Entry.get(rid) — existing
-        behavior preserved verbatim.
-      - target='track': validate against Track.get(rid); assert same-workspace
-        constraint (cross-workspace anchoring is out of scope for v1; auto-
-        provision path in Plan 03.1-02 fills ``rel["targets"]`` with newly-
-        created Track ids that satisfy this constraint by construction —
-        this validator is the deep-defense layer).
+    Both Entry and Track targets must resolve inside the source workspace.
+    Cross-Track/App declarations do not authorize cross-workspace linkage.
+    This structural check is independent of actor and target-App admission.
     """
     target_kind = str(relation.get("target") or "entry").strip().lower()
     many = bool(relation.get("many", False))
@@ -548,7 +543,7 @@ async def _validate_relation_values(
                     )
                 )
             target_ws = getattr(tnode, "workspace_id", "") or ""
-            if source_ws and target_ws and target_ws != source_ws:
+            if not source_ws or not target_ws or target_ws != source_ws:
                 raise BadRequestError(
                     message=(
                         f"Cross-workspace anchoring is not supported in v1 "
@@ -559,7 +554,8 @@ async def _validate_relation_values(
             validated.append(rid)
         return validated
 
-    # target == "entry" — existing behavior preserved verbatim.
+    # Entry scope is determined by its containing Track, never by the target
+    # type key or a caller-supplied workspace. Refuse unresolved containment.
     target_entry_types = {str(x) for x in relation.get("target_entry_types") or []}
     target_track_types = {str(x) for x in relation.get("target_track_types") or []}
     allow_cross_track = relation_allows_cross_track(relation)
@@ -573,6 +569,17 @@ async def _validate_relation_values(
         if not allow_cross_track and target.track_id != source_track.id:
             raise BadRequestError(
                 message=f"Relation field '{field_key}' cannot reference entries across tracks"
+            )
+        target_track = (
+            source_track
+            if target.track_id == source_track.id
+            else await Track.get(target.track_id)
+        )
+        source_ws = str(getattr(source_track, "workspace_id", "") or "")
+        target_ws = str(getattr(target_track, "workspace_id", "") or "")
+        if not source_ws or not target_ws or target_ws != source_ws:
+            raise BadRequestError(
+                message=f"Relation field '{field_key}' target must be in the source workspace"
             )
         if target_entry_types:
             target_et = await EntryType.get(target.type_id) if target.type_id else None
@@ -598,8 +605,12 @@ async def _validate_relation_values(
                     message=f"Relation field '{field_key}' target entry type is not allowed"
                 )
         if target_track_types and target.track_id != source_track.id:
-            t = await Track.get(target.track_id)
-            tkey = _slug(str(getattr(t, "template_id", "") or getattr(t, "title", "")))
+            tkey = _slug(
+                str(
+                    getattr(target_track, "template_id", "")
+                    or getattr(target_track, "title", "")
+                )
+            )
             if tkey not in {_slug(x) for x in target_track_types}:
                 raise BadRequestError(
                     message=f"Relation field '{field_key}' target track type is not allowed"
