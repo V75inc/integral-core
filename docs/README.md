@@ -12,6 +12,8 @@ The [concept](product/CONCEPT.md) states the purpose. The [architecture](product
 
 Start your own workspace with the [local installation and CLI guide](ops/LOCAL_INSTALLATION.md). Then follow the [user guide](user-guide/README.md) for workspaces, Apps and Tracks, records, views, sharing, the resident AI, and approvals.
 
+Understand dependencies and decision evidence with [workspace graph context](product/GRAPH_CONTEXT.md).
+
 ## Build on it
 
 Follow the [App quickstart](developer/quickstart.md), then use the [extension contract](platform/extension-contract-v1.md), [Operational Model guide](operational-models/README.md), and [backend reference](backend/README.md). The [generated capability map](generated/capability-map.md) derives from source and must be regenerated rather than edited by hand.

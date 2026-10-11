@@ -3630,6 +3630,10 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
         _h("app.api.operational_models", "list_library_operational_models"),
         _pick("type_hint"),
     ),
+    "integral_get_graph_context": ToolBinding(
+        handler_ref=_h("app.api.graph_context", "get_graph_context"),
+        body_map=lambda args: dict(args.get("spec") or {}),
+    ),
     "integral_query_spec": ToolBinding(
         handler_ref=_h("app.api.query_spec", "execute_query_spec_endpoint"),
         body_map=lambda args: {

@@ -24,6 +24,87 @@ from app.agentive.tooling.catalogue import build_tool_catalogue
 from app.schemas.capability_broker import CapabilityResult
 
 
+@pytest.mark.asyncio
+@pytest.mark.smoke
+async def test_loaded_insights_discloses_primary_reads_and_keeps_durable_history(
+    tmp_path, monkeypatch
+):
+    """Loading instructions exposes only starter reads, with valid checkpoints."""
+    from pydantic_ai_harness.step_persistence import InMemoryStepStore
+
+    folder = tmp_path / "integral-insights"
+    folder.mkdir()
+    primary = {"integral_query_entries", "integral_query", "integral_get_graph_context"}
+    other = {"integral_list_tracks", "integral_update_entry"}
+    (folder / "SKILL.md").write_text(
+        "---\nname: integral-insights\ndescription: Read stored dependencies.\n"
+        f"allowed-tools: {' '.join(sorted(primary | other))}\n"
+        "---\nFind the subject, then read its stored relationships.\n"
+    )
+    calls = []
+
+    async def invoke(**kwargs):
+        calls.append(kwargs)
+        return CapabilityResult(ok=True, data={"id": "readable-subject"})
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    tools = build_brokered_tools(
+        scope=_scope(),
+        skill_library=tmp_path,
+        catalogue=[
+            {
+                "name": name,
+                "description": name,
+                "input_schema": {"type": "object", "properties": {}},
+            }
+            for name in sorted(primary | other)
+        ],
+    )
+    requests = 0
+
+    def respond(messages, info):
+        nonlocal requests
+        requests += 1
+        visible = {tool.name for tool in info.function_tools}
+        if requests == 1:
+            assert not primary.intersection(visible)
+            return ModelResponse(
+                parts=[ToolCallPart("load_capability", {"id": "integral-insights"})]
+            )
+        assert primary.issubset(visible)
+        assert not other.intersection(visible)
+        if requests == 2:
+            return ModelResponse(parts=[ToolCallPart("integral_query_entries", {})])
+        if requests == 3:
+            return ModelResponse(parts=[ToolCallPart("integral_get_graph_context", {})])
+        return ModelResponse(parts=[TextPart("The stored dependency was read.")])
+
+    agent, store = build_native_runtime(
+        model=FunctionModel(respond),
+        instructions="Read workspace evidence.",
+        tools=tools,
+        scope=_scope(),
+        agent_name="insight-test",
+        skill_directories=[tmp_path],
+        allowed_skill_names={"integral-insights"},
+        step_store_backend=InMemoryStepStore(),
+    )
+    result = await agent.run(
+        "What could delay our next delivery?",
+        conversation_id=_scope().framework_conversation_id,
+    )
+    assert result.output == "The stored dependency was read."
+    assert [call["capability_key"] for call in calls] == [
+        "integral_query_entries",
+        "integral_get_graph_context",
+    ]
+    assert all(call["workspace_id"] == _scope().workspace_id for call in calls)
+    snapshot = await store.latest_snapshot(run_id=_scope().run_id)
+    assert snapshot is not None and snapshot.state == "complete"
+
+
 def _scope() -> HarnessExecutionScope:
     return HarnessExecutionScope(
         tenant_id="workspace-1",

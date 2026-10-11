@@ -639,3 +639,87 @@ async def test_route_read_refusal_is_error(
     assert result.is_error and result.error_code == "app_domain"
     assert result.data is None
     assert result.next_tool == "integral_describe_capabilities"
+
+
+@pytest.mark.smoke
+async def test_query_planner_accepts_broker_bound_principal_and_scope(
+    bind_fresh_graph_context_for_async_tests,
+):
+    """The real service binding accepts identity without fetching workspace data."""
+    principal, workspace, _ = await _bootstrap_principal_and_track()
+    result = await dispatch_tool(
+        "integral_plan_query",
+        {"question": "What needs to happen before our next delivery?"},
+        principal_id=principal,
+        scope=workspace,
+    )
+    assert not result.is_error, result
+    assert result.data["instrument"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.smoke
+@pytest.mark.parametrize("mode", ["graph", "semantic", "hybrid"])
+async def test_query_stays_in_bound_workspace_even_when_vector_store_ignores_scope(
+    bind_fresh_graph_context_for_async_tests, monkeypatch, mode
+):
+    """Readable foreign candidates cannot widen host-bound retrieval."""
+    from app.agentive.tooling.invoke import invoke_route_in_process
+    from app.api import retrieve as retrieve_module
+    from app.api.entries import create_entry
+    from app.api.tracks import create_track
+    from app.api.workspaces import create_workspace
+
+    principal, ws_a, track_a = await _bootstrap_principal_and_track()
+    entry_a = await _seed_entry(principal, ws_a, track_a)
+    ws_b = await invoke_route_in_process(
+        create_workspace,
+        principal_id=principal,
+        scope=ws_a,
+        name="Other query workspace",
+    )
+    ws_b_id = ws_b["workspace"]["id"]
+    track_b = await invoke_route_in_process(
+        create_track,
+        principal_id=principal,
+        scope=ws_b_id,
+        title="Foreign query track",
+        workspace_id=ws_b_id,
+    )
+    track_b_id = track_b["track"]["id"]
+    entry_b = await invoke_route_in_process(
+        create_entry,
+        principal_id=principal,
+        scope=ws_b_id,
+        track_id=track_b_id,
+        title="Seeded foreign result",
+    )
+    entry_b_id = entry_b["entry"]["id"]
+
+    async def embed(query):
+        return [0.0, 1.0]
+
+    class UnscopedStore:
+        async def search(self, vector, k=50, scope=None):
+            return [(entry_b_id, 1.0), (entry_a, 0.5)]
+
+    monkeypatch.setattr(retrieve_module, "embed_query_text", embed)
+    monkeypatch.setattr(retrieve_module, "get_embedding_store", lambda: UnscopedStore())
+    monkeypatch.setattr(retrieve_module, "semantic_retrieval_available", lambda: True)
+    result = await dispatch_tool(
+        "integral_query",
+        {"query": "Seeded", "mode": mode},
+        principal_id=principal,
+        scope=ws_a,
+    )
+    assert not result.is_error, result
+    assert {row["entry_id"] for row in result.data["results"]} == {entry_a}
+    for foreign_scope in (f"workspace:{ws_b_id}", f"track:{track_b_id}"):
+        refused = await dispatch_tool(
+            "integral_query",
+            {"query": "Seeded", "mode": mode, "scope": foreign_scope},
+            principal_id=principal,
+            scope=ws_a,
+        )
+        assert refused.is_error
+        assert not refused.data

@@ -1,5 +1,6 @@
 """App CRUD API endpoints with collaborator and track management."""
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -62,6 +63,7 @@ from app.services.operational_model_runtime import (
 from app.services.ownership_transfer import transfer_app_ownership
 from app.services.permissions import (
     can_create_app_under_workspace,
+    count_user_accessible_entries,
     get_user_accessible_apps,
     get_user_node,
 )
@@ -637,23 +639,29 @@ async def list_app_tracks(
         node=["Track"],
         limit=500,
     )
+    decisions = await asyncio.gather(
+        *(
+            policy_evaluate(
+                subject=Subject(kind="human", id=user_id),
+                action="track.read",
+                resource=Resource(kind="track", id=t.id, scope=f"track:{t.id}"),
+            )
+            for t in tracks
+        )
+    )
+    tracks = [t for t, decision in zip(tracks, decisions) if decision.allowed]
     if not include_nav_hidden:
         tracks = [t for t in tracks if getattr(t, "nav_visible", True)]
     track_ids = [t.id for t in tracks if getattr(t, "id", None)]
     entry_counts: Dict[str, int] = {}
     track_positions: Dict[str, int] = {}
     if track_ids:
-        import asyncio
-
         from app.models.edges import CONTAINS
 
         ctx = await sp.get_context()
 
         async def _count_for_track(tid: str) -> tuple:
-            c = await ctx.database.count(
-                "node", {"entity": "Entry", "context.track_id": tid}
-            )
-            return (tid, c)
+            return (tid, await count_user_accessible_entries(user_id, tid))
 
         async def _position_for_track(tid: str) -> tuple:
             edges = await ctx.find_edges_between(sp.id, tid, edge_class=CONTAINS)

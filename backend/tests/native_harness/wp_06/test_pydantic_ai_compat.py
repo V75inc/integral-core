@@ -372,11 +372,21 @@ def test_run_instructions_expose_active_capabilities_to_the_model() -> None:
     """Loaded skills remain explicit without depending on repeated loads."""
     instructions = build_integral_run_instructions("Integral resident agent.")
 
-    base = instructions(SimpleNamespace(active_capability_ids=set()))
+    base = instructions(
+        SimpleNamespace(
+            active_capability_ids=set(),
+            available_tool_names={"search_capabilities", "load_capability"},
+        )
+    )
     assert base.startswith("Integral resident agent.")
     assert "copy the canonical url returned by Core tools exactly" in base
     assert "replace its dots with slashes" in base
     assert "plain record label instead of a guessed link" in base
+    assert "Never invoke a skill name as a tool" in base
+    assert (
+        "Callable tool names for this request: load_capability, search_capabilities."
+        in base
+    )
     active = instructions(
         SimpleNamespace(active_capability_ids={"integral-scaffold", "integral-model"})
     )
@@ -808,3 +818,97 @@ async def test_compaction_clears_completed_turn_but_preserves_new_task():
     assert compacted[-len(active) :] == active
     assert compacted[2].parts[0].content == "[tool result cleared]"
     assert messages[2].parts[0].content == {"record_id": "0"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("forced_choice", [False, True])
+async def test_text_only_search_promise_retries_before_finishing(forced_choice):
+    """A model cannot bypass fresh discovery by promising an unperformed read."""
+    calls = []
+
+    async def search_capabilities(query: str):
+        calls.append(query)
+        return {"results": [], "recommendation": {}}
+
+    requests = 0
+
+    def respond(messages, info):
+        nonlocal requests
+        requests += 1
+        if requests == 1:
+            return ModelResponse(parts=[TextPart("Allow me a moment to search.")])
+        if requests == 2:
+            assert "Call search_capabilities now" in str(messages)
+            return ModelResponse(
+                parts=[ToolCallPart("search_capabilities", {"query": "dependencies"})]
+            )
+        return ModelResponse(parts=[TextPart("No relevant capability was found.")])
+
+    agent = Agent(
+        FunctionModel(respond, profile={"supports_forced_tool_choice": forced_choice}),
+        tools=[search_capabilities],
+        capabilities=[IntegralToolDisclosure()],
+    )
+    result = await agent.run("What could hold up our next delivery?")
+    assert result.output == "No relevant capability was found."
+    assert calls == ["dependencies"]
+    assert requests == 3
+
+
+@pytest.mark.asyncio
+async def test_discovered_workflow_must_be_loaded_before_text_completion(tmp_path):
+    """Fallback output validation preserves framework-owned workflow activation."""
+    folder = tmp_path / "workspace-insights"
+    folder.mkdir()
+    (folder / "SKILL.md").write_text(
+        "---\nname: workspace-insights\ndescription: Read workspace dependencies.\n"
+        "---\nRead the relevant records before explaining dependencies.\n"
+    )
+
+    async def search_capabilities(query: str):
+        return {
+            "results": [
+                {
+                    "kind": "skill",
+                    "load_with": {
+                        "tool": "load_capability",
+                        "id": "workspace-insights",
+                    },
+                }
+            ]
+        }
+
+    requests = 0
+
+    def respond(messages, info):
+        nonlocal requests
+        requests += 1
+        if requests == 1:
+            return ModelResponse(parts=[TextPart("Please supply your workspace data.")])
+        if requests == 2:
+            return ModelResponse(
+                parts=[ToolCallPart("search_capabilities", {"query": "dependencies"})]
+            )
+        if requests == 3:
+            return ModelResponse(parts=[TextPart("I will inspect the dependencies.")])
+        if requests == 4:
+            assert "none has been loaded" in str(messages)
+            return ModelResponse(
+                parts=[ToolCallPart("load_capability", {"id": "workspace-insights"})]
+            )
+        return ModelResponse(parts=[TextPart("The workflow is active.")])
+
+    agent = Agent(
+        FunctionModel(respond, profile={"supports_forced_tool_choice": False}),
+        tools=[search_capabilities],
+        retries={"output": 3},
+        capabilities=[
+            IntegralToolDisclosure(
+                workflow_skill_ids=frozenset({"workspace-insights"})
+            ),
+            Skills(tmp_path, include={"workspace-insights"}),
+        ],
+    )
+    result = await agent.run("What could hold up our next delivery?")
+    assert result.output == "The workflow is active."
+    assert requests == 5

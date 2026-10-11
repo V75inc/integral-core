@@ -4309,6 +4309,17 @@ def normalize_entry_type_form_schema(
         "open_as_page": bool(raw.get("open_as_page", False)),
         "singleton": bool(raw.get("singleton", False)),
     }
+    if "graph_context" in raw:
+        from app.schemas.graph_context import validate_entry_graph_context
+
+        try:
+            out["graph_context"] = validate_entry_graph_context(
+                raw["graph_context"], fields
+            ).model_dump(exclude_none=True)
+        except ValueError as exc:
+            raise BadRequestError(
+                message="Invalid entry type graph_context declaration"
+            ) from exc
     canvas = raw.get("canvas")
     if canvas is not None:
         out["canvas"] = _normalize_canvas(canvas, where="entry_type.form_schema.canvas")

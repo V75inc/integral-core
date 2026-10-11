@@ -1,0 +1,229 @@
+Browser tab: 3, Title: "Integral", URL: "http://127.0.0.1:52655/agent".
+1 AXWebArea Integral, URL: 127.0.0.1:52655/agent
+	2 container root
+		3 container
+			4 text Verify your email You can keep working while you verify.
+			5 button Enter code
+			6 button Resend code
+			7 button Dismiss notification
+				8 image
+		9 link Description: Skip to main content, Value: 127.0.0.1:52655/agent#main-content
+		10 container app-sidebar-nav
+			11 link Description: Integral — go to dashboard, Value: 127.0.0.1:52655/
+			12 button Expand sidebar
+				13 image
+			14 container Sidebar navigation
+				15 link Description: Home, Value: 127.0.0.1:52655/
+				16 pop up button (collapsed) Description: Switch workspace (currently Maya Chen), Secondary Actions: Expand
+				17 link Description: Agent — talk to your Integral coworker, Value: 127.0.0.1:52655/agent
+				18 link Description: Feed, Value: 127.0.0.1:52655/feed
+				19 link Description: Apps, Value: 127.0.0.1:52655/apps
+				20 link Description: Tracks, Value: 127.0.0.1:52655/tracks
+			21 link Description: Approvals, Value: 127.0.0.1:52655/approvals
+			22 link Description: Background Tasks, Value: 127.0.0.1:52655/background-tasks
+			23 link Description: Notifications, Value: 127.0.0.1:52655/notifications
+			24 link Description: Settings, Value: 127.0.0.1:52655/settings
+			25 pop up button (collapsed) Description: Noah Patel menu, Secondary Actions: Expand
+		26 container main-content
+			27 container
+				28 container Breadcrumb
+				29 checkbox Chat, Value: 1
+				30 checkbox Inbox, Value: 0
+				31 button Switch to light mode
+				32 button Inbox
+					33 image
+			34 container
+				35 button (disabled) Active agent
+					36 text Integral AI Your workspace assistant
+				37 text CONVERSATIONS
+				38 button New conversation
+					39 image
+				40 search text field (settable) Search conversations
+				222 text TODAY · AFTERNOON
+				42 container
+					43 button What could hold up our regional pilot launch on 1 November, … 12:47 PM
+						44 container What could hold up our regional pilot launch on 1 November, …
+							45 text What could hold up our regional pilot launch on 1 November, …
+							46 text 12:47 PM
+					47 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:ra:, Secondary Actions: Expand
+						48 image
+				49 container
+					50 button What could hold up our regional pilot launch on 1 November, … 12:41 PM
+						51 container What could hold up our regional pilot launch on 1 November, …
+							52 text What could hold up our regional pilot launch on 1 November, …
+							53 text 12:41 PM
+					54 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:rd:, Secondary Actions: Expand
+						55 image
+				56 container
+					57 button What could hold up our regional pilot launch on 1 November, … 12:27 PM
+						58 container What could hold up our regional pilot launch on 1 November, …
+							59 text What could hold up our regional pilot launch on 1 November, …
+							60 text 12:27 PM
+					61 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:rg:, Secondary Actions: Expand
+						62 image
+				64 container
+					65 button What could hold up our regional pilot launch on 1 November, … 12:14 PM
+						66 container What could hold up our regional pilot launch on 1 November, …
+							67 text What could hold up our regional pilot launch on 1 November, …
+							68 text 12:14 PM
+					69 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:rj:, Secondary Actions: Expand
+						70 image
+				223 text TODAY · MORNING
+				71 container
+					72 button What could hold up our regional pilot launch on 1 November, … 11:56 AM
+						73 container What could hold up our regional pilot launch on 1 November, …
+							74 text What could hold up our regional pilot launch on 1 November, …
+							75 text 11:56 AM
+					76 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:rm:, Secondary Actions: Expand
+						77 image
+				78 container
+					79 button What could hold up our regional pilot launch on 1 November, … 08:01 AM
+						80 container What could hold up our regional pilot launch on 1 November, …
+							81 text What could hold up our regional pilot launch on 1 November, …
+							82 text 08:01 AM
+					83 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:rp:, Secondary Actions: Expand
+						84 image
+				85 container
+					86 button What could hold up our regional pilot launch on 1 November, … 07:58 AM
+						87 container What could hold up our regional pilot launch on 1 November, …
+							88 text What could hold up our regional pilot launch on 1 November, …
+							89 text 07:58 AM
+					90 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:rs:, Secondary Actions: Expand
+						91 image
+				92 container
+					93 button What could hold up our regional pilot launch on 1 November, … 07:50 AM
+						94 container What could hold up our regional pilot launch on 1 November, …
+							95 text What could hold up our regional pilot launch on 1 November, …
+							96 text 07:50 AM
+					97 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:rv:, Secondary Actions: Expand
+						98 image
+				99 container
+					100 button What could hold up our regional pilot launch on 1 November, … 07:43 AM
+						101 container What could hold up our regional pilot launch on 1 November, …
+							102 text What could hold up our regional pilot launch on 1 November, …
+							103 text 07:43 AM
+					104 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r12:, Secondary Actions: Expand
+						105 image
+				106 container
+					107 button What could hold up our regional pilot launch on 1 November, … 07:41 AM
+						108 container What could hold up our regional pilot launch on 1 November, …
+							109 text What could hold up our regional pilot launch on 1 November, …
+							110 text 07:41 AM
+					111 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r15:, Secondary Actions: Expand
+						112 image
+				113 container
+					114 button What could hold up our regional pilot launch on 1 November, … 07:30 AM
+						115 container What could hold up our regional pilot launch on 1 November, …
+							116 text What could hold up our regional pilot launch on 1 November, …
+							117 text 07:30 AM
+					118 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r18:, Secondary Actions: Expand
+						119 image
+				120 container
+					121 button What could hold up our regional pilot launch on 1 November, … 07:17 AM
+						122 container What could hold up our regional pilot launch on 1 November, …
+							123 text What could hold up our regional pilot launch on 1 November, …
+							124 text 07:17 AM
+					125 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r1b:, Secondary Actions: Expand
+						126 image
+				127 container
+					128 button What could hold up our regional pilot launch on 1 November, … 07:12 AM
+						129 container What could hold up our regional pilot launch on 1 November, …
+							130 text What could hold up our regional pilot launch on 1 November, …
+							131 text 07:12 AM
+					132 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r1e:, Secondary Actions: Expand
+						133 image
+				134 container
+					135 button What could hold up our regional pilot launch on 1 November, … 07:07 AM
+						136 container What could hold up our regional pilot launch on 1 November, …
+							137 text What could hold up our regional pilot launch on 1 November, …
+							138 text 07:07 AM
+					139 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r1h:, Secondary Actions: Expand
+						140 image
+				141 container
+					142 button What could hold up our regional pilot launch on 1 November, … 06:54 AM
+						143 container What could hold up our regional pilot launch on 1 November, …
+							144 text What could hold up our regional pilot launch on 1 November, …
+							145 text 06:54 AM
+					146 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r1k:, Secondary Actions: Expand
+						147 image
+				148 container
+					149 button What could hold up our regional pilot launch on 1 November, … 06:49 AM
+						150 container What could hold up our regional pilot launch on 1 November, …
+							151 text What could hold up our regional pilot launch on 1 November, …
+							152 text 06:49 AM
+					153 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r1n:, Secondary Actions: Expand
+						154 image
+				155 container
+					156 button What could hold up our regional pilot launch on 1 November, … 06:40 AM
+						157 container What could hold up our regional pilot launch on 1 November, …
+							158 text What could hold up our regional pilot launch on 1 November, …
+							159 text 06:40 AM
+					160 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r1q:, Secondary Actions: Expand
+						161 image
+				162 container
+					163 button What could hold up our regional pilot launch on 1 November, … 06:33 AM
+						164 container What could hold up our regional pilot launch on 1 November, …
+							165 text What could hold up our regional pilot launch on 1 November, …
+							166 text 06:33 AM
+					167 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r1t:, Secondary Actions: Expand
+						168 image
+				169 container
+					170 button What could hold up our regional pilot launch on 1 November, … 06:30 AM
+						171 container What could hold up our regional pilot launch on 1 November, …
+							172 text What could hold up our regional pilot launch on 1 November, …
+							173 text 06:30 AM
+					174 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r20:, Secondary Actions: Expand
+						175 image
+				176 container
+					177 button What could hold up our regional pilot launch on 1 November, … 06:29 AM
+						178 container What could hold up our regional pilot launch on 1 November, …
+							179 text What could hold up our regional pilot launch on 1 November, …
+							180 text 06:29 AM
+					181 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r23:, Secondary Actions: Expand
+						182 image
+				224 container
+					225 button Use integral-insights and integral_get_graph_context to expl… 06:21 AM
+						226 container Use integral-insights and integral_get_graph_context to expl…
+							227 text Use integral-insights and integral_get_graph_context to expl…
+							228 text 06:21 AM
+					229 pop up button (collapsed) Description: Options for Use integral-insights and integral_get_graph_context to expl…, ID: radix-:r29:, Secondary Actions: Expand
+						230 image
+			183 container
+				231 text What could hold up our regional pilot launch on 1 November, and how would a backup supplier help?
+				234 container
+					235 text Based on the recorded dependencies for the  Launch regional pilot on 1 November , two prerequisites are currently required:
+				236 text Prerequisites:
+				237 content list
+					238 container
+						239 AXListMarker 1.
+						240 text Supplier capacity confirmation  (Decision deadline: 2026-10-24): The recorded status shows the capacity units are unknown, and the verification notes state "awaiting written commitment."
+					241 container
+						242 AXListMarker 2.
+						243 text Complete reliability validation  (Decision deadline: 2026-10-22): The recorded status shows that the validation tests are "not completed."
+				244 container
+					245 text Fallback Mitigation:
+					246 text The  Reserve a backup supplier  record (due 2026-10-22) is linked as a potential mitigation for the pilot. It proposes  40  pilot units of  indicative capacity only; no reservation .
+				247 container
+					248 text Conclusion:
+					249 text While the backup supplier could mitigate the capacity risk, it is important to note that this mitigation  does not replace  the requirement for  Complete reliability validation . The primary evidence gaps are the outstanding written commitment for supplier capacity and the incomplete reliability validation tests.
+				232 button (collapsed) Secondary Actions: Expand
+					233 image
+					250 text Worked · 3 steps · gemma4:latest
+				251 button Copy
+					252 image
+				253 button Regenerate
+					254 image
+				255 button Message debug
+					256 image
+				257 pop up button (collapsed) Description: More, ID: radix-:r2c:, Secondary Actions: Expand
+					258 image
+				259 container
+					260 text entry area (settable) Message input
+					261 button Description: Attach a file, Help: Attach an image or file
+						262 image
+					263 checkbox Description: Dictate (⇧⌘Space), Value: 0
+					264 text @people, #apps/tracks
+					265 button (disabled) Send message
+						266 image
+
+The focused UI element is 260 text entry area (settable) Message input
