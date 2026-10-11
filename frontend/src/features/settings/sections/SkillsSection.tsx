@@ -96,7 +96,7 @@ function SkillRow({
           type="button"
           role="switch"
           aria-checked={skill.enabled}
-          aria-label={skill.enabled ? 'Disable skill' : 'Enable skill'}
+          aria-label={`${skill.enabled ? 'Disable' : 'Enable'} skill ${skill.name}`}
           onClick={onToggle}
           className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-fast focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring-color)] ${
             skill.enabled ? 'bg-[var(--brand-accent)]' : 'bg-[var(--badge-muted-bg)]'
@@ -359,8 +359,8 @@ export function SkillsSection() {
                 </Collapsible>
               ) : null}
               {tools.length > 0 ? (
-                <div className="flex flex-col gap-2">
-                  <GroupHeading title="Available tools" count={tools.length} />
+                <details key={q ? 'filtered-tools' : 'all-tools'} open={Boolean(q)} className="flex flex-col gap-2">
+                  <summary className="cursor-pointer py-3"><Text as="span" variant="body-sm" weight="medium">Advanced · Available tools ({tools.length})</Text></summary>
                   <Surface
                     tone="panel-2"
                     border="subtle"
@@ -386,7 +386,7 @@ export function SkillsSection() {
                       </div>
                     ))}
                   </Surface>
-                </div>
+                </details>
               ) : null}
             </Stack>
           )}

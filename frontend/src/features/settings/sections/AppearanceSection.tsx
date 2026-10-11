@@ -33,12 +33,13 @@ export function AppearanceSection({ settings, update }: Props) {
         description="Switch between light and dark."
       >
         <SettingsField label="Color theme" inline>
-          <div className="flex gap-1 rounded-[var(--radius-pill)] border border-[var(--panel-border)] bg-[var(--panel-2)] p-1">
+          <div role="group" aria-label="Color theme" className="flex gap-1 rounded-[var(--radius-pill)] border border-[var(--panel-border)] bg-[var(--panel-2)] p-1">
             {(['light', 'dark'] as const).map(t => (
               <button
                 key={t}
                 type="button"
                 onClick={() => setTheme(t)}
+                aria-pressed={theme === t}
                 className={`
                   rounded-[var(--radius-pill)] px-3 py-1 text-xs capitalize
                   transition-colors duration-fast
@@ -54,7 +55,7 @@ export function AppearanceSection({ settings, update }: Props) {
 
       <SettingsSection
         title="Entry dialogs"
-        description="Default size for entry detail modals (invoices, quotes, and other records)."
+        description="Choose the default size for entry details."
       >
         <SettingsField label="Open entry dialogs enlarged" inline>
           <label className="inline-flex items-center gap-2 cursor-pointer">

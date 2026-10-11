@@ -5,7 +5,6 @@ import { useAuth } from '../../../context/AuthContext';
 import { useToast } from '../../../context/ToastContext';
 import { Avatar } from '../../../components/ui/Avatar';
 import { Button, LINE_ICON_STROKE } from '../../../components/ui';
-import { WhatsAppSettings } from '../../../components/settings/WhatsAppSettings';
 import { Text } from '../../../ui';
 import { DeleteAccountModal } from '../components/DeleteAccountModal';
 
@@ -71,7 +70,7 @@ export function ProfileSection() {
     setSavingBio(true);
     try {
       await authApi.updateProfile({
-        preferences: { ...(user?.preferences || {}), bio: bio.trim() },
+        preferences: { bio: bio.trim() },
       });
       await refreshUser();
       showToast('Bio updated.', 'success');
@@ -190,7 +189,7 @@ export function ProfileSection() {
             loading={savingName}
             onClick={saveDisplayName}
           >
-            Save
+            Save name
           </Button>
         </div>
       </section>
@@ -232,7 +231,7 @@ export function ProfileSection() {
             loading={savingBio}
             onClick={saveBio}
           >
-            Save
+            Save bio
           </Button>
         </div>
       </section>
@@ -280,14 +279,6 @@ export function ProfileSection() {
           </a>{' '}
           on the sign-in page to set a new one.
         </p>
-      </section>
-
-      {/* Connections */}
-      <section>
-        <h3 className="text-[13px] uppercase tracking-[0.16em] text-[var(--text-subtle)] font-medium mb-3">
-          Connections
-        </h3>
-        <WhatsAppSettings />
       </section>
 
       {/* Danger zone — permanent account deletion */}

@@ -10,6 +10,7 @@ class AppCreate(BaseModel):
     description: Optional[str] = None
     workspace_id: Optional[str] = None
     accent_color: Optional[str] = None
+    icon: Optional[str] = None
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -26,6 +27,7 @@ class AppUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     accent_color: Optional[str] = None
+    icon: Optional[str] = None
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -41,6 +43,7 @@ class AppResponse(BaseModel):
     description: Optional[str] = None
     workspace_id: Optional[str] = None
     accent_color: Optional[str] = None
+    icon: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 

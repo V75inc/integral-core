@@ -35,6 +35,7 @@ describe('QuickBooksOAuthCallbackPage', () => {
   let postMessageSpy: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     callbackMock.mockReset();
     resetQuickBooksOAuthExchangesForTests();
     closeSpy = vi.fn();
@@ -51,6 +52,9 @@ describe('QuickBooksOAuthCallbackPage', () => {
 
   afterEach(() => {
     cleanup();
+    // The popup schedules a second close. Finish it before JSDOM teardown.
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
   });
 
   it('exchanges code/state/realmId, notifies the opener, and closes', async () => {

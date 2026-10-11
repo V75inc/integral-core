@@ -40,6 +40,30 @@ BUILD_SCRIPT = REPO / "examples" / "asset-register" / "build.py"
 SDK_ROOT = REPO / "sdk" / "python"
 
 
+@pytest.fixture(autouse=True)
+def isolated_archive_imports():
+    """Each extracted archive has a new root; don't reuse a deleted temp path."""
+    from app.services.operational_model_library_sync import (
+        reset_library_operational_models_cache_for_testing,
+    )
+
+    prefix = "integral_bundle_asset_register"
+    previous = {
+        name: module
+        for name, module in sys.modules.items()
+        if name == prefix or name.startswith(prefix + ".")
+    }
+    for name in previous:
+        sys.modules.pop(name, None)
+    reset_library_operational_models_cache_for_testing()
+    yield
+    for name in list(sys.modules):
+        if name == prefix or name.startswith(prefix + "."):
+            sys.modules.pop(name, None)
+    sys.modules.update(previous)
+    reset_library_operational_models_cache_for_testing()
+
+
 def _build(output_dir: Path, *, signing_key: Path | None = None) -> Path:
     command = [sys.executable, str(BUILD_SCRIPT), "--out-dir", str(output_dir)]
     if signing_key is not None:

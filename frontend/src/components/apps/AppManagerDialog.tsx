@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom';
 import { Check, ExternalLink, Loader2, Package } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui';
-import { Input, Surface, Text, Textarea } from '../../ui';
+import { AppIcon, Input, Surface, Text, Textarea } from '../../ui';
 import { IncludeSeedDataToggle } from './IncludeSeedDataToggle';
 import { countManifestSeedEntries } from '../../utils/manifestSeeds';
 import {
@@ -713,6 +713,7 @@ function InstalledRow({
   return (
     <Surface tone="panel-2" border="subtle" radius="card">
       <div className="flex items-start gap-3 px-3 py-2.5">
+        <AppIcon name={app.name} icon={app.icon} color={app.accent_color} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <Text as="span" variant="body" weight="medium" truncate>

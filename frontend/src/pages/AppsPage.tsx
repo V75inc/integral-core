@@ -6,6 +6,7 @@ import {
   DndContext,
   closestCenter,
   PointerSensor,
+  KeyboardSensor,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -15,6 +16,7 @@ import {
   verticalListSortingStrategy,
   useSortable,
   arrayMove,
+  sortableKeyboardCoordinates,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { appsApi, workspacesApi } from '../api';
@@ -32,7 +34,6 @@ import {
   filterBar,
   SearchRow,
   PageSearchInput,
-  TrackDot,
 } from '../components/ui';
 import { AppModal } from '../components/apps/AppModal';
 import { AppManagerDialog } from '../components/apps/AppManagerDialog';
@@ -42,6 +43,7 @@ import { useSetCrumbs } from '../context/CrumbsContext';
 import { useScope } from '../context/ScopeContext';
 import { useWorkspaceCreationRights } from '../hooks/useWorkspaceCreationRights';
 import type { App } from '../types';
+import { AppIcon, Text } from '../ui';
 import { formatRelativeTime, resolveIdentityColor } from '../utils';
 import { usePublishPageContext } from '../hooks/usePublishPageContext';
 import { CHANGE_EVENT_APPLIED } from '../hooks/useChangeEventInvalidation';
@@ -166,7 +168,7 @@ export function AppsPage() {
         <header className="mb-8 md:mb-10 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
             <PageHeading>Apps</PageHeading>
-            <div className="mt-3 md:mt-3.5 flex flex-wrap items-center gap-x-4 md:gap-x-6 gap-y-2 text-sm text-[var(--text-subtle)]">
+            <div className="mt-3 md:mt-3.5 flex flex-wrap items-center gap-x-4 md:gap-x-6 gap-y-2 text-xs text-[var(--text-subtle)]">
               <span>
                 {apps.length}{' '}
                 {apps.length === 1 ? 'app' : 'apps'} in {scopeLabel}
@@ -327,6 +329,7 @@ function SortableAppList({
 }) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
   const ids = useMemo(() => apps.map(a => a.id), [apps]);
 
@@ -341,7 +344,7 @@ function SortableAppList({
 
   if (!canReorder) {
     return (
-      <ul className="collection-list">
+      <ul className="app-collection">
         {apps.map(app => (
           <AppListRow key={app.id} app={app} workspaces={workspaces} />
         ))}
@@ -352,7 +355,7 @@ function SortableAppList({
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
       <SortableContext items={ids} strategy={verticalListSortingStrategy}>
-        <ul className="collection-list">
+        <ul className="app-collection">
           {apps.map(app => (
             <SortableAppListRow key={app.id} app={app} workspaces={workspaces} />
           ))}
@@ -409,65 +412,28 @@ function AppListRow({
     <li
       ref={sortable?.setNodeRef}
       style={sortable?.style}
-      className={`
-        group/row relative grid grid-cols-[auto_minmax(0,1fr)_auto_auto] gap-x-[18px] items-center
-        border-b border-[var(--border-subtle)] last:border-b-0
-        px-4 rounded-[2px]
-        transition-colors duration-fast
-        hover:bg-[var(--panel-2)]
-        ${sortable?.isDragging ? 'opacity-60' : ''}
-      `}
+      className={`app-collection-row ${sortable?.isDragging ? 'opacity-60' : ''}`}
     >
-      <Link
-        to={`/apps/${app.id}`}
-        className="
-          col-span-3 grid grid-cols-subgrid items-start py-4
-          focus-visible:outline-none
-        "
-      >
-        <div className="relative shrink-0 mt-[8px] flex h-4 w-4 items-center justify-center">
-          <TrackDot
-            color={resolveIdentityColor(app.accent_color, workspaces.find(w => w.id === app.workspace_id)?.accent_color)}
-            size="md"
-            className={
-              sortable
-                ? 'transition-opacity duration-fast group-hover/row:opacity-0'
-                : ''
-            }
-            title={app.name}
-          />
-          {sortable && (
-            <button
-              type="button"
-              aria-label={`Reorder ${app.name}`}
-              {...(sortable.attributes as React.HTMLAttributes<HTMLButtonElement>)}
-              {...(sortable.listeners as React.HTMLAttributes<HTMLButtonElement>)}
-              onClick={e => e.preventDefault()}
-              className="
-                absolute inset-0 flex items-center justify-center
-                text-[var(--text-subtle)] hover:text-[var(--text-muted)]
-                opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100
-                transition-opacity duration-fast
-                cursor-grab active:cursor-grabbing
-              "
-            >
-              <GripVertical size={14} strokeWidth={LINE_ICON_STROKE} aria-hidden />
-            </button>
-          )}
-        </div>
-        <div className="min-w-0">
-          <p className="text-[15px] font-medium text-[var(--text)] truncate">
-            {app.name}
-          </p>
-          <p className="text-sm text-[var(--text-muted)] mt-0.5 line-clamp-1">
-            {app.description || 'No description'}
-          </p>
-        </div>
-        <div className="text-xs text-[var(--text-subtle)] tabular-nums shrink-0 text-right pt-0.5">
-          <div>{wsName || 'Personal'}</div>
-          {app.updated_at ? (
-            <div className="mt-0.5">{formatRelativeTime(app.updated_at)}</div>
-          ) : null}
+      {sortable && (
+        <button
+          type="button"
+          {...(sortable.attributes as React.HTMLAttributes<HTMLButtonElement>)}
+          {...(sortable.listeners as React.HTMLAttributes<HTMLButtonElement>)}
+          aria-label={`Reorder ${app.name}`}
+          className="app-reorder-handle"
+        >
+          <GripVertical size={16} strokeWidth={LINE_ICON_STROKE} aria-hidden />
+        </button>
+      )}
+      <Link to={`/apps/${app.id}`} className="app-collection-link">
+        <AppIcon name={app.name} icon={app.icon} color={resolveIdentityColor(app.accent_color, workspaces.find(w => w.id === app.workspace_id)?.accent_color)} />
+        <div className="min-w-0 flex-1">
+          <Text as="p" variant="body" weight="medium" truncate>{app.name}</Text>
+          {app.description && <Text as="p" variant="body-sm" tone="muted" className="mt-1 line-clamp-2">{app.description}</Text>}
+          <Text as="p" variant="meta" className="mt-2 flex flex-wrap gap-x-2 gap-y-1">
+            <span>{wsName || 'Personal'}</span>
+            {app.updated_at && <><span aria-hidden>·</span><span>Updated {formatRelativeTime(app.updated_at)}</span></>}
+          </Text>
         </div>
       </Link>
       <PinButton kind="app" id={app.id} label={app.name} size="sm" />
