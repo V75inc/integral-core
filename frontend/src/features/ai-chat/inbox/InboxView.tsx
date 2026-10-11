@@ -55,7 +55,10 @@ export function InboxView() {
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-3">
       {degraded ? (
         <Text variant="meta" tone="warn" as="p">
-          Some items could not be loaded. What is shown is still accurate.
+          Some items could not be loaded. Showing the last available results.
+          <button type="button" onClick={refetch} disabled={loading} className="inbox-inline-link ml-1.5">
+            Retry
+          </button>
         </Text>
       ) : null}
 

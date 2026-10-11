@@ -263,7 +263,10 @@ unlabelled input remains inspectable. Presentation metadata never enters the
 execution payload. The full Approvals page shares its proposal collection with
 its counts and suppresses empty-success claims until both queues are read; failed
 reads remain explicit. Assistant Inbox likewise suppresses its empty-success
-message when any collection read is degraded. Supported record references use the existing scoped label/link
+message during initial or background refresh and when any collection read is
+degraded. Failed reads retain available rows, expose a local Retry control and
+retry every ten seconds while observed; successful queues remain event-driven.
+Supported record references use the existing scoped label/link
 resolver. Large input projections explicitly direct inspection to the complete
 technical payload; narrated JSON is never substituted for the execution input.
 
