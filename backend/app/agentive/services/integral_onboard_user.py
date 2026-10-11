@@ -12,8 +12,8 @@ extracted in Plan 09-05 (``services/app_service.py`` +
 ``services/track_service.py``) so the ROADMAP AC (>=1 App + >=1 Track)
 is met by construction.
 
-User lookup uses the canonical ``await User.get(user_id)`` pattern
-(Plan 09-05 B1 — there is no alternate helper).
+User lookup resolves current identity/profile facts before presenting library
+candidates or creating starter resources.
 """
 
 from __future__ import annotations
@@ -21,10 +21,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from app.models.nodes import User
 from app.services.app_service import create_app_for_user
 from app.services.change_event import emit_change_event as _emit_user_update
 from app.services.operational_model_runtime import list_library_packages
+from app.services.permissions import get_user_node
 from app.services.personal_workspace import ensure_personal_workspace
 from app.services.track_service import create_track_in_space
 
@@ -62,7 +62,7 @@ async def integral_onboard_user(
         }
 
     ctx = context or {}
-    user = await User.get(user_id)
+    user = await get_user_node(user_id)
     if not user:
         return {"completed": False, "error": "user_not_found"}
 
@@ -85,7 +85,10 @@ async def integral_onboard_user(
         }
 
     if step == "propose_spaces":
-        packages = await list_library_packages()
+        workspace = await ensure_personal_workspace(user)
+        packages = await list_library_packages(
+            user_id=user_id, workspace_id=workspace.id
+        )
         # Filter / rank by ctx.get('domain') if supplied (simple substring
         # match against name/description — the LLM dispatcher can pre-rank
         # before passing a richer ``context.domain`` payload).
@@ -191,7 +194,7 @@ async def _create_starter_spaces_and_tracks(
     exist either, falls back to a generic "Starter App" with no library
     merge so the AC (>=1 App + >=1 Track) is still met.
     """
-    user = await User.get(user_id)
+    user = await get_user_node(user_id)
     if not user:
         return {"app_ids": [], "track_ids": [], "workspace_id": None}
 
@@ -201,7 +204,9 @@ async def _create_starter_spaces_and_tracks(
     # app-scope package — or, when no library packages exist, a single
     # "Starter App" so the AC is still met by construction.
     if not selected:
-        packages = await list_library_packages()
+        packages = await list_library_packages(
+            user_id=user_id, workspace_id=workspace.id
+        )
         default = next((p for p in packages if p.scope == "app"), None)
         if default:
             selected = [{"id": default.id, "name": default.name}]

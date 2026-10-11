@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Protocol, Set
+from typing import Any, Dict, List, Optional, Protocol
 
 from jvspatial.api.exceptions import ResourceNotFoundError
 
@@ -14,7 +14,6 @@ from app.models.edges import (
     CATALOGS,
     CONTAINS,
     DEFINES_TRACK_PROFILE,
-    HAS_OPERATIONAL_MODEL,
     OWNS,
 )
 from app.models.nodes import (
@@ -36,7 +35,6 @@ from app.services.app_graph import (
 )
 from app.services.library_package_visibility import (
     assert_library_package_installable_in_workspace,
-    library_package_owner_workspace_id,
 )
 from app.services.operational_model_runtime import (
     SCHEMA_VERSION,
@@ -428,55 +426,15 @@ def _merge_track_tier_into_manifest(
 
 async def _resolve_library_dependency_chain(
     library_cp: OperationalModel,
+    *,
+    workspace_id: str = "",
+    user_id: Optional[str] = None,
 ) -> List[OperationalModel]:
-    resolved: List[OperationalModel] = []
-    visiting: Set[str] = set()
-    visited: Set[str] = set()
+    from app.services.library_dependencies import admitted_library_dependency_chain
 
-    async def _lookup(dep_id: str) -> Optional[OperationalModel]:
-        dep = await OperationalModel.get(dep_id)
-        if dep and getattr(dep, "library_package", False):
-            return dep
-        packs = await OperationalModel.find({"context.library_package": True})
-        want = dep_id.strip().lower()
-        for pkg in packs:
-            manifest = compile_canonical_manifest(manifest=pkg.manifest or {})
-            pm = manifest.get("package") or {}
-            candidates = {
-                str(pm.get("id") or "").strip().lower(),
-                str(pm.get("name") or "").strip().lower(),
-                str(pkg.id or "").strip().lower(),
-            }
-            if want in candidates:
-                return pkg
-        return None
-
-    async def _visit(cp: OperationalModel) -> None:
-        if cp.id in visited:
-            return
-        if cp.id in visiting:
-            raise BadRequestError(message="Circular profile dependency detected")
-        visiting.add(cp.id)
-        canonical = compile_canonical_manifest(manifest=cp.manifest or {})
-        deps = list((canonical.get("package") or {}).get("dependencies") or [])
-        for dep in deps:
-            if not isinstance(dep, dict):
-                continue
-            dep_id = str(dep.get("id") or "").strip()
-            if not dep_id:
-                continue
-            dep_cp = await _lookup(dep_id)
-            if not dep_cp:
-                raise BadRequestError(
-                    message=f"Missing dependency '{dep_id}' for operational model '{cp.id}'"
-                )
-            await _visit(dep_cp)
-        visiting.remove(cp.id)
-        visited.add(cp.id)
-        resolved.append(cp)
-
-    await _visit(library_cp)
-    return resolved
+    return await admitted_library_dependency_chain(
+        library_cp.id, workspace_id, user_id=user_id
+    )
 
 
 async def verify_track_template_in_app(
@@ -749,39 +707,60 @@ async def merge_library_manifest_into_operational_model(
     _skip_dependencies: bool = False,
     _dry_run: bool = False,
     _scope_target: Optional[OperationalModel] = None,
+    user_id: Optional[str] = None,
 ) -> None:
     """Apply ``library_cp.manifest`` tier into ``target_cp`` (never mutates library)."""
     if isinstance(library_cp, OperationalModel):
-        chain = (
-            [library_cp]
-            if _skip_dependencies
-            else await _resolve_library_dependency_chain(library_cp)
+        from app.api.errors import InsufficientPermissionsError
+        from app.schemas.policy import Resource
+        from app.services.model_authority import (
+            model_action_authorized,
+            resolve_model_authority,
         )
-        private_packages = [
-            package
-            for package in chain
-            if package.library_package and library_package_owner_workspace_id(package)
-        ]
-        if private_packages:
-            target_workspace_id = getattr(track, "workspace_id", "") or ""
-            if not target_workspace_id:
-                scope_target = _scope_target if _scope_target is not None else target_cp
-                if not isinstance(scope_target, OperationalModel):
-                    raise ResourceNotFoundError(message="Operational Model not found")
-                parents = await scope_target.nodes(
-                    edge=[HAS_OPERATIONAL_MODEL],
-                    node=["WorkspaceApp", "Track"],
-                    direction="in",
-                    limit=1,
-                )
-                target_workspace_id = (
-                    getattr(parents[0], "workspace_id", "") if parents else ""
-                )
-            # Validate the complete dependency chain before the first merge write.
-            for package in private_packages:
+        from app.services.resource_location import MANAGEMENT_APP_STATES
+
+        scope_target = _scope_target if _scope_target is not None else target_cp
+        authority = (
+            await resolve_model_authority(
+                scope_target.id, allowed_app_states=MANAGEMENT_APP_STATES
+            )
+            if isinstance(scope_target, OperationalModel)
+            else None
+        )
+        if authority is None and not _dry_run:
+            raise ResourceNotFoundError(message="Target operational model not found")
+        target_workspace_id = authority.workspace_id if authority is not None else ""
+        if (
+            user_id
+            and authority is not None
+            and not await model_action_authorized(
+                user_id,
+                "operational_model.merge_library",
+                Resource(
+                    kind="operational_model",
+                    id=scope_target.id,
+                    scope=f"operational_model:{scope_target.id}",
+                ),
+            )
+        ):
+            raise InsufficientPermissionsError(message="Access denied")
+        if track is not None and (
+            authority is None or ("track", track.id) not in authority.owners
+        ):
+            raise ResourceNotFoundError(message="Target operational model not found")
+        chain = (
+            [
                 await assert_library_package_installable_in_workspace(
-                    package, target_workspace_id
+                    library_cp, target_workspace_id, user_id=user_id
                 )
+            ]
+            if _skip_dependencies
+            else await _resolve_library_dependency_chain(
+                library_cp, workspace_id=target_workspace_id, user_id=user_id
+            )
+        )
+        library_cp = chain[-1]
+        # Every dependency was admitted before the first merge write.
         for dep in chain[:-1]:
             await merge_library_manifest_into_operational_model(
                 dep,
@@ -791,6 +770,7 @@ async def merge_library_manifest_into_operational_model(
                 _skip_dependencies=True,
                 _dry_run=_dry_run,
                 _scope_target=_scope_target,
+                user_id=user_id,
             )
     manifest = library_cp.manifest or {}
     canonical = compile_canonical_manifest(manifest=manifest)
@@ -1323,6 +1303,7 @@ async def preview_effective_app_manifest_after_library_merge(
     target_manifest: Dict[str, Any],
     library_cp: OperationalModel,
     target_profile: Optional[OperationalModel] = None,
+    user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Calculate the effective App manifest produced by a library update.
 
@@ -1340,6 +1321,7 @@ async def preview_effective_app_manifest_after_library_merge(
         for_space=True,
         _dry_run=True,
         _scope_target=target_profile,
+        user_id=user_id,
     )
     return compile_canonical_manifest(manifest=target.manifest)
 

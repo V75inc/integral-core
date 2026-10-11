@@ -249,7 +249,9 @@ async def create_track(
         # Pitfall 6: direct service call, NOT an MCP-wrapped re-dispatch.
         from app.api.operational_models import resolve_type_hint
 
-        matches = await resolve_type_hint(type_hint, workspace_id=workspace_id)
+        matches = await resolve_type_hint(
+            type_hint, workspace_id=workspace_id, user_id=user_id
+        )
         if not matches:
             type_hint_warning = (
                 "type_hint did not resolve to any library package; "
@@ -497,7 +499,7 @@ async def merge_library_into_track_operational_model(
         raise ResourceNotFoundError(message="Operational Model not found")
     prior_snapshot = await export_node(tcp)  # D-03 before-snapshot
     await merge_library_manifest_into_operational_model(
-        lib, tcp, track, for_space=False
+        lib, tcp, track, for_space=False, user_id=user_id
     )
     track.library_merge_source_id = library_operational_model_id
     await track.save()

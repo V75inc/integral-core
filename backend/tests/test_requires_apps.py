@@ -15,7 +15,7 @@ Install-side coverage:
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 import pytest
 
@@ -31,7 +31,8 @@ from app.services.app_lifecycle import (
     uninstall_app,
 )
 from app.utils.time import utc_now_iso
-from tests.fixtures.workspaces import make_org_workspace
+from tests.fixtures.library_models import publish_library_manifest
+from tests.fixtures.workspaces import make_org_workspace, workspace_owner_id
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -84,15 +85,10 @@ def _minimal_app_manifest(
 
 
 async def _make_library_cp(manifest: Dict[str, Any]) -> OperationalModel:
-    now = utc_now_iso()
-    return await OperationalModel.create(
-        name=manifest["package"]["name"],
-        scope="app",
+    return await publish_library_manifest(
         manifest=manifest,
-        library_package=True,
+        name=manifest["package"]["name"],
         version=manifest["package"].get("version") or "1.0.0",
-        created_at=now,
-        updated_at=now,
     )
 
 
@@ -136,7 +132,11 @@ async def test_install_blocks_without_hard_dep():
     )
     lib = await _make_library_cp(payroll)
     with pytest.raises(AppDependencyError) as exc_info:
-        await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id="u_1")
+        await install_app(
+            workspace_id=ws.id,
+            library_cp_id=lib.id,
+            actor_id=await workspace_owner_id(ws),
+        )
     assert "hr_app" in exc_info.value.details.get("missing_deps", [])
 
 
@@ -148,7 +148,9 @@ async def test_install_proceeds_with_soft_dep_absent():
         requires_apps=[{"key": "hr_app", "optional": True}],
     )
     lib = await _make_library_cp(payroll)
-    out = await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id="u_1")
+    out = await install_app(
+        workspace_id=ws.id, library_cp_id=lib.id, actor_id=await workspace_owner_id(ws)
+    )
     assert out["status"] == "active"
 
 
@@ -156,7 +158,11 @@ async def test_install_proceeds_with_soft_dep_absent():
 async def test_install_satisfied_by_existing_hard_dep():
     ws = await _make_workspace()
     hr_lib = await _make_library_cp(_minimal_app_manifest("hr_app"))
-    await install_app(workspace_id=ws.id, library_cp_id=hr_lib.id, actor_id="u_1")
+    await install_app(
+        workspace_id=ws.id,
+        library_cp_id=hr_lib.id,
+        actor_id=await workspace_owner_id(ws),
+    )
     payroll_lib = await _make_library_cp(
         _minimal_app_manifest(
             "payroll_app",
@@ -164,7 +170,9 @@ async def test_install_satisfied_by_existing_hard_dep():
         )
     )
     out = await install_app(
-        workspace_id=ws.id, library_cp_id=payroll_lib.id, actor_id="u_1"
+        workspace_id=ws.id,
+        library_cp_id=payroll_lib.id,
+        actor_id=await workspace_owner_id(ws),
     )
     assert out["status"] == "active"
 
@@ -176,12 +184,12 @@ async def test_install_satisfied_when_dep_key_matches_display_name_slug():
     finance_manifest = _minimal_app_manifest("finance", version="1.0.0")
     finance_manifest["package"]["name"] = "Finance"
     finance_manifest["package"]["slug"] = "finance"
-    finance_lib = await _make_library_cp(finance_manifest)
+    await _make_library_cp(finance_manifest)
     now = utc_now_iso()
-    await App.create(
+    legacy = await App.create(
         name="Finance",
         name_fold="finance",
-        owner_user_id="u_1",
+        owner_user_id=await workspace_owner_id(ws),
         description="Legacy finance install",
         visibility="private",
         workspace_id=ws.id,
@@ -190,13 +198,19 @@ async def test_install_satisfied_when_dep_key_matches_display_name_slug():
         created_at=now,
         updated_at=now,
     )
+    from app.services.app_graph import catalog_app, wire_app_owner
+
+    await wire_app_owner(legacy, await workspace_owner_id(ws), workspace_id=ws.id)
+    await catalog_app(legacy)
     inventory_manifest = _minimal_app_manifest(
         "inventory-management",
         requires_apps=[{"key": "finance", "optional": False, "min_version": "1.0.0"}],
     )
     inv_lib = await _make_library_cp(inventory_manifest)
     out = await install_app(
-        workspace_id=ws.id, library_cp_id=inv_lib.id, actor_id="u_1"
+        workspace_id=ws.id,
+        library_cp_id=inv_lib.id,
+        actor_id=await workspace_owner_id(ws),
     )
     assert out["status"] == "active"
 
@@ -210,10 +224,10 @@ async def test_install_satisfied_when_legacy_finance_version_from_library():
     finance_manifest["package"]["slug"] = "finance"
     finance_lib = await _make_library_cp(finance_manifest)
     now = utc_now_iso()
-    await App.create(
+    legacy = await App.create(
         name="Finance",
         name_fold="finance",
-        owner_user_id="u_1",
+        owner_user_id=await workspace_owner_id(ws),
         description="Legacy finance install",
         visibility="private",
         workspace_id=ws.id,
@@ -222,13 +236,19 @@ async def test_install_satisfied_when_legacy_finance_version_from_library():
         created_at=now,
         updated_at=now,
     )
+    from app.services.app_graph import catalog_app, wire_app_owner
+
+    await wire_app_owner(legacy, await workspace_owner_id(ws), workspace_id=ws.id)
+    await catalog_app(legacy)
     inventory_manifest = _minimal_app_manifest(
         "inventory-management",
         requires_apps=[{"key": "finance", "optional": False, "min_version": "1.0.0"}],
     )
     inv_lib = await _make_library_cp(inventory_manifest)
     out = await install_app(
-        workspace_id=ws.id, library_cp_id=inv_lib.id, actor_id="u_1"
+        workspace_id=ws.id,
+        library_cp_id=inv_lib.id,
+        actor_id=await workspace_owner_id(ws),
     )
     assert out["status"] == "active"
 
@@ -238,7 +258,11 @@ async def test_install_blocks_when_min_version_unsatisfied():
     """Installed dep present but version below min_version → reject."""
     ws = await _make_workspace()
     hr_lib = await _make_library_cp(_minimal_app_manifest("hr_app", version="0.9.0"))
-    await install_app(workspace_id=ws.id, library_cp_id=hr_lib.id, actor_id="u_1")
+    await install_app(
+        workspace_id=ws.id,
+        library_cp_id=hr_lib.id,
+        actor_id=await workspace_owner_id(ws),
+    )
     payroll_lib = await _make_library_cp(
         _minimal_app_manifest(
             "payroll_app",
@@ -251,7 +275,7 @@ async def test_install_blocks_when_min_version_unsatisfied():
         await install_app(
             workspace_id=ws.id,
             library_cp_id=payroll_lib.id,
-            actor_id="u_1",
+            actor_id=await workspace_owner_id(ws),
         )
     # missing_details carries the reason discriminator.
     details = exc_info.value.details.get("missing_details", [])
@@ -269,7 +293,9 @@ async def test_uninstall_blocked_by_dependent_manifest_declaration():
     ws = await _make_workspace()
     hr_lib = await _make_library_cp(_minimal_app_manifest("hr_app"))
     hr_result = await install_app(
-        workspace_id=ws.id, library_cp_id=hr_lib.id, actor_id="u_1"
+        workspace_id=ws.id,
+        library_cp_id=hr_lib.id,
+        actor_id=await workspace_owner_id(ws),
     )
     payroll_lib = await _make_library_cp(
         _minimal_app_manifest(
@@ -277,9 +303,15 @@ async def test_uninstall_blocked_by_dependent_manifest_declaration():
             requires_apps=[{"key": "hr_app", "optional": False}],
         )
     )
-    await install_app(workspace_id=ws.id, library_cp_id=payroll_lib.id, actor_id="u_1")
+    await install_app(
+        workspace_id=ws.id,
+        library_cp_id=payroll_lib.id,
+        actor_id=await workspace_owner_id(ws),
+    )
     with pytest.raises(AppUninstallBlockedError) as exc_info:
-        await uninstall_app(app_id=hr_result["app_id"], actor_id="u_1")
+        await uninstall_app(
+            app_id=hr_result["app_id"], actor_id=await workspace_owner_id(ws)
+        )
     details = exc_info.value.details
     deps = details.get("blocking_dependents", [])
     assert len(deps) == 1
@@ -292,7 +324,9 @@ async def test_uninstall_not_blocked_by_optional_dependent():
     ws = await _make_workspace()
     hr_lib = await _make_library_cp(_minimal_app_manifest("hr_app"))
     hr_result = await install_app(
-        workspace_id=ws.id, library_cp_id=hr_lib.id, actor_id="u_1"
+        workspace_id=ws.id,
+        library_cp_id=hr_lib.id,
+        actor_id=await workspace_owner_id(ws),
     )
     payroll_lib = await _make_library_cp(
         _minimal_app_manifest(
@@ -300,8 +334,14 @@ async def test_uninstall_not_blocked_by_optional_dependent():
             requires_apps=[{"key": "hr_app", "optional": True}],
         )
     )
-    await install_app(workspace_id=ws.id, library_cp_id=payroll_lib.id, actor_id="u_1")
-    out = await uninstall_app(app_id=hr_result["app_id"], actor_id="u_1")
+    await install_app(
+        workspace_id=ws.id,
+        library_cp_id=payroll_lib.id,
+        actor_id=await workspace_owner_id(ws),
+    )
+    out = await uninstall_app(
+        app_id=hr_result["app_id"], actor_id=await workspace_owner_id(ws)
+    )
     assert out["status"] == "uninstalled"
 
 
@@ -311,7 +351,9 @@ async def test_uninstall_hard_blocks_despite_retry():
     ws = await _make_workspace()
     hr_lib = await _make_library_cp(_minimal_app_manifest("hr_app"))
     hr_result = await install_app(
-        workspace_id=ws.id, library_cp_id=hr_lib.id, actor_id="u_1"
+        workspace_id=ws.id,
+        library_cp_id=hr_lib.id,
+        actor_id=await workspace_owner_id(ws),
     )
     payroll_lib = await _make_library_cp(
         _minimal_app_manifest(
@@ -319,9 +361,15 @@ async def test_uninstall_hard_blocks_despite_retry():
             requires_apps=[{"key": "hr_app", "optional": False}],
         )
     )
-    await install_app(workspace_id=ws.id, library_cp_id=payroll_lib.id, actor_id="u_1")
+    await install_app(
+        workspace_id=ws.id,
+        library_cp_id=payroll_lib.id,
+        actor_id=await workspace_owner_id(ws),
+    )
     with pytest.raises(AppUninstallBlockedError):
-        await uninstall_app(app_id=hr_result["app_id"], actor_id="u_1")
+        await uninstall_app(
+            app_id=hr_result["app_id"], actor_id=await workspace_owner_id(ws)
+        )
 
 
 def test_crm_profile_projects_dep_is_soft():
@@ -337,6 +385,10 @@ def test_crm_profile_projects_dep_is_soft():
         / "crm"
         / "operational-model.yaml"
     )
+    if not path.exists():
+        pytest.skip(
+            "CRM bundle is outside this Core checkout; separate App artifact qualification"
+        )
     manifest = yaml.safe_load(path.read_text(encoding="utf-8"))
     requires = (manifest.get("app") or {}).get("requires_apps") or []
     projects = [
@@ -363,5 +415,7 @@ async def test_crm_shaped_manifest_installs_without_projects():
         ],
     )
     lib = await _make_library_cp(crm)
-    out = await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id="u_1")
+    out = await install_app(
+        workspace_id=ws.id, library_cp_id=lib.id, actor_id=await workspace_owner_id(ws)
+    )
     assert out["status"] == "active"

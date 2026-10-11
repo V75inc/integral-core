@@ -72,7 +72,9 @@ and separation-of-duty conditions still constrain canonical mutations.
 
 Resource scope comes from the unique rooted structural graph. Scalar workspace
 and parent IDs are validated caches, not permission anchors. Missing, foreign,
-multiple or inconsistent parents cannot activate a direct grant. Raw candidate
+ambiguous or inconsistent parents cannot activate a direct grant. A single-parent
+resource rejects extra parents. Explicitly shared models validate their complete
+named parent set within one canonical workspace. Raw candidate
 cardinality is checked before hydration; malformed candidates must not
 disappear and make a set look unique.
 
@@ -83,6 +85,30 @@ change another's Views. Saved View policy targets bind both the current
 canonical Workspace and any claimed parent. Model-only templates require
 separate model authority and never acquire a Track capability from membership
 alone. Legacy ambiguous paths remain withheld for reviewed repair.
+
+OperationalModel targets bind their actual named attachment or lifecycle path
+and the immutable execution workspace. Drafts follow `HAS_DRAFT_PROFILE` to
+their current published parent; templates follow `DEFINES_TRACK_PROFILE` into
+their owning App model. Scalar `draft_of_id`, `app_id`, workspace and attachment
+caches cannot invent those paths. Consumed versions remain readable only under
+current parent authority and are immutable configuration evidence. A model read
+uses an admitted current parent; a configuration mutation requires authority on
+every affected named parent. Creation rights never imply unrestricted mutation
+of existing models. Workspace-owner stewardship does not become ordinary App
+function authority. Platform publication and private library ownership need
+their own named authority: membership in the global library catalog or an empty
+workspace cache cannot turn private content into a public package.
+
+Private library ownership uses `Workspace —HAS_LIBRARY_MODEL→ OperationalModel`;
+trusted platform publication uses
+`IntegralApp —PUBLISHES_LIBRARY_MODEL→ OperationalModel`. Catalog membership
+organizes both families and grants neither ownership nor publication. Pending
+drafts require configuration authority or an explicit current reviewer grant;
+published-parent viewers do not automatically become draft reviewers. Workspace
+administrator membership and creation flags do not designate a private Model
+curator. Protected workspace-owner governance remains available in Core and
+does not amplify ordinary App operations. These contracts require producer,
+legacy migration and all consumer adoption before runtime closure.
 
 Persisted role, creation, visibility, kind and lifecycle facts use exact typed
 vocabularies. Missing fields do not acquire authority through model defaults.

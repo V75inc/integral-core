@@ -16,7 +16,7 @@ from tests.contract.asset_register_helpers import (
     ASSET_APP,
     seed_asset_register_library_cp,
 )
-from tests.fixtures.workspaces import make_org_workspace
+from tests.fixtures.workspaces import make_org_workspace, workspace_owner_id
 
 
 @pytest.mark.contract
@@ -31,7 +31,7 @@ async def test_asset_register_installs_from_examples_only(monkeypatch):
     installed = await install_app(
         workspace_id=ws.id,
         library_cp_id=lib.id,
-        actor_id="u_asset_install",
+        actor_id=await workspace_owner_id(ws),
         include_seed_data=False,
     )
     app_id = installed["app_id"]

@@ -20,8 +20,8 @@ from app.services.hooks.registry import get_workspace_hooks
 from app.services.operational_model_loader import (
     load_library_operational_models_with_issues,
 )
-from app.utils.time import utc_now_iso
-from tests.fixtures.workspaces import make_org_workspace
+from tests.fixtures.library_models import publish_library_spec
+from tests.fixtures.workspaces import make_org_workspace, workspace_owner_id
 
 REPO = Path(__file__).resolve().parents[3]
 REF_APP = REPO / "examples" / "reference-hello-app"
@@ -34,22 +34,7 @@ async def _seed_reference_library_cp() -> OperationalModel:
         verify_signatures=False,
     )
     spec = next(s for s in specs if s.slug == "reference-hello-app")
-    now = utc_now_iso()
-    return await OperationalModel.create(
-        name=spec.name or "Reference Hello",
-        scope="app",
-        manifest=spec.manifest,
-        library_package=True,
-        version=spec.version or "1.0.0",
-        metadata={
-            "slug": spec.slug,
-            "bundle_fingerprint": getattr(spec, "bundle_fingerprint", "") or "test-fp",
-            "package_class": spec.package_class,
-            "bundle_dir": str(spec.bundle_dir) if spec.bundle_dir else str(REF_APP),
-        },
-        created_at=now,
-        updated_at=now,
-    )
+    return await publish_library_spec(spec)
 
 
 @pytest.mark.contract
@@ -60,7 +45,7 @@ async def test_reference_hello_app_lifecycle_e2e(monkeypatch):
     monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
 
     ws = await make_org_workspace("ws-hello-contract")
-    actor_id = "u_contract_hello"
+    actor_id = await workspace_owner_id(ws)
     lib = await _seed_reference_library_cp()
 
     installed = await install_app(

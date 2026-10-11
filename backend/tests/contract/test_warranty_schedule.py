@@ -14,7 +14,7 @@ from tests.contract.asset_register_helpers import (
     ASSET_APP,
     seed_asset_register_library_cp,
 )
-from tests.fixtures.workspaces import make_org_workspace
+from tests.fixtures.workspaces import make_org_workspace, workspace_owner_id
 
 
 @pytest.mark.contract
@@ -31,7 +31,7 @@ async def test_asset_register_warranty_schedule_materialized(monkeypatch):
     from app.agentive.nodes import RoutineTask
 
     ws = await make_org_workspace("ws-warranty-contract")
-    actor_id = "u_contract_warranty"
+    actor_id = await workspace_owner_id(ws)
     lib = await seed_asset_register_library_cp()
 
     installed = await install_app(
@@ -87,7 +87,7 @@ async def test_scheduler_pass_dispatches_due_routine_once(monkeypatch):
     from app.services import routine_task_scheduler as sched
 
     ws = await make_org_workspace("ws-warranty-dispatch")
-    actor_id = "u_contract_dispatch"
+    actor_id = await workspace_owner_id(ws)
     lib = await seed_asset_register_library_cp()
     installed = await install_app(
         workspace_id=ws.id,

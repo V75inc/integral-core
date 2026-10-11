@@ -30,6 +30,8 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from app.services.model_authority import admitted_model_draft, get_current_model
+
 logger = logging.getLogger(__name__)
 
 
@@ -40,6 +42,8 @@ logger = logging.getLogger(__name__)
 
 async def list_library_operational_models(
     *,
+    user_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
     keyword: Optional[str] = None,
     scope: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -58,10 +62,11 @@ async def list_library_operational_models(
 
     lib_profiles = await cps_reg.nodes(edge=["CATALOGS"], node=["OperationalModel"])
     results: List[Dict[str, Any]] = []
-    for lp in lib_profiles:
-        if not getattr(lp, "library_package", False):
-            continue
-        if (getattr(lp, "metadata", None) or {}).get("seed_status") == "inactive":
+    from app.services.library_package_visibility import visible_library_model
+
+    for candidate in lib_profiles:
+        lp = await visible_library_model(candidate.id, workspace_id, user_id=user_id)
+        if lp is None:
             continue
         manifest = getattr(lp, "manifest", {}) or {}
         lp_scope = str(manifest.get("scope", ""))
@@ -568,12 +573,6 @@ async def author_operational_model(
 
     Returns the new OperationalModel id, name, and the compiled manifest.
     """
-    from app.models.nodes import (
-        OPERATIONAL_MODELS_REGISTRY_ID,
-        OperationalModel,
-        OperationalModels,
-    )
-    from app.services.app_graph import ensure_catalog_edge
     from app.services.operational_model_runtime import compile_canonical_manifest
 
     description = (description or "").strip()
@@ -647,21 +646,19 @@ async def author_operational_model(
         return {"error": "manifest_invalid", "detail": str(exc)}
 
     now = datetime.now(timezone.utc).isoformat()
-    cp = await OperationalModel.create(
+    from app.services.library_model_creation import create_private_library_model
+
+    cp = await create_private_library_model(
+        user_id=user_id,
         name=profile_name,
         version="1.0.0",
         manifest=compiled,
         scope=scope,
         workspace_id=workspace_id,
-        library_package=True,
         description=description,
         created_at=now,
         updated_at=now,
     )
-
-    cps_reg = await OperationalModels.get(OPERATIONAL_MODELS_REGISTRY_ID)
-    if cps_reg:
-        await ensure_catalog_edge(cps_reg, cp)
 
     return {
         "operational_model_id": cp.id,
@@ -1058,7 +1055,7 @@ async def apply_library_operational_model(
     ``type_hint`` parameter on ``create_track`` does this implicitly;
     for *existing* tracks/apps this is the only path.
     """
-    from app.models.nodes import App, OperationalModel, Track
+    from app.models.nodes import App, Track
     from app.services.app_graph import (
         get_app_attached_operational_model,
         get_track_attached_operational_model,
@@ -1086,7 +1083,7 @@ async def apply_library_operational_model(
     from app.schemas.policy import Resource, Subject
     from app.services.policy_engine import evaluate as policy_evaluate
 
-    lib = await OperationalModel.get(library_operational_model_id)
+    lib = await get_current_model(library_operational_model_id)
     if not lib or not getattr(lib, "library_package", False):
         return {"error": "not_found", "detail": "Library operational model not found"}
 
@@ -1108,7 +1105,7 @@ async def apply_library_operational_model(
                 "detail": "Track has no attached operational model to merge into",
             }
         await merge_library_manifest_into_operational_model(
-            lib, attached, track, for_space=False
+            lib, attached, track, for_space=False, user_id=user_id
         )
         track.library_merge_source_id = library_operational_model_id
         await track.save()
@@ -1139,7 +1136,7 @@ async def apply_library_operational_model(
             "detail": "App has no attached operational model to merge into",
         }
     await merge_library_manifest_into_operational_model(
-        lib, attached, track=None, for_space=True
+        lib, attached, track=None, for_space=True, user_id=user_id
     )
     app_node.library_merge_source_id = library_operational_model_id
     await app_node.save()
@@ -1350,7 +1347,7 @@ async def describe_operational_model(
     nodes serialised via ``export_node``.
     """
     from app.api.utils import export_node
-    from app.models.nodes import App, OperationalModel, Track
+    from app.models.nodes import App, Track
     from app.services.app_graph import (
         get_app_attached_operational_model,
         get_track_attached_operational_model,
@@ -1388,27 +1385,35 @@ async def describe_operational_model(
             "detail": "no attached operational model",
         }
 
-    # Find sibling draft (if any).
-    drafts = await OperationalModel.find(
-        {
-            "context.draft_of_id": cp.id,
-            "context.status": "draft",
-        }
-    )
+    cp = await get_current_model(cp.id)
+    if cp is None:
+        return {"error": "not_found", "detail": "no attached operational model"}
+    from app.schemas.policy import Resource
+    from app.services.model_authority import model_action_authorized
+
+    if not await model_action_authorized(
+        user_id,
+        "operational_model.read",
+        Resource(
+            kind="operational_model", id=cp.id, scope=f"operational_model:{cp.id}"
+        ),
+    ):
+        return {"error": "forbidden", "detail": "no read access to model"}
+    pending = await admitted_model_draft(user_id, cp.id)
     published = await export_node(cp)
-    draft = await export_node(drafts[0]) if drafts else None
+    draft = await export_node(pending) if pending else None
     if detail == "overview":
         return {
             "detail": "overview",
             "published": _model_overview(published),
             "draft": _model_overview(draft) if draft else None,
-            "has_draft": bool(drafts),
+            "has_draft": pending is not None,
             "full_schema_available_with": {"detail": "full"},
         }
     return {
         "published": published,
         "draft": draft,
-        "has_draft": bool(drafts),
+        "has_draft": pending is not None,
     }
 
 
@@ -1429,9 +1434,8 @@ async def get_or_create_draft(
     surface.
     """
     from app.api.utils import export_node
-    from app.models.nodes import OperationalModel
 
-    cp = await OperationalModel.get(operational_model_id)
+    cp = await get_current_model(operational_model_id)
     if cp is None:
         return {"error": "not_found", "detail": "operational model not found"}
 
@@ -1445,18 +1449,11 @@ async def get_or_create_draft(
             "reused": True,
         }
 
-    drafts = await OperationalModel.find(
-        {
-            "context.draft_of_id": cp.id,
-            "context.status": "draft",
-        }
+    pending = await admitted_model_draft(
+        user_id, cp.id, action="operational_model.update"
     )
-    if drafts:
-        return {
-            "draft": await export_node(drafts[0]),
-            "from_id": cp.id,
-            "reused": True,
-        }
+    if pending is not None:
+        return {"draft": await export_node(pending), "from_id": cp.id, "reused": True}
 
     from app.services.operational_model_atomic_swap import fork_draft
 
@@ -1479,21 +1476,18 @@ async def apply_patch_to_draft(
     """
     from app.api.utils import export_node
     from app.exceptions import BadRequestError as _BadRequest
-    from app.models.nodes import OperationalModel
     from app.services.agent_profile_patches import apply_operations
     from app.services.change_event import emit_change_event
     from app.services.operational_model_runtime import compile_canonical_manifest
 
-    draft = await OperationalModel.get(draft_id)
+    draft = await get_current_model(draft_id)
     if draft is None:
         return {"error": "not_found", "detail": "draft not found"}
     if draft.status != "draft":
         return {"error": "bad_request", "detail": "target is not a draft"}
 
-    parent = (
-        await OperationalModel.get(draft.draft_of_id) if draft.draft_of_id else None
-    )
-    if parent is None or not await _user_can_edit_cp(user_id=user_id, cp=parent):
+    parent = await get_current_model(draft.draft_of_id) if draft.draft_of_id else None
+    if not await _user_can_edit_cp(user_id=user_id, cp=draft):
         return {"error": "forbidden", "detail": "no edit access to this profile"}
 
     try:
@@ -1515,7 +1509,7 @@ async def apply_patch_to_draft(
         resource_id=draft.id,
         before=before,
         after=after,
-        scope=f"operational_model:{parent.id}",
+        scope=f"operational_model:{parent.id if parent else draft.id}",
     )
     return {
         "draft": after,
@@ -1527,8 +1521,8 @@ def publication_review_fingerprint(draft: Any, parent: Any) -> str:
     """Bind publication consent to the exact source and destination schemas."""
     payload = {
         "draft_id": draft.id,
-        "parent_id": parent.id,
-        "before": parent.manifest or {},
+        "parent_id": parent.id if parent else draft.id,
+        "before": (parent.manifest or {}) if parent else {},
         "after": draft.manifest or {},
     }
     return hashlib.sha256(
@@ -1544,24 +1538,34 @@ async def diff_draft(
     sample_limit: int = 20,
 ) -> Dict[str, Any]:
     """Diff a draft against its published parent + (optional) entry impact."""
-    from app.models.nodes import OperationalModel
     from app.services.operational_model_diff import (
         compute_entry_impact_for_attached,
         compute_manifest_diff,
     )
 
-    draft = await OperationalModel.get(draft_id)
+    draft = await get_current_model(draft_id)
     if draft is None:
         return {"error": "not_found", "detail": "draft not found"}
     if draft.status != "draft":
         return {"error": "bad_request", "detail": "target is not a draft"}
     if not draft.draft_of_id:
-        return {"error": "bad_request", "detail": "draft has no published parent"}
+        if not draft.library_package or not await _user_can_edit_cp(
+            user_id=user_id, cp=draft
+        ):
+            return {"error": "forbidden", "detail": "no edit access to this profile"}
+        return {
+            "candidate_id": draft.id,
+            "reference_id": None,
+            "initial_publication": True,
+            "diff": compute_manifest_diff(before={}, after=draft.manifest or {}),
+            "entry_impact": [],
+            "review_fingerprint": publication_review_fingerprint(draft, None),
+        }
 
-    parent = await OperationalModel.get(draft.draft_of_id)
+    parent = await get_current_model(draft.draft_of_id)
     if parent is None:
         return {"error": "not_found", "detail": "published parent missing"}
-    if not await _user_can_edit_cp(user_id=user_id, cp=parent):
+    if not await _user_can_edit_cp(user_id=user_id, cp=draft):
         return {"error": "forbidden", "detail": "no edit access to this profile"}
 
     diff = compute_manifest_diff(
@@ -1593,18 +1597,32 @@ async def publish_draft_for_agent(
 ) -> Dict[str, Any]:
     """Publish a draft (atomic swap + migrations) on behalf of the agent."""
     from app.exceptions import BadRequestError as _BadRequest
-    from app.models.nodes import OperationalModel
     from app.services.operational_model_atomic_swap import publish_draft as _impl
 
-    draft = await OperationalModel.get(draft_id)
+    draft = await get_current_model(draft_id)
     if draft is None:
         return {"error": "not_found", "detail": "draft not found"}
-    if draft.status != "draft" or not draft.draft_of_id:
+    if draft.status != "draft":
         return {"error": "bad_request", "detail": "target is not a publishable draft"}
-    parent = await OperationalModel.get(draft.draft_of_id)
+    if not draft.draft_of_id:
+        from app.api.errors import BadRequestError as _APIRequestError
+        from app.api.errors import InsufficientPermissionsError
+        from app.services.library_model_publication import publish_initial_library_draft
+
+        try:
+            return await publish_initial_library_draft(
+                model_id=draft.id,
+                user_id=user_id,
+                expected_review_fingerprint=expected_review_fingerprint,
+            )
+        except InsufficientPermissionsError:
+            return {"error": "forbidden", "detail": "no publish access to this profile"}
+        except (_BadRequest, _APIRequestError) as exc:
+            return {"error": "bad_request", "detail": exc.message}
+    parent = await get_current_model(draft.draft_of_id)
     if parent is None:
         return {"error": "not_found", "detail": "published parent missing"}
-    if not await _user_can_edit_cp(user_id=user_id, cp=parent):
+    if not await _user_can_edit_cp(user_id=user_id, cp=draft):
         return {"error": "forbidden", "detail": "no edit access to this profile"}
     if expected_review_fingerprint is not None and (
         publication_review_fingerprint(draft, parent) != expected_review_fingerprint
@@ -1668,20 +1686,14 @@ async def discard_draft_for_agent(
     draft_id: str,
 ) -> Dict[str, Any]:
     """Discard an unpublished draft."""
-    from app.models.nodes import OperationalModel
     from app.services.operational_model_atomic_swap import discard_draft as _impl
 
-    draft = await OperationalModel.get(draft_id)
+    draft = await get_current_model(draft_id)
     if draft is None:
         return {"error": "not_found", "detail": "draft not found"}
     if draft.status != "draft":
         return {"error": "bad_request", "detail": "target is not a draft"}
-    parent = (
-        await OperationalModel.get(draft.draft_of_id) if draft.draft_of_id else None
-    )
-    if parent is None:
-        return await _impl(draft=draft, actor_id=user_id)
-    if not await _user_can_edit_cp(user_id=user_id, cp=parent):
+    if not await _user_can_edit_cp(user_id=user_id, cp=draft):
         return {"error": "forbidden", "detail": "no edit access to this profile"}
     return await _impl(draft=draft, actor_id=user_id)
 
@@ -1698,12 +1710,6 @@ async def create_empty_library_draft(
     Returns ``{ draft_id, name, scope, manifest }`` on success so the caller
     can immediately pass ``draft_id`` to ``integral_propose_model_revision``.
     """
-    from app.models.nodes import (
-        OPERATIONAL_MODELS_REGISTRY_ID,
-        OperationalModel,
-        OperationalModels,
-    )
-    from app.services.app_graph import ensure_catalog_edge
     from app.services.permissions import can_publish_operational_models_under_workspace
 
     internal_scope = "app" if scope == "space" else scope
@@ -1758,22 +1764,20 @@ async def create_empty_library_draft(
     from datetime import datetime, timezone
 
     now = datetime.now(timezone.utc).isoformat()
-    cp = await OperationalModel.create(
+    from app.services.library_model_creation import create_private_library_model
+
+    cp = await create_private_library_model(
+        user_id=user_id,
         name=name.strip(),
         version="1.0.0",
         manifest=compiled,
         scope=internal_scope,
-        library_package=True,
         status="draft",
         description=description or "",
         workspace_id=workspace_id,
         created_at=now,
         updated_at=now,
     )
-
-    cps_reg = await OperationalModels.get(OPERATIONAL_MODELS_REGISTRY_ID)
-    if cps_reg:
-        await ensure_catalog_edge(cps_reg, cp)
 
     return {
         "draft_id": cp.id,
@@ -1793,7 +1797,7 @@ async def apply_library_to_track(
     Returns the names of entry types and views that were present in the library
     manifest so the caller can confirm what was applied.
     """
-    from app.models.nodes import OperationalModel, Track
+    from app.models.nodes import Track
     from app.services.app_graph import get_track_attached_operational_model
     from app.services.operational_model_merge import (
         merge_library_manifest_into_operational_model,
@@ -1815,7 +1819,7 @@ async def apply_library_to_track(
             "detail": "admin or owner role required on track",
         }
 
-    lib = await OperationalModel.get(library_cp_id)
+    lib = await get_current_model(library_cp_id)
     if not lib or not getattr(lib, "library_package", False):
         return {"error": "not_found", "detail": "Library operational model not found"}
     if getattr(lib, "status", None) != "published":
@@ -1832,7 +1836,7 @@ async def apply_library_to_track(
         }
 
     await merge_library_manifest_into_operational_model(
-        lib, attached, track, for_space=False
+        lib, attached, track, for_space=False, user_id=user_id
     )
     track.library_merge_source_id = library_cp_id
     await track.save()
@@ -2192,42 +2196,20 @@ async def recommend_profile_customizations(
 
 
 async def _user_can_edit_cp(*, user_id: str, cp: Any) -> bool:
-    """In-process port of ``_resolve_cp_edit_permission`` from the API layer."""
-    from app.models.nodes import App, Track
-    from app.services.permissions import (
-        can_edit_app,
-        can_edit_track,
-        can_publish_operational_models_under_workspace,
-    )
+    """Require current configuration authority for the exact named Model."""
+    from app.middleware.permissions_cache import isolated_permissions_cache
+    from app.schemas.policy import Resource, Subject
+    from app.services.policy_engine import evaluate
 
-    if getattr(cp, "library_package", False):
-        return await can_publish_operational_models_under_workspace(
-            user_id, getattr(cp, "workspace_id", None) or ""
-        )
-    scope = getattr(cp, "scope", "")
-    # A draft CP carries the parent's scope but is attached to NO Track/App
-    # (only the published parent holds the ``attached_operational_model_id``
-    # back-pointer; see fork_draft in operational_model_atomic_swap). Gating on
-    # this node's id alone would find no owner and deny edit even to a user who
-    # plainly owns the underlying track — the bug that made get_profile_draft
-    # return "no edit access" for a workspace owner. Resolve rights via the
-    # published parent too, mirroring apply_patch_to_draft / publish_draft.
-    candidate_cp_ids = [cp.id]
-    draft_of = getattr(cp, "draft_of_id", None)
-    if draft_of:
-        candidate_cp_ids.append(draft_of)
-    if scope == "track":
-        for cid in candidate_cp_ids:
-            owners = await Track.find({"context.attached_operational_model_id": cid})
-            for t in owners:  # noqa: SIM110 — short-circuit on await
-                if await can_edit_track(user_id, t.id):
-                    return True
-        return False
-    if scope == "app":
-        for cid in candidate_cp_ids:
-            owners = await App.find({"context.attached_operational_model_id": cid})
-            for sp in owners:  # noqa: SIM110 — short-circuit on await
-                if await can_edit_app(user_id, sp.id):
-                    return True
-        return False
-    return False
+    with isolated_permissions_cache():
+        return (
+            await evaluate(
+                subject=Subject(kind="human", id=user_id),
+                action="operational_model.update",
+                resource=Resource(
+                    kind="operational_model",
+                    id=cp.id,
+                    scope=f"operational_model:{cp.id}",
+                ),
+            )
+        ).allowed

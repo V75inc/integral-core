@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.agentive.staging_executors import _x_publish_profile_draft
-from app.models.nodes import OperationalModel
 from app.services import operational_model_authoring as authoring
 from app.services.operational_model_diff import format_publication_review
 
@@ -19,7 +18,9 @@ async def test_changed_draft_refuses_publish_before_any_effect(monkeypatch):
     )
     fingerprint = authoring.publication_review_fingerprint(draft, parent)
     draft.manifest = {"entry_types": [{"key": "loan", "name": "Loan"}]}
-    monkeypatch.setattr(OperationalModel, "get", AsyncMock(side_effect=[draft, parent]))
+    monkeypatch.setattr(
+        authoring, "get_current_model", AsyncMock(side_effect=[draft, parent])
+    )
     monkeypatch.setattr(authoring, "_user_can_edit_cp", AsyncMock(return_value=True))
     publish = AsyncMock()
     monkeypatch.setattr(

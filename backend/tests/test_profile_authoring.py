@@ -18,7 +18,7 @@ See I-PROFILE-01..02 in docs/INVARIANTS.md.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 import pytest
 from httpx import AsyncClient
@@ -39,33 +39,36 @@ async def _create_workspace(client: AsyncClient, name: str = "AuthoringWs") -> s
 
 async def _seed_library_package(name: str, description: str, manifest: Dict[str, Any]):
     """Create + catalog a library package directly (skips API auth)."""
-    from app.models.edges import CATALOGS
     from app.models.nodes import (
         OPERATIONAL_MODELS_REGISTRY_ID,
         OperationalModel,
         OperationalModels,
     )
+    from app.services.app_graph import ensure_catalog_edge
+    from app.services.operational_model_library_seed import (
+        upsert_seeded_library_packages,
+    )
+    from app.services.operational_model_loader import LibraryProfileSpec
 
-    existing = await OperationalModel.find(
-        {"context.library_package": True, "context.name": name}
-    )
-    if existing:
-        rows = existing if isinstance(existing, list) else [existing]
-        if rows:
-            return rows[0]
+    slug = name.lower().replace(" ", "-")
     reg = await OperationalModels.get(OPERATIONAL_MODELS_REGISTRY_ID)
-    if not reg:
-        reg = await OperationalModels.create(id=OPERATIONAL_MODELS_REGISTRY_ID)
-    cp = await OperationalModel.create(
-        name=name,
-        description=description,
-        manifest=manifest,
-        scope=str(manifest.get("scope", "track")),
-        library_package=True,
-        status="published",
+    await upsert_seeded_library_packages(
+        catalog_registry=reg,
+        specs=[
+            LibraryProfileSpec(
+                name=name,
+                slug=slug,
+                version="1.0.0",
+                description=description,
+                manifest=manifest,
+                scope="platform",
+                library_package=True,
+            )
+        ],
+        now_iso="2026-05-17T00:00:00Z",
+        ensure_catalog_edge=ensure_catalog_edge,
     )
-    await reg.connect(cp, edge=CATALOGS, cataloged_at="2026-05-17T00:00:00Z")
-    return cp
+    return (await OperationalModel.find({"context.metadata.slug": slug}))[0]
 
 
 def _bug_tracking_manifest() -> Dict[str, Any]:
@@ -418,7 +421,6 @@ async def test_apply_entry_types_to_track_materializes_fields_and_drops_post(
     inline entry_types must land those fields on the track and drop the generic
     'Post' starter — so its '+New' form renders the fields, not title/detail."""
     from app.models.edges import CONTAINS
-    from app.models.nodes import EntryType
     from app.models.nodes import Track as TrackModel
     from app.services.app_graph import get_track_attached_operational_model
     from app.services.operational_model_authoring import apply_entry_types_to_track
@@ -541,7 +543,6 @@ async def test_modify_operational_model_reject_gate_no_force(
     To keep the test deterministic, monkeypatch publish_draft to simulate
     a reject_gate failure WITHOUT force=true (matches Phase 5 contract).
     """
-    from app.api import operational_models as cp_mod
     from app.exceptions import BadRequestError as _BReq
 
     ws_id = await _create_workspace(authenticated_client, "RejectWs")
@@ -608,7 +609,6 @@ async def test_modify_operational_model_force_bypasses_reject_gate(
     authenticated_client: AsyncClient, test_user, monkeypatch
 ):
     """force=true → publish_draft proceeds; no rejection raised."""
-    from app.api import operational_models as cp_mod
 
     ws_id = await _create_workspace(authenticated_client, "ForceWs")
     pub_resp = await authenticated_client.post(
@@ -733,9 +733,8 @@ async def test_create_track_type_hint_multi_match_400(
 ):
     """Tied top-score hint → 400 operational_model.type_hint_ambiguous."""
     from app.api import operational_models as cp_mod
-    from app.api import tracks as tracks_mod
 
-    async def _fake_resolve(hint, *, workspace_id=None):
+    async def _fake_resolve(hint, *, workspace_id=None, user_id=None):
         return [
             {
                 "operational_model_id": "cp-a",
@@ -786,7 +785,7 @@ async def test_create_track_type_hint_zero_matches_warning(
     """Zero matches → 200 with warnings[] mentioning type_hint."""
     from app.api import operational_models as cp_mod
 
-    async def _fake_resolve(hint, *, workspace_id=None):
+    async def _fake_resolve(hint, *, workspace_id=None, user_id=None):
         return []
 
     monkeypatch.setattr(cp_mod, "resolve_type_hint", _fake_resolve)
@@ -824,7 +823,7 @@ async def test_create_space_type_hint_symmetric(
 
     captured_calls = []
 
-    async def _fake_resolve(hint, *, workspace_id=None):
+    async def _fake_resolve(hint, *, workspace_id=None, user_id=None):
         captured_calls.append((hint, workspace_id))
         return [
             {

@@ -25,6 +25,8 @@ import pytest
 
 from app.exceptions import BadRequestError
 from app.services.migrations import detect_unhandled_breaks
+from tests.test_model_api_authority import request_for
+from tests.test_resource_location import graph
 
 # ---------------------------------------------------------------------------
 # detect_unhandled_breaks — pure function
@@ -322,10 +324,13 @@ async def test_publish_endpoint_evaluates_migration_publish_by_default():
     """Default publish path calls policy_engine with action='migration.publish'."""
     from app.api import operational_models as cp_api
     from app.schemas.policy import Decision
+    from app.services.model_authority import get_current_model
+    from app.services.operational_model_atomic_swap import fork_draft
 
-    draft = _make_draft()
-    parent = _make_published()
-    request = MagicMock()
+    owner, workspace, _, track, _ = await graph()
+    parent = await get_current_model(track.attached_operational_model_id)
+    draft = await fork_draft(published=parent, actor_id=owner.id)
+    request = request_for(owner.id, workspace.id)
 
     captured = {}
 
@@ -334,14 +339,6 @@ async def test_publish_endpoint_evaluates_migration_publish_by_default():
         return Decision(allowed=True, reason="default_human_policy")
 
     with (
-        patch.object(cp_api, "resolve_principal_id", return_value="user-1"),
-        patch(
-            "app.models.nodes.OperationalModel.get",
-            new=AsyncMock(side_effect=[draft, parent]),
-        ),
-        patch.object(
-            cp_api, "_resolve_cp_edit_permission", new=AsyncMock(return_value=True)
-        ),
         patch.object(cp_api, "policy_evaluate", new=fake_evaluate),
         patch(
             "app.services.operational_model_atomic_swap.publish_draft",
@@ -367,10 +364,13 @@ async def test_publish_endpoint_evaluates_force_publish_when_force_true():
     """force=True evaluates the separate 'migration.force_publish' action."""
     from app.api import operational_models as cp_api
     from app.schemas.policy import Decision
+    from app.services.model_authority import get_current_model
+    from app.services.operational_model_atomic_swap import fork_draft
 
-    draft = _make_draft()
-    parent = _make_published()
-    request = MagicMock()
+    owner, workspace, _, track, _ = await graph()
+    parent = await get_current_model(track.attached_operational_model_id)
+    draft = await fork_draft(published=parent, actor_id=owner.id)
+    request = request_for(owner.id, workspace.id)
 
     captured = {}
 
@@ -379,14 +379,6 @@ async def test_publish_endpoint_evaluates_force_publish_when_force_true():
         return Decision(allowed=True, reason="default_human_policy")
 
     with (
-        patch.object(cp_api, "resolve_principal_id", return_value="user-1"),
-        patch(
-            "app.models.nodes.OperationalModel.get",
-            new=AsyncMock(side_effect=[draft, parent]),
-        ),
-        patch.object(
-            cp_api, "_resolve_cp_edit_permission", new=AsyncMock(return_value=True)
-        ),
         patch.object(cp_api, "policy_evaluate", new=fake_evaluate),
         patch(
             "app.services.operational_model_atomic_swap.publish_draft",
@@ -414,10 +406,13 @@ async def test_publish_endpoint_denied_when_policy_denies():
     from app.api import operational_models as cp_api
     from app.api.errors import InsufficientPermissionsError
     from app.schemas.policy import Decision
+    from app.services.model_authority import get_current_model
+    from app.services.operational_model_atomic_swap import fork_draft
 
-    draft = _make_draft()
-    parent = _make_published()
-    request = MagicMock()
+    owner, workspace, _, track, _ = await graph()
+    parent = await get_current_model(track.attached_operational_model_id)
+    draft = await fork_draft(published=parent, actor_id=owner.id)
+    request = request_for(owner.id, workspace.id)
 
     publish_called = {"n": 0}
 
@@ -429,14 +424,6 @@ async def test_publish_endpoint_denied_when_policy_denies():
         return {}
 
     with (
-        patch.object(cp_api, "resolve_principal_id", return_value="user-1"),
-        patch(
-            "app.models.nodes.OperationalModel.get",
-            new=AsyncMock(side_effect=[draft, parent]),
-        ),
-        patch.object(
-            cp_api, "_resolve_cp_edit_permission", new=AsyncMock(return_value=True)
-        ),
         patch.object(cp_api, "policy_evaluate", new=fake_evaluate),
         patch(
             "app.services.operational_model_atomic_swap.publish_draft", new=fake_publish

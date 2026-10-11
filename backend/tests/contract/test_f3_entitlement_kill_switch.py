@@ -19,8 +19,8 @@ from app.services.operational_model_loader import (
     load_library_operational_models_with_issues,
 )
 from app.services.package_paths import resolve_package_class
-from app.utils.time import utc_now_iso
-from tests.fixtures.workspaces import make_org_workspace
+from tests.fixtures.library_models import publish_library_manifest, publish_library_spec
+from tests.fixtures.workspaces import make_org_workspace, workspace_owner_id
 
 REPO = Path(__file__).resolve().parents[3]
 COMMERCIAL = REPO / "examples" / "reference-commercial-hello"
@@ -74,41 +74,12 @@ async def _seed_commercial_library() -> OperationalModel:
         verify_signatures=False,
     )
     spec = next(s for s in specs if s.slug == SLUG)
-    now = utc_now_iso()
-    return await OperationalModel.create(
-        name=spec.name or SLUG,
-        scope="app",
-        manifest=spec.manifest,
-        library_package=True,
-        version=spec.version or "1.0.0",
-        metadata={
-            "slug": spec.slug,
-            "bundle_fingerprint": getattr(spec, "bundle_fingerprint", "") or "test-fp",
-            "package_class": spec.package_class,
-            "bundle_dir": str(spec.bundle_dir) if spec.bundle_dir else str(COMMERCIAL),
-        },
-        created_at=now,
-        updated_at=now,
-    )
+    return await publish_library_spec(spec)
 
 
 async def _seed_community_library() -> OperationalModel:
     manifest = _community_sibling_manifest()
-    now = utc_now_iso()
-    return await OperationalModel.create(
-        name="Sibling Community",
-        scope="app",
-        manifest=manifest,
-        library_package=True,
-        version="1.0.0",
-        metadata={
-            "slug": "sibling-community",
-            "bundle_fingerprint": "sibling-fp",
-            "package_class": "community_app",
-        },
-        created_at=now,
-        updated_at=now,
-    )
+    return await publish_library_manifest(manifest=manifest, name="Sibling Community")
 
 
 @pytest.mark.contract
@@ -136,7 +107,7 @@ async def test_entitlement_kill_switch_e2e(monkeypatch):
     monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
 
     ws = await make_org_workspace("ws-f3-entitlement")
-    actor = "u_f3_ent"
+    actor = await workspace_owner_id(ws)
     commercial_lib = await _seed_commercial_library()
     sibling_lib = await _seed_community_library()
 

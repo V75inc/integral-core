@@ -12,7 +12,18 @@ import json
 import logging
 from typing import Any, Awaitable, Callable, Dict, Sequence
 
-from app.models.nodes import OperationalModel
+from jvspatial.core.context import get_default_context
+
+from app.exceptions import AuthorizationUnavailableError
+from app.models.edges import PUBLISHES_LIBRARY_MODEL
+from app.models.nodes import (
+    APP_NODE_ID,
+    OPERATIONAL_MODELS_REGISTRY_ID,
+    IntegralApp,
+    OperationalModel,
+    OperationalModels,
+)
+from app.services.model_authority import ModelAuthorityWalker, platform_seed_model
 from app.services.operational_model_loader import (  # noqa: F401 — backward-compat alias
     LibraryProfileSpec as SeededLibraryPackageSpec,
 )
@@ -71,12 +82,44 @@ async def upsert_seeded_library_packages(
 ) -> None:
     """Create or refresh each spec under the OperationalModels registry."""
     for spec in specs:
-        await _upsert_one(
-            catalog_registry=catalog_registry,
-            spec=spec,
-            now_iso=now_iso,
-            ensure_catalog_edge=ensure_catalog_edge,
+        from app.services.app_operations.transaction_scope import (
+            graph_transaction_available,
+            postgres_graph_transaction,
         )
+
+        if graph_transaction_available():
+            async with postgres_graph_transaction():
+                await _upsert_one(
+                    catalog_registry=catalog_registry,
+                    spec=spec,
+                    now_iso=now_iso,
+                    ensure_catalog_edge=ensure_catalog_edge,
+                )
+        else:
+            await _upsert_one(
+                catalog_registry=catalog_registry,
+                spec=spec,
+                now_iso=now_iso,
+                ensure_catalog_edge=ensure_catalog_edge,
+            )
+
+
+async def _seed_candidates(query: dict) -> list[OperationalModel]:
+    """Matching names are hints; only complete publication provenance selects."""
+    context = get_default_context()
+    rows = await context.database.find(
+        "node", {"entity": OperationalModel._entity_name(), **query}, limit=257
+    )
+    if len(rows) > 256:
+        raise AuthorizationUnavailableError()
+    selected = []
+    for row in rows:
+        model = await platform_seed_model(row["id"])
+        if model is not None:
+            selected.append(model)
+    if len(selected) > 1:
+        raise AuthorizationUnavailableError()
+    return selected
 
 
 async def _upsert_one(
@@ -86,10 +129,22 @@ async def _upsert_one(
     now_iso: str,
     ensure_catalog_edge: Callable[[Any, Any], Awaitable[None]],
 ) -> None:
+    if spec.library_package is not True:
+        raise ValueError("Platform seed must declare a library package")
+    if getattr(catalog_registry, "id", None) != OPERATIONAL_MODELS_REGISTRY_ID:
+        raise AuthorizationUnavailableError()
+    context = get_default_context()
+    walker = ModelAuthorityWalker()
+    if not await walker.check_library_catalog(context):
+        raise AuthorizationUnavailableError()
+    catalog_registry = await walker.read_node(
+        OperationalModels, OPERATIONAL_MODELS_REGISTRY_ID, context
+    )
+    prime = await walker.read_node(IntegralApp, APP_NODE_ID, context)
     slug = str(getattr(spec, "slug", "") or "").strip()
     raw = []
     if slug:
-        raw = await OperationalModel.find(
+        raw = await _seed_candidates(
             {
                 "context.library_package": True,
                 "context.metadata.slug": slug,
@@ -99,7 +154,7 @@ async def _upsert_one(
         # Restore the same platform seed after removal, preserving references.
         # Never adopt a workspace model or an unrelated manual catalog row.
         inactive = (
-            await OperationalModel.find(
+            await _seed_candidates(
                 {
                     "context.library_package": False,
                     "context.metadata.slug": slug,
@@ -109,12 +164,15 @@ async def _upsert_one(
             if slug
             else []
         )
-        raw = [row for row in inactive or [] if not getattr(row, "workspace_id", None)]
+        raw = inactive
     if not raw:
-        raw = await OperationalModel.find(
+        raw = await _seed_candidates(
             {
                 "context.library_package": True,
                 "context.name": spec.name,
+                # A display name cannot adopt another package's stable slug.
+                # Marked pre-slug seeds may be matched by name for restoration.
+                "context.metadata.slug": "",
             }
         )
     if raw is None:
@@ -152,7 +210,14 @@ async def _upsert_one(
             updated_at=now_iso,
             metadata=metadata_patch,
         )
-        await ensure_catalog_edge(catalog_registry, lib_cp)
+        try:
+            await prime.connect(lib_cp, edge=PUBLISHES_LIBRARY_MODEL)
+            await ensure_catalog_edge(catalog_registry, lib_cp)
+            if await platform_seed_model(lib_cp.id) is None:
+                raise AuthorizationUnavailableError()
+        except BaseException:
+            await lib_cp.delete()
+            raise
         logger.info("Seeded library operational model %r", spec.name)
         return
 

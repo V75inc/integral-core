@@ -292,6 +292,11 @@ async def _evaluate_human_default(
     if action not in get_args(PolicyAction):
         return False
 
+    if rk == "operational_model" and action != "operational_model.author":
+        from app.services.model_authority import model_action_authorized
+
+        return await model_action_authorized(user_id, action, resource)
+
     # Audit-log / event-feed scope dispatch — mirrors Phase 2 _user_permitted_for_scope.
     if action in ("audit_log.read", "event_feed.subscribe"):
         if scope_str.startswith("track:"):
@@ -682,6 +687,15 @@ async def evaluate_scoped(
     )
 
     with isolated_permissions_cache():
+        if resource.kind == "operational_model":
+            from app.services.model_authority import model_scope_matches
+
+            if not await model_scope_matches(
+                scope.workspace_id, resource, principal_id=scope.principal_id
+            ):
+                return Decision(
+                    allowed=False, reason="canonical_execution_scope_mismatch"
+                )
         if resource.kind in CORE_DATA_KINDS and not await core_policy_scope_matches(
             scope, resource
         ):
