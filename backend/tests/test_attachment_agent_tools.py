@@ -211,8 +211,12 @@ async def test_list_workspace_attachments_unions_across_tracks(monkeypatch):
         attachment_agent, "policy_evaluate", lambda **kw: _async(_Allow())
     )
 
+    from app.services.app_graph import catalog_track, catalog_user, catalog_workspace
+
     user = await User.create(user_id="ws_att_user", display_name="WS Att")
+    await catalog_user(user)
     ws = await Workspace.create(kind="personal", name="Files WS", name_fold="files ws")
+    await catalog_workspace(ws)
     await user.connect(
         ws, edge=IS_MEMBER_OF, role="owner", joined_at="2026-01-01T00:00:00"
     )
@@ -223,6 +227,8 @@ async def test_list_workspace_attachments_unions_across_tracks(monkeypatch):
     track_b = await Track.create(
         title="B", visibility="private", workspace_id=ws.id, owner_id=user.id
     )
+    await catalog_track(track_a)
+    await catalog_track(track_b)
     await user.connect(track_a, edge=OWNS)
     await user.connect(track_b, edge=OWNS)
 
@@ -245,9 +251,15 @@ async def test_list_workspace_attachments_unions_across_tracks(monkeypatch):
     await _seed(track_b, "E2", "b.txt")
 
     # Other-workspace track must not leak into the listing.
-    other = await Track.create(
-        title="Other", visibility="private", workspace_id="n.Workspace.other"
+    foreign = await Workspace.create(
+        kind="organization", name="Foreign attachment workspace"
     )
+    await catalog_workspace(foreign)
+    await user.connect(foreign, edge=IS_MEMBER_OF, role="owner")
+    other = await Track.create(
+        title="Other", visibility="private", workspace_id=foreign.id
+    )
+    await catalog_track(other)
     await user.connect(other, edge=OWNS)
     await _seed(other, "E3", "other.txt")
 

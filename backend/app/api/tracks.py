@@ -51,6 +51,7 @@ from app.services.ownership_transfer import transfer_track_ownership
 from app.services.pagination import DEFAULT_ENTITY_SORT, paginate_nodes_by_ids
 from app.services.permissions import (
     count_user_accessible_entries,
+    count_user_accessible_entries_for_tracks,
     get_user_accessible_tracks,
     get_user_node,
     resolve_role,
@@ -165,15 +166,16 @@ async def list_tracks(
     # count + parent_app + operational_model + anchor). Lift to per-track
     # parallel: each track's 4 attaches run together (asyncio.gather),
     # and all N tracks run in parallel against the now-indexed substrate.
+    counts = await count_user_accessible_entries_for_tracks(user_id, page_tracks)
+
     async def _enrich_one(t: Track) -> Dict[str, Any]:
         data = await export_node(t)
-        count, _, _, _ = await asyncio.gather(
-            count_user_accessible_entries(user_id, t.id),
+        await asyncio.gather(
             attach_parent_app_to_track_data(data, t),
             attach_operational_model_defaults_to_track_data(data, t),
             attach_anchor_source_to_track_data(data, t),
         )
-        data["entry_count"] = count
+        data["entry_count"] = counts[t.id]
         data["action_url"] = resolve_resource_action_url("track", t.id)
         return data
 

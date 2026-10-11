@@ -258,6 +258,10 @@ async def test_other_process_warm_permission_cache_cannot_cross_committed_revoca
                     async with scoped_default_context_async(GraphContext(database=database)):
                         user_id, app_id, workspace_id = sys.argv[1:]
                         assert await resolve_role(user_id, "app", app_id) == "editor"
+                        # Public authorization now deliberately bypasses TTL
+                        # decisions. Plant a legacy allow to prove an existing
+                        # worker cache cannot outlive the committed revocation.
+                        cache.set_resolve_role_cached(user_id, "app", app_id, "editor")
                         assert cache.get_resolve_role_cached(user_id, "app", app_id) == "editor"
                         print("READY", flush=True)
                         assert await asyncio.to_thread(sys.stdin.readline) == "GO\\n"

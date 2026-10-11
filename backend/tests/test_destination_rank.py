@@ -51,14 +51,27 @@ async def _world():
     await catalog_user(user)
     await catalog_user(other)
     workspace = await Workspace.create(
-        kind="personal",
-        workspace_type="personal",
+        kind="organization",
+        workspace_type="company",
         name="Rank Workspace",
         name_fold="rank workspace",
         created_at=now,
         updated_at=now,
     )
-    await user.connect(workspace, edge=IS_MEMBER_OF, role="owner", joined_at=now)
+    workspace_owner = await User.create(display_name="Independent filing fixture owner")
+    await catalog_user(workspace_owner)
+    await workspace_owner.connect(
+        workspace, edge=IS_MEMBER_OF, role="owner", joined_at=now
+    )
+    await user.connect(
+        workspace,
+        edge=IS_MEMBER_OF,
+        role="member",
+        joined_at=now,
+        can_create_apps=True,
+        can_create_tracks=True,
+    )
+    await other.connect(workspace, edge=IS_MEMBER_OF, role="member", joined_at=now)
     await catalog_workspace(workspace)
     app = await App.create(
         name="Open Books",

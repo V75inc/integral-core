@@ -147,3 +147,273 @@ The repaired targeted reruns passed 129 JSON cases with two PostgreSQL-only skip
 The repaired supplementary gates finished with exit 0: 9 Core-only cases, 52 JSON extension-contract cases and 232 PostgreSQL spike/contract cases passed. The JSON extension selection skipped 232 PostgreSQL-only cases; those were exercised in the separate store lane, which has one explicit restore-rehearsal network skip. Log: `/tmp/integral-access-raw-facts-supplementary-repaired.log`. The restored-backup/current-authorization checkpoint is not qualified by this skip. The full gate has passed its frontend suite (1,583 cases / 279 files) and remains in its backend suite.
 
 The repaired complete `make verify` gate finished with exit 0 against frozen runtime/test source. Staged guards/hooks, pinned formatting/lint/types, reproducible wheel/import, no-env smoke/xdist, all 1,583 frontend cases in 279 files and the complete backend suite passed. Working-tree wheel SHA-256: `1e160fb1b99634af433695cee8d780f1e108aebfdced14caaa554ee7a0b70c76`. Full log: `/tmp/integral-access-raw-facts-verify-repaired.log`. The supplementary run above also passed. M2 raw-authority-facts/entry-transaction slice is qualified for commit/push on the designated branch. AC-04/06/12 and all broader owner/governance, service-actor, session, mutation/release and migration/restore requirements retain their open gates. These local proofs do not establish GitHub CI, browser, provider, release or deployment readiness.
+
+### M2/M3 canonical containment and protected governance integration — unqualified
+
+The qualified raw-fact/entry-transaction slice was committed and pushed as
+`3f0122de` on the same branch. The current integration introduces the normative
+[access-control contract](../../../product/ACCESS_CONTROL_CONTRACT.md), separate
+workspace-owner capabilities, and primary raw containment for generic resource
+roles. Protected governance does not manufacture a resource `OWNS` or
+`COLLABORATES_ON` edge or alter ordinary inherited roles. Ordinary administrators
+retain their direct-grant ceiling. Unknown human-default actions are denied
+before generic scope delegation; declared App action enforcement remains open.
+
+The first raw-containment selection passed 86 JSON cases. The first integration
+selection failed collection because a new test imported a nonexistent snapshot
+helper; it was corrected to exercise the existing `sharing.list_access` service.
+The next integration selection passed 70 and failed 38 cases in 78.98 seconds.
+A real PostgreSQL selection passed 88 and failed two cases in 70.70 seconds.
+All four new owner-governance scenarios passed on both stores. Two failures were
+adversarial setup assumptions that the new always-live resolver would write a
+process TTL grant; the repaired tests explicitly plant a stale legacy grant and
+retain their post-revocation denial assertions. Remaining integration failures
+included unrooted normal fixtures and actual query-budget regressions (28/59/
+154/21/122 round trips against 22/32/55/15/45 ceilings). The ceilings remain
+unchanged. Root proofs now batch their bounded raw reads without caching an
+allow across invocations; repaired qualification is in progress.
+
+Positive sharing and staff-inventory fixtures now use production catalog
+helpers. Explicit missing-catalog/corrupt-state tests remain denial cases.
+Workspace-owner governance of a rooted ownerless App is tested separately from
+its ordinary role, paired with denial of an uncatalogued App. Scalar legacy
+inventory discovery cannot authorize the latter. Full Entry page/count/query
+parity, distributed effect/release fencing, ownership/membership races,
+migration, browser/MCP and all use-case closure gates remain open. This working
+package has not passed the full gate and must not be committed yet.
+
+The repaired positive-fixture run resolved the invitation failures and reduced
+query overruns to three. The bounded raw ancestor/grant batch selection retained
+all 24 point/batch containment requirements; its complete targeted qualification
+is still pending. Successive unchanged-budget measurements were feed/Tracks/
+multi-Track 50/89/56, then 46/85/52. The next run contained a helper-argument
+mismatch introduced during optimization; it was repaired, with four of five
+budget checks then passing (feed still 39). A temporary read-only call-stack
+profiler identified repeated direct-grant traversal, duplicate workspace-role
+reads and automatic scope-preference writes. The profiler stored callable names
+and counts only and was removed after the measured run.
+
+The next selection passed **all five unchanged query-budget checks**, with one
+remaining legacy positive expectation for an uncatalogued contained Track. That
+case now pairs denial before cataloging with inclusion after canonical catalog
+repair. Raw direct-grant discovery uses bounded keyset pages; malformed role
+facts cannot disappear through edge hydration. Automatic scope defaults are
+recomputed without writing a profile. Explicit preference choices patch only
+the two scope fields, preserving concurrent OTP/credential state; their writes
+still do not establish authority. New tests inject a concurrent profile-slot
+update and check both protected owner identity aliases after disablement.
+Expanded JSON and PostgreSQL qualification against this frozen source is in
+progress. No full-suite pass or closure is claimed for this package.
+
+The expanded repaired selection completed with exit 0: **195 JSON cases and
+106 PostgreSQL cases passed**. These include the unchanged query budgets,
+point/batch raw containment pairs, both linked owner identity forms after
+primary disablement, the injected concurrent profile-slot update, canonical
+catalog repair readback and current sharing/scope/access compatibility. A
+read-only lint check initially omitted the repository configuration and emitted
+baseline style noise; the configured check found one actual simplification
+finding. Its equivalent short-circuit expression was corrected. Configured lint
+is now clean for all touched runtime files. The next broader existing permission,
+visibility, comment, cache, ownership, departure and invitation selection is
+running against frozen source. Full `make verify` and supplementary qualification
+remain prerequisites for committing/pushing this package.
+
+The broader compatibility attempt exposed 45 failures before reaching an older
+process-cache test that hung: its fake `SlowUser` did not implement the current
+raw inventory seams, so the task failed before setting the event the test
+awaited. After confirming that exact failure, the owned pytest process was
+interrupted (exit 2); this is not a completed suite. Its failed log is retained
+at `/tmp/integral-access-governance-compatibility-10.log`.
+
+Normal resource-role tests now receive an explicit rooted scenario with an
+independent workspace owner, catalogued resources and member actors. The
+resource steward is deliberately distinct from the protected workspace owner,
+so ordinary exclusion/delegation assertions cannot pass because of governance.
+Visibility/comment fixtures now use canonical catalogs. The hanging fake-cache
+case is replaced by a real rooted inventory read paused at raw discovery, with
+a planted stale aggregate and bounded waits; invalidation must leave no reusable
+allow. Corrupt containment tests remain independently constructed. The repaired
+broader selection is running with source frozen. Full-suite qualification
+remains open, and this package is still uncommitted.
+
+The repaired broader attempt completed: **104 existing/owner golden cases
+passed**. The remaining reaction failure revealed that `reaction.create` had
+never been declared in `PolicyAction`, despite its existing commenter-tier
+policy test. It is now an exact built-in gate action; unknown business actions
+remain denied. The reaction handler delegates to that gate, including protected
+owner governance, rather than using an ordinary-role-only check. A new golden
+case posts a reaction to excluded private content through the real handler as a
+linked workspace owner with no ordinary Entry role. Existing viewer denial and
+self-removal-after-demotion coverage still passes. The two resource-invitation
+revoke fixtures now use a real rooted personal workspace and catalogued Track.
+A complete configured runtime lint scan and full local gate follow. No complete
+finding/use-case closure or commit qualification is claimed from focused tests.
+
+The first full gate passed all 16 staged substrate guards and pre-commit YAML/
+JSON/whitespace/black/isort/pinned-flake8 checks, then failed mypy's `no-redef`
+check for the chunk-aggregation `result` variable in the batch locator. It exited
+2 before artifact or suites; no complete gate pass is claimed. The aggregation
+variable is now separately named and typed, preserving its behavior. The full
+gate is rerunning; failed log:
+`/tmp/integral-access-canonical-governance-verify-1.log`.
+
+
+The second full attempt passed the staged guards, pinned pre-commit checks,
+mypy, frontend types and reproducible wheel/import verification (wheel SHA-256
+`0dbee041b5fac7fb336ad8d386e9c26f8633be30456d26f2f89ac1abfce10ca7`),
+then failed **39 no-env smoke cases** under xdist. Full backend and frontend
+suites were not reached. The supplementary attempt passed **9 Core-only cases**
+and failed **2 extension-contract cases**; the final PostgreSQL selections did
+not run. Both jobs ended with exit 2. Retained logs:
+`/tmp/integral-access-canonical-governance-verify-2.log` and
+`/tmp/integral-access-canonical-governance-supplementary-1.log`.
+
+The remaining normal role/moderation/attachment/public-materialization fixtures
+now use production workspace/resource catalogs. App fixtures use the canonical
+`private` default instead of the invalid App `inherit` literal; malformed-state
+tests remain unchanged. The stale-install inventory test explicitly plants a
+legacy empty aggregate instead of assuming current authorization writes a TTL
+allow.
+
+The warranty-schedule failure exposed a behavior regression: the new active-only
+canonical execution gate also removed retained-data and recovery access to
+paused Apps. Exact internal lifecycle sets now separate active execution,
+active/paused ordinary data access, and stewardship recovery for known retained
+installation states. Uninstalled Apps remain denied. Workspace governance does
+not manufacture an ordinary role; direct config authority remains non-inherited.
+Paired lifecycle point/batch, inventory, data, direct steward and owner recovery
+cases, plus an actual HTTP resume enqueue, are in focused qualification. Resume
+admission is not a completed transition or authorization fence proof. These
+repairs remain uncommitted pending the complete gate.
+
+
+Focused repair 13 ended with two failures: staff inventory discovery still
+pruned paused Apps before canonical admission, and the new HTTP enqueue test
+imported WorkItem from the wrong module. Discovery now leaves lifecycle
+admission to the raw final filter, and the test reads the actual durable
+`app.agentive.work_models.WorkItem`. Existing extension installation and warranty
+pause/resume cases passed in that run. Repair 14 named a nonexistent performance
+test file and exited 4 without running tests; the command was corrected to
+`test_perf_query_budget.py`. Repair 15 is running against frozen source.
+
+
+Repair 15 passed **88 cases**, including all unchanged query-budget ceilings,
+and failed only the HTTP resume scenario: its graph stub lacked the active
+application definition required for durable lifecycle work. The test now uses
+production App creation, then explicitly changes resource stewardship so the
+workspace owner still has no ordinary App role. The active-definition gate is
+preserved. The actual HTTP enqueue is being rerun before broader qualification.
+
+
+The repaired HTTP resume case passed (1 case, 5.11 seconds). Full attempt 3
+passed the staged/pinned checks, mypy, frontend types, reproducible wheel/import
+(SHA-256 `7505243f56b7ec55e11ec0b07828b55e2a3a1ef5898188afa3d78a1ce051d358`)
+and the no-env smoke lane. Frontend/full backend remain in progress.
+
+Consumer review identified another boundary to qualify before committing this
+package: callable skill discovery uses the data-access inventory, which now
+includes protected owner governance with no ordinary App role. The execution
+and declared-query paths already check ordinary App role, but resident overlay
+and App-scoped workspace-authored skill discovery need the same distinction.
+Source remains frozen for the current full run. A separate active/ordinary-role
+function audience and paired govern/read, explicit delegation, revoke and pause
+cases are planned after it finishes; no function-security closure is claimed.
+
+
+Full attempt 3 completed with exit 2: the no-env smoke lane and **1,583 frontend
+cases passed**, but the full backend suite failed **52 cases**. Source is now
+unfrozen. Most failures are older normal fixtures without canonical catalogs;
+connector-bound type discovery has the same fixture problem. The filing privacy
+case also uses a workspace owner for an ordinary audience assertion, which must
+be distinguished under the new protected governance contract. The full failed
+log is retained; no complete backend qualification is claimed.
+
+Function-audience refinement is in focused qualification. Callable and overlay
+App audiences now require a current ordinary App role plus active canonical
+containment. Protected generic governance is suppressed when the server-created
+policy-module scope denotes an App operation/declaration. The memo identity
+includes that distinction so a cached protected read cannot become a function
+allow. Paired ordinary commenter/generic write, explicit editor delegation,
+revocation, private App cached read, active/paused callable and workspace-authored
+overlay scenarios are included. This does not complete declared action grants,
+exact effect permits or release fencing; those planned gates remain open.
+
+
+Function-audience attempt 17 passed **55 cases** and failed four setup cases.
+The new workspace-authored skill used a disk-style hyphenated key instead of the
+runtime workspace snake_case key. Three existing profile positives depended on
+an external package/library cache for their skill body; they now persist an
+explicit fixture body through the real registration service. These repairs do
+not weaken the function audience check. The governance evaluation mode also
+reflects an inherited ordinary-only context in its memo identity.
+
+Full-failure fixture repairs use production catalogs without monkeypatching
+framework APIs. Connector binding catalogs its Track after assigning the real
+personal workspace. Public share, relations, transform, precompute, watcher and
+view fixtures now have canonical workspace/App/Track ancestry. Sharing-overview
+resources use the actual source owner's rooted personal workspace; its foreign
+resource tests retain distinct source owners. The attachment scope test now
+uses an actually accessible foreign workspace, proving scope filtering rather
+than denial of a fake parent. Filing uses an independent organization owner and
+explicitly delegated creation rights so ordinary resource privacy remains a
+meaningful assertion. The broader attempt 18 includes every full-failure file,
+function/overlay/policy cases and unchanged query budgets, with source frozen
+and a JUnit receipt. Full and PostgreSQL qualification remain prerequisites.
+
+Attempt 18 completed with **211 passed, 1 failed and 1 skipped** (101.10
+seconds). The remaining assignee-notification fixture created Entries with only
+scalar track IDs. It now wires actual Track containment, entry-type and
+OperationalModel type relationships. The targeted watcher rerun passed all
+three cases; canonical admission remains enforced. The complete gate is being
+repeated on the staged package before any milestone commit.
+
+Full attempt 4 stopped after the pinned Black hook formatted the anchor fixture;
+that formatting was staged. Full attempt 5 passed all guards and pinned checks,
+types, **795 smoke cases (7 skipped)**, **1,583 frontend cases**, and **5,122
+backend cases (297 skipped)**. Its reproducible wheel/import SHA-256 is
+`bb2f078939d7401573dc8b8a4993485416696b7d3e5094cc45b30478b5bc8c05`.
+Supplement 5 passed 9 Core-only cases, 52 extension-contract cases and 165
+focused PostgreSQL cases, then failed two PostgreSQL contract cases. The restore
+rehearsal remains skipped because the dump process cannot reach the host's
+published port; it is not restore qualification.
+
+The cross-process regression assumed that public authorization populates TTL
+allow caches; it now explicitly plants a legacy allow in the second process and
+retains the committed revocation/lock assertions. The transactional count test
+now uses canonical catalogs and an independent workspace owner, preserving its
+ordinary direct-grant/exclusion assertion. Source review also found the actual
+declared-query origin `app_query`; it now joins operation/declaration origins in
+ordinary function authority evaluation. Repair 20 qualifies these changes on
+PostgreSQL before another complete gate. Attempt 5 proves the prior source,
+not these subsequent repairs; the package is still uncommitted.
+
+Repair 20 passed all **29 PostgreSQL cases**, including the real second-process
+revocation and transactional count assertions. The staged refined package is
+entering complete gate attempt 6. Source will stay frozen through all final
+local and supplementary qualification lanes.
+
+Attempt 6 passed the complete local gate on the refined source: **796 smoke
+cases (7 skipped)**, **1,583 frontend cases**, and **5,123 backend cases (297
+skipped)**, with guards, pinned checks, types and reproducible wheel/import
+SHA-256 `17304562803d83c6ce018af1a37d64e7d8903c3b52c425b269faae5ed5310a90`.
+Its Core-only lane also passed; extension and PostgreSQL lanes are still
+running. No milestone commit/push has occurred for this package.
+
+The next projection repair includes U24 minimal parent navigation: current
+Entry enrichment exports full Track/App objects without a caller audience
+parameter. Direct Entry discovery, canonical audience filtering and exact
+totals must agree across point/list/feed/page/count/stream/query. Function
+admission and callable/overlay audiences do not establish nested handler effect
+authority: exact permits, target scope and release fences remain open. Complete
+owner recovery inventory/metadata and sharing across retained installation
+states also require actual API/browser qualification. These are recorded
+remaining requirements, not claims of closure from the current point tests.
+
+Final attempt 6 completed successfully across every scheduled lane: the full
+local gate, **9 Core-only**, **52 extension-contract**, **166 focused PostgreSQL**
+and **232 PostgreSQL spike/contract cases**. The known backup transport failure
+still skips the restore rehearsal; it is explicitly outside this milestone's
+qualification and remains a required W7 repair. GitHub CI, browser/MCP,
+migration and complete effect/release-fence evidence are not established by
+these local results. The source package is now qualified for its partial
+canonical-governance milestone commit and push on the designated branch.

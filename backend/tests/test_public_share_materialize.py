@@ -15,6 +15,7 @@ async def test_get_public_track_materializes_when_create_allowed(
     from app.api import tracks_public_share as public_mod
     from app.models.edges import COLLABORATES_ON, IS_MEMBER_OF
     from app.models.nodes import Track, Workspace
+    from app.services.app_graph import catalog_track, catalog_workspace
     from app.utils.time import utc_now_iso
 
     now = utc_now_iso()
@@ -26,6 +27,7 @@ async def test_get_public_track_materializes_when_create_allowed(
         created_at=now,
         updated_at=now,
     )
+    await catalog_workspace(ws)
     await test_user.connect(ws, edge=IS_MEMBER_OF, role="owner", added_at=now)
     track = await Track.create(
         title="Anchored Public",
@@ -33,6 +35,7 @@ async def test_get_public_track_materializes_when_create_allowed(
         workspace_id=ws.id,
         visibility="private",
     )
+    await catalog_track(track)
     await test_user.connect(track, edge=COLLABORATES_ON, role="owner", added_at=now)
 
     body = {
@@ -75,6 +78,7 @@ async def test_get_public_track_skips_materialize_when_read_only(
     from app.api import tracks_public_share as public_mod
     from app.models.edges import COLLABORATES_ON, IS_MEMBER_OF
     from app.models.nodes import Track, Workspace
+    from app.services.app_graph import catalog_track, catalog_workspace
     from app.utils.time import utc_now_iso
 
     now = utc_now_iso()
@@ -86,6 +90,7 @@ async def test_get_public_track_skips_materialize_when_read_only(
         created_at=now,
         updated_at=now,
     )
+    await catalog_workspace(ws)
     await test_user.connect(ws, edge=IS_MEMBER_OF, role="owner", added_at=now)
     track = await Track.create(
         title="Readonly Public",
@@ -93,6 +98,7 @@ async def test_get_public_track_skips_materialize_when_read_only(
         workspace_id=ws.id,
         visibility="private",
     )
+    await catalog_track(track)
     await test_user.connect(track, edge=COLLABORATES_ON, role="owner", added_at=now)
 
     body = {

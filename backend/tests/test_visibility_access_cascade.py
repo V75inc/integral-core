@@ -74,6 +74,7 @@ async def _org_fixture(
         created_at=now,
         updated_at=now,
     )
+    await catalog_track(nested)
     await app.connect(nested, edge=CONTAINS, added_at=now)
 
     standalone = await Track.create(

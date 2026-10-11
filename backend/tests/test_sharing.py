@@ -9,6 +9,12 @@ import pytest
 
 from app.models.edges import COLLABORATES_ON, CONTAINS, IS_MEMBER_OF, OWNS
 from app.models.nodes import App, Entry, Track, User, Workspace
+from app.services.app_graph import (
+    catalog_app,
+    catalog_track,
+    catalog_user,
+    catalog_workspace,
+)
 from app.services.permissions import resolve_role
 from app.services.share_links import (
     list_active_links,
@@ -32,9 +38,11 @@ pytestmark = pytest.mark.smoke
 
 
 async def _user(suffix: str) -> User:
-    return await User.create(
+    user = await User.create(
         user_id=f"share_user_{suffix}", display_name=f"User {suffix}"
     )
+    await catalog_user(user)
+    return user
 
 
 async def _user_with_auth_email(email: str, display_name: str) -> User:
@@ -64,19 +72,32 @@ async def _user_with_auth_email(email: str, display_name: str) -> User:
 
 
 async def _workspace(name: str, kind: str = "organization") -> Workspace:
-    return await Workspace.create(kind=kind, name=name, name_fold=name.casefold())
+    workspace = await Workspace.create(kind=kind, name=name, name_fold=name.casefold())
+    await catalog_workspace(workspace)
+    return workspace
 
 
 async def _space(name: str, workspace_id: str = "") -> App:
-    return await App.create(
+    app = await App.create(
         name=name, name_fold=name.casefold(), workspace_id=workspace_id
     )
+    await catalog_app(app)
+    return app
 
 
-async def _track(title: str, workspace_id: str = "") -> Track:
-    return await Track.create(
+async def _track(
+    title: str, workspace_id: str = "", *, owner: User | None = None
+) -> Track:
+    if not workspace_id:
+        assert owner is not None, "A normal sharing fixture needs a workspace owner"
+        workspace = await _workspace(f"{title} workspace")
+        await owner.connect(workspace, edge=IS_MEMBER_OF, role="owner")
+        workspace_id = workspace.id
+    track = await Track.create(
         title=title, title_fold=title.casefold(), workspace_id=workspace_id
     )
+    await catalog_track(track)
+    return track
 
 
 async def _entry(title: str, track_id: str) -> Entry:
@@ -92,7 +113,7 @@ async def _entry(title: str, track_id: str) -> Entry:
 async def test_add_collaborator_grants_role_and_resolves():
     owner = await _user("addcollab_owner")
     target = await _user("addcollab_target")
-    track = await _track("T")
+    track = await _track("T", owner=owner)
     await owner.connect(track, edge=OWNS)
     await add_collaborator(owner.id, "track", track.id, target.id, role="editor")
     assert await resolve_role(target.id, "track", track.id) == "editor"
@@ -102,7 +123,7 @@ async def test_add_collaborator_grants_role_and_resolves():
 async def test_add_collaborator_accepts_commenter_role():
     owner = await _user("addcommenter_owner")
     target = await _user("addcommenter_target")
-    track = await _track("T")
+    track = await _track("T", owner=owner)
     await owner.connect(track, edge=OWNS)
     await add_collaborator(owner.id, "track", track.id, target.id, role="commenter")
     assert await resolve_role(target.id, "track", track.id) == "commenter"
@@ -113,8 +134,11 @@ async def test_add_collaborator_rejected_for_non_owner():
     owner = await _user("rej_owner")
     editor = await _user("rej_editor")
     target = await _user("rej_target")
-    track = await _track("T")
+    track = await _track("T", owner=owner)
     await owner.connect(track, edge=OWNS)
+    await editor.connect(
+        await Workspace.get(track.workspace_id), edge=IS_MEMBER_OF, role="member"
+    )
     await editor.connect(track, edge=COLLABORATES_ON, role="editor")
     from app.api.errors import InsufficientPermissionsError
 
@@ -128,7 +152,7 @@ async def test_remove_collaborator_drops_role(monkeypatch):
 
     owner = await _user("rmcollab_owner")
     target = await _user("rmcollab_target")
-    track = await _track("T")
+    track = await _track("T", owner=owner)
     await owner.connect(track, edge=OWNS)
     await add_collaborator(owner.id, "track", track.id, target.id, role="editor")
     invalidated = []
@@ -336,7 +360,7 @@ async def test_non_owner_cannot_mint_share_link():
 
     owner = await _user("mint_owner")
     other = await _user("mint_other")
-    track = await _track("MintAuthz")
+    track = await _track("MintAuthz", owner=owner)
     await owner.connect(track, edge=OWNS)
     with pytest.raises(InsufficientPermissionsError):
         await mint_share_link(other.id, "track", track.id, role="viewer")
@@ -346,7 +370,7 @@ async def test_non_owner_cannot_mint_share_link():
 async def test_mint_and_redeem_share_link():
     owner = await _user("link_owner")
     target = await _user("link_target")
-    track = await _track("T")
+    track = await _track("T", owner=owner)
     await owner.connect(track, edge=OWNS)
     minted = await mint_share_link(owner.id, "track", track.id, role="commenter")
     token = minted["token"]
@@ -375,6 +399,7 @@ async def test_share_link_redeem_evicts_cached_denial_for_auth_principal(monkeyp
     monkeypatch.setattr(process_cache, "_ENABLED", True)
     try:
         assert await resolve_role(target.user_id, "track", track.id) is None
+        process_cache.set_resolve_role_cached(target.user_id, "track", track.id, None)
         assert (
             process_cache.get_resolve_role_cached(target.user_id, "track", track.id)
             is None
@@ -410,7 +435,7 @@ async def test_share_link_redeem_materializes_direct_role_over_inherited_view():
 async def test_share_link_redeem_idempotent_for_existing_collab():
     owner = await _user("link_idem_owner")
     target = await _user("link_idem_target")
-    track = await _track("T")
+    track = await _track("T", owner=owner)
     await owner.connect(track, edge=OWNS)
     await target.connect(track, edge=COLLABORATES_ON, role="editor")
     minted = await mint_share_link(owner.id, "track", track.id, role="viewer")
@@ -424,7 +449,7 @@ async def test_share_link_redeem_idempotent_for_existing_collab():
 async def test_revoked_link_cannot_be_redeemed():
     owner = await _user("revoke_owner")
     target = await _user("revoke_target")
-    track = await _track("T")
+    track = await _track("T", owner=owner)
     await owner.connect(track, edge=OWNS)
     minted = await mint_share_link(owner.id, "track", track.id, role="viewer")
     await revoke_share_link(owner.id, minted["share_link"]["id"])
@@ -437,7 +462,7 @@ async def test_revoked_link_cannot_be_redeemed():
 @pytest.mark.asyncio
 async def test_list_active_links_excludes_revoked():
     owner = await _user("listlinks_owner")
-    track = await _track("T")
+    track = await _track("T", owner=owner)
     await owner.connect(track, edge=OWNS)
     a = await mint_share_link(owner.id, "track", track.id, role="viewer")
     b = await mint_share_link(owner.id, "track", track.id, role="editor")
@@ -452,7 +477,7 @@ async def test_list_active_links_excludes_revoked():
 async def test_list_active_links_requires_owner():
     owner = await _user("listlinks_authz_owner")
     stranger = await _user("listlinks_authz_stranger")
-    track = await _track("T")
+    track = await _track("T", owner=owner)
     await owner.connect(track, edge=OWNS)
     await mint_share_link(owner.id, "track", track.id, role="viewer")
     from app.api.errors import InsufficientPermissionsError
@@ -490,12 +515,12 @@ async def test_resource_invitation_accept_materializes_collab_edge(monkeypatch):
     )
 
     owner = await _user("inv_owner")
-    track = await _track("T")
+    track = await _track("T", owner=owner)
     await owner.connect(track, edge=OWNS)
     invitation, plaintext, _ = await create_resource_invitation(
         resource_type="track",
         resource_id=track.id,
-        workspace_id="",
+        workspace_id=track.workspace_id,
         inviter_user_id=owner.id,
         email="invitee@example.com",
         role="commenter",
@@ -524,12 +549,12 @@ async def test_resource_invitation_stays_pending_when_resource_missing():
     )
 
     owner = await _user("inv_miss_owner")
-    track = await _track("T")
+    track = await _track("T", owner=owner)
     await owner.connect(track, edge=OWNS)
     invitation, plaintext, _ = await create_resource_invitation(
         resource_type="track",
         resource_id=track.id,
-        workspace_id="",
+        workspace_id=track.workspace_id,
         inviter_user_id=owner.id,
         email="missing@example.com",
         role="viewer",
@@ -553,12 +578,12 @@ async def test_resource_invitation_wires_invited_to_edges():
     from app.services.invitations import create_resource_invitation
 
     owner = await _user("inv_edge_owner")
-    track = await _track("T")
+    track = await _track("T", owner=owner)
     await owner.connect(track, edge=OWNS)
     invitation, _, _ = await create_resource_invitation(
         resource_type="track",
         resource_id=track.id,
-        workspace_id="",
+        workspace_id=track.workspace_id,
         inviter_user_id=owner.id,
         email="edges@example.com",
         role="viewer",
@@ -611,12 +636,12 @@ async def test_consume_rejects_email_mismatch():
     )
 
     owner = await _user("inv_mismatch_owner")
-    track = await _track("T")
+    track = await _track("T", owner=owner)
     await owner.connect(track, edge=OWNS)
     _, plaintext, _ = await create_resource_invitation(
         resource_type="track",
         resource_id=track.id,
-        workspace_id="",
+        workspace_id=track.workspace_id,
         inviter_user_id=owner.id,
         email="intended@example.com",
         role="viewer",
@@ -649,7 +674,7 @@ async def test_add_collaborator_honors_workspace_gate_with_guest_membership():
 async def test_add_collaborator_is_idempotent():
     owner = await _user("idem_collab_owner")
     target = await _user("idem_collab_target")
-    track = await _track("Idem T")
+    track = await _track("Idem T", owner=owner)
     await owner.connect(track, edge=OWNS)
     await add_collaborator(owner.id, "track", track.id, target.id, role="editor")
     await add_collaborator(owner.id, "track", track.id, target.id, role="editor")
@@ -664,7 +689,7 @@ async def test_add_collaborator_is_idempotent():
 async def test_add_exclusion_is_idempotent():
     owner = await _user("idem_excl_owner")
     target = await _user("idem_excl_target")
-    track = await _track("Idem T2")
+    track = await _track("Idem T2", owner=owner)
     await owner.connect(track, edge=OWNS)
     await add_collaborator(owner.id, "track", track.id, target.id, role="editor")
     await add_exclusion(owner.id, "track", track.id, target.id, reason="dup test")
@@ -692,7 +717,7 @@ async def test_commenter_may_post_comments_but_not_edit_entries():
 
     owner = await _user("commenter_gate_owner")
     commenter = await _user("commenter_gate_user")
-    track = await _track("Commenter Gate T")
+    track = await _track("Commenter Gate T", owner=owner)
     await owner.connect(track, edge=OWNS)
     await add_collaborator(owner.id, "track", track.id, commenter.id, role="commenter")
 
@@ -721,7 +746,7 @@ async def test_viewer_may_not_post_comments():
 
     owner = await _user("viewer_gate_owner")
     viewer = await _user("viewer_gate_user")
-    track = await _track("Viewer Gate T")
+    track = await _track("Viewer Gate T", owner=owner)
     await owner.connect(track, edge=OWNS)
     await add_collaborator(owner.id, "track", track.id, viewer.id, role="viewer")
 

@@ -32,11 +32,11 @@ import json
 import logging
 import os
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, get_args
 
 from app.exceptions import PayloadTooLargeError
 from app.middleware.permissions_cache import permissions_cache_get
-from app.schemas.policy import Decision, Resource, Subject
+from app.schemas.policy import Decision, PolicyAction, Resource, Subject
 from app.services.change_event import emit_change_event
 from app.services.permissions import (
     ROLE_RANK,
@@ -214,9 +214,24 @@ async def _evaluate_sharing_human_action(
         return None
     if suffix in _COLLABORATOR_MANAGE_SUFFIXES:
         role = await resolve_role(user_id, rk, rid)
-        return role in ("owner", "admin")
+        from app.services.workspace_governance import resolve_owner_governance
+
+        return (
+            role in ("owner", "admin")
+            or await resolve_owner_governance(
+                user_id, rk, rid, "resource.access.manage"
+            )
+            is not None
+        )
     if suffix in _SHARING_OWNER_SUFFIXES:
-        return (await resolve_role(user_id, rk, rid)) in ("owner", "admin")
+        from app.services.workspace_governance import resolve_owner_governance
+
+        return (await resolve_role(user_id, rk, rid)) in (
+            "owner",
+            "admin",
+        ) or await resolve_owner_governance(
+            user_id, rk, rid, "resource.access.manage"
+        ) is not None
     if suffix == "share_link.redeem":
         return True
     return None
@@ -268,6 +283,10 @@ async def _evaluate_human_default(
     rk = resource.kind
     rid = resource.id
     scope_str = resource.scope or ""
+    # Generic owner/configuration authority must not imply arbitrary App
+    # functions. Non-Core actions require an explicit declaration/grant path.
+    if action not in get_args(PolicyAction):
+        return False
 
     # Audit-log / event-feed scope dispatch — mirrors Phase 2 _user_permitted_for_scope.
     if action in ("audit_log.read", "event_feed.subscribe"):
@@ -496,7 +515,18 @@ async def _evaluate_human_default(
 
     async def _has_comment_rank(resource_type: str, resource_id: str) -> bool:
         role = await resolve_role(user_id, resource_type, resource_id)
-        return ROLE_RANK.get(role or "", 0) >= ROLE_RANK["commenter"]
+        from app.services.workspace_governance import resolve_owner_governance
+
+        return (
+            ROLE_RANK.get(role or "", 0) >= ROLE_RANK["commenter"]
+            or await resolve_owner_governance(
+                user_id, resource_type, resource_id, "resource.write"
+            )
+            is not None
+        )
+
+    if rk == "entry" and action == "reaction.create":
+        return await _has_comment_rank("entry", rid)
 
     if scope_str.startswith("track:"):
         track_id = scope_str.split(":", 1)[1]
@@ -637,6 +667,7 @@ async def evaluate(
     payload: Optional[Dict[str, Any]] = None,
     _internal_actor: Optional[Subject] = None,
     _dry_run: bool = False,
+    _allow_owner_governance: bool = True,
 ) -> Decision:
     """Single authorization entry point — POL-01 contract.
 
@@ -682,6 +713,10 @@ async def evaluate(
     if subject.kind == "system":
         return Decision(allowed=True, reason="system_subject")
 
+    from app.services.workspace_governance import owner_governance_allowed
+
+    _allow_owner_governance = _allow_owner_governance and owner_governance_allowed()
+
     # Memoize only pure reads with the complete resource identity. Effects
     # and payload-bearing decisions must be evaluated again, including
     # approval creation. Dry-run bypasses all memoization.
@@ -691,6 +726,7 @@ async def evaluate(
         subject.kind,
         subject.id,
         action,
+        "governance" if _allow_owner_governance else "ordinary",
         json.dumps(
             resource.model_dump(mode="json"), sort_keys=True, separators=(",", ":")
         ),
@@ -704,7 +740,13 @@ async def evaluate(
     if subject.kind == "human":
         # Default-human path — DELEGATES to existing helpers (POL-03 parity).
         # See RESEARCH §"Pitfall 1": NEVER reimplement precedence rules here.
-        allowed = await _evaluate_human_default(action, resource, subject.id)
+        if _allow_owner_governance:
+            allowed = await _evaluate_human_default(action, resource, subject.id)
+        else:
+            from app.services.workspace_governance import ordinary_authority_only
+
+            with ordinary_authority_only():
+                allowed = await _evaluate_human_default(action, resource, subject.id)
         decision = Decision(
             allowed=allowed,
             reason="default_human_policy" if allowed else "default_human_policy_denied",

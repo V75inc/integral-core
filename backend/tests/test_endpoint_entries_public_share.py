@@ -3,6 +3,8 @@
 import pytest
 from httpx import AsyncClient
 
+from app.services.app_graph import catalog_track, catalog_workspace
+
 
 async def _provision_published_case_study_with_hook(test_user):
     from app.models.edges import COLLABORATES_ON, CONTAINS, IS_MEMBER_OF
@@ -23,8 +25,10 @@ async def _provision_published_case_study_with_hook(test_user):
         created_at=now,
         updated_at=now,
     )
+    await catalog_workspace(ws)
     await owner.connect(ws, edge=IS_MEMBER_OF, role="owner", added_at=now)
     track = await Track.create(title="Portfolio", owner_id=owner.id, workspace_id=ws.id)
+    await catalog_track(track)
     et = await EntryType.create(
         name="Case Study", name_fold="case study", track_id=track.id
     )

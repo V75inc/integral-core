@@ -15,6 +15,7 @@ from httpx import AsyncClient
 
 from app.models.edges import COLLABORATES_ON, CONTAINS, IS_MEMBER_OF
 from app.models.nodes import Entry, EntryType, Track, User, Workspace
+from app.services.app_graph import catalog_track, catalog_workspace
 from app.utils.time import utc_now_iso
 
 
@@ -28,11 +29,13 @@ async def _make_fixture(owner: User):
         created_at=now,
         updated_at=now,
     )
+    await catalog_workspace(ws)
     await owner.connect(ws, edge=IS_MEMBER_OF, role="owner", added_at=now)
 
     roster_track = await Track.create(
         title="Payroll Employees", owner_id=owner.id, workspace_id=ws.id
     )
+    await catalog_track(roster_track)
     employee = await Entry.create(
         title="Jane Employee", body="", track_id=roster_track.id, author_id=owner.id
     )
@@ -43,6 +46,7 @@ async def _make_fixture(owner: User):
     other_track = await Track.create(
         title="Compensation and Payslips", owner_id=owner.id, workspace_id=ws.id
     )
+    await catalog_track(other_track)
     await owner.connect(other_track, edge=COLLABORATES_ON, role="owner", added_at=now)
 
     payslip_et = await EntryType.create(name="Payslip", track_id=other_track.id)

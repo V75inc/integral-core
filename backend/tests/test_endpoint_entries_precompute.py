@@ -2,6 +2,8 @@
 
 import pytest
 
+from app.services.app_graph import catalog_track, catalog_workspace
+
 
 @pytest.mark.asyncio
 async def test_precompute_runs_bound_tool_and_returns_patch(
@@ -26,10 +28,12 @@ async def test_precompute_runs_bound_tool_and_returns_patch(
         created_at=now,
         updated_at=now,
     )
+    await catalog_workspace(ws)
     await owner.connect(ws, edge=IS_MEMBER_OF, role="owner", added_at=now)
     track = await Track.create(
         title="Project Proposals", owner_id=owner.id, workspace_id=ws.id
     )
+    await catalog_track(track)
     et = await EntryType.create(
         name="Project Proposal", name_fold="project proposal", track_id=track.id
     )

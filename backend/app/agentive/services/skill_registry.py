@@ -411,9 +411,9 @@ async def get_callable_skills(
 
     accessible_app_ids: Optional[set] = None
     if user_id:
-        from app.services.agent_scope import accessible_apps_for_scope
+        from app.services.agent_scope import callable_apps_for_scope
 
-        accessible = await accessible_apps_for_scope(user_id, workspace_id=workspace_id)
+        accessible = await callable_apps_for_scope(user_id, workspace_id=workspace_id)
         accessible_app_ids = {a.id for a in accessible}
 
     apps = await App.find({"workspace_id": workspace_id})

@@ -56,6 +56,10 @@ class PolicyModule:
             subject=Subject(kind="human", id=scope.principal_id),
             action=action,
             resource=resource,
+            # These origins are server-created declaration dispatch scopes.
+            # Core data stewardship is not an App function delegation.
+            _allow_owner_governance=scope.origin
+            not in {"app_operation", "app_query", "app_declaration"},
         )
 
     def revision(

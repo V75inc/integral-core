@@ -957,7 +957,12 @@ async def list_access(
         raise ResourceNotFoundError(message=f"{resource_type.capitalize()} not found.")
 
     actor_role = await resolve_role(actor_user_id, resource_type, resource_id)
-    if actor_role not in ("owner", "admin"):
+    from app.services.workspace_governance import resolve_owner_governance
+
+    governance = await resolve_owner_governance(
+        actor_user_id, resource_type, resource_id, "resource.access.review"
+    )
+    if actor_role not in ("owner", "admin") and governance is None:
         return {
             "resource_type": resource_type,
             "resource_id": resource_id,
@@ -979,7 +984,7 @@ async def list_access(
         row["effective"] = not row["excluded"]
 
     links: List[Dict[str, Any]] = []
-    links_visible = actor_role in ("owner", "admin")
+    links_visible = actor_role in ("owner", "admin") or governance is not None
     if links_visible:
         from app.services.share_links import list_active_links
 
@@ -992,6 +997,11 @@ async def list_access(
         "inherited": inherited,
         "excluded": excluded,
         "links": links,
+        "governance": (
+            {"source": governance.source, "workspace_id": governance.workspace_id}
+            if governance is not None
+            else None
+        ),
         "links_visible": links_visible,
         # Present in BOTH shapes so a caller can read the viewer's own standing
         # without first branching on whether it got the manager response. The

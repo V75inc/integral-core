@@ -168,15 +168,10 @@ async def test_workspace_spaces_listing(authenticated_client: AsyncClient, test_
 
 
 @pytest.mark.asyncio
-async def test_workspace_tracks_includes_uncataloged_app_contained_track(
+async def test_workspace_tracks_deny_uncatalogued_then_admit_rooted_contained_track(
     authenticated_client: AsyncClient, test_user
 ):
-    """Workspace tracks listing must include app-contained tracks even when
-    they are missing from the workspace Tracks branch registry.
-
-    This mirrors historical anchor/entry-extension tracks created via the
-    auto-provision path before branch cataloging was consistent.
-    """
+    """A legacy App link alone cannot activate a Track; its catalog must agree."""
     from app.models.edges import CONTAINS
     from app.models.nodes import App, Track
 
@@ -211,7 +206,13 @@ async def test_workspace_tracks_includes_uncataloged_app_contained_track(
     )
     assert tracks_resp.status_code == 200, tracks_resp.text
     ids = [t["id"] for t in tracks_resp.json()["tracks"]]
-    assert shadow_track.id in ids
+    assert shadow_track.id not in ids
+    from app.services.app_graph import catalog_track
+
+    await catalog_track(shadow_track)
+    rooted = await authenticated_client.get(f"/api/workspaces/{workspace_id}/tracks")
+    assert rooted.status_code == 200, rooted.text
+    assert shadow_track.id in {row["id"] for row in rooted.json()["tracks"]}
 
 
 @pytest.mark.asyncio

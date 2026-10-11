@@ -68,6 +68,8 @@ PolicyAction = Literal[
     # Admin-tier in policy_engine, NOT the commenter tier its namesakes above
     # ride — see the ``_MODERATION_ACTIONS`` note there.
     "comment.moderate",
+    # Authorization-only reaction toggle; mutation remains audited as entry.update.
+    "reaction.create",
     "attachment.create",
     "attachment.attach",
     "attachment.delete",

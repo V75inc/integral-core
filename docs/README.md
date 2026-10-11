@@ -24,6 +24,6 @@ Use the [CLI guide](ops/LOCAL_INSTALLATION.md) for local startup, logs, backups,
 
 The [contributor guide](developer/CONTRIBUTING.md) explains repository discipline. [Invariants](INVARIANTS.md) preserve the substrate's access, graph, extension, and execution contracts.
 
-The [access-control review](product/ACCESS_CONTROL_REVIEW.md) examines collaboration, workspace-owner governance and declarative App permissions. Its [gap-closure plan](product/ACCESS_CONTROL_PLAN.md) defines implementation dependencies and acceptance gates; it is a proposed design, not a release declaration.
+The [access-control review](product/ACCESS_CONTROL_REVIEW.md) examines collaboration, workspace-owner governance and declarative App permissions. Its [gap-closure plan](product/ACCESS_CONTROL_PLAN.md) defines implementation dependencies and acceptance gates. The [access contract](product/ACCESS_CONTROL_CONTRACT.md) states the normative target; the [closure ledger](ops/qualification/access-control-review/closure.json) records actual implementation and qualification.
 
 This edition was rebuilt against the staging checkout on 8 October 2026. Superseded plans, duplicate explanations, old candidate reports, and obsolete architecture narratives were removed from maintained documentation. The [editorial audit](editorial/README.md) records each original Markdown document's disposition. Historical originals remain recoverable in Git and a separate local snapshot.

@@ -1,6 +1,6 @@
 # Integral Core access-control gap-closure plan
 
-Date: 10 October 2026; refined after a second source/probe review. Status: authorized implementation in progress on `codex/access-control-review`; individual gates remain open until evidenced. Baseline: `9d13b44e`. [Assessment and use cases](ACCESS_CONTROL_REVIEW.md). [Evidence](../ops/qualification/access-control-review/README.md).
+Date: 10 October 2026; refined after a second source/probe review. Status: authorized implementation in progress on `codex/access-control-review`; individual gates remain open until evidenced. Baseline: `9d13b44e`. [Assessment and use cases](ACCESS_CONTROL_REVIEW.md). [Normative access contract](ACCESS_CONTROL_CONTRACT.md). [Evidence](../ops/qualification/access-control-review/README.md).
 
 ## Intended outcome
 

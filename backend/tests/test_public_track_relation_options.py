@@ -11,6 +11,8 @@ config.
 
 import pytest
 
+from app.services.app_graph import catalog_app, catalog_track, catalog_workspace
+
 
 @pytest.fixture
 async def cross_track_relation_setup(test_user):
@@ -29,6 +31,7 @@ async def cross_track_relation_setup(test_user):
         created_at=now,
         updated_at=now,
     )
+    await catalog_workspace(ws)
     await test_user.connect(ws, edge=IS_MEMBER_OF, role="owner", added_at=now)
 
     app_node = await App.create(
@@ -36,6 +39,7 @@ async def cross_track_relation_setup(test_user):
         owner_id=test_user.id,
         workspace_id=ws.id,
     )
+    await catalog_app(app_node)
     await test_user.connect(app_node, edge=OWNS, added_at=now)
 
     target_track = await Track.create(
@@ -45,6 +49,7 @@ async def cross_track_relation_setup(test_user):
         workspace_id=ws.id,
         visibility="private",
     )
+    await catalog_track(target_track)
     await app_node.connect(target_track, edge=CONTAINS, added_at=now)
     # Mirror the real creation path: services/track_service.py wires an OWNS
     # edge from the creator to the track. Hand-built fixtures that set only the
@@ -66,6 +71,7 @@ async def cross_track_relation_setup(test_user):
         workspace_id=ws.id,
         visibility="private",
     )
+    await catalog_track(source_track)
     await app_node.connect(source_track, edge=CONTAINS, added_at=now)
     await test_user.connect(source_track, edge=OWNS, added_at=now)
 
