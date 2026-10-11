@@ -14,7 +14,7 @@ from app.agentive.connectors import mcp_proxy, tool_binding
 from app.agentive.harness.contracts import HarnessExecutionScope
 from app.agentive.harness.jvspatial_store import JvSpatialStepStore
 from app.agentive.harness.scoped_store import ScopedStepStore
-from app.agentive.services.capability_broker import _fingerprint
+from app.agentive.services.capability_broker import _fingerprint, _kind_for
 from app.agentive.services.execution_runs import AgentRun, RunStep
 from app.models.harness_records import HarnessRunRecord, HarnessSnapshotRecord
 from app.models.nodes import ChatThread, HarnessSession
@@ -45,7 +45,18 @@ async def source_fixture(monkeypatch):
         principal_id="owner",
         workspace_id="workspace",
         status="succeeded",
-        kind="query",
+        # Connector reads are recorded as environment steps by the real broker.
+        kind=_kind_for(
+            CapabilityInvocation(
+                run_id="run",
+                principal_id="owner",
+                workspace_id="workspace",
+                origin="chat",
+                capability_key=KEY,
+                source="connector",
+                op_class="read",
+            )
+        ),
         capability_source="connector",
         origin="chat",
         policy_decision="allow",
@@ -215,6 +226,7 @@ async def _get(fixture, *, user="owner", workspace="workspace", ref=None):
 
 async def test_public_context_returns_only_authenticated_source(source_fixture):
     f = source_fixture
+    assert f.step.kind == "environment"
     result = await _get(f)
     assert result["source"]["text"] == f.data["text"]
     assert result["source"]["truncated"] is True
@@ -254,6 +266,7 @@ async def test_foreign_session_reference_is_denied(source_fixture):
     [
         ("step", "status", "failed"),
         ("step", "kind", "command"),
+        ("step", "kind", "query"),
         ("step", "connector_id", None),
         ("step", "policy_decision", "deny"),
         ("step", "capability_source", "app"),
