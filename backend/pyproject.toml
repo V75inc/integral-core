@@ -286,4 +286,4 @@ disable_error_code = ["attr-defined", "return-value", "arg-type", "assignment", 
 
 [tool.uv.sources]
 # Isolated dev qualification; immutable commit, no change to the release version.
-jvspatial = { git = "https://github.com/TrueSelph/jvspatial.git", rev = "7d0853c28e38cfdba068bb9944c7603ab006d3c4" }
+jvspatial = { git = "https://github.com/TrueSelph/jvspatial.git", rev = "f45f8a066af0ca8dc54f0cfa5b30fb8a9f5b5aeb" }
