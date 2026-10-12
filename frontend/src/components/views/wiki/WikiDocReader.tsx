@@ -1,3 +1,4 @@
+import { PageMeta } from '../../../components/ui';
 import { useMemo } from 'react';
 import { ChevronRight, Edit2 } from 'lucide-react';
 import type { Entry } from '../../../types';
@@ -99,14 +100,14 @@ export function WikiDocReader({
                 </Button>
               ) : null}
             </div>
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-[var(--text-subtle)]">
+            <PageMeta>
               {entry.type ? (
                 <Pill variant="neutral" tone="descriptive">
                   {entry.type}
                 </Pill>
               ) : null}
               {updatedLabel ? <span>{updatedLabel}</span> : null}
-            </div>
+            </PageMeta>
           </header>
 
           <div className="wiki-doc-body">

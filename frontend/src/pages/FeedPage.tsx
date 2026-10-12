@@ -22,6 +22,7 @@ import {
   IconWell,
   LINE_ICON_STROKE,
   PageHeading,
+  PageMeta,
   PageShell,
   PageSection,
   filterBar,
@@ -666,10 +667,8 @@ export function FeedPage() {
             <PageHeading>
               {appIdFromQuery ? appName || 'App feed' : 'Feed'}
             </PageHeading>
-            {/* Spec hero-meta row: gap-24px (≈ gap-6), text-sm,
-                --text-subtle, with `·` separators rendered as their own
-                spans. Reads as a bibliographic strap-line. */}
-            <div className="mt-3 md:mt-3.5 flex flex-wrap items-center gap-x-4 md:gap-x-6 gap-y-2 text-sm text-[var(--text-subtle)]">
+            {/* Shared metadata scale, with separators that wrap alongside the facts. */}
+            <PageMeta>
               <span>
                 {totalEntryCount ?? entries.length}{' '}
                 {(totalEntryCount ?? entries.length) === 1 ? 'entry' : 'entries'}
@@ -700,7 +699,7 @@ export function FeedPage() {
                   </Link>
                 </>
               ) : null}
-            </div>
+            </PageMeta>
           </header>
         </section>
       </PageSection>

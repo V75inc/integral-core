@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 
 import {
@@ -6,21 +6,13 @@ import {
   useAssistantDock,
 } from "../../../context/AssistantDockContext";
 import { useIsMdUp } from "../../../hooks/useMediaQuery";
-import { Text } from "../../../ui";
 import { useRegisterOverlay } from "../../../hooks/useOverlayPresence";
 import { DOCK_MAX_WIDTH, DOCK_MIN_WIDTH } from "./assistantDockPrefs";
 
-// Lazy-load surface + providers so the shell-mounted dock stays light. The
-// assistant-ui runtime (~140KB) only ships when the user actually opens chat.
-const LazyDockBody = lazy(() => import("./AssistantDockBody"));
-
-function ChatLoadingFallback() {
-  return (
-    <div className="flex flex-1 items-center justify-center">
-      <Text variant="body-sm" tone="subtle">Loading chat…</Text>
-    </div>
-  );
-}
+// The shell already imports the chat runtime through the ai-chat facade.
+// Import this small body with it so opening/restoring the dock never depends
+// on an extra module request. The runtime still mounts only while chat is open.
+import AssistantDockBody from "./AssistantDockBody";
 
 /**
  * The resident assistant's home in the app shell.
@@ -166,9 +158,7 @@ export function AssistantDock() {
         />
       ) : null}
 
-      <Suspense fallback={<ChatLoadingFallback />}>
-        <LazyDockBody onClose={closeDock} />
-      </Suspense>
+      <AssistantDockBody onClose={closeDock} />
     </div>
   );
 }

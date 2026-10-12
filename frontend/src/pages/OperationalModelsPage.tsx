@@ -20,6 +20,7 @@ import {
   IconWell,
   LINE_ICON_STROKE,
   PageHeading,
+  PageMeta,
   PageShell,
   PageSection,
   filterBar,
@@ -310,11 +311,11 @@ export function OperationalModelsPage() {
             </Button>
           )}
         </div>
-        <div className="mt-3 md:mt-3.5 flex flex-wrap items-center gap-x-4 md:gap-x-6 gap-y-2 text-sm text-[var(--text-subtle)]">
+        <PageMeta>
           <span>{profileCount} {profileCount === 1 ? 'model' : 'models'}</span>
           <span aria-hidden>·</span>
           <span>Each model defines records, views, and operational guidance</span>
-        </div>
+        </PageMeta>
       </header>
       </PageSection>
 

@@ -12,6 +12,7 @@ import {
   IconWell,
   LINE_ICON_STROKE,
   PageHeading,
+  PageMeta,
   PageShell,
   PageSection,
   filterBar,
@@ -158,13 +159,13 @@ export function TracksPage() {
         <header className="mb-8 md:mb-10 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
             <PageHeading>Tracks</PageHeading>
-            <div className="mt-3 md:mt-3.5 flex flex-wrap items-center gap-x-4 md:gap-x-6 gap-y-2 text-xs text-[var(--text-subtle)]">
+            <PageMeta>
               <span>
                 {tracks.length} {tracks.length === 1 ? 'track' : 'tracks'} in {scopeLabel}
               </span>
               <span aria-hidden>·</span>
               <span>Keep notes and updates together by project or topic</span>
-            </div>
+            </PageMeta>
           </div>
           {canCreateTracks ? (
             <Button

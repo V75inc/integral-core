@@ -9,11 +9,15 @@
  */
 
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { act, render, screen, cleanup, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, cleanup, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ConfirmProvider } from '../../../context/ConfirmContext';
 import '@testing-library/jest-dom/vitest';
+
+vi.mock('../../../api/accessControl', () => ({
+  ownershipConsentApi: { inbox: vi.fn(async () => ({ complete: true, proposals: [] })), respond: vi.fn() },
+}));
 
 vi.mock('../../../api/approvals', () => ({
   listApprovals: vi.fn(async () => ({ approvals: [] })),
@@ -37,6 +41,7 @@ vi.mock('../../../context/CrumbsContext', () => ({
   useSetCrumbs: () => {},
 }));
 
+import { ownershipConsentApi } from '../../../api/accessControl';
 import * as agentiveApi from '../../../api/agentive';
 import * as approvalsApi from '../../../api/approvals';
 import { ApprovalsPage } from '../ApprovalsPage';
@@ -63,6 +68,7 @@ function renderPage() {
 }
 
 beforeEach(() => {
+  vi.mocked(ownershipConsentApi.inbox).mockResolvedValue({ complete: true, proposals: [] });
   vi.mocked(approvalsApi.listApprovals).mockResolvedValue({ approvals: [], next_cursor: null, has_more: false });
   vi.mocked(agentiveApi.listPendingStagedChanges).mockResolvedValue([]);
 });
@@ -124,4 +130,36 @@ describe('ApprovalsPage empty state', () => {
     expect(screen.queryByText('All clear')).not.toBeInTheDocument();
     expect(screen.getByText('1 item')).toBeInTheDocument();
   });
+  it('includes ownership requests without declaring the other queues all clear', async () => {
+    vi.mocked(ownershipConsentApi.inbox).mockResolvedValue({
+      complete: true, proposals: [{ proposal_id: 'own-1', resource_type: 'track', resource_id: 'track-a', status: 'pending', revision: 2, expired: false, ownership_current: true, expires_at: '2026-10-30T00:00:00Z' } as never],
+    });
+    renderPage();
+    expect(await screen.findByRole('button', { name: 'Accept ownership' })).toBeVisible();
+    expect(screen.getByText('1 item')).toBeVisible();
+    expect(screen.queryByText('All clear')).not.toBeInTheDocument();
+    expect(screen.queryByText('No pending approvals')).not.toBeInTheDocument();
+    expect(ownershipConsentApi.respond).not.toHaveBeenCalled();
+  });
+
+  it('does not call an incomplete ownership inbox all clear', async () => {
+    vi.mocked(ownershipConsentApi.inbox).mockResolvedValue({ complete: false, proposals: [] });
+    renderPage();
+    expect(await screen.findByText('Could not refresh approvals')).toBeVisible();
+    expect(screen.queryByText('All clear')).not.toBeInTheDocument();
+    expect(screen.queryByText('No pending approvals')).not.toBeInTheDocument();
+  });
+
+  it('shows accepted ownership requests under the approved filter', async () => {
+    vi.mocked(ownershipConsentApi.inbox).mockResolvedValue({
+      complete: true, proposals: [{ proposal_id: 'own-1', resource_type: 'track', resource_id: 'track-a', status: 'accepted', revision: 3, expired: false, ownership_current: true, expires_at: '2026-10-30T00:00:00Z' } as never],
+    });
+    renderPage();
+    await screen.findByText('All clear');
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'approved' } });
+    expect(await screen.findByText('Ownership transfer for Track track-a')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Accept ownership' })).not.toBeInTheDocument();
+    expect(screen.getByText('1 item')).toBeVisible();
+  });
+
 });

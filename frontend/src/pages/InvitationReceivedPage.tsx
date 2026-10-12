@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { sharingApi } from '../api';
 import type { MyInvitation } from '../api/sharing';
-import { Button, PageHeading, Skeleton } from '../components/ui';
+import { Button, PageHeading, PageMeta, Skeleton } from '../components/ui';
 import { Text } from '../ui';
 import { useToast } from '../context/ToastContext';
 import { usePublishPageContext } from '../hooks/usePublishPageContext';
@@ -119,10 +119,10 @@ export function InvitationReceivedPage() {
     <div className="min-h-screen flex items-center justify-center px-4">
       <div className="app-card max-w-md w-full p-6">
         <PageHeading>Join {targetLabel}</PageHeading>
-        <Text variant="body-sm" tone="muted" as="p" className="mt-3 block">
+        <PageMeta as="p">
           You've been invited to <strong>{targetLabel}</strong> as a{' '}
           <strong>{role}</strong>.
-        </Text>
+        </PageMeta>
         {invitation.message ? (
           <Text
             variant="body-sm"

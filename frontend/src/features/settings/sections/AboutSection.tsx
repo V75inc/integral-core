@@ -1,3 +1,4 @@
+import { PageMeta } from '../../../components/ui';
 import { SettingsSection } from '../components/Field';
 import { Text } from '../../../ui';
 
@@ -15,9 +16,9 @@ export function AboutSection() {
         <Text variant="heading-md" weight="semibold" as="h2">
           About
         </Text>
-        <Text variant="body" tone="muted" as="p" className="mt-1">
+        <PageMeta as="p">
           Product information and release details.
-        </Text>
+        </PageMeta>
       </div>
 
       <SettingsSection

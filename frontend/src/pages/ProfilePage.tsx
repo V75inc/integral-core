@@ -1,3 +1,4 @@
+import { PageMeta } from '../components/ui';
 import { Mail, Edit2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -43,14 +44,14 @@ export function ProfilePage() {
               <h1 className="text-[40px] sm:text-[44px] font-semibold tracking-[-0.035em] text-[var(--text)] leading-[1.05] sm:truncate break-words">
                 {user.display_name}
               </h1>
-              <div className="mt-2.5 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm text-[var(--text-subtle)]">
+              <PageMeta>
                 <span className="inline-flex items-center gap-1.5">
                   <Mail size={13} strokeWidth={LINE_ICON_STROKE} aria-hidden />
                   {user.email}
                 </span>
                 <span aria-hidden>·</span>
                 <span>Member since {formatRelativeTime(user.created_at)}</span>
-              </div>
+              </PageMeta>
             </div>
             <div className="flex gap-2 shrink-0 self-start sm:self-center">
               <Button

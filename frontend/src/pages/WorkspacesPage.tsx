@@ -12,6 +12,7 @@ import {
   IconWell,
   LINE_ICON_STROKE,
   PageHeading,
+  PageMeta,
   PageShell,
   PageSection,
   TrackDot,
@@ -79,11 +80,11 @@ export function WorkspacesPage() {
         <header className="mb-8 md:mb-10 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
             <PageHeading>Workspaces</PageHeading>
-            <div className="mt-3 md:mt-3.5 flex flex-wrap items-center gap-x-4 md:gap-x-6 gap-y-2 text-sm text-[var(--text-subtle)]">
+            <PageMeta>
               <span>{workspaces.length} {workspaces.length === 1 ? 'workspace' : 'workspaces'}</span>
               <span aria-hidden>·</span>
               <span>Your workspaces and shared spaces</span>
-            </div>
+            </PageMeta>
           </div>
           <Button
             className="shrink-0 self-start sm:self-end w-full sm:w-auto"

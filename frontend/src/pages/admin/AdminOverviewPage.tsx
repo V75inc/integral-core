@@ -1,7 +1,8 @@
+import { Text, Surface } from '../../ui';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { adminApi } from '../../api/admin';
-import { PageHeading, PageSection, PageShell, Skeleton } from '../../components/ui';
+import { PageHeading, PageMeta, PageSection, PageShell, Skeleton } from '../../components/ui';
 import { useSetCrumbs } from '../../context/CrumbsContext';
 
 function MetricTile({
@@ -14,10 +15,10 @@ function MetricTile({
   href?: string;
 }) {
   const inner = (
-    <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--panel)] p-5">
-      <p className="text-xs uppercase tracking-[0.08em] text-[var(--text-subtle)]">{label}</p>
-      <p className="mt-2 text-2xl font-semibold tabular-nums text-[var(--text)]">{value}</p>
-    </div>
+    <Surface as="div" tone="panel" border="subtle" radius="card" padding="lg">
+      <Text as="p" variant="body-sm" tone="subtle" className="uppercase tracking-[0.08em]">{label}</Text>
+      <Text as="p" variant="heading-lg" tone="default" weight="semibold" className="mt-2 tabular-nums">{value}</Text>
+    </Surface>
   );
   if (href) {
     return (
@@ -41,9 +42,9 @@ export function AdminOverviewPage() {
     <PageShell>
       <PageSection>
         <PageHeading>Platform overview</PageHeading>
-        <p className="mt-2 text-sm text-[var(--text-muted)]">
+        <PageMeta as="p">
           Cross-tenant counts for users, workspaces, and resources.
-        </p>
+        </PageMeta>
       </PageSection>
       <PageSection className="mt-8">
         {isPending && (

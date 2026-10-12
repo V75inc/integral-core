@@ -1,3 +1,4 @@
+import { PageMeta } from '../components/ui';
 /**
  * Phase 21 PF-03 — Public-facing portfolio share surface.
  *
@@ -108,14 +109,11 @@ export function SharedPortfolioPage() {
           Case study
         </p>
         <h1 className="mt-2 text-3xl font-semibold">{cs.title}</h1>
-        <p
-          className="mt-2 text-sm text-fg-muted"
-          data-testid="shared-portfolio-client"
-        >
+        <PageMeta as="p" data-testid="shared-portfolio-client">
           {cs.client_name}
           {cs.sector ? ` · ${cs.sector}` : ''}
           {cs.engagement_size ? ` · ${cs.engagement_size}` : ''}
-        </p>
+        </PageMeta>
       </header>
 
       {cs.body ? (

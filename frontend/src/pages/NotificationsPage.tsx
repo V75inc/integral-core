@@ -1,5 +1,5 @@
 import { CheckCheck } from 'lucide-react';
-import { Button, LINE_ICON_STROKE, PageHeading, PageShell, PageSection } from '../components/ui';
+import { Button, LINE_ICON_STROKE, PageHeading, PageMeta, PageShell, PageSection } from '../components/ui';
 import { NotificationsListBody } from '../components/notifications/NotificationsListBody';
 import { useNotifications } from '../hooks/useNotifications';
 import { useSetCrumbs } from '../context/CrumbsContext';
@@ -37,7 +37,7 @@ export function NotificationsPage() {
         <header className="mb-8 md:mb-10 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
             <PageHeading>Notifications</PageHeading>
-            <div className="mt-3 md:mt-3.5 flex flex-wrap items-center gap-x-4 md:gap-x-6 gap-y-2 text-sm text-[var(--text-subtle)]">
+            <PageMeta>
               <span>{notifications.length} {notifications.length === 1 ? 'notification' : 'notifications'}</span>
               {unreadCount > 0 ? (
                 <>
@@ -50,7 +50,7 @@ export function NotificationsPage() {
                   <span>All caught up</span>
                 </>
               )}
-            </div>
+            </PageMeta>
           </div>
           {unreadCount > 0 && (
             <Button

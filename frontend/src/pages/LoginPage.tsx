@@ -1,3 +1,4 @@
+import { PageMeta } from '../components/ui';
 import { useState } from 'react';
 import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
@@ -68,9 +69,9 @@ export function LoginPage() {
           <AuthPanelHeading id="login-heading">
             Sign in
           </AuthPanelHeading>
-          <p className="mt-2 text-sm text-[var(--text-muted)]">
+          <PageMeta as="p">
             Welcome back. Pick up where you left off.
-          </p>
+          </PageMeta>
 
           {accountDeleted ? (
             <p
