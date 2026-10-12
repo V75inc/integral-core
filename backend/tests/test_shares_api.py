@@ -146,7 +146,7 @@ async def test_concurrent_bounded_share_redemption_has_one_winner(
     test_user,
     test_user2,
 ):
-    from app.api.errors import BadRequestError
+    from app.api.errors import ResourceConflictError
     from app.services.share_links import redeem_share_link
 
     create = await authenticated_client.post(
@@ -167,9 +167,11 @@ async def test_concurrent_bounded_share_redemption_has_one_winner(
     async def redeem(principal_id):
         try:
             return await redeem_share_link(principal_id, minted["token"])
-        except BadRequestError as exc:
+        except ResourceConflictError as exc:
             return exc
 
     results = await asyncio.gather(redeem(owner_id), redeem(actor_id))
     assert sum(1 for result in results if isinstance(result, dict)) == 1
-    assert sum(1 for result in results if isinstance(result, BadRequestError)) == 1
+    assert (
+        sum(1 for result in results if isinstance(result, ResourceConflictError)) == 1
+    )

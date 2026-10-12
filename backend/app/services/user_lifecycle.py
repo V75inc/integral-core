@@ -512,7 +512,7 @@ async def _delete_personal_agent_configs(user: User) -> None:
             logger.exception("delete AgentConfig %s failed", cfg_id)
 
 
-async def _cascade_owned_workspaces(user: User) -> Tuple[int, int]:
+async def _cascade_owned_workspaces(user: User, *, actor_id: str) -> Tuple[int, int]:
     """Delete personal workspaces and sole-member org workspaces."""
     from app.services.workspace_lifecycle import delete_workspace_cascade
 
@@ -526,7 +526,7 @@ async def _cascade_owned_workspaces(user: User) -> Tuple[int, int]:
         kind = getattr(ws, "kind", "")
         role = await _member_role(user, ws.id)
         if kind == "personal" and role == "owner":
-            await delete_workspace_cascade(ws, cascade=True)
+            await delete_workspace_cascade(ws, cascade=True, actor_id=actor_id)
             deleted_personal += 1
             continue
         from app.services.workspace_kind import is_collaborative_kind
@@ -542,7 +542,7 @@ async def _cascade_owned_workspaces(user: User) -> Tuple[int, int]:
         others = [m for m in members if m.id != user.id]
         if others:
             continue
-        await delete_workspace_cascade(ws, cascade=True)
+        await delete_workspace_cascade(ws, cascade=True, actor_id=actor_id)
         deleted_org += 1
     return deleted_personal, deleted_org
 
@@ -569,6 +569,7 @@ async def delete_user_account(
     return await _execute_account_deletion(
         principal_id,
         confirm_email=confirm_email,
+        actor_id=principal_id,
     )
 
 
@@ -618,6 +619,7 @@ async def delete_user_account_as_admin(
         target_principal,
         confirm_email=confirm_email,
         skip_blockers=force,
+        actor_id=actor_id,
     )
 
 
@@ -626,6 +628,7 @@ async def _execute_account_deletion(
     *,
     confirm_email: str,
     skip_blockers: bool = False,
+    actor_id: str,
 ) -> AccountDeletionResult:
     """Shared deletion orchestrator for self-service and admin paths."""
     from app.api.utils import export_node
@@ -650,7 +653,7 @@ async def _execute_account_deletion(
     deleted_user_node_id = user.id
     auth_user_id = user.user_id or principal_id
 
-    await _cascade_owned_workspaces(user)
+    await _cascade_owned_workspaces(user, actor_id=actor_id)
     await _remove_membership_edges(user)
     await _delete_outgoing_edges(user, COLLABORATES_ON)
     await _delete_outgoing_edges(user, EXCLUDED_FROM)

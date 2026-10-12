@@ -21,6 +21,7 @@ from app.models.edges import (
     COLLABORATES_ON,
     CONTAINS,
     HAS_OPERATIONAL_MODEL,
+    HAS_VIEW,
     OWNS,
 )
 from app.models.nodes import (
@@ -328,7 +329,8 @@ async def ensure_track_attached_operational_model(
         "feed",
         {"_manifest_view_key": "feed", "view_type": "feed"},
     )
-    feed = await View.create(
+    feed = await create_track_view(
+        track,
         name="Feed",
         type="feed",
         config=feed_config,
@@ -667,13 +669,126 @@ async def catalog_chat_thread(thread: ChatThread) -> None:
         await ensure_catalog_edge(branch, thread)
 
 
+async def _saved_view_model(track: Track) -> OperationalModel:
+    """Read the actual attached model on the writer's held graph context."""
+    from app.exceptions import AuthorizationUnavailableError
+    from app.services.authority_facts import primary_node_record
+
+    context = await track.get_context()
+    edges = await context.database.find(
+        "edge",
+        {"source": track.id, "entity": HAS_OPERATIONAL_MODEL._entity_name()},
+        limit=2,
+    )
+    if not edges and not track.attached_operational_model_id:
+        await ensure_track_attached_operational_model(track)
+        edges = await context.database.find(
+            "edge",
+            {"source": track.id, "entity": HAS_OPERATIONAL_MODEL._entity_name()},
+            limit=2,
+        )
+    if len(edges) != 1 or edges[0].get("target") != track.attached_operational_model_id:
+        raise AuthorizationUnavailableError()
+    row = await primary_node_record(
+        context.database, OperationalModel, edges[0]["target"]
+    )
+    if row is None:
+        raise AuthorizationUnavailableError()
+    model = await context._deserialize_entity(OperationalModel, row)
+    await model.set_context(context)
+    return model
+
+
 async def catalog_view_under_track(track: Track, view: View) -> None:
-    """Catalog a View under the track's attached OperationalModel Views registry."""
-    cp = await get_track_attached_operational_model(track)
-    if not cp:
-        cp = await ensure_track_attached_operational_model(track)
+    """Attach a saved View's scope and model catalog in the same writer path."""
+    from app.exceptions import AuthorizationUnavailableError
+    from app.services.authority_facts import primary_node_record, required_node_text
+
+    cp = await _saved_view_model(track)
     vreg = await get_or_create_views_registry_for_operational_model(cp, track)
+    context = await track.get_context()
+    # Cached registry objects must not let catalog writes escape a held unit.
+    registry_row = await primary_node_record(context.database, Views, vreg.id)
+    if registry_row is None:
+        raise AuthorizationUnavailableError()
+    vreg = await context._deserialize_entity(Views, registry_row)
+    await vreg.set_context(context)
+    await view.set_context(context)
+    row = await primary_node_record(context.database, View, view.id)
+    if row is None or required_node_text(row, "track_id") != track.id:
+        raise AuthorizationUnavailableError()
+    model_id = required_node_text(row, "operational_model_id", allow_empty=True)
+    if model_id and model_id != cp.id:
+        raise AuthorizationUnavailableError()
+    if not model_id:
+        view.operational_model_id = cp.id
+        await view.save()
+    scopes = await context.database.find(
+        "edge", {"target": view.id, "entity": HAS_VIEW._entity_name()}, limit=2
+    )
+    if scopes and (len(scopes) != 1 or scopes[0].get("source") != track.id):
+        raise AuthorizationUnavailableError()
     await ensure_catalog_edge(vreg, view)
+    await track.connect(view, edge=HAS_VIEW)
+
+
+async def _create_track_view(track: Track, fields: dict) -> View:
+    """Create and wire one saved View; template Views use their model catalog."""
+    cp = await _saved_view_model(track)
+    supplied_track = fields.get("track_id", track.id)
+    supplied_model = fields.get("operational_model_id", cp.id) or cp.id
+    if supplied_track != track.id or supplied_model != cp.id:
+        raise ValueError("Saved View must match its Track and attached model")
+    if fields.get("is_template", False):
+        raise ValueError("Saved Track Views are not model templates")
+    fields = {**fields, "track_id": track.id, "operational_model_id": cp.id}
+    view = await View.create(**fields)
+    try:
+        await catalog_view_under_track(track, view)
+        from app.services.resource_location import (
+            MANAGEMENT_APP_STATES,
+            locate_resource,
+        )
+
+        if (
+            await locate_resource(
+                "view", view.id, allowed_app_states=MANAGEMENT_APP_STATES
+            )
+            is None
+        ):
+            from app.exceptions import AuthorizationUnavailableError
+
+            raise AuthorizationUnavailableError()
+    except BaseException:
+        # Transactional stores roll back the whole unit. Other adapters must
+        # still avoid leaving an unrooted new Node on a failed attachment.
+        await view.delete()
+        raise
+    return view
+
+
+async def create_track_view(track: Track, **fields: Any) -> View:
+    """Persist saved View and scope/catalog together on transactional stores.
+
+    The graph transaction joins an existing operation unit when present.
+    Non-transactional adapters retain cleanup, without a concurrency claim.
+    """
+    from app.services.app_operations.transaction_scope import (
+        graph_transaction_available,
+        postgres_graph_transaction,
+    )
+
+    if graph_transaction_available():
+        async with postgres_graph_transaction():
+            current = await Track.find_one({"id": track.id})
+            if current is None:
+                raise ValueError("View Track no longer exists")
+            created = await _create_track_view(current, fields)
+        from jvspatial.core.context import get_default_context
+
+        await created.set_context(get_default_context())
+        return created
+    return await _create_track_view(track, fields)
 
 
 async def catalog_template_node_under_operational_model(

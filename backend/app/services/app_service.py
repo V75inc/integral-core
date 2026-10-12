@@ -13,7 +13,7 @@ CATALOGS registry, prescribed-track provisioning, ChangeEvent emission).
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 # Errors imported from app.api.errors mirrors the pre-existing service-
 # layer pattern (see services/agent_scratch.py, services/share_links.py,
@@ -46,6 +46,7 @@ from app.services.application_definitions import (
     verify_definition_materialization,
 )
 from app.services.change_event import emit_change_event
+from app.services.creation_write_scope import canonical_creation
 from app.services.permissions import (
     can_create_app_under_workspace,
 )
@@ -90,6 +91,7 @@ async def _library_default_labels(
     )
 
 
+@canonical_creation
 async def create_app_for_user(
     user_id: str,
     name: str,
@@ -101,6 +103,9 @@ async def create_app_for_user(
     accent_color: Optional[str] = None,
     icon: Optional[str] = None,
     include_seed_data: bool = True,
+    actor_kind: str = "human",
+    actor_id: Optional[str] = None,
+    change_event_sink: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> App:
     """In-process App creation for an authenticated principal.
 
@@ -235,16 +240,20 @@ async def create_app_for_user(
     await verify_definition_materialization(app_node=sp, definition=definition)
 
     # D-05 single emission path. Mirrors api/apps.py::create_space.
-    await emit_change_event(
-        actor_kind="human",
-        actor_id=user_id,
-        action="app.create",
-        resource_type="App",
-        resource_id=sp.id,
-        before=None,
-        after=await export_node(sp),
-        scope=f"app:{sp.id}",
-    )
+    event = {
+        "actor_kind": actor_kind,
+        "actor_id": actor_id or user_id,
+        "action": "app.create",
+        "resource_type": "App",
+        "resource_id": sp.id,
+        "before": None,
+        "after": await export_node(sp),
+        "scope": f"app:{sp.id}",
+    }
+    if change_event_sink is not None:
+        change_event_sink(event)
+    else:
+        await emit_change_event(**event)
 
     return sp
 

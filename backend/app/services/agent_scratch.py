@@ -257,7 +257,7 @@ async def provision_scratch_track(*, user_id: str) -> Track:
     if library is not None and attached is not None:
         try:
             await merge_library_manifest_into_operational_model(
-                library, attached, track, for_space=False
+                library, attached, track, for_space=False, user_id=user_id
             )
             track.library_merge_source_id = library.id
             await track.save()

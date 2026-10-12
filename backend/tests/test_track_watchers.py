@@ -9,6 +9,7 @@ from httpx import AsyncClient
 
 from app.models.edges import WATCHES
 from app.models.nodes import Entry, EntryType, Track, User, Workspace
+from app.services.app_graph import catalog_track, catalog_user, catalog_workspace
 from app.services.notification_router import get_entry_assignees_user_ids
 
 
@@ -86,6 +87,7 @@ class TestTrackWatchersAndAssignees:
             display_name="Track Watcher",
             preferences={"email": "trackwatcher@example.com"},
         )
+        await catalog_user(track_watcher)
         track = await Track.get(track_id)
         assert track is not None
         await track_watcher.connect(track, edge=WATCHES)
@@ -141,7 +143,7 @@ class TestTrackWatchersAndAssignees:
     ) -> None:
         """Verify that assignees resolved from relation fields are notified on entry changes."""
         # Setup workspace and tracks
-        from app.models.edges import IS_MEMBER_OF, OWNS
+        from app.models.edges import CONTAINS, IS_MEMBER_OF, IS_OF_TYPE, OWNS
         from app.utils.time import utc_now_iso
 
         now = utc_now_iso()
@@ -154,6 +156,7 @@ class TestTrackWatchersAndAssignees:
             created_at=now,
             updated_at=now,
         )
+        await catalog_workspace(ws)
         await test_user.connect(ws, edge=IS_MEMBER_OF, role="owner", added_at=now)
 
         # 1. Create employees track + employee entry type
@@ -163,6 +166,7 @@ class TestTrackWatchersAndAssignees:
             workspace_id=ws.id,
             visibility="private",
         )
+        await catalog_track(employees_track)
         # Mirror the real creation path: services/track_service.py wires an OWNS
         # edge from the creator. Hand-built fixtures that set only the scalar
         # owner_id used to pass because org staff got an implicit admin role;
@@ -183,6 +187,7 @@ class TestTrackWatchersAndAssignees:
             display_name="Assigned Employee",
             preferences={"email": "assignee@example.com"},
         )
+        await catalog_user(assignee_user)
         await assignee_user.connect(ws, edge=IS_MEMBER_OF, role="member", added_at=now)
 
         employee_entry = await Entry.create(
@@ -192,6 +197,8 @@ class TestTrackWatchersAndAssignees:
             track_id=employees_track.id,
             custom_fields={"member": assignee_user.id},
         )
+        await employees_track.connect(employee_entry, edge=CONTAINS)
+        await employee_entry.connect(employee_et, edge=IS_OF_TYPE)
 
         # 3. Create requests track + request entry type with relation to employee
         requests_track = await Track.create(
@@ -200,6 +207,7 @@ class TestTrackWatchersAndAssignees:
             workspace_id=ws.id,
             visibility="private",
         )
+        await catalog_track(requests_track)
         await test_user.connect(requests_track, edge=OWNS, added_at=now)
         request_et = await EntryType.create(
             name="Request",
@@ -224,8 +232,10 @@ class TestTrackWatchersAndAssignees:
         # Attach operational models to make sure references resolve correctly
         from app.services.app_graph import ensure_track_attached_operational_model
 
-        await ensure_track_attached_operational_model(employees_track)
-        await ensure_track_attached_operational_model(requests_track)
+        employee_model = await ensure_track_attached_operational_model(employees_track)
+        request_model = await ensure_track_attached_operational_model(requests_track)
+        await employee_model.connect(employee_et, edge=CONTAINS)
+        await request_model.connect(request_et, edge=CONTAINS)
 
         # 4. Assert get_entry_assignees_user_ids resolves the assignee correctly
         test_entry = await Entry.create(
@@ -235,6 +245,8 @@ class TestTrackWatchersAndAssignees:
             track_id=requests_track.id,
             custom_fields={"assignees": [employee_entry.id]},
         )
+        await requests_track.connect(test_entry, edge=CONTAINS)
+        await test_entry.connect(request_et, edge=IS_OF_TYPE)
         assignees = await get_entry_assignees_user_ids(test_entry)
         assert assignee_user.id in assignees
         assert len(assignees) == 1

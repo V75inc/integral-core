@@ -42,7 +42,7 @@ from app.api.errors import (
     MissingAuthenticationError,
     ResourceNotFoundError,
 )
-from app.api.utils import is_platform_admin, resolve_principal_id
+from app.api.utils import current_platform_admin, resolve_principal_id
 from app.middleware.permissions_cache import policy_decision_clear_for_subject
 from app.models.nodes import Policy
 from app.schemas.policy import (
@@ -53,7 +53,6 @@ from app.schemas.policy import (
     Resource,
     Subject,
 )
-from app.services.change_event import emit_change_event
 from app.services.permissions import can_admin_app
 from app.services.policy_engine import evaluate as policy_evaluate
 from app.services.policy_registry import (
@@ -63,6 +62,7 @@ from app.services.policy_registry import (
     list_policies_for_subject,
     update_policy,
 )
+from app.services.service_delegation import emit_policy_change, policy_api_mutation
 from app.services.workspace_permissions import is_workspace_admin_or_owner
 
 logger = logging.getLogger(__name__)
@@ -84,7 +84,7 @@ async def _caller_administers_subject(
     not resolve to a node) are admin-only.
     """
     kind = str(subject_kind or "").strip().lower()
-    admin = is_platform_admin(request)
+    admin = await current_platform_admin(request)
     if admin:
         logger.warning(
             "policy.administers: platform admin short-circuit kind=%r subject=%r roles=%r",
@@ -93,54 +93,37 @@ async def _caller_administers_subject(
             getattr(getattr(request.state, "user", None), "roles", None),
         )
         return True
-    if kind == "agent":
-        try:
-            from app.agentive.nodes import AgentConfig
-        except ImportError:
-            return False
-        config = await AgentConfig.get(subject_id) if subject_id else None
-        if config is None:
-            return False
-        app_id = getattr(config, "app_id", None)
-        if app_id and await can_admin_app(user_id, app_id):
-            return True
-        scope = getattr(config, "facet", None) or getattr(config, "scope", "")
-        if scope == "personal":
-            return bool(config.user_id) and config.user_id == user_id
-        if scope == "org_facing":
-            workspace_id = getattr(config, "workspace_id", None)
-            return bool(workspace_id) and await is_workspace_admin_or_owner(
-                user_id, workspace_id
-            )
+    if kind not in {"agent", "connector"}:
         return False
-    if kind == "connector":
-        try:
-            from app.agentive.nodes import Connector
-        except ImportError:
-            return False
-        connector = await Connector.get(subject_id) if subject_id else None
-        if connector is None:
-            return False
-        owner = getattr(connector, "owner", "") or ""
-        if owner and owner == user_id:
-            return True
-        # Owner scalar may be empty when the OWNS edge was the only write;
-        # fall back to edge walk so create-time User.get misses do not open
-        # the subject to every caller.
-        try:
-            from app.agentive.edges import Owns
+    from jvspatial.core.context import get_default_context
 
-            owners = await connector.nodes(edge=[Owns], node=["User"], direction="in")
-        except Exception:
-            owners = []
-        for o in owners or []:
-            oid = str(getattr(o, "user_id", "") or "") or str(
-                getattr(o, "id", "") or ""
-            )
-            if oid and oid == user_id:
-                return True
+    from app.schemas.policy import Subject
+    from app.services.authority_facts import primary_node_record
+    from app.services.permissions import get_user_node
+    from app.services.policy_registry import _resolve_subject_node
+    from app.services.service_delegation import _subject_contract
+
+    node = await _resolve_subject_node(kind, subject_id)
+    if node is None:
         return False
-    return False
+    row = await primary_node_record(get_default_context().database, type(node), node.id)
+    if row is None or not await _subject_contract(
+        Subject(kind=kind, id=subject_id), row
+    ):
+        return False
+    body = row["context"]
+    caller = await get_user_node(user_id)
+    if caller is None:
+        return False
+    if kind == "agent":
+        if body.get("app_id"):
+            return await can_admin_app(caller.id, body["app_id"])
+        if body.get("scope") == "org_facing":
+            return await is_workspace_admin_or_owner(caller.id, body["workspace_id"])
+        owner = await get_user_node(body.get("user_id", ""))
+    else:
+        owner = await get_user_node(body.get("owner", ""))
+    return owner is not None and owner.id == caller.id
 
 
 def _to_response(p: Policy) -> PolicyResponse:
@@ -177,6 +160,7 @@ def _snapshot(p: Policy) -> Dict[str, Any]:
     tags=["Policies"],
     status_code=status.HTTP_201_CREATED,
 )
+@policy_api_mutation
 async def post_create_policy(
     request: Request,
     subject_id: str = "",
@@ -222,6 +206,14 @@ async def post_create_policy(
             details={"subject_kind": subject_kind, "subject_id": subject_id},
         )
 
+    from app.services.service_delegation import validate_policy_issuance
+
+    await validate_policy_issuance(
+        issuer_id=user_id,
+        scope=scope,
+        actions=list(actions or []),
+        subject=Subject(kind=subject_kind, id=subject_id),
+    )
     # NOTE: human/system subjects are admin-only via _caller_administers_subject.
     p = await create_policy(
         subject_kind=subject_kind,
@@ -236,7 +228,9 @@ async def post_create_policy(
     )
 
     # D-05 single emission path. Sync inline emit before HTTP response (D-06).
-    await emit_change_event(
+    await emit_policy_change(
+        policy=p,
+        revision=p.delegation_revision,
         actor_kind="human",
         actor_id=user_id,
         action="policy.create",
@@ -344,7 +338,7 @@ async def get_policy_by_id(
         resource=Resource(
             kind="policy",
             id=p.id,
-            scope=f"user:{p.created_by or user_id}",
+            scope=f"user:{user_id}",
         ),
     )
     if not decision.allowed or not await _caller_administers_subject(
@@ -365,6 +359,7 @@ async def get_policy_by_id(
     auth=True,
     tags=["Policies"],
 )
+@policy_api_mutation
 async def patch_policy(
     request: Request,
     policy_id: str,
@@ -398,7 +393,7 @@ async def patch_policy(
         resource=Resource(
             kind="policy",
             id=existing.id,
-            scope=f"user:{existing.created_by or user_id}",
+            scope=f"user:{user_id}",
         ),
     )
     if not decision.allowed:
@@ -414,6 +409,19 @@ async def patch_policy(
             details={"policy_id": policy_id},
         )
 
+    from app.services.service_delegation import validate_policy_issuance
+
+    disabling_only = is_active is False and all(
+        value is None
+        for value in (scope, actions, entry_types, tags, requires_human_approval)
+    )
+    if not disabling_only:
+        await validate_policy_issuance(
+            issuer_id=user_id,
+            scope=scope if scope is not None else existing.scope,
+            actions=list(actions if actions is not None else existing.actions),
+            subject=Subject(kind=existing.subject_kind, id=existing.subject_id),
+        )
     before_snap = _snapshot(existing)
     updated = await update_policy(
         policy_id,
@@ -431,7 +439,9 @@ async def patch_policy(
             details={"policy_id": policy_id},
         )
 
-    await emit_change_event(
+    await emit_policy_change(
+        policy=updated,
+        revision=updated.delegation_revision,
         actor_kind="human",
         actor_id=user_id,
         action="policy.update",
@@ -454,6 +464,7 @@ async def patch_policy(
     tags=["Policies"],
     status_code=status.HTTP_204_NO_CONTENT,
 )
+@policy_api_mutation
 async def delete_policy_by_id(
     request: Request,
     policy_id: str,
@@ -476,7 +487,7 @@ async def delete_policy_by_id(
         resource=Resource(
             kind="policy",
             id=existing.id,
-            scope=f"user:{existing.created_by or user_id}",
+            scope=f"user:{user_id}",
         ),
     )
     if not decision.allowed:
@@ -503,7 +514,9 @@ async def delete_policy_by_id(
             details={"policy_id": policy_id},
         )
 
-    await emit_change_event(
+    await emit_policy_change(
+        policy=existing,
+        revision=existing.delegation_revision + 1,
         actor_kind="human",
         actor_id=user_id,
         action="policy.delete",
@@ -559,7 +572,7 @@ async def explain_action(
         raise MissingAuthenticationError(message="Authentication required")
 
     explaining_self = body.subject_kind == "human" and body.subject_id == user_id
-    allowed_caller = explaining_self or is_platform_admin(request)
+    allowed_caller = explaining_self or await current_platform_admin(request)
     if not allowed_caller and body.app_id:
         try:
             allowed_caller = await can_admin_app(user_id, body.app_id)

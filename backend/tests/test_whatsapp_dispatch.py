@@ -454,6 +454,7 @@ async def test_whatsapp_channel_cloud_api_error_failed(
 @pytest.mark.asyncio
 async def test_whatsapp_verify_otp_end_to_end_fires_welcome_template(
     monkeypatch: pytest.MonkeyPatch,
+    test_user,
 ) -> None:
     """End-to-end: ``whatsapp_verify_otp`` with mocked OTP success + mocked
     HTTPX 200 fires exactly ONE template send AND captures opt-in state.
@@ -469,17 +470,13 @@ async def test_whatsapp_verify_otp_end_to_end_fires_welcome_template(
     monkeypatch.setattr(settings, "WHATSAPP_CLOUD_API_TOKEN", "test-token")
     monkeypatch.setattr(settings, "WHATSAPP_PHONE_NUMBER_ID", "111222333")
 
-    user = await User.create(
-        user_id="auth-wa-e2e",
-        display_name="WA E2E User",
-        preferences={"email": "wa-e2e@example.com"},
-    )
+    user = test_user
     phone = "+15555550100"
 
     fake_ci = type(
         "CI",
         (),
-        {"id": "ci-e2e", "user_id": user.user_id, "verified": True, "verified_at": "x"},
+        {"id": "ci-e2e", "user_id": user.id, "verified": True, "verified_at": "x"},
     )()
 
     send_mock = AsyncMock(return_value=(True, "wamid.welcome-e2e"))
@@ -502,10 +499,6 @@ async def test_whatsapp_verify_otp_end_to_end_fires_welcome_template(
             new=AsyncMock(),
         ),
         patch(
-            "app.agentive.api.channels.User.get",
-            new=AsyncMock(return_value=user),
-        ),
-        patch(
             "app.services.notification_channels.whatsapp_channel.send_whatsapp_message",
             new=send_mock,
         ),
@@ -521,6 +514,8 @@ async def test_whatsapp_verify_otp_end_to_end_fires_welcome_template(
     assert result == {"identity_id": "ci-e2e"}
 
     # Opt-in state persisted on the User node.
+    user = await User.find_one({"id": user.id})
+    assert user is not None
     prefs = user.notification_preferences or {}
     wa = (prefs.get("whatsapp") or {}) if isinstance(prefs, dict) else {}
     assert wa.get("opted_in_at") is not None

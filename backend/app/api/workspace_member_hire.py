@@ -35,7 +35,7 @@ async def provision_workspace_member_route(
     request: Request, workspace_id: str
 ) -> Dict[str, Any]:
     """Create or reuse a login account and add them as a workspace member."""
-    from app.api.workspaces import _require_workspace_role, _validate_member_role
+    from app.api.workspaces import _require_workspace_role
     from app.schemas.api.workspaces_hire import ProvisionWorkspaceMemberRequest
 
     user_id = resolve_principal_id(request)
@@ -45,41 +45,29 @@ async def provision_workspace_member_route(
     if not is_collaborative_kind(ws.kind):
         raise BadRequestError(message="Personal workspaces have no members to manage")
 
+    if request.query_params:
+        raise BadRequestError(message="Provisioning accepts JSON fields only")
+    if request.headers.get("X-Integral-Scope") is not None:
+        from app.services.request_scope import resolve_workspace_id_from_request
+
+        if await resolve_workspace_id_from_request(request, user_id) != workspace_id:
+            raise BadRequestError(message="Workspace scope does not match target")
     try:
         body = ProvisionWorkspaceMemberRequest.model_validate(await request.json())
-    except ValidationError as exc:
-        raise BadRequestError(
-            message="Validation failed",
-            details={"errors": exc.errors()},
-        ) from exc
+    except (ValidationError, ValueError) as exc:
+        raise BadRequestError(message="Invalid provisioning request") from exc
 
-    validated_role = _validate_member_role(body.role)
     result = await provision_workspace_member(
         workspace=ws,
         email=str(body.email),
         display_name=body.display_name,
-        role=validated_role,
+        role=body.role,
         send_credentials=body.send_credentials,
         welcome_message=body.welcome_message,
         credentials_email=(
             str(body.credentials_email) if body.credentials_email else None
         ),
         actor_id=user_id,
-    )
-    await emit_change_event(
-        actor_kind="human",
-        actor_id=user_id,
-        action="workspace.member_provision",
-        resource_type="Workspace",
-        resource_id=ws.id,
-        before=None,
-        after={
-            "workspace_id": ws.id,
-            "member_user_id": result["user_id"],
-            "email": result["email"],
-            "created": result["created"],
-        },
-        scope=f"user:{user_id}",
     )
     return {
         "message": "Member provisioned" if result["created"] else "Member added",

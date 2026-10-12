@@ -1,0 +1,46 @@
+{
+  "review_date": "2026-10-12",
+  "access_checkpoint": "0f971e03833902a2a202f2c9a8ee2bae9c9e705f",
+  "integrated_main": "21b56bbab51af7822cb1e61807ebcccd0a8f788f",
+  "core_version": "0.1.1rc16",
+  "runtime_source_sha256": "a17fac545d6bcfa2d71cb3d3fb91b1dce3b6cd5915d0e0aaa0320dc4a3311018",
+  "postgres": {
+    "tests": 103,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "frontend": {
+    "tests_passed": 1678,
+    "files_passed": 295
+  },
+  "core_only": "passed",
+  "independent_artifacts": "passed",
+  "designated_deepseek_cloud_allow_deny": "passed",
+  "full_backend": {
+    "complete_parallel_run": "completed with two test-only fixture/calibration failures; all other cases passed",
+    "corrected_checks": "6 passed; corrected App identity test and complete query-budget module",
+    "runtime_unchanged_after_complete_run": true,
+    "status": "passing coverage after focused correction rerun",
+    "full_run_log_sha256": "ae4c381272881ccaa991347863531d0c0112c87cfc99cef11a2f32ddec32e889",
+    "correction_run_log_sha256": "81152ce7525fb41757cb7b0fe97f50b67287cd9a8013c808a396cc98f6e31d4b"
+  },
+  "ci_faithful_smoke": "passed",
+  "remaining_plan_limits": "See MILESTONE_HANDOFF.md and MERGE_REVIEW.md; no finding or journey closure inferred from test totals",
+  "retrieve_budget_probe": {
+    "entries_1": 21,
+    "entries_13": 21,
+    "fixed_ceiling": 22,
+    "growth_ceiling": 2
+  },
+  "local_gate_method": "All make verify constituent gates completed; two test-only failures in the complete backend run were repaired and the corrected checks rerun. No claim that the initial full make verify invocation exited zero.",
+  "postgres_full_ci_selection": {
+    "tests": 297,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "database": "freshly recreated disposable review database"
+  },
+  "postgres_ci_fixture_repair": "Raw fixture binds fresh graph and preinitialized audit storage; normal fixture producers seed root independently; custody race uses real current authority and declared Entry type",
+  "json_fixture_consumer_checks": "passed: connector sync, workspace membership authority, App identity, retrieve scaling"
+}

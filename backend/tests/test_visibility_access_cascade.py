@@ -74,6 +74,7 @@ async def _org_fixture(
         created_at=now,
         updated_at=now,
     )
+    await catalog_track(nested)
     await app.connect(nested, edge=CONTAINS, added_at=now)
 
     standalone = await Track.create(
@@ -194,11 +195,24 @@ async def test_guest_with_explicit_collaborator_edge_can_see_app():
 @pytest.mark.asyncio
 async def test_add_collaborator_materializes_guest_and_grants_access():
     await ensure_integral_app_graph(include_library=False)
-    owner = await User.create(user_id="vis_owner7", display_name="Owner")
+    from jvspatial.api.auth.models import User as AuthUser
+
+    owner_auth = await AuthUser.create(
+        email="visibility-owner7@example.com",
+        password_hash="test-fixture",
+        roles=["user"],
+    )
+    owner = await User.create(user_id=owner_auth.id, display_name="Owner")
+    await catalog_user(owner)
     ws, app, _nested, _standalone = await _org_fixture(
         owner=owner, app_visibility="private"
     )
-    outsider = await User.create(user_id="vis_outsider", display_name="Outsider")
+    outsider_auth = await AuthUser.create(
+        email="visibility-outsider@example.com",
+        password_hash="test-fixture",
+        roles=["user"],
+    )
+    outsider = await User.create(user_id=outsider_auth.id, display_name="Outsider")
     await catalog_user(outsider)
 
     result = await add_collaborator(owner.id, "app", app.id, outsider.id, role="viewer")

@@ -17,7 +17,6 @@ This module provides additional auth-related endpoints specific to Integral:
 """
 
 import contextlib
-import inspect
 import logging
 from typing import Any, Dict, Optional
 
@@ -25,7 +24,6 @@ from fastapi import Request
 from jvspatial.api import endpoint
 from jvspatial.api.auth.models import User as AuthUser
 from jvspatial.api.auth.models import UserCreate, UserLogin
-from jvspatial.api.auth.service import AuthenticationService
 from pydantic import ValidationError
 
 from app.api.errors import (
@@ -46,7 +44,14 @@ from app.schemas.api.auth import (
     VerifyEmailRequest,
 )
 from app.services.app_graph import catalog_user, catalog_workspace
+from app.services.authentication import (
+    IntegralAuthenticationService as AuthenticationService,
+)
+from app.services.authentication import (
+    get_authentication_service,
+)
 from app.services.change_event import emit_change_event
+from app.services.email_identity import verified_current_email
 from app.services.email_verification import (
     ERR_ALREADY_VERIFIED,
     ERR_ATTEMPTS_EXCEEDED,
@@ -107,6 +112,20 @@ async def _self_user_view(user: User) -> Dict[str, Any]:
             target["preferences"] = _scrub_sensitive_preferences(
                 target.get("preferences")
             )
+    from app.exceptions import AuthorizationUnavailableError
+
+    try:
+        verified = bool(await verified_current_email(user))
+    except AuthorizationUnavailableError:
+        # Optional mailbox status cannot gate ordinary account login. This
+        # projection is never mailbox admission; grant callers still fail closed.
+        verified = False
+        user_data["email_verification_unavailable"] = True
+        if isinstance(context, dict):
+            context["email_verification_unavailable"] = True
+    user_data["email_verified"] = verified
+    if isinstance(context, dict):
+        context["email_verified"] = verified
     return user_data
 
 
@@ -142,15 +161,7 @@ def _attach_pending_onboarding_form(user: User, user_data: Dict[str, Any]) -> No
 
 def _get_auth_service() -> AuthenticationService:
     """Construct AuthenticationService from application settings."""
-    from jvspatial.core.context import GraphContext
-    from jvspatial.db import get_prime_database
-
-    ctx = GraphContext(database=get_prime_database())
-    kwargs: Dict[str, Any] = {"jwt_secret": settings.SECRET_KEY}
-    params = inspect.signature(AuthenticationService.__init__).parameters
-    if "registration_open" in params:
-        kwargs["registration_open"] = settings.REGISTRATION_OPEN
-    return AuthenticationService(ctx, **kwargs)
+    return get_authentication_service()
 
 
 async def _enrich_from_auth_user(user_node: User, user_data: Dict[str, Any]) -> None:
@@ -547,9 +558,6 @@ async def resend_verification(request: Request) -> Dict[str, Any]:
     if not user:
         raise ResourceNotFoundError(message="User not found")
 
-    if user.email_verified:
-        return {"ok": True, "message": "Email already verified"}
-
     auth_user = await AuthUser.get(user.user_id)
     if not auth_user:
         raise ResourceNotFoundError(message="Auth user not found")
@@ -557,10 +565,12 @@ async def resend_verification(request: Request) -> Dict[str, Any]:
     email = getattr(auth_user, "email", "") or ""
     if not email:
         raise BadRequestError(message="No email address on file")
+    if await verified_current_email(user) == email:
+        return {"ok": True, "message": "Email already verified"}
 
     # Rate-limit: if an unexpired code is already pending, don't generate a
     # new one — the existing code is still valid and the user should wait.
-    if has_pending_code(user):
+    if has_pending_code(user, email):
         return {
             "ok": True,
             "message": "A code is already pending. Please check your email.",

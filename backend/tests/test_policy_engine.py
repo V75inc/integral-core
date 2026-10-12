@@ -278,8 +278,8 @@ async def test_system_subject_bypass():
 
 
 @pytest.mark.asyncio
-async def test_per_request_cache_hits_on_second_call(test_user, monkeypatch):
-    """D-11: contextvar cache survives within one request, not across requests."""
+async def test_policy_decision_rechecks_on_second_call(test_user, monkeypatch):
+    """A prior decision cannot establish current policy authority."""
     from app.services import policy_engine as pe
 
     calls = {"can_view_track": 0}
@@ -301,9 +301,7 @@ async def test_per_request_cache_hits_on_second_call(test_user, monkeypatch):
     d2 = await pe.evaluate(**args)
     assert d1.allowed is True
     assert d2.allowed is True
-    assert (
-        calls["can_view_track"] == 1
-    ), "second call should hit the cache, not re-invoke helper"
+    assert calls["can_view_track"] == 2, "each call must re-evaluate current authority"
 
 
 @pytest.mark.asyncio

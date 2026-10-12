@@ -118,7 +118,79 @@ def _serialize_invitation(invitation: Invitation) -> Dict[str, Any]:
         "created_at": invitation.created_at,
         "expires_at": invitation.expires_at,
         "consumed_at": invitation.consumed_at,
+        "adopted_by_user_id": invitation.adopted_by_user_id or None,
+        "adopted_at": invitation.adopted_at,
+        "grant_receipt": {
+            "outcome": invitation.grant_outcome or None,
+            "granted_role": invitation.granted_role,
+            "can_create_apps": invitation.granted_can_create_apps,
+            "can_create_tracks": invitation.granted_can_create_tracks,
+            "effective_role_at_acceptance": invitation.effective_role_at_acceptance,
+            "revision": invitation.invitation_revision,
+        },
     }
+
+
+@endpoint(
+    "/workspaces/{workspace_id}/invitations/{invitation_id}/adoption",
+    methods=["GET"],
+    auth=True,
+    tags=["Invitations"],
+)
+async def get_invitation_adoption(
+    request: Request,
+    workspace_id: str,
+    invitation_id: str,
+) -> Dict[str, Any]:
+    """Preview pending invitation adoption under current protected ownership."""
+    from app.services.invitation_adoption import preview_invitation_adoption
+
+    actor_id = resolve_principal_id(request)
+    if not actor_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    await require_effect_target_scope(request, actor_id, workspace_id)
+    return await preview_invitation_adoption(
+        invitation_id,
+        workspace_id,
+        actor_id=actor_id,
+    )
+
+
+@endpoint(
+    "/workspaces/{workspace_id}/invitations/{invitation_id}/adoption",
+    methods=["POST"],
+    auth=True,
+    tags=["Invitations"],
+)
+async def post_invitation_adoption(
+    request: Request,
+    workspace_id: str,
+    invitation_id: str,
+    review_digest: str = "",
+    role: str = "",
+    can_create_apps: bool = False,
+    can_create_tracks: bool = False,
+) -> Dict[str, Any]:
+    """Apply the owner's reviewed rights and replace the pending invitation token."""
+    from app.services.invitation_adoption import adopt_invitation
+
+    actor_id = resolve_principal_id(request)
+    if not actor_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    await require_effect_target_scope(request, actor_id, workspace_id)
+    try:
+        invitation, _, url = await adopt_invitation(
+            invitation_id,
+            workspace_id,
+            actor_id=actor_id,
+            review_digest=review_digest,
+            role=role,
+            can_create_apps=can_create_apps,
+            can_create_tracks=can_create_tracks,
+        )
+    except ValueError as exc:
+        raise BadRequestError(message=str(exc)) from exc
+    return {"invitation": _serialize_invitation(invitation), "acceptance_url": url}
 
 
 def _serialize_invitation_preview(invitation: Invitation) -> Dict[str, Any]:
@@ -302,7 +374,7 @@ async def delete_invitation(
     if not user:
         raise InsufficientPermissionsError(message="Access denied")
 
-    is_inviter = invitation.invited_by_user_id == user_id
+    is_inviter = invitation.invited_by_user_id in {user_id, user.id}
     issuer_role = None
     if not is_inviter:
         issuer_role = await _require_issuer(workspace, user)
@@ -437,12 +509,16 @@ async def post_accept_invitation(
     assert invitation is not None
     workspace = await Workspace.get(invitation.workspace_id)
 
+    from app.services.invitation_grants import invitation_effective_role
+
+    current_role = await invitation_effective_role(invitation, user.id)
+
     return {
         "invitation": _serialize_invitation(invitation),
         "workspace": (
             {"id": workspace.id, "name": workspace.name} if workspace else None
         ),
-        "role": invitation.role,
+        "role": current_role,
         "message": "Invitation accepted",
     }
 

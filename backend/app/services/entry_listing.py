@@ -2,28 +2,18 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from app.models.edges import COLLABORATES_ON, EXCLUDED_FROM, OWNS
-from app.models.nodes import App, Entry, Track
+from app.models.nodes import Entry, Track
 from app.services.entry_search import entry_search_query_clause
 from app.services.pagination import (
     DEFAULT_ENTITY_SORT,
+    MAX_LIMIT,
     _context_field_query_path,
     _merge_query_clauses,
-    paginate_entity_find,
-)
-from app.services.permissions import (
-    ROLE_RANK,
-    can_view_app,
-    can_view_track,
-    get_user_accessible_tracks,
-    get_user_node,
 )
 from app.services.query_filters import FILTER_OPS, canonical_filter_op
 from app.services.relative_date_filters import resolve_relative_date
-from app.services.request_scope import matches_workspace
 
 
 def _resolve_filter_value(value: Any) -> Any:
@@ -140,104 +130,6 @@ async def _resolve_view_type_ids(view_node: Any) -> Optional[Set[str]]:
     }
 
 
-async def _build_scope_query(
-    user_id: str,
-    *,
-    track_id: Optional[str],
-    app_id: Optional[str],
-    workspace_id: Optional[str],
-) -> Tuple[Dict[str, Any], Set[str], bool]:
-    """Return (base_query, verified_track_ids, needs_post_filter)."""
-    if track_id and app_id:
-        app_id = None
-
-    if app_id:
-        if not await can_view_app(user_id, app_id):
-            return ({"id": {"$in": []}}, set(), False)
-        sp = await App.get(app_id)
-        if not sp:
-            return ({"id": {"$in": []}}, set(), False)
-        if workspace_id and getattr(sp, "workspace_id", "") != workspace_id:
-            return ({"id": {"$in": []}}, set(), False)
-        tracks = await sp.nodes(edge=["CONTAINS"], node=["Track"])
-        visibility = await asyncio.gather(
-            *(can_view_track(user_id, tr.id) for tr in tracks)
-        )
-        visible_track_ids = [tr.id for tr, ok in zip(tracks, visibility) if ok]
-        if not visible_track_ids:
-            return ({"id": {"$in": []}}, set(), False)
-        return (
-            {"context.track_id": {"$in": visible_track_ids}},
-            set(visible_track_ids),
-            False,
-        )
-
-    if track_id:
-        if not await can_view_track(user_id, track_id):
-            return ({"id": {"$in": []}}, set(), False)
-        track = await Track.get(track_id)
-        if workspace_id and (
-            track is None or getattr(track, "workspace_id", "") != workspace_id
-        ):
-            return ({"id": {"$in": []}}, set(), False)
-        return ({"context.track_id": track_id}, {track_id}, False)
-
-    tracks = await get_user_accessible_tracks(user_id)
-    if workspace_id:
-        tracks = [t for t in tracks if matches_workspace(t, workspace_id)]
-    track_ids = [t.id for t in tracks]
-    verified = set(track_ids)
-    if not track_ids:
-        if workspace_id is None:
-            return (
-                {"context.author_id": user_id},
-                verified,
-                True,
-            )
-        return ({"id": {"$in": []}}, verified, False)
-
-    if workspace_id is None:
-        return (
-            {
-                "$or": [
-                    {"context.track_id": {"$in": track_ids}},
-                    {"context.author_id": user_id},
-                ]
-            },
-            verified,
-            True,
-        )
-    return ({"context.track_id": {"$in": track_ids}}, verified, True)
-
-
-async def _filter_entry_page(
-    user_id: str,
-    entries: List[Entry],
-    verified_track_ids: Set[str],
-    *,
-    needs_post_filter: bool,
-) -> List[Entry]:
-    if not needs_post_filter:
-        return entries
-    out: List[Entry] = []
-    pending_track_checks: List[Tuple[Entry, str]] = []
-    for entry in entries:
-        t_id = (entry.track_id or "").strip()
-        if t_id and t_id in verified_track_ids:
-            out.append(entry)
-            continue
-        if t_id:
-            pending_track_checks.append((entry, t_id))
-    if pending_track_checks:
-        checks = await asyncio.gather(
-            *(can_view_track(user_id, t_id) for _, t_id in pending_track_checks)
-        )
-        for (entry, _), ok in zip(pending_track_checks, checks):
-            if ok:
-                out.append(entry)
-    return out
-
-
 async def fetch_accessible_entries_page(
     user_id: str,
     *,
@@ -253,44 +145,19 @@ async def fetch_accessible_entries_page(
     include_total: bool = False,
 ) -> Tuple[List[Entry], dict]:
     """Fetch one page of entries via DB keyset pagination."""
-    user = await get_user_node(user_id)
-    if user is None:
-        empty = 0 if include_total else None
-        return [], {"total": empty, "next_cursor": None, "has_more": False}
-    scope_query, verified_tracks, needs_post_filter = await _build_scope_query(
-        user.id,
-        track_id=track_id,
-        app_id=app_id,
-        workspace_id=workspace_id,
-    )
-    if scope_query.get("id") == {"$in": []}:
-        empty = 0 if include_total else None
-        return [], {"total": empty, "next_cursor": None, "has_more": False}
+    from app.services.entry_access_projection import candidate_query, select_page
 
-    # Track access does not grant access to an explicitly excluded Entry.
-    # Apply overrides before pagination/counting so hidden rows cannot leak
-    # through the feed, totals, or cursor page size. Direct grants still win.
-    # JWT principals are AuthUser Object ids; ACL edges originate at the
-    # corresponding User graph node. The resolver reuses the request memo.
-    exclusions = await EXCLUDED_FROM.find({"source": user.id})
-    denied_ids = {edge.target for edge in exclusions}
-    if denied_ids:
-        grant_query = {"source": user.id, "target": {"$in": sorted(denied_ids)}}
-        owned, collaborators = await asyncio.gather(
-            OWNS.find(grant_query), COLLABORATES_ON.find(grant_query)
-        )
-        denied_ids.difference_update(edge.target for edge in owned)
-        denied_ids.difference_update(
-            edge.target
-            for edge in collaborators
-            if str(edge.role or "viewer").strip().lower() in ROLE_RANK
-        )
+    if track_id:
+        app_id = None
+    scope = {"track_id": track_id, "app_id": app_id, "workspace_id": workspace_id}
+    scope_query = await candidate_query(user_id, **scope)
+    if scope_query is None:
+        empty = 0 if include_total else None
+        return [], {"total": empty, "next_cursor": None, "has_more": False}
 
     clauses: List[Dict[str, Any]] = []
     if scope_query:
         clauses.append(scope_query)
-    if denied_ids:
-        clauses.append({"id": {"$nin": sorted(denied_ids)}})
 
     if status:
         clauses.append({"context.status": status})
@@ -321,15 +188,12 @@ async def fetch_accessible_entries_page(
         if isinstance(cfg, dict) and cfg.get("sort"):
             sort = _view_sort_to_db_sort(cfg.get("sort") or [])
 
-    page, response = await paginate_entity_find(
-        Entry,
+    return await select_page(
+        user_id,
         query,
-        cursor,
-        limit,
+        cursor=cursor,
+        limit=min(max(1, limit), MAX_LIMIT),
         sort=sort,
         include_total=include_total,
+        **scope,
     )
-    page = await _filter_entry_page(
-        user.id, page, verified_tracks, needs_post_filter=needs_post_filter
-    )
-    return page, response

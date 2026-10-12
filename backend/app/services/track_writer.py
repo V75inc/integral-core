@@ -1,99 +1,87 @@
-"""Phase 7 Plan 07-04 — pure-service helper for track.create.
+"""Approved and human Track creation shares the canonical rooted producer."""
 
-Used by ``approval_executor.execute_approval`` on the approve path. The
-helper threads ``_internal_actor`` through ``policy_evaluate`` which
-short-circuits the recursion guard on re-run.
+from typing import Any
 
-STANDALONE pure-service function, NOT an internal HTTP self-call. The
-helper implements the substrate-level write only (minimum viable for
-re-run); full handler-level type_hint resolution, template provisioning,
-and operational_model attachment are NOT replicated. v1 limitation: an
-agent's track.create with type_hint / template_id / explicit picker fields
-will fall back to the default empty profile on approve re-run; future
-hardening expands helper parity.
-"""
-
-from __future__ import annotations
-
-import logging
-from typing import Any, Dict, Optional
-
-from app.models.edges import OWNS
-from app.models.nodes import Track, User, Workspace
+from app.api.errors import BadRequestError, InsufficientPermissionsError
 from app.schemas.policy import Resource, Subject
-from app.services.change_event import emit_change_event
-from app.services.policy_engine import evaluate as policy_evaluate
-from app.utils.time import utc_now_iso
-
-logger = logging.getLogger(__name__)
 
 
 async def create_track_internal(
     *,
     actor_kind: str,
     actor_id: str,
-    payload: Dict[str, Any],
-    _internal_actor: Optional[Subject] = None,
-) -> Dict[str, Any]:
-    """Pure-service create_track.
-
-    Required payload keys:
-      - ``title`` (str)
-      - ``workspace_id`` (str)  [resolved at agent submit time]
-    Optional payload keys:
-      - ``purpose`` (str), ``icon`` (str), ``visibility`` (str)
-      - ``app_id`` (str) — link to parent App via CONTAINS
-    """
-    title = payload.get("title", "")
-    workspace_id = payload.get("workspace_id", "")
-    if not workspace_id:
-        raise ValueError("create_track_internal: payload missing 'workspace_id'")
-
-    decision = await policy_evaluate(
-        subject=Subject(kind=actor_kind, id=actor_id),  # type: ignore[arg-type]
-        action="track.create",
-        resource=Resource(
-            kind="track",
-            id="",
-            scope=f"workspace:{workspace_id}",
-        ),
-        payload=payload,
-        _internal_actor=_internal_actor,
+    payload: dict[str, Any],
+    _internal_actor: Subject | None = None,
+) -> dict:
+    """Keep human ownership and original actor audit under exact replay proof."""
+    from app.services.approved_effect import (
+        approved_effect_principal,
+        approved_event_sink,
     )
-    if not decision.allowed:
-        raise PermissionError(
-            f"create_track_internal: policy denied (reason={decision.reason!r})"
-        )
+    from app.services.membership_write_scope import membership_write_scope
+    from app.services.permissions import get_user_node
+    from app.services.policy_engine import evaluate
+    from app.services.track_service import create_track_in_space
 
-    workspace = await Workspace.get(workspace_id)
-    if not workspace:
-        raise ValueError(f"create_track_internal: workspace {workspace_id!r} not found")
-
-    now = utc_now_iso()
-    track = await Track.create(
-        title=title or "Untitled Track",
-        purpose=payload.get("purpose", ""),
-        icon=payload.get("icon", ""),
-        visibility=payload.get("visibility", "private"),
-        owner_id=actor_id,
-        workspace_id=workspace_id,
-        created_at=now,
-        updated_at=now,
+    allowed = {
+        "title",
+        "workspace_id",
+        "purpose",
+        "icon",
+        "visibility",
+        "template_id",
+        "app_id",
+        "library_operational_model_id",
+        "app_track_template_operational_model_id",
+        "app_track_type_key",
+        "accent_color",
+    }
+    if set(payload) - allowed:
+        raise BadRequestError(message="Unsupported approved Track fields")
+    workspace_id = payload.get("workspace_id")
+    if not isinstance(workspace_id, str) or not workspace_id:
+        raise BadRequestError(message="Missing workspace_id")
+    parent_kind, parent_id = (
+        ("app", payload["app_id"])
+        if payload.get("app_id")
+        else ("workspace", workspace_id)
     )
-
-    # Mirror existing handler: OWNS edge from author (the agent) to track.
-    user = await User.get(actor_id)
-    if user:
-        await user.connect(track, edge=OWNS, owned_since=now)
-
-    await emit_change_event(
-        actor_kind=actor_kind,  # type: ignore[arg-type]
+    principal = await approved_effect_principal(
+        actor_kind=actor_kind,
         actor_id=actor_id,
         action="track.create",
-        resource_type="Track",
-        resource_id=track.id,
-        before=None,
-        after=await track.export(flat=True),
-        scope=f"workspace:{workspace_id}",
+        resource_type=parent_kind,
+        resource_id=parent_id,
+        payload=payload,
     )
-    return await track.export(flat=True)
+    if principal is None:
+        if actor_kind != "human":
+            raise InsufficientPermissionsError(
+                message="Exact approved authority required"
+            )
+        user = await get_user_node(actor_id)
+        principal = user.id if user else ""
+    async with membership_write_scope(workspace_id, principal_ids=(principal,)):
+        decision = await evaluate(
+            subject=Subject(kind=actor_kind, id=actor_id),
+            action="track.create",
+            resource=Resource(kind="track", id="", scope=f"workspace:{workspace_id}"),
+            payload=payload,
+        )
+        if not decision.allowed:
+            raise InsufficientPermissionsError(message="Track creation denied")
+        fields = {
+            key: value
+            for key, value in payload.items()
+            if key not in {"title", "workspace_id"}
+        }
+        track = await create_track_in_space(
+            user_id=principal,
+            title=payload.get("title", "Untitled Track"),
+            workspace_id=workspace_id,
+            actor_kind=actor_kind,
+            actor_id=actor_id,
+            change_event_sink=approved_event_sink if actor_kind != "human" else None,
+            **fields,
+        )
+        return await track.export(flat=True)

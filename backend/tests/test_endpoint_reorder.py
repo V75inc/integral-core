@@ -3,6 +3,8 @@
 import pytest
 from httpx import AsyncClient
 
+from app.services.app_graph import catalog_app, catalog_track, catalog_workspace
+
 
 @pytest.mark.asyncio
 async def test_reorder_workspace_apps_updates_position(
@@ -22,6 +24,7 @@ async def test_reorder_workspace_apps_updates_position(
         created_at=now,
         updated_at=now,
     )
+    await catalog_workspace(ws)
     await owner.connect(ws, edge=IS_MEMBER_OF, role="owner", added_at=now)
 
     app_a = await App.create(
@@ -33,6 +36,7 @@ async def test_reorder_workspace_apps_updates_position(
         created_at=now,
         updated_at=now,
     )
+    await catalog_app(app_a)
     app_b = await App.create(
         name="App B",
         name_fold="app b",
@@ -42,6 +46,7 @@ async def test_reorder_workspace_apps_updates_position(
         created_at=now,
         updated_at=now,
     )
+    await catalog_app(app_b)
     await owner.connect(app_a, edge=OWNS, added_at=now)
     await owner.connect(app_b, edge=OWNS, added_at=now)
     await ws.connect(app_a, edge=CONTAINS, added_at=now)
@@ -79,6 +84,7 @@ async def test_reorder_app_tracks_updates_contains_edge_position(
         created_at=now,
         updated_at=now,
     )
+    await catalog_workspace(ws)
     await owner.connect(ws, edge=IS_MEMBER_OF, role="owner", added_at=now)
 
     app_node = await App.create(
@@ -89,6 +95,7 @@ async def test_reorder_app_tracks_updates_contains_edge_position(
         created_at=now,
         updated_at=now,
     )
+    await catalog_app(app_node)
     await owner.connect(app_node, edge=OWNS, added_at=now)
     await ws.connect(app_node, edge=CONTAINS, added_at=now)
 
@@ -99,6 +106,7 @@ async def test_reorder_app_tracks_updates_contains_edge_position(
         created_at=now,
         updated_at=now,
     )
+    await catalog_track(track_a)
     track_b = await Track.create(
         title="Track B",
         owner_id=owner.id,
@@ -106,6 +114,7 @@ async def test_reorder_app_tracks_updates_contains_edge_position(
         created_at=now,
         updated_at=now,
     )
+    await catalog_track(track_b)
     await owner.connect(track_a, edge=COLLABORATES_ON, role="owner", added_at=now)
     await owner.connect(track_b, edge=COLLABORATES_ON, role="owner", added_at=now)
     edge_a = await app_node.connect(track_a, edge=CONTAINS, added_at=now, position=0)

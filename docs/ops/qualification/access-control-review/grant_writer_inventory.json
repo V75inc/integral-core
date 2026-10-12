@@ -1,0 +1,495 @@
+{
+  "schema_version": 1,
+  "status": "source_candidates_not_qualification",
+  "limits": [
+    "Raw writes may be locks, histories or unrelated edges; each candidate needs semantic review.",
+    "Dynamic edge families, framework/bootstrap writers, helper aliases, imports/restores and domain producers require additional inventory.",
+    "No claim of exhaustive writers, runtime registration, fence/history convergence or tested enforcement."
+  ],
+  "source_sha256": {
+    "backend/app/agentive/services/connector_registry_node.py": "443fb2cf10e983f9ad3e0e3a19440d97e7c00b8059898722c97bd9e0228a5a62",
+    "backend/app/api/access.py": "00afa60e7bf3e841a81ae3e558c918d5aa5cc1ab35007160955cfae846cca0d0",
+    "backend/app/api/auth.py": "7a3adb32a5efb182cf815f77bec9575ad2b2cc3feba009601fb9acecc90cdfc1",
+    "backend/app/api/workspace_member_hire.py": "dd21d4b5a0b2e2eac4e9a71055491c9d7637f7ec73e3bd366665fb3e251b132f",
+    "backend/app/api/workspaces.py": "83e62b1e841ae1def071d7b7d632befc155c5c96730ce9a3ed71d828d4a6333b",
+    "backend/app/services/agent_scratch.py": "db7124daef0006fbd2c93888040afffea8e0a3df36097a77685a3b4f474a4361",
+    "backend/app/services/app_graph.py": "dd79cf6454427263a3cc921355f16dabc233db2efb1e4ceb46bc58c88adbebfb",
+    "backend/app/services/grant_history.py": "2d32371763bf1f0bdc5e2206fb3d05e12905c6b35a6f087a70045022d5a9663b",
+    "backend/app/services/invitation_grants.py": "9977666a3a6058dc4470706b58af3ea661c75ebde4d5c32d5483abe647f85262",
+    "backend/app/services/invitations.py": "01ca3744b5649e7d41735fef08ae20d3f0db38d872feb59d7bc8407f76f41b7f",
+    "backend/app/services/library_model_creation.py": "5857ef1992a7723e6d7015e9fc04b017c72dd609b0c4734e1bf9268aef641f01",
+    "backend/app/services/member_provision.py": "3591a8f66f50b4982d56c6f93ecb04b8cef8e40d5fb4f1c538747a230a88bd10",
+    "backend/app/services/operational_model_merge.py": "d827a92a94345862fd0211898f5aa6c93f6ef5568b339c33243a4417ec3ef5e9",
+    "backend/app/services/ownership_transfer.py": "025919c273cbaeaca94c71972dae35669b09c478263d457ab4c9b4bc212842d2",
+    "backend/app/services/personal_workspace.py": "fa41e75460450d4c7742aaddd53c52cbf714b5590f55a4b044cb8f62deaa3c15",
+    "backend/app/services/share_links.py": "0b90fed6e9c90802cbfec6b09228f3d475a72989bcc8d065b5700586454377b9",
+    "backend/app/services/sharing.py": "9ae732284d30f7c406971f432e593164d705d314ac24f852402d422134e37387",
+    "backend/app/services/track_restructuring.py": "c2d37097905182278ff30ce99715e9c56d7d7c8dbc46a6dc3181e47dd8c751ea",
+    "backend/app/services/track_service.py": "e80de32b2eb5e506761275531b9f97c9fdf1940f081fd1f8cb2f9e6e43268d36",
+    "backend/app/services/track_writer.py": "08f67e8c913cc776ba56eca55539aa92d2bddb070b9531a35ba71da3a24ce312",
+    "backend/app/services/workspace_departure.py": "edccb058269d84a68b2c64538474cb26a570a969a054a6a26446082595ea869f",
+    "backend/app/services/workspace_membership.py": "b3c545db20039b95b41432d8dae86a4ec29ffabfca8e9155ad27e3d08a65fc55"
+  },
+  "candidates": [
+    {
+      "file": "backend/app/agentive/services/connector_registry_node.py",
+      "function": "create_connector",
+      "line": 239,
+      "kind": "typed_authority_connect",
+      "family": "OWNS",
+      "call": "user.connect(c, edge=OWNS, role='owner', granted_at=now)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/api/access.py",
+      "function": "add_entry_collaborator",
+      "line": 104,
+      "kind": "delegated_authority_command_candidate",
+      "family": null,
+      "call": "add_collaborator(user_id, 'entry', entry_id, collaborator_user_id, role)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/api/access.py",
+      "function": "remove_entry_collaborator",
+      "line": 123,
+      "kind": "delegated_authority_command_candidate",
+      "family": null,
+      "call": "remove_collaborator(user_id, 'entry', entry_id, collaborator_user_id)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/api/access.py",
+      "function": "update_entry_collaborator_role",
+      "line": 145,
+      "kind": "delegated_authority_command_candidate",
+      "family": null,
+      "call": "update_collaborator_role(user_id, 'entry', entry_id, collaborator_user_id, role)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/api/auth.py",
+      "function": "register_user",
+      "line": 434,
+      "kind": "typed_authority_connect",
+      "family": "IS_MEMBER_OF",
+      "call": "user_node.connect(org_ws, edge=IS_MEMBER_OF, role='owner', joined_at=now_iso, can_create_apps=True, can_create_tracks=True)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/api/workspace_member_hire.py",
+      "function": "provision_workspace_member_route",
+      "line": 57,
+      "kind": "delegated_authority_command_candidate",
+      "family": null,
+      "call": "provision_workspace_member(workspace=ws, email=str(body.email), display_name=body.display_name, role=validated_role, send_credentials=body.send_credentials, welcome_message=body.welcome_message, credentials_email=str(body.credentials_email) if body.credentials_email else None, actor_id=user_id)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/api/workspaces.py",
+      "function": "create_workspace",
+      "line": 327,
+      "kind": "typed_authority_connect",
+      "family": "IS_MEMBER_OF",
+      "call": "user.connect(ws, edge=IS_MEMBER_OF, role='owner', joined_at=now, can_create_apps=True, can_create_tracks=True)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/agent_scratch.py",
+      "function": "provision_scratch_track",
+      "line": 239,
+      "kind": "typed_authority_connect",
+      "family": "OWNS",
+      "call": "user.connect(track, edge=OWNS, role='owner', granted_at=now)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/app_graph.py",
+      "function": "wire_app_owner",
+      "line": 605,
+      "kind": "typed_authority_connect",
+      "family": "OWNS",
+      "call": "user.connect(app, edge=OWNS, role='owner', granted_at=now)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/grant_history.py",
+      "function": "record_grant_change",
+      "line": 237,
+      "kind": "raw_edge_write_candidate",
+      "family": null,
+      "call": "get_default_context().database.find_one_and_update('edge', {'id': history['id'], 'source': source.id, 'target': target.id, 'entity': history_class.__name__, 'context.revision': history['context']['revision'], 'context.grant_fingerprint': history['context']['grant_fingerprint']}, {'$set': updates, '$inc': {'context.revision': 1}})",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/invitation_grants.py",
+      "function": "apply_invitation_grant",
+      "line": 132,
+      "kind": "raw_edge_write_candidate",
+      "family": null,
+      "call": "database.find_one_and_update('edge', {'id': row['id'], 'entity': edge.__name__}, {'$inc': {'context.grant_revision': 0}})",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/invitation_grants.py",
+      "function": "apply_invitation_grant",
+      "line": 156,
+      "kind": "delegated_authority_command_candidate",
+      "family": null,
+      "call": "record_grant_change(source=user, target=target, grant_class=edge, before=None, after=created)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/invitation_grants.py",
+      "function": "apply_invitation_grant",
+      "line": 184,
+      "kind": "raw_edge_write_candidate",
+      "family": null,
+      "call": "database.find_one_and_update('edge', {'id': row['id'], 'entity': edge.__name__}, {'$set': updates, '$inc': {'context.grant_revision': 1}})",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/invitation_grants.py",
+      "function": "apply_invitation_grant",
+      "line": 194,
+      "kind": "delegated_authority_command_candidate",
+      "family": null,
+      "call": "record_grant_change(source=user, target=target, grant_class=edge, before=row, after=current)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/invitations.py",
+      "function": "_materialize_invitation_grants",
+      "line": 567,
+      "kind": "delegated_authority_command_candidate",
+      "family": null,
+      "call": "apply_invitation_grant(user, ws, baseline=invitation.grant_baseline, workspace_membership=True, role=invite_role, joined_at=_now_utc().isoformat(), can_create_apps=bool(invitation.can_create_apps), can_create_tracks=bool(invitation.can_create_tracks))",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/invitations.py",
+      "function": "_materialize_invitation_grants",
+      "line": 598,
+      "kind": "delegated_authority_command_candidate",
+      "family": null,
+      "call": "apply_invitation_grant(user, resource, baseline=invitation.grant_baseline, workspace_membership=False, role=invitation.target_resource_role, invited_at=_now_utc().isoformat(), invited_by=invitation.invited_by_user_id)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/invitations.py",
+      "function": "_materialize_invitation_grants",
+      "line": 610,
+      "kind": "delegated_authority_command_candidate",
+      "family": null,
+      "call": "ensure_guest_membership(user, invitation.workspace_id, inviter_user_id=invitation.invited_by_user_id, source_label=f'invitation:{invitation.id}:{invitation.target_resource_type}:{invitation.target_resource_id}')",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/library_model_creation.py",
+      "function": "_create_private_model",
+      "line": 113,
+      "kind": "typed_authority_connect",
+      "family": "COLLABORATES_ON",
+      "call": "user.connect(model, edge=COLLABORATES_ON, role='admin', grant_source='private_library_creation', grant_workspace_id=workspace_id, grant_membership_id=membership['id'], grant_issuer_id=user.id)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/member_provision.py",
+      "function": "provision_workspace_member",
+      "line": 149,
+      "kind": "typed_authority_connect",
+      "family": "IS_MEMBER_OF",
+      "call": "user_node.connect(workspace, edge=IS_MEMBER_OF, role=role, joined_at=utc_now_iso(), can_create_apps=False, can_create_tracks=False)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/operational_model_merge.py",
+      "function": "provision_prescribed_tracks_from_app_manifest",
+      "line": 1533,
+      "kind": "typed_authority_connect",
+      "family": "OWNS",
+      "call": "user.connect(track, edge=OWNS, role='owner', granted_at=now)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/ownership_transfer.py",
+      "function": "transfer_app_ownership",
+      "line": 72,
+      "kind": "typed_authority_connect",
+      "family": "COLLABORATES_ON",
+      "call": "old_owner.connect(sp, edge=COLLABORATES_ON, role='editor', invited_at=now, invited_by=acting_user_id)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/ownership_transfer.py",
+      "function": "transfer_app_ownership",
+      "line": 79,
+      "kind": "typed_authority_connect",
+      "family": "OWNS",
+      "call": "new_owner.connect(sp, edge=OWNS, role='owner', granted_at=now)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/ownership_transfer.py",
+      "function": "transfer_track_ownership",
+      "line": 131,
+      "kind": "typed_authority_connect",
+      "family": "COLLABORATES_ON",
+      "call": "old_owner.connect(track, edge=COLLABORATES_ON, role='editor', invited_at=now, invited_by=acting_user_id)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/ownership_transfer.py",
+      "function": "transfer_track_ownership",
+      "line": 138,
+      "kind": "typed_authority_connect",
+      "family": "OWNS",
+      "call": "new_owner.connect(track, edge=OWNS, role='owner', granted_at=now)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/ownership_transfer.py",
+      "function": "reassign_departing_member_ownership",
+      "line": 188,
+      "kind": "typed_authority_connect",
+      "family": "OWNS",
+      "call": "owner.connect(resource, edge=OWNS, role='owner', granted_at=now)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/personal_workspace.py",
+      "function": "ensure_personal_workspace",
+      "line": 63,
+      "kind": "typed_authority_connect",
+      "family": "IS_MEMBER_OF",
+      "call": "user.connect(workspace, edge=IS_MEMBER_OF, role='owner', joined_at=now, can_create_apps=True, can_create_tracks=True)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/share_links.py",
+      "function": "redeem_share_link",
+      "line": 410,
+      "kind": "delegated_authority_command_candidate",
+      "family": null,
+      "call": "ensure_guest_membership(user, link.workspace_id, inviter_user_id=link.created_by, source_label=f'share_link:{link.id}')",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/share_links.py",
+      "function": "redeem_share_link",
+      "line": 426,
+      "kind": "typed_authority_upsert",
+      "family": "COLLABORATES_ON",
+      "call": "ensure_edge(user, resource, COLLABORATES_ON, role=link.role, invited_at=_now_iso(), invited_by=link.created_by or 'system:share-link')",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/sharing.py",
+      "function": "_materialize_guest_membership_unlocked",
+      "line": 156,
+      "kind": "typed_authority_connect",
+      "family": "IS_MEMBER_OF",
+      "call": "collaborator.connect(ws, edge=IS_MEMBER_OF, role='guest', joined_at=now, can_create_apps=False, can_create_tracks=False)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/sharing.py",
+      "function": "_materialize_guest_membership_unlocked",
+      "line": 165,
+      "kind": "delegated_authority_command_candidate",
+      "family": null,
+      "call": "record_grant_change(source=collaborator, target=ws, grant_class=IS_MEMBER_OF, before=None, after=current)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/sharing.py",
+      "function": "revoke_workspace_resource_grants",
+      "line": 275,
+      "kind": "raw_edge_write_candidate",
+      "family": null,
+      "call": "ctx.database.delete('edge', before['id'])",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/sharing.py",
+      "function": "revoke_workspace_resource_grants",
+      "line": 288,
+      "kind": "delegated_authority_command_candidate",
+      "family": null,
+      "call": "record_grant_change(source=user, target=current_resource, grant_class=edge_class, before=before, after=None)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/sharing.py",
+      "function": "add_collaborator",
+      "line": 562,
+      "kind": "typed_authority_connect",
+      "family": "COLLABORATES_ON",
+      "call": "collaborator.connect(resource, edge=COLLABORATES_ON, role=role, invited_at=utc_now_iso(), invited_by=actor_user_id)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/sharing.py",
+      "function": "add_collaborator",
+      "line": 570,
+      "kind": "delegated_authority_command_candidate",
+      "family": null,
+      "call": "record_grant_change(source=collaborator, target=resource, grant_class=COLLABORATES_ON, before=None, after=current)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/sharing.py",
+      "function": "update_collaborator_role",
+      "line": 701,
+      "kind": "raw_edge_write_candidate",
+      "family": null,
+      "call": "get_default_context().database.find_one_and_update('edge', {'id': before['id'], 'source': collaborator.id, 'target': resource_id, 'entity': COLLABORATES_ON.__name__}, {'$set': values, '$inc': {'context.grant_revision': 1}})",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/sharing.py",
+      "function": "update_collaborator_role",
+      "line": 714,
+      "kind": "delegated_authority_command_candidate",
+      "family": null,
+      "call": "record_grant_change(source=collaborator, target=resource, grant_class=COLLABORATES_ON, before=before, after=current)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/sharing.py",
+      "function": "remove_collaborator",
+      "line": 815,
+      "kind": "raw_edge_write_candidate",
+      "family": null,
+      "call": "get_default_context().database.delete('edge', before['id'])",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/sharing.py",
+      "function": "remove_collaborator",
+      "line": 818,
+      "kind": "delegated_authority_command_candidate",
+      "family": null,
+      "call": "record_grant_change(source=collaborator, target=resource, grant_class=COLLABORATES_ON, before=before, after=None)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/track_restructuring.py",
+      "function": "split_track",
+      "line": 1051,
+      "kind": "typed_authority_connect",
+      "family": "OWNS",
+      "call": "user.connect(created_track, edge=OWNS, role='owner', granted_at=now)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/track_service.py",
+      "function": "create_track_in_space",
+      "line": 247,
+      "kind": "typed_authority_connect",
+      "family": "OWNS",
+      "call": "user.connect(track, edge=OWNS, role='owner', granted_at=now)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/track_writer.py",
+      "function": "create_track_internal",
+      "line": 87,
+      "kind": "typed_authority_connect",
+      "family": "OWNS",
+      "call": "user.connect(track, edge=OWNS, owned_since=now)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/workspace_departure.py",
+      "function": "_remove_membership",
+      "line": 71,
+      "kind": "delegated_authority_command_candidate",
+      "family": null,
+      "call": "record_grant_change(source=member, target=workspace, grant_class=IS_MEMBER_OF, before=row, after=None)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/workspace_membership.py",
+      "function": "add_member",
+      "line": 216,
+      "kind": "typed_authority_connect",
+      "family": "IS_MEMBER_OF",
+      "call": "member.connect(workspace, edge=IS_MEMBER_OF, joined_at=utc_now_iso(), **values)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/workspace_membership.py",
+      "function": "add_member",
+      "line": 222,
+      "kind": "delegated_authority_command_candidate",
+      "family": null,
+      "call": "record_grant_change(source=member, target=workspace, grant_class=IS_MEMBER_OF, before=None, after=current)",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/workspace_membership.py",
+      "function": "update_member",
+      "line": 289,
+      "kind": "raw_edge_write_candidate",
+      "family": null,
+      "call": "get_default_context().database.find_one_and_update('edge', {'id': row['id'], 'source': member.id, 'target': workspace.id, 'entity': IS_MEMBER_OF.__name__}, {'$set': updates, '$inc': {'context.grant_revision': 1}})",
+      "review_status": "unmapped",
+      "evidence": []
+    },
+    {
+      "file": "backend/app/services/workspace_membership.py",
+      "function": "update_member",
+      "line": 304,
+      "kind": "delegated_authority_command_candidate",
+      "family": null,
+      "call": "record_grant_change(source=member, target=workspace, grant_class=IS_MEMBER_OF, before=row, after=current)",
+      "review_status": "unmapped",
+      "evidence": []
+    }
+  ]
+}

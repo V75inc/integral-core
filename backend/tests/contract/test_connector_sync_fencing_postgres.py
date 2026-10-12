@@ -216,3 +216,90 @@ async def test_entry_hook_failure_rolls_back_node_and_edges(
             )
         assert await Entry.find({"context.track_id": track.id}) == []
         assert await postgres_raw_db.count("edge", {}) == before_edges
+
+
+async def test_binding_api_revocation_orders_before_canonical_connector_entry_effect(
+    postgres_raw_db,
+):
+    """The real binding writer fences an independently attempted canonical effect."""
+    from contextvars import Context
+
+    from jvspatial.core.context import get_default_context
+    from jvspatial.db.factory import create_database
+    from starlette.requests import Request
+
+    from app.agentive.api.connectors import delete_binding
+    from app.agentive.nodes import Connector
+    from app.api.errors import InsufficientPermissionsError
+    from app.models.nodes import Entry, Track
+    from app.services.app_graph import ensure_integral_app_graph
+    from app.services.app_operations.transaction_scope import postgres_graph_transaction
+    from app.services.connectors import ExternalRecord, reset_sync_registry
+    from app.services.connectors.sync_runtime import sync_one_connector
+    from app.services.entry_update import update_entry_in_track
+    from tests.test_connector_sync_runtime import (
+        _bind_connector_to_track,
+        _build_fake_connector_class,
+        _make_owner_user_id,
+    )
+
+    second, task = create_database(db_type="postgres", min_size=1, max_size=1), None
+    try:
+        for collection in ("node", "edge", "object"):
+            await second.find(collection, {"id": ""}, limit=1)
+        async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+            await ensure_integral_app_graph(include_library=False)
+            _build_fake_connector_class(
+                slug="pg-bound-revoke",
+                records=[
+                    ExternalRecord(external_id="record", payload={"title": "Retain"})
+                ],
+            )
+            track = await Track.create(title="Bound target", workspace_id="temporary")
+            connector = await Connector.create(
+                subclass_slug="pg-bound-revoke", owner=await _make_owner_user_id()
+            )
+            await _bind_connector_to_track(connector, track)
+            assert (await sync_one_connector(connector))["created"] == 1
+            entry = (await Entry.find({"context.track_id": track.id}))[0]
+            revision = entry.record_revision
+            started = asyncio.Event()
+
+            async def update():
+                async with scoped_default_context_async(GraphContext(database=second)):
+                    started.set()
+                    await update_entry_in_track(
+                        entry_id=entry.id,
+                        user_id=connector.owner,
+                        workspace_id=track.workspace_id,
+                        actor_kind="connector",
+                        actor_id=connector.id,
+                        title="Unauthorized",
+                        expected_record_revision=revision,
+                    )
+
+            request = Request(
+                {
+                    "type": "http",
+                    "method": "DELETE",
+                    "path": "/api/agentive/connectors/binding",
+                    "headers": [],
+                    "state": {"user": {"id": connector.owner}},
+                }
+            )
+            async with postgres_graph_transaction(get_default_context().database):
+                await delete_binding(request, connector.id, track.id)
+                task = asyncio.create_task(update(), context=Context())
+                await asyncio.wait_for(started.wait(), timeout=15)
+                with pytest.raises(asyncio.TimeoutError):
+                    await asyncio.wait_for(asyncio.shield(task), timeout=0.15)
+            with pytest.raises(InsufficientPermissionsError):
+                await asyncio.wait_for(task, timeout=15)
+            current = await Entry.get(entry.id)
+            assert current.title == "Retain" and current.record_revision == revision
+    finally:
+        if task is not None and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        reset_sync_registry()
+        await second.close()

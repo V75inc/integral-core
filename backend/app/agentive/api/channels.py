@@ -198,7 +198,7 @@ async def verify_channel_identity(request: Request, identity_id: str) -> Dict[st
     resolution for that address. End users verify through the OTP
     (``/whatsapp/verify-otp``) or link-token (``/verify-link-token``) paths.
     """
-    require_platform_admin(request)
+    await require_platform_admin(request)
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")

@@ -29,6 +29,7 @@ from typing import Optional, Tuple
 
 from app.config import settings
 from app.models.nodes import User
+from app.services.email_identity import current_account_email, verified_current_email
 from app.services.email_service import render_verification_email, send_email
 
 logger = logging.getLogger(__name__)
@@ -77,12 +78,13 @@ def _is_expired(expires_at_iso: str) -> bool:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _store_otp(user_node: User, code_hash: str) -> None:
+def _store_otp(user_node: User, code_hash: str, email: str) -> None:
     prefs = dict(user_node.preferences or {})
     prefs[_PREFS_KEY] = {
         "hash": code_hash,
         "expires_at": _expiry_iso(),
         "attempts": 0,
+        "email": email.strip().casefold(),
     }
     user_node.preferences = prefs
     user_node.updated_at = _now_utc().isoformat()
@@ -112,12 +114,16 @@ def _bump_attempts(user_node: User) -> int:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def has_pending_code(user_node: User) -> bool:
+def has_pending_code(user_node: User, email: Optional[str] = None) -> bool:
     """Return True if the user has a non-expired verification OTP on file."""
     slot = (user_node.preferences or {}).get(_PREFS_KEY) or {}
     stored_hash = slot.get("hash") or ""
     expires_at = slot.get("expires_at") or ""
-    return bool(stored_hash) and not _is_expired(expires_at)
+    return (
+        bool(stored_hash)
+        and not _is_expired(expires_at)
+        and (email is None or slot.get("email") == email.strip().casefold())
+    )
 
 
 async def create_verification_request(user_node: User, email: str) -> None:
@@ -128,7 +134,7 @@ async def create_verification_request(user_node: User, email: str) -> None:
     break the signup flow.
     """
     code, code_hash = _generate_otp()
-    _store_otp(user_node, code_hash)
+    _store_otp(user_node, code_hash, email)
     await user_node.save()
 
     name = user_node.display_name or None
@@ -156,7 +162,8 @@ async def consume_verification_code(
     Returns ``(ok, error_code)``. ``error_code`` is one of the ERR_* constants
     on failure, or ``None`` on success.
     """
-    if user_node.email_verified:
+    current_email = await current_account_email(user_node)
+    if current_email and await verified_current_email(user_node) == current_email:
         return False, ERR_ALREADY_VERIFIED
 
     if not code or not code.strip():
@@ -176,6 +183,14 @@ async def consume_verification_code(
         await user_node.save()
         return False, ERR_EXPIRED_CODE
 
+    # The code proves only its delivery address. Missing legacy bindings or
+    # an identity email change invalidate that ceremony, even if the digits
+    # match. A new request can be sent without blocking ordinary login.
+    if not current_email or slot.get("email") != current_email:
+        _clear_otp(user_node)
+        await user_node.save()
+        return False, ERR_INVALID_CODE
+
     code_hash = hashlib.sha256(code.strip().encode("utf-8")).hexdigest()
 
     if not secrets.compare_digest(stored_hash, code_hash):
@@ -188,6 +203,7 @@ async def consume_verification_code(
         return False, ERR_INVALID_CODE
 
     user_node.email_verified = True
+    user_node.verified_email = current_email
     _clear_otp(user_node)
     await user_node.save()
 

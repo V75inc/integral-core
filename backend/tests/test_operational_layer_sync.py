@@ -13,6 +13,7 @@ from app.services.app_lifecycle import (
 from app.services.hooks.registry import get_workspace_hooks, get_workspace_tools
 from app.services.operational_model_runtime import compile_canonical_manifest
 from app.utils.time import utc_now_iso
+from tests.fixtures.workspaces import workspace_owner_id
 from tests.test_app_lifecycle import (
     _make_library_cp,
     _make_workspace,
@@ -163,7 +164,9 @@ async def test_update_from_library_syncs_skills():
     slug = "upd-skills-app"
     manifest_v1 = _manifest_with_skill(slug=slug, skill_key="v1_skill")
     lib = await _make_library_cp(manifest_v1)
-    result = await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id="u_1")
+    result = await install_app(
+        workspace_id=ws.id, library_cp_id=lib.id, actor_id=await workspace_owner_id(ws)
+    )
     app_id = result["app_id"]
     assert await get_skill_by_key(app_id, "v1_skill") is not None
 
@@ -171,7 +174,7 @@ async def test_update_from_library_syncs_skills():
     lib.manifest = manifest_v2
     await lib.save()
 
-    await update_app_from_library(app_id=app_id, actor_id="u_1")
+    await update_app_from_library(app_id=app_id, actor_id=await workspace_owner_id(ws))
     assert await get_skill_by_key(app_id, "v1_skill") is None
     assert await get_skill_by_key(app_id, "v2_skill") is not None
     app_after = await App.get(app_id)

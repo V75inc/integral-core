@@ -14,7 +14,11 @@ async def test_materialize_sets_name_fold(test_user, monkeypatch):
     """Materialized EntryType nodes carry name_fold for uniqueness."""
     from app.models.edges import COLLABORATES_ON, IS_MEMBER_OF
     from app.models.nodes import EntryType, Track, Workspace
-    from app.services.app_graph import ensure_track_attached_operational_model
+    from app.services.app_graph import (
+        catalog_track,
+        catalog_workspace,
+        ensure_track_attached_operational_model,
+    )
     from app.services.entry_type_service import materialize_entry_types_from_tier
     from app.utils.time import utc_now_iso
 
@@ -27,6 +31,7 @@ async def test_materialize_sets_name_fold(test_user, monkeypatch):
         created_at=now,
         updated_at=now,
     )
+    await catalog_workspace(ws)
     await test_user.connect(ws, edge=IS_MEMBER_OF, role="owner", added_at=now)
     track = await Track.create(
         title="Fold Track",
@@ -34,6 +39,7 @@ async def test_materialize_sets_name_fold(test_user, monkeypatch):
         workspace_id=ws.id,
         visibility="private",
     )
+    await catalog_track(track)
     await test_user.connect(track, edge=COLLABORATES_ON, role="owner", added_at=now)
     await ensure_track_attached_operational_model(track)
 

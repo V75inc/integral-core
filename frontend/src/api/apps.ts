@@ -160,7 +160,7 @@ export const appsApi = {
       .post(`/apps/${appId}/transfer-ownership`, {
         new_owner_user_id,
       })
-      .then(r => unwrapResource<App>(r.data, 'app')),
+      .then(r => r.data as { proposal_id: string; status: string; revision: number }),
 
   getOperationalModel: (appId: string) =>
     apiClient

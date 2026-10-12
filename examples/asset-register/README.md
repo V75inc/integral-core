@@ -1,0 +1,2 @@
+
+Guarded functions use the explicit `asset-operator` role. A workspace owner grants it through the App action-binding API; ownership or installation alone grants no business function. Registration binds the installed Assets track, and tag-based checkout/check-in first resolve exact current IDs through a read-only App facade. Core then checks the current role, resource audience, active definition, and declared mutation for those IDs. After a definition upgrade, the owner reviews and grants bindings for the new definition; old bindings are not silently carried forward.

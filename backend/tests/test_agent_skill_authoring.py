@@ -23,18 +23,26 @@ from app.utils.time import utc_now_iso
 
 
 async def _make_workspace(kind: str = "organization") -> Workspace:
-    return await Workspace.create(name="Skills WS", kind=kind)
+    from app.services.app_graph import catalog_workspace
+
+    ws = await Workspace.create(name="Skills WS", kind=kind)
+    await catalog_workspace(ws)
+    return ws
 
 
 async def _make_app(name: str, workspace_id: str = "ws_test") -> App:
     now = utc_now_iso()
-    return await App.create(
+    app = await App.create(
         name=name,
         name_fold=name.casefold(),
         workspace_id=workspace_id,
         created_at=now,
         updated_at=now,
     )
+    from app.services.app_graph import catalog_app
+
+    await catalog_app(app)
+    return app
 
 
 async def _false(user_id: str, workspace_id: str) -> bool:
@@ -306,13 +314,17 @@ async def test_list_workspace_skills_surfaces_app_for_app_scoped_workspace_skill
     from app.models.nodes import User, Workspace
 
     now = utc_now_iso()
+    from app.services.app_graph import catalog_user, catalog_workspace
+
     ws = await Workspace.create(name="WS-List", kind="personal")
+    await catalog_workspace(ws)
     owner = await User.create(
         user_id="u1",
         display_name="Skill Author",
         created_at=now,
         updated_at=now,
     )
+    await catalog_user(owner)
     await owner.connect(ws, edge=IS_MEMBER_OF, role="owner", joined_at=now)
     app = await _make_app("Listed App", workspace_id=ws.id)
     await ws.connect(app, edge=CONTAINS)

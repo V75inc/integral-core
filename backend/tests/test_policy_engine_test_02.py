@@ -25,7 +25,7 @@ from httpx import AsyncClient
 
 @pytest.mark.asyncio
 async def test_test_02_agentive_write_denied_emits_audit_event(
-    authenticated_admin_client: AsyncClient,
+    authenticated_client: AsyncClient,
     test_user,
 ):
     """TEST-02 acceptance — full substrate exercise.
@@ -41,8 +41,7 @@ async def test_test_02_agentive_write_denied_emits_audit_event(
     4. Engine denies (action="entry.create" not in policy.actions=["entry.read"])
        — Decision.reason in {action_mismatch, no_matching_policy,
        fail_closed_no_policy} depending on whether the HAS_POLICY edge wired
-       (subject_id is a synthetic agent id with no AgentConfig Node, so the
-       Plan 03 fallback Policy.find scan applies).
+       against a real rooted AgentConfig and current owner-created policy.
     5. Plan 05 denial-emit writes a ChangeEvent with action="policy.deny",
        actor.kind="agent", actor.id="a-test-02", details={failed_action,
        decision_reason, matched_policy_id}, scope=f"track:{track_id}".
@@ -55,19 +54,27 @@ async def test_test_02_agentive_write_denied_emits_audit_event(
     from app.services import policy_engine as pe
 
     # Step 1 — owner creates a real track they own (so audit-log filter admits)
-    track_resp = await authenticated_admin_client.post(
+    track_resp = await authenticated_client.post(
         "/api/tracks", json={"title": "TEST-02 Track"}
     )
     assert track_resp.status_code == 200, track_resp.text
     track_id = track_resp.json()["track"]["id"]
     track_scope = f"track:{track_id}"
 
+    from app.agentive.edges import HAS_AGENT_CONFIG
+    from app.agentive.nodes import AgentConfig
+
+    agent = await AgentConfig.create(
+        scope="personal", facet="personal", user_id=test_user.id, is_active=True
+    )
+    await test_user.connect(agent, edge=HAS_AGENT_CONFIG)
+
     # Step 2 — owner creates a narrow Policy for agent "a-test-02"
-    policy_resp = await authenticated_admin_client.post(
+    policy_resp = await authenticated_client.post(
         "/api/policies",
         json={
             "subject_kind": "agent",
-            "subject_id": "a-test-02",
+            "subject_id": agent.id,
             "scope": track_scope,
             "actions": ["entry.read"],
             "is_active": True,
@@ -80,7 +87,7 @@ async def test_test_02_agentive_write_denied_emits_audit_event(
     # Step 3 + 4 — agent attempts an out-of-policy write; engine denies
     reset_permissions_cache()
     decision = await pe.evaluate(
-        subject=Subject(kind="agent", id="a-test-02"),
+        subject=Subject(kind="agent", id=agent.id),
         action="entry.create",
         resource=Resource(
             kind="entry",
@@ -101,7 +108,7 @@ async def test_test_02_agentive_write_denied_emits_audit_event(
     # The audit-log endpoint runs every event through policy_engine.evaluate
     # (audit_log.read) which dispatches on scope prefix. Owner sees their
     # track's events; this surfaces the agent-actor policy.deny event.
-    audit_resp = await authenticated_admin_client.get(
+    audit_resp = await authenticated_client.get(
         f"/api/audit-log?scope={track_scope}&actor_kind=agent",
     )
     assert audit_resp.status_code == 200, audit_resp.text
@@ -113,7 +120,7 @@ async def test_test_02_agentive_write_denied_emits_audit_event(
         e
         for e in events
         if e.get("action") == "policy.deny"
-        and e.get("actor_id") == "a-test-02"
+        and e.get("actor_id") == agent.id
         and e.get("resource_id") == "e-attempt-1"
     ]
     assert matching, (

@@ -138,32 +138,33 @@ async def test_role_update_applies_and_leaves_exactly_one_edge():
 
 
 @pytest.mark.asyncio
-async def test_failed_swap_restores_membership_instead_of_evicting(monkeypatch):
-    """The partial-write case: connect() fails after the delete.
+async def test_failed_in_place_update_preserves_membership(monkeypatch):
+    """A primary update failure must leave the same current membership intact."""
+    from jvspatial.core.context import get_default_context
 
-    Previously the member was left with no membership edge -- locked out of the
-    workspace. The handler must put the prior membership back and surface the
-    failure rather than silently evicting.
-    """
     from app.agentive.tooling.invoke import invoke_route_in_process
     from app.api.workspaces import patch_workspace_member
-    from app.models import nodes as nodes_mod
 
     owner_auth, ws_id, member_id = await _org_with_member()
-    assert (await _member_role(ws_id, member_id))[0] == "member"
+    database = get_default_context().database
+    from jvspatial.db.postgres import PostgresTransaction
 
-    original_connect = nodes_mod.User.connect
-    calls = {"n": 0}
+    def install_failure(cls):
+        original = cls.find_one_and_update
 
-    async def flaky_connect(self, *args, **kwargs):
-        # Fail the first connect (the new edge); allow the rollback through.
-        calls["n"] += 1
-        if calls["n"] == 1:
-            raise RuntimeError("simulated write failure mid-swap")
-        return await original_connect(self, *args, **kwargs)
+        async def fail_update(self, collection, query, update):
+            if (
+                collection == "edge"
+                and query.get("entity") == "IS_MEMBER_OF"
+                and update.get("$inc", {}).get("context.grant_revision") == 1
+            ):
+                raise RuntimeError("simulated membership update failure")
+            return await original(self, collection, query, update)
 
-    monkeypatch.setattr(nodes_mod.User, "connect", flaky_connect, raising=False)
+        monkeypatch.setattr(cls, "find_one_and_update", fail_update)
 
+    for cls in {type(database), PostgresTransaction}:
+        install_failure(cls)
     with pytest.raises(Exception):
         await invoke_route_in_process(
             patch_workspace_member,
@@ -173,15 +174,7 @@ async def test_failed_swap_restores_membership_instead_of_evicting(monkeypatch):
             member_user_id=member_id,
             role="admin",
         )
-
-    monkeypatch.undo()
-
-    restored = await _member_role(ws_id, member_id)
-    assert restored is not None, (
-        "a failed role update evicted the member from the workspace: no "
-        "IS_MEMBER_OF edge remains"
-    )
-    assert restored[0] == "member", "rollback restored the wrong role"
+    assert (await _member_role(ws_id, member_id)) == ("member", 1)
 
 
 @pytest.mark.asyncio

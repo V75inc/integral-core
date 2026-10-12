@@ -914,9 +914,15 @@ async def postgres_raw_db():
     # instead of silently opening a second, unowned pool on each test loop.
     await _close_postgres_test_database(previous)
     manager.set_prime_database(database)
+    await _reset_postgres_test_tables()
+    log_database = await _install_postgres_test_log_db()
+    from jvspatial.core.context import GraphContext, scoped_default_context_async
+
     try:
-        yield database
+        async with scoped_default_context_async(GraphContext(database=database)):
+            yield database
     finally:
+        await _close_postgres_test_database(log_database)
         await database.close()
         manager.set_prime_database(previous)
 
@@ -1066,6 +1072,13 @@ async def _install_postgres_test_log_db() -> object:
 
     log_database = create_database(db_type="postgres", dsn=_PG_TEST_DSN)
     manager._databases["logs"] = log_database
+    # Server startup initializes DBLog's collection before protected effects.
+    # Reproduce that here: cold log-adapter DDL on a separate connection
+    # otherwise waits for the transaction that is awaiting the audit write.
+    from jvspatial.core import GraphContext
+    from jvspatial.logging.models import DBLog
+
+    await GraphContext(database=log_database).ensure_indexes(DBLog)
     return log_database
 
 
@@ -1239,6 +1252,11 @@ async def _bootstrap_test_user_fast(
         await catalog_user(user_node)
     with contextlib.suppress(Exception):
         await ensure_personal_workspace(user_node)
+    from jvspatial.core.context import get_default_context
+
+    await get_default_context().database.find_one_and_update(
+        "object", {"id": auth_user_id}, {"$set": {"context.roles": ["user"]}}
+    )
     token = _mint_test_jwt(
         user_id=auth_user_id,
         email=email,
@@ -1576,25 +1594,35 @@ async def authenticated_client(request, bind_fresh_graph_context_for_async_tests
 
 @pytest.fixture
 async def authenticated_admin_client(client, test_user):
-    """Authenticated httpx client whose JWT carries ``roles=["admin", "user"]``.
-
-    The TestAuthBypassMiddleware (``backend/app/middleware/test_auth.py``)
-    decodes the JWT and pre-sets ``request.state.user.roles`` from the
-    payload. Admin-gated endpoints (e.g. ``/api/admin/packages/*``) check
-    ``"admin" in request.state.user.roles``. We mint a JWT directly with
-    admin roles to avoid mutating the shared AuthUser row.
-    """
-    user_id = getattr(test_user, "user_id", None) or getattr(test_user, "id", "")
+    """Current primary admin identity and matching token; restore roles on teardown."""
+    primary = None
+    previous_roles = None
+    admin_identity = test_user
+    if not USE_LIVE_SERVER:
+        _, admin_identity = await _bootstrap_test_user_fast(
+            email="primary-admin-test@example.com", name="Platform Admin QA"
+        )
+    user_id = getattr(admin_identity, "user_id", None) or getattr(
+        admin_identity, "id", ""
+    )
     if not user_id:
-        # Live-server fallback: yield unauthenticated client; tests should
-        # skip via fixture availability.
         yield client
         return
+    if not USE_LIVE_SERVER:
+        from jvspatial.core.context import get_default_context
 
+        primary = get_default_context().database
+        row = await primary.find_one("object", {"id": user_id})
+        if row is None:
+            pytest.fail("Admin fixture requires an existing primary identity")
+        previous_roles = list(row["context"].get("roles", []))
+        await primary.find_one_and_update(
+            "object", {"id": user_id}, {"$set": {"context.roles": ["admin", "user"]}}
+        )
     payload = {
         "user_id": user_id,
-        "email": getattr(test_user, "email", "") or "test@example.com",
-        "name": getattr(test_user, "display_name", "") or "Test User",
+        "email": getattr(admin_identity, "email", "") or "test@example.com",
+        "name": getattr(admin_identity, "display_name", "") or "Test User",
         "roles": ["admin", "user"],
         "permissions": [],
     }
@@ -1624,11 +1652,11 @@ async def authenticated_admin_client(client, test_user):
     try:
         yield admin_client
     finally:
-        try:
-            if not admin_client.is_closed:
-                await admin_client.aclose()
-        except Exception:
-            pass
+        await admin_client.aclose()
+        if primary is not None:
+            await primary.find_one_and_update(
+                "object", {"id": user_id}, {"$set": {"context.roles": previous_roles}}
+            )
 
 
 @pytest.fixture

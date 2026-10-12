@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from app.exceptions import OperationalModelValidationError
 from app.models.nodes import OperationalModel
@@ -17,6 +17,7 @@ async def assert_package_upgrade_migration_safe(
     *,
     attached_profile: OperationalModel,
     library_profile: OperationalModel,
+    user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Refuse an App package update that would strand existing entries.
 
@@ -30,6 +31,7 @@ async def assert_package_upgrade_migration_safe(
         target_manifest=dict(attached_profile.manifest or {}),
         library_cp=library_profile,
         target_profile=attached_profile,
+        user_id=user_id,
     )
     impacts = await compute_entry_impact_for_attached(
         cp=attached_profile,

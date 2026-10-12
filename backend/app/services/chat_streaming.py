@@ -51,8 +51,12 @@ class _DeltaHumanizer:
     one trailing partial word of latency.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self, *, user_id: str | None = None, workspace_id: str | None = None
+    ) -> None:
         self._buf = ""
+        self._user_id = user_id
+        self._workspace_id = workspace_id
 
     async def _humanize(self, text: str) -> str:
         if not text:
@@ -60,7 +64,9 @@ class _DeltaHumanizer:
         try:
             from app.services.id_resolver import humanize_ids
 
-            return await humanize_ids(text)
+            return await humanize_ids(
+                text, user_id=self._user_id, workspace_id=self._workspace_id
+            )
         except Exception:  # noqa: BLE001
             logger.debug("chat_streaming.humanize_failed", exc_info=True)
             return text
@@ -462,7 +468,10 @@ async def generate_chat_turn_sse(
     work_execution_context = _work_execution_context(turn_ctx)
 
     _register_cancel_hook(turn_handle, thread.id, provider)
-    humanizer = _DeltaHumanizer()
+    humanizer = _DeltaHumanizer(
+        user_id=getattr(turn_ctx, "user_id", None),
+        workspace_id=getattr(turn_ctx, "workspace_id", None),
+    )
 
     persisted = False
     work_authority_rejected = False

@@ -258,6 +258,7 @@ def start(
 ) -> dict[str, Any]:
     """Start once and wait for actual readiness, or attach to the same instance."""
     initialize(home)
+    _require_recovery_review(home)
     _operator_settings(home)
     lock = FileLock(str(home / "command.lock"))
     try:
@@ -523,6 +524,7 @@ def _environment(
         "INTEGRAL_CORE_ONLY": "0" if apps else "1",
         "INTEGRAL_PACKAGE_PATHS": apps or str(home / "integral-apps"),
         "INTEGRAL_ENV_FILE": str(home / "settings.env"),
+        "INTEGRAL_RECOVERY_MARKER": str(home / "recovery.json"),
         "JVSPATIAL_FILES_ROOT_PATH": str(home / "files"),
         "JVSPATIAL_CORS_ORIGINS": f"http://127.0.0.1:{web_port}",
         "OAUTH_ISSUER_URL": f"http://127.0.0.1:{api_port}",
@@ -550,6 +552,7 @@ def _environment(
 def supervise(home: Path, port: int, apps: str | None = None) -> None:
     """Own children, readiness and cleanup independently of the calling terminal."""
     with FileLock(str(home / "supervisor.lock"), timeout=0):
+        _require_recovery_review(home)
         config = initialize(home)
         (home / "stop.request").unlink(missing_ok=True)
         (home / "database.json").unlink(missing_ok=True)
@@ -752,7 +755,7 @@ def _backup(home: Path, destination: Path) -> Path:
 
 
 def restore(home: Path, source: Path) -> None:
-    """Restore only into an empty installation, refusing traversal and links."""
+    """Restore into quarantine, refusing traversal and links."""
     if home.exists() and any(home.iterdir()):
         raise RuntimeErrorDetail("Restore requires an empty --home directory.")
     home.parent.mkdir(parents=True, exist_ok=True)
@@ -782,10 +785,125 @@ def restore(home: Path, source: Path) -> None:
         config.pop("runtime_python", None)
         if config.get("apps_path"):
             config["apps_path"] = str(home / "integral-apps")
+        # Session authority changes; encrypted data keys deliberately survive.
+        config["jwt_key"] = secrets.token_hex(32)
+        config["control_token"] = secrets.token_hex(32)
         private_json(staged / "installation.json", config)
+        private_json(
+            staged / "recovery.json",
+            {
+                "status": "quarantined",
+                "installation_id": config["installation_id"],
+                "restored_at": datetime.now(timezone.utc).isoformat(),
+                "source_digest": _file_digest(source),
+            },
+        )
         if home.exists():
             home.rmdir()
         staged.rename(home)
+
+
+def _file_digest(path: Path) -> str:
+    """Identify the exact restored archive without placing it in memory."""
+    import hashlib
+
+    with path.open("rb") as handle:
+        return hashlib.file_digest(handle, "sha256").hexdigest()
+
+
+def _require_recovery_review(home: Path) -> None:
+    """No restored installation serves before current authority is reconciled."""
+    marker = home / "recovery.json"
+    if not marker.exists():
+        return
+    try:
+        value = read_json(marker)
+        reviewed = (
+            value.get("status") == "reviewed"
+            and value.get("installation_id")
+            == read_json(home / "installation.json").get("installation_id")
+            and isinstance(value.get("review_digest"), str)
+            and len(value["review_digest"]) == 64
+            and bool(value.get("reviewed_at"))
+        )
+    except (ValueError, OSError, TypeError):
+        reviewed = False
+    if not reviewed:
+        raise RuntimeErrorDetail(
+            "Restored installation is quarantined. Run recovery-review and recovery-apply with the current independent checkpoint or explicit owner review."
+        )
+
+
+def recovery_maintenance(
+    home: Path, command: str, arguments: dict[str, Any]
+) -> dict[str, Any]:
+    """Run offline database-only maintenance and record successful reviewed apply."""
+    config = initialize(home)
+    if command == "checkpoint" and (home / "recovery.json").exists():
+        _require_recovery_review(home)
+    if command != "checkpoint" and not (home / "recovery.json").exists():
+        raise RuntimeErrorDetail("Recovery commands require a quarantined restore")
+    directory = arguments.get("checkpoint_directory")
+    if directory and Path(directory).resolve().is_relative_to(home.resolve()):
+        raise RuntimeErrorDetail(
+            "Independent checkpoint directory must be outside the installation"
+        )
+    with FileLock(str(home / "command.lock"), timeout=240):
+        _stop(home)
+        (home / "database.stop.request").unlink(missing_ok=True)
+        with (home / "logs/recovery-database.log").open("ab") as log:
+            process = subprocess.Popen(
+                [
+                    str(database_python(home)),
+                    str(Path(__file__).with_name("local_postgres.py")),
+                    str(home),
+                ],
+                cwd=home,
+                stdout=log,
+                stderr=log,
+            )
+        try:
+            deadline = time.monotonic() + 150
+            while not (home / "database.json").exists():
+                if process.poll() is not None or time.monotonic() > deadline:
+                    raise RuntimeErrorDetail(
+                        "Recovery database could not start; inspect recovery-database.log"
+                    )
+                time.sleep(0.2)
+            dsn = read_json(home / "database.json")["dsn"]
+            env = _environment(home, config, dsn, 4000, 9006, None)
+            result = subprocess.run(
+                [sys.executable, "-m", "app.recovery_maintenance", str(home), command],
+                input=json.dumps(arguments),
+                text=True,
+                capture_output=True,
+                env=env,
+                cwd=home,
+            )
+            if result.returncode:
+                raise RuntimeErrorDetail(
+                    "Recovery maintenance failed: " + result.stderr[-2000:]
+                )
+            receipt = json.loads(result.stdout)
+            if command == "recovery-apply":
+                previous = read_json(home / "recovery.json")
+                private_json(
+                    home / "recovery.json",
+                    {
+                        **previous,
+                        **receipt,
+                        "installation_id": config["installation_id"],
+                    },
+                )
+            return receipt
+        finally:
+            (home / "database.stop.request").touch()
+            try:
+                process.wait(timeout=20)
+            except subprocess.TimeoutExpired:
+                process.terminate()
+                process.wait(timeout=10)
+            (home / "database.stop.request").unlink(missing_ok=True)
 
 
 def upgrade(

@@ -9,6 +9,7 @@ import pytest
 
 from app.models.edges import COLLABORATES_ON, IS_MEMBER_OF, OWNS
 from app.models.nodes import Track, User, Workspace
+from app.services.app_graph import catalog_track, catalog_user, catalog_workspace
 from app.services.password_reset import _find_user_node_by_token_hash
 from app.services.permissions import resolve_role
 from app.services.share_links import _is_expired, mint_share_link
@@ -18,16 +19,20 @@ from app.utils.time import utc_now_iso
 
 
 async def _user(name: str) -> User:
-    return await User.create(display_name=name)
+    user = await User.create(display_name=name)
+    await catalog_user(user)
+    return user
 
 
 async def _org_workspace(name: str) -> Workspace:
-    return await Workspace.create(
+    workspace = await Workspace.create(
         kind="organization",
         workspace_type="company",
         name=name,
         name_fold=name.casefold(),
     )
+    await catalog_workspace(workspace)
+    return workspace
 
 
 @pytest.mark.asyncio
@@ -37,6 +42,12 @@ async def test_admin_cannot_grant_owner_role():
     owner = await _user("w1_owner")
     admin = await _user("w1_admin")
     track = await Track.create(title="GrantOwner", title_fold="grantowner")
+    workspace = await _org_workspace("GrantOwner workspace")
+    await owner.connect(workspace, edge=IS_MEMBER_OF, role="owner")
+    await admin.connect(workspace, edge=IS_MEMBER_OF, role="member")
+    track.workspace_id = workspace.id
+    await track.save()
+    await catalog_track(track)
     await owner.connect(track, edge=OWNS)
     await admin.connect(track, edge=COLLABORATES_ON, role="admin")
 
@@ -49,6 +60,12 @@ async def test_true_owner_can_grant_owner_role():
     owner = await _user("w1_true_owner")
     target = await _user("w1_target")
     track = await Track.create(title="TrueOwnerGrant", title_fold="trueownergrant")
+    workspace = await _org_workspace("TrueOwnerGrant workspace")
+    await owner.connect(workspace, edge=IS_MEMBER_OF, role="owner")
+    await target.connect(workspace, edge=IS_MEMBER_OF, role="member")
+    track.workspace_id = workspace.id
+    await track.save()
+    await catalog_track(track)
     await owner.connect(track, edge=OWNS)
 
     result = await add_collaborator(
@@ -85,6 +102,7 @@ async def test_org_admin_cannot_mint_share_without_direct_grant():
     await owner.connect(ws, edge=IS_MEMBER_OF, role="owner", joined_at=now)
     await admin.connect(ws, edge=IS_MEMBER_OF, role="admin", joined_at=now)
     track = await Track.create(title="PrivateTrack", workspace_id=ws.id)
+    await catalog_track(track)
     await owner.connect(track, edge=OWNS)
 
     with pytest.raises(InsufficientPermissionsError):
@@ -96,6 +114,12 @@ async def test_list_access_viewer_gets_effective_role_only():
     owner = await _user("w1_la_owner")
     viewer = await _user("w1_la_viewer")
     track = await Track.create(title="AccessList")
+    workspace = await _org_workspace("AccessList workspace")
+    await owner.connect(workspace, edge=IS_MEMBER_OF, role="owner")
+    await viewer.connect(workspace, edge=IS_MEMBER_OF, role="member")
+    track.workspace_id = workspace.id
+    await track.save()
+    await catalog_track(track)
     await owner.connect(track, edge=OWNS)
     await viewer.connect(track, edge=COLLABORATES_ON, role="viewer")
 

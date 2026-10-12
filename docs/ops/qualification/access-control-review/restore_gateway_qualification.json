@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "status": "qualified_partial",
+  "source_base": "5bac17e4b50278b6695547cda76566a9ef60a526",
+  "scope": "Owned disposable PostgreSQL fixture, existing logical backup and scratch restore scripts",
+  "database_route": {
+    "host": "host.docker.internal",
+    "port": 63803,
+    "container": "integral-access-control-review-pg",
+    "image": "pgvector/pgvector:pg16",
+    "pg_isready_host_network_exit": 0,
+    "pg_isready_default_network_exit": 0
+  },
+  "probe": {
+    "source": "/tmp/test_integral_restore_host_gateway.py",
+    "source_sha256": "1f77e03637647b486af8c9cf37eef358d30c342939df8c44d904379f7f2111d9",
+    "xml": "/tmp/integral-restore-host-gateway.xml",
+    "suites": [
+      {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "1",
+        "time": "54.640",
+        "timestamp": "2026-10-11T10:26:15.127767-04:00",
+        "hostname": "Eldons-MacBook-Pro.local"
+      }
+    ],
+    "backup_log": "/tmp/integral-restore-gateway-backup.log",
+    "restore_log": "/tmp/integral-restore-gateway-drill.log"
+  },
+  "scripts": {
+    "scripts/pg_backup.sh": "a54bd743caf20c2e0d8bb5d1d2dcc27540a688df5fd28331b434a1a855ce6fb6",
+    "scripts/pg_restore.sh": "b5eef1f64623df65ecfe0e2ae51b7010ada4ce01a6c84404a64984c556b2d0d5"
+  },
+  "result": {
+    "backup_exit": 0,
+    "drill_exit": 0,
+    "node_rows": 33,
+    "edge_rows": 46,
+    "counts_match": true,
+    "model_identity_match": true,
+    "scratch_database_dropped": true,
+    "scratch_database_readback": {
+      "database": "integral_drill_20261011142634",
+      "remaining_pg_database_rows": 0,
+      "command_exit": 0
+    }
+  },
+  "limits": [
+    "Current required PostgreSQL lane still retained its explicit loopback-route restore skip; this external route-corrected test does not rewrite that receipt.",
+    "Round-trip counts and selected Model identity are not complete ACL/attachment byte-content verification.",
+    "No independently retained live revocation checkpoint, quarantine serving gate, credential rotation or post-revocation actor/token denial was exercised. U75 and W7 restore security remain open.",
+    "Local owned test database only; no production backup, deployment, release or GitHub CI claim."
+  ]
+}

@@ -166,6 +166,16 @@ async def update_entry_internal(
 
     from app.services.entry_update import update_entry_in_track
 
+    changes = dict(payload)
+    if "expected_revision" in changes:
+        revision = changes.pop("expected_revision")
+        if (
+            "expected_record_revision" in changes
+            and changes["expected_record_revision"] != revision
+        ):
+            raise ValueError("Conflicting record revision preconditions")
+        changes["expected_record_revision"] = revision
+
     entry = await update_entry_in_track(
         entry_id=entry_id,
         user_id=actor_id,
@@ -173,7 +183,7 @@ async def update_entry_internal(
         actor_kind=actor_kind,
         workspace_id=track.workspace_id,
         **{
-            key: payload[key]
+            key: changes[key]
             for key in (
                 "title",
                 "body",
@@ -186,7 +196,7 @@ async def update_entry_internal(
                 "expected_record_revision",
                 "expected_schema_revision",
             )
-            if key in payload
+            if key in changes
         },
     )
     return await entry.export(flat=True)
@@ -230,15 +240,19 @@ async def delete_entry_internal(
 
     before = await entry.export(flat=True)
     track_id = entry.track_id or ""
-    # Single entry-deletion primitive: comments, upload sessions, share
-    # links / invitations, anchor cascade and the embedding soft-delete all
-    # live in ``delete_entry_fast``. An internal (system-approved) re-run
-    # takes the system-subject cascade path; otherwise the original actor
-    # is threaded through so ``anchor.cascade`` is evaluated against them.
-    if _internal_actor is not None:
-        await delete_entry_fast(entry)
-    else:
-        await delete_entry_fast(entry, actor_user_id=actor_id, actor_kind=actor_kind)
+    revision = payload.get("expected_record_revision", payload.get("expected_revision"))
+    if (
+        "expected_record_revision" in payload
+        and "expected_revision" in payload
+        and payload["expected_record_revision"] != payload["expected_revision"]
+    ):
+        raise ValueError("Conflicting record revision preconditions")
+    await delete_entry_fast(
+        entry,
+        actor_user_id=actor_id,
+        actor_kind=actor_kind,
+        expected_record_revision=revision,
+    )
 
     await emit_change_event(
         actor_kind=actor_kind,  # type: ignore[arg-type]

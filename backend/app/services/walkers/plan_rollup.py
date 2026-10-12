@@ -17,11 +17,13 @@ mirrors the existing ``cross_app_resolver`` walker.
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Dict, Tuple
+from typing import Any, Awaitable, Callable, Dict, Tuple
 
 from jvspatial.core import Walker
 from jvspatial.core.decorators import on_visit
 
+from app.api.errors import InsufficientPermissionsError
+from app.exceptions import AuthorizationUnavailableError
 from app.models.edges import REFERENCES
 from app.models.nodes import Entry
 
@@ -58,9 +60,17 @@ class PlanRollupWalker(Walker):
     start_id: str = ""
     open_count: int = 0
     at_risk: bool = False
+    denied: bool = False
+    entry_reader: Callable[[str], Awaitable[Any]]
 
     @on_visit(Entry)
     async def on_entry(self, here: Entry) -> None:
+        # Shared computed mirrors cannot silently omit a restricted dependency:
+        # refuse the aggregate before a caller can persist an incomplete rollup.
+        here = await self.entry_reader(here.id)
+        if here is None:
+            self.denied = True
+            return
         custom_fields = getattr(here, "custom_fields", {}) or {}
         if here.id == self.start_id:
             # The plan itself: overdue → at risk; then walk to its linked items.
@@ -80,13 +90,22 @@ class PlanRollupWalker(Walker):
             self.at_risk = True
 
 
-async def roll_up_plan(plan_id: str) -> Dict[str, Any]:
+async def roll_up_plan(
+    plan_id: str, *, entry_reader: Callable[[str], Awaitable[Any]]
+) -> Dict[str, Any]:
     """Spawn the rollup walker at a plan and return ``{open_count, at_risk}``."""
-    plan = await Entry.get(plan_id)
+    plan = await entry_reader(plan_id)
     if plan is None:
-        return {"open_count": 0, "at_risk": False}
-    walker = PlanRollupWalker(start_id=plan_id)
+        raise InsufficientPermissionsError(message="Access denied")
+    walker = PlanRollupWalker(start_id=plan_id, entry_reader=entry_reader)
     await walker.spawn(plan)
+    if any(
+        isinstance(report, dict) and "hook_error" in report
+        for report in await walker.get_report()
+    ):
+        raise AuthorizationUnavailableError()
+    if walker.denied:
+        raise InsufficientPermissionsError(message="Access denied")
     return {"open_count": int(walker.open_count), "at_risk": bool(walker.at_risk)}
 
 

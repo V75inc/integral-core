@@ -52,11 +52,39 @@ def is_platform_admin(request: Optional[Request]) -> bool:
     return "admin" in (roles or [])
 
 
-def require_platform_admin(request: Optional[Request]) -> None:
+async def current_platform_admin(request: Optional[Request]) -> bool:
+    """Require the current primary active identity's exact privileged roles."""
+    from jvspatial.core.context import get_default_context
+
+    from app.exceptions import AuthorizationUnavailableError
+    from app.services.authority_facts import primary_auth_record
+    from app.services.permissions import get_user_node
+
+    principal_id = resolve_principal_id(request)
+    if not principal_id:
+        return False
+    auth_id = principal_id
+    if not auth_id.startswith("o.User."):
+        profile = await get_user_node(principal_id)
+        if profile is None or not profile.user_id:
+            return False
+        auth_id = profile.user_id
+    row = await primary_auth_record(get_default_context().database, auth_id)
+    if row is None or row["context"]["is_active"] is not True:
+        return False
+    roles = row["context"].get("roles")
+    if not isinstance(roles, list) or any(type(role) is not str for role in roles):
+        raise AuthorizationUnavailableError()
+    if "roles" in row and row["roles"] != roles:
+        raise AuthorizationUnavailableError()
+    return "admin" in roles
+
+
+async def require_platform_admin(request: Optional[Request]) -> None:
     """Raise InsufficientPermissionsError unless the caller is a platform admin."""
     from app.api.errors import InsufficientPermissionsError
 
-    if not is_platform_admin(request):
+    if not await current_platform_admin(request):
         raise InsufficientPermissionsError(message="admin-only endpoint")
 
 
@@ -137,3 +165,54 @@ async def attach_author_exports(
         user = users_by_principal.get(str(pid))
         if user:
             item[author_field] = await public_user_view(user)
+
+
+def platform_admin_admission(function):
+    """Keep current platform role admission through an administrative effect/read.
+
+    Target identities are admitted as inactive cleanup subjects, while the
+    executing administrator must stay active. Lock order matches collaboration
+    writers; cached JWT roles never establish operational authority.
+    """
+    import inspect
+    from contextlib import nullcontext
+    from functools import wraps
+
+    signature = inspect.signature(function)
+
+    @wraps(function)
+    async def invoke(*args: Any, **kwargs: Any):
+        from jvspatial.core.context import get_default_context
+
+        from app.services.app_operations.transaction_scope import (
+            graph_transaction_available,
+            postgres_graph_transaction,
+        )
+        from app.services.identity_admission import identity_admission
+
+        values = signature.bind(*args, **kwargs)
+        request = values.arguments["request"]
+        actor = resolve_principal_id(request)
+        if not actor:
+            await require_platform_admin(request)
+        participants = tuple(
+            dict.fromkeys(
+                value for value in (actor, values.arguments.get("user_id")) if value
+            )
+        )
+        database = get_default_context().database
+        transaction = (
+            postgres_graph_transaction(database)
+            if graph_transaction_available(database)
+            else nullcontext()
+        )
+        async with (
+            transaction,
+            identity_admission(participants, active_principal_ids=(actor,)),
+        ):
+            await require_platform_admin(request)
+            result = await function(*args, **kwargs)
+            await require_platform_admin(request)
+            return result
+
+    return invoke

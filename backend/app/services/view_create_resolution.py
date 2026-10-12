@@ -214,9 +214,11 @@ async def resolve_view_for_filing(
         for v in views:
             if v.id == view_id:
                 return v
-        standalone = await View.get(view_id)
-        if standalone and getattr(standalone, "track_id", "") == track.id:
-            return standalone
+        from app.services.view_scope import read_scoped_view
+
+        located = await read_scoped_view(view_id)
+        if located is not None and located[1].track_id == track.id:
+            return located[0]
         return None
 
     if view_hint and view_hint.strip():

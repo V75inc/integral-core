@@ -1,0 +1,12 @@
+{
+  "storage": "owned temporary JsonDB",
+  "warm_valid": true,
+  "active_before_validation": false,
+  "accepted_after_disable": true,
+  "active_after_validation": true,
+  "meaning": "characterization only; not secure acceptance",
+  "dependency": "jvspatial==0.1.1",
+  "source": "AuthenticationService._get_user_by_id and validate_token",
+  "conditions": "The shared auth context is warmed by successful token validation before the primary-store disable. Token validation then updates last_accessed by saving the cached whole AuthUser.",
+  "remaining": "Secure Core authentication adapter, PostgreSQL independent-worker proof and actual HTTP/session admission remain open."
+}

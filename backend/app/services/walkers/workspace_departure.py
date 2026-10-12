@@ -6,7 +6,7 @@ from jvspatial.core import Walker
 from jvspatial.core.decorators import on_visit
 
 from app.models.edges import COLLABORATES_ON, CONTAINS, EXCLUDED_FROM
-from app.models.nodes import App, Entry, Track, User
+from app.models.nodes import App, Entry, OperationalModel, Track, User
 
 
 class WorkspaceDepartureWalker(Walker):
@@ -19,7 +19,7 @@ class WorkspaceDepartureWalker(Walker):
     async def on_user(self, here: User) -> None:
         targets = await here.nodes(
             edge=[COLLABORATES_ON, EXCLUDED_FROM],
-            node=["WorkspaceApp", "Track", "Entry"],
+            node=["WorkspaceApp", "Track", "Entry", "OperationalModel"],
             direction="out",
         )
         await self.visit(targets)
@@ -33,6 +33,22 @@ class WorkspaceDepartureWalker(Walker):
     async def on_entry(self, here: Entry) -> None:
         parents = await here.nodes(edge=[CONTAINS], node=["Track"], direction="in")
         if any(track.workspace_id == self.workspace_id for track in parents):
+            self.resources[here.id] = here
+
+    @on_visit(OperationalModel)
+    async def on_model(self, here: OperationalModel) -> None:
+        from app.exceptions import AuthorizationUnavailableError
+        from app.services.model_authority import resolve_model_authority
+        from app.services.resource_location import MANAGEMENT_APP_STATES
+
+        authority = await resolve_model_authority(
+            here.id, allowed_app_states=MANAGEMENT_APP_STATES
+        )
+        if authority is None:
+            # Do not guess a grant's scope from a cache or report a successful
+            # departure with an unresolved Model grant left behind.
+            raise AuthorizationUnavailableError()
+        if not authority.platform and authority.workspace_id == self.workspace_id:
             self.resources[here.id] = here
 
 

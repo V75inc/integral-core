@@ -6,6 +6,13 @@ import pytest
 
 from app.models.edges import CONTAINS, HAS_OPERATIONAL_MODEL, IS_MEMBER_OF, OWNS
 from app.models.nodes import App, OperationalModel, Track, User, View, Workspace
+from app.services.app_graph import (
+    catalog_app,
+    catalog_track,
+    catalog_user,
+    catalog_workspace,
+    create_track_view,
+)
 from app.services.permissions import can_edit_view, can_view_view
 
 
@@ -31,7 +38,9 @@ async def test_shared_cp_admin_on_sibling_does_not_grant_edit_on_other_track_vie
         username="view-acl-owner",
         hashed_password="x",
     )
+    await catalog_user(owner)
     workspace = await Workspace.create(name="View ACL Org", kind="organization")
+    await catalog_workspace(workspace)
     await owner.connect(workspace, edge=IS_MEMBER_OF, role="owner")
     ws = workspace.id
     app_node = await App.create(
@@ -39,6 +48,7 @@ async def test_shared_cp_admin_on_sibling_does_not_grant_edit_on_other_track_vie
         owner_user_id=owner.id,
         workspace_id=ws,
     )
+    await catalog_app(app_node)
     await workspace.connect(app_node, edge=CONTAINS)
     await owner.connect(app_node, edge=OWNS)
     cp = await OperationalModel.create(
@@ -66,6 +76,7 @@ async def test_shared_cp_admin_on_sibling_does_not_grant_edit_on_other_track_vie
         template_id="project-details",
         attached_operational_model_id=cp.id,
     )
+    await catalog_track(track_a)
     track_b = await Track.create(
         title="Details B",
         owner_id=owner.id,
@@ -73,6 +84,7 @@ async def test_shared_cp_admin_on_sibling_does_not_grant_edit_on_other_track_vie
         template_id="project-details",
         attached_operational_model_id=cp.id,
     )
+    await catalog_track(track_b)
     await app_node.connect(track_a, edge=CONTAINS)
     await app_node.connect(track_b, edge=CONTAINS)
     await track_a.connect(cp, edge=HAS_OPERATIONAL_MODEL)
@@ -83,19 +95,22 @@ async def test_shared_cp_admin_on_sibling_does_not_grant_edit_on_other_track_vie
         username="view-acl-outsider",
         hashed_password="x",
     )
+    await catalog_user(outsider)
     await outsider.connect(workspace, edge=IS_MEMBER_OF, role="guest")
     # Outsider is collaborator/admin only on track A — not B.
     from app.models.edges import COLLABORATES_ON
 
     await outsider.connect(track_a, edge=COLLABORATES_ON, role="owner")
 
-    view_a = await View.create(
+    view_a = await create_track_view(
+        track_a,
         name="Board A",
         type="kanban",
         track_id=track_a.id,
         operational_model_id=cp.id,
     )
-    view_b = await View.create(
+    view_b = await create_track_view(
+        track_b,
         name="Board B",
         type="kanban",
         track_id=track_b.id,

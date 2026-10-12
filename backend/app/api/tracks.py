@@ -26,7 +26,7 @@ from app.models.edges import (
     EXCLUDED_FROM,
     WATCHES,
 )
-from app.models.nodes import OperationalModel, Track, User
+from app.models.nodes import OperationalModel, Track
 from app.schemas.policy import Resource, Subject
 from app.services.app_graph import (
     get_track_attached_operational_model,
@@ -47,10 +47,10 @@ from app.services.operational_model_runtime import (
     invalidate_manifest_cache,
     synchronize_track_view_default_flags,
 )
-from app.services.ownership_transfer import transfer_track_ownership
 from app.services.pagination import DEFAULT_ENTITY_SORT, paginate_nodes_by_ids
 from app.services.permissions import (
     count_user_accessible_entries,
+    count_user_accessible_entries_for_tracks,
     get_user_accessible_tracks,
     get_user_node,
     resolve_role,
@@ -165,15 +165,16 @@ async def list_tracks(
     # count + parent_app + operational_model + anchor). Lift to per-track
     # parallel: each track's 4 attaches run together (asyncio.gather),
     # and all N tracks run in parallel against the now-indexed substrate.
+    counts = await count_user_accessible_entries_for_tracks(user_id, page_tracks)
+
     async def _enrich_one(t: Track) -> Dict[str, Any]:
         data = await export_node(t)
-        count, _, _, _ = await asyncio.gather(
-            count_user_accessible_entries(user_id, t.id),
+        await asyncio.gather(
             attach_parent_app_to_track_data(data, t),
             attach_operational_model_defaults_to_track_data(data, t),
             attach_anchor_source_to_track_data(data, t),
         )
-        data["entry_count"] = count
+        data["entry_count"] = counts[t.id]
         data["action_url"] = resolve_resource_action_url("track", t.id)
         return data
 
@@ -247,7 +248,9 @@ async def create_track(
         # Pitfall 6: direct service call, NOT an MCP-wrapped re-dispatch.
         from app.api.operational_models import resolve_type_hint
 
-        matches = await resolve_type_hint(type_hint, workspace_id=workspace_id)
+        matches = await resolve_type_hint(
+            type_hint, workspace_id=workspace_id, user_id=user_id
+        )
         if not matches:
             type_hint_warning = (
                 "type_hint did not resolve to any library package; "
@@ -495,7 +498,7 @@ async def merge_library_into_track_operational_model(
         raise ResourceNotFoundError(message="Operational Model not found")
     prior_snapshot = await export_node(tcp)  # D-03 before-snapshot
     await merge_library_manifest_into_operational_model(
-        lib, tcp, track, for_space=False
+        lib, tcp, track, for_space=False, user_id=user_id
     )
     track.library_merge_source_id = library_operational_model_id
     await track.save()
@@ -636,7 +639,7 @@ async def delete_track(request: Request, track_id: str) -> Dict[str, Any]:
     # See app/services/entry_deletion.py for the rationale.
     from app.services.app_deletion import delete_track_and_nested_content
 
-    await delete_track_and_nested_content(track)
+    await delete_track_and_nested_content(track, actor_user_id=user_id)
 
     # D-05 single emission path. Sync inline emit before HTTP response (D-06).
     await emit_change_event(
@@ -790,6 +793,25 @@ async def list_collaborators(request: Request, track_id: str) -> Dict[str, Any]:
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
+    from app.services.sharing import can_review_resource_access
+
+    if not await can_review_resource_access(user_id, "track", track_id):
+        current_track = await Track.get(track_id)
+        visibility = getattr(current_track, "visibility", None)
+        reduced_visibility_grant = (
+            "public"
+            if visibility == "public"
+            else ("workspace" if visibility in {"workspace", "organization"} else None)
+        )
+        return {
+            "collaborators": [],
+            "total": 0,
+            "effective_total": 0,
+            "track_id": track_id,
+            "caller_role": await resolve_role(user_id, "track", track_id),
+            "directory_visible": False,
+            "visibility_grant": reduced_visibility_grant,
+        }
     _decision = await policy_evaluate(
         subject=Subject(kind="human", id=user_id),
         action="track.read",
@@ -837,7 +859,12 @@ async def list_collaborators(request: Request, track_id: str) -> Dict[str, Any]:
     # inherited rows for the same user.
     rows: Dict[str, Dict[str, Any]] = {}
 
-    owner_node = await get_user_node(track.owner_id)
+    owners = await track.nodes(edge=["OWNS"], direction="in", node=["User"], limit=2)
+    if len(owners) > 1:
+        from app.exceptions import AuthorizationUnavailableError
+
+        raise AuthorizationUnavailableError()
+    owner_node = await get_user_node(owners[0].id) if owners else None
     if owner_node:
         # Never full-export User — preferences hold reset/OTP hashes.
         data = await public_user_view(owner_node)
@@ -956,8 +983,8 @@ async def list_collaborators(request: Request, track_id: str) -> Dict[str, Any]:
     result = list(rows.values())
     effective_count = sum(1 for r in result if r.get("effective_access"))
 
+    track_vis = track.visibility
     visibility_grant: Optional[str] = None
-    track_vis = getattr(track, "visibility", None)
     if track_vis == "public":
         visibility_grant = "public"
     elif track_vis in ("workspace", "organization") and bool(
@@ -995,22 +1022,10 @@ async def list_mention_candidates(
     q: str = "",
     limit: int = 8,
 ) -> Dict[str, Any]:
-    """List users eligible to be ``@``-mentioned on this track.
+    """Mention eligible named collaborators, never the global user directory.
 
-    Mirrors the access-model cascade so the @-picker can never surface a
-    user that lacks effective visibility on the track:
-
-      * ``track.visibility == "public"`` → fall through to the global user
-        search the picker used pre-scoping (anyone authenticated can read).
-      * Otherwise → owner + direct ``COLLABORATES_ON`` + app-inherited
-        ``COLLABORATES_ON``, minus ``EXCLUDED_FROM`` (deny overrides
-        inherited paths only — direct/owner survive). Workspace-visibility
-        tracks do NOT enumerate the workspace member pool: visibility on a
-        track is not the same as a working relationship with it, and the
-        picker stays tight to keep drive-by mentions off shared boards.
-
-    Query ``q`` is case-insensitive contains against display_name and the
-    email local-part. Cap defaults to 8, clamps to [1, 50].
+    Public visibility does not expand the mention cohort. Project only public
+    identity fields, and recheck each candidate's current resource authority.
     """
     user_id = resolve_principal_id(request)
     if not user_id:
@@ -1037,7 +1052,6 @@ async def list_mention_candidates(
         cap = 8
     cap = max(1, min(cap, 50))
     q_norm = (q or "").strip().casefold()
-    track_vis = getattr(track, "visibility", None)
 
     async def _hydrate(u: Any) -> Dict[str, Any]:
         # Projection, not a raw export: this is a collaborator picker, so it
@@ -1046,15 +1060,6 @@ async def list_mention_candidates(
         # password-reset slot) or ``notification_preferences`` (holds the
         # verified WhatsApp phone). See app/api/utils.py::public_user_view.
         data = await public_user_view(u)
-        if getattr(u, "user_id", None):
-            try:
-                from jvspatial.api.auth.models import User as AuthUser
-
-                au = await AuthUser.get(u.user_id)
-                if au:
-                    data["email"] = getattr(au, "email", "") or ""
-            except Exception:
-                pass
         return data
 
     def _q_match(data: Dict[str, Any]) -> bool:
@@ -1072,38 +1077,6 @@ async def list_mention_candidates(
 
     def _is_caller(u: Any) -> bool:
         return u.id == caller_node_id or getattr(u, "user_id", None) == user_id
-
-    if track_vis == "public":
-        import re as _re
-
-        from jvspatial.core.pager import ObjectPager
-
-        filters: Dict[str, Any] = {}
-        if q_norm:
-            filters["context.display_name"] = {
-                "$regex": _re.escape(q),
-                "$options": "i",
-            }
-        # Pull a wider page than the cap so an email-local-part match can
-        # bubble in even when the display_name DB filter eliminates it.
-        pager = ObjectPager(User, page_size=max(cap * 4, 32), filters=filters)
-        users: List[Any] = await pager.get_page(page=1)
-        out: List[Dict[str, Any]] = []
-        for u in users:
-            if _is_caller(u):
-                continue
-            data = await _hydrate(u)
-            if not _q_match(data):
-                continue
-            out.append(data)
-            if len(out) >= cap:
-                break
-        return {
-            "users": out,
-            "track_id": track_id,
-            "visibility_grant": "public",
-            "total": len(out),
-        }
 
     ctx = await track.get_context()
 
@@ -1189,6 +1162,8 @@ async def list_mention_candidates(
             continue
         if uid in excluded_user_ids and not _has_direct_path(uid):
             continue
+        if await resolve_role(u.id, "track", track.id) is None:
+            continue
         data = await _hydrate(u)
         if not _q_match(data):
             continue
@@ -1199,7 +1174,7 @@ async def list_mention_candidates(
     return {
         "users": out,
         "track_id": track_id,
-        "visibility_grant": None,
+        "visibility_grant": "public" if track.visibility == "public" else None,
         "total": len(out),
     }
 
@@ -1353,32 +1328,14 @@ async def post_transfer_track_ownership(
         raise InsufficientPermissionsError(
             message="Only the track owner can transfer ownership",
         )
-    prior_track = await Track.get(track_id)
-    prior_snapshot = await export_node(prior_track) if prior_track else None  # D-03
-    track = await transfer_track_ownership(
-        track_id=track_id,
-        acting_user_id=user_id,
-        new_owner_user_id=new_owner_user_id,
-    )
+    from app.services.ownership_consent import request_ownership_transfer
 
-    # D-05 single emission path. Sync inline emit before HTTP response (D-06).
-    await emit_change_event(
-        actor_kind="human",
+    return await request_ownership_transfer(
         actor_id=user_id,
-        action="track.update",
-        resource_type="Track",
-        resource_id=track.id,
-        before=prior_snapshot,
-        after=await export_node(track),
-        scope=f"track:{track.id}",
+        resource_type="track",
+        resource_id=track_id,
+        recipient_id=new_owner_user_id,
     )
-
-    return {
-        "message": "Ownership transferred",
-        "track": await export_node(track),
-        "track_id": track_id,
-        "new_owner_user_id": new_owner_user_id,
-    }
 
 
 # ---------------------------------------------------------------------------

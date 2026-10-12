@@ -19,6 +19,7 @@ import pytest
 from app.models.edges import IS_MEMBER_OF
 from app.models.nodes import App, OperationalModel, Workspace
 from app.services.app_batch_install import _has_path, _topo_sort, batch_install
+from app.services.app_graph import catalog_workspace
 from app.utils.time import utc_now_iso
 
 # ---------------------------------------------------------------------------
@@ -28,7 +29,7 @@ from app.utils.time import utc_now_iso
 
 async def _make_workspace(name: str = "Batch WS") -> Workspace:
     now = utc_now_iso()
-    return await Workspace.create(
+    workspace = await Workspace.create(
         kind="organization",
         workspace_type="company",
         name=name,
@@ -36,6 +37,8 @@ async def _make_workspace(name: str = "Batch WS") -> Workspace:
         created_at=now,
         updated_at=now,
     )
+    await catalog_workspace(workspace)
+    return workspace
 
 
 def _manifest(
@@ -91,15 +94,32 @@ async def _seed_library(
     manifest = _manifest(
         name=name, slug=slug, requires=requires, requires_specs=requires_specs
     )
-    return await OperationalModel.create(
-        name=name,
-        slug=slug or name.lower(),
-        manifest=manifest,
-        library_package=True,
-        scope="app",
-        created_at=utc_now_iso(),
-        updated_at=utc_now_iso(),
+    from app.models.nodes import OPERATIONAL_MODELS_REGISTRY_ID, OperationalModels
+    from app.services.app_graph import ensure_catalog_edge
+    from app.services.operational_model_library_seed import (
+        upsert_seeded_library_packages,
     )
+    from app.services.operational_model_loader import LibraryProfileSpec
+
+    package_slug = slug or name.lower()
+    registry = await OperationalModels.get(OPERATIONAL_MODELS_REGISTRY_ID)
+    await upsert_seeded_library_packages(
+        catalog_registry=registry,
+        specs=[
+            LibraryProfileSpec(
+                name=name,
+                slug=package_slug,
+                version="1.0.0",
+                description=manifest["package"]["description"],
+                manifest=manifest,
+                scope="platform",
+                library_package=True,
+            )
+        ],
+        now_iso=utc_now_iso(),
+        ensure_catalog_edge=ensure_catalog_edge,
+    )
+    return (await OperationalModel.find({"context.metadata.slug": package_slug}))[0]
 
 
 # ---------------------------------------------------------------------------
@@ -245,15 +265,7 @@ async def test_batch_install_partial_success(test_user) -> None:
     await test_user.connect(ws, edge=IS_MEMBER_OF, role="owner", added_at=utc_now_iso())
     ok = await _seed_library("partial_ok")
     # broken: declares a hard dep on a bundle that's neither in the batch nor installed.
-    broken_manifest = _manifest(name="partial_broken", requires=["never_installed_dep"])
-    broken = await OperationalModel.create(
-        name="partial_broken",
-        manifest=broken_manifest,
-        library_package=True,
-        scope="app",
-        created_at=utc_now_iso(),
-        updated_at=utc_now_iso(),
-    )
+    broken = await _seed_library("partial_broken", requires=["never_installed_dep"])
 
     result = await batch_install(
         workspace_id=ws.id,

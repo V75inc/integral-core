@@ -117,18 +117,8 @@ async def test_update_entry_internal_validates_required_payload():
 
 
 @pytest.mark.asyncio
-async def test_create_entry_internal_with_internal_actor_bypasses_policy():
-    """Threading _internal_actor=Subject(kind='system',...) bypasses the
-    fail-closed agent policy gate via the system recursion guard.
-
-    Without _internal_actor, an agent with no HAS_POLICY edge gets
-    Decision(allowed=False, reason='fail_closed_no_policy') → PermissionError.
-    With _internal_actor=Subject(kind='system', id='approval_approve')
-    the engine short-circuits to allowed=True before reaching the policy
-    lookup (policy_engine.py:457-459). The downstream Track.get(missing-id)
-    will raise ValueError; that's the expected next failure (proves the
-    policy gate was bypassed).
-    """
+async def test_approval_internal_actor_cannot_bypass_current_policy():
+    """A system-shaped approval marker conveys no original actor authority."""
     from app.services.entry_writer import create_entry_internal
 
     # Without _internal_actor — fail-closed (agent has no policy):
@@ -141,10 +131,7 @@ async def test_create_entry_internal_with_internal_actor_bypasses_policy():
             payload={"track_id": "missing-track-id-zzz"},
         )
 
-    # With _internal_actor — policy bypassed; next failure is Track.get
-    # (ValueError, not PermissionError). This is the proof the recursion
-    # guard reached evaluate(): if it hadn't, PermissionError would fire first.
-    with pytest.raises(ValueError, match="not found"):
+    with pytest.raises(PermissionError, match="policy denied"):
         await create_entry_internal(
             actor_kind="agent",
             actor_id="agent-no-policy-1",

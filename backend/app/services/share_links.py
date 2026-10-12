@@ -20,20 +20,16 @@ import hashlib
 import logging
 import secrets
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Literal, Optional, cast
+from typing import Any, Dict, List, Literal, Optional
 
-from app.models.edges import COLLABORATES_ON, HAS_SHARE_LINK, OWNS
+from app.models.edges import HAS_SHARE_LINK
 from app.models.nodes import ShareLink
-from app.schemas.audit import ChangeEventAction
-from app.services.change_event import emit_change_event
-from app.services.permissions import get_user_node, resolve_role
+from app.services.permissions import resolve_role
 from app.services.sharing import (
-    _emit_share_notification,
     _load_resource,
-    _resource_label,
     _resource_workspace_id,
-    ensure_guest_membership,
 )
+from app.services.sharing_write_scope import collaboration_mutation
 from app.utils.time import utc_now_iso
 
 logger = logging.getLogger(__name__)
@@ -196,6 +192,7 @@ async def _wire_share_link_to_resource(
         ) from exc
 
 
+@collaboration_mutation
 async def mint_share_link(
     actor_user_id: str,
     resource_type: ResourceType,
@@ -224,7 +221,7 @@ async def mint_share_link(
     if max_redemptions is None:
         cap = 25 if intent == "collaborator" else 0
     else:
-        if max_redemptions < 0:
+        if type(max_redemptions) is not int or max_redemptions < 0:
             raise BadRequestError(message="max_redemptions must be >= 0.")
         cap = max_redemptions
 
@@ -272,12 +269,11 @@ async def mint_share_link(
         resource_id=resource_id,
         attached_at=now_iso,
     )
-    await emit_change_event(
-        actor_kind="human",
+    from app.services.share_link_lifecycle import record_mint_event
+
+    await record_mint_event(
+        link=link,
         actor_id=actor_user_id,
-        action=cast(ChangeEventAction, f"{resource_type}.share_link.mint"),
-        resource_type=resource_type.capitalize(),
-        resource_id=resource_id,
         before=None,
         after={
             "share_link_id": link.id,
@@ -285,7 +281,6 @@ async def mint_share_link(
             "intent": intent,
             "expires_at": expires_at,
         },
-        scope=f"{resource_type}:{resource_id}",
     )
     return {
         "share_link": {
@@ -304,173 +299,17 @@ async def mint_share_link(
 
 
 async def revoke_share_link(actor_user_id: str, share_link_id: str) -> Dict[str, Any]:
-    """Mark a link as revoked. Subsequent redeem attempts return 410."""
-    from app.api.errors import InsufficientPermissionsError, ResourceNotFoundError
+    """Disable future redemption; accepted sources require separate revocation."""
+    from app.services.share_link_lifecycle import disable_source_link
 
-    link = await ShareLink.get(share_link_id)
-    if not link:
-        raise ResourceNotFoundError(message="Share link not found.")
-    from app.schemas.policy import Resource, Subject
-    from app.services.policy_engine import evaluate as policy_evaluate
-
-    decision = await policy_evaluate(
-        subject=Subject(kind="human", id=actor_user_id),
-        action=f"{link.resource_type}.share_link.revoke",
-        resource=Resource(
-            kind=link.resource_type,
-            id=link.resource_id,
-            scope=f"{link.resource_type}:{link.resource_id}",
-        ),
-    )
-    if not decision.allowed:
-        raise InsufficientPermissionsError(
-            message="Only the resource owner or admin may revoke share links."
-        )
-    if not link.revoked_at:
-        link.revoked_at = _now_iso()
-        await link.save()
-    await emit_change_event(
-        actor_kind="human",
-        actor_id=actor_user_id,
-        action=cast(ChangeEventAction, f"{link.resource_type}.share_link.revoke"),
-        resource_type=link.resource_type.capitalize(),
-        resource_id=link.resource_id,
-        before=None,
-        after={"share_link_id": link.id},
-        scope=f"{link.resource_type}:{link.resource_id}",
-    )
-    return {"share_link_id": link.id, "revoked_at": link.revoked_at}
+    return await disable_source_link(actor_user_id, share_link_id)
 
 
 async def redeem_share_link(actor_user_id: str, plaintext_token: str) -> Dict[str, Any]:
-    """Signed-in redeem. Materializes COLLABORATES_ON + guest IS_MEMBER_OF."""
-    from app.api.errors import (
-        BadRequestError,
-        InsufficientPermissionsError,
-        ResourceNotFoundError,
-    )
+    """Redeem through the canonical atomic source-lifetime service."""
+    from app.services.share_link_lifecycle import redeem_source_link
 
-    if not actor_user_id:
-        raise InsufficientPermissionsError(message="Authentication required.")
-    if not plaintext_token:
-        raise BadRequestError(message="Token is required.")
-
-    from app.schemas.policy import Resource, Subject
-    from app.services.policy_engine import evaluate as policy_evaluate
-
-    token_hash = _hash_token(plaintext_token)
-    matches = await ShareLink.find({"context.token_hash": token_hash})
-    if not matches:
-        raise ResourceNotFoundError(message="Invalid or revoked link.")
-    link = matches[0]
-    if not secrets.compare_digest(str(link.token_hash or ""), token_hash):
-        raise ResourceNotFoundError(message="Invalid or revoked link.")
-    if link_intent(link) == "public":
-        raise BadRequestError(
-            message="This link is for public viewing; sign in is not required."
-        )
-    redeem_decision = await policy_evaluate(
-        subject=Subject(kind="human", id=actor_user_id),
-        action=f"{link.resource_type}.share_link.redeem",
-        resource=Resource(
-            kind=link.resource_type,
-            id=link.resource_id,
-            scope=f"{link.resource_type}:{link.resource_id}",
-        ),
-    )
-    if not redeem_decision.allowed:
-        raise InsufficientPermissionsError(message="Access denied.")
-
-    if _is_revoked(link):
-        raise BadRequestError(message="This share link has been revoked.")
-    if _is_expired(link):
-        raise BadRequestError(message="This share link has expired.")
-    max_r = int(getattr(link, "max_redemptions", 0) or 0)
-    if max_r > 0 and int(getattr(link, "redemptions", 0) or 0) >= max_r:
-        raise BadRequestError(
-            message="This share link has reached its redemption limit."
-        )
-
-    user = await get_user_node(actor_user_id)
-    if user is None:
-        raise ResourceNotFoundError(message="User not found.")
-    resource = await _load_resource(link.resource_type, link.resource_id)
-    if resource is None:
-        raise ResourceNotFoundError(
-            message=f"Linked {link.resource_type} no longer exists."
-        )
-
-    if not await _reserve_redemption(link):
-        raise BadRequestError(
-            message="This share link has reached its redemption limit."
-        )
-
-    # Cross-workspace guest membership.
-    if link.workspace_id:
-        await ensure_guest_membership(
-            user,
-            link.workspace_id,
-            inviter_user_id=link.created_by,
-            source_label=f"share_link:{link.id}",
-        )
-
-    # A link grants a direct role. Inherited workspace visibility can give a
-    # recipient an effective viewer role without the promised collaborator
-    # edge, so inspect direct edges instead of resolve_role here.
-    from app.services.edge_upsert import ensure_edge, find_existing_edge
-
-    existing = await find_existing_edge(user, resource, COLLABORATES_ON)
-    owned = await find_existing_edge(user, resource, OWNS)
-    created_edge = False
-    if existing is None and owned is None:
-        await ensure_edge(
-            user,
-            resource,
-            COLLABORATES_ON,
-            role=link.role,
-            invited_at=_now_iso(),
-            invited_by=link.created_by or "system:share-link",
-        )
-        created_edge = True
-        label = await _resource_label(link.resource_type, resource)
-        await _emit_share_notification(
-            recipient_user_id=user.id,
-            kind="share.link_redeemed",
-            title=f"You joined {label}",
-            body=f"Role: {link.role}",
-            resource_type=link.resource_type,  # type: ignore[arg-type]
-            resource_id=link.resource_id,
-        )
-
-    # A pre-redeem role probe can cache "no access" under either the graph
-    # User id or auth principal. The guest edge alone is insufficient for a
-    # private resource; evict both aliases after the collaborator edge exists.
-    from app.services.permissions_process_cache import invalidate_user_aliases
-
-    invalidate_user_aliases(user)
-
-    await emit_change_event(
-        actor_kind="human",
-        actor_id=actor_user_id,
-        action=cast(ChangeEventAction, f"{link.resource_type}.share_link.redeem"),
-        resource_type=link.resource_type.capitalize(),
-        resource_id=link.resource_id,
-        before=None,
-        after={
-            "share_link_id": link.id,
-            "role": link.role,
-            "created_edge": created_edge,
-        },
-        scope=f"{link.resource_type}:{link.resource_id}",
-    )
-
-    return {
-        "resource_type": link.resource_type,
-        "resource_id": link.resource_id,
-        "role": link.role,
-        "created_edge": created_edge,
-        "redirect_to": f"/{link.resource_type}s/{link.resource_id}",
-    }
+    return await redeem_source_link(actor_user_id, plaintext_token)
 
 
 async def list_active_links(
@@ -480,7 +319,15 @@ async def list_active_links(
     from app.api.errors import InsufficientPermissionsError
 
     role_on_resource = await resolve_role(actor_user_id, resource_type, resource_id)
-    if role_on_resource not in ("owner", "admin"):
+    from app.services.workspace_governance import resolve_owner_governance
+
+    if (
+        role_on_resource not in ("owner", "admin")
+        and await resolve_owner_governance(
+            actor_user_id, resource_type, resource_id, "resource.access.review"
+        )
+        is None
+    ):
         raise InsufficientPermissionsError(
             message="Only the resource owner or admin may list share links."
         )

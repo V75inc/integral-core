@@ -6,6 +6,8 @@ import { sharingApi } from '../../api';
 import type { MyInvitation } from '../../api/sharing';
 import { Button, LINE_ICON_STROKE, Skeleton } from '../ui';
 import { useToast } from '../../context/ToastContext';
+import { Surface, Text } from '../../ui';
+import { invitationAcceptanceMessage } from '../../utils/invitationAcceptance';
 
 function invitationLabel(inv: MyInvitation): string {
   if (inv.target_resource_type && inv.target_resource_id) {
@@ -67,9 +69,9 @@ export function PendingInvitationsPanel({
     setWorkingId(inv.id);
     try {
       const res = await sharingApi.acceptMyInvitation(inv.id);
-      showToast(`Joined as ${res.role}`, 'success');
+      showToast(invitationAcceptanceMessage(res.role, res.grant_receipt), res.role ? 'success' : 'error');
       await refreshAll();
-      if (res.workspace?.id) {
+      if (res.role && res.workspace?.id) {
         navigate(`/workspaces/${res.workspace.id}`);
       }
     } catch (e: unknown) {
@@ -119,7 +121,7 @@ export function PendingInvitationsPanel({
   }
 
   const body = (
-    <ul className="divide-y divide-[var(--panel-border)] rounded-lg border border-[var(--panel-border)] bg-[var(--panel)]">
+    <Surface as="ul" tone="panel" border="default" radius="input" className="divide-y divide-[var(--panel-border)]">
       {invitations.map(inv => {
         const busy = workingId === inv.id;
         const label = invitationLabel(inv);
@@ -130,24 +132,26 @@ export function PendingInvitationsPanel({
             className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
           >
             <div className="min-w-0 flex items-start gap-3">
+              <Text tone="muted" className="shrink-0">
               <Mail
                 size={16}
                 strokeWidth={LINE_ICON_STROKE}
-                className="mt-0.5 shrink-0 text-[var(--text-muted)]"
+                className="mt-0.5"
                 aria-hidden
               />
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-[var(--text)] truncate">
+              </Text>
+              <div className="min-w-0 space-y-1">
+                <Text as="p" variant="body" weight="medium" truncate>
                   Join {label}
-                </p>
-                <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                </Text>
+                <Text as="p" variant="body-sm" tone="muted">
                   Role: {role}
                   {inv.expires_at ? ` · Expires ${inv.expires_at.slice(0, 10)}` : ''}
-                </p>
+                </Text>
                 {inv.message ? (
-                  <p className="text-xs text-[var(--text-subtle)] mt-1 italic truncate">
+                  <Text as="p" variant="body-sm" tone="subtle" truncate>
                     "{inv.message}"
-                  </p>
+                  </Text>
                 ) : null}
               </div>
             </div>
@@ -172,7 +176,7 @@ export function PendingInvitationsPanel({
           </li>
         );
       })}
-    </ul>
+    </Surface>
   );
 
   if (compact) {
@@ -182,15 +186,12 @@ export function PendingInvitationsPanel({
   return (
     <section aria-labelledby="pending-invitations-heading" className="mb-12">
       <div className="flex items-baseline justify-between mb-4">
-        <h2
-          id="pending-invitations-heading"
-          className="text-[13px] uppercase tracking-[0.16em] text-[var(--text-subtle)] font-medium"
-        >
+        <Text as="h2" id="pending-invitations-heading" variant="body-sm" weight="medium" tone="subtle">
           Pending invitations
-        </h2>
-        <span className="text-xs text-[var(--text-subtle)]">
+        </Text>
+        <Text variant="body-sm" tone="subtle">
           {invitations.length} awaiting your response
-        </span>
+        </Text>
       </div>
       {body}
     </section>

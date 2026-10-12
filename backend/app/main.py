@@ -262,18 +262,16 @@ if not _oauth_is_dev:
 from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from jvspatial.api import Server as _BaseServer
 from jvspatial.api.config_groups import (
     AuthConfig,
     CORSConfig,
     DatabaseConfig,
     RateLimitConfig,
 )
-
-Server = _BaseServer
-
 from jvspatial.env import env, parse_bool, parse_csv
 from jvspatial.logging import configure_standard_logging, initialize_logging_database
+
+from app.server import IntegralServer as Server
 
 # Extra auth-exempt paths must be explicitly allowlisted — no wildcards.
 _AUTH_EXEMPT_EXTRA_ALLOWLIST = frozenset(
@@ -326,6 +324,13 @@ _AUTH_EXEMPT_PATHS_EXTRA = _validate_auth_exempt_paths_extra(
     env("INTEGRAL_AUTH_EXEMPT_PATHS_EXTRA", default=[], parse=parse_csv)
 )
 
+from app.models.access_delegation import (
+    AppActionBinding,
+    WorkspaceAccessGroup,
+)
+from app.models.access_lifecycle import (
+    OwnershipProposal,
+)
 from app.models.nodes import (
     App,  # Phase 10 / Plan 10-01 — user-facing primitive (formerly ``Space``).
 )
@@ -371,6 +376,7 @@ from app.models.nodes import (
     View,
     Views,
     Workspace,
+    WorkspaceAuthorizationState,
     Workspaces,
 )
 
@@ -627,6 +633,23 @@ async def _ensure_model_indexes() -> None:
 
 async def _startup() -> None:
     """Configure logging and optional DB logging at server startup."""
+    # Database-only recovery does not boot this module. Every API boot checks
+    # the independently supplied managed restore marker before starting tasks.
+    marker_path = os.environ.get("INTEGRAL_RECOVERY_MARKER")
+    if marker_path:
+        from pathlib import Path
+
+        from app.local_runtime import _require_recovery_review
+
+        marker = Path(marker_path)
+        if marker.name != "recovery.json":
+            raise RuntimeError("Invalid restore recovery marker location")
+        _require_recovery_review(marker.parent)
+        if marker.exists():
+            from app.local_runtime import read_json
+            from app.services.access_recovery import require_reviewed_primary_receipt
+
+            await require_reviewed_primary_receipt(read_json(marker))
     # Operational Model code-plugin discovery runs unconditionally (including
     # under TESTING) so that test runs see the same registry surface a real
     # boot does. Built-in primitives are registered at module import time;
@@ -1283,6 +1306,10 @@ server = Server(
         OperationalModel,
         User,
         Workspace,
+        WorkspaceAuthorizationState,
+        WorkspaceAccessGroup,
+        AppActionBinding,
+        OwnershipProposal,
         Apps,
         Tracks,
         ChatThreads,

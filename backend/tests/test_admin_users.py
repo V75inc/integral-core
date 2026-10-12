@@ -127,7 +127,10 @@ async def test_admin_cannot_deactivate_self(
     authenticated_admin_client: AsyncClient,
     test_user,
 ):
-    user_id = getattr(test_user, "user_id", None) or getattr(test_user, "id", "")
+    current = await authenticated_admin_client.get("/api/auth/me")
+    assert current.status_code == 200, current.text
+    current_user = current.json().get("user", current.json())
+    user_id = current_user.get("user_id") or current_user["id"]
     resp = await authenticated_admin_client.post(
         f"/api/admin/users/{user_id}/deactivate"
     )

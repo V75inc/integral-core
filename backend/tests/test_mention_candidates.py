@@ -180,23 +180,16 @@ class TestMentionCandidatesEndpoint:
         )
         assert len(r.json()["users"]) <= 1
 
-    async def test_public_visibility_falls_through_to_global_search(
+    async def test_public_visibility_does_not_expand_to_global_search(
         self, authenticated_client: AsyncClient, test_user, test_user2
     ):
-        """``visibility=public`` flips the picker into global-search mode.
-
-        On a public track even non-collaborators can be @-mentioned because
-        anyone authenticated can read the track. The response carries
-        ``visibility_grant = "public"`` so the frontend can render an
-        appropriate hint.
-        """
+        """Public content does not grant a global mention directory."""
         tr = await authenticated_client.post(
             "/api/tracks",
             json={"title": "Public Track", "visibility": "public"},
         )
         track_id = tr.json()["track"]["id"]
-        # test_user2 has NO collaborator edge on this track — yet should be
-        # reachable via global search on the public-vis branch.
+        # An unrelated account is not a named participant.
         r = await authenticated_client.get(
             f"/api/tracks/{track_id}/mention-candidates",
             params={"q": "user 2"},
@@ -204,9 +197,8 @@ class TestMentionCandidatesEndpoint:
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["visibility_grant"] == "public"
-        # On public-vis the global search reaches test_user2 even without
-        # an explicit edge.
-        assert test_user2.id in {u["id"] for u in body["users"]}
+        # Public visibility remains a hint, not directory authority.
+        assert test_user2.id not in {u["id"] for u in body["users"]}
 
     async def test_unknown_track_returns_404(
         self, authenticated_client: AsyncClient, test_user
