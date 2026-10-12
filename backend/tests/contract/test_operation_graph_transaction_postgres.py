@@ -36,6 +36,8 @@ class _RollbackProbe(Exception):
 async def test_transaction_track_count_preserves_entry_access_overrides(
     postgres_raw_db,
 ) -> None:
+    from jvspatial.core.context import GraphContext, scoped_default_context_async
+
     from app.models.edges import (
         COLLABORATES_ON,
         CONTAINS,
@@ -44,8 +46,16 @@ async def test_transaction_track_count_preserves_entry_access_overrides(
         OWNS,
     )
     from app.models.nodes import Entry, Track, User, Workspace
-    from app.services.app_graph import catalog_track, catalog_user, catalog_workspace
+    from app.services.app_graph import (
+        catalog_track,
+        catalog_user,
+        catalog_workspace,
+        ensure_integral_app_graph,
+    )
     from app.services.permissions import count_user_accessible_entries
+
+    async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+        await ensure_integral_app_graph(include_library=False)
 
     async with postgres_graph_transaction(postgres_raw_db):
         owner = await User.create(user_id=uuid.uuid4().hex, display_name="Owner")

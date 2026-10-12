@@ -13,7 +13,11 @@ from __future__ import annotations
 
 from app.models.edges import IS_MEMBER_OF
 from app.models.nodes import User, Workspace
-from app.services.app_graph import catalog_user, catalog_workspace
+from app.services.app_graph import (
+    catalog_user,
+    catalog_workspace,
+    ensure_integral_app_graph,
+)
 from app.utils.time import utc_now_iso
 
 
@@ -26,6 +30,7 @@ async def make_org_workspace(
     ``overrides`` passes through to ``Workspace.create`` for the few callers
     that need a different shape.
     """
+    await ensure_integral_app_graph(include_library=False)
     now = utc_now_iso()
     fields = {
         "kind": "organization",

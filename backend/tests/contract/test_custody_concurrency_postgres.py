@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -55,7 +54,7 @@ async def _try_checkout_entry(user_id: str, entry_id: str) -> bool:
 
 
 async def _try_revision_write(
-    entry_id: str, value: str, expected_revision: int
+    entry_id: str, value: str, expected_revision: int, user_id: str
 ) -> bool:
     from app.models.nodes import Entry
     from app.services.entry_conditional_update import (
@@ -69,7 +68,7 @@ async def _try_revision_write(
         expected_revision=expected_revision,
         updates={**entry.custom_fields, "claim_note": value},
         schema_revision=int(entry.schema_revision),
-        user_id="u1",
+        user_id=user_id,
         scope="test:revision-cas",
         event_sink=lambda _event: None,
     )
@@ -81,59 +80,44 @@ async def _try_revision_write(
 async def test_entry_conditional_update_concurrent_one_wins(postgres_raw_db):
     from jvspatial.core.context import GraphContext, _default_context_var
 
-    from app.models.edges import CONTAINS
-    from app.models.nodes import App, Entry, IntegralApp, Track
-    from app.services.app_graph import ensure_integral_app_graph
+    from app.models.edges import CONTAINS, IS_OF_TYPE
+    from app.models.nodes import Entry, EntryType
+    from app.services.app_graph import ensure_track_attached_operational_model
+    from tests.test_resource_location import graph
 
     token = _default_context_var.set(GraphContext(database=postgres_raw_db))
-    suffix = uuid.uuid4().hex[:12]
     try:
-        await ensure_integral_app_graph(include_library=False)
-        integral_app = await IntegralApp.get("n.IntegralApp.integral")
-        app = await App.create(
-            id=f"n.WorkspaceApp.cas-{suffix}",
-            name="CAS contract",
-            workspace_id=f"ws-cas-{suffix}",
-        )
-        track = await Track.create(
-            id=f"n.Track.cas-{suffix}",
-            title="CAS contract",
-            workspace_id=app.workspace_id,
-        )
-        entry = await Entry.create(
-            id=f"n.Entry.cas-{suffix}",
-            title="Contract asset",
+        owner, _, _, track, entry = await graph()
+        model = await ensure_track_attached_operational_model(track)
+        entry_type = await EntryType.create(
+            name="Contract asset",
             track_id=track.id,
-            custom_fields={"lifecycle_state": "available"},
+            operational_model_id=model.id,
+            form_schema={
+                "fields": [
+                    {"key": "lifecycle_state", "type": "text"},
+                    {"key": "claim_note", "type": "text"},
+                ]
+            },
         )
-        # Build an actual rooted persisted graph; this exercises jvspatial's
-        # node/context serialization and the normal Entry.get path.
-        await integral_app.connect(app, edge=CONTAINS)
-        await app.connect(track, edge=CONTAINS)
-        await track.connect(entry, edge=CONTAINS)
-
-        with (
-            patch(
-                "app.services.permissions.resolve_role",
-                new=AsyncMock(return_value="owner"),
-            ),
-            patch(
-                "app.services.change_event.emit_change_event",
-                new=AsyncMock(),
-            ),
-        ):
-            results = await asyncio.gather(
-                _try_checkout_entry("u1", entry.id),
-                _try_checkout_entry("u1", entry.id),
-            )
+        await model.connect(entry_type, edge=CONTAINS)
+        await entry.connect(entry_type, edge=IS_OF_TYPE)
+        entry.type_id = entry_type.id
+        entry.custom_fields = {"lifecycle_state": "available"}
+        await entry.save()
+        # Race through real current identity, containment and Entry authority.
+        results = await asyncio.gather(
+            _try_checkout_entry(owner.id, entry.id),
+            _try_checkout_entry(owner.id, entry.id),
+        )
         assert sorted(results) == [False, True]
         refreshed = await Entry.get(entry.id)
         assert refreshed is not None
         assert refreshed.custom_fields["lifecycle_state"] == "checked_out"
         assert refreshed.record_revision == 2
         revision_results = await asyncio.gather(
-            _try_revision_write(entry.id, "first", 2),
-            _try_revision_write(entry.id, "second", 2),
+            _try_revision_write(entry.id, "first", 2, owner.id),
+            _try_revision_write(entry.id, "second", 2, owner.id),
         )
         assert sorted(revision_results) == [False, True]
         latest = await Entry.get(entry.id)

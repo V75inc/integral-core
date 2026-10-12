@@ -80,7 +80,15 @@ identity test and the complete query-budget module passed (six checks).
 Runtime source was unchanged between the complete run and the repair rerun.
 All `make verify` constituent gates are covered; the initial complete
 invocation itself exited nonzero and is retained as failed-attempt evidence.
-The merge still requires fresh PR CI on its exact committed head.
+The first PR CI run passed backend, frontend and independent artifacts but
+exposed seven failures in the broader PostgreSQL lane. Raw tests now bind
+the fresh graph and preinitialized audit store; normal Workspace/library/
+connector fixtures independently seed the root. The custody race uses a
+real admitted owner, rooted resources and a declared Entry type instead of
+mocked permissions and a fabricated actor. All 297 cases in the full
+PostgreSQL CI selection then passed on a freshly recreated review database;
+JSON fixture-consumer checks also passed. Assertions and real storage races
+remain intact. Fresh PR CI is still required on the updated committed head.
 Historical failed integration attempts are retained in local review logs; they
 are not passing evidence. Original milestone receipts remain separately scoped.
 

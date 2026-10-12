@@ -5,7 +5,7 @@ from app.models.nodes import (
     OperationalModel,
     OperationalModels,
 )
-from app.services.app_graph import ensure_catalog_edge
+from app.services.app_graph import ensure_catalog_edge, ensure_integral_app_graph
 from app.services.model_authority import platform_seed_model
 from app.services.operational_model_library_seed import upsert_seeded_library_packages
 from app.services.operational_model_loader import LibraryProfileSpec
@@ -15,6 +15,7 @@ from app.utils.time import utc_now_iso
 async def publish_library_spec(spec: LibraryProfileSpec) -> OperationalModel:
     """Publish one valid fixture spec; catalog membership alone is not enough."""
     assert spec.slug and spec.library_package
+    await ensure_integral_app_graph(include_library=False)
     registry = await OperationalModels.get(OPERATIONAL_MODELS_REGISTRY_ID)
     assert (
         registry is not None
