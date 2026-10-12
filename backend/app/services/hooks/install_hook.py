@@ -250,6 +250,17 @@ async def rehydrate_all_installed_bundles() -> None:
                     else compile_canonical_manifest(manifest=cp.manifest or {})
                 )
             )
+            if getattr(app_node, "installed_from_library_id", None):
+                from app.api.errors import EntitlementRequiredError
+                from app.services.entitlements import require_installed_app_entitlement
+
+                try:
+                    await require_installed_app_entitlement(app_node)
+                except EntitlementRequiredError:
+                    from app.services.app_lifecycle import pause_app
+
+                    await pause_app(app_id=app_node.id, actor_id="system:entitlement")
+                    continue
             bundle_dir = (
                 str((getattr(cp, "metadata", None) or {}).get("bundle_dir_path") or "")
                 or None

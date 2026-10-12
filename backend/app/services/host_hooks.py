@@ -34,6 +34,8 @@ BackgroundTaskFactory = Callable[[], Awaitable[Any]]
 MiddlewareFactory = Callable[[], Any]
 # (request, action, workspace_id) → raise or pass
 EntitlementMutationAuthorizer = Callable[[Any, str, str], Awaitable[Any]]
+# Trusted host access override; absence retains durable entitlement enforcement.
+EntitlementAccessResolver = Callable[[str, str, str], Awaitable[bool]]
 ModelPriceResolver = Callable[[ModelPriceRequest], Awaitable[ModelTokenPriceEvidence]]
 ModelBoundsResolver = Callable[[ModelDispatchInput], Awaitable[ModelPayloadBounds]]
 
@@ -63,6 +65,7 @@ _workspace_enricher: Optional[WorkspaceExportEnricher] = None
 _background_task_factories: List[BackgroundTaskFactory] = []
 _middleware_registrations: List[MiddlewareRegistration] = []
 _entitlement_mutation_authorizer: Optional[EntitlementMutationAuthorizer] = None
+_entitlement_access_resolver: Optional[EntitlementAccessResolver] = None
 _model_price_resolver: Optional[ModelPriceResolver] = None
 _model_bounds_resolver: Optional[ModelBoundsResolver] = None
 
@@ -144,6 +147,30 @@ def register_entitlement_mutation_authorizer(
     """Register (or clear) host policy for entitlement grant/revoke mutations."""
     global _entitlement_mutation_authorizer
     _entitlement_mutation_authorizer = fn
+
+
+def register_entitlement_access_resolver(
+    fn: Optional[EntitlementAccessResolver],
+) -> None:
+    """Register trusted host policy without minting durable access grants."""
+    global _entitlement_access_resolver
+    if fn is not None and not callable(fn):
+        raise TypeError("entitlement access resolver must be callable")
+    _entitlement_access_resolver = fn
+
+
+async def host_allows_entitlement_access(
+    workspace_id: str, entitlement_key: str, package_slug: str
+) -> bool:
+    """Only an explicit True overrides access; errors never grant access."""
+    if _entitlement_access_resolver is None:
+        return False
+    result = await _entitlement_access_resolver(
+        workspace_id, entitlement_key, package_slug
+    )
+    if not isinstance(result, bool):
+        raise TypeError("entitlement access resolver must return bool")
+    return result
 
 
 async def assert_entitlement_mutation_allowed(
