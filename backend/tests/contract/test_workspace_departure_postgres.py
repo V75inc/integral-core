@@ -37,7 +37,7 @@ async def test_workspace_departure_rolls_back_transfers_and_grants(monkeypatch):
     )
     with pytest.raises(RuntimeError, match="departure cleanup interrupted"):
         await workspace_departure.remove_workspace_membership(
-            member=member, workspace_id=workspace.id
+            member=member, workspace_id=workspace.id, actor_id=owner.id
         )
     # Read the physical store instead of the parent GraphContext's cache.
     assert [

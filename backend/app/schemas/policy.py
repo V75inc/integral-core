@@ -109,6 +109,7 @@ PolicyAction = Literal[
     "user.update",
     "user.delete",
     # Workspace primitive — Personal + Organization unified.
+    "workspace.read",
     "workspace.create",
     "workspace.update",
     "workspace.delete",
@@ -214,6 +215,8 @@ PolicyAction = Literal[
     # ORIGINAL action (e.g. entry.create) for approve, or ``policy.deny``
     # for reject. Single-Literal AST grep gate UNCHANGED — these are members
     # of the one existing definition.
+    "approval.approved",
+    "approval.rejected",
     "approval.approve",  # gate on POST /api/approvals/{id}/approve
     "approval.reject",  # gate on POST /api/approvals/{id}/reject
     # ---- Phase 10 Plan 10-05 additions ----
@@ -282,6 +285,7 @@ PolicyAction = Literal[
 
 
 ResourceKind = Literal[
+    "workspace",
     "entry",
     "track",
     "app",

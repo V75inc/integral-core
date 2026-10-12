@@ -202,46 +202,58 @@ async def provision_workspace_member(
             identities.values(), key=lambda value: value.user_id or value.id
         ):
             await _lock_identity(identity)
-        async with membership_write_scope(workspace.id):
+        actor, workspace, owner = await membership._manager(actor_id, workspace.id)
+        if body.role == "admin" and not owner:
+            raise InsufficientPermissionsError(
+                message="Only the workspace owner can grant admin"
+            )
+        if auth_user is not None:
+            user_node = await get_user_node(auth_user.id)
+            if (
+                user_node is None
+                or await verified_current_email(user_node) != email_norm
+            ):
+                raise InsufficientPermissionsError(
+                    message="Existing account must verify its current email"
+                )
+        else:
+            temp_password = generate_temp_password()
+            try:
+                response = await get_authentication_service().register_user(
+                    UserCreate(email=email_norm, password=temp_password)
+                )
+            except ValueError as exc:
+                raise ResourceConflictError(
+                    message="Account cannot be provisioned"
+                ) from exc
+            now = utc_now_iso()
+            user_node = await User.create(
+                user_id=response.id,
+                display_name=name,
+                email_verified=False,
+                created_at=now,
+                updated_at=now,
+            )
+            await catalog_user(user_node)
+            personal = await ensure_personal_workspace(user_node)
+            if await locate_resource("workspace", personal.id) is None:
+                raise AuthorizationUnavailableError()
+            set_must_change_password(user_node, True)
+            await user_node.save()
+            created = True
+        if user_node is None:
+            raise AuthorizationUnavailableError()
+        async with membership_write_scope(
+            workspace.id, principal_ids=(actor_id, user_node.id)
+        ):
             actor, workspace, owner = await membership._manager(actor_id, workspace.id)
             if body.role == "admin" and not owner:
                 raise InsufficientPermissionsError(
                     message="Only the workspace owner can grant admin"
                 )
-            if auth_user is not None:
-                user_node = await get_user_node(auth_user.id)
-                if (
-                    user_node is None
-                    or await verified_current_email(user_node) != email_norm
-                ):
-                    raise InsufficientPermissionsError(
-                        message="Existing account must verify its current email"
-                    )
-            else:
-                temp_password = generate_temp_password()
-                try:
-                    response = await get_authentication_service().register_user(
-                        UserCreate(email=email_norm, password=temp_password)
-                    )
-                except ValueError as exc:
-                    raise ResourceConflictError(
-                        message="Account cannot be provisioned"
-                    ) from exc
-                now = utc_now_iso()
-                user_node = await User.create(
-                    user_id=response.id,
-                    display_name=name,
-                    email_verified=False,
-                    created_at=now,
-                    updated_at=now,
-                )
-                await catalog_user(user_node)
-                personal = await ensure_personal_workspace(user_node)
-                if await locate_resource("workspace", personal.id) is None:
-                    raise AuthorizationUnavailableError()
-                set_must_change_password(user_node, True)
-                await user_node.save()
-                created = True
+            from app.services.workspace_suspension import require_unsuspended
+
+            await require_unsuspended(user_node.id, workspace.id)
             old = await membership._membership(user_node, workspace.id)
             already_member = old is not None
             if old is not None:

@@ -277,7 +277,7 @@ export const tracksApi = {
       .post(`/tracks/${trackId}/transfer-ownership`, {
         new_owner_user_id,
       })
-      .then(r => unwrapResource<Track>(r.data, 'track')),
+      .then(r => r.data as { proposal_id: string; status: string; revision: number }),
 
   getOperationalModel: (trackId: string) =>
     apiClient

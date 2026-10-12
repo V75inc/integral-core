@@ -172,6 +172,11 @@ in the same App's context; public ones resolve workspace-wide.
 | `register_asset` | not_required | — | — | `integral_invoke_app_operation` | — | — |
 | `review_warranties` | not_required | `review_warranties` | — | — | `assets` | — |
 
+### reference-change-control 1.0.0 (`examples/reference-change-control`)
+
+| Skill | Same-App focus | App capabilities | Core generic reads | Core writes | Target Tracks | Unresolved |
+| --- | --- | --- | --- | --- | --- | --- |
+
 ### reference-commercial-hello 1.0.0 (`examples/reference-commercial-hello`)
 
 | Skill | Same-App focus | App capabilities | Core generic reads | Core writes | Target Tracks | Unresolved |
@@ -182,6 +187,11 @@ in the same App's context; public ones resolve workspace-wide.
 | Skill | Same-App focus | App capabilities | Core generic reads | Core writes | Target Tracks | Unresolved |
 | --- | --- | --- | --- | --- | --- | --- |
 | `hello_world` | not_required | — | — | — | — | — |
+
+### reference-review-queue 1.0.0 (`examples/reference-review-queue`)
+
+| Skill | Same-App focus | App capabilities | Core generic reads | Core writes | Target Tracks | Unresolved |
+| --- | --- | --- | --- | --- | --- | --- |
 
 ## Diagnostics
 

@@ -789,7 +789,11 @@ async def remove_collaborator(
     resource = await _load_resource(resource_type, resource_id)
     if resource is None:
         raise ResourceNotFoundError(message=f"{resource_type.capitalize()} not found.")
-    collaborator = await get_user_node(collaborator_user_id)
+    from app.services.identity_admission import resolve_current_profile
+
+    collaborator = await resolve_current_profile(
+        collaborator_user_id, require_active=False
+    )
     if collaborator is None:
         raise ResourceNotFoundError(message="User not found.")
 
@@ -811,6 +815,9 @@ async def remove_collaborator(
             "resource_id": resource_id,
             "collaborator_user_id": collaborator.id,
             "removed_edges": 0,
+            "effective_role": await resolve_role(
+                collaborator.id, resource_type, resource_id
+            ),
         }
     await get_default_context().database.delete("edge", before["id"])
     if await _current_grant(collaborator.id, resource_id, COLLABORATES_ON) is not None:
@@ -825,12 +832,17 @@ async def remove_collaborator(
     if clock is None:
         raise AuthorizationUnavailableError()
     removed = 1
-    label = await _resource_label(resource_type, resource)
+    _invalidate_perm_cache(collaborator)
+    effective_role = await resolve_role(collaborator.id, resource_type, resource_id)
     await _emit_share_notification(
         recipient_user_id=collaborator.id,
         kind="share.collaborator_removed",
-        title=f"You were removed from {label}",
-        body="Your access has been revoked.",
+        title="Your direct collaboration grant was removed",
+        body=(
+            f"Remaining effective role: {effective_role}"
+            if effective_role
+            else "No current identified resource access remains."
+        ),
         resource_type=resource_type,
         resource_id=resource_id,
     )
@@ -860,6 +872,7 @@ async def remove_collaborator(
         "resource_id": resource_id,
         "collaborator_user_id": collaborator.id,
         "removed_edges": removed,
+        "effective_role": effective_role,
     }
 
 
@@ -868,6 +881,7 @@ async def remove_collaborator(
 # ---------------------------------------------------------------------------
 
 
+@collaboration_mutation
 async def add_exclusion(
     actor_user_id: str,
     resource_type: ResourceType,
@@ -931,6 +945,7 @@ async def add_exclusion(
     }
 
 
+@collaboration_mutation
 async def remove_exclusion(
     actor_user_id: str,
     resource_type: ResourceType,
@@ -1134,7 +1149,7 @@ async def can_review_resource_access(
         )
 
 
-async def list_access(
+async def _list_access(
     actor_user_id: str,
     resource_type: ResourceType,
     resource_id: str,
@@ -1206,7 +1221,11 @@ async def list_access(
 
         links = await list_active_links(actor_user_id, resource_type, resource_id)
 
+    from app.services.access_review import resource_access_sources
+
+    review = await resource_access_sources(resource_type, resource_id)
     return {
+        **review,
         "resource_type": resource_type,
         "resource_id": resource_id,
         "direct": direct,
@@ -1225,3 +1244,55 @@ async def list_access(
         # key conditional on the caller's role, which the docstring did not say.
         "effective_role": actor_role,
     }
+
+
+async def list_access(
+    actor_user_id: str, resource_type: ResourceType, resource_id: str
+) -> Dict[str, Any]:
+    """Release the snapshot under the current actor and workspace read fence."""
+    from contextlib import nullcontext
+
+    from app.exceptions import AuthorizationUnavailableError
+    from app.middleware.permissions_cache import isolated_permissions_cache
+    from app.services.app_operations.transaction_scope import (
+        graph_transaction_available,
+        postgres_graph_transaction,
+    )
+    from app.services.authorization_scope import authorization_scope
+    from app.services.identity_admission import identity_admission
+    from app.services.resource_location import MANAGEMENT_APP_STATES, locate_resource
+
+    location = await locate_resource(
+        resource_type, resource_id, allowed_app_states=MANAGEMENT_APP_STATES
+    )
+    if location is None:
+        raise AuthorizationUnavailableError()
+    from jvspatial.core.context import get_default_context
+
+    context = get_default_context()
+    transactional = graph_transaction_available(context.database)
+    transaction = (
+        postgres_graph_transaction(context.database) if transactional else nullcontext()
+    )
+    with isolated_permissions_cache():
+        async with transaction, identity_admission((actor_user_id,)):
+            fence = (
+                authorization_scope(location.workspace_id)
+                if transactional
+                else nullcontext()
+            )
+            async with fence:
+                current = await locate_resource(
+                    resource_type, resource_id, allowed_app_states=MANAGEMENT_APP_STATES
+                )
+                if current != location:
+                    raise AuthorizationUnavailableError()
+                result = await _list_access(actor_user_id, resource_type, resource_id)
+                await _require_policy_allowed(
+                    actor_user_id,
+                    f"{resource_type}.read",
+                    resource_type,
+                    resource_id,
+                    denied_message="Access denied.",
+                )
+                return result

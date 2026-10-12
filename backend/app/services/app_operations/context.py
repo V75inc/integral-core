@@ -16,12 +16,133 @@ logger = logging.getLogger(__name__)
 class OperationContext(ToolContext):
     """Runtime context injected into app operation handlers."""
 
+    actor_id: str = ""
     app_id: str = ""
     operation_key: str = ""
     idempotency_key: Optional[str] = None
     correlation_id: Optional[str] = None
     deferred_change_events: Optional[List[Dict[str, Any]]] = None
     read_only: bool = False
+
+    def __getattribute__(self, name: str) -> Any:
+        """Fence service delegation and read-only facades before unsupported adapters run."""
+        value = object.__getattribute__(self, name)
+        if name.startswith("_") or not callable(value):
+            return value
+        kind = object.__getattribute__(self, "actor_kind")
+        readonly = object.__getattribute__(self, "read_only")
+        app_reads = {
+            "get_entry",
+            "get_entry_system",
+            "get",
+            "query",
+            "find_entries",
+            "find_entries_in_track_type",
+            "find_track_id_by_title",
+            "get_related_entries",
+            "own_bundle_view",
+            "track_kind",
+            "get_app_settings",
+            "read_entry_file",
+            "document_render",
+        }
+        typed_effects = {
+            "create_entry",
+            "update_entry_fields",
+            "conditional_update_entry_fields",
+            "emit_audit",
+        }
+        # These existing adapters themselves refuse read-only contexts.
+        readonly_guarded = typed_effects | {"notify_once", "put_attachment", "invoke"}
+        human_readonly = app_reads | {
+            "get_employee_compensation",
+            "is_workspace_administrator",
+            "get_workspace_email_delivery_redacted",
+            "esign_vault_list",
+            "esign_vault_preview_b64",
+        }
+        unsupported = (readonly and name not in human_readonly | readonly_guarded) or (
+            kind in {"agent", "connector"} and name not in app_reads | typed_effects
+        )
+        if unsupported:
+
+            async def denied(*args: Any, **kwargs: Any) -> Any:
+                from app.api.errors import InsufficientPermissionsError
+
+                raise InsufficientPermissionsError(
+                    message="Function adapter requires an explicit supported declaration"
+                )
+
+            return denied
+        if kind in {"agent", "connector"} and name in app_reads:
+
+            async def guarded_read(*args: Any, **kwargs: Any) -> Any:
+                from app.api.errors import InsufficientPermissionsError
+                from app.schemas.policy import Subject
+                from app.services.app_operation_authority import current_operation_actor
+
+                async def admit() -> bool:
+                    author = await current_operation_actor(
+                        subject=Subject(kind=self.actor_kind, id=self.actor_id),
+                        workspace_id=self.workspace_id,
+                        app_id=self.app_id,
+                        operation_key=self.operation_key,
+                    )
+                    return author == self.user_id
+
+                if not await admit():
+                    raise InsufficientPermissionsError(
+                        message="Current exact service function required for reads"
+                    )
+                result = await value(*args, **kwargs)
+                if not await admit():
+                    raise InsufficientPermissionsError(
+                        message="Current exact service function required for result release"
+                    )
+                return result
+
+            return guarded_read
+        return value
+
+    async def emit_audit(self, action: str, details: Dict[str, Any]) -> None:
+        """Preserve original actor provenance and defer audit with command effects."""
+        if self.read_only:
+            return
+        if self.actor_kind in {"agent", "connector"}:
+            from app.schemas.policy import Subject
+            from app.services.app_operation_authority import current_operation_actor
+
+            if not await current_operation_actor(
+                subject=Subject(kind=self.actor_kind, id=self.actor_id),
+                workspace_id=self.workspace_id,
+                app_id=self.app_id,
+                operation_key=self.operation_key,
+            ):
+                from app.api.errors import InsufficientPermissionsError
+
+                raise InsufficientPermissionsError(
+                    message="Current exact service operation required for audit"
+                )
+        from app.services.change_event import emit_change_event
+
+        event = {
+            "actor_kind": self.actor_kind,
+            "actor_id": self.actor_id or self.user_id,
+            "action": action,
+            "resource_type": "Tool",
+            "resource_id": "",
+            "before": None,
+            "after": {
+                "details": details,
+                "tool_invocation": True,
+                "author_id": self.user_id,
+            },
+            "scope": self.scope,
+        }
+        if self.deferred_change_events is not None:
+            self.deferred_change_events.append(event)
+        else:
+            await emit_change_event(**event)
 
     async def put_attachment(
         self,
@@ -144,21 +265,39 @@ class OperationContext(ToolContext):
                 str(getattr(track, "workspace_id", "") or "") != self.workspace_id
             ):
                 return None
-            if await resolve_role(self.user_id, "track", target_track_id) not in (
-                "owner",
-                "admin",
-                "editor",
-            ):
-                return None
-            decision = await policy_evaluate(
-                subject=Subject(kind="human", id=self.user_id),
-                action="entry.create",
-                resource=Resource(
-                    kind="entry", id="", scope=f"track:{target_track_id}"
+            from app.services.app_operation_authority import permits_mutation
+
+            exact_create = await permits_mutation(
+                workspace_id=self.workspace_id,
+                entry_type_key=type_key,
+                fields=set(custom_fields or {}),
+                track_id=target_track_id,
+                mutation_kind="create",
+                top_level={"title", "body"},
+                principal_id=(
+                    self.actor_id
+                    if self.actor_kind in {"agent", "connector"}
+                    else self.user_id
                 ),
             )
-            if not decision.allowed:
+            if not exact_create and self.actor_kind in {"agent", "connector"}:
                 return None
+            if not exact_create:
+                if await resolve_role(self.user_id, "track", target_track_id) not in (
+                    "owner",
+                    "admin",
+                    "editor",
+                ):
+                    return None
+                decision = await policy_evaluate(
+                    subject=Subject(kind="human", id=self.user_id),
+                    action="entry.create",
+                    resource=Resource(
+                        kind="entry", id="", scope=f"track:{target_track_id}"
+                    ),
+                )
+                if not decision.allowed:
+                    return None
             type_id = await resolve_entry_type_id_by_key(target_track_id, type_key)
             if not type_id:
                 return None
@@ -172,7 +311,7 @@ class OperationContext(ToolContext):
                 set_operation_write_active,
             )
 
-            write_token = set_operation_write_active(True)
+            write_token = set_operation_write_active(False)
             try:
                 return await create_entry_in_track(
                     track=track,
@@ -182,7 +321,8 @@ class OperationContext(ToolContext):
                     custom_fields=dict(custom_fields or {}),
                     type_id=type_id,
                     workspace_id=self.workspace_id,
-                    actor_kind="human",
+                    actor_kind=self.actor_kind,
+                    actor_id=self.actor_id or None,
                     change_event_sink=(
                         self.deferred_change_events.append
                         if self.deferred_change_events is not None
@@ -239,18 +379,31 @@ class OperationContext(ToolContext):
         tracks = await app.nodes(edge=[CONTAINS], node=["Track"], direction="out")
         if not any(str(candidate.id) == str(track.id) for candidate in tracks):
             return False
-        if await resolve_role(self.user_id, "entry", entry_id) not in (
-            "owner",
-            "admin",
-            "editor",
-        ):
+        from app.services.app_operation_authority import entry_mutation_permitted
+
+        exact_transition = await entry_mutation_permitted(
+            principal_id=(
+                self.actor_id
+                if self.actor_kind in {"agent", "connector"}
+                else self.user_id
+            ),
+            workspace_id=self.workspace_id,
+            app_id=self.app_id,
+            entry_id=entry_id,
+            custom_fields=custom_fields,
+        )
+        if not exact_transition and self.actor_kind in {"agent", "connector"}:
+            return False
+        if not exact_transition and await resolve_role(
+            self.user_id, "entry", entry_id
+        ) not in ("owner", "admin", "editor"):
             return False
         decision = await policy_evaluate(
             subject=Subject(kind="human", id=self.user_id),
             action="entry.update",
             resource=Resource(kind="entry", id=entry_id, scope=f"entry:{entry_id}"),
         )
-        if not decision.allowed:
+        if not decision.allowed and not exact_transition:
             return False
         from app.services.app_invariant_guards import (
             reset_operation_write_active,
@@ -260,7 +413,7 @@ class OperationContext(ToolContext):
         # The shared command checks revisions before relation materialization,
         # then commits fields, edges, hooks and event facts in one write scope.
         # A stale SDK caller cannot provision a related record before failing.
-        write_token = set_operation_write_active(True)
+        write_token = set_operation_write_active(False)
         try:
             await update_entry_in_track(
                 entry_id=entry_id,
@@ -272,7 +425,8 @@ class OperationContext(ToolContext):
                     if expected_record_revision is not None
                     else int(getattr(entry, "record_revision", 1) or 1)
                 ),
-                actor_kind="agent",
+                actor_kind=self.actor_kind,
+                actor_id=self.actor_id or None,
                 change_event_sink=(
                     self.deferred_change_events.append
                     if self.deferred_change_events is not None
@@ -297,18 +451,11 @@ class OperationContext(ToolContext):
         if self.read_only:
             return False, "read_only"
         from app.models.edges import CONTAINS
-        from app.models.nodes import App, Entry, EntryType, Track
+        from app.models.nodes import App, Entry, Track
         from app.schemas.policy import Resource, Subject
-        from app.services.app_invariant_guards import enforce_protected_field_write
         from app.services.entry_conditional_update import (
             conditional_update_entry_custom_fields,
         )
-        from app.services.migration_write_guard import assert_track_schema_writable
-        from app.services.operational_model_entry_fields import (
-            validate_and_materialize_entry_custom_fields,
-        )
-        from app.services.operational_model_graph import sync_relation_edges
-        from app.services.operational_model_runtime import resolve_track_runtime_profile
         from app.services.permissions import resolve_role
         from app.services.policy_engine import evaluate as policy_evaluate
 
@@ -329,76 +476,45 @@ class OperationContext(ToolContext):
         tracks = await app.nodes(edge=[CONTAINS], node=["Track"], direction="out")
         if not any(str(candidate.id) == str(track.id) for candidate in tracks):
             return False, "write_denied"
-        if await resolve_role(self.user_id, "entry", entry_id) not in (
-            "owner",
-            "admin",
-            "editor",
-        ):
+        from app.services.app_operation_authority import entry_mutation_permitted
+
+        exact_transition = await entry_mutation_permitted(
+            principal_id=(
+                self.actor_id
+                if self.actor_kind in {"agent", "connector"}
+                else self.user_id
+            ),
+            workspace_id=self.workspace_id,
+            app_id=self.app_id,
+            entry_id=entry_id,
+            custom_fields=updates,
+        )
+        if not exact_transition and self.actor_kind in {"agent", "connector"}:
+            return False, "write_denied"
+        if not exact_transition and await resolve_role(
+            self.user_id, "entry", entry_id
+        ) not in ("owner", "admin", "editor"):
             return False, "write_denied"
         decision = await policy_evaluate(
             subject=Subject(kind="human", id=self.user_id),
             action="entry.update",
             resource=Resource(kind="entry", id=entry_id, scope=f"entry:{entry_id}"),
         )
-        if not decision.allowed:
+        if not decision.allowed and not exact_transition:
             return False, "write_denied"
-        await assert_track_schema_writable(track)
-        entry_type = await EntryType.get(entry.type_id) if entry.type_id else None
-        if entry_type is None:
-            return False, "not_found"
-        operational_model, runtime_tier, _ = await resolve_track_runtime_profile(track)
-        from app.contracts.information import schema_revision_from_profile_version
-
-        schema_revision = schema_revision_from_profile_version(
-            getattr(operational_model, "version_number", None)
-        )
-        from app.services.operational_model_compile import _slug
-
-        type_key = _slug(
-            str(
-                (entry_type.form_schema or {}).get("_manifest_entry_type_key")
-                or entry_type.name
-            )
-        )
-        proposed = {**(entry.custom_fields or {}), **dict(updates or {})}
-        from app.services.app_invariant_guards import (
-            reset_operation_write_active,
-            set_operation_write_active,
-        )
-
-        write_token = set_operation_write_active(True)
-        try:
-            await enforce_protected_field_write(
-                workspace_id=self.workspace_id,
-                entry_type_key=type_key,
-                proposed_custom_fields=updates,
-            )
-        finally:
-            reset_operation_write_active(write_token)
-        _, relation_refs = await validate_and_materialize_entry_custom_fields(
-            track=track,
-            entry_type=entry_type,
-            custom_fields=proposed,
-            runtime_tier=runtime_tier,
-            entry=entry,
-            actor_user_id=self.user_id,
-            actor_kind="agent",
-            source_entry_title=str(getattr(entry, "title", "") or ""),
-        )
         ok, error = await conditional_update_entry_custom_fields(
             user_id=self.user_id,
+            actor_kind=self.actor_kind,
+            actor_id=self.actor_id or None,
             entry_id=entry_id,
             state_field=state_field,
             expected_state=expected_state,
             updates=dict(updates or {}),
             scope=f"operation:{self.app_id}:{self.operation_key}",
-            schema_revision=schema_revision,
             event_sink=(
                 self.deferred_change_events.append
                 if self.deferred_change_events is not None
                 else None
             ),
         )
-        if ok:
-            await sync_relation_edges(source_entry=entry, relation_refs=relation_refs)
         return ok, error

@@ -9,26 +9,30 @@ side-car treatment via :func:`delete_resource_side_cars`.
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from typing import List, Tuple
+from typing import Any, List, Tuple
 
-from jvspatial.core import Edge
+from jvspatial.core import Edge, Node, Walker
+from jvspatial.core.context import get_default_context
+from jvspatial.core.decorators import on_visit
 
 from app.agentive.services.skill_registry import unregister_skills_for_app
+from app.exceptions import AuthorizationUnavailableError
+from app.models.access_delegation import HAS_ACTION_BINDING
+from app.models.access_lifecycle import HAS_OWNERSHIP_PROPOSAL
 from app.models.edges import (
     CATALOGS,
     CONTAINS,
     DEFINES_TRACK_PROFILE,
+    HAS_APPLICATION_DEFINITION,
     HAS_OPERATIONAL_MODEL,
     HAS_SHARE_LINK,
     INVITED_TO,
     TEMPLATED_FROM,
     USES_TEMPLATE,
 )
-from app.models.nodes import App, Dashboards, OperationalModel, Track, Views
+from app.models.nodes import App, EntryType, OperationalModel, Tag, Track, View, Views
 from app.services.app_graph import (
-    get_app_attached_operational_model,
     get_track_attached_operational_model,
 )
 
@@ -51,128 +55,189 @@ async def _disconnect_uses_template_to(template_id: str) -> None:
         if edge:
             await edge.delete()
 
-    await asyncio.gather(*(_del(r) for r in rows))
+    for row in rows:
+        await _del(row)
 
 
-async def _safe_delete_node(node, label: str) -> None:  # type: ignore[type-arg]
-    """``node.delete(cascade=False)`` that logs instead of raising."""
-    try:
-        await node.delete(cascade=False)
-    except Exception:
-        logger.exception("delete %s %s", label, getattr(node, "id", ""))
+async def _safe_delete_node(node, label: str) -> None:
+    """Propagate every failure; verify the actual row disappeared before success."""
+    context = get_default_context()
+    await node.set_context(context)
+    await node.delete(cascade=False)
+    if await context.database.get("node", node.id) is not None:
+        raise AuthorizationUnavailableError()
 
 
-async def delete_resource_side_cars(node) -> None:  # type: ignore[type-arg]
-    """Remove ShareLink + Invitation nodes attached to an App / Track / Entry.
+async def _named_children(node, edges: list, *, direction: str = "out") -> list:
+    """Compare raw relationship candidates with bounded hydration before deletion."""
+    context = await node.get_context()
+    field = "source" if direction == "out" else "target"
+    other = "target" if direction == "out" else "source"
+    rows = await context.database.find(
+        "edge",
+        {field: node.id, "entity": {"$in": [edge._entity_name() for edge in edges]}},
+        limit=10001,
+    )
+    if len(rows) > 10000 or any(
+        not isinstance(row.get(other), str) or not row[other] for row in rows
+    ):
+        raise AuthorizationUnavailableError()
+    children = await node.nodes(edge=edges, direction=direction, limit=10001)
+    if {child.id for child in children} != {row[other] for row in rows}:
+        raise AuthorizationUnavailableError()
+    return list(children)
 
-    * ``ShareLink`` — ``resource —HAS_SHARE_LINK→ ShareLink`` (outgoing).
-    * ``Invitation`` — ``Invitation —INVITED_TO→ resource`` (incoming). The
-      Invitation is also cataloged under the ``Invitations`` registry;
-      ``cascade=False`` drops that CATALOGS edge along with the node.
 
-    Best-effort: enumeration or delete failures are logged, never raised,
-    so the resource delete itself always proceeds.
-    """
-    try:
-        links = await node.nodes(edge=[HAS_SHARE_LINK], node=["ShareLink"])
-    except Exception:
-        logger.exception("enumerate share links for %s", getattr(node, "id", ""))
-        links = []
-    try:
-        invites = await node.nodes(
-            edge=[INVITED_TO], direction="in", node=["Invitation"]
-        )
-    except Exception:
-        logger.exception("enumerate invitations for %s", getattr(node, "id", ""))
-        invites = []
-    deletions = [_safe_delete_node(ln, "share link") for ln in links]
-    deletions.extend(_safe_delete_node(inv, "invitation") for inv in invites)
-    if deletions:
-        await asyncio.gather(*deletions)
+async def delete_resource_side_cars(node) -> None:
+    """Delete all rooted consent/source/declaration sidecars and incoming invitations."""
+    children = await _named_children(
+        node,
+        [
+            HAS_SHARE_LINK,
+            HAS_OWNERSHIP_PROPOSAL,
+            HAS_ACTION_BINDING,
+            HAS_APPLICATION_DEFINITION,
+        ],
+    )
+    invites = await _named_children(node, [INVITED_TO], direction="in")
+    for child in [*children, *invites]:
+        await _safe_delete_node(child, "resource sidecar")
 
 
 async def _delete_dashboards(app_node: App) -> None:
-    """Delete every Dashboard + the Dashboards registry cataloged under ``app_node``."""
-    try:
-        registries = await app_node.nodes(edge=[CONTAINS], node=["Dashboards"])
-    except Exception:
-        logger.exception("enumerate dashboards registry for %s", app_node.id)
-        return
-
-    async def _one(dreg: Dashboards) -> None:
-        try:
-            dashboards = await dreg.nodes(edge=[CATALOGS], node=["Dashboard"])
-        except Exception:
-            logger.exception("enumerate dashboards for %s", getattr(dreg, "id", ""))
-            dashboards = []
-        if dashboards:
-            await asyncio.gather(
-                *(_safe_delete_node(d, "dashboard") for d in dashboards)
-            )
-        await _safe_delete_node(dreg, "dashboards registry")
-
-    if registries:
-        await asyncio.gather(*(_one(r) for r in registries))  # type: ignore[arg-type]
+    """Delete every declared Dashboard subtree and registry, propagating errors."""
+    registries = await app_node.nodes(
+        edge=[CONTAINS], node=["Dashboards"], direction="out", limit=10001
+    )
+    if len(registries) > 10000:
+        raise AuthorizationUnavailableError()
+    for registry in registries:
+        for dashboard in await _named_children(registry, [CATALOGS]):
+            await _safe_delete_node(dashboard, "dashboard")
+        await _safe_delete_node(registry, "dashboard registry")
 
 
 async def _delete_app_side_cars(app_node: App) -> None:
-    """Dashboards, ShareLinks and Invitations attached to the App."""
+    """Complete rooted dashboard/source/consent/declaration teardown."""
+    from app.services.access_delegation import delete_app_delegation_roots
+
+    await delete_app_delegation_roots(app_node.id)
     await _delete_dashboards(app_node)
     await delete_resource_side_cars(app_node)
 
 
 async def _delete_views_registry(vreg: Views) -> None:
-    views = await vreg.nodes(edge=[CATALOGS], node=["View"])
-    if views:
-
-        async def _del(v) -> None:  # type: ignore[type-arg]
-            try:
-                await v.delete(cascade=False)
-            except Exception:
-                logger.exception("delete view %s", getattr(v, "id", ""))
-
-        await asyncio.gather(*(_del(v) for v in views))
-
-    try:
-        await vreg.delete(cascade=False)
-    except Exception:
-        logger.exception("delete views registry %s", getattr(vreg, "id", ""))
+    """Delete saved Views with their registry in the caller's complete unit."""
+    for view in await _named_children(vreg, [CATALOGS]):
+        await _safe_delete_node(view, "view")
+    await _safe_delete_node(vreg, "views registry")
 
 
-async def delete_operational_model_subtree(cp: OperationalModel) -> None:
-    """Delete a OperationalModel and graph nodes attached under it."""
-    templates = await cp.nodes(edge=[DEFINES_TRACK_PROFILE], node=["OperationalModel"])
-    if templates:
-        await asyncio.gather(
-            *(delete_operational_model_subtree(tpl) for tpl in templates)
+class ModelDeletionInventory(Walker):
+    """Collect the bounded named schema subtree before any destructive effect."""
+
+    collected: dict[str, Any] = {}
+
+    @on_visit(Node)
+    async def collect(self, here: Node) -> None:
+        if here.id in self.collected:
+            return
+        if not isinstance(here, (OperationalModel, Views, View, EntryType, Tag)):
+            raise AuthorizationUnavailableError()
+        if len(self.collected) >= 10000:
+            raise AuthorizationUnavailableError()
+        self.collected[here.id] = here
+        if isinstance(here, OperationalModel):
+            from app.models.edges import HAS_DRAFT_PROFILE
+
+            children = await _named_children(
+                here, [DEFINES_TRACK_PROFILE, HAS_DRAFT_PROFILE, CONTAINS]
+            )
+            extra_views = await here.nodes(
+                edge=[Edge], node=["Views"], direction="out", limit=10001
+            )
+            if len(extra_views) > 10000:
+                raise AuthorizationUnavailableError()
+            await self.visit([*children, *extra_views])
+        elif isinstance(here, Views):
+            await self.visit(await _named_children(here, [CATALOGS]))
+
+
+async def delete_operational_model_subtree(
+    cp: OperationalModel,
+    *,
+    allowed_consumer_ids: frozenset[str] = frozenset(),
+    additional_roots: tuple[OperationalModel, ...] = (),
+) -> None:
+    """Delete collected schema descendants in one complete caller-owned unit."""
+    inventory = ModelDeletionInventory()
+    for root in (cp, *additional_roots):
+        await inventory.spawn(root)
+    if any(
+        isinstance(item, dict) and item.get("hook_error")
+        for item in await inventory.get_report()
+    ):
+        raise AuthorizationUnavailableError()
+    from app.api.errors import ResourceConflictError
+    from app.models.edges import (
+        HAS_DRAFT_PROFILE,
+        HAS_LIBRARY_MODEL,
+        HAS_VIEW,
+        IS_OF_TYPE,
+        TAGGED_WITH,
+    )
+
+    identities = set(inventory.collected)
+    consumers = await get_default_context().database.find(
+        "edge",
+        {
+            "target": {"$in": sorted(identities)},
+            "entity": {
+                "$in": [
+                    family._entity_name()
+                    for family in (
+                        HAS_OPERATIONAL_MODEL,
+                        HAS_DRAFT_PROFILE,
+                        HAS_LIBRARY_MODEL,
+                        HAS_VIEW,
+                        IS_OF_TYPE,
+                        TAGGED_WITH,
+                        DEFINES_TRACK_PROFILE,
+                        CONTAINS,
+                    )
+                ]
+            },
+        },
+        limit=10001,
+    )
+    if len(consumers) > 10000:
+        raise AuthorizationUnavailableError()
+    if any(
+        row.get("source") not in identities | set(allowed_consumer_ids)
+        for row in consumers
+    ):
+        raise ResourceConflictError(
+            message="Model schema has retained external consumers"
         )
+    for node in reversed(list(inventory.collected.values())):
+        if isinstance(node, OperationalModel):
+            await _disconnect_uses_template_to(node.id)
+        await _safe_delete_node(node, "model schema")
 
-    await _disconnect_uses_template_to(cp.id)
 
-    vregs = await cp.nodes(edge=[Edge], node=["Views"])
-    if vregs:
-        await asyncio.gather(
-            *(_delete_views_registry(vreg) for vreg in vregs)  # type: ignore[arg-type]
+async def _delete_app_models(app_node: App) -> None:
+    """Capture both attached and directly contained template models as one subtree."""
+    roots = [
+        node
+        for node in await _named_children(app_node, [HAS_OPERATIONAL_MODEL, CONTAINS])
+        if isinstance(node, OperationalModel)
+    ]
+    if roots:
+        await delete_operational_model_subtree(
+            roots[0],
+            additional_roots=tuple(roots[1:]),
+            allowed_consumer_ids=frozenset({app_node.id}),
         )
-
-    entry_types = await cp.nodes(edge=[CONTAINS], node=["EntryType"])
-    tags = await cp.nodes(edge=[CONTAINS], node=["Tag"])
-
-    async def _safe_del(node, label: str) -> None:  # type: ignore[type-arg]
-        try:
-            await node.delete(cascade=False)
-        except Exception:
-            logger.exception("delete %s %s", label, getattr(node, "id", ""))
-
-    deletions = [_safe_del(et, "entry type") for et in entry_types]
-    deletions.extend(_safe_del(tag, "tag") for tag in tags)
-    if deletions:
-        await asyncio.gather(*deletions)
-
-    try:
-        await cp.delete(cascade=False)
-    except Exception:
-        logger.exception("delete operational model %s", getattr(cp, "id", ""))
 
 
 async def _apps_containing_track(track: Track) -> List[App]:
@@ -200,10 +265,37 @@ async def _other_tracks_sharing_operational_model(
     referrers = await cp.nodes(
         edge=[HAS_OPERATIONAL_MODEL], direction="in", node=["Track"]
     )
-    return any(getattr(t, "id", "") != exclude_track_id for t in referrers)
+    from app.models.edges import HAS_DRAFT_PROFILE, HAS_LIBRARY_MODEL
+
+    retained_roots = await _named_children(
+        cp,
+        [DEFINES_TRACK_PROFILE, HAS_DRAFT_PROFILE, HAS_LIBRARY_MODEL, CONTAINS],
+        direction="in",
+    )
+    return bool(retained_roots) or any(
+        getattr(t, "id", "") != exclude_track_id for t in referrers
+    )
 
 
-async def delete_track_and_nested_content(track: Track) -> None:
+async def delete_track_and_nested_content(
+    track: Track, *, actor_user_id: str = ""
+) -> None:
+    """Enter a named current actor cascade; no implicit empty-principal authority."""
+    from app.services.resource_cascade import resource_cascade_scope
+
+    async with resource_cascade_scope(
+        actor_id=actor_user_id,
+        resource_type="track",
+        resource_id=track.id,
+        workspace_id=track.workspace_id,
+    ):
+        current = await Track.find_one({"id": track.id})
+        if current is None:
+            raise AuthorizationUnavailableError()
+        await _delete_track_admitted(current, actor_user_id=actor_user_id)
+
+
+async def _delete_track_admitted(track: Track, *, actor_user_id: str) -> None:
     """Delete a track, its entries, and its attached operational model subtree.
 
     A track's attached OperationalModel is only cascade-deleted when this is
@@ -215,16 +307,16 @@ async def delete_track_and_nested_content(track: Track) -> None:
     """
     from app.services.entry_deletion import delete_entry_fast
 
-    entries = await track.nodes(edge=[CONTAINS], node=["Entry"])
-    if entries:
-
-        async def _del_entry(ent) -> None:  # type: ignore[type-arg]
-            try:
-                await delete_entry_fast(ent)
-            except Exception:
-                logger.exception("delete entry %s", getattr(ent, "id", ""))
-
-        await asyncio.gather(*(_del_entry(e) for e in entries))
+    entries = await track.nodes(
+        edge=[CONTAINS], node=["Entry"], direction="out", limit=10001
+    )
+    if len(entries) > 10000:
+        raise AuthorizationUnavailableError()
+    for entry in entries:
+        await delete_entry_fast(entry, actor_user_id=actor_user_id)
+        context = await track.get_context()
+        if await context.database.get("node", entry.id) is not None:
+            raise AuthorizationUnavailableError()
 
     tcp = await get_track_attached_operational_model(track)
     if tcp:
@@ -240,24 +332,43 @@ async def delete_track_and_nested_content(track: Track) -> None:
                 track.id, tcp.id, edge_class=HAS_OPERATIONAL_MODEL
             )
             if edges:
-                await asyncio.gather(*(e.delete() for e in edges))
+                for edge in edges:
+                    await edge.delete()
             templated_edges = await ctx.find_edges_between(
                 track.id, tcp.id, edge_class=TEMPLATED_FROM
             )
             if templated_edges:
-                await asyncio.gather(*(e.delete() for e in templated_edges))
+                for edge in templated_edges:
+                    await edge.delete()
         else:
-            await delete_operational_model_subtree(tcp)
+            await delete_operational_model_subtree(
+                tcp, allowed_consumer_ids=frozenset({track.id})
+            )
 
     await delete_resource_side_cars(track)
 
-    try:
-        await track.delete(cascade=False)
-    except Exception:
-        logger.exception("delete track %s", getattr(track, "id", ""))
+    await _safe_delete_node(track, "track")
 
 
-async def delete_app_cascade(app_node: App) -> Tuple[int, int]:
+async def delete_app_cascade(
+    app_node: App, *, actor_user_id: str = ""
+) -> Tuple[int, int]:
+    """Admit a named App subtree under its current actor and workspace fence."""
+    from app.services.resource_cascade import resource_cascade_scope
+
+    async with resource_cascade_scope(
+        actor_id=actor_user_id,
+        resource_type="app",
+        resource_id=app_node.id,
+        workspace_id=app_node.workspace_id,
+    ):
+        current = await App.find_one({"id": app_node.id})
+        if current is None:
+            raise AuthorizationUnavailableError()
+        return await _delete_app_admitted(current, actor_user_id=actor_user_id)
+
+
+async def _delete_app_admitted(app_node: App, *, actor_user_id: str) -> Tuple[int, int]:
     """Remove the App and contained data.
 
     Tracks that appear in more than one app are only unlinked from this app_node.
@@ -273,19 +384,15 @@ async def delete_app_cascade(app_node: App) -> Tuple[int, int]:
     track_list = list(tracks)
 
     if not track_list:
-        sacp = await get_app_attached_operational_model(app_node)
-        if sacp:
-            await delete_operational_model_subtree(sacp)
+        await _delete_app_models(app_node)
         await unregister_skills_for_app(app_node.id)
         await _delete_app_side_cars(app_node)
-        await app_node.delete(cascade=False)
+        await _safe_delete_node(app_node, "app")
         return 0, 0
 
     ctx = await app_node.get_context()
 
-    parent_results = await asyncio.gather(
-        *(_apps_containing_track(t) for t in track_list)
-    )
+    parent_results = [await _apps_containing_track(track) for track in track_list]
 
     to_delete: List[Track] = []
     to_unlink: List[Track] = []
@@ -297,22 +404,23 @@ async def delete_app_cascade(app_node: App) -> Tuple[int, int]:
             to_unlink.append(track)
 
     if to_delete:
-        await asyncio.gather(*(delete_track_and_nested_content(t) for t in to_delete))
+        for track in to_delete:
+            await delete_track_and_nested_content(track, actor_user_id=actor_user_id)
 
     if to_unlink:
 
         async def _unlink(t: Track) -> None:
             edges = await ctx.find_edges_between(app_node.id, t.id, edge_class=CONTAINS)
             if edges:
-                await asyncio.gather(*(e.delete() for e in edges))
+                for edge in edges:
+                    await edge.delete()
 
-        await asyncio.gather(*(_unlink(t) for t in to_unlink))
+        for track in to_unlink:
+            await _unlink(track)
 
-    sacp = await get_app_attached_operational_model(app_node)
-    if sacp:
-        await delete_operational_model_subtree(sacp)
+    await _delete_app_models(app_node)
 
     await unregister_skills_for_app(app_node.id)
     await _delete_app_side_cars(app_node)
-    await app_node.delete(cascade=False)
+    await _safe_delete_node(app_node, "app")
     return len(to_delete), len(to_unlink)

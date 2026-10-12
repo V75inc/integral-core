@@ -1,6 +1,6 @@
 {
   "source_base": "cb8670df",
-  "state": "required full gates passed; exact final hook/commit/push pending",
+  "state": "required gates and hooks passed; committed and pushed as 5d0212a2",
   "runtime_diff_sha256": "6e56f83a84049979f2bab005846629d9d7a1d58a1e26c60be75e55a55d5cec22",
   "evidence": [
     {
@@ -112,5 +112,6 @@
     "wheel_sha256": "5a9556b9bf25bc679d0246cfc8cddc39e3274b326b6e91e933a1a2a5623b47d7",
     "runtime_diff_sha256": "6e56f83a84049979f2bab005846629d9d7a1d58a1e26c60be75e55a55d5cec22"
   },
-  "live_smoke_source_limit": "Fresh designated cloud smoke covers primary-proof/directory/policy runtime changes. Later login projection fallback, sharing lazy import and readable visibility hint preserve normal native/tool boundary; not a fresh provider run from the final wheel."
+  "live_smoke_source_limit": "Fresh designated cloud smoke covers primary-proof/directory/policy runtime changes. Later login projection fallback, sharing lazy import and readable visibility hint preserve normal native/tool boundary; not a fresh provider run from the final wheel.",
+  "commit": "5d0212a2e08c3b6c51fc55d460069cd90a25300e"
 }

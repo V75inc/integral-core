@@ -986,7 +986,7 @@ async def test_awaiting_settings_reaper_compensates_abandoned(monkeypatch):
     monkeypatch.setenv("APP_INSTALL_TOKEN_TTL_HOURS", "0")
 
     ws = await _make_workspace()
-    lifecycle_actor_id = await workspace_owner_id(ws)
+    lifecycle_actor_id = await _primary_reaper_owner(ws)
     manifest = _minimal_app_manifest(package_name="reap-me", with_settings_schema=True)
     lib = await _make_library_cp(manifest)
     result = await install_app(
@@ -994,13 +994,28 @@ async def test_awaiting_settings_reaper_compensates_abandoned(monkeypatch):
     )
     assert result["status"] == "awaiting_settings"
 
-    # Reaper sweep.
+    from app.services import change_event
+
+    events = []
+
+    async def capture_event(**event):
+        events.append(event)
+
+    monkeypatch.setattr(change_event, "emit_change_event", capture_event)
+    # Reaper sweep uses named current owner authority and actual system audit.
     n = await run_reaper_pass()
-    assert n >= 1
+    assert n == 1
+    compensation_events = [
+        event for event in events if event["action"] == "app.uninstalled"
+    ]
+    assert len(compensation_events) == 1
+    assert compensation_events[0]["actor_kind"] == "system"
+    assert compensation_events[0]["actor_id"] == "app_install_reaper"
+    assert compensation_events[0]["details"]["authority_owner_id"] == lifecycle_actor_id
 
     # App row deleted (archive=False → hard delete via cascade).
     app = await App.get(result["app_id"])
-    assert app is None or app.lifecycle_state != "awaiting_settings"
+    assert app is None
 
 
 @pytest.mark.asyncio
@@ -1009,7 +1024,7 @@ async def test_reaper_leaves_fresh_apps_alone(monkeypatch):
     monkeypatch.setenv("APP_INSTALL_TOKEN_TTL_HOURS", "24")  # 24h — fresh apps safe
 
     ws = await _make_workspace()
-    lifecycle_actor_id = await workspace_owner_id(ws)
+    lifecycle_actor_id = await _primary_reaper_owner(ws)
     manifest = _minimal_app_manifest(
         package_name="not-yet-abandoned", with_settings_schema=True
     )
@@ -1022,6 +1037,60 @@ async def test_reaper_leaves_fresh_apps_alone(monkeypatch):
     assert n == 0
     app = await App.get(result["app_id"])
     assert app.lifecycle_state == "awaiting_settings"
+
+
+async def _primary_reaper_owner(workspace):
+    """Bind the original install owner to a real current active auth identity."""
+    import uuid
+
+    import bcrypt
+    from jvspatial.api.auth.models import User as AuthUser
+
+    from app.models.nodes import User
+
+    owner_id = await workspace_owner_id(workspace)
+    owner = await User.get(owner_id)
+    identity = await AuthUser.create(
+        email=f"reaper-{uuid.uuid4().hex}@example.com",
+        password_hash=bcrypt.hashpw(
+            b"reaper-fixture-valid-password", bcrypt.gensalt()
+        ).decode(),
+    )
+    owner.user_id = identity.id
+    owner.email_verified = True
+    owner.verified_email = identity.email
+    await owner.save()
+    return owner.id
+
+
+@pytest.mark.asyncio
+async def test_reaper_never_purges_nonpending_install(monkeypatch):
+    """An active App is unchanged even when the expiration threshold is zero."""
+    from jvspatial.core.context import get_default_context
+
+    from app.services.access_recovery import digest
+
+    monkeypatch.setenv("APP_INSTALL_TOKEN_TTL_HOURS", "0")
+    workspace = await _make_workspace()
+    owner_id = await _primary_reaper_owner(workspace)
+    library = await _make_library_cp(
+        _minimal_app_manifest(package_name="active-reaper-negative")
+    )
+    result = await install_app(
+        workspace_id=workspace.id, library_cp_id=library.id, actor_id=owner_id
+    )
+    assert result["status"] == "active"
+    database = get_default_context().database
+    before = {
+        collection: await database.find(collection, {}, sort=[("id", 1)])
+        for collection in ("node", "edge", "object")
+    }
+    assert await run_reaper_pass() == 0
+    after = {
+        collection: await database.find(collection, {}, sort=[("id", 1)])
+        for collection in ("node", "edge", "object")
+    }
+    assert digest(after) == digest(before)
 
 
 # ---------------------------------------------------------------------------

@@ -30,6 +30,7 @@ from jvspatial.api import endpoint
 from app.agentive.connectors.mcp_client import describe_mcp_failure
 from app.agentive.services.connector_registry_node import (
     attach_connector_to_workspace,
+    connector_binding_mutation,
     create_connector,
     decrypt_auth_state,
 )
@@ -2354,6 +2355,7 @@ async def _list_bound_track_ids(connector: Any) -> List[str]:
     auth=True,
     tags=["Agentive"],
 )
+@connector_binding_mutation
 async def post_create_binding(
     request: Request,
     connector_id: str,
@@ -2451,7 +2453,16 @@ async def post_create_binding(
         connector.id, track.id, edge_class=IS_CONNECTED_TO
     )
     before_bindings = await _list_bound_track_ids(connector)
+    if not connector.workspace_id:
+        await attach_connector_to_workspace(connector, track.workspace_id)
+    from app.agentive.services.connector_registry_node import (
+        materialize_connector_target_policies,
+    )
+
     if existing_edges:
+        await materialize_connector_target_policies(
+            connector=connector, actor_id=user_id
+        )
         # Already bound — return the existing edge, do NOT duplicate or emit.
         return _binding_row(connector.id, track, existing_edges[0])
 
@@ -2474,6 +2485,7 @@ async def post_create_binding(
             details={"connector_id": connector.id, "track_id": track.id},
         )
     new_edge = created_edges[0]
+    await materialize_connector_target_policies(connector=connector, actor_id=user_id)
     after_bindings = await _list_bound_track_ids(connector)
 
     # D-05 single emission — REUSES connector.update Literal (no new member).
@@ -2559,6 +2571,7 @@ async def list_bindings(
     tags=["Agentive"],
     status_code=status.HTTP_204_NO_CONTENT,
 )
+@connector_binding_mutation
 async def delete_binding(
     request: Request,
     connector_id: str,

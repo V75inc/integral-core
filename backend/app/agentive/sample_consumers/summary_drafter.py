@@ -2,7 +2,9 @@
 
 Per CONTEXT D-11: this module lives in `app/agentive/sample_consumers/`,
 opt-in through AGENTIVE_SAMPLE_CONSUMER_ENABLED within the always-on agentive
-layer. It is a demonstration consumer, not a substrate routing rule.
+layer. AGENTIVE_SAMPLE_CONSUMER_AGENT_ID must name an existing rooted facet
+with a current owner-created entry.create policy; opt-in alone grants nothing.
+It is a demonstration consumer, not a substrate routing rule.
 
 Demonstrates the full WS subscribe → event emit → consumer hook → entry write →
 ChangeEvent emit loop end-to-end. Resident proactivity (routines, scheduled
@@ -12,13 +14,14 @@ Recursion guard (two layers — defense in depth):
 1. The auto-drafted summary Entry is created with `tags=[]`, so the resulting
    `entry.create` ChangeEvent's `after.tags` does NOT contain the trigger tag.
 2. `on_change_event` short-circuits when `actor_kind == "agent"` AND
-   `actor_id == CONSUMER_ID` — even if some future field carries the trigger
+   `actor_id == the configured facet identity` — even if some future field carries the trigger
    tag, the consumer never re-triggers itself.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 
 from app.models.nodes import Tag, Track
 from app.schemas.provenance import Provenance
@@ -35,9 +38,14 @@ TRIGGER_TAG = "summarize-me"
 
 async def on_change_event(event: ChangeEventEnvelope) -> None:
     """Receive a ChangeEvent. If it matches the trigger, draft a summary Entry."""
+    # This demonstration runs only as an explicitly configured existing facet.
+    # Its current owner-created policy is enforced by the canonical command.
+    actor_id = os.environ.get("AGENTIVE_SAMPLE_CONSUMER_AGENT_ID", "").strip()
+    if not actor_id:
+        return
     # Layer-2 recursion guard — ignore our own writes (defense in depth; the
     # primary guard is the empty-tags property of the auto-drafted entry).
-    if event.actor_kind == "agent" and event.actor_id == CONSUMER_ID:
+    if event.actor_kind == "agent" and event.actor_id == actor_id:
         return
 
     # Trigger only on entry creations (entry.update events even with the
@@ -91,7 +99,7 @@ async def on_change_event(event: ChangeEventEnvelope) -> None:
             synced_at=utc_now(),
         ),
         actor_kind="agent",
-        actor_id=CONSUMER_ID,
+        actor_id=actor_id,
         workspace_id=track.workspace_id,
     )
 

@@ -196,14 +196,14 @@ async def update_admin_workspace(
     return await get_admin_workspace_detail(workspace_id)
 
 
-async def delete_admin_workspace(workspace_id: str) -> None:
+async def delete_admin_workspace(workspace_id: str, *, actor_user_id: str) -> None:
     """Cascade-delete a workspace and all resources under it."""
     from app.api.errors import ResourceNotFoundError
 
     ws = await Workspace.get(workspace_id)
     if not ws:
         raise ResourceNotFoundError(message="Workspace not found")
-    await delete_workspace_cascade(ws, cascade=True)
+    await delete_workspace_cascade(ws, cascade=True, actor_id=actor_user_id)
 
 
 async def _auth_email(user: User) -> str:

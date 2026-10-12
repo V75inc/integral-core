@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { ResourceAccessReview } from '../components/access/ResourceAccessReview';
+import { AppFunctionAccess } from '../components/access/AppFunctionAccess';
 import { usePhantomClickGuard } from '../hooks/usePhantomClickGuard';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
@@ -353,7 +355,8 @@ export function AppDetailPage() {
   );
   const myRole = (myCollab?.role || '').toLowerCase();
   const isAdminInCollab = myRole === 'admin';
-  const canAdmin = isAppOwner || isAdminInCollab;
+  const isWorkspaceOwner = workspaces.find(w => w.id === app?.workspace_id)?.your_role === 'owner';
+  const canAdmin = isWorkspaceOwner || isAppOwner || isAdminInCollab;
   const canManageCollaborators = canAdmin;
   // Adding or linking a track is app.update, not the workspace create flag.
   // A workspace owner can open this App as a commenter and still holds
@@ -434,18 +437,17 @@ export function AppDetailPage() {
   };
 
   const transferOwnershipTo = async (newOwnerUserId: string, displayName?: string) => {
-    if (!appId || !isAppOwner) return;
+    if (!appId || !(isAppOwner || isWorkspaceOwner)) return;
     const ok = await confirm({
       title: 'Transfer app ownership',
-      message: `Make ${displayName || 'this collaborator'} the App owner? You will keep access as an editor.`,
-      confirmLabel: 'Transfer',
+      message: `Ask ${displayName || 'this collaborator'} to accept App ownership? You remain the owner until they accept.`,
+      confirmLabel: 'Send proposal',
       variant: 'danger'
     });
     if (!ok) return;
     try {
-      const next = await appsApi.transferOwnership(appId, newOwnerUserId);
-      setApp(next);
-      showToast('Ownership transferred', 'success');
+      await appsApi.transferOwnership(appId, newOwnerUserId);
+      showToast('Ownership proposal sent; waiting for acceptance', 'success');
       load();
     } catch (e: unknown) {
       showToast(errorMessageFromAxios(e, 'Transfer failed'), 'error');
@@ -1047,6 +1049,10 @@ export function AppDetailPage() {
         title="Collaborators"
       >
         <div className="space-y-5 p-4">
+          {isWorkspaceOwner && app?.workspace_id && appId && (
+            <AppFunctionAccess appId={appId} workspaceId={app.workspace_id} />
+          )}
+          <ResourceAccessReview resourceType="app" resourceId={appId} />
           {canManageCollaborators ? (
             <div className="space-y-2">
               <h3 className="text-[13px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
@@ -1054,8 +1060,8 @@ export function AppDetailPage() {
               </h3>
               <p className="text-xs text-[var(--text-muted)]">
                 Search for a user by name or email, then add them as a commenter on this App.
-                Workspace owners and admins can view Apps shared with the workspace, but a
-                Private App stays hidden until you add them. Add them here, then set Editor
+                The workspace owner governs this App. Other workspace admins need explicit access to a
+                Private App. Add collaborators here, then set Editor
                 to allow editing entries in tracks, or Admin to manage tracks and app settings.
               </p>
               <UserSearchPicker
@@ -1067,8 +1073,8 @@ export function AppDetailPage() {
           ) : (
             <p className="rounded-[var(--radius-input)] border border-[var(--panel-border)] bg-[var(--panel-2)] px-3 py-2 text-xs text-[var(--text-muted)]">
               Only the <span className="font-medium text-[var(--text)]">app owner or an admin</span>{' '}
-              can add people or change roles. A Private App stays hidden from workspace
-              owners and admins until they are added. This dialog cannot grant that to you.
+              can add people or change roles, along with the workspace owner. Other workspace
+              admins need explicit access to a Private App.
             </p>
           )}
 
@@ -1092,7 +1098,7 @@ export function AppDetailPage() {
                   const canMutateRow =
                     canManageCollaborators && !!apiUserId && !isRowOwner && !isSelf;
                   const canTransfer =
-                    isAppOwner && !!apiUserId && !isRowOwner && !isSelf;
+                    (isAppOwner || isWorkspaceOwner) && !!apiUserId && !isRowOwner && !isSelf;
                   // Substrate ladder (edges.py COLLABORATES_ON): owner > admin >
                   // editor > commenter > viewer. admin = App-config authority
                   // (cascades to template-tracks via DEFINES_TRACK_PROFILE);

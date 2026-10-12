@@ -16,6 +16,7 @@ import { useSetCrumbs } from '../context/CrumbsContext';
 import { workspaceIdOf, useScope } from '../context/ScopeContext';
 import { missionControlSnapshotQueryKey } from '../queryKeys';
 import { Avatar, PageHeading, PageShell, PageSection, Skeleton, TrackDot } from '../components/ui';
+import { OwnershipConsentInbox } from '../components/access/OwnershipConsentInbox';
 import { PendingInvitationsPanel } from '../components/invitations/PendingInvitationsPanel';
 import { MissionControlApprovals } from '../components/approvals/MissionControlApprovals';
 import { usePublishPageContext } from '../hooks/usePublishPageContext';
@@ -307,6 +308,7 @@ export function MissionControlPage() {
         </div>
 
         <PendingInvitationsPanel />
+        <OwnershipConsentInbox onAccepted={async () => { await queryClient.invalidateQueries(); }} />
         <MissionControlApprovals />
 
         {/* Workspaces — birds-eye across all the user belongs to. */}

@@ -1,96 +1,80 @@
-"""Phase 7 Plan 07-04 — pure-service helper for app_node.create.
+"""Approved and human App creation shares the canonical rooted producer."""
 
-Used by ``approval_executor.execute_approval`` on the approve path.
-STANDALONE pure-service function, NOT an internal HTTP self-call.
+from typing import Any
 
-v1 limitation: only the substrate-level app create is replicated.
-Full handler-level operational_model auto-attachment and multi-track
-provisioning (per Phase 2.1 Plan 02.1-02) are NOT replicated here; future
-hardening expands helper parity.
-"""
-
-from __future__ import annotations
-
-import logging
-from typing import Any, Dict, Optional
-
-from app.models.nodes import App, Workspace
+from app.api.errors import BadRequestError, InsufficientPermissionsError
 from app.schemas.policy import Resource, Subject
-from app.services.app_graph import wire_app_owner
-from app.services.change_event import emit_change_event
-from app.services.policy_engine import evaluate as policy_evaluate
-from app.utils.time import utc_now_iso
-
-logger = logging.getLogger(__name__)
 
 
 async def create_app_internal(
     *,
     actor_kind: str,
     actor_id: str,
-    payload: Dict[str, Any],
-    _internal_actor: Optional[Subject] = None,
-) -> Dict[str, Any]:
-    """Pure-service create_space.
-
-    Required payload keys:
-      - ``title`` (str)
-      - ``workspace_id`` (str)
-    Optional payload keys:
-      - ``description`` (str), ``icon`` (str), ``visibility`` (str)
-    """
-    title = payload.get("title", "")
-    workspace_id = payload.get("workspace_id", "")
-    if not workspace_id:
-        raise ValueError("create_app_internal: payload missing 'workspace_id'")
-
-    decision = await policy_evaluate(
-        subject=Subject(kind=actor_kind, id=actor_id),  # type: ignore[arg-type]
-        action="app.create",
-        resource=Resource(
-            kind="app",
-            id="",
-            scope=f"workspace:{workspace_id}",
-        ),
-        payload=payload,
-        _internal_actor=_internal_actor,
+    payload: dict[str, Any],
+    _internal_actor: Subject | None = None,
+) -> dict:
+    """Create under current delegator authority with original actor attribution."""
+    from app.services.app_service import create_app_for_user
+    from app.services.approved_effect import (
+        approved_effect_principal,
+        approved_event_sink,
     )
-    if not decision.allowed:
-        raise PermissionError(
-            f"create_app_internal: policy denied (reason={decision.reason!r})"
-        )
+    from app.services.membership_write_scope import membership_write_scope
+    from app.services.permissions import get_user_node
+    from app.services.policy_engine import evaluate
 
-    workspace = await Workspace.get(workspace_id)
-    if not workspace:
-        raise ValueError(f"create_app_internal: workspace {workspace_id!r} not found")
-
-    now = utc_now_iso()
-    app_node = await App.create(
-        title=title or "Untitled App",
-        description=payload.get("description", ""),
-        icon=payload.get("icon", ""),
-        visibility=payload.get("visibility", "private"),
-        owner_id=actor_id,
-        workspace_id=workspace_id,
-        created_at=now,
-        updated_at=now,
-    )
-
-    # Route through wire_app_owner rather than connecting here: `User.get`
-    # returns None for an `o.User.*` principal id, so this silently produced an
-    # App with no OWNS edge whenever the caller held an auth id rather than a
-    # graph profile id. wire_app_owner resolves either form, falls back to the
-    # workspace owner, and raises rather than leaving the App unadministrable.
-    await wire_app_owner(app_node, actor_id, workspace_id=workspace_id)
-
-    await emit_change_event(
-        actor_kind=actor_kind,  # type: ignore[arg-type]
+    allowed = {
+        "title",
+        "name",
+        "workspace_id",
+        "description",
+        "visibility",
+        "library_operational_model_id",
+        "accent_color",
+        "include_seed_data",
+    }
+    if set(payload) - allowed or (
+        "title" in payload and "name" in payload and payload["title"] != payload["name"]
+    ):
+        raise BadRequestError(message="Unsupported or conflicting approved App fields")
+    workspace_id = payload.get("workspace_id")
+    if not isinstance(workspace_id, str) or not workspace_id:
+        raise BadRequestError(message="Missing workspace_id")
+    principal = await approved_effect_principal(
+        actor_kind=actor_kind,
         actor_id=actor_id,
         action="app.create",
-        resource_type="App",
-        resource_id=app_node.id,
-        before=None,
-        after=await app_node.export(flat=True),
-        scope=f"workspace:{workspace_id}",
+        resource_type="workspace",
+        resource_id=workspace_id,
+        payload=payload,
     )
-    return await app_node.export(flat=True)
+    if principal is None:
+        if actor_kind != "human":
+            raise InsufficientPermissionsError(
+                message="Exact approved authority required"
+            )
+        user = await get_user_node(actor_id)
+        principal = user.id if user else ""
+    async with membership_write_scope(workspace_id, principal_ids=(principal,)):
+        decision = await evaluate(
+            subject=Subject(kind=actor_kind, id=actor_id),
+            action="app.create",
+            resource=Resource(kind="app", id="", scope=f"workspace:{workspace_id}"),
+            payload=payload,
+        )
+        if not decision.allowed:
+            raise InsufficientPermissionsError(message="App creation denied")
+        app = await create_app_for_user(
+            user_id=principal,
+            name=payload.get("name", payload.get("title", "Untitled App")),
+            description=payload.get("description"),
+            workspace_id=workspace_id,
+            visibility=payload.get("visibility"),
+            library_package_id=payload.get("library_operational_model_id"),
+            accent_color=payload.get("accent_color"),
+            include_seed_data=payload.get("include_seed_data", True),
+            actor_kind=actor_kind,
+            actor_id=actor_id,
+            change_event_sink=approved_event_sink if actor_kind != "human" else None,
+        )
+        return await app.export(flat=True)

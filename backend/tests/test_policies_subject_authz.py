@@ -13,6 +13,8 @@ from __future__ import annotations
 import pytest
 from httpx import AsyncClient
 
+from tests.test_policy_node import _bounded_policy_body
+
 
 async def _register_personal_agent(client: AsyncClient) -> str:
     r = await client.post(
@@ -39,7 +41,10 @@ async def test_non_owner_cannot_create_policy_for_foreign_agent(
 
     r = await second_user_client.post(
         "/api/policies",
-        json={"subject_kind": "agent", "subject_id": agent_id, "actions": ["*"]},
+        json=await _bounded_policy_body(
+            second_user_client,
+            {"subject_kind": "agent", "subject_id": agent_id, "actions": ["*"]},
+        ),
     )
     assert r.status_code == 403, r.text
 
@@ -54,11 +59,14 @@ async def test_owner_can_create_patch_and_delete_policy_for_own_agent(
 
     r = await authenticated_client.post(
         "/api/policies",
-        json={
-            "subject_kind": "agent",
-            "subject_id": agent_id,
-            "actions": ["entry.read"],
-        },
+        json=await _bounded_policy_body(
+            authenticated_client,
+            {
+                "subject_kind": "agent",
+                "subject_id": agent_id,
+                "actions": ["entry.read"],
+            },
+        ),
     )
     assert r.status_code == 201, r.text
     policy_id = r.json()["id"]
@@ -95,13 +103,19 @@ async def test_connector_policy_requires_connector_owner(
 
     r = await authenticated_client.post(
         "/api/policies",
-        json={"subject_kind": "connector", "subject_id": connector_id},
+        json=await _bounded_policy_body(
+            authenticated_client,
+            {"subject_kind": "connector", "subject_id": connector_id},
+        ),
     )
     assert r.status_code == 403, r.text
 
     r = await second_user_client.post(
         "/api/policies",
-        json={"subject_kind": "connector", "subject_id": connector_id},
+        json=await _bounded_policy_body(
+            second_user_client,
+            {"subject_kind": "connector", "subject_id": connector_id},
+        ),
     )
     assert r.status_code == 201, r.text
 
@@ -118,7 +132,10 @@ async def test_human_subject_and_unknown_subject_are_admin_only(
 
     # Even for themselves, a non-admin cannot self-attach a human Policy.
     r = await authenticated_client.post(
-        "/api/policies", json={"subject_kind": "human", "subject_id": caller_id}
+        "/api/policies",
+        json=await _bounded_policy_body(
+            authenticated_client, {"subject_kind": "human", "subject_id": caller_id}
+        ),
     )
     assert r.status_code == 403, r.text
     # Nor for an agent id that resolves to no node.
@@ -128,7 +145,11 @@ async def test_human_subject_and_unknown_subject_are_admin_only(
     assert r.status_code == 403, r.text
 
     r = await authenticated_admin_client.post(
-        "/api/policies", json={"subject_kind": "human", "subject_id": caller_id}
+        "/api/policies",
+        json=await _bounded_policy_body(
+            authenticated_admin_client,
+            {"subject_kind": "human", "subject_id": caller_id},
+        ),
     )
     assert r.status_code == 201, r.text
 
@@ -145,11 +166,17 @@ async def test_list_policies_is_filtered_to_administered_subjects(
     theirs = await _register_personal_agent(second_user_client)
 
     r = await authenticated_client.post(
-        "/api/policies", json={"subject_kind": "agent", "subject_id": mine}
+        "/api/policies",
+        json=await _bounded_policy_body(
+            authenticated_client, {"subject_kind": "agent", "subject_id": mine}
+        ),
     )
     assert r.status_code == 201, r.text
     r = await second_user_client.post(
-        "/api/policies", json={"subject_kind": "agent", "subject_id": theirs}
+        "/api/policies",
+        json=await _bounded_policy_body(
+            second_user_client, {"subject_kind": "agent", "subject_id": theirs}
+        ),
     )
     assert r.status_code == 201, r.text
 
@@ -172,3 +199,73 @@ async def test_list_policies_is_filtered_to_administered_subjects(
         for p in (await authenticated_admin_client.get("/api/policies")).json()
     }
     assert {mine, theirs} <= admin_subjects
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+async def test_stale_admin_token_cannot_administer_after_current_role_revocation(
+    authenticated_admin_client, second_user_client
+):
+    from jvspatial.api.auth.models import User as AuthUser
+
+    response = await authenticated_admin_client.get("/api/auth/me")
+    body = response.json().get("user", response.json())
+    identity = body.get("user_id") or body["id"]
+    from app.services.permissions import get_user_node
+
+    profile = await get_user_node(identity)
+    auth = await AuthUser.get(profile.user_id)
+    assert auth is not None
+    previous = list(auth.roles)
+    foreign = await second_user_client.get("/api/auth/me")
+    subject = foreign.json().get("user", foreign.json())["id"]
+    payload = await _bounded_policy_body(
+        authenticated_admin_client,
+        {"subject_kind": "human", "subject_id": subject, "actions": ["app.read"]},
+    )
+    assert (
+        await authenticated_admin_client.post("/api/policies", json=payload)
+    ).status_code == 201
+    try:
+        auth.roles = ["user"]
+        await auth.save()
+        denied = await authenticated_admin_client.post("/api/policies", json=payload)
+        assert denied.status_code == 403, denied.text
+    finally:
+        auth.roles = previous
+        await auth.save()
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+async def test_owner_can_disable_legacy_unbounded_policy_without_implicit_adoption(
+    authenticated_client,
+):
+    from app.services.permissions import get_user_node
+    from app.services.policy_registry import create_policy, get_policy
+
+    response = await authenticated_client.get("/api/auth/me")
+    actor = response.json().get("user", response.json())
+    owner = await get_user_node(actor.get("user_id") or actor["id"])
+    subject = await _register_personal_agent(authenticated_client)
+    legacy = await create_policy(
+        subject_kind="agent",
+        subject_id=subject,
+        scope="*",
+        actions=["*"],
+        created_by=owner.id,
+    )
+    denied = await authenticated_client.patch(
+        f"/api/policies/{legacy.id}", json={"is_active": True}
+    )
+    assert denied.status_code == 400, denied.text
+    disabled = await authenticated_client.patch(
+        f"/api/policies/{legacy.id}", json={"is_active": False}
+    )
+    assert disabled.status_code == 200, disabled.text
+    current = await get_policy(legacy.id)
+    assert (
+        current.is_active is False
+        and current.scope == "*"
+        and current.created_by == owner.id
+    )

@@ -35,12 +35,25 @@ from app.services.operational_model_loader import (
     load_library_operational_models_with_issues,
 )
 from app.services.permissions import get_user_accessible_apps
-from tests.contract.asset_register_helpers import seed_asset_register_library_cp
+from tests.contract.asset_register_helpers import (
+    create_asset_entry,
+    grant_asset_operator,
+    run_authorized_asset_tool,
+    seed_asset_register_library_cp,
+)
 from tests.fixtures.workspaces import make_org_workspace, workspace_owner_id
 
 REPO = Path(__file__).resolve().parents[3]
 BUILD_SCRIPT = REPO / "examples" / "asset-register" / "build.py"
 SDK_ROOT = REPO / "sdk" / "python"
+
+_original_install_app = install_app
+
+
+async def install_app(**kwargs):
+    installed = await _original_install_app(**kwargs)
+    await grant_asset_operator(actor_id=kwargs["actor_id"], app_id=installed["app_id"])
+    return installed
 
 
 def _build(output_dir: Path, *, signing_key: Path | None = None) -> Path:
@@ -286,7 +299,8 @@ async def test_c6_a13_populated_upgrade_fences_due_work_across_restart_and_unins
         app_id=app.id,
         operation_key="register_asset",
     )
-    entry = await context.create_entry(
+    entry = await create_asset_entry(
+        context,
         track_id=assets.id,
         entry_type_key="asset",
         title="Lifecycle Laptop",
@@ -589,7 +603,8 @@ async def test_declared_asset_dashboard_reads_populated_app_after_reinstall(
         operation_key="register_asset",
     )
     for tag in ("A-001", "A-002", "A-003"):
-        entry = await context.create_entry(
+        entry = await create_asset_entry(
+            context,
             track_id=asset_track.id,
             entry_type_key="asset",
             title=f"Test asset {tag}",
@@ -698,7 +713,8 @@ async def test_declared_asset_query_matches_dashboard_http_resident_and_mcp(
         operation_key="register_asset",
     )
     for number in range(1, 4):
-        entry = await context.create_entry(
+        entry = await create_asset_entry(
+            context,
             track_id=asset_track.id,
             entry_type_key="asset",
             title=f"Parity asset {number}",
@@ -1193,7 +1209,7 @@ async def test_extracted_asset_register_executes_registered_custody_tools(
     assert custodian is not None
 
     tools = get_workspace_tools(workspace.id)
-    registered = await run_tool(
+    registered = await run_authorized_asset_tool(
         tools["register_asset"],
         {"asset_tag": "ARCHIVE-001", "title": "Archive Laptop"},
         ctx,
@@ -1202,7 +1218,7 @@ async def test_extracted_asset_register_executes_registered_custody_tools(
     asset_id = registered["asset"]["entry_id"]
 
     ctx.operation_key = "check_out_asset"
-    checked_out = await run_tool(
+    checked_out = await run_authorized_asset_tool(
         tools["check_out_asset"],
         {"asset_id": asset_id, "custodian_id": custodian.id},
         ctx,
@@ -1264,7 +1280,7 @@ async def test_extracted_archive_operational_journey(tmp_path, monkeypatch):
     assert custodian is not None
 
     tools = get_workspace_tools(workspace.id)
-    registered = await run_tool(
+    registered = await run_authorized_asset_tool(
         tools["register_asset"],
         {"asset_tag": "JOURNEY-001", "title": "Journey Laptop"},
         ctx,
@@ -1272,13 +1288,13 @@ async def test_extracted_archive_operational_journey(tmp_path, monkeypatch):
     assert registered["ok"] is True
     asset_id = registered["asset"]["entry_id"]
     ctx.operation_key = "check_out_asset"
-    checked_out = await run_tool(
+    checked_out = await run_authorized_asset_tool(
         tools["check_out_asset"],
         {"asset_id": asset_id, "custodian_id": custodian.id},
         ctx,
     )
     assert checked_out["ok"] is True
-    conflict = await run_tool(
+    conflict = await run_authorized_asset_tool(
         tools["check_out_asset"],
         {"asset_id": asset_id, "custodian_id": custodian.id},
         ctx,

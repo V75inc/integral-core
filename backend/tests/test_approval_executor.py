@@ -21,7 +21,6 @@ import pytest
 from app.services.approval_executor import (
     WRITE_ACTION_DISPATCH,
     ApprovalAlreadyDecided,
-    UnsupportedApprovalAction,
     execute_approval,
     reject_approval,
 )
@@ -76,7 +75,7 @@ async def test_reject_approval_not_found_raises_value_error():
 
 
 @pytest.mark.asyncio
-async def test_execute_approval_unsupported_action_raises():
+async def test_malformed_unsupported_approval_fails_without_effects():
     """Action not in WRITE_ACTION_DISPATCH raises UnsupportedApprovalAction.
 
     The REST handler maps this to HTTP 422 with
@@ -100,7 +99,9 @@ async def test_execute_approval_unsupported_action_raises():
         expires_at="2099-01-01T00:00:00+00:00",
     )
 
-    with pytest.raises(UnsupportedApprovalAction, match="track.update"):
+    from app.exceptions import AuthorizationUnavailableError
+
+    with pytest.raises(AuthorizationUnavailableError):
         await execute_approval(
             approval_id=pw.id,
             approver_user_id="user-1",
@@ -134,7 +135,7 @@ async def test_execute_approval_already_decided_raises():
 
 
 @pytest.mark.asyncio
-async def test_reject_approval_emits_policy_deny_not_original_action():
+async def test_rootless_rejection_cannot_decide_without_current_authority():
     """I-APPROVAL-02 — reject emits policy.deny, NEVER the original action.
 
     The rejected pw's status flips to 'rejected'; decided_at + decider_id
@@ -158,19 +159,16 @@ async def test_reject_approval_emits_policy_deny_not_original_action():
         expires_at="2099-01-01T00:00:00+00:00",
     )
 
-    result = await reject_approval(
-        approval_id=pw.id,
-        rejecter_user_id="approver-1",
-        reason="not safe to run",
-    )
-    assert result["status"] == "rejected"
-    assert result["approval_id"] == pw.id
+    from app.exceptions import AuthorizationUnavailableError
 
+    with pytest.raises(AuthorizationUnavailableError):
+        await reject_approval(
+            approval_id=pw.id, rejecter_user_id="approver-1", reason="not safe to run"
+        )
     pw_after = await Approval.get(pw.id)
-    assert pw_after is not None
-    assert pw_after.status == "rejected"
-    assert pw_after.decider_id == "approver-1"
-    assert pw_after.decided_at is not None
+    assert pw_after.status == "pending"
+    assert pw_after.decider_id is None
+    assert pw_after.decided_at is None
 
 
 @pytest.mark.asyncio

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from typing import Any
 from weakref import WeakValueDictionary
 
@@ -12,6 +13,10 @@ from jvspatial.db.postgres import PostgresTransaction
 
 _local_locks: WeakValueDictionary[tuple[int, int, str], asyncio.Lock] = (
     WeakValueDictionary()
+)
+
+_active_local: ContextVar[tuple[object, object, frozenset[str]] | None] = ContextVar(
+    "integral_local_entry_commands", default=None
 )
 
 
@@ -47,12 +52,31 @@ async def entry_write_scope(identity: str):
         # Single-process stores cannot promise transaction rollback or worker
         # fencing. This only serializes local entry commands; connector sync
         # separately refuses these stores outside testing/development.
+        active = _active_local.get()
+        task = asyncio.current_task()
+        if (
+            active is not None
+            and active[0] is task
+            and active[1] is concrete
+            and identity in active[2]
+        ):
+            yield get_default_context()
+            return
         key = (id(concrete), id(asyncio.get_running_loop()), identity)
         # Hold a strong reference for owners/waiters, but release idle entry
         # identities so a long-lived local store cannot grow this map forever.
         lock = _local_locks.setdefault(key, asyncio.Lock())
         async with lock:
-            yield get_default_context()
+            inherited = (
+                active[2]
+                if active is not None and active[0] is task and active[1] is concrete
+                else frozenset()
+            )
+            token = _active_local.set((task, concrete, inherited | {identity}))
+            try:
+                yield get_default_context()
+            finally:
+                _active_local.reset(token)
     else:
         raise RuntimeError(
             "Entry commands require transactional or single-process storage"

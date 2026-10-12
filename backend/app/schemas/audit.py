@@ -234,6 +234,8 @@ ChangeEventAction = Literal[
     # ``test_policy_action_strict_supersets_change_event_action``
     # whitelists this member alongside the existing audit-only exemptions.
     "approval.expired",
+    "approval.approved",
+    "approval.rejected",
     # ---- Phase 10 Plan 10-05 additions ----
     # App lifecycle audit actions. PolicyAction mirrors these in lockstep
     # (INVARIANTS.md L43-63 strict-superset gate / I-CHA invariant).

@@ -157,6 +157,9 @@ async def direct_entry_ids(user: Any) -> list[str]:
                 raise AuthorizationUnavailableError()
             result.extend(ids)
         if len(rows) <= WINDOW:
+            from app.services.share_grant_sources import share_grant_targets
+
+            result.extend(await share_grant_targets(user.id, "entry"))
             return list(dict.fromkeys(result))
         next_id = page[-1].get("id")
         if not isinstance(next_id, str) or (last_id is not None and next_id <= last_id):
@@ -324,6 +327,9 @@ async def admit_records(
     denied = {row["target"] for row in denials}
     workspace_roles: dict[str, str] = {}
     parent_roles: dict[str, str | None] = {}
+    from app.services.share_grant_sources import share_grant_targets
+
+    sourced_targets = await share_grant_targets(user.id, "entry")
     result = []
     for selected in records:
         record = canonical_records[selected["id"]]
@@ -362,6 +368,12 @@ async def admit_records(
                 await _current_workspace_role(user, workspace) if workspace else "none"
             )
         membership = workspace_roles[location.workspace_id]
+        from app.services.resource_access_blocks import resource_blocked
+
+        if not (
+            membership == "owner" and owner_governance_allowed()
+        ) and await resource_blocked(user.id, "entry", record["id"], location=location):
+            continue
         if membership == "owner" and owner_governance_allowed():
             result.append(record)
             continue
@@ -374,6 +386,10 @@ async def admit_records(
         if direct[record["id"]] is not None:
             result.append(record)
             continue
+        if record["id"] in sourced_targets:
+            if await resolve_role(user_id, "entry", record["id"]) is not None:
+                result.append(record)
+                continue
         if record["id"] in denied:
             continue
         if location.track_id not in parent_roles:

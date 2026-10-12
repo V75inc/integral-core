@@ -1,15 +1,36 @@
 """Workspace departure cleans current Model grants without crossing scope."""
 
+import uuid
+
+import bcrypt
 import pytest
+from jvspatial.api.auth.models import User as AuthUser
 
 from app.models.edges import COLLABORATES_ON, IS_MEMBER_OF
 from app.schemas.policy import Resource
 from app.services.library_model_creation import create_private_library_model
 from app.services.model_authority import model_action_authorized
 from app.services.workspace_departure import remove_workspace_membership
-from tests.test_resource_location import graph
+from tests.test_resource_location import graph as rooted_graph
 
 pytestmark = pytest.mark.smoke
+
+
+async def graph():
+    """Bind rooted departure subjects to genuine current primary identities."""
+    owner, workspace, app, track, entry = await rooted_graph()
+    email = f"model-departure-{uuid.uuid4().hex}@example.com"
+    identity = await AuthUser.create(
+        email=email,
+        password_hash=bcrypt.hashpw(
+            b"model-departure-test-password", bcrypt.gensalt()
+        ).decode(),
+    )
+    owner.user_id = identity.id
+    owner.email_verified = True
+    owner.verified_email = email
+    await owner.save()
+    return owner, workspace, app, track, entry
 
 
 async def private_model(owner, workspace):
@@ -37,7 +58,12 @@ async def test_departure_removes_private_model_grant_before_guest_reentry():
     assert await model_action_authorized(
         curator.id, "operational_model.update", model_resource(model)
     )
-    assert await remove_workspace_membership(member=curator, workspace_id=workspace.id)
+    assert await remove_workspace_membership(
+        member=curator,
+        workspace_id=workspace.id,
+        actor_id=curator.id,
+        clear_active_workspace=True,
+    )
     context = await curator.get_context()
     assert (
         await context.find_edges_between(
@@ -65,7 +91,12 @@ async def test_departure_preserves_foreign_workspace_model_grant():
     foreign = await private_model(foreign_owner, foreign_workspace)
     for model in (own, foreign):
         await curator.connect(model, edge=COLLABORATES_ON, role="admin")
-    assert await remove_workspace_membership(member=curator, workspace_id=workspace.id)
+    assert await remove_workspace_membership(
+        member=curator,
+        workspace_id=workspace.id,
+        actor_id=curator.id,
+        clear_active_workspace=True,
+    )
     assert await model_action_authorized(
         curator.id, "operational_model.update", model_resource(foreign)
     )
@@ -85,7 +116,12 @@ async def test_unresolved_model_grant_keeps_membership_and_other_grants():
     model.workspace_id = None
     await model.save()
     with pytest.raises(RuntimeError, match="Workspace grant traversal failed"):
-        await remove_workspace_membership(member=curator, workspace_id=workspace.id)
+        await remove_workspace_membership(
+            member=curator,
+            workspace_id=workspace.id,
+            actor_id=curator.id,
+            clear_active_workspace=True,
+        )
     context = await curator.get_context()
     for target, edge in (
         (workspace, IS_MEMBER_OF),
@@ -115,7 +151,12 @@ async def test_departure_removes_named_attached_draft_reviewer_grant():
     assert await model_action_authorized(
         reviewer.id, "operational_model.read", model_resource(draft)
     )
-    assert await remove_workspace_membership(member=reviewer, workspace_id=workspace.id)
+    assert await remove_workspace_membership(
+        member=reviewer,
+        workspace_id=workspace.id,
+        actor_id=reviewer.id,
+        clear_active_workspace=True,
+    )
     await reviewer.connect(workspace, edge=IS_MEMBER_OF, role="guest")
     assert not await model_action_authorized(
         reviewer.id, "operational_model.read", model_resource(draft)

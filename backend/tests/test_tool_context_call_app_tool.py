@@ -170,7 +170,9 @@ def test_the_manifest_compiler_carries_exported_and_defaults_it_off():
 # --- create_entry_in_workspace_bundle_track, against the real graph -----------------
 
 
-async def _documents_app(workspace_id: str, user_id: str, *, slug="documents"):
+async def _documents_app(
+    workspace_id: str, user_id: str, *, slug="documents", rooted=False
+):
     from app.models.edges import CONTAINS
     from app.models.nodes import App, EntryType, Track
 
@@ -189,7 +191,7 @@ async def _documents_app(workspace_id: str, user_id: str, *, slug="documents"):
         template_id="documents",
     )
     await app_node.connect(track, edge=CONTAINS)
-    await EntryType.create(
+    document_type = await EntryType.create(
         name="Document",
         icon="file-text",
         form_schema={
@@ -199,6 +201,23 @@ async def _documents_app(workspace_id: str, user_id: str, *, slug="documents"):
         track_id=track.id,
         is_template=False,
     )
+    if rooted:
+        from app.models.edges import OWNS
+        from app.models.nodes import User
+        from app.services.app_graph import (
+            catalog_app,
+            catalog_track,
+            ensure_track_attached_operational_model,
+        )
+
+        user = await User.get(user_id)
+        assert user is not None
+        await catalog_app(app_node)
+        await catalog_track(track)
+        await user.connect(app_node, edge=OWNS)
+        await user.connect(track, edge=OWNS)
+        model = await ensure_track_attached_operational_model(track)
+        await model.connect(document_type, edge=CONTAINS)
     return app_node, track
 
 
@@ -215,13 +234,14 @@ def _allow(monkeypatch, role="editor", allowed=True):
 
 @pytest.mark.asyncio
 async def test_workspace_create_writes_in_this_workspace_and_marks_the_app_as_writer(
-    monkeypatch,
+    test_user,
 ):
     from app.models.nodes import Entry
+    from app.services.personal_workspace import ensure_personal_workspace
 
-    _allow(monkeypatch)
-    _, track = await _documents_app("ws-gen-1", "user-gen-1")
-    ctx = ToolContext(user_id="user-gen-1", workspace_id="ws-gen-1", scope="entry:e1")
+    workspace = await ensure_personal_workspace(test_user)
+    _, track = await _documents_app(workspace.id, test_user.id, rooted=True)
+    ctx = ToolContext(user_id=test_user.id, workspace_id=workspace.id, scope="entry:e1")
     ctx.bundle_slug = "documents"
 
     entry_id = await ctx.create_entry_in_workspace_bundle_track(

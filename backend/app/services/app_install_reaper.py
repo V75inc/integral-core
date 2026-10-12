@@ -38,7 +38,7 @@ import asyncio
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from app.models.nodes import App
 from app.services.app_lifecycle import uninstall_app
@@ -85,6 +85,106 @@ def _parse_iso(ts: Optional[str]) -> Optional[datetime]:
         return None
 
 
+async def _compensate_expired_install(
+    app_node: App, ttl_hours: float, now: datetime
+) -> bool:
+    """Compensate one unchanged expired install through its current owner rights."""
+    from jvspatial.core.context import get_default_context
+
+    from app.exceptions import AuthorizationUnavailableError
+    from app.models.edges import OWNS
+    from app.services.app_operations.event_outbox import insert_revision_event
+    from app.services.app_operations.transaction_scope import (
+        graph_transaction_available,
+    )
+    from app.services.authority_facts import primary_node_record, required_node_text
+    from app.services.membership_write_scope import membership_write_scope
+    from app.services.resource_location import MANAGEMENT_APP_STATES, locate_resource
+    from app.services.workspace_membership import _deliver
+    from app.services.workspace_permissions import can_access_workspace
+
+    workspace_id = app_node.workspace_id
+    owner_id = app_node.owner_user_id
+    if not owner_id or not workspace_id:
+        raise AuthorizationUnavailableError()
+    events: list[dict[str, Any]] = []
+    outbox = None
+    async with membership_write_scope(workspace_id, principal_ids=(owner_id,)):
+        database = get_default_context().database
+        row = await primary_node_record(database, App, app_node.id)
+        if row is None:
+            return False
+        data = row["context"]
+        if (
+            data.get("lifecycle_state") != "awaiting_settings"
+            or data.get("updated_at") != app_node.updated_at
+        ):
+            return False
+        if (
+            required_node_text(row, "workspace_id") != workspace_id
+            or required_node_text(row, "owner_user_id") != owner_id
+        ):
+            raise AuthorizationUnavailableError()
+        expiry_start = _parse_iso(data.get("updated_at"))
+        if (
+            expiry_start is None
+            or expiry_start.tzinfo is None
+            or (now - expiry_start).total_seconds() / 3600 < ttl_hours
+        ):
+            return False
+        if not data.get("installed_from_library_id") or data.get("settings") not in (
+            {},
+            None,
+        ):
+            return False
+        ownership = await database.find(
+            "edge", {"target": app_node.id, "entity": OWNS._entity_name()}, limit=2
+        )
+        if len(ownership) != 1 or ownership[0].get("source") != owner_id:
+            raise AuthorizationUnavailableError()
+        location = await locate_resource(
+            "app", app_node.id, allowed_app_states=MANAGEMENT_APP_STATES
+        )
+        if (
+            location is None
+            or location.workspace_id != workspace_id
+            or await can_access_workspace(owner_id, workspace_id) == "none"
+        ):
+            raise AuthorizationUnavailableError()
+        await uninstall_app(
+            app_id=app_node.id,
+            actor_id=owner_id,
+            archive=False,
+            reason="settings_pause_timeout",
+            _change_event_sink=events.append,
+        )
+        if (
+            len(events) != 1
+            or events[0].get("action") != "app.uninstalled"
+            or events[0].get("resource_id") != app_node.id
+        ):
+            raise AuthorizationUnavailableError()
+        event = events[0]
+        event.update({"actor_kind": "system", "actor_id": "app_install_reaper"})
+        event["details"] = {**event.get("details", {}), "authority_owner_id": owner_id}
+        if graph_transaction_available(database):
+            outbox = await insert_revision_event(
+                transaction=database,
+                workspace_id=workspace_id,
+                namespace="expired-install-compensation-v1",
+                subject_id=app_node.id,
+                revision=1,
+                event=event,
+            )
+    if outbox:
+        await _deliver(outbox)
+    else:
+        from app.services.change_event import emit_change_event
+
+        await emit_change_event(**event)
+    return True
+
+
 async def run_reaper_pass() -> int:
     """One sweep over ``awaiting_settings`` Apps past TTL. Returns count reaped.
 
@@ -119,12 +219,8 @@ async def run_reaper_pass() -> int:
         if age_hours < ttl_hours:
             continue
         try:
-            await uninstall_app(
-                app_id=app_node.id,
-                actor_id="system",
-                archive=False,
-                reason="settings_pause_timeout",
-            )
+            if not await _compensate_expired_install(app_node, ttl_hours, now):
+                continue
             reaped += 1
             logger.info(
                 "run_reaper_pass: reaped app %s (age=%.2fh > ttl=%.2fh)",

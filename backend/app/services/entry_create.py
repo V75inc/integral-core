@@ -176,9 +176,15 @@ async def _create_entry_in_track(
         )
     )
     await enforce_protected_field_write(
+        principal_id=(
+            actor_id if actor_id and actor_kind in {"agent", "connector"} else user_id
+        ),
         workspace_id=str(getattr(track, "workspace_id", "") or workspace_id),
         entry_type_key=entry_type_key,
         proposed_custom_fields=custom_fields,
+        track_id=track.id,
+        mutation_kind="create",
+        proposed_fields={"title": title, "body": body},
     )
 
     resolved_type_id = resolved_type.id
@@ -193,6 +199,17 @@ async def _create_entry_in_track(
         custom_fields=dict(custom_fields or {}),
         user_id=user_id,
         workspace_id=str(getattr(track, "workspace_id", "") or workspace_id),
+    )
+    await enforce_protected_field_write(
+        principal_id=(
+            actor_id if actor_id and actor_kind in {"agent", "connector"} else user_id
+        ),
+        workspace_id=str(track.workspace_id or workspace_id),
+        entry_type_key=entry_type_key,
+        proposed_custom_fields=seeded_custom_fields,
+        track_id=track.id,
+        mutation_kind="create",
+        proposed_fields={"title": title, "body": body},
     )
     (
         validated_custom_fields,
@@ -355,6 +372,13 @@ async def create_entry_in_track(
     events: List[Dict[str, Any]] = []
     outbox_id = None
     caller_context = get_default_context()
+    from app.services.approved_effect import (
+        approved_capture_active,
+        approved_event_sink,
+    )
+
+    if await approved_capture_active():
+        change_event_sink = approved_event_sink
     async with entry_write_scope(f"track:{track.id}") as graph:
         fresh_track = await Track.get(track.id)
         if fresh_track is None:
@@ -367,24 +391,62 @@ async def create_entry_in_track(
             )
         # Rehydrate the type under the command's context as well.
         fresh_type = await EntryType.get(entry_type.id) if entry_type else None
-        entry = await _create_entry_in_track(
-            track=fresh_track,
+        from app.services.entry_effect_scope import entry_effect_scope
+
+        actual_payload = {
+            "track_id": fresh_track.id,
+            "title": title,
+            "body": body,
+            "type_id": type_id or (entry_type.id if entry_type else ""),
+            "custom_fields": dict(custom_fields or {}),
+            "tags": list(tags or []),
+            "attachment_ids": list(attachment_ids or []),
+            **(
+                {"provenance": provenance.model_dump(mode="json")} if provenance else {}
+            ),
+        }
+        candidate_type = fresh_type or (
+            await EntryType.find_one({"id": type_id}) if type_id else None
+        )
+        key = (
+            slug_manifest_key(
+                str(
+                    (candidate_type.form_schema or {}).get("_manifest_entry_type_key")
+                    or candidate_type.name
+                )
+            )
+            if candidate_type
+            else ""
+        )
+        async with entry_effect_scope(
             user_id=user_id,
-            title=title,
-            body=body,
-            custom_fields=custom_fields,
-            tags=tags,
-            entry_type=fresh_type,
-            type_id=type_id or (entry_type.id if entry_type else ""),
-            attachment_ids=attachment_ids,
-            workspace_id=workspace_id,
             actor_kind=actor_kind,
             actor_id=actor_id,
-            provenance=provenance,
-            idempotency_key=idempotency_key,
-            skip_profanity=skip_profanity,
-            change_event_sink=change_event_sink or events.append,
-        )
+            action="entry.create",
+            target_kind="track",
+            target_id=fresh_track.id,
+            workspace_id=fresh_track.workspace_id,
+            payload=actual_payload,
+            entry_type_key=key,
+        ) as admitted_principal_id:
+            entry = await _create_entry_in_track(
+                track=fresh_track,
+                user_id=admitted_principal_id,
+                title=title,
+                body=body,
+                custom_fields=custom_fields,
+                tags=tags,
+                entry_type=fresh_type,
+                type_id=type_id or (entry_type.id if entry_type else ""),
+                attachment_ids=attachment_ids,
+                workspace_id=workspace_id,
+                actor_kind=actor_kind,
+                actor_id=actor_id,
+                provenance=provenance,
+                idempotency_key=idempotency_key,
+                skip_profanity=skip_profanity,
+                change_event_sink=change_event_sink or events.append,
+            )
         if events and is_postgres_entry_transaction(graph.database):
             from app.services.app_operations.event_outbox import insert_entry_event
 

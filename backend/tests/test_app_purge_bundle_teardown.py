@@ -28,6 +28,7 @@ from app.services.app_lifecycle import sync_operational_layer_from_manifest
 from app.services.hooks.registry import get_workspace_hooks, get_workspace_tools
 from app.services.operational_model_runtime import compile_canonical_manifest
 from app.utils.time import utc_now_iso
+from tests.fixtures.workspaces import workspace_owner_id
 from tests.test_app_lifecycle import _make_workspace, _minimal_app_manifest
 
 
@@ -134,7 +135,9 @@ async def test_delete_workspace_cascade_unregisters_bundle():
     assert tool_key in get_workspace_tools(ws.id)
     assert _hook_keys(ws.id, tool_key) == [f"{tool_key}_hook"]
 
-    await delete_workspace_cascade(ws, cascade=True)
+    await delete_workspace_cascade(
+        ws, cascade=True, actor_id=await workspace_owner_id(ws)
+    )
 
     assert tool_key not in get_workspace_tools(
         ws.id
@@ -171,7 +174,9 @@ async def test_purge_helper_resolves_slug_before_the_cascade():
     await _attach_live_bundle(app_node, slug="purge-helper-bundle", tool_key=tool_key)
     assert tool_key in get_workspace_tools(ws.id)
 
-    await purge_app_with_bundle_teardown(app_node)
+    await purge_app_with_bundle_teardown(
+        app_node, actor_user_id=await workspace_owner_id(ws)
+    )
 
     assert tool_key not in get_workspace_tools(ws.id)
     assert _hook_keys(ws.id, tool_key) == []

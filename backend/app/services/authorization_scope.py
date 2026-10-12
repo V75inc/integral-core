@@ -19,7 +19,6 @@ from app.exceptions import AuthorizationUnavailableError
 from app.middleware.permissions_cache import isolated_permissions_cache
 from app.models.edges import HAS_AUTHORIZATION_STATE
 from app.models.nodes import Workspace, WorkspaceAuthorizationState
-from app.services.app_operations.transaction_scope import postgres_graph_transaction
 from app.services.resource_location import locate_resource
 
 
@@ -44,6 +43,8 @@ async def authorization_scope(
     dispatch intent needs the same lock, and subsequent provider results
     require reconciliation. Released bytes cannot be recalled by a revision.
     """
+    from app.services.app_operations.transaction_scope import postgres_graph_transaction
+
     if not workspace_id:
         raise AuthorizationUnavailableError()
     with isolated_permissions_cache():

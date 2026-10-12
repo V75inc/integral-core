@@ -148,6 +148,7 @@ async def register_bundle_on_install(
         from app.services.app_invariant_guards import (
             protected_from_canonical,
             register_protected_fields,
+            register_protected_state,
         )
         from app.services.app_queries.dispatch import sync_app_queries_from_manifest
 
@@ -163,6 +164,7 @@ async def register_bundle_on_install(
             app_id,
             protected_from_canonical(canonical),
         )
+        register_protected_state(workspace_id, app_id, canonical)
         try:
             from app.services.capability_catalogue import compile_workspace_catalogue
 

@@ -59,7 +59,6 @@ from app.services.operational_model_runtime import (
     normalize_entry_type_form_schema,
     normalize_view_config,
 )
-from app.services.ownership_transfer import transfer_app_ownership
 from app.services.permissions import (
     can_create_app_under_workspace,
     get_user_accessible_apps,
@@ -581,7 +580,9 @@ async def delete_app(request: Request, app_id: str) -> Dict[str, Any]:
     # which would keep dispatching for a deleted App until restart.
     from app.services.app_lifecycle import purge_app_with_bundle_teardown
 
-    deleted_tracks, unlinked_tracks = await purge_app_with_bundle_teardown(sp)
+    deleted_tracks, unlinked_tracks = await purge_app_with_bundle_teardown(
+        sp, actor_user_id=user_id
+    )
 
     # D-05 single emission path. Sync inline emit before HTTP response (D-06).
     await emit_change_event(
@@ -1086,32 +1087,14 @@ async def post_transfer_app_ownership(
         raise InsufficientPermissionsError(
             message="Only the App owner can transfer ownership",
         )
-    prior_sp = await App.get(app_id)
-    prior_snapshot = await export_node(prior_sp) if prior_sp else None  # D-03
-    sp = await transfer_app_ownership(
-        app_id=app_id,
-        acting_user_id=user_id,
-        new_owner_user_id=new_owner_user_id,
-    )
+    from app.services.ownership_consent import request_ownership_transfer
 
-    # D-05 single emission path. Sync inline emit before HTTP response (D-06).
-    await emit_change_event(
-        actor_kind="human",
+    return await request_ownership_transfer(
         actor_id=user_id,
-        action="app.update",
-        resource_type="App",
-        resource_id=sp.id,
-        before=prior_snapshot,
-        after=await export_node(sp),
-        scope=f"app:{sp.id}",
+        resource_type="app",
+        resource_id=app_id,
+        recipient_id=new_owner_user_id,
     )
-
-    return {
-        "message": "Ownership transferred",
-        "app": await export_node(sp),
-        "app_id": app_id,
-        "new_owner_user_id": new_owner_user_id,
-    }
 
 
 async def _require_app_attached_cp(app_id: str) -> tuple[App, OperationalModel]:

@@ -29,9 +29,9 @@ pytestmark = [pytest.mark.smoke, pytest.mark.asyncio]
 
 async def departure_graph():
     await ensure_integral_app_graph(include_library=False)
-    owner = await User.create(user_id="departure-owner")
+    owner = await User.create(display_name="Departure owner")
     await catalog_user(owner)
-    member = await User.create(user_id="departure-member")
+    member = await User.create(display_name="Departure member")
     await catalog_user(member)
     workspace = await Workspace.create(name="Departure", name_fold="departure")
     await catalog_workspace(workspace)
@@ -53,6 +53,7 @@ async def departure_graph():
         owner_id=member.id,
     )
     await app.connect(track, edge=CONTAINS)
+    await catalog_track(track)
     await member.connect(track, edge=OWNS)
     entry = await Entry.create(title="Shared Entry", track_id=track.id)
     await track.connect(entry, edge=CONTAINS)
@@ -66,6 +67,7 @@ async def test_departure_transfers_owned_resources_and_revokes_entry_grants():
     assert await workspace_departure.remove_workspace_membership(
         member=member,
         workspace_id=workspace.id,
+        actor_id=owner.id,
     )
     context = await member.get_context()
     assert not await context.find_edges_between(
@@ -85,7 +87,7 @@ async def test_departure_transfers_owned_resources_and_revokes_entry_grants():
 
 
 async def test_cleanup_failure_keeps_membership(monkeypatch):
-    _, member, workspace, _, _, _ = await departure_graph()
+    owner, member, workspace, _, _, _ = await departure_graph()
     monkeypatch.setattr(
         workspace_departure,
         "revoke_workspace_resource_grants",
@@ -95,6 +97,7 @@ async def test_cleanup_failure_keeps_membership(monkeypatch):
         await workspace_departure.remove_workspace_membership(
             member=member,
             workspace_id=workspace.id,
+            actor_id=owner.id,
         )
     context = await member.get_context()
     assert await context.find_edges_between(
@@ -115,7 +118,7 @@ async def test_missing_replacement_owner_never_deletes_owned_edges(monkeypatch):
 
 
 async def test_walker_lookup_failure_is_not_partial_success(monkeypatch):
-    _, member, workspace, _, _, _ = await departure_graph()
+    owner, member, workspace, _, _, _ = await departure_graph()
     monkeypatch.setattr(
         User, "nodes", AsyncMock(side_effect=RuntimeError("lookup failed"))
     )
@@ -124,7 +127,7 @@ async def test_walker_lookup_failure_is_not_partial_success(monkeypatch):
 
 
 async def test_other_workspace_grants_and_ownership_survive_departure():
-    _, member, workspace, _, _, _ = await departure_graph()
+    owner, member, workspace, _, _, _ = await departure_graph()
     other = await Workspace.create(name="Other", name_fold="other")
     await catalog_workspace(other)
     await member.connect(other, edge=IS_MEMBER_OF, role="owner")
@@ -136,7 +139,7 @@ async def test_other_workspace_grants_and_ownership_survive_departure():
     await member.connect(track, edge=OWNS)
     await member.connect(track, edge=COLLABORATES_ON, role="editor")
     await workspace_departure.remove_workspace_membership(
-        member=member, workspace_id=workspace.id
+        member=member, workspace_id=workspace.id, actor_id=owner.id
     )
     context = await member.get_context()
     for edge_class in (OWNS, COLLABORATES_ON):

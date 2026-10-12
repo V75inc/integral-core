@@ -338,6 +338,7 @@ def _atomic_invitation_issuance(
             entry_write_scope,
             is_postgres_entry_transaction,
         )
+        from app.services.identity_admission import identity_admission
         from app.services.resource_location import (
             MANAGEMENT_APP_STATES,
             locate_resource,
@@ -369,6 +370,7 @@ def _atomic_invitation_issuance(
         if graph_transaction_available(database):
             async with (
                 postgres_graph_transaction(database),
+                identity_admission((kwargs["inviter_user_id"],)),
                 authorization_scope(
                     workspace_id,
                     authority_mutation=True,
@@ -376,7 +378,10 @@ def _atomic_invitation_issuance(
             ):
                 result = await function(*args, **kwargs)
         else:
-            async with entry_write_scope(f"invitation-issuance:{workspace_id}"):
+            async with (
+                entry_write_scope(f"invitation-issuance:{workspace_id}"),
+                identity_admission((kwargs["inviter_user_id"],)),
+            ):
                 result = await function(*args, **kwargs)
         invitation, _, url = result
         await invitation.set_context(caller_context)
@@ -552,6 +557,14 @@ async def _materialize_invitation_grants(
     user: User, invitation: Invitation
 ) -> Optional[str]:
     """Create membership/collaboration edges. Returns an ERR_* code on failure."""
+    from app.services.resource_access_blocks import require_unblocked
+    from app.services.workspace_suspension import require_unsuspended
+
+    await require_unsuspended(user.id, invitation.workspace_id)
+    if invitation.target_resource_type:
+        await require_unblocked(
+            user.id, invitation.target_resource_type, invitation.target_resource_id
+        )
     is_resource_invite = bool(
         invitation.target_resource_type and invitation.target_resource_id
     )
@@ -634,7 +647,10 @@ async def _finalize_invitation_acceptance(
 
     try:
         async with invitation_lifecycle_scope(
-            invitation.id, invitation.workspace_id
+            invitation.id,
+            invitation.workspace_id,
+            principal_ids=(accepting_user_id,),
+            include_issuer=True,
         ) as current:
             if expected_token_hash is not None and not secrets.compare_digest(
                 current.token_hash, expected_token_hash
@@ -916,7 +932,7 @@ async def _finalize_invitation_decline(
     from app.services.permissions import get_user_node
 
     async with invitation_lifecycle_scope(
-        invitation.id, invitation.workspace_id
+        invitation.id, invitation.workspace_id, principal_ids=(declining_user_id,)
     ) as current:
         if expected_token_hash is not None and not secrets.compare_digest(
             current.token_hash, expected_token_hash
@@ -1041,7 +1057,7 @@ async def revoke_invitation(invitation: Invitation, *, actor_user_id: str) -> No
     from app.services.invitation_lifecycle import invitation_lifecycle_scope
 
     async with invitation_lifecycle_scope(
-        invitation.id, invitation.workspace_id
+        invitation.id, invitation.workspace_id, principal_ids=(actor_user_id,)
     ) as current:
         await require_invitation_revoke_authority(current, actor_user_id)
         if current.status == "revoked":

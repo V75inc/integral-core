@@ -66,6 +66,10 @@ async def read_member_facts(user: User, workspace_id: str) -> Optional[dict]:
 
 async def member_creation_flags(user: User, workspace_id: str) -> Tuple[bool, bool]:
     """Return explicit, uncoerced grants from the unique current membership."""
+    from app.services.workspace_suspension import workspace_suspended
+
+    if await workspace_suspended(user.id, workspace_id):
+        return False, False
     row = await read_member_facts(user, workspace_id)
     if row is None:
         return False, False
@@ -140,6 +144,10 @@ async def get_workspace_owner_user_id(workspace_id: str) -> Optional[str]:
 async def _current_workspace_role(user: User, workspace: Workspace) -> WorkspaceRole:
     """Read authority for an already freshly checked principal and workspace."""
     try:
+        from app.services.workspace_suspension import workspace_suspended
+
+        if await workspace_suspended(user.id, workspace.id):
+            return "none"
         ctx = await workspace.get_context()
         # One store read gets both the caller's complete membership and the
         # canonical owner candidates. Separate reads measured 33 feed trips
@@ -273,40 +281,50 @@ async def workspace_staff_implicit_resource_role(
 async def collect_org_workspace_staff_inventory(
     workspace: Workspace,
 ) -> Tuple[list[App], list[Track]]:
-    """Candidate Apps and Tracks for protected/staff resource inventory.
+    """Discover bounded primary candidates; final canonical checks admit each.
 
-    Returns catalogued App candidates, standalone tracks from the workspace
-    Tracks branch, and tracks ``CONTAINS``-ed under each app. Deduped by id.
-
-    Apps are unioned from the workspace Apps branch registry **and**
-    ``App.find(workspace_id=...)`` so legacy or partially-provisioned installs
-    (track catalogued but app branch edge missing) still appear in inventory.
+    Read discovery must not reuse strict destructive inventory. An uncatalogued
+    scalar-only resource is a candidate for denial, not permission to hide all
+    otherwise valid resources. Current canonical scope still gates the result.
     """
+    from jvspatial.core.context import get_default_context
+
+    from app.services.authority_facts import required_node_text
+
     if getattr(workspace, "kind", "") not in {"organization", "personal"}:
         return [], []
-
-    from app.services.workspace_lifecycle import _collect_contained
-
-    apps_by_id: dict[str, App] = {}
-
-    for app in await _collect_contained(workspace, kind="apps"):
-        # Discovery never establishes lifecycle authority. The final raw
-        # canonical admission selects retained data states for this audience.
-        apps_by_id[app.id] = app
-
-    for app in await App.find({"workspace_id": workspace.id}):
-        apps_by_id.setdefault(app.id, app)
-
-    apps = list(apps_by_id.values())
-
-    tracks_by_id: dict[str, Track] = {}
-    for track in await _collect_contained(workspace, kind="tracks"):
-        tracks_by_id[track.id] = track
-    for app in apps:
-        for track in await app.nodes(edge=["CONTAINS"], node=["Track"]):
-            tracks_by_id[track.id] = track
-
-    return apps, list(tracks_by_id.values())
+    context = get_default_context()
+    inventories = []
+    for model in (App, Track):
+        rows = await context.database.find(
+            "node",
+            {
+                "entity": model._entity_name(),
+                "$or": [
+                    {"context.workspace_id": workspace.id},
+                    {"workspace_id": workspace.id},
+                ],
+            },
+            limit=10001,
+        )
+        if len(rows) > 10000 or len({row.get("id") for row in rows}) != len(rows):
+            raise AuthorizationUnavailableError()
+        candidates = []
+        for row in rows:
+            if (
+                not isinstance(row.get("id"), str)
+                or not row["id"]
+                or row.get("entity") != model._entity_name()
+                or not isinstance(row.get("context"), dict)
+                or required_node_text(row, "workspace_id") != workspace.id
+            ):
+                raise AuthorizationUnavailableError()
+            candidate = await context._deserialize_entity(model, row)
+            if candidate is None:
+                raise AuthorizationUnavailableError()
+            candidates.append(candidate)
+        inventories.append(candidates)
+    return inventories[0], inventories[1]
 
 
 async def collect_org_workspace_member_visibility_inventory(

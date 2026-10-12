@@ -14,6 +14,9 @@ from app.services.app_operations.context import OperationContext
 from app.services.app_operations.registry import list_registered_operations
 from tests.contract.asset_register_helpers import (
     ASSET_APP,
+    create_asset_entry,
+    grant_asset_operator,
+    run_authorized_asset_tool,
     seed_asset_register_library_cp,
 )
 from tests.fixtures.workspaces import make_org_workspace, workspace_owner_id
@@ -83,7 +86,21 @@ async def test_operation_context_creates_a_typed_entry_in_its_installed_app(
         operation_key="register_asset",
     )
 
-    created = await ctx.create_entry(
+    assert (
+        await ctx.create_entry(
+            track_id=assets.id,
+            entry_type_key="asset",
+            title="Unpermitted",
+            custom_fields={
+                "asset_tag": "UNPERMITTED",
+                "category": "it_equipment",
+                "lifecycle_state": "available",
+            },
+        )
+        is None
+    )
+    created = await create_asset_entry(
+        ctx,
         track_id=assets.id,
         entry_type_key="asset",
         title="Contract Laptop",
@@ -119,8 +136,13 @@ async def test_operation_context_creates_a_typed_entry_in_its_installed_app(
     custody = importlib.import_module("tools.custody")
 
     ctx.operation_key = "check_out_asset"
-    checked_out = await custody.check_out_asset(
-        {"asset_id": created.id, "custodian_id": custodian.id}, ctx
+    assert callable(custody.check_out_asset)
+    from app.services.hooks.registry import get_workspace_tools
+
+    checked_out = await run_authorized_asset_tool(
+        get_workspace_tools(ws.id)["check_out_asset"],
+        {"asset_id": created.id, "custodian_id": custodian.id},
+        ctx,
     )
     assert checked_out["ok"] is True
     assert checked_out["custody_id"]

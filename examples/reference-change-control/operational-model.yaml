@@ -1,0 +1,164 @@
+integral_operational_model_version: 3
+scope: app
+package:
+  name: Reference Change Control
+  slug: reference-change-control
+  class: community_app
+  version: 1.0.0
+  trust_tier: trusted
+  publisher: Integral Foundation
+  description: External reference App exercising explicit function delegation and
+    separation of duty.
+app:
+  description: Reference Change Control
+  tracks:
+  - key: records
+    name: Records
+    entry_types:
+    - key: change
+      name: Change
+      fields:
+      - key: release_state
+        name: Decision state
+        type: select
+        enum:
+        - pending
+        - released
+        required: true
+      - key: editor_note
+        name: Editor note
+        type: text
+      - key: routing_configuration
+        name: Routing configuration
+        type: text
+  tools:
+  - key: release
+    name: Release
+    description: Run an exact declared transition.
+    handler_ref: tools.actions:release
+    parameters_schema:
+      type: object
+      properties:
+        entry_id:
+          type: string
+      required:
+      - entry_id
+      additionalProperties: false
+  - key: edit
+    name: Edit
+    description: Apply the editor function.
+    handler_ref: tools.actions:edit
+    parameters_schema: &id001
+      type: object
+      properties:
+        entry_id:
+          type: string
+        value:
+          type: string
+          maxLength: 4096
+      required:
+      - entry_id
+      - value
+      additionalProperties: false
+  - key: configure
+    name: Configure
+    description: Apply the configuration-admin function.
+    handler_ref: tools.actions:configure
+    parameters_schema: &id002
+      type: object
+      properties:
+        entry_id:
+          type: string
+        value:
+          type: string
+          maxLength: 4096
+      required:
+      - entry_id
+      - value
+      additionalProperties: false
+  operations:
+  - key: release
+    name: Release
+    kind: execute
+    tool: release
+    policy_action: entry.update
+    idempotency_key: required
+    authorization:
+      version: 1
+      roles:
+      - release-manager
+      targets:
+      - input: entry_id
+        kind: entry
+      conditions:
+      - attribute: entry.author_id
+        operator: ne
+        principal: true
+      - attribute: entry.custom_fields
+        field: release_state
+        operator: eq
+        value: pending
+      mutations:
+      - entry_type: change
+        kind: update
+        fields:
+        - release_state
+    input_schema:
+      type: object
+      properties:
+        entry_id:
+          type: string
+      required:
+      - entry_id
+      additionalProperties: false
+  - key: edit
+    name: Edit
+    kind: execute
+    tool: edit
+    policy_action: entry.update
+    idempotency_key: required
+    authorization:
+      version: 1
+      roles:
+      - editor
+      targets:
+      - input: entry_id
+        kind: entry
+      mutations:
+      - entry_type: change
+        kind: update
+        fields:
+        - editor_note
+    input_schema: *id001
+  - key: configure
+    name: Configure
+    kind: execute
+    tool: configure
+    policy_action: entry.update
+    idempotency_key: required
+    authorization:
+      version: 1
+      roles:
+      - configuration-admin
+      targets:
+      - input: entry_id
+        kind: entry
+      mutations:
+      - entry_type: change
+        kind: update
+        fields:
+        - routing_configuration
+    input_schema: *id002
+  protected_state:
+    change:
+      fields:
+      - release_state
+      - editor_note
+      - routing_configuration
+      top_level:
+      - status
+      deny_delete: true
+      operations:
+      - release
+      - edit
+      - configure

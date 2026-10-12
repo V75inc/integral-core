@@ -100,7 +100,14 @@ async def _org_fixture(label: str):
 
 
 async def _member(ws: Workspace, label: str, role: str) -> User:
-    user = await User.create(user_id=f"cm_{label}", display_name=f"User {label}")
+    import uuid
+
+    from jvspatial.api.auth.models import User as AuthUser
+
+    auth = await AuthUser.create(
+        email=f"comment-{label}-{uuid.uuid4().hex}@example.com", password_hash="fixture"
+    )
+    user = await User.create(user_id=auth.id, display_name=f"User {label}")
     await catalog_user(user)
     await user.connect(ws, edge=IS_MEMBER_OF, role=role)
     return user
@@ -385,7 +392,9 @@ async def test_the_approval_path_honours_entry_exclusion_too():
     await user.connect(track, edge=COLLABORATES_ON, role="editor")
     await user.connect(entry, edge=EXCLUDED_FROM)
 
-    with pytest.raises(PermissionError):
+    from app.api.errors import InsufficientPermissionsError
+
+    with pytest.raises(InsufficientPermissionsError):
         await create_comment_internal(
             actor_kind="human",
             actor_id=user.id,
