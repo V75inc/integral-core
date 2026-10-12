@@ -1,3 +1,4 @@
+import { PageMeta } from '../components/ui';
 import { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -340,14 +341,14 @@ function OperationalModelDetailPage() {
             {profile.name}
           </h1>
           {profile.description && (
-            <p className="text-sm text-[var(--text-muted)] mt-1">{profile.description}</p>
+            <PageMeta as="p">{profile.description}</PageMeta>
           )}
           {extraBlurb && (
-            <p className="text-sm text-[var(--text-muted)] mt-2 leading-relaxed border-l-2 border-[var(--panel-border)] pl-3">
+            <PageMeta as="p" className="border-l-2 border-[var(--panel-border)] pl-3">
               {extraBlurb}
-            </p>
+            </PageMeta>
           )}
-          <div className="flex flex-wrap items-center gap-2 mt-2 text-xs text-[var(--text-muted)]">
+          <PageMeta>
             {profile.version && <span className="font-mono">v{profile.version}</span>}
             {profile.scope && (
               <span className="rounded-md border border-[var(--panel-border)] px-2 py-0.5 capitalize">
@@ -357,7 +358,7 @@ function OperationalModelDetailPage() {
             <span className="rounded-md border border-[var(--panel-border)] px-2 py-0.5">
               {manifestKindLabel(inspection.scopeKind)}
             </span>
-          </div>
+          </PageMeta>
         </div>
       </div>
 

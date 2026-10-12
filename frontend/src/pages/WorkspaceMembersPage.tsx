@@ -20,6 +20,7 @@ import {
   Skeleton,
   LINE_ICON_STROKE,
   PageHeading,
+  PageMeta,
   PageShell,
   PageSection,
   filterBar,
@@ -385,7 +386,7 @@ export function WorkspaceMembersPage() {
       <PageSection>
         <header className="mb-8 md:mb-10">
           <PageHeading>Members</PageHeading>
-          <div className="mt-3 md:mt-3.5 flex flex-wrap items-center gap-x-4 md:gap-x-6 gap-y-2 text-sm text-[var(--text-subtle)]">
+          <PageMeta>
             <span>
               {members.length} {members.length === 1 ? 'member' : 'members'}
               {q ? ` · showing ${filteredMembers.length}` : ''}
@@ -406,15 +407,15 @@ export function WorkspaceMembersPage() {
                 </span>
               </>
             )}
-          </div>
-          <p className="text-sm text-[var(--text-muted)] mt-3 max-w-2xl">
+          </PageMeta>
+          <PageMeta as="p">
             {isPersonal
               ? `Personal workspaces do not have a member list.`
               : `Owners and admins invite teammates by email or from the
               registered-user directory. Invitations must be accepted before
               access is granted. Guests see only apps and tracks shared with
               them directly.`}
-          </p>
+          </PageMeta>
         </header>
       </PageSection>
 

@@ -9,6 +9,7 @@ import {
   Button,
   LINE_ICON_STROKE,
   PageHeading,
+  PageMeta,
   PageSection,
   PageShell,
   Skeleton,
@@ -297,7 +298,7 @@ export function AdminUserDetailPage() {
               <Avatar name={user.display_name} size="lg" />
               <div className="flex-1 min-w-0">
                 <PageHeading>{user.display_name || 'User'}</PageHeading>
-                <Text variant="body" tone="muted" as="p" className="mt-1">{user.email}</Text>
+                <PageMeta as="p">{user.email}</PageMeta>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <Badge variant={user.is_active ? 'success' : 'danger'}>
                     {user.is_active ? 'Active' : 'Inactive'}
@@ -357,9 +358,9 @@ export function AdminUserDetailPage() {
                       id={ws.workspace_id}
                       label={`${ws.name} (personal)`}
                     />
-                    <Text variant="body" tone="muted" as="p" className="mt-1">
+                    <PageMeta as="p">
                       {ws.app_count} apps · {ws.track_count} tracks
-                    </Text>
+                    </PageMeta>
                   </div>
                 </div>
               ))}
