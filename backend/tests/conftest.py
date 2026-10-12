@@ -915,9 +915,14 @@ async def postgres_raw_db():
     await _close_postgres_test_database(previous)
     manager.set_prime_database(database)
     await _reset_postgres_test_tables()
+    log_database = await _install_postgres_test_log_db()
+    from jvspatial.core.context import GraphContext, scoped_default_context_async
+
     try:
-        yield database
+        async with scoped_default_context_async(GraphContext(database=database)):
+            yield database
     finally:
+        await _close_postgres_test_database(log_database)
         await database.close()
         manager.set_prime_database(previous)
 

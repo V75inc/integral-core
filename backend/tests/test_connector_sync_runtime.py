@@ -108,10 +108,12 @@ async def _bind_connector_to_track(connector: Connector, track: Track) -> None:
     from app.services.app_graph import (
         catalog_track,
         catalog_user,
+        ensure_integral_app_graph,
         ensure_track_attached_operational_model,
     )
     from app.services.personal_workspace import ensure_personal_workspace
 
+    await ensure_integral_app_graph(include_library=False)
     user = await User.find_one({"id": connector.owner})
     if user is None:
         user = await User.find_one({"context.user_id": connector.owner})
