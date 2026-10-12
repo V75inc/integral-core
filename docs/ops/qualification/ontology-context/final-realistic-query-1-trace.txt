@@ -1,0 +1,2516 @@
+Browser tab: 3, Title: "Integral", URL: "http://127.0.0.1:57137/agent".
+0 AXWebArea Integral, URL: 127.0.0.1:57137/agent
+	1 container root
+		2 container
+			3 text Verify your email You can keep working while you verify.
+			4 button Enter code
+			5 button Resend code
+			6 button Dismiss notification
+				7 image
+		8 link Description: Skip to main content, Value: 127.0.0.1:57137/agent#main-content
+		9 container app-sidebar-nav
+			10 link Description: Integral — go to dashboard, Value: 127.0.0.1:57137/
+			11 button Expand sidebar
+				12 image
+			13 container Sidebar navigation
+				14 link Description: Home, Value: 127.0.0.1:57137/
+				15 pop up button (collapsed) Description: Switch workspace (currently Maya Chen), Secondary Actions: Expand
+				16 link Description: Agent — talk to your Integral coworker, Value: 127.0.0.1:57137/agent
+				17 link Description: Feed, Value: 127.0.0.1:57137/feed
+				18 link Description: Apps, Value: 127.0.0.1:57137/apps
+				19 link Description: Tracks, Value: 127.0.0.1:57137/tracks
+			20 link Description: Approvals, Value: 127.0.0.1:57137/approvals
+			21 link Description: Background Tasks, Value: 127.0.0.1:57137/background-tasks
+			22 link Description: Notifications, Value: 127.0.0.1:57137/notifications
+			23 link Description: Settings, Value: 127.0.0.1:57137/settings
+			24 pop up button (collapsed) Description: Noah Patel menu, Secondary Actions: Expand
+		25 container main-content
+			26 container
+				27 container Breadcrumb
+				28 checkbox Chat, Value: 1
+				29 checkbox Inbox, Value: 0
+				30 button Switch to light mode
+				31 button Inbox
+					32 image
+			33 container
+				34 button (disabled) Active agent
+					35 text Integral AI Your workspace assistant
+				36 text CONVERSATIONS
+				37 button New conversation
+					38 image
+				39 search text field (settable) Search conversations
+				393 text TODAY · AFTERNOON
+				41 container
+					42 button Can we launch our coastal delivery pilot on 2 November if No… 01:03 PM
+						43 container Can we launch our coastal delivery pilot on 2 November if No…
+							44 text Can we launch our coastal delivery pilot on 2 November if No…
+							45 text 01:03 PM
+					46 pop up button (collapsed) Description: Options for Can we launch our coastal delivery pilot on 2 November if No…, ID: radix-:ra:, Secondary Actions: Expand
+						47 image
+				48 container
+					49 button What could hold up our regional pilot launch on 1 November, … 12:52 PM
+						50 container What could hold up our regional pilot launch on 1 November, …
+							51 text What could hold up our regional pilot launch on 1 November, …
+							52 text 12:52 PM
+					53 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:rd:, Secondary Actions: Expand
+						54 image
+				55 container
+					56 button What could hold up our regional pilot launch on 1 November, … 12:50 PM
+						57 container What could hold up our regional pilot launch on 1 November, …
+							58 text What could hold up our regional pilot launch on 1 November, …
+							59 text 12:50 PM
+					60 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:rg:, Secondary Actions: Expand
+						61 image
+				62 container
+					63 button What could hold up our regional pilot launch on 1 November, … 12:47 PM
+						64 container What could hold up our regional pilot launch on 1 November, …
+							65 text What could hold up our regional pilot launch on 1 November, …
+							66 text 12:47 PM
+					67 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:rj:, Secondary Actions: Expand
+						68 image
+				69 container
+					70 button What could hold up our regional pilot launch on 1 November, … 12:41 PM
+						71 container What could hold up our regional pilot launch on 1 November, …
+							72 text What could hold up our regional pilot launch on 1 November, …
+							73 text 12:41 PM
+					74 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:rm:, Secondary Actions: Expand
+						75 image
+				76 container
+					77 button What could hold up our regional pilot launch on 1 November, … 12:27 PM
+						78 container What could hold up our regional pilot launch on 1 November, …
+							79 text What could hold up our regional pilot launch on 1 November, …
+							80 text 12:27 PM
+					81 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:rp:, Secondary Actions: Expand
+						82 image
+				84 container
+					85 button What could hold up our regional pilot launch on 1 November, … 12:14 PM
+						86 container What could hold up our regional pilot launch on 1 November, …
+							87 text What could hold up our regional pilot launch on 1 November, …
+							88 text 12:14 PM
+					89 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:rs:, Secondary Actions: Expand
+						90 image
+				394 text TODAY · MORNING
+				91 container
+					92 button What could hold up our regional pilot launch on 1 November, … 11:56 AM
+						93 container What could hold up our regional pilot launch on 1 November, …
+							94 text What could hold up our regional pilot launch on 1 November, …
+							95 text 11:56 AM
+					96 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:rv:, Secondary Actions: Expand
+						97 image
+				98 container
+					99 button What could hold up our regional pilot launch on 1 November, … 08:01 AM
+						100 container What could hold up our regional pilot launch on 1 November, …
+							101 text What could hold up our regional pilot launch on 1 November, …
+							102 text 08:01 AM
+					103 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r12:, Secondary Actions: Expand
+						104 image
+				105 container
+					106 button What could hold up our regional pilot launch on 1 November, … 07:58 AM
+						107 container What could hold up our regional pilot launch on 1 November, …
+							108 text What could hold up our regional pilot launch on 1 November, …
+							109 text 07:58 AM
+					110 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r15:, Secondary Actions: Expand
+						111 image
+				112 container
+					113 button What could hold up our regional pilot launch on 1 November, … 07:50 AM
+						114 container What could hold up our regional pilot launch on 1 November, …
+							115 text What could hold up our regional pilot launch on 1 November, …
+							116 text 07:50 AM
+					117 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r18:, Secondary Actions: Expand
+						118 image
+				119 container
+					120 button What could hold up our regional pilot launch on 1 November, … 07:43 AM
+						121 container What could hold up our regional pilot launch on 1 November, …
+							122 text What could hold up our regional pilot launch on 1 November, …
+							123 text 07:43 AM
+					124 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r1b:, Secondary Actions: Expand
+						125 image
+				126 container
+					127 button What could hold up our regional pilot launch on 1 November, … 07:41 AM
+						128 container What could hold up our regional pilot launch on 1 November, …
+							129 text What could hold up our regional pilot launch on 1 November, …
+							130 text 07:41 AM
+					131 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r1e:, Secondary Actions: Expand
+						132 image
+				133 container
+					134 button What could hold up our regional pilot launch on 1 November, … 07:30 AM
+						135 container What could hold up our regional pilot launch on 1 November, …
+							136 text What could hold up our regional pilot launch on 1 November, …
+							137 text 07:30 AM
+					138 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r1h:, Secondary Actions: Expand
+						139 image
+				140 container
+					141 button What could hold up our regional pilot launch on 1 November, … 07:17 AM
+						142 container What could hold up our regional pilot launch on 1 November, …
+							143 text What could hold up our regional pilot launch on 1 November, …
+							144 text 07:17 AM
+					145 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r1k:, Secondary Actions: Expand
+						146 image
+				147 container
+					148 button What could hold up our regional pilot launch on 1 November, … 07:12 AM
+						149 container What could hold up our regional pilot launch on 1 November, …
+							150 text What could hold up our regional pilot launch on 1 November, …
+							151 text 07:12 AM
+					152 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r1n:, Secondary Actions: Expand
+						153 image
+				154 container
+					155 button What could hold up our regional pilot launch on 1 November, … 07:07 AM
+						156 container What could hold up our regional pilot launch on 1 November, …
+							157 text What could hold up our regional pilot launch on 1 November, …
+							158 text 07:07 AM
+					159 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r1q:, Secondary Actions: Expand
+						160 image
+				161 container
+					162 button What could hold up our regional pilot launch on 1 November, … 06:54 AM
+						163 container What could hold up our regional pilot launch on 1 November, …
+							164 text What could hold up our regional pilot launch on 1 November, …
+							165 text 06:54 AM
+					166 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r1t:, Secondary Actions: Expand
+						167 image
+				168 container
+					169 button What could hold up our regional pilot launch on 1 November, … 06:49 AM
+						170 container What could hold up our regional pilot launch on 1 November, …
+							171 text What could hold up our regional pilot launch on 1 November, …
+							172 text 06:49 AM
+					173 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r20:, Secondary Actions: Expand
+						174 image
+				175 container
+					176 button What could hold up our regional pilot launch on 1 November, … 06:40 AM
+						177 container What could hold up our regional pilot launch on 1 November, …
+							178 text What could hold up our regional pilot launch on 1 November, …
+							179 text 06:40 AM
+					180 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r23:, Secondary Actions: Expand
+						181 image
+				182 container
+					183 button What could hold up our regional pilot launch on 1 November, … 06:33 AM
+						184 container What could hold up our regional pilot launch on 1 November, …
+							185 text What could hold up our regional pilot launch on 1 November, …
+							186 text 06:33 AM
+					187 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r26:, Secondary Actions: Expand
+						188 image
+				189 container
+					190 button What could hold up our regional pilot launch on 1 November, … 06:30 AM
+						191 container What could hold up our regional pilot launch on 1 November, …
+							192 text What could hold up our regional pilot launch on 1 November, …
+							193 text 06:30 AM
+					194 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r29:, Secondary Actions: Expand
+						195 image
+				196 container
+					197 button What could hold up our regional pilot launch on 1 November, … 06:29 AM
+						198 container What could hold up our regional pilot launch on 1 November, …
+							199 text What could hold up our regional pilot launch on 1 November, …
+							200 text 06:29 AM
+					201 pop up button (collapsed) Description: Options for What could hold up our regional pilot launch on 1 November, …, ID: radix-:r2c:, Secondary Actions: Expand
+						202 image
+				395 container
+					396 button Use integral-insights and integral_get_graph_context to expl… 06:21 AM
+						397 container Use integral-insights and integral_get_graph_context to expl…
+							398 text Use integral-insights and integral_get_graph_context to expl…
+							399 text 06:21 AM
+					400 pop up button (collapsed) Description: Options for Use integral-insights and integral_get_graph_context to expl…, ID: radix-:r2n:, Secondary Actions: Expand
+						401 image
+			203 container
+				402 text Can we launch our coastal delivery pilot on 2 November if Northstar misses its truck confirmation, or should we switch to Seabreeze?
+				405 table
+					406 row
+						407 cell
+							408 text Record
+						409 cell
+							410 text Recorded state
+						411 cell
+							412 text Deadline
+						413 cell
+							414 text Quantity / evidence
+					415 row
+						416 cell
+							417 link Description: Launch coastal delivery pilot on 2 November, Value: 127.0.0.1:57137/tracks/n.Track.141ef70c3b86441fbd1de312?entry=n.Entry.a46da5c2725a44498f70b3d2
+						418 cell
+							419 text planned; go/no-go pending
+						420 cell
+							421 text 2026-11-02
+						422 cell
+							423 text 12 routes
+					424 row
+						425 cell
+							426 link Description: Northstar refrigerated transport confirmation, Value: 127.0.0.1:57137/tracks/n.Track.820d35c410594dc2aa024ff1?entry=n.Entry.0f6ab6816da2481ca6d18aef
+						427 cell
+							428 text written allocation pending
+						429 cell
+							430 text 2026-10-24
+						431 cell
+							432 text no signed commitment
+					433 row
+						434 cell
+							435 link Description: Seabreeze contingency transport allocation, Value: 127.0.0.1:57137/tracks/n.Track.820d35c410594dc2aa024ff1?entry=n.Entry.84eb5752b2374436a8640e93
+						436 cell
+							437 text proposed; not reserved
+						438 cell
+							439 text 2026-10-25
+						440 cell
+							441 text 2 refrigerated vehicles; indicative, unbooked (2026-10-09)
+					442 row
+						443 cell
+							444 link Description: Seabreeze vehicle qualification inspection, Value: 127.0.0.1:57137/tracks/n.Track.820d35c410594dc2aa024ff1?entry=n.Entry.6070f0cef6c046f1aeb27b3f
+						445 cell
+							446 text inspection not completed
+						447 cell
+							448 text 2026-10-26
+						449 cell
+							450 text no certificate
+					451 row
+						452 cell
+							453 link Description: Seabreeze insurance coverage renewal, Value: 127.0.0.1:57137/tracks/n.Track.820d35c410594dc2aa024ff1?entry=n.Entry.3508c4afc1a3436db8930ad6
+						454 cell
+							455 text renewal unconfirmed
+						456 cell
+							457 text 2026-10-27
+						458 cell
+							459 text old certificate only; expires 2026-10-31
+					460 row
+						461 cell
+							462 link Description: Approve coastal depot operating readiness, Value: 127.0.0.1:57137/tracks/n.Track.284479a6f6294021b85ff0a3?entry=n.Entry.af66a976217740c6be7ac1d3
+						463 cell
+							464 text approved
+						465 cell
+							466 text 2026-10-20
+						467 cell
+							468 text sign-off recorded
+					469 row
+						470 cell
+							471 link Description: Release coastal temperature validation, Value: 127.0.0.1:57137/tracks/n.Track.8f5fc10690524dd990f45baf?entry=n.Entry.99a96b2bb11f4ef2af649326
+						472 cell
+							473 text route trial pending
+						474 cell
+							475 text 2026-10-29
+						476 cell
+							477 text no results
+				478 text Seabreeze is stored as Northstar's proposed alternative, so it could mitigate the missing vehicle allocation, but it carries its own unconfirmed inspection and insurance renewal and does not waive depot approval or temperature validation. Remaining gaps: Northstar's signed commitment and a confirmed Seabreeze reservation.
+				403 button (expanded) Secondary Actions: Collapse
+					404 image
+					479 text Worked · 5 steps · deepseek-v4.1-flash:cloud
+				496 container radix-:r2p:
+					497 text Activity and tool results are shown here. Private model reasoning is not displayed.
+					498 table
+						499 row
+							500 cell
+								501 text CALL
+							502 cell
+								503 text MODEL
+							504 cell
+								505 text IN
+							506 cell
+								507 text OUT
+							508 cell
+								509 text COST
+							510 cell
+								511 text TIME
+							512 cell
+								513 text STATE
+						514 row
+							515 cell
+								516 text 1
+							517 cell
+								518 text ollama_chat/deepseek-v4.1-flash:cloud
+							519 cell
+								520 text 3,826
+							521 cell
+								522 text 454
+							523 cell Source: unavailable
+								524 text —
+							525 cell
+								526 text 1.8s
+							527 cell
+								528 text responded
+						529 row
+							530 cell
+								531 text 2
+							532 cell
+								533 text ollama_chat/deepseek-v4.1-flash:cloud
+							534 cell
+								535 text 13,402
+							536 cell
+								537 text 187
+							538 cell Source: unavailable
+								539 text —
+							540 cell
+								541 text 969ms
+							542 cell
+								543 text responded
+						544 row
+							545 cell
+								546 text 3
+							547 cell
+								548 text ollama_chat/deepseek-v4.1-flash:cloud
+							549 cell
+								550 text 17,779
+							551 cell
+								552 text 224
+							553 cell Source: unavailable
+								554 text —
+							555 cell
+								556 text 4.7s
+							557 cell
+								558 text responded
+						559 row
+							560 cell
+								561 text 4
+							562 cell
+								563 text ollama_chat/deepseek-v4.1-flash:cloud
+							564 cell
+								565 text 31,637
+							566 cell
+								567 text 1,866
+							568 cell Source: unavailable
+								569 text —
+							570 cell
+								571 text 9.2s
+							572 cell
+								573 text responded
+						574 row
+							575 cell
+								576 text Total
+							577 cell
+								578 text 66,644
+							579 cell
+								580 text 2,731
+							581 cell
+								582 text —
+					583 text TTFT:  16.7s Total:  18.9s 69,375  tokens Provider cost unavailable for some calls
+					584 text Steps
+					585 button (collapsed) Used tool: load_capability, Secondary Actions: Expand
+						586 image
+						587 text Used tool
+						588 text :
+						589 text load_capability
+						590 image
+					591 button (collapsed) Used tool: load_capability, Secondary Actions: Expand
+						592 image
+						593 text Used tool
+						594 text :
+						595 text load_capability
+						596 image
+					597 button (collapsed) Used tool: integral_query_entries, Secondary Actions: Expand
+						598 image
+						599 text Used tool
+						600 text :
+						601 text integral_query_entries
+						602 image
+					603 button (collapsed) Used tool: integral_query_entries, Secondary Actions: Expand
+						604 image
+						605 text Used tool
+						606 text :
+						607 text integral_query_entries
+						608 image
+					609 button (expanded) Used tool: integral_get_graph_context, Secondary Actions: Collapse
+						610 image
+						611 text Used tool
+						612 text :
+						613 text integral_get_graph_context
+						614 image
+					615 container radix-:r30:
+						616 text {
+  "spec": {
+    "view": "ontology",
+    "detail": "recorded",
+    "root_id": "n.Entry.a46da5c2725a44498f70b3d2",
+    "direction": "both",
+    "max_bytes": 49152,
+    "max_depth": 3,
+    "max_nodes": 60,
+    "edge_types": [
+      "REFERENCES"
+    ]
+  }
+}
+						617 text Result:
+						618 text {
+  "meta": {
+    "view": "ontology",
+    "scope": "ws:n.Workspace.d5df6c7ea06d4e8ba3c2d851",
+    "root_id": "n.Entry.a46da5c2725a44498f70b3d2",
+    "complete": true,
+    "ordering": "breadth_first_edge_id",
+    "direction": "both",
+    "max_depth": 3,
+    "captured_at": "2026-10-11T17:02:56.687068+00:00",
+    "consistency": "best_effort",
+    "edge_policy": "traversal",
+    "continuation": "new_live_capture",
+    "stop_reasons": [],
+    "execution_mode": "native",
+    "root_available": true,
+    "detail_complete": true,
+    "read_finished_at": "2026-10-11T17:02:56.778761+00:00",
+    "request_fingerprint": "28709fc8df9e495c070a8400e47e1a912256a6f0d619059a5b28e7c46b154da2"
+  },
+  "edges": [
+    {
+      "id": "e.REFERENCES.601b824f2bdd44e88fad1a93",
+      "entity": "REFERENCES",
+      "fields": {
+        "field_key": {
+          "path": "field_key",
+          "state": "present",
+          "record_id": "e.REFERENCES.601b824f2bdd44e88fad1a93"
+        },
+        "cross_track": {
+          "path": "cross_track",
+          "state": "present",
+          "record_id": "e.REFERENCES.601b824f2bdd44e88fad1a93"
+        },
+        "relation_type": {
+          "path": "relation_type",
+          "state": "present",
+          "record_id": "e.REFERENCES.601b824f2bdd44e88fad1a93"
+        }
+      },
+      "source": "n.Entry.a46da5c2725a44498f70b3d2",
+      "target": "n.Entry.99a96b2bb11f4ef2af649326",
+      "context": {
+        "field_key": "prerequisite",
+        "cross_track": true,
+        "relation_type": "operational_model"
+      },
+      "relation": {
+        "status": "resolved",
+        "type_meaning": "Source entry references target entry via a declared field.",
+        "definition_ids": [
+          "om/dc8587b37b3ae28dcc16ac68"
+        ],
+        "evidence_class": "application_declared"
+      },
+      "bidirectional": false,
+      "traversed_from": "n.Entry.a46da5c2725a44498f70b3d2",
+      "truncated_fields": []
+    },
+    {
+      "id": "e.REFERENCES.742ec28274c448f592c807ad",
+      "entity": "REFERENCES",
+      "fields": {
+        "field_key": {
+          "path": "field_key",
+          "state": "present",
+          "record_id": "e.REFERENCES.742ec28274c448f592c807ad"
+        },
+        "cross_track": {
+          "path": "cross_track",
+          "state": "present",
+          "record_id": "e.REFERENCES.742ec28274c448f592c807ad"
+        },
+        "relation_type": {
+          "path": "relation_type",
+          "state": "present",
+          "record_id": "e.REFERENCES.742ec28274c448f592c807ad"
+        }
+      },
+      "source": "n.Entry.a46da5c2725a44498f70b3d2",
+      "target": "n.Entry.0f6ab6816da2481ca6d18aef",
+      "context": {
+        "field_key": "prerequisite",
+        "cross_track": true,
+        "relation_type": "operational_model"
+      },
+      "relation": {
+        "status": "resolved",
+        "type_meaning": "Source entry references target entry via a declared field.",
+        "definition_ids": [
+          "om/dc8587b37b3ae28dcc16ac68"
+        ],
+        "evidence_class": "application_declared"
+      },
+      "bidirectional": false,
+      "traversed_from": "n.Entry.a46da5c2725a44498f70b3d2",
+      "truncated_fields": []
+    },
+    {
+      "id": "e.REFERENCES.db11829243ce41479094e7d2",
+      "entity": "REFERENCES",
+      "fields": {
+        "field_key": {
+          "path": "field_key",
+          "state": "present",
+          "record_id": "e.REFERENCES.db11829243ce41479094e7d2"
+        },
+        "cross_track": {
+          "path": "cross_track",
+          "state": "present",
+          "record_id": "e.REFERENCES.db11829243ce41479094e7d2"
+        },
+        "relation_type": {
+          "path": "relation_type",
+          "state": "present",
+          "record_id": "e.REFERENCES.db11829243ce41479094e7d2"
+        }
+      },
+      "source": "n.Entry.a46da5c2725a44498f70b3d2",
+      "target": "n.Entry.af66a976217740c6be7ac1d3",
+      "context": {
+        "field_key": "prerequisite",
+        "cross_track": true,
+        "relation_type": "operational_model"
+      },
+      "relation": {
+        "status": "resolved",
+        "type_meaning": "Source entry references target entry via a declared field.",
+        "definition_ids": [
+          "om/dc8587b37b3ae28dcc16ac68"
+        ],
+        "evidence_class": "application_declared"
+      },
+      "bidirectional": false,
+      "traversed_from": "n.Entry.a46da5c2725a44498f70b3d2",
+      "truncated_fields": []
+    },
+    {
+      "id": "e.REFERENCES.6da56c9db83d432a8647332c",
+      "entity": "REFERENCES",
+      "fields": {
+        "field_key": {
+          "path": "field_key",
+          "state": "present",
+          "record_id": "e.REFERENCES.6da56c9db83d432a8647332c"
+        },
+        "cross_track": {
+          "path": "cross_track",
+          "state": "present",
+          "record_id": "e.REFERENCES.6da56c9db83d432a8647332c"
+        },
+        "relation_type": {
+          "path": "relation_type",
+          "state": "present",
+          "record_id": "e.REFERENCES.6da56c9db83d432a8647332c"
+        }
+      },
+      "source": "n.Entry.99a96b2bb11f4ef2af649326",
+      "target": "n.Entry.998e630244794ae28b00078d",
+      "context": {
+        "field_key": "prerequisite",
+        "cross_track": true,
+        "relation_type": "operational_model"
+      },
+      "relation": {
+        "status": "resolved",
+        "type_meaning": "Source entry references target entry via a declared field.",
+        "definition_ids": [
+          "om/cafa4b4ed38dd8e2504d4aa9"
+        ],
+        "evidence_class": "application_declared"
+      },
+      "bidirectional": false,
+      "traversed_from": "n.Entry.99a96b2bb11f4ef2af649326",
+      "truncated_fields": []
+    },
+    {
+      "id": "e.REFERENCES.494c177c93be49b68abd402c",
+      "entity": "REFERENCES",
+      "fields": {
+        "field_key": {
+          "path": "field_key",
+          "state": "present",
+          "record_id": "e.REFERENCES.494c177c93be49b68abd402c"
+        },
+        "cross_track": {
+          "path": "cross_track",
+          "state": "present",
+          "record_id": "e.REFERENCES.494c177c93be49b68abd402c"
+        },
+        "relation_type": {
+          "path": "relation_type",
+          "state": "present",
+          "record_id": "e.REFERENCES.494c177c93be49b68abd402c"
+        }
+      },
+      "source": "n.Entry.0f6ab6816da2481ca6d18aef",
+      "target": "n.Entry.84eb5752b2374436a8640e93",
+      "context": {
+        "field_key": "fallback",
+        "cross_track": true,
+        "relation_type": "operational_model"
+      },
+      "relation": {
+        "status": "resolved",
+        "type_meaning": "Source entry references target entry via a declared field.",
+        "definition_ids": [
+          "om/1da0b4c07bfebab9fc5ddfec"
+        ],
+        "evidence_class": "application_declared"
+      },
+      "bidirectional": false,
+      "traversed_from": "n.Entry.0f6ab6816da2481ca6d18aef",
+      "truncated_fields": []
+    },
+    {
+      "id": "e.REFERENCES.5f96d687563c488689822c98",
+      "entity": "REFERENCES",
+      "fields": {
+        "field_key": {
+          "path": "field_key",
+          "state": "present",
+          "record_id": "e.REFERENCES.5f96d687563c488689822c98"
+        },
+        "cross_track": {
+          "path": "cross_track",
+          "state": "present",
+          "record_id": "e.REFERENCES.5f96d687563c488689822c98"
+        },
+        "relation_type": {
+          "path": "relation_type",
+          "state": "present",
+          "record_id": "e.REFERENCES.5f96d687563c488689822c98"
+        }
+      },
+      "source": "n.Entry.84eb5752b2374436a8640e93",
+      "target": "n.Entry.6070f0cef6c046f1aeb27b3f",
+      "context": {
+        "field_key": "prerequisite",
+        "cross_track": true,
+        "relation_type": "operational_model"
+      },
+      "relation": {
+        "status": "resolved",
+        "type_meaning": "Source entry references target entry via a declared field.",
+        "definition_ids": [
+          "om/d29e8b2d0f27ec9a3062134a"
+        ],
+        "evidence_class": "application_declared"
+      },
+      "bidirectional": false,
+      "traversed_from": "n.Entry.84eb5752b2374436a8640e93",
+      "truncated_fields": []
+    },
+    {
+      "id": "e.REFERENCES.dca69c4490a642838f0a3516",
+      "entity": "REFERENCES",
+      "fields": {
+        "field_key": {
+          "path": "field_key",
+          "state": "present",
+          "record_id": "e.REFERENCES.dca69c4490a642838f0a3516"
+        },
+        "cross_track": {
+          "path": "cross_track",
+          "state": "present",
+          "record_id": "e.REFERENCES.dca69c4490a642838f0a3516"
+        },
+        "relation_type": {
+          "path": "relation_type",
+          "state": "present",
+          "record_id": "e.REFERENCES.dca69c4490a642838f0a3516"
+        }
+      },
+      "source": "n.Entry.84eb5752b2374436a8640e93",
+      "target": "n.Entry.3508c4afc1a3436db8930ad6",
+      "context": {
+        "field_key": "prerequisite",
+        "cross_track": true,
+        "relation_type": "operational_model"
+      },
+      "relation": {
+        "status": "resolved",
+        "type_meaning": "Source entry references target entry via a declared field.",
+        "definition_ids": [
+          "om/d29e8b2d0f27ec9a3062134a"
+        ],
+        "evidence_class": "application_declared"
+      },
+      "bidirectional": false,
+      "traversed_from": "n.Entry.84eb5752b2374436a8640e93",
+      "truncated_fields": []
+    }
+  ],
+  "nodes": [
+    {
+      "id": "n.Entry.a46da5c2725a44498f70b3d2",
+      "label": "Launch coastal delivery pilot on 2 November",
+      "entity": "Entry",
+      "fields": {
+        "title": {
+          "path": "title",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.a46da5c2725a44498f70b3d2"
+        },
+        "status": {
+          "path": "status",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.a46da5c2725a44498f70b3d2",
+          "description": "Substrate lifecycle state; not operational completion."
+        },
+        "type_id": {
+          "path": "type_id",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.a46da5c2725a44498f70b3d2"
+        },
+        "track_id": {
+          "path": "track_id",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.a46da5c2725a44498f70b3d2"
+        },
+        "updated_at": {
+          "path": "updated_at",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.a46da5c2725a44498f70b3d2"
+        },
+        "record_revision": {
+          "path": "record_revision",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.a46da5c2725a44498f70b3d2"
+        },
+        "schema_revision": {
+          "path": "schema_revision",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.a46da5c2725a44498f70b3d2"
+        },
+        "custom_fields.due": {
+          "path": "custom_fields.due",
+          "label": "Decision deadline",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.a46da5c2725a44498f70b3d2"
+        },
+        "provenance.source": {
+          "path": "provenance.source",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.a46da5c2725a44498f70b3d2"
+        },
+        "custom_fields.observed": {
+          "path": "custom_fields.observed",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.a46da5c2725a44498f70b3d2"
+        },
+        "custom_fields.readiness": {
+          "path": "custom_fields.readiness",
+          "label": "Operational readiness",
+          "state": "present",
+          "evidence": {
+            "source": "Launch coastal delivery pilot on 2 November; fictional acceptance record",
+            "status": "complete",
+            "revision": 2,
+            "observed_at": "2026-10-11",
+            "value_class": "recorded",
+            "verification": "go/no-go approval pending"
+          },
+          "record_id": "n.Entry.a46da5c2725a44498f70b3d2"
+        },
+        "custom_fields.expires_on": {
+          "path": "custom_fields.expires_on",
+          "state": "null",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.a46da5c2725a44498f70b3d2"
+        },
+        "custom_fields.source_note": {
+          "path": "custom_fields.source_note",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.a46da5c2725a44498f70b3d2"
+        },
+        "custom_fields.verification": {
+          "path": "custom_fields.verification",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.a46da5c2725a44498f70b3d2"
+        },
+        "custom_fields.target_routes": {
+          "path": "custom_fields.target_routes",
+          "unit": "delivery routes",
+          "state": "present",
+          "evidence": {
+            "source": "Launch coastal delivery pilot on 2 November; fictional acceptance record",
+            "status": "complete",
+            "revision": 2,
+            "observed_at": "2026-10-11",
+            "value_class": "recorded",
+            "verification": "go/no-go approval pending"
+          },
+          "record_id": "n.Entry.a46da5c2725a44498f70b3d2"
+        }
+      },
+      "context": {
+        "title": "Launch coastal delivery pilot on 2 November",
+        "status": "active",
+        "type_id": "n.EntryType.90ed45be4455433f8b85a3d4",
+        "track_id": "n.Track.141ef70c3b86441fbd1de312",
+        "updated_at": "2026-10-11T17:01:05.491158+00:00",
+        "record_revision": 2,
+        "schema_revision": 1,
+        "custom_fields.due": "2026-11-02",
+        "provenance.source": "human",
+        "custom_fields.observed": "2026-10-11",
+        "custom_fields.readiness": "planned",
+        "custom_fields.expires_on": null,
+        "custom_fields.source_note": "Launch coastal delivery pilot on 2 November; fictional acceptance record",
+        "custom_fields.verification": "go/no-go approval pending",
+        "custom_fields.target_routes": 12
+      },
+      "truncated_fields": []
+    },
+    {
+      "id": "n.Entry.99a96b2bb11f4ef2af649326",
+      "label": "Release coastal temperature validation",
+      "entity": "Entry",
+      "fields": {
+        "title": {
+          "path": "title",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.99a96b2bb11f4ef2af649326"
+        },
+        "status": {
+          "path": "status",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.99a96b2bb11f4ef2af649326",
+          "description": "Substrate lifecycle state; not operational completion."
+        },
+        "type_id": {
+          "path": "type_id",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.99a96b2bb11f4ef2af649326"
+        },
+        "track_id": {
+          "path": "track_id",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.99a96b2bb11f4ef2af649326"
+        },
+        "updated_at": {
+          "path": "updated_at",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.99a96b2bb11f4ef2af649326"
+        },
+        "record_revision": {
+          "path": "record_revision",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.99a96b2bb11f4ef2af649326"
+        },
+        "schema_revision": {
+          "path": "schema_revision",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.99a96b2bb11f4ef2af649326"
+        },
+        "custom_fields.due": {
+          "path": "custom_fields.due",
+          "label": "Decision deadline",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.99a96b2bb11f4ef2af649326"
+        },
+        "provenance.source": {
+          "path": "provenance.source",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.99a96b2bb11f4ef2af649326"
+        },
+        "custom_fields.observed": {
+          "path": "custom_fields.observed",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.99a96b2bb11f4ef2af649326"
+        },
+        "custom_fields.readiness": {
+          "path": "custom_fields.readiness",
+          "label": "Operational readiness",
+          "state": "present",
+          "evidence": {
+            "source": "Release coastal temperature validation; fictional acceptance record",
+            "status": "complete",
+            "revision": 2,
+            "observed_at": "2026-10-11",
+            "value_class": "recorded",
+            "verification": "no route validation results"
+          },
+          "record_id": "n.Entry.99a96b2bb11f4ef2af649326"
+        },
+        "custom_fields.expires_on": {
+          "path": "custom_fields.expires_on",
+          "state": "null",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.99a96b2bb11f4ef2af649326"
+        },
+        "custom_fields.source_note": {
+          "path": "custom_fields.source_note",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.99a96b2bb11f4ef2af649326"
+        },
+        "custom_fields.verification": {
+          "path": "custom_fields.verification",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.99a96b2bb11f4ef2af649326"
+        },
+        "custom_fields.temperature_celsius": {
+          "path": "custom_fields.temperature_celsius",
+          "unit": "degrees Celsius",
+          "state": "null",
+          "evidence": {
+            "source": "Release coastal temperature validation; fictional acceptance record",
+            "status": "complete",
+            "revision": 2,
+            "observed_at": "2026-10-11",
+            "value_class": "recorded",
+            "verification": "no route validation results"
+          },
+          "record_id": "n.Entry.99a96b2bb11f4ef2af649326"
+        }
+      },
+      "context": {
+        "title": "Release coastal temperature validation",
+        "status": "active",
+        "type_id": "n.EntryType.36b705f1f2084a6aa480eece",
+        "track_id": "n.Track.8f5fc10690524dd990f45baf",
+        "updated_at": "2026-10-11T17:01:06.625963+00:00",
+        "record_revision": 2,
+        "schema_revision": 1,
+        "custom_fields.due": "2026-10-29",
+        "provenance.source": "human",
+        "custom_fields.observed": "2026-10-11",
+        "custom_fields.readiness": "route trial pending",
+        "custom_fields.expires_on": null,
+        "custom_fields.source_note": "Release coastal temperature validation; fictional acceptance record",
+        "custom_fields.verification": "no route validation results",
+        "custom_fields.temperature_celsius": null
+      },
+      "truncated_fields": []
+    },
+    {
+      "id": "n.Entry.0f6ab6816da2481ca6d18aef",
+      "label": "Northstar refrigerated transport confirmation",
+      "entity": "Entry",
+      "fields": {
+        "title": {
+          "path": "title",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.0f6ab6816da2481ca6d18aef"
+        },
+        "status": {
+          "path": "status",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.0f6ab6816da2481ca6d18aef",
+          "description": "Substrate lifecycle state; not operational completion."
+        },
+        "type_id": {
+          "path": "type_id",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.0f6ab6816da2481ca6d18aef"
+        },
+        "track_id": {
+          "path": "track_id",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.0f6ab6816da2481ca6d18aef"
+        },
+        "updated_at": {
+          "path": "updated_at",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.0f6ab6816da2481ca6d18aef"
+        },
+        "record_revision": {
+          "path": "record_revision",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.0f6ab6816da2481ca6d18aef"
+        },
+        "schema_revision": {
+          "path": "schema_revision",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.0f6ab6816da2481ca6d18aef"
+        },
+        "custom_fields.due": {
+          "path": "custom_fields.due",
+          "label": "Decision deadline",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.0f6ab6816da2481ca6d18aef"
+        },
+        "provenance.source": {
+          "path": "provenance.source",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.0f6ab6816da2481ca6d18aef"
+        },
+        "custom_fields.observed": {
+          "path": "custom_fields.observed",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.0f6ab6816da2481ca6d18aef"
+        },
+        "custom_fields.readiness": {
+          "path": "custom_fields.readiness",
+          "label": "Operational readiness",
+          "state": "present",
+          "evidence": {
+            "source": "Northstar refrigerated transport confirmation; fictional acceptance record",
+            "status": "complete",
+            "revision": 2,
+            "observed_at": "2026-10-10",
+            "value_class": "recorded",
+            "verification": "no signed vehicle commitment"
+          },
+          "record_id": "n.Entry.0f6ab6816da2481ca6d18aef"
+        },
+        "custom_fields.expires_on": {
+          "path": "custom_fields.expires_on",
+          "state": "null",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.0f6ab6816da2481ca6d18aef"
+        },
+        "custom_fields.source_note": {
+          "path": "custom_fields.source_note",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.0f6ab6816da2481ca6d18aef"
+        },
+        "custom_fields.verification": {
+          "path": "custom_fields.verification",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.0f6ab6816da2481ca6d18aef"
+        },
+        "custom_fields.capacity_vehicles": {
+          "path": "custom_fields.capacity_vehicles",
+          "unit": "refrigerated vehicles",
+          "state": "null",
+          "evidence": {
+            "source": "Northstar refrigerated transport confirmation; fictional acceptance record",
+            "status": "complete",
+            "revision": 2,
+            "observed_at": "2026-10-10",
+            "value_class": "recorded",
+            "verification": "no signed vehicle commitment"
+          },
+          "record_id": "n.Entry.0f6ab6816da2481ca6d18aef"
+        }
+      },
+      "context": {
+        "title": "Northstar refrigerated transport confirmation",
+        "status": "active",
+        "type_id": "n.EntryType.feec7d9340544374a75fd6a1",
+        "track_id": "n.Track.820d35c410594dc2aa024ff1",
+        "updated_at": "2026-10-11T17:01:06.108826+00:00",
+        "record_revision": 2,
+        "schema_revision": 1,
+        "custom_fields.due": "2026-10-24",
+        "provenance.source": "human",
+        "custom_fields.observed": "2026-10-10",
+        "custom_fields.readiness": "written allocation pending",
+        "custom_fields.expires_on": null,
+        "custom_fields.source_note": "Northstar refrigerated transport confirmation; fictional acceptance record",
+        "custom_fields.verification": "no signed vehicle commitment",
+        "custom_fields.capacity_vehicles": null
+      },
+      "truncated_fields": []
+    },
+    {
+      "id": "n.Entry.af66a976217740c6be7ac1d3",
+      "label": "Approve coastal depot operating readiness",
+      "entity": "Entry",
+      "fields": {
+        "title": {
+          "path": "title",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.af66a976217740c6be7ac1d3"
+        },
+        "status": {
+          "path": "status",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.af66a976217740c6be7ac1d3",
+          "description": "Substrate lifecycle state; not operational completion."
+        },
+        "type_id": {
+          "path": "type_id",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.af66a976217740c6be7ac1d3"
+        },
+        "track_id": {
+          "path": "track_id",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.af66a976217740c6be7ac1d3"
+        },
+        "updated_at": {
+          "path": "updated_at",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.af66a976217740c6be7ac1d3"
+        },
+        "record_revision": {
+          "path": "record_revision",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.af66a976217740c6be7ac1d3"
+        },
+        "schema_revision": {
+          "path": "schema_revision",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.af66a976217740c6be7ac1d3"
+        },
+        "custom_fields.due": {
+          "path": "custom_fields.due",
+          "label": "Decision deadline",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.af66a976217740c6be7ac1d3"
+        },
+        "provenance.source": {
+          "path": "provenance.source",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.af66a976217740c6be7ac1d3"
+        },
+        "custom_fields.observed": {
+          "path": "custom_fields.observed",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.af66a976217740c6be7ac1d3"
+        },
+        "custom_fields.readiness": {
+          "path": "custom_fields.readiness",
+          "label": "Operational readiness",
+          "state": "present",
+          "evidence": {
+            "source": "Approve coastal depot operating readiness; fictional acceptance record",
+            "status": "complete",
+            "revision": 2,
+            "observed_at": "2026-10-10",
+            "value_class": "recorded",
+            "verification": "operations sign-off recorded"
+          },
+          "record_id": "n.Entry.af66a976217740c6be7ac1d3"
+        },
+        "custom_fields.expires_on": {
+          "path": "custom_fields.expires_on",
+          "state": "null",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.af66a976217740c6be7ac1d3"
+        },
+        "custom_fields.source_note": {
+          "path": "custom_fields.source_note",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.af66a976217740c6be7ac1d3"
+        },
+        "custom_fields.verification": {
+          "path": "custom_fields.verification",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.af66a976217740c6be7ac1d3"
+        },
+        "custom_fields.capacity_vehicles": {
+          "path": "custom_fields.capacity_vehicles",
+          "unit": "refrigerated vehicles",
+          "state": "null",
+          "evidence": {
+            "source": "Approve coastal depot operating readiness; fictional acceptance record",
+            "status": "complete",
+            "revision": 2,
+            "observed_at": "2026-10-10",
+            "value_class": "recorded",
+            "verification": "operations sign-off recorded"
+          },
+          "record_id": "n.Entry.af66a976217740c6be7ac1d3"
+        }
+      },
+      "context": {
+        "title": "Approve coastal depot operating readiness",
+        "status": "active",
+        "type_id": "n.EntryType.8ff15b502f4d4615ab245bce",
+        "track_id": "n.Track.284479a6f6294021b85ff0a3",
+        "updated_at": "2026-10-11T17:01:06.967837+00:00",
+        "record_revision": 2,
+        "schema_revision": 1,
+        "custom_fields.due": "2026-10-20",
+        "provenance.source": "human",
+        "custom_fields.observed": "2026-10-10",
+        "custom_fields.readiness": "approved",
+        "custom_fields.expires_on": null,
+        "custom_fields.source_note": "Approve coastal depot operating readiness; fictional acceptance record",
+        "custom_fields.verification": "operations sign-off recorded",
+        "custom_fields.capacity_vehicles": null
+      },
+      "truncated_fields": []
+    },
+    {
+      "id": "n.Entry.998e630244794ae28b00078d",
+      "label": "Calibrate route temperature logger",
+      "entity": "Entry",
+      "fields": {
+        "title": {
+          "path": "title",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.998e630244794ae28b00078d"
+        },
+        "status": {
+          "path": "status",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.998e630244794ae28b00078d",
+          "description": "Substrate lifecycle state; not operational completion."
+        },
+        "type_id": {
+          "path": "type_id",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.998e630244794ae28b00078d"
+        },
+        "track_id": {
+          "path": "track_id",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.998e630244794ae28b00078d"
+        },
+        "updated_at": {
+          "path": "updated_at",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.998e630244794ae28b00078d"
+        },
+        "record_revision": {
+          "path": "record_revision",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.998e630244794ae28b00078d"
+        },
+        "schema_revision": {
+          "path": "schema_revision",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.998e630244794ae28b00078d"
+        },
+        "custom_fields.due": {
+          "path": "custom_fields.due",
+          "label": "Decision deadline",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.998e630244794ae28b00078d"
+        },
+        "provenance.source": {
+          "path": "provenance.source",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.998e630244794ae28b00078d"
+        },
+        "custom_fields.observed": {
+          "path": "custom_fields.observed",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.998e630244794ae28b00078d"
+        },
+        "custom_fields.readiness": {
+          "path": "custom_fields.readiness",
+          "label": "Operational readiness",
+          "state": "present",
+          "evidence": {
+            "source": "Calibrate route temperature logger; fictional acceptance record",
+            "status": "complete",
+            "revision": 2,
+            "observed_at": "2026-10-10",
+            "value_class": "recorded",
+            "verification": "calibration certificate recorded; route trial still required"
+          },
+          "record_id": "n.Entry.998e630244794ae28b00078d"
+        },
+        "custom_fields.expires_on": {
+          "path": "custom_fields.expires_on",
+          "state": "null",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.998e630244794ae28b00078d"
+        },
+        "custom_fields.source_note": {
+          "path": "custom_fields.source_note",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.998e630244794ae28b00078d"
+        },
+        "custom_fields.verification": {
+          "path": "custom_fields.verification",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.998e630244794ae28b00078d"
+        },
+        "custom_fields.temperature_celsius": {
+          "path": "custom_fields.temperature_celsius",
+          "unit": "degrees Celsius",
+          "state": "present",
+          "evidence": {
+            "source": "Calibrate route temperature logger; fictional acceptance record",
+            "status": "complete",
+            "revision": 2,
+            "observed_at": "2026-10-10",
+            "value_class": "recorded",
+            "verification": "calibration certificate recorded; route trial still required"
+          },
+          "record_id": "n.Entry.998e630244794ae28b00078d"
+        }
+      },
+      "context": {
+        "title": "Calibrate route temperature logger",
+        "status": "active",
+        "type_id": "n.EntryType.36b705f1f2084a6aa480eece",
+        "track_id": "n.Track.8f5fc10690524dd990f45baf",
+        "updated_at": "2026-10-11T17:01:06.835745+00:00",
+        "record_revision": 2,
+        "schema_revision": 1,
+        "custom_fields.due": "2026-10-23",
+        "provenance.source": "human",
+        "custom_fields.observed": "2026-10-10",
+        "custom_fields.readiness": "calibration completed",
+        "custom_fields.expires_on": null,
+        "custom_fields.source_note": "Calibrate route temperature logger; fictional acceptance record",
+        "custom_fields.verification": "calibration certificate recorded; route trial still required",
+        "custom_fields.temperature_celsius": 4.5
+      },
+      "truncated_fields": []
+    },
+    {
+      "id": "n.Entry.84eb5752b2374436a8640e93",
+      "label": "Seabreeze contingency transport allocation",
+      "entity": "Entry",
+      "fields": {
+        "title": {
+          "path": "title",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.84eb5752b2374436a8640e93"
+        },
+        "status": {
+          "path": "status",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.84eb5752b2374436a8640e93",
+          "description": "Substrate lifecycle state; not operational completion."
+        },
+        "type_id": {
+          "path": "type_id",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.84eb5752b2374436a8640e93"
+        },
+        "track_id": {
+          "path": "track_id",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.84eb5752b2374436a8640e93"
+        },
+        "updated_at": {
+          "path": "updated_at",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.84eb5752b2374436a8640e93"
+        },
+        "record_revision": {
+          "path": "record_revision",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.84eb5752b2374436a8640e93"
+        },
+        "schema_revision": {
+          "path": "schema_revision",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.84eb5752b2374436a8640e93"
+        },
+        "custom_fields.due": {
+          "path": "custom_fields.due",
+          "label": "Decision deadline",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.84eb5752b2374436a8640e93"
+        },
+        "provenance.source": {
+          "path": "provenance.source",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.84eb5752b2374436a8640e93"
+        },
+        "custom_fields.observed": {
+          "path": "custom_fields.observed",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.84eb5752b2374436a8640e93"
+        },
+        "custom_fields.readiness": {
+          "path": "custom_fields.readiness",
+          "label": "Operational readiness",
+          "state": "present",
+          "evidence": {
+            "source": "Seabreeze contingency transport allocation; fictional acceptance record",
+            "status": "complete",
+            "revision": 2,
+            "observed_at": "2026-10-09",
+            "value_class": "recorded",
+            "verification": "indicative offer only; not booked"
+          },
+          "record_id": "n.Entry.84eb5752b2374436a8640e93"
+        },
+        "custom_fields.expires_on": {
+          "path": "custom_fields.expires_on",
+          "state": "null",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.84eb5752b2374436a8640e93"
+        },
+        "custom_fields.source_note": {
+          "path": "custom_fields.source_note",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.84eb5752b2374436a8640e93"
+        },
+        "custom_fields.verification": {
+          "path": "custom_fields.verification",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.84eb5752b2374436a8640e93"
+        },
+        "custom_fields.capacity_vehicles": {
+          "path": "custom_fields.capacity_vehicles",
+          "unit": "refrigerated vehicles",
+          "state": "present",
+          "evidence": {
+            "source": "Seabreeze contingency transport allocation; fictional acceptance record",
+            "status": "complete",
+            "revision": 2,
+            "observed_at": "2026-10-09",
+            "value_class": "recorded",
+            "verification": "indicative offer only; not booked"
+          },
+          "record_id": "n.Entry.84eb5752b2374436a8640e93"
+        }
+      },
+      "context": {
+        "title": "Seabreeze contingency transport allocation",
+        "status": "active",
+        "type_id": "n.EntryType.feec7d9340544374a75fd6a1",
+        "track_id": "n.Track.820d35c410594dc2aa024ff1",
+        "updated_at": "2026-10-11T17:01:06.222792+00:00",
+        "record_revision": 2,
+        "schema_revision": 1,
+        "custom_fields.due": "2026-10-25",
+        "provenance.source": "human",
+        "custom_fields.observed": "2026-10-09",
+        "custom_fields.readiness": "proposed; not reserved",
+        "custom_fields.expires_on": null,
+        "custom_fields.source_note": "Seabreeze contingency transport allocation; fictional acceptance record",
+        "custom_fields.verification": "indicative offer only; not booked",
+        "custom_fields.capacity_vehicles": 2
+      },
+      "truncated_fields": []
+    },
+    {
+      "id": "n.Entry.6070f0cef6c046f1aeb27b3f",
+      "label": "Seabreeze vehicle qualification inspection",
+      "entity": "Entry",
+      "fields": {
+        "title": {
+          "path": "title",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.6070f0cef6c046f1aeb27b3f"
+        },
+        "status": {
+          "path": "status",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.6070f0cef6c046f1aeb27b3f",
+          "description": "Substrate lifecycle state; not operational completion."
+        },
+        "type_id": {
+          "path": "type_id",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.6070f0cef6c046f1aeb27b3f"
+        },
+        "track_id": {
+          "path": "track_id",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.6070f0cef6c046f1aeb27b3f"
+        },
+        "updated_at": {
+          "path": "updated_at",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.6070f0cef6c046f1aeb27b3f"
+        },
+        "record_revision": {
+          "path": "record_revision",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.6070f0cef6c046f1aeb27b3f"
+        },
+        "schema_revision": {
+          "path": "schema_revision",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.6070f0cef6c046f1aeb27b3f"
+        },
+        "custom_fields.due": {
+          "path": "custom_fields.due",
+          "label": "Decision deadline",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.6070f0cef6c046f1aeb27b3f"
+        },
+        "provenance.source": {
+          "path": "provenance.source",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.6070f0cef6c046f1aeb27b3f"
+        },
+        "custom_fields.observed": {
+          "path": "custom_fields.observed",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.6070f0cef6c046f1aeb27b3f"
+        },
+        "custom_fields.readiness": {
+          "path": "custom_fields.readiness",
+          "label": "Operational readiness",
+          "state": "present",
+          "evidence": {
+            "source": "Seabreeze vehicle qualification inspection; fictional acceptance record",
+            "status": "complete",
+            "revision": 2,
+            "observed_at": "2026-10-11",
+            "value_class": "recorded",
+            "verification": "no inspection certificate"
+          },
+          "record_id": "n.Entry.6070f0cef6c046f1aeb27b3f"
+        },
+        "custom_fields.expires_on": {
+          "path": "custom_fields.expires_on",
+          "state": "null",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.6070f0cef6c046f1aeb27b3f"
+        },
+        "custom_fields.source_note": {
+          "path": "custom_fields.source_note",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.6070f0cef6c046f1aeb27b3f"
+        },
+        "custom_fields.verification": {
+          "path": "custom_fields.verification",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.6070f0cef6c046f1aeb27b3f"
+        },
+        "custom_fields.capacity_vehicles": {
+          "path": "custom_fields.capacity_vehicles",
+          "unit": "refrigerated vehicles",
+          "state": "null",
+          "evidence": {
+            "source": "Seabreeze vehicle qualification inspection; fictional acceptance record",
+            "status": "complete",
+            "revision": 2,
+            "observed_at": "2026-10-11",
+            "value_class": "recorded",
+            "verification": "no inspection certificate"
+          },
+          "record_id": "n.Entry.6070f0cef6c046f1aeb27b3f"
+        }
+      },
+      "context": {
+        "title": "Seabreeze vehicle qualification inspection",
+        "status": "active",
+        "type_id": "n.EntryType.feec7d9340544374a75fd6a1",
+        "track_id": "n.Track.820d35c410594dc2aa024ff1",
+        "updated_at": "2026-10-11T17:01:06.328499+00:00",
+        "record_revision": 2,
+        "schema_revision": 1,
+        "custom_fields.due": "2026-10-26",
+        "provenance.source": "human",
+        "custom_fields.observed": "2026-10-11",
+        "custom_fields.readiness": "inspection not completed",
+        "custom_fields.expires_on": null,
+        "custom_fields.source_note": "Seabreeze vehicle qualification inspection; fictional acceptance record",
+        "custom_fields.verification": "no inspection certificate",
+        "custom_fields.capacity_vehicles": null
+      },
+      "truncated_fields": []
+    },
+    {
+      "id": "n.Entry.3508c4afc1a3436db8930ad6",
+      "label": "Seabreeze insurance coverage renewal",
+      "entity": "Entry",
+      "fields": {
+        "title": {
+          "path": "title",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.3508c4afc1a3436db8930ad6"
+        },
+        "status": {
+          "path": "status",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.3508c4afc1a3436db8930ad6",
+          "description": "Substrate lifecycle state; not operational completion."
+        },
+        "type_id": {
+          "path": "type_id",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.3508c4afc1a3436db8930ad6"
+        },
+        "track_id": {
+          "path": "track_id",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.3508c4afc1a3436db8930ad6"
+        },
+        "updated_at": {
+          "path": "updated_at",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.3508c4afc1a3436db8930ad6"
+        },
+        "record_revision": {
+          "path": "record_revision",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.3508c4afc1a3436db8930ad6"
+        },
+        "schema_revision": {
+          "path": "schema_revision",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.3508c4afc1a3436db8930ad6"
+        },
+        "custom_fields.due": {
+          "path": "custom_fields.due",
+          "label": "Decision deadline",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.3508c4afc1a3436db8930ad6"
+        },
+        "provenance.source": {
+          "path": "provenance.source",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.3508c4afc1a3436db8930ad6"
+        },
+        "custom_fields.observed": {
+          "path": "custom_fields.observed",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.3508c4afc1a3436db8930ad6"
+        },
+        "custom_fields.readiness": {
+          "path": "custom_fields.readiness",
+          "label": "Operational readiness",
+          "state": "present",
+          "evidence": {
+            "source": "Seabreeze insurance coverage renewal; fictional acceptance record",
+            "status": "complete",
+            "revision": 2,
+            "observed_at": "2026-09-01",
+            "value_class": "recorded",
+            "verification": "old certificate only; renewal not received"
+          },
+          "record_id": "n.Entry.3508c4afc1a3436db8930ad6"
+        },
+        "custom_fields.expires_on": {
+          "path": "custom_fields.expires_on",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.3508c4afc1a3436db8930ad6"
+        },
+        "custom_fields.source_note": {
+          "path": "custom_fields.source_note",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.3508c4afc1a3436db8930ad6"
+        },
+        "custom_fields.verification": {
+          "path": "custom_fields.verification",
+          "state": "present",
+          "evidence": {
+            "source": "human",
+            "status": "complete",
+            "revision": 2,
+            "value_class": "recorded"
+          },
+          "record_id": "n.Entry.3508c4afc1a3436db8930ad6"
+        },
+        "custom_fields.capacity_vehicles": {
+          "path": "custom_fields.capacity_vehicles",
+          "unit": "refrigerated vehicles",
+          "state": "null",
+          "evidence": {
+            "source": "Seabreeze insurance coverage renewal; fictional acceptance record",
+            "status": "complete",
+            "revision": 2,
+            "observed_at": "2026-09-01",
+            "value_class": "recorded",
+            "verification": "old certificate only; renewal not received"
+          },
+          "record_id": "n.Entry.3508c4afc1a3436db8930ad6"
+        }
+      },
+      "context": {
+        "title": "Seabreeze insurance coverage renewal",
+        "status": "active",
+        "type_id": "n.EntryType.feec7d9340544374a75fd6a1",
+        "track_id": "n.Track.820d35c410594dc2aa024ff1",
+        "updated_at": "2026-10-11T17:01:06.434298+00:00",
+        "record_revision": 2,
+        "schema_revision": 1,
+        "custom_fields.due": "2026-10-27",
+        "provenance.source": "human",
+        "custom_fields.observed": "2026-09-01",
+        "custom_fields.readiness": "renewal unconfirmed",
+        "custom_fields.expires_on": "2026-10-31",
+        "custom_fields.source_note": "Seabreeze insurance coverage renewal; fictional acceptance record",
+        "custom_fields.verification": "old certificate only; renewal not received",
+        "custom_fields.capacity_vehicles": null
+      },
+      "truncated_fields": []
+    }
+  ],
+  "paths": {
+    "n.Entry.0f6ab6816da2481ca6d18aef": {
+      "edges": [
+        "e.REFERENCES.742ec28274c448f592c807ad"
+      ],
+      "nodes": [
+        "n.Entry.a46da5c2725a44498f70b3d2",
+        "n.Entry.0f6ab6816da2481ca6d18aef"
+      ]
+    },
+    "n.Entry.3508c4afc1a3436db8930ad6": {
+      "edges": [
+        "e.REFERENCES.742ec28274c448f592c807ad",
+        "e.REFERENCES.494c177c93be49b68abd402c",
+        "e.REFERENCES.dca69c4490a642838f0a3516"
+      ],
+      "nodes": [
+        "n.Entry.a46da5c2725a44498f70b3d2",
+        "n.Entry.0f6ab6816da2481ca6d18aef",
+        "n.Entry.84eb5752b2374436a8640e93",
+        "n.Entry.3508c4afc1a3436db8930ad6"
+      ]
+    },
+    "n.Entry.6070f0cef6c046f1aeb27b3f": {
+      "edges": [
+        "e.REFERENCES.742ec28274c448f592c807ad",
+        "e.REFERENCES.494c177c93be49b68abd402c",
+        "e.REFERENCES.5f96d687563c488689822c98"
+      ],
+      "nodes": [
+        "n.Entry.a46da5c2725a44498f70b3d2",
+        "n.Entry.0f6ab6816da2481ca6d18aef",
+        "n.Entry.84eb5752b2374436a8640e93",
+        "n.Entry.6070f0cef6c046f1aeb27b3f"
+      ]
+    },
+    "n.Entry.84eb5752b2374436a8640e93": {
+      "edges": [
+        "e.REFERENCES.742ec28274c448f592c807ad",
+        "e.REFERENCES.494c177c93be49b68abd402c"
+      ],
+      "nodes": [
+        "n.Entry.a46da5c2725a44498f70b3d2",
+        "n.Entry.0f6ab6816da2481ca6d18aef",
+        "n.Entry.84eb5752b2374436a8640e93"
+      ]
+    },
+    "n.Entry.998e630244794ae28b00078d": {
+      "edges": [
+        "e.REFERENCES.601b824f2bdd44e88fad1a93",
+        "e.REFERENCES.6da56c9db83d432a8647332c"
+      ],
+      "nodes": [
+        "n.Entry.a46da5c2725a44498f70b3d2",
+        "n.Entry.99a96b2bb11f4ef2af649326",
+        "n.Entry.998e630244794ae28b00078d"
+      ]
+    },
+    "n.Entry.99a96b2bb11f4ef2af649326": {
+      "edges": [
+        "e.REFERENCES.601b824f2bdd44e88fad1a93"
+      ],
+      "nodes": [
+        "n.Entry.a46da5c2725a44498f70b3d2",
+        "n.Entry.99a96b2bb11f4ef2af649326"
+      ]
+    },
+    "n.Entry.a46da5c2725a44498f70b3d2": {
+      "edges": [],
+      "nodes": [
+        "n.Entry.a46da5c2725a44498f70b3d2"
+      ]
+    },
+    "n.Entry.af66a976217740c6be7ac1d3": {
+      "edges": [
+        "e.REFERENCES.db11829243ce41479094e7d2"
+      ],
+      "nodes": [
+        "n.Entry.a46da5c2725a44498f70b3d2",
+        "n.Entry.af66a976217740c6be7ac1d3"
+      ]
+    }
+  },
+  "profile": {
+    "revision": "1",
+    "profile_id": "integral-recorded"
+  },
+  "_receipt": {
+    "origin": "chat",
+    "run_id": "737e9e0a-91b3-4bbe-9630-cdc2eef53464",
+    "status": "succeeded",
+    "step_key": "capability:native:fac803666",
+    "capability_key": "integral_get_graph_context",
+    "idempotency_key": "native:fac8036666f713f17fcc832a2f50b03af74e5801ff5c994f5fac473e8ebbd625",
+    "snapshot_fingerprint": "60a1a3a28e60df6254105feed88099fb56ce0c55480ebc7d0f6282357e64907d"
+  },
+  "coverage": {
+    "field_states": {
+      "null": 12,
+      "missing": 0,
+      "present": 129,
+      "truncated": 0
+    },
+    "selected_detail": "represented_authorized_fields_only",
+    "requested_radius": 3,
+    "decision_sufficiency": "not_assessed"
+  },
+  "ontology": {
+    "coverage": "represented_types_only",
+    "edge_types": {
+      "REFERENCES": "Source entry references target entry via a declared field."
+    },
+    "node_types": {
+      "Entry": "A readable information record; selected detail is not readiness verification."
+    },
+    "evidence_class": "application_declared",
+    "relation_definitions": {
+      "om/1da0b4c07bfebab9fc5ddfec": {
+        "id": "om/1da0b4c07bfebab9fc5ddfec",
+        "direction": "has proposed alternative",
+        "edge_type": "REFERENCES",
+        "conditions": "The alternative requires its own qualification and a confirmed reservation; it does not waive other launch prerequisites.",
+        "description": "Target is a proposed alternative that may mitigate source availability risk.",
+        "evidence_class": "application_declared"
+      },
+      "om/cafa4b4ed38dd8e2504d4aa9": {
+        "id": "om/cafa4b4ed38dd8e2504d4aa9",
+        "direction": "requires",
+        "edge_type": "REFERENCES",
+        "conditions": "A stored requirement does not imply that the prerequisite is complete.",
+        "description": "Source requires the target prerequisite before operational release.",
+        "evidence_class": "application_declared"
+      },
+      "om/d29e8b2d0f27ec9a3062134a": {
+        "id": "om/d29e8b2d0f27ec9a3062134a",
+        "direction": "requires",
+        "edge_type": "REFERENCES",
+        "conditions": "A stored requirement does not imply that the prerequisite is complete.",
+        "description": "Source requires the target prerequisite before operational release.",
+        "evidence_class": "application_declared"
+      },
+      "om/dc8587b37b3ae28dcc16ac68": {
+        "id": "om/dc8587b37b3ae28dcc16ac68",
+        "direction": "requires",
+        "edge_type": "REFERENCES",
+        "conditions": "A stored requirement does not imply that the prerequisite is complete.",
+        "description": "Source requires the target prerequisite before operational release.",
+        "evidence_class": "application_declared"
+      }
+    }
+  },
+  "replayed": false,
+  "format_version": 2,
+  "expansion_points": [
+    "n.Entry.3508c4afc1a3436db8930ad6",
+    "n.Entry.6070f0cef6c046f1aeb27b3f"
+  ],
+  "relation_definitions": {
+    "om/1da0b4c07bfebab9fc5ddfec": {
+      "id": "om/1da0b4c07bfebab9fc5ddfec",
+      "direction": "has proposed alternative",
+      "edge_type": "REFERENCES",
+      "conditions": "The alternative requires its own qualification and a confirmed reservation; it does not waive other launch prerequisites.",
+      "description": "Target is a proposed alternative that may mitigate source availability risk.",
+      "evidence_class": "application_declared"
+    },
+    "om/cafa4b4ed38dd8e2504d4aa9": {
+      "id": "om/cafa4b4ed38dd8e2504d4aa9",
+      "direction": "requires",
+      "edge_type": "REFERENCES",
+      "conditions": "A stored requirement does not imply that the prerequisite is complete.",
+      "description": "Source requires the target prerequisite before operational release.",
+      "evidence_class": "application_declared"
+    },
+    "om/d29e8b2d0f27ec9a3062134a": {
+      "id": "om/d29e8b2d0f27ec9a3062134a",
+      "direction": "requires",
+      "edge_type": "REFERENCES",
+      "conditions": "A stored requirement does not imply that the prerequisite is complete.",
+      "description": "Source requires the target prerequisite before operational release.",
+      "evidence_class": "application_declared"
+    },
+    "om/dc8587b37b3ae28dcc16ac68": {
+      "id": "om/dc8587b37b3ae28dcc16ac68",
+      "direction": "requires",
+      "edge_type": "REFERENCES",
+      "conditions": "A stored requirement does not imply that the prerequisite is complete.",
+      "description": "Source requires the target prerequisite before operational release.",
+      "evidence_class": "application_declared"
+    }
+  }
+}
+				480 button Copy
+					481 image
+				482 button Regenerate
+					483 image
+				484 button Message debug
+					485 image
+				486 pop up button (collapsed) Description: More, ID: radix-:r2q:, Secondary Actions: Expand
+					487 image
+				488 container
+					489 text entry area (settable) Message input
+					490 button Description: Attach a file, Help: Attach an image or file
+						491 image
+					492 checkbox Description: Dictate (⇧⌘Space), Value: 0
+					493 text @people, #apps/tracks
+					494 button (disabled) Send message
+						495 image
+
+The focused UI element is 609 button (expanded) Used tool: integral_get_graph_context, Secondary Actions: Collapse

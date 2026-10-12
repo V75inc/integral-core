@@ -3101,6 +3101,17 @@ def _invoke_app_operation_direct_map(args: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+async def _stage_invoke_app_operation(args: Dict[str, Any]) -> Dict[str, Any]:
+    from app.agentive.services.app_operation_staging import prepare_agent_app_operation
+    from app.services.agent_scope import current_scope_workspace_id
+
+    return await prepare_agent_app_operation(
+        args,
+        principal_id=_bound_propose_principal(),
+        workspace_id=current_scope_workspace_id.get() or "",
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Phase 0 enabler tools — bulk ops, relation wiring, CRUD fills.
 # Sync stagers package allowlisted args into one StagedChange; the matching
@@ -3630,6 +3641,10 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
         _h("app.api.operational_models", "list_library_operational_models"),
         _pick("type_hint"),
     ),
+    "integral_get_graph_context": ToolBinding(
+        handler_ref=_h("app.api.graph_context", "get_graph_context"),
+        body_map=lambda args: dict(args.get("spec") or {}),
+    ),
     "integral_query_spec": ToolBinding(
         handler_ref=_h("app.api.query_spec", "execute_query_spec_endpoint"),
         body_map=lambda args: {
@@ -3992,11 +4007,7 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
         direct_param_map=_mark_notification_read_direct_map,
     ),
     "integral_invoke_app_operation": ToolBinding(
-        direct_ref=_h(
-            "app.agentive.services.direct_tools",
-            "invoke_app_operation_for_dispatch",
-        ),
-        direct_param_map=_invoke_app_operation_direct_map,
+        stager=_stage_invoke_app_operation,
     ),
     # Batch-control tools (Phase 0 batch staging). Intercepted by name in
     # ``_dispatch_propose`` (they need ``session_id`` from dispatch context, which

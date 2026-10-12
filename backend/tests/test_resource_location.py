@@ -10,6 +10,7 @@ from app.services.app_graph import (
     catalog_track,
     catalog_user,
     catalog_workspace,
+    ensure_integral_app_graph,
 )
 from app.services.app_operations.context import OperationContext
 from app.services.hooks.registry import ToolContext
@@ -90,6 +91,7 @@ async def test_disabled_identity_cannot_use_either_principal_alias(
 
 
 async def graph():
+    await ensure_integral_app_graph(include_library=False)
     user = await User.create(display_name="Scope QA")
     await catalog_user(user)
     workspace = await Workspace.create(name="Scope QA")

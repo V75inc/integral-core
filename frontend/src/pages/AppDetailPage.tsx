@@ -1,3 +1,4 @@
+import { AppIcon } from '../ui';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { ResourceAccessReview } from '../components/access/ResourceAccessReview';
 import { AppFunctionAccess } from '../components/access/AppFunctionAccess';
@@ -600,6 +601,7 @@ export function AppDetailPage() {
             mobile so the title gets full width. */}
         <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-end md:gap-x-6 md:gap-y-4 min-w-0">
           <PageHeading
+            icon={<AppIcon name={app.name} icon={app.icon} color={resolveIdentityColor(app.accent_color, appWorkspaceColor)} size="lg" />}
             accentColor={resolveIdentityColor(app.accent_color, appWorkspaceColor)}
             accentLabel={app.name}
           >
@@ -714,7 +716,7 @@ export function AppDetailPage() {
           show={lacksTrackCreationInOrg}
           className="mt-2"
         />
-        <div className="mt-3.5 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-[var(--text-subtle)]">
+        <div className="mt-3.5 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-[var(--text-subtle)]">
           <span>
             {tracks.length} {tracks.length === 1 ? 'track' : 'tracks'}
           </span>
@@ -739,7 +741,7 @@ export function AppDetailPage() {
           ) : null}
         </div>
         {app.description?.trim() ? (
-          <p className="mt-3 max-w-2xl text-sm text-[var(--text-muted)] leading-relaxed">
+          <p className="mt-3 max-w-2xl text-xs text-[var(--text-muted)] leading-relaxed">
             {app.description}
           </p>
         ) : null}
@@ -1256,7 +1258,7 @@ function AppTrackRow({
       <Link
         to={trackHref}
         className="
-          grid grid-cols-[auto_minmax(0,1fr)_auto] gap-x-[18px] py-4 px-4
+          grid grid-cols-[auto_minmax(0,1fr)_auto] gap-x-[18px] min-h-20 items-center py-4 px-4
           border-b border-[var(--border-subtle)]
           group-last/row:border-b-0
           rounded-[2px]
@@ -1264,7 +1266,7 @@ function AppTrackRow({
           hover:bg-[var(--panel)]
         "
       >
-        <div className="relative shrink-0 mt-1 flex h-4 w-4 items-center justify-center">
+        <div className="relative shrink-0 flex h-4 w-4 items-center justify-center">
           <TrackDot
             color={resolveIdentityColor(track.accent_color, workspaceAccentColor)}
             size="md"
@@ -1309,12 +1311,12 @@ function AppTrackRow({
                 : ''}
             </p>
           ) : track.purpose || track.description ? (
-            <p className="text-sm text-[var(--text-muted)] mt-0.5 line-clamp-1">
+            <p className="text-xs text-[var(--text-muted)] mt-0.5 line-clamp-1">
               {track.purpose || track.description}
             </p>
           ) : null}
         </div>
-        <div className="flex items-center gap-3 text-xs text-[var(--text-subtle)] tabular-nums shrink-0 pt-0.5">
+        <div className="flex items-center gap-3 text-xs text-[var(--text-subtle)] tabular-nums shrink-0">
           <span>
             {track.entry_count || 0}{' '}
             {(track.entry_count || 0) === 1 ? 'entry' : 'entries'}

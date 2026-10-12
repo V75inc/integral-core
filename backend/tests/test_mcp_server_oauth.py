@@ -393,6 +393,7 @@ async def test_mcp_tools_list_authenticated(
     # The authenticated principal sees the full surface (vs [] unauthenticated).
     assert len(tools) >= 1, body
     names = {t["name"] for t in tools}
+    assert "integral_get_graph_context" in names
     assert "integral_query_spec" in names, names
     assert "integral_list_tracks" in names, names
     # Catalogue count tracks the dispatchable existing-status surface. Grew
@@ -432,7 +433,8 @@ async def test_mcp_tools_list_authenticated(
     # 114 -> 115: rank filing destinations (W2.1).
     # 115 -> 116: integral_aggregate (W3.1).
     # W4.4: integral_merge_tracks + integral_split_track.
-    assert len(tools) == 123, len(tools)
+    # 123 -> 124: bounded intra-workspace graph context for model insights.
+    assert len(tools) == 124, len(tools)
 
 
 @pytest.mark.asyncio

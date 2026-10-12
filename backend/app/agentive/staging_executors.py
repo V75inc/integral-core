@@ -1147,7 +1147,50 @@ async def _x_call_workspace_tool(
         )
     except Exception as exc:  # noqa: BLE001 — surface as envelope
         return _envelope_error(exc)
+    if isinstance(output, dict) and output.get("ok") is False:
+        # A tool may have retained partial effects before refusing. Preserve
+        # its output for reconciliation; never consume approval as success
+        # merely because dispatch returned without raising an exception.
+        message = output.get("error") or output.get("message")
+        return {
+            "ok": False,
+            "error": True,
+            "error_code": "workspace_tool_refused",
+            "message": (
+                message[:2000]
+                if isinstance(message, str)
+                else "Workspace tool did not complete"
+            ),
+            "tool_key": tool_key,
+            "output": output,
+        }
     return {"ok": True, "tool_key": tool_key, "output": output}
+
+
+async def _x_invoke_app_operation(
+    user_id: str, payload: Dict[str, Any]
+) -> Dict[str, Any]:
+    from app.services.agent_scope import current_scope_workspace_id
+    from app.services.app_operations.dispatch import invoke_app_operation
+
+    fingerprint = str(payload.get("declaration_fingerprint") or "")
+    if not fingerprint:
+        return {
+            "error": True,
+            "error_code": "operation_review_required",
+            "message": "App command has no reviewed declaration",
+        }
+    return await invoke_app_operation(
+        user_id=user_id,
+        workspace_id=current_scope_workspace_id.get() or "",
+        app_id=str(payload.get("app_id") or ""),
+        operation_key=str(payload.get("operation_key") or ""),
+        payload=dict(payload.get("input") or {}),
+        idempotency_key=str(payload.get("operation_idempotency_key") or ""),
+        correlation_id=str(payload.get("correlation_id") or ""),
+        expected_declaration_fingerprint=fingerprint,
+        expected_resolved_input=payload.get("resolved_input"),
+    )
 
 
 async def _x_save_view(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -1569,6 +1612,7 @@ _KIND_SCOPE_RULES: Dict[str, _ScopeRule] = {
     # standalone path ungated rather than refusing it for a missing id).
     "create_track": _ScopeRule(_SCOPE_RESOURCE, keys=("app_id",), optional=True),
     "update_app": _ScopeRule(_SCOPE_RESOURCE, keys=("app_id",)),
+    "invoke_app_operation": _ScopeRule(_SCOPE_RESOURCE, keys=("app_id",)),
     "register_track_template": _ScopeRule(_SCOPE_RESOURCE, keys=("app_id",)),
     "delete_app": _ScopeRule(_SCOPE_RESOURCE, keys=("app_id",)),
     "invite": _ScopeRule(
@@ -2481,6 +2525,7 @@ _EXECUTORS: Dict[str, Callable[[str, Dict[str, Any]], Awaitable[Dict[str, Any]]]
     "resolve_conflict": _x_resolve_conflict,
     "trigger_sync": _x_trigger_sync,
     "call_workspace_tool": _x_call_workspace_tool,
+    "invoke_app_operation": _x_invoke_app_operation,
     "create_app": _x_create_app,
     "draft_new_profile": _x_draft_new_profile,
     "author_operational_model": _x_author_operational_model,

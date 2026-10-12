@@ -111,6 +111,21 @@ describe('VoiceInputSection', () => {
     vi.clearAllMocks();
   });
 
+  it('shows a retry when preferences fail before any data arrives', () => {
+    const refetch = vi.fn();
+    mockedPrefs.mockReturnValue({ data: undefined, isLoading: false, isError: true, refetch });
+    renderSection(config());
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not load voice preferences');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry voice preferences' }));
+    expect(refetch).toHaveBeenCalledOnce();
+  });
+
+  it('prevents overlapping preference updates', () => {
+    mockedUpdate.mockReturnValue({ mutate, isPending: true });
+    renderSection(config());
+    expect(screen.getByRole('combobox', { name: 'Language' })).toBeDisabled();
+  });
+
   it('offers owners a path to set up a provider', () => {
     const navigate = renderSection(config({ workspace_role: 'owner' }));
     expect(screen.getByText('Not set up')).toBeInTheDocument();

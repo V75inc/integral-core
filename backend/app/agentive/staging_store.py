@@ -12,8 +12,10 @@ outstanding work. It persists ONLY *non-terminal* staged changes
 states (``consumed`` / ``revoked`` / ``expired``) are removed from the store on
 transition: their reload-correctness is already handled by the FE
 transcript-snapshot rewrite (``staging._persist_terminal_state_in_transcript``),
-so durability of terminal rows would only grow the table for no gain. This keeps
-the collection bounded to the (small) set of genuinely outstanding cards.
+so full terminal payloads do not need a second retained copy. This keeps the
+actionable collection limited to genuinely outstanding cards. Sessionless
+proposals also get a separate, 24-hour state-only reconciliation receipt;
+it carries neither their contents nor execution authority.
 
 Substrate note (I-GRAPH-02)
 ---------------------------
@@ -39,7 +41,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from jvspatial.core import Object
@@ -53,6 +55,94 @@ logger = logging.getLogger(__name__)
 
 # States we keep durable. Terminal states are removed on transition.
 _DURABLE_STATES = ("pending", "blessed")
+_TERMINAL_STATES = ("consumed", "revoked", "expired")
+_DECISION_READBACK_TTL = timedelta(hours=24)
+
+
+class StagingDecisionRecord(Object):
+    """Bounded state-only receipt; never an executable approval or audit payload."""
+
+    user_id: str = ""
+    state: str = ""
+    kind: str = ""
+    created_at: str = ""
+    expires_at: str = ""
+    resolved_at: str = ""
+    retained_until: str = ""
+
+
+def _decision_record_id(token: str) -> str:
+    return "o.StagingDecisionRecord." + hashlib.sha256(token.encode()).hexdigest()
+
+
+async def persist_decision(sc: "StagedChange") -> None:
+    """Retain only the resolved state for reloads without a chat transcript.
+
+    Terminal payloads, human diffs, summaries, keys and execution results are
+    deliberately excluded. Readback is available for 24 hours; expiry cleanup
+    is bounded on each write. This supplements, rather than replaces, the
+    optional decision ledger and the owning operation's execution receipt.
+    """
+    if sc.state not in _TERMINAL_STATES:
+        return
+    try:
+        from jvspatial.core.context import get_default_context
+
+        now = _now()
+        expired = await get_default_context().find(
+            StagingDecisionRecord,
+            {"context.retained_until": {"$lte": now.isoformat()}},
+            limit=100,
+        )
+        for record in expired:
+            await record.delete()
+        record_id = _decision_record_id(sc.token)
+        if await StagingDecisionRecord.get(record_id) is not None:
+            return
+        await StagingDecisionRecord.create(
+            id=record_id,
+            user_id=sc.user_id,
+            state=sc.state,
+            kind=sc.kind,
+            created_at=sc.created_at.isoformat(),
+            expires_at=sc.expires_at.isoformat(),
+            resolved_at=(sc.resolved_at or now).isoformat(),
+            retained_until=(now + _DECISION_READBACK_TTL).isoformat(),
+        )
+    except Exception:  # noqa: BLE001 — state readback must not authorize a write
+        logger.warning("staging_store.decision_persist_failed", exc_info=True)
+
+
+async def load_decision_state(token: str, user_id: str) -> Optional[Dict[str, Any]]:
+    """Read a principal's terminal state; never hydrate executable staging."""
+    try:
+        record = await StagingDecisionRecord.get(_decision_record_id(token))
+        if record is None or record.user_id != user_id:
+            return None
+        until = _parse_iso(record.retained_until)
+        if until is None or until <= _now():
+            await record.delete()
+            return None
+        if record.state not in _TERMINAL_STATES:
+            return None
+        return {
+            "_kind": "staged_change",
+            "token": token,
+            "state": record.state,
+            "kind": record.kind,
+            "summary": "Resolved change",
+            "diff_human": "",
+            "diff_machine": {},
+            "created_at": record.created_at,
+            "expires_at": record.expires_at,
+            "resolved_at": record.resolved_at,
+            "autonomy_grant_used": False,
+            "requires_strong_confirmation": False,
+            "decision_state_only": True,
+        }
+    except Exception:  # noqa: BLE001
+        logger.warning("staging_store.decision_load_failed", exc_info=True)
+        return None
 
 
 class StagedChangeRecord(Object):

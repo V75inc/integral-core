@@ -1,10 +1,11 @@
 import { CheckIcon, Sparkles, X } from 'lucide-react';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Modal } from '../../../components/ui/Modal';
 import JsonViewer from '../../../components/ui/JsonViewer';
 import { MarkdownContent } from '../../../components/ui/MarkdownContent';
 import { Text } from '../../../ui';
 import { diffBodyWithoutSummary } from './diffBodyWithoutSummary';
+import { operationInput, StagedOperationInputs } from './StagedOperationInputs';
 import type { StagedChange } from './types';
 import type { UseStagedChangeResult } from './useStagedChange';
 import './staging.css';
@@ -47,13 +48,15 @@ export function StagedChangeReviewModal({
     () => diffBodyWithoutSummary(staged.summary, staged.diff_human),
     [staged.summary, staged.diff_human],
   );
+  const input = operationInput(staged);
+  const review = staged.diff_machine?.review as { description?: unknown } | undefined;
+  const description = typeof review?.description === 'string' ? review.description : null;
 
   // Close once the change is settled — leaving a modal open over a change that
   // no longer exists invites a second click on a dead button.
-  const handleAction = async (run: () => Promise<void>) => {
-    await run();
-    onClose();
-  };
+  useEffect(() => {
+    if (open && status.kind === 'idle' && isTerminal) onClose();
+  }, [open, status.kind, isTerminal, onClose]);
 
   return (
     <Modal
@@ -71,7 +74,16 @@ export function StagedChangeReviewModal({
               Change
             </Text>
             <div className="staged-review-diff text-sm">
-              {diffBody ? (
+              {input ? (
+                <div className="flex min-w-0 flex-col gap-4">
+                  {description !== null ? (
+                    description ? <Text variant="body-sm" as="p" className="whitespace-pre-wrap">{description}</Text> : null
+                  ) : (
+                    <MarkdownContent mutedBody={false}>{diffBody.split('```json')[0].trim()}</MarkdownContent>
+                  )}
+                  <StagedOperationInputs staged={staged} onNavigate={onClose} />
+                </div>
+              ) : diffBody ? (
                 <MarkdownContent mutedBody={false}>{diffBody}</MarkdownContent>
               ) : (
                 <Text variant="meta" tone="muted">
@@ -81,18 +93,17 @@ export function StagedChangeReviewModal({
             </div>
           </div>
 
-          <div>
-            <Text variant="meta" tone="subtle" as="p" className="mb-1 block uppercase tracking-[0.08em]">
-              Raw
-            </Text>
+          <details>
+            <summary className="cursor-pointer">
+              <Text variant="meta" tone="subtle">Technical details</Text>
+            </summary>
             {/* A viewer rather than a <pre> dump: the whole point of opening
                 this is that the payload was too big to scan inline. */}
             <JsonViewer data={staged.diff_machine} defaultExpandDepth={2} maxHeight="40vh" />
-          </div>
-
-          <Text variant="meta" tone="muted" as="p" className="block">
-            {staged.kind} · token {staged.token.slice(0, 8)}…
-          </Text>
+            <Text variant="meta" tone="muted" as="p" className="mt-2 block">
+              {staged.kind} · token {staged.token.slice(0, 8)}…
+            </Text>
+          </details>
 
           {error ? (
             <div className="rounded-[var(--radius-input)] bg-[var(--danger-bg)] px-2 py-1">
@@ -107,7 +118,7 @@ export function StagedChangeReviewModal({
           <div className="flex w-full flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => void handleAction(() => bless())}
+              onClick={() => void bless()}
               disabled={busy}
               className="inline-flex items-center gap-1 rounded-[var(--radius-pill)] bg-[var(--brand-accent)] px-3 py-1.5 text-xs font-medium text-[var(--brand-accent-fg)] hover:opacity-90 disabled:opacity-50"
             >
@@ -115,22 +126,30 @@ export function StagedChangeReviewModal({
             </button>
             <button
               type="button"
-              onClick={() => void handleAction(() => revoke())}
+              onClick={() => void revoke()}
               disabled={busy}
               className="staged-review-reject ml-auto inline-flex items-center gap-1 rounded-[var(--radius-pill)] px-3 py-1.5 text-xs disabled:opacity-50"
             >
               <X size={12} /> Reject
             </button>
           </div>
+        ) : isBlessed ? (
+          <div className="flex w-full flex-wrap items-center gap-2">
+            <Text variant="meta" tone="muted">
+              {error ? 'Approved — action incomplete.' : 'Approved — not yet applied.'}
+            </Text>
+            <button
+              type="button"
+              onClick={() => void revoke()}
+              disabled={busy}
+              className="staged-review-reject ml-auto inline-flex items-center gap-1 rounded-[var(--radius-pill)] px-3 py-1.5 text-xs disabled:opacity-50"
+            >
+              <X size={12} /> Cancel approval
+            </button>
+          </div>
         ) : (
           <Text variant="meta" tone="muted">
-            {/* Same wording as the card and the inbox row: `blessed` means
-                approved, not applied, and this surface cannot tell which. */}
-            {isBlessed
-              ? 'Approved — not yet applied.'
-              : isTerminal
-                ? `No longer actionable (${status.state}).`
-                : status.state}
+            {isTerminal ? `No longer actionable (${status.state}).` : status.state}
           </Text>
         )}
       </Modal.Footer>

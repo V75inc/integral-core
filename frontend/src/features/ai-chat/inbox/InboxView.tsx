@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Check,
   Clock,
+  Eye,
   Pause,
   Play,
   ShieldCheck,
@@ -22,8 +22,7 @@ import { Text } from '../../../ui';
 import { formatRelativeTime } from '../../../utils';
 import { useStagedChange } from '../staging/useStagedChange';
 import type { StagedChange } from '../staging/types';
-import { rememberActiveChatThreadId } from '../chatHandoff';
-import { useAssistantDock } from '../../../context/AssistantDockContext';
+import { StagedChangeReviewModal } from '../staging/StagedChangeReviewModal';
 import { useConfirm } from '../../../context/ConfirmContext';
 import { useAgentInbox } from './useAgentInbox';
 import './inbox.css';
@@ -47,6 +46,7 @@ export function InboxView() {
 
   const empty =
     !loading &&
+    !degraded &&
     writeStaged.length === 0 &&
     approvals.length === 0 &&
     routines.length === 0;
@@ -55,7 +55,10 @@ export function InboxView() {
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-3">
       {degraded ? (
         <Text variant="meta" tone="warn" as="p">
-          Some items could not be loaded. What is shown is still accurate.
+          Some items could not be loaded. Showing the last available results.
+          <button type="button" onClick={refetch} disabled={loading} className="inbox-inline-link ml-1.5">
+            Retry
+          </button>
         </Text>
       ) : null}
 
@@ -153,9 +156,8 @@ function Section({
  * A staged change, approvable in place.
  *
  * Uses the same `useStagedChange` hook the chat card does, so approving here
- * runs the write fallback and invalidates caches exactly as approving there
- * would. Reimplementing it is what made the Approvals page silently fail to
- * apply changes.
+ * runs the same server decision and cache invalidation as chat. The review
+ * modal shares this hook; it does not create a second decision state machine.
  */
 function StagedRow({
   staged,
@@ -164,9 +166,9 @@ function StagedRow({
   staged: StagedChange;
   onResolved: () => void;
 }) {
-  const { setView } = useAssistantDock();
+  const [reviewOpen, setReviewOpen] = useState(false);
   const confirm = useConfirm();
-  const { busy, error, bless, revoke, isBlessed } = useStagedChange(staged, {
+  const controls = useStagedChange(staged, {
     onTerminal: onResolved,
     onNeedsStrongConfirmation: (summary) =>
       confirm({
@@ -176,14 +178,7 @@ function StagedRow({
         variant: 'danger',
       }),
   });
-
-  const reviewInChat = () => {
-    // The thread that minted it, if the payload carries one — otherwise this
-    // just returns to chat, which is still closer than nothing.
-    const sessionId = (staged as { session_id?: string }).session_id;
-    if (sessionId) rememberActiveChatThreadId(sessionId);
-    setView('chat');
-  };
+  const { busy, error, revoke, isBlessed } = controls;
 
   return (
     <div className="inbox-row rounded-[var(--radius-input)] px-2.5 py-2">
@@ -199,8 +194,8 @@ function StagedRow({
             {isBlessed ? 'approved · not yet applied' : staged.kind}
             {' · expires '}
             {formatRelativeTime(staged.expires_at)}
-            <button type="button" onClick={reviewInChat} className="inbox-inline-link ml-1.5">
-              Review in chat
+            <button type="button" onClick={() => setReviewOpen(true)} className="inbox-inline-link ml-1.5">
+              Review change
             </button>
           </Text>
         </div>
@@ -208,11 +203,11 @@ function StagedRow({
           <button
             type="button"
             disabled={busy}
-            onClick={() => void bless()}
-            aria-label="Approve staged change"
+            onClick={() => setReviewOpen(true)}
+            aria-label="Review staged change"
             className="inbox-action inbox-action--approve"
           >
-            <Check size={13} strokeWidth={LINE_ICON_STROKE} />
+            <Eye size={13} strokeWidth={LINE_ICON_STROKE} />
           </button>
           <button
             type="button"
@@ -230,6 +225,12 @@ function StagedRow({
           {error}
         </Text>
       ) : null}
+      <StagedChangeReviewModal
+        staged={staged}
+        open={reviewOpen}
+        onClose={() => setReviewOpen(false)}
+        controls={controls}
+      />
     </div>
   );
 }

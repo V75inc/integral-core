@@ -38,10 +38,11 @@ from pydantic import ValidationError
 
 from app.api.errors import (
     BadRequestError,
+    InsufficientPermissionsError,
     MissingAuthenticationError,
 )
 from app.api.utils import resolve_principal_id
-from app.models.nodes import Entry
+from app.models.nodes import Entry, Track
 from app.schemas.policy import Resource, Subject
 from app.schemas.retrieve import (
     RetrievedEntry,
@@ -51,6 +52,7 @@ from app.schemas.retrieve import (
     RetrieveResponse,
 )
 from app.services.policy_engine import evaluate as policy_evaluate
+from app.services.request_scope import resolve_workspace_id_from_request
 from app.services.retrieval import (
     disable_semantic_retrieval_runtime,
     get_embedding_store,
@@ -144,6 +146,25 @@ async def retrieve(request: Request) -> Any:
                 "details": exc.errors(include_url=False, include_context=False),
             },
         )
+
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    if not workspace_id:
+        raise InsufficientPermissionsError(message="Workspace scope required")
+    if payload.scope is None:
+        payload = payload.model_copy(update={"scope": f"workspace:{workspace_id}"})
+    elif payload.scope.startswith("workspace:"):
+        if _scope_to_workspace_id(payload.scope) != workspace_id:
+            raise InsufficientPermissionsError(
+                message="Retrieval target is outside the requested workspace scope"
+            )
+    elif payload.scope.startswith("track:"):
+        track = await Track.get(_scope_to_track_id(payload.scope))
+        if not track or track.workspace_id != workspace_id:
+            raise InsufficientPermissionsError(
+                message="Retrieval target is outside the requested workspace scope"
+            )
+    else:
+        raise BadRequestError(message="Invalid retrieval scope")
 
     # Reuse the cached actor_kind set by the auth middleware when present
     # (service-auth agent paths flow through here too). Default to
@@ -366,6 +387,10 @@ async def _retrieve_semantic(
         seen_entry_ids.add(cand_id)
         unique_candidates.append((cand_id, score))
 
+    scoped_track_id = _scope_to_track_id(payload.scope)
+    scoped_workspace_id = _scope_to_workspace_id(payload.scope)
+    track_reads: Dict[str, asyncio.Task] = {}
+
     async def _evaluate_candidate(
         cand_id: str, score: float
     ) -> Optional[Tuple[str, float, Any]]:
@@ -376,6 +401,17 @@ async def _retrieve_semantic(
         if entry_status in ("deleted", "archived"):
             return None
         track_id = getattr(entry, "track_id", "") or ""
+        # Vector-store scope is only an optimization. Recheck current graph
+        # membership before policy, snippets or rank fusion, even for records
+        # the principal can read in another workspace.
+        if scoped_track_id and track_id != scoped_track_id:
+            return None
+        if scoped_workspace_id:
+            if track_id not in track_reads:
+                track_reads[track_id] = asyncio.create_task(Track.get(track_id))
+            track = await track_reads[track_id]
+            if not track or track.workspace_id != scoped_workspace_id:
+                return None
         decision = await policy_evaluate(
             subject=subject,
             action="entry.read",

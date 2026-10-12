@@ -21,7 +21,7 @@
  *   </Field>
  */
 
-import { type ReactNode, useId } from 'react';
+import { cloneElement, isValidElement, type ReactNode, type ReactElement, useId } from 'react';
 
 import { Text } from '../ui';
 
@@ -39,13 +39,13 @@ export interface FieldProps {
   inline?: boolean;
   /**
    * Mark this field as required. Appends an `*` to the label and sets
-   * `aria-required` on the wrapper.
+   * `aria-required` on a single child control.
    */
   required?: boolean;
   /**
    * `id` for the wrapped control. When set, the `<label>` is rendered
-   * with `htmlFor={id}` for proper a11y. Otherwise the label wraps the
-   * control (still associates them).
+   * with `htmlFor={id}` for proper a11y. Otherwise a generated ID associates
+   * the label with a single child control.
    */
   htmlFor?: string;
   /** The form control (input, select, switch, textarea, …). */
@@ -76,53 +76,27 @@ export function Field({
     : 'flex flex-col gap-0.5';
   const controlClass = inline ? 'shrink-0' : 'w-full';
 
-  const labelNode = (
-    <Text variant="body" weight="medium" as="label" id={labelId}>
-      {label}
-      {required && (
-        <span aria-hidden className="ml-0.5 text-[var(--danger-fg)]">
-          *
-        </span>
-      )}
-    </Text>
-  );
+  const child = isValidElement(children) ? children as ReactElement<Record<string, unknown>> : null;
+  const controlId = htmlFor ?? (child?.props.id as string | undefined) ?? fallbackId;
+  const describedBy = [child?.props['aria-describedby'], hintId, errorId].filter(Boolean).join(' ') || undefined;
+  const control = child ? cloneElement(child, {
+    id: controlId,
+    'aria-describedby': describedBy,
+    'aria-invalid': error ? true : child.props['aria-invalid'],
+    'aria-required': required || child.props['aria-required'],
+  }) : children;
 
   return (
-    <div
-      className={wrapperClass}
-      aria-required={required || undefined}
-      aria-describedby={[hintId, errorId].filter(Boolean).join(' ') || undefined}
-    >
+    <div className={wrapperClass}>
       <div className={labelGroupClass}>
-        {/* When `htmlFor` is provided, the label points to the external
-            control; otherwise we still render a label element but rely
-            on DOM-tree association via children placement. */}
-        {htmlFor ? (
-          <Text variant="body" weight="medium" as="label" id={labelId} title={undefined}>
-            <label htmlFor={htmlFor} className="contents">
-              {label}
-              {required && (
-                <span aria-hidden className="ml-0.5 text-[var(--danger-fg)]">
-                  *
-                </span>
-              )}
-            </label>
-          </Text>
-        ) : (
-          labelNode
-        )}
-        {hint && (
-          <Text variant="body-sm" tone="subtle" as="span" id={hintId}>
-            {hint}
-          </Text>
-        )}
-      </div>
-      <div className={controlClass}>{children}</div>
-      {error && (
-        <Text variant="body-sm" tone="danger" as="span" id={errorId}>
-          {error}
+        <Text variant="body" weight="medium" as="label" id={labelId} htmlFor={controlId}>
+          {label}
+          {required && <span aria-hidden className="ml-0.5 text-[var(--danger-fg)]">*</span>}
         </Text>
-      )}
+        {hint && <Text variant="body-sm" tone="subtle" as="span" id={hintId}>{hint}</Text>}
+      </div>
+      <div className={controlClass}>{control}</div>
+      {error && <Text variant="body-sm" tone="danger" as="span" id={errorId}>{error}</Text>}
     </div>
   );
 }

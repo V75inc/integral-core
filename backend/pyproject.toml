@@ -69,7 +69,7 @@ dependencies = [
     "asyncpg>=0.29.0",
     # IANA tz database for zoneinfo on minimal images.
     "tzdata>=2024.1",
-    "jvspatial==0.1.1",
+    "jvspatial==0.2.0",
     # jvspatial depends on PyJWT without an upper bound; keep the resolved
     # version above releases flagged by the backend dependency audit.
     "PyJWT>=2.14.0",
@@ -282,6 +282,3 @@ module = "app.*"
 # for proper stubs where installed; disabling the code here makes the gate
 # deterministic regardless of whether that stub happens to be present.
 disable_error_code = ["attr-defined", "return-value", "arg-type", "assignment", "call-overload", "import-untyped"]
-
-
-[tool.uv.sources]

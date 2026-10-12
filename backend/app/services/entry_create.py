@@ -16,6 +16,7 @@ from app.api.errors import ResourceNotFoundError
 from app.contracts.information import schema_revision_from_profile_version
 from app.models.edges import AUTHORED_BY, CONTAINS, IS_OF_TYPE, TAGGED_WITH
 from app.models.nodes import Entry, EntryType, Tag, Track
+from app.schemas.policy import Subject
 from app.schemas.provenance import Provenance
 from app.services.app_graph import ensure_track_attached_operational_model
 from app.services.change_event import emit_change_event
@@ -117,6 +118,7 @@ async def _create_entry_in_track(
     workspace_id: str = "",
     actor_kind: str = "human",
     actor_id: Optional[str] = None,
+    authorization_subject: Optional[Subject] = None,
     provenance: Optional[Provenance] = None,
     idempotency_key: str = "",
     skip_profanity: bool = False,
@@ -221,6 +223,7 @@ async def _create_entry_in_track(
         runtime_tier=runtime_tier,
         actor_user_id=user_id,
         actor_kind=actor_kind,
+        authorization_subject=authorization_subject,
         source_entry_title=title,
     )
     entry_type_spec = resolve_entry_type_spec(resolved_type, runtime_tier)
@@ -356,6 +359,7 @@ async def create_entry_in_track(
     workspace_id: str = "",
     actor_kind: str = "human",
     actor_id: Optional[str] = None,
+    authorization_subject: Optional[Subject] = None,
     provenance: Optional[Provenance] = None,
     idempotency_key: str = "",
     skip_profanity: bool = False,
@@ -428,6 +432,7 @@ async def create_entry_in_track(
             workspace_id=fresh_track.workspace_id,
             payload=actual_payload,
             entry_type_key=key,
+            authorization_subject=authorization_subject,
         ) as admitted_principal_id:
             entry = await _create_entry_in_track(
                 track=fresh_track,
@@ -442,6 +447,7 @@ async def create_entry_in_track(
                 workspace_id=workspace_id,
                 actor_kind=actor_kind,
                 actor_id=actor_id,
+                authorization_subject=authorization_subject,
                 provenance=provenance,
                 idempotency_key=idempotency_key,
                 skip_profanity=skip_profanity,

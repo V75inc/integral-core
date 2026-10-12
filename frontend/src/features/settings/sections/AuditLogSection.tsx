@@ -211,11 +211,11 @@ export function AuditLogSection() {
                     <Text variant="body" weight="medium">
                       {ev.action || '(unknown action)'}
                     </Text>
-                    <Text variant="meta" tone="muted">
+                    <Text variant="meta" tone="muted" className="break-all">
                       {ev.ts || ''}
                     </Text>
                   </div>
-                  <Text variant="meta" tone="muted" as="div">
+                  <Text variant="meta" tone="muted" as="div" className="break-all">
                     {ev.actor_kind}:{ev.actor_id} · {ev.resource_type}/
                     {ev.resource_id} · {ev.scope}
                   </Text>
@@ -225,7 +225,7 @@ export function AuditLogSection() {
                       details.matched_policy_id ||
                       details.staging_token,
                   ) && (
-                    <Text variant="meta" as="div" className="mt-1">
+                    <Text variant="meta" as="div" className="mt-1 break-all">
                       {details.failed_action
                         ? `failed_action=${String(details.failed_action)} `
                         : ''}

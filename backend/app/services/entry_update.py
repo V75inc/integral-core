@@ -18,6 +18,7 @@ from app.api.errors import (
 from app.contracts.information import schema_revision_from_profile_version
 from app.models.edges import IS_OF_TYPE, TAGGED_WITH
 from app.models.nodes import Entry, EntryType, Tag, Track
+from app.schemas.policy import Subject
 from app.schemas.provenance import Provenance
 from app.services.app_invariant_guards import enforce_protected_field_write
 from app.services.change_event import emit_change_event
@@ -48,6 +49,7 @@ async def update_entry_in_track(
     workspace_id: str = "",
     actor_kind: str = "human",
     actor_id: Optional[str] = None,
+    authorization_subject: Optional[Subject] = None,
     title: Optional[str] = None,
     body: Optional[str] = None,
     description: Optional[str] = None,
@@ -130,6 +132,7 @@ async def update_entry_in_track(
             workspace_id=track.workspace_id,
             payload=actual_payload,
             entry_type_key=key,
+            authorization_subject=authorization_subject,
         ) as admitted_principal_id:
             current_revision = int(entry.record_revision or 1)
             if (
@@ -261,6 +264,7 @@ async def update_entry_in_track(
                         entry=entry,
                         actor_user_id=admitted_principal_id,
                         actor_kind=actor_kind,
+                        authorization_subject=authorization_subject,
                         source_entry_title=title if title is not None else entry.title,
                     )
                 )

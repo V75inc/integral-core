@@ -101,6 +101,7 @@ async def create_app_for_user(
     visibility: Optional[str] = None,
     library_package_id: Optional[str] = None,
     accent_color: Optional[str] = None,
+    icon: Optional[str] = None,
     include_seed_data: bool = True,
     actor_kind: str = "human",
     actor_id: Optional[str] = None,
@@ -119,6 +120,9 @@ async def create_app_for_user(
     Returns the created App node. Emits a single ``app_node.create``
     ChangeEvent on success.
     """
+    from app.services.app_identity import validate_app_icon
+
+    safe_icon = validate_app_icon(icon)
     resolved_workspace_id = await resolve_workspace_id(
         user_id=user_id, workspace_id=workspace_id
     )
@@ -174,6 +178,7 @@ async def create_app_for_user(
             name_override=effective_name or None,
             description_override=effective_desc or None,
             include_seed_data=include_seed_data,
+            icon_override=safe_icon if icon is not None else None,
         )
         installed = await App.get(result["app_id"])
         if not installed:
@@ -205,6 +210,7 @@ async def create_app_for_user(
         visibility=resolved_visibility,
         workspace_id=resolved_workspace_id,
         accent_color=safe_accent,
+        icon=safe_icon,
         created_at=now,
         updated_at=now,
     )

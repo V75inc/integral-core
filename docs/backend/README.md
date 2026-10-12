@@ -7,7 +7,7 @@ The backend supplies the graph substrate, resource authority, App lifecycle, and
 | App packages and lifecycle | [Bundle architecture](app-bundles-v1.md), [authoring](app-bundle-authoring.md) |
 | Models and library | [Authoring and library](operational-model-authoring-and-library.md), [packages](operational-model-packages.md) |
 | Public capabilities | [Extension contract](../platform/extension-contract-v1.md), [API source inventory](API_REFERENCE.md) |
-| Projections | [App Home](app-home.md), [pagination](pagination.md) |
+| Projections | [App Home](app-home.md), [pagination](pagination.md), [recorded graph context](recorded-graph-context.md) |
 | Resident | [Chat](ai-chat.md), [skills](skill-format-standard.md), [workspace overlay](workspace-agent-profile.md), [scaffold recovery](scaffold-recovery.md) |
 | Review and work | [Prompt queue](prompt-queue.md), [bounded-work contract](work-mandate-contract.md) |
 | Integrations | [Connectors](connectors.md), [files](attachment-agent-contract.md), [speech](speech-input.md) |

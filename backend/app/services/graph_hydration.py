@@ -31,10 +31,13 @@ async def batch_get_by_ids(
 async def bulk_save_nodes(nodes: List[Node]) -> int:
     """Persist many Node instances via jvspatial ``GraphContext.save_batch``.
 
-    ``save_batch`` groups by entity type and serializes each node through the
-    normal save path. (The DB-level ``bulk_save``/``bulk_save_detailed`` take
+    ``save_batch`` prepares entity records and uses bounded native writes by
+    collection. It does not call overridden entity ``save`` hooks and is not
+    atomic across collections; callers needing those contracts must supply
+    their own hook execution and graph transaction. The DB-level
+    ``bulk_save``/``bulk_save_detailed`` take
     ``(collection, records)`` — raw record dicts, not Node objects — so they
-    are the wrong primitive here.)
+    are the wrong primitive here.
     """
     if not nodes:
         return 0

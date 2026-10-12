@@ -220,18 +220,21 @@ async def _seed_owned_track(test_user: Any) -> Any:
     """Create a Track OWNED by the test user — graph mode should reach it."""
     from datetime import datetime
 
-    from app.models.edges import OWNS
+    from app.models.edges import CONTAINS, OWNS
     from app.models.nodes import Track
+    from app.services.personal_workspace import ensure_personal_workspace
 
+    workspace = await ensure_personal_workspace(test_user)
     track = await Track.create(
         name="retrieval-track",
         owner_id=test_user.id,
-        workspace_id="",
+        workspace_id=workspace.id,
         purpose="retrieval test",
         created_at=datetime.now().isoformat(),
         updated_at=datetime.now().isoformat(),
     )
     await test_user.connect(track, edge=OWNS, owned_at=datetime.now().isoformat())
+    await workspace.connect(track, edge=CONTAINS)
     return track
 
 
@@ -270,7 +273,7 @@ async def test_retrieve_graph_mode_happy_path(
 
     resp = await authenticated_client.post(
         "/api/retrieve",
-        json={"query": "anything", "mode": "graph", "scope": f"track:{track.id}"},
+        json={"query": "", "mode": "graph", "scope": f"track:{track.id}"},
     )
     assert resp.status_code == 200, resp.text
     data = resp.json()
@@ -343,7 +346,7 @@ async def test_retrieve_hybrid_mode_rrf_combines(
 
     resp = await authenticated_client.post(
         "/api/retrieve",
-        json={"query": "x", "mode": "hybrid", "scope": f"track:{track.id}"},
+        json={"query": "shared", "mode": "hybrid", "scope": f"track:{track.id}"},
     )
     assert resp.status_code == 200, resp.text
     data = resp.json()
@@ -400,6 +403,9 @@ async def test_scope_workspace_falls_through_to_store(
     docstring). The endpoint MUST forward the scope verbatim — it does
     NOT silently rewrite to ``None``.
     """
+    from app.services.personal_workspace import ensure_personal_workspace
+
+    workspace = await ensure_personal_workspace(test_user)
     seen_scope: list[Any] = []
 
     from app.api import retrieve as retrieve_module
@@ -417,10 +423,10 @@ async def test_scope_workspace_falls_through_to_store(
 
     resp = await authenticated_client.post(
         "/api/retrieve",
-        json={"query": "x", "mode": "semantic", "scope": "workspace:abc"},
+        json={"query": "x", "mode": "semantic", "scope": f"workspace:{workspace.id}"},
     )
     assert resp.status_code == 200, resp.text
-    assert seen_scope == ["workspace:abc"]
+    assert seen_scope == [f"workspace:{workspace.id}"]
 
 
 @pytest.mark.asyncio
@@ -572,18 +578,21 @@ async def test_no_authorization_bypass_via_index(
 
     from app.models.edges import CONTAINS, OWNS
     from app.models.nodes import Entry, Track
+    from app.services.personal_workspace import ensure_personal_workspace
 
     # ---- Inaccessible track — owned by test_user2, NEVER shared with test_user
+    workspace = await ensure_personal_workspace(test_user)
     forbidden_track = await Track.create(
         name="forbidden-track",
         owner_id=test_user2.id,
-        workspace_id="",
+        workspace_id=workspace.id,
         created_at=datetime.now().isoformat(),
         updated_at=datetime.now().isoformat(),
     )
     await test_user2.connect(
         forbidden_track, edge=OWNS, owned_at=datetime.now().isoformat()
     )
+    await workspace.connect(forbidden_track, edge=CONTAINS)
     forbidden_entry = await Entry.create(
         type_id="",
         title="SECRET — must not leak",
@@ -771,24 +780,13 @@ async def test_per_request_cache_amortizes_policy_evaluate(
 async def test_retrieve_endpoint_appears_in_mcp_tool_catalogue(
     authenticated_client: AsyncClient,
 ):
-    """Phase 3 MCP-01 contract — every @endpoint surfaces in /api/mcp/tools.
+    """The current MCP catalogue exposes the dispatchable retrieval contract."""
+    from app.agentive.tooling.catalogue import build_tool_catalogue
 
-    Plan 04-02 wires the endpoint under the auto-derived name
-    ``integral_create_retrieve``. Plan 04-03 will register the
-    ``MCP_TOOL_NAME_OVERRIDES`` entry that renames it to
-    ``integral_query``.
-    """
-    resp = await authenticated_client.get("/api/mcp/tools")
-    assert resp.status_code == 200, resp.text
-    payload = resp.json()
-    # Accept either {"tools": [...]} or a bare list
-    tools = payload.get("tools") if isinstance(payload, dict) else payload
-    assert tools is not None
-    names = {t["name"] for t in tools}
-    # Until Plan 04-03 lands, the auto-derived name is present.
-    assert (
-        "integral_create_retrieve" in names or "integral_query" in names
-    ), f"retrieve descriptor missing from MCP tool catalogue; got {sorted(names)[:10]}"
+    descriptor = next(
+        t for t in build_tool_catalogue() if t["name"] == "integral_query"
+    )
+    assert descriptor["input_schema"]["required"] == ["query"]
 
 
 # ===========================================================================

@@ -111,3 +111,18 @@ def test_invalid_operator_config_has_a_safe_setup_message():
     assert "Settings" in message
     assert "INTEGRAL_NATIVE_MODEL" in message
     assert "private-config" not in message
+
+
+def test_nontransactional_preview_explains_live_chat_storage_requirement():
+    from app.services.app_operations.transaction_scope import (
+        OperationTransactionUnavailable,
+    )
+
+    code, message = classify_turn_exception(
+        OperationTransactionUnavailable(
+            "Harness session activation requires a transactional shared store"
+        )
+    )
+    assert code == "chat_storage_unavailable"
+    assert "PostgreSQL" in message
+    assert "try again" not in message.lower()

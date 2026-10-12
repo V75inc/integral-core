@@ -1,0 +1,61 @@
+Browser tab: 4, Title: "Integral ontology browser smoke", URL: "http://127.0.0.1:57137/ontology-smoke.html".
+1 AXWebArea Integral ontology browser smoke, URL: 127.0.0.1:57137/ontology-smoke.html
+	2 heading Workspace ontology · browser smoke, Value: 1
+		3 text Workspace ontology · browser smoke
+	4 text Local diagnostic for the seeded launch scenario. Uses the signed-in SPA session and same-origin API; this is a qualification page, not a product graph viewer.
+	5 link Description: Return to Integral, Value: 127.0.0.1:57137/
+	6 button Run analyst checks, ID: run
+	7 text Dummy outsider password
+	8 text field (settable) Dummy outsider password, Value: <redacted>
+	9 button Check outsider denial, ID: outsider
+	22 text 3/3 checks passed
+	11 table
+		12 row
+			13 cell
+				14 text Check
+			15 cell
+				16 text Result
+		23 container results
+			24 row
+				25 cell
+					26 text Authenticated outsider session
+				27 cell
+					28 text PASS
+			29 row
+				30 cell
+					31 text Workspace membership gate rejects outsider
+				32 cell
+					33 text PASS HTTP 403
+			34 row
+				35 cell
+					36 text Recorded detail rejects outsider without schema disclosure
+				37 cell
+					38 text PASS HTTP 403
+	17 heading Permitted relationship evidence, Value: 2
+		18 text Permitted relationship evidence
+	19 text No capture yet.
+	20 heading Machine-readable results, Value: 2
+		21 text Machine-readable results
+	39 text {
+  "time": "2026-10-11T16:51:59.485Z",
+  "origin": "http://127.0.0.1:57137",
+  "results": [
+    {
+      "name": "Authenticated outsider session",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Workspace membership gate rejects outsider",
+      "pass": true,
+      "detail": "HTTP 403"
+    },
+    {
+      "name": "Recorded detail rejects outsider without schema disclosure",
+      "pass": true,
+      "detail": "HTTP 403"
+    }
+  ]
+}
+
+The focused UI element is 9 button Check outsider denial, ID: outsider

@@ -63,7 +63,17 @@ class OperationContext(Protocol):
 
     async def find_entries(self, query: dict) -> list: ...
 
-    async def get(self, object_ref: dict) -> Any: ...
+    async def get(self, object_ref: dict) -> Any:
+        """Read an authorized entry or retained native tool source observation.
+
+        For a source, pass the tool's server-generated ``_observation_ref``
+        (kind ``tool_observation``, id and session_id). Core returns bounded
+        ``source`` text/metadata plus its output fingerprint, or None when
+        unavailable. Content remains untrusted; Apps own claim validation.
+        This does not grant access to another actor's transcript or replay a
+        tool. Requires a Core distribution supporting source observations.
+        """
+        ...
 
     async def query(self, query_spec: dict) -> dict: ...
 

@@ -402,7 +402,11 @@ async def test_invalid_default_model_route_fails_when_no_workspace_override(
 
 
 @pytest.mark.asyncio
-async def test_native_platform_route_honors_host_quota_denial(monkeypatch):
+@pytest.mark.parametrize(
+    "model",
+    ["openai/gpt-4.1", "ollama/gemma4:26b", "ollama/deepseek-v4.1-flash:cloud"],
+)
+async def test_native_deployment_route_honors_host_quota_denial(monkeypatch, model):
     from app.api.errors import QuotaExceededError
 
     monkeypatch.setattr(
@@ -413,20 +417,25 @@ async def test_native_platform_route_honors_host_quota_denial(monkeypatch):
     monkeypatch.setattr("app.services.host_hooks.assert_platform_quota", gate)
     with pytest.raises(QuotaExceededError, match="Host quota reached"):
         await resolve_native_model_route(
-            workspace_id="workspace-1", default_model="openai/gpt-4.1"
+            workspace_id="workspace-1", default_model=model
         )
     gate.assert_awaited_once_with("workspace-1")
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("local", [True, False])
-async def test_native_local_and_byok_routes_bypass_platform_quota(monkeypatch, local):
-    override = None if local else {"model": "openai/gpt-4.1", "api_key": "byok-secret"}
+async def test_native_workspace_owned_routes_bypass_platform_quota(monkeypatch, local):
+    override = (
+        {"model": "ollama/gemma4:26b", "credential_ref": "workspace-model:v1"}
+        if local
+        else {"model": "openai/gpt-4.1", "api_key": "byok-secret"}
+    )
     monkeypatch.setattr(
         "app.services.model_credential_resolver.resolve_native_model_override",
         AsyncMock(return_value=override),
     )
-    gate = AsyncMock()
+    # An exhausted host allowance must not block a workspace-owned route.
+    gate = AsyncMock(side_effect=AssertionError("workspace route reached host quota"))
     monkeypatch.setattr("app.services.host_hooks.assert_platform_quota", gate)
     route = await resolve_native_model_route(
         workspace_id="workspace-1",
@@ -434,6 +443,28 @@ async def test_native_local_and_byok_routes_bypass_platform_quota(monkeypatch, l
     )
     assert route.credential_source == ("local" if local else "workspace_byok")
     gate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_deployment_quota_is_rechecked_when_allowance_changes(monkeypatch):
+    from app.api.errors import QuotaExceededError
+
+    monkeypatch.setattr(
+        "app.services.model_credential_resolver.resolve_native_model_override",
+        AsyncMock(return_value=None),
+    )
+    gate = AsyncMock(
+        side_effect=[None, QuotaExceededError(message="Host quota reached")]
+    )
+    monkeypatch.setattr("app.services.host_hooks.assert_platform_quota", gate)
+    await resolve_native_model_route(
+        workspace_id="workspace-1", default_model="ollama/deepseek-v4.1-flash:cloud"
+    )
+    with pytest.raises(QuotaExceededError, match="Host quota reached"):
+        await resolve_native_model_route(
+            workspace_id="workspace-1", default_model="ollama/deepseek-v4.1-flash:cloud"
+        )
+    assert gate.await_count == 2
 
 
 @pytest.mark.asyncio

@@ -23,6 +23,7 @@ import { useToast } from '../../context/ToastContext';
 import { useChatPageFocus } from '../../context/ChatPageFocusContext';
 import { Text } from '../../ui';
 import { CreateDashboardForm } from './CreateDashboardForm';
+import { WidgetShell } from './WidgetShell';
 import {
   DashboardWidgetRenderer,
   groupWidgetTypes
@@ -501,13 +502,25 @@ export function AppDashboardPanel({
                         </button>
                       </div>
                     ) : null}
-                    <DashboardWidgetRenderer
-                      type={w.type}
-                      title={w.title}
-                      data={widgetData[w.id] as Record<string, unknown> | undefined}
-                      config={w.config}
-                      onDrillThrough={groupKey => openDrillThrough(w, groupKey)}
-                    />
+                    {!dataQuery.data && dataQuery.isPending ? (
+                      <WidgetShell title={w.title}>
+                        <div role="status"><Text as="p" variant="meta" tone="muted">Loading widget data…</Text></div>
+                        <Skeleton className="mt-3 h-16 w-full" />
+                      </WidgetShell>
+                    ) : !dataQuery.data && dataQuery.isError ? (
+                      <WidgetShell title={w.title}>
+                        <Text as="p" variant="meta" tone="muted">Could not load widget data.</Text>
+                        <Button variant="secondary" className="mt-3" onClick={() => void dataQuery.refetch()}>Try again</Button>
+                      </WidgetShell>
+                    ) : (
+                      <DashboardWidgetRenderer
+                        type={w.type}
+                        title={w.title}
+                        data={widgetData[w.id] as Record<string, unknown> | undefined}
+                        config={w.config}
+                        onDrillThrough={groupKey => openDrillThrough(w, groupKey)}
+                      />
+                    )}
                   </div>
                 ))}
               </GridLayout>

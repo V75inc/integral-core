@@ -133,7 +133,7 @@ describe('AgentsSection — existing provider listing', () => {
   it('renders the section header', () => {
     renderPanel();
     expect(
-      screen.getByRole('heading', { name: 'Agent', level: 2 }),
+      screen.getByRole('heading', { name: 'Connected agents', level: 2 }),
     ).toBeInTheDocument();
   });
 

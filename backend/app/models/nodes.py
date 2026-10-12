@@ -405,6 +405,7 @@ class App(Node):
 
     name: str = ""
     name_fold: str = ""  # casefold(name.strip()) for fuzzy index-friendly lookup
+    icon: str = ""  # built-in icon key or bounded inline raster logo
     owner_user_id: Optional[str] = None
     description: str = ""
     visibility: str = "private"  # private, workspace, public
@@ -867,6 +868,7 @@ class ChatThread(Node):
     # one-active-turn-per-thread admission a single-row PostgreSQL CAS.
     active_work_item_id: str = ""
     title: str = ""
+    title_source: Literal["", "fallback", "generated", "manual"] = ""
     archived: bool = False
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
