@@ -1,3 +1,4 @@
+import { PageMeta } from '../../../components/ui';
 /**
  * Settings → Operational Models — slim explainer.
  *
@@ -36,10 +37,10 @@ export function LibrarySection() {
         <Text variant="heading-md" weight="semibold" as="h2">
           Operational Models
         </Text>
-        <Text variant="body" tone="muted" as="p" className="mt-1">
+        <PageMeta as="p">
           Reusable models and App Packages that define records, views,
           operational guidance, skills, agents, and settings.
-        </Text>
+        </PageMeta>
       </div>
 
       <SettingsSection

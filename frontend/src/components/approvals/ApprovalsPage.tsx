@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { PageHeading, PageShell, PageSection } from '../ui';
+import { PageHeading, PageMeta, PageShell, PageSection } from '../ui';
+import { useQueryClient } from '@tanstack/react-query';
+import { OwnershipConsentInbox } from '../access/OwnershipConsentInbox';
+import { ownershipRowsForStatus, useOwnershipProposals } from '../access/useOwnershipProposals';
 import { Select, Text } from '../../ui';
 import { useSetCrumbs } from '../../context/CrumbsContext';
 import {
@@ -18,6 +21,9 @@ export function ApprovalsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('pending');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const ownership = useOwnershipProposals();
+  const ownershipCount = ownershipRowsForStatus(ownership.data ?? [], statusFilter).length;
   const staged = useStagedApprovals();
   const stagedCount = staged.rows.length;
   const [loadedStatus, setLoadedStatus] = useState<StatusFilter | null>(null);
@@ -57,10 +63,10 @@ export function ApprovalsPage() {
         <header className="mb-8 md:mb-10 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
             <PageHeading>Approvals</PageHeading>
-            <div className="mt-3 md:mt-3.5 flex flex-wrap items-center gap-x-4 md:gap-x-6 gap-y-2 text-sm text-[var(--text-subtle)]">
+            <PageMeta>
               <span>
-                {rows.length + (statusFilter === 'pending' ? stagedCount : 0)}{' '}
-                {rows.length +
+                {rows.length + ownershipCount + (statusFilter === 'pending' ? stagedCount : 0)}{' '}
+                {rows.length + ownershipCount +
                   (statusFilter === 'pending' ? stagedCount : 0) ===
                 1
                   ? 'item'
@@ -70,17 +76,17 @@ export function ApprovalsPage() {
               <span>
                 {statusFilter === 'pending' &&
                 pendingCount === 0 &&
-                stagedCount === 0
-                  ? loading || !staged.loaded
+                stagedCount === 0 && ownershipCount === 0
+                  ? loading || !staged.loaded || ownership.isPending
                     ? 'Checking approvals…'
-                    : error || staged.refreshFailed
+                    : error || staged.refreshFailed || ownership.isError
                       ? 'Could not refresh approvals'
                       : loadedStatus !== statusFilter
                         ? 'Checking approvals…'
                         : 'All clear'
                   : `Showing ${statusFilter}`}
               </span>
-            </div>
+            </PageMeta>
           </div>
           <label className="flex items-center gap-2 text-sm shrink-0">
             <span className="text-[var(--text-muted)]">Status</span>
@@ -103,17 +109,15 @@ export function ApprovalsPage() {
       <PageSection.Separator />
 
       <PageSection className="mt-8">
-        {/* Two independent queues live here: policy-gated agent writes, and
-            changes staged inside a conversation. Label the first only when
-            both are on screen — a lone list needs no heading, but an
-            unlabelled one above "Agent chat approvals" reads as its parent. */}
-        {showStaged && rows.length > 0 ? (
+        {/* One review area for policy, proposed changes and ownership.
+            Decisions stay explicit within each independently loaded queue. */}
+        {rows.length > 0 ? (
           <Text
-            variant="meta"
-            weight="semibold"
-            tone="subtle"
+            variant="body-sm"
+            weight="medium"
+            tone="muted"
             as="h2"
-            className="mb-2 block uppercase tracking-[0.08em]"
+            className="mb-3 block"
           >
             Policy approvals
           </Text>
@@ -126,9 +130,10 @@ export function ApprovalsPage() {
           onDecide={() => void refetch()}
           // Its empty state is worded for the whole page; let it speak only
           // when there is genuinely nothing pending anywhere.
-          hideEmptyState={showStaged && (stagedCount > 0 || !staged.loaded || staged.refreshFailed)}
+          hideEmptyState={ownershipCount > 0 || ownership.isPending || ownership.isError || (showStaged && (stagedCount > 0 || !staged.loaded || staged.refreshFailed))}
         />
         {showStaged && <StagedApprovalsList {...staged} />}
+        <OwnershipConsentInbox status={statusFilter} onAccepted={async () => { await queryClient.invalidateQueries(); }} />
       </PageSection>
     </PageShell>
   );

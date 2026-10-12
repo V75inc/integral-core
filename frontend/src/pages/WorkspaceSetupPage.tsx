@@ -1,3 +1,4 @@
+import { PageMeta } from '../components/ui';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Building2 } from 'lucide-react';
@@ -66,10 +67,10 @@ export function WorkspaceSetupPage() {
         <h1 className="font-display text-3xl font-extrabold tracking-tight text-[var(--text)]">
           Create a workspace
         </h1>
-        <p className="text-sm text-[var(--text-muted)] mt-2 mb-6">
+        <PageMeta as="p" className="mb-6">
           Hi{user?.display_name ? `, ${user.display_name}` : ''}. You’ll be the
           workspace owner and can invite members next.
-        </p>
+        </PageMeta>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <span className="text-sm font-medium text-[var(--text)] block mb-1.5">

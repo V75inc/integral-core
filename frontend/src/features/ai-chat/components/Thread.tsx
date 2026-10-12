@@ -1,3 +1,4 @@
+import { PageMeta } from '../../../components/ui';
 import {
   ActionBarMorePrimitive,
   ActionBarPrimitive,
@@ -221,9 +222,9 @@ function ThreadWelcome() {
           <Text variant="heading-md" as="h1">
             What would you like to work on?
           </Text>
-          <Text variant="body" tone="muted" as="p" className="mt-2">
+          <PageMeta as="p">
             Ask a question, find something, or work through an idea.
-          </Text>
+          </PageMeta>
         </div>
       </div>
       <ThreadSuggestions />

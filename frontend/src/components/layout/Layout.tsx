@@ -1,6 +1,9 @@
 /* patch:kanban-hire-host */
 import { Outlet, useLocation } from 'react-router-dom';
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Loader2 } from 'lucide-react';
+import { Text } from '../../ui';
+import { LINE_ICON_STROKE } from '../ui';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import { AssistantDock, AssistantDockToggle } from '../../features/ai-chat';
@@ -246,7 +249,18 @@ export function Layout() {
             fullbleed ? '' : 'pt-[var(--app-topbar-height)]'
           }`}
         >
-          <Outlet />
+          {/* Reset the page boundary on navigation. A revealed, unkeyed
+              Suspense boundary retains the old route during Router transitions,
+              making slow lazy imports look like ignored clicks. Keep the shell
+              outside it so another navigation can interrupt the pending page. */}
+          <Suspense key={location.pathname} fallback={
+            <div role="status" aria-label="Loading page" className="flex min-h-48 items-center justify-center gap-2 px-6 py-12">
+              <Loader2 size={16} strokeWidth={LINE_ICON_STROKE} className="animate-spin" aria-hidden />
+              <Text variant="body-sm" tone="muted">Loading page…</Text>
+            </div>
+          }>
+            <Outlet />
+          </Suspense>
         </div>
       </main>
 

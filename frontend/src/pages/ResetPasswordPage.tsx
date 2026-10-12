@@ -1,3 +1,4 @@
+import { PageMeta } from '../components/ui';
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
@@ -97,10 +98,10 @@ export function ResetPasswordPage() {
               <AuthPanelHeading>
                 Choose a new password
               </AuthPanelHeading>
-              <p className="mt-2 text-sm text-[var(--text-muted)]">
+              <PageMeta as="p">
                 Make it at least {PASSWORD_MIN_LENGTH} characters. You'll be
                 signed in with this password from now on.
-              </p>
+              </PageMeta>
 
               <form onSubmit={handleSubmit} className="mt-8 space-y-5">
                 <div>
@@ -209,9 +210,9 @@ function BrokenLink({ kind }: { kind: 'expired' | 'invalid' | 'attempts' }) {
       <AuthPanelHeading>
         {title}
       </AuthPanelHeading>
-      <p className="mt-3 text-sm text-[var(--text-muted)] leading-relaxed">
+      <PageMeta as="p">
         {body}
-      </p>
+      </PageMeta>
       <div className="mt-8">
         <Link
           to="/forgot-password"
@@ -244,9 +245,9 @@ function Done() {
       <AuthPanelHeading>
         Password updated
       </AuthPanelHeading>
-      <p className="mt-3 text-sm text-[var(--text-muted)] leading-relaxed">
+      <PageMeta as="p">
         Redirecting you to sign in…
-      </p>
+      </PageMeta>
     </>
   );
 }

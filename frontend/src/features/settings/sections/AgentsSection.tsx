@@ -1,3 +1,4 @@
+import { PageMeta } from '../../../components/ui';
 /** Built-in Integral AI resident and authorized external MCP clients. */
 import { useState } from 'react';
 import {
@@ -277,10 +278,10 @@ export function AgentsSection({ navigateToSection }: AgentsSectionProps = {}) {
         <Text variant="heading-md" weight="semibold" as="h2">
           Connected agents
         </Text>
-        <Text variant="body" tone="muted" as="p" className="mt-1">
+        <PageMeta as="p">
           Manage assistants that connect to Integral through MCP. Your built-in
           Integral AI uses the model configured in AI Models.
-        </Text>
+        </PageMeta>
       </div>
 
       <SettingsSection
