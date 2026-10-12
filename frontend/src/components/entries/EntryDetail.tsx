@@ -38,7 +38,7 @@ import { useChatPageContext } from '../../context/ChatPageFocusContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useToast } from '../../context/ToastContext';
 import { useSettings } from '../../features/settings/store';
-import { Avatar, LINE_ICON_STROKE, MarkdownContent, Pill } from '../ui';
+import { Avatar, Button, KebabMenu, type KebabMenuItem, LINE_ICON_STROKE, MarkdownContent, Pill } from '../ui';
 import { Modal } from '../ui/Modal';
 import { EntryDetailPageChrome } from './EntryDetailPageChrome';
 import { EntryCanvasPane } from './EntryCanvasPane';
@@ -1309,6 +1309,13 @@ export function EntryDetail({
           {entry.track.title}
         </Link>
       ) : null}
+      <WatchersControl
+        entryId={entry.id}
+        watchers={watchersData?.watchers || []}
+        isWatching={!!watchersData?.is_watching}
+        onToggle={handleToggleWatch}
+        showLabel
+      />
       {entry.tags?.map(tag => (
         <Link
           key={tag.id}
@@ -1645,8 +1652,61 @@ export function EntryDetail({
     </>
   );
 
+  const secondaryActions: KebabMenuItem[] = [];
+  if (canEdit && !isEditing) {
+    secondaryActions.push({
+      key: 'post-to-feed', label: 'Post to feed',
+      icon: <Send size={16} strokeWidth={LINE_ICON_STROKE} />,
+      onClick: () => setPostToFeedOpen(true),
+    });
+  }
+  if (variant !== 'page' && !isEditing) {
+    secondaryActions.push({
+      key: 'open-page', label: 'Open full page',
+      icon: <ArrowUpRight size={16} strokeWidth={LINE_ICON_STROKE} />,
+      onClick: () => navigateToEntryPage(entryPagePath(entry.id)),
+    });
+  }
+  if (variant !== 'page') {
+    secondaryActions.push({
+      key: 'dialog-size', label: entryDialogExpanded ? 'Exit full size' : 'Expand dialog',
+      icon: entryDialogExpanded
+        ? <Minimize2 size={16} strokeWidth={LINE_ICON_STROKE} />
+        : <Maximize2 size={16} strokeWidth={LINE_ICON_STROKE} />,
+      onClick: () => updateSettings(prev => ({
+        ...prev,
+        appearance: { ...prev.appearance, entryDialogExpanded: !prev.appearance.entryDialogExpanded },
+      })),
+    });
+  }
+  if (canEdit && designerEnabled && showLayoutDesignerButton) {
+    secondaryActions.push({
+      key: 'edit-layout', label: 'Edit layout',
+      icon: <LayoutTemplate size={16} strokeWidth={LINE_ICON_STROKE} />,
+      onClick: () => { void openLayoutDesigner(); },
+    });
+  }
+  if (canEdit && !isEditing && onDelete) {
+    secondaryActions.push({
+      key: 'delete-entry', label: 'Delete entry', danger: true, dividerAbove: true,
+      icon: <Trash2 size={16} strokeWidth={LINE_ICON_STROKE} />,
+      onClick: () => { void handleDeleteEntry(); },
+    });
+  }
+
   const headerActions = (
-    <div className="flex items-center gap-1.5">
+    <div className="flex flex-wrap items-center gap-1.5">
+      {canEdit ? (
+        <Button
+          variant="outline"
+          size="sm"
+          aria-label={isEditing ? 'Cancel edit' : 'Edit entry'}
+          icon={isEditing ? <X size={14} strokeWidth={LINE_ICON_STROKE} /> : <Edit2 size={14} strokeWidth={LINE_ICON_STROKE} />}
+          onClick={() => setIsEditing(editing => !editing)}
+        >
+          {isEditing ? 'Cancel' : 'Edit'}
+        </Button>
+      ) : null}
       {canEdit && !isEditing ? (
         <ImproveThisButton
           target="entry"
@@ -1655,44 +1715,14 @@ export function EntryDetail({
           trackId={trackId}
         />
       ) : null}
-      {canEdit && !isEditing ? (
-        <IconButton label="Post to feed" title="Post to feed" size="md" onClick={() => setPostToFeedOpen(true)}>
-          <Send size={16} strokeWidth={LINE_ICON_STROKE} aria-hidden />
-        </IconButton>
+      {canEdit && !isEditing && showStartProject ? (
+        <Button variant="outline" size="sm" loading={startingProject}
+          aria-label="Start delivery project" onClick={() => void handleStartDeliveryProject()}
+          icon={<Rocket size={14} strokeWidth={LINE_ICON_STROKE} aria-hidden />}>
+          {startingProject ? 'Starting…' : 'Start project'}
+        </Button>
       ) : null}
-      {/* Enlarge / restore — modal chrome only (page variant is already full width).
-          Persists as appearance.entryDialogExpanded so the next open remembers. */}
-      {variant !== 'page' ? (
-        <IconButton
-          label={entryDialogExpanded ? 'Exit full size' : 'Expand dialog'}
-          title={entryDialogExpanded ? 'Exit full size' : 'Expand dialog'}
-          size="md"
-          onClick={() =>
-            updateSettings(prev => ({
-              ...prev,
-              appearance: {
-                ...prev.appearance,
-                entryDialogExpanded: !prev.appearance.entryDialogExpanded,
-              },
-            }))
-          }
-          aria-pressed={entryDialogExpanded}
-          data-testid="entry-dialog-expand"
-        >
-          {entryDialogExpanded ? (
-            <Minimize2 size={16} strokeWidth={LINE_ICON_STROKE} aria-hidden />
-          ) : (
-            <Maximize2 size={16} strokeWidth={LINE_ICON_STROKE} aria-hidden />
-          )}
-        </IconButton>
-      ) : null}
-      {variant !== 'page' && !isEditing ? (
-        <IconButton label="Open full page" title="Open full page" size="md"
-          data-testid="entry-open-full-page"
-          onClick={() => navigateToEntryPage(entryPagePath(entry.id))}>
-          <ArrowUpRight size={16} strokeWidth={LINE_ICON_STROKE} aria-hidden />
-        </IconButton>
-      ) : null}
+      <EntryAgentUndoButton entryId={entry.id} trackId={entry.track_id} />
       {/* Panel toggle — desktop only. Below `sm` the panel is part of the
           body and always present, so a show/hide control there would toggle
           nothing the user cannot already see. Icon swaps with state
@@ -1730,89 +1760,8 @@ export function EntryDetail({
           )}
         </IconButton>
       )}
-      <EntryAgentUndoButton entryId={entry.id} trackId={entry.track_id} />
-      <WatchersControl
-        entryId={entry.id}
-        watchers={watchersData?.watchers || []}
-        isWatching={!!watchersData?.is_watching}
-        onToggle={handleToggleWatch}
-      />
-      {canEdit && designerEnabled && showLayoutDesignerButton ? (
-        <button
-          type="button"
-          onClick={() => void openLayoutDesigner()}
-          className="
-            inline-flex items-center justify-center
-            w-10 h-10 sm:w-8 sm:h-8 rounded-md
-            text-[var(--text-subtle)]
-            hover:text-[var(--text)] hover:bg-[var(--panel-2)]
-            transition-colors duration-fast
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]
-          "
-          aria-label="Edit layout"
-          title="Edit layout"
-        >
-          <LayoutTemplate size={14} strokeWidth={LINE_ICON_STROKE} />
-        </button>
-      ) : null}
-      {canEdit ? (
-        <>
-          {!isEditing && showStartProject ? (
-            <button
-              type="button"
-              onClick={() => void handleStartDeliveryProject()}
-              disabled={startingProject}
-              className="
-                inline-flex items-center gap-1.5
-                h-10 sm:h-8 px-2.5 rounded-md text-xs font-medium
-                text-[var(--text)] bg-[var(--panel-2)]
-                hover:brightness-95
-                border border-[var(--panel-border)]
-                transition-colors duration-fast
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]
-                disabled:opacity-50 disabled:cursor-not-allowed
-              "
-              aria-label="Start delivery project"
-              title="Spawn a Project from this won opportunity"
-            >
-              <Rocket size={14} strokeWidth={LINE_ICON_STROKE} aria-hidden />
-              {startingProject ? 'Starting…' : 'Start project'}
-            </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => setIsEditing(editing => !editing)}
-            className="
-              inline-flex items-center justify-center
-              w-10 h-10 sm:w-8 sm:h-8 rounded-md
-              text-[var(--text-subtle)]
-              hover:text-[var(--text)] hover:bg-[var(--panel-2)]
-              transition-colors duration-fast
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]
-            "
-            aria-label={isEditing ? 'Cancel edit' : 'Edit entry'}
-            title={isEditing ? 'Cancel edit' : 'Edit entry'}
-          >
-            {isEditing ? <X size={14} strokeWidth={LINE_ICON_STROKE} /> : <Edit2 size={14} strokeWidth={LINE_ICON_STROKE} />}
-          </button>
-          {!isEditing && onDelete ? (
-            <button
-              type="button"
-              onClick={() => void handleDeleteEntry()}
-              className="
-                inline-flex items-center justify-center
-                w-10 h-10 sm:w-8 sm:h-8 rounded-md
-                text-[var(--text-subtle)]
-                hover:text-[var(--danger-fg)] hover:bg-[var(--danger-bg)]
-                transition-colors duration-fast
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]
-              "
-              aria-label="Delete entry"
-            >
-              <Trash2 size={14} strokeWidth={LINE_ICON_STROKE} />
-            </button>
-          ) : null}
-        </>
+      {secondaryActions.length > 0 ? (
+        <KebabMenu ariaLabel="More entry actions" items={secondaryActions} />
       ) : null}
     </div>
   );

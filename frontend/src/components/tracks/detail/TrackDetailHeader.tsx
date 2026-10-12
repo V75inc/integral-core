@@ -12,6 +12,7 @@ import {
   KebabMenu,
   LINE_ICON_STROKE,
   PageHeading,
+  PageMeta,
   PageSection,
 } from '../../ui';
 import { formatRelativeTime, resolveIdentityColor } from '../../../utils';
@@ -150,7 +151,7 @@ export function TrackDetailHeader({
             ) : null}
           </div>
         </div>
-        <div className="mt-3.5 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-[color:var(--text-subtle)]">
+        <PageMeta>
           <span>
             {entriesTotal} {entriesTotal === 1 ? 'entry' : 'entries'}
           </span>
@@ -165,11 +166,11 @@ export function TrackDetailHeader({
             {track.visibility}
             {publicShareEnabled ? ' · public link active' : ''}
           </span>
-        </div>
+        </PageMeta>
         {(track.purpose || track.description) && (
-          <p className="mt-3 max-w-2xl text-sm text-[color:var(--text-muted)] leading-relaxed">
+          <PageMeta as="p">
             {track.purpose || track.description}
-          </p>
+          </PageMeta>
         )}
       </header>
     </PageSection>

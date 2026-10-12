@@ -13,6 +13,7 @@ import {
   Button,
   LINE_ICON_STROKE,
   PageHeading,
+  PageMeta,
   PageSection,
   PageShell,
   HoverTooltip,
@@ -201,9 +202,9 @@ export function DocumentTemplateListPage() {
       <PageSection>
         <div className="max-w-2xl">
           <PageHeading>Document Templates</PageHeading>
-          <Text as="p" variant="body" tone="muted" className="mt-2 leading-relaxed">
+          <PageMeta as="p">
             Create and manage reusable document templates across apps.
-          </Text>
+          </PageMeta>
         </div>
 
         <ViewTabs<DocTemplatesSection>

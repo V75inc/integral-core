@@ -1,3 +1,4 @@
+import { PageMeta } from '../../../components/ui';
 /**
  * Phase 9 Plan 09-04 — Settings → Notifications section (NOTIF-03).
  *
@@ -122,10 +123,10 @@ export function NotificationsSection() {
     <div className="flex flex-col gap-5">
       <div>
         <Text variant="heading-md" weight="semibold" as="h2">Notifications</Text>
-        <Text variant="body" tone="muted" as="p" className="mt-1">
+        <PageMeta as="p">
           Choose which channels deliver each notification kind. WhatsApp
           requires a verified phone number. Manage your number below.
-        </Text>
+        </PageMeta>
       </div>
 
       <SettingsSection

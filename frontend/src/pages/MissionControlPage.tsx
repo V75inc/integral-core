@@ -16,8 +16,7 @@ import { useNotifications } from '../hooks/useNotifications';
 import { useSetCrumbs } from '../context/CrumbsContext';
 import { workspaceIdOf, useScope } from '../context/ScopeContext';
 import { missionControlSnapshotQueryKey } from '../queryKeys';
-import { Avatar, PageHeading, PageShell, PageSection, Skeleton, TrackDot } from '../components/ui';
-import { OwnershipConsentInbox } from '../components/access/OwnershipConsentInbox';
+import { Avatar, PageHeading, PageMeta, PageShell, PageSection, Skeleton, TrackDot } from '../components/ui';
 import { PendingInvitationsPanel } from '../components/invitations/PendingInvitationsPanel';
 import { MissionControlApprovals } from '../components/approvals/MissionControlApprovals';
 import { usePublishPageContext } from '../hooks/usePublishPageContext';
@@ -258,7 +257,7 @@ export function MissionControlPage() {
         {/* Editorial header */}
         <header className="mb-8 md:mb-10">
           <PageHeading>Home</PageHeading>
-          <div className="mt-3 md:mt-3.5 flex flex-wrap items-center gap-x-4 md:gap-x-6 gap-y-2 text-sm text-[var(--text-subtle)]">
+          <PageMeta>
             <span>
               {workspaces.length} workspace{workspaces.length === 1 ? '' : 's'}
             </span>
@@ -279,10 +278,10 @@ export function MissionControlPage() {
                 </span>
               </>
             ) : null}
-          </div>
-          <p className="mt-3 text-sm text-[var(--text-muted)] max-w-2xl">
+          </PageMeta>
+          <PageMeta as="p">
             Your workspaces and recent activity in one place. Choose a workspace to get started.
-          </p>
+          </PageMeta>
         </header>
       </PageSection>
 
@@ -309,7 +308,6 @@ export function MissionControlPage() {
         </div>
 
         <PendingInvitationsPanel />
-        <OwnershipConsentInbox onAccepted={async () => { await queryClient.invalidateQueries(); }} />
         <MissionControlApprovals />
 
         {/* Workspaces — birds-eye across all the user belongs to. */}

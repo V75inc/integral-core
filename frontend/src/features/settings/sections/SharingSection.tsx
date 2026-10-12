@@ -1,3 +1,4 @@
+import { PageMeta } from '../../../components/ui';
 /**
  * Phase 8 Plan 08-05 — Sharing index panel (SET-08).
  *
@@ -153,12 +154,12 @@ export function SharingSection() {
     <div className="flex flex-col gap-5">
       <div>
         <Text variant="heading-md" weight="semibold" as="h2">Sharing</Text>
-        <Text variant="body" tone="muted" as="p" className="mt-1">
+        <PageMeta as="p">
           Everything you've shared outward — active share links, people
           you've blocked from your resources, and invitations you've sent.
           Click any row to jump to the resource and manage collaborators
           directly.
-        </Text>
+        </PageMeta>
       </div>
 
       <SettingsSection

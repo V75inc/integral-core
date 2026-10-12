@@ -61,6 +61,7 @@ import {
   KebabMenu,
   LINE_ICON_STROKE,
   PageHeading,
+  PageMeta,
   PageShell,
   PageSection,
   filterBar,
@@ -716,7 +717,7 @@ export function AppDetailPage() {
           show={lacksTrackCreationInOrg}
           className="mt-2"
         />
-        <div className="mt-3.5 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-[var(--text-subtle)]">
+        <PageMeta>
           <span>
             {tracks.length} {tracks.length === 1 ? 'track' : 'tracks'}
           </span>
@@ -739,11 +740,11 @@ export function AppDetailPage() {
               </span>
             </>
           ) : null}
-        </div>
+        </PageMeta>
         {app.description?.trim() ? (
-          <p className="mt-3 max-w-2xl text-xs text-[var(--text-muted)] leading-relaxed">
+          <PageMeta as="p">
             {app.description}
-          </p>
+          </PageMeta>
         ) : null}
         {defaultTrack && !hasHome ? (
           <div className="mt-5 flex flex-col gap-3 rounded-[var(--radius-card)] border border-[var(--border-subtle)] bg-[var(--surface-raised)] p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">

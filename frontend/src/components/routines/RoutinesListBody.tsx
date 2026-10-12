@@ -1,7 +1,9 @@
+import { Button } from '../ui';
+import { Skeleton } from '../ui';
+import { Surface, IconButton } from '../../ui';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  ListTodo,
   Pause,
   Play,
   Pencil,
@@ -12,8 +14,8 @@ import {
   ChevronUp,
   ExternalLink,
 } from 'lucide-react';
-import { EmptyState, IconWell, LINE_ICON_STROKE } from '../ui';
-import { Input, Textarea, Select } from '../../ui';
+import { LINE_ICON_STROKE } from '../ui';
+import { Input, Textarea, Select, Text } from '../../ui';
 import { Field } from '../../patterns';
 import { FormDialog } from '../../templates';
 import { formatRelativeTime } from '../../utils';
@@ -70,29 +72,14 @@ export function RoutinesListBody({
     return (
       <div className="space-y-3">
         {[1, 2, 3, 4, 5].map(i => (
-          <div
-            key={i}
-            className="h-20 bg-[var(--panel-2)] rounded-lg animate-pulse"
-          />
+          <Skeleton key={i} className="h-20" />
         ))}
       </div>
     );
   }
 
   if (rows.length === 0) {
-    return (
-      <div className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)]">
-        <EmptyState
-          icon={
-            <IconWell size="lg" aria-hidden>
-              <ListTodo size={22} strokeWidth={LINE_ICON_STROKE} />
-            </IconWell>
-          }
-          title="No background tasks"
-          description="Scheduled routines from Agent conversations appear here. Ask the agent to schedule recurring work to get started."
-        />
-      </div>
-    );
+    return <Text as="p" tone="muted" variant="body-sm">No scheduled routines yet.</Text>;
   }
 
   return (
@@ -190,17 +177,17 @@ function RoutineRow({
 
   return (
     <>
-      <div className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)]">
+      <Surface as="div" tone="panel" border="default" radius="card">
         <div className="flex items-start gap-4 p-4">
           <div
             className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${statusDotClass(routine.status)}`}
             aria-hidden
           />
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-[var(--text)] line-clamp-2">
+            <Text as="p" variant="body" tone="default" weight="medium" className="line-clamp-2">
               {routine.instruction}
-            </p>
-            <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--text-muted)]">
+            </Text>
+            <Text as="p" variant="body-sm" tone="muted" className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
               <span className="capitalize">{routine.status}</span>
               <span aria-hidden>·</span>
               <span title={routine.cron}>{scheduleLabel}</span>
@@ -233,7 +220,7 @@ function RoutineRow({
                   <span>{runMeta}</span>
                 </>
               )}
-            </p>
+            </Text>
             {lastFailed && routine.last_run_error && (
               <p className="mt-1.5 text-[11px] text-[var(--danger-fg)] line-clamp-2">
                 {routine.last_run_error}
@@ -248,16 +235,16 @@ function RoutineRow({
               {routine.thread_id ? (
                 <Link
                   to={`/agent?thread=${encodeURIComponent(routine.thread_id)}`}
-                  className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-[var(--link)] hover:bg-[var(--panel-2)] hover:text-[var(--link-hover)]"
+                  className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-[var(--link)] hover:opacity-80 hover:text-[var(--link-hover)]"
                 >
                   <MessageSquare size={12} strokeWidth={LINE_ICON_STROKE} />
                   Open conversation
                 </Link>
               ) : null}
-              <button
+              <Button
                 type="button"
                 onClick={() => setActivityOpen(v => !v)}
-                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-[var(--text-muted)] hover:bg-[var(--panel-2)] hover:text-[var(--text)]"
+                size="xs" variant="ghost"
               >
                 <History size={12} strokeWidth={LINE_ICON_STROKE} />
                 Activity
@@ -266,47 +253,44 @@ function RoutineRow({
                 ) : (
                   <ChevronDown size={12} strokeWidth={LINE_ICON_STROKE} />
                 )}
-              </button>
+              </Button>
             </div>
           </div>
           {!isTerminal || canResume ? (
             <div className="flex shrink-0 items-center gap-1">
               {canEdit && (
-                <button
+                <IconButton
                   type="button"
                   disabled={busy}
                   onClick={() => setEditOpen(true)}
-                  aria-label="Edit task"
-                  className="rounded-lg p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--panel-2)] hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-50"
+                  label="Edit task"
                 >
                   <Pencil size={14} strokeWidth={LINE_ICON_STROKE} />
-                </button>
+                </IconButton>
               )}
               {(canPause || canResume) && (
-                <button
+                <IconButton
                   type="button"
                   disabled={busy}
                   onClick={() => void handlePauseResume()}
-                  aria-label={canPause ? 'Pause task' : 'Resume task'}
-                  className="rounded-lg p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--panel-2)] hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-50"
+                  label={canPause ? 'Pause task' : 'Resume task'}
                 >
                   {canPause ? (
                     <Pause size={14} strokeWidth={LINE_ICON_STROKE} />
                   ) : (
                     <Play size={14} strokeWidth={LINE_ICON_STROKE} />
                   )}
-                </button>
+                </IconButton>
               )}
               {canCancel && (
-                <button
+                <IconButton
                   type="button"
                   disabled={busy}
                   onClick={() => void handleCancel()}
-                  aria-label="Cancel task"
-                  className="rounded-lg p-1.5 text-[var(--danger-fg)] transition-colors hover:bg-[var(--panel-2)] disabled:cursor-not-allowed disabled:opacity-50"
+                  label="Cancel task"
                 >
-                  <X size={14} strokeWidth={LINE_ICON_STROKE} />
-                </button>
+                  <Text as="span" tone="danger"><X size={14} strokeWidth={LINE_ICON_STROKE} /></Text>
+                </IconButton>
               )}
             </div>
           ) : null}
@@ -315,7 +299,7 @@ function RoutineRow({
         {activityOpen && (
           <RoutineActivityPanel routineId={routine.id} />
         )}
-      </div>
+      </Surface>
 
       {editOpen && (
         <EditRoutineDialog
@@ -361,9 +345,9 @@ function RoutineActivityPanel({ routineId }: { routineId: string }) {
   }, [routineId]);
 
   return (
-    <div className="border-t border-[var(--panel-border)] bg-[var(--panel-2)]/40 px-4 py-3">
+    <Surface as="div" tone="panel-2" backgroundOpacity={40} border="none" radius="none" className="border-t border-[var(--panel-border)] px-4 py-3">
       {loading && (
-        <p className="text-xs text-[var(--text-subtle)]">Loading activity…</p>
+        <Text as="p" variant="body-sm" tone="subtle" className="">Loading activity…</Text>
       )}
       {error && (
         <p className="text-xs text-[var(--danger-fg)]" role="alert">
@@ -374,9 +358,9 @@ function RoutineActivityPanel({ routineId }: { routineId: string }) {
         <div className="space-y-3">
           {data.write_scope_links.length > 0 && (
             <div>
-              <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-[var(--text-subtle)]">
+              <Text as="p" variant="meta" tone="subtle" weight="medium" className="mb-1.5 uppercase tracking-wide">
                 Allowed targets
-              </p>
+              </Text>
               <div className="flex flex-wrap gap-1.5">
                 {data.write_scope_links.map(link => (
                   <ActivityLinkChip key={`${link.kind}:${link.id}`} link={link} />
@@ -385,10 +369,10 @@ function RoutineActivityPanel({ routineId }: { routineId: string }) {
             </div>
           )}
           {data.events.length === 0 ? (
-            <p className="text-xs text-[var(--text-muted)]">
+            <Text as="p" variant="body-sm" tone="muted" className="">
               No run history yet. After the next scheduled run, results and
               conversation turns will show up here.
-            </p>
+            </Text>
           ) : (
             <ul className="space-y-2">
               {data.events.map(ev => (
@@ -407,7 +391,7 @@ function RoutineActivityPanel({ routineId }: { routineId: string }) {
           ) : null}
         </div>
       )}
-    </div>
+    </Surface>
   );
 }
 
@@ -417,27 +401,19 @@ function ActivityEventRow({ event }: { event: RoutineActivityEvent }) {
     event.action === 'routine_task.auto_paused' ||
     (event.summary || '').toLowerCase().includes('failed');
   return (
-    <li className="rounded-md border border-[var(--panel-border)] bg-[var(--panel)] px-3 py-2">
+    <Surface as="li" tone="panel" border="default" radius="input" padding="md">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p
-          className={`text-xs ${
-            isError
-              ? 'text-[var(--danger-fg)]'
-              : 'text-[var(--text)]'
-          }`}
-        >
-          {event.summary}
-        </p>
+        <Text as="p" variant="body-sm" tone={isError ? 'danger' : 'default'}>{event.summary}</Text>
         {event.ts && (
-          <span className="shrink-0 text-[10px] text-[var(--text-subtle)]">
+          <Text as="span" variant="meta" tone="subtle" className="shrink-0">
             {formatRelativeTime(event.ts)}
-          </span>
+          </Text>
         )}
       </div>
       {event.kind === 'message' && event.role && (
-        <p className="mt-0.5 text-[10px] uppercase tracking-wide text-[var(--text-subtle)]">
+        <Text as="p" variant="meta" tone="subtle" className="mt-0.5 uppercase tracking-wide">
           {event.role} message
-        </p>
+        </Text>
       )}
       {event.links.length > 0 && (
         <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -446,7 +422,7 @@ function ActivityEventRow({ event }: { event: RoutineActivityEvent }) {
           ))}
         </div>
       )}
-    </li>
+    </Surface>
   );
 }
 
@@ -454,9 +430,9 @@ function ActivityLinkChip({ link }: { link: RoutineActivityLink }) {
   return (
     <Link
       to={link.href}
-      className="inline-flex items-center gap-1 rounded-full border border-[var(--panel-border)] bg-[var(--panel)] px-2 py-0.5 text-[11px] text-[var(--link)] hover:border-[var(--link)] hover:text-[var(--link-hover)]"
+      className="inline-flex items-center gap-1 rounded-full border border-[var(--panel-border)] px-2 py-0.5 text-[11px] text-[var(--link)] hover:border-[var(--link)] hover:text-[var(--link-hover)]"
     >
-      <span className="capitalize text-[var(--text-subtle)]">{link.kind}</span>
+      <Text as="span" variant="body" tone="subtle" className="capitalize">{link.kind}</Text>
       <span className="max-w-[12rem] truncate">{link.label}</span>
     </Link>
   );

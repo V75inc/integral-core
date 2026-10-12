@@ -108,7 +108,7 @@ export function OAuthConsentPage() {
               <Text variant="heading-sm" tone="danger">
                 Something went wrong
               </Text>
-              <Text variant="body-sm" tone="muted" className="text-center">
+              <Text variant="subtitle" tone="muted" className="text-center">
                 We couldn&rsquo;t load this authorization request. The link may
                 have expired or be invalid. Close this window and try connecting
                 again from your client.
@@ -128,7 +128,7 @@ export function OAuthConsentPage() {
                 <Text variant="heading-md" as="h1" className="text-center">
                   {consent.client_name} wants to access your Integral account
                 </Text>
-                <Text variant="body-sm" tone="muted" className="text-center">
+                <Text variant="subtitle" tone="muted" className="text-center">
                   Review the access being requested before you continue.
                 </Text>
               </Stack>

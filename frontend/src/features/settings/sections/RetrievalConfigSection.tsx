@@ -1,3 +1,4 @@
+import { PageMeta } from '../../../components/ui';
 /**
  * Read-only viewer for the workspace's search defaults. The values are
  * controlled by the deployment operator — end users cannot change them
@@ -92,9 +93,9 @@ export function RetrievalConfigSection({ embedded }: RetrievalConfigSectionProps
     <div className="flex flex-col gap-5">
       <div>
         <Text variant="heading-md" weight="semibold" as="h2">Search defaults</Text>
-        <Text variant="body" tone="muted" as="p" className="mt-1">
+        <PageMeta as="p">
           Deployment-level defaults — read-only. Contact your administrator to change.
-        </Text>
+        </PageMeta>
       </div>
       {card}
     </div>

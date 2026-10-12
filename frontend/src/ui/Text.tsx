@@ -39,6 +39,7 @@ export type TextVariant =
   | 'body-lg' // emphasized body copy
   | 'body' // default body (15/22 — `text-sm` in the UI scale)
   | 'body-sm' // secondary body (13/19 — `text-xs` in the UI scale)
+  | 'subtitle' // 14/20 — secondary information beneath titles
   | 'meta' // 12/16 — eyebrows, byline timestamps, smallest UI text
   | 'mono' // monospace — code, keys, hashes
   | 'label'; // form labels — `meta`-sized but medium-weight
@@ -74,6 +75,7 @@ const VARIANT_CLASSES: Record<TextVariant, string> = {
   'body-lg': 'text-base font-normal',
   body: 'text-sm font-normal',
   'body-sm': 'text-xs font-normal',
+  subtitle: 'text-[14px] leading-[20px] font-normal',
   // Meta + label share size; label adds weight
   meta: 'text-[12px] leading-[16px] font-normal',
   label: 'text-[12px] leading-[16px] font-medium tracking-[0.002em]',
@@ -169,6 +171,7 @@ function defaultElement(variant: TextVariant): ElementType {
  */
 function defaultTone(variant: TextVariant): TextTone {
   switch (variant) {
+    case 'subtitle':
     case 'meta':
     case 'label':
       return 'muted';

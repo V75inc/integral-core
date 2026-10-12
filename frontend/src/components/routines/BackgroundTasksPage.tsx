@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { PageHeading, PageShell, PageSection } from '../ui';
-import { Select, Text } from '../../ui';
+import { RefreshCw } from 'lucide-react';
+import { Button, LINE_ICON_STROKE, PageHeading, PageMeta, PageShell, PageSection } from '../ui';
+import { Select, Surface, Text } from '../../ui';
 import { useScopeOptional } from '../../context/ScopeContext';
 import { WorkItemsSection } from './WorkItemsSection';
 import { useSetCrumbs } from '../../context/CrumbsContext';
@@ -48,10 +49,10 @@ export function BackgroundTasksPage() {
   return (
     <PageShell>
       <PageSection>
-        <header className="mb-8 md:mb-10 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <div className="min-w-0">
-            <PageHeading>Background Tasks</PageHeading>
-            <Text as="div" variant="meta" tone="subtle" className="mt-3 md:mt-3.5 flex flex-wrap items-center gap-x-4 md:gap-x-6 gap-y-2">
+        <header className="mb-8 md:mb-10 flex flex-wrap items-end justify-between gap-4">
+          <div className="min-w-0 flex-1 basis-96">
+            <PageHeading className="[&>span:last-child]:whitespace-normal [&>span:last-child]:text-clip">Background Tasks</PageHeading>
+            <PageMeta>
               <span>
                 {rows.length} {rows.length === 1 ? 'scheduled routine' : 'scheduled routines'}
               </span>
@@ -63,10 +64,10 @@ export function BackgroundTasksPage() {
                     : `${activeCount} active`
                   : `Showing ${statusFilter}`}
               </span>
-            </Text>
+            </PageMeta>
           </div>
-          <label className="flex items-center gap-2 text-sm shrink-0">
-            <Text as="span" tone="subtle" variant="meta">Status</Text>
+          <label className="flex max-w-full items-center gap-2">
+            <Text as="span" tone="muted" variant="label" className="shrink-0">Routine status</Text>
             <Select
               size="sm"
               value={statusFilter}
@@ -84,20 +85,42 @@ export function BackgroundTasksPage() {
         </header>
       </PageSection>
 
-      {workspaceId && <PageSection className="mb-8">
+      {workspaceId && <PageSection>
         <WorkItemsSection key={workspaceId} workspaceId={workspaceId} />
       </PageSection>}
-      <PageSection.Separator />
-
       <PageSection className="mt-8">
-        <Text as="h2" weight="medium" className="mb-3">Scheduled routines</Text>
-        <RoutinesListBody
-          rows={rows}
-          loading={loading}
-          error={error}
-          onRetry={() => void refetch()}
-          onChanged={() => void refetch()}
-        />
+        <Surface as="section" aria-label="Scheduled routines" tone="panel" border="subtle" radius="card" padding="lg">
+          <header className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0 flex-1 basis-64">
+              <Text as="h2" variant="heading-md">Scheduled routines</Text>
+              <Text as="p" tone="muted" variant="subtitle" className="mt-1">
+                Tasks scheduled in chat, including reminders and recurring work.
+              </Text>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              loading={loading}
+              aria-label="Refresh routines"
+              aria-busy={loading}
+              icon={<RefreshCw size={14} strokeWidth={LINE_ICON_STROKE} aria-hidden />}
+              className="shrink-0"
+              onClick={() => void refetch()}
+            >
+              {loading ? 'Refreshing…' : 'Refresh routines'}
+            </Button>
+          </header>
+          <div className="mt-5">
+            <RoutinesListBody
+              rows={rows}
+              loading={loading}
+              error={error}
+              onRetry={() => void refetch()}
+              onChanged={() => void refetch()}
+            />
+          </div>
+        </Surface>
       </PageSection>
     </PageShell>
   );

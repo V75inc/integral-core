@@ -41,6 +41,22 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe('contextual composer draft handoff', () => {
+  it('preserves a model-review draft through reload and inserts it without sending', () => {
+    const draft = 'Review the open Bug Board view and its existing model. Show the diff. Do not publish until I approve.';
+    requestOpenCompanionChat({ draftText: draft });
+    const firstMount = render(<AuiTaggableComposer />);
+    act(() => vi.advanceTimersByTime(5000));
+    expect(state.setText).not.toHaveBeenCalled();
+    firstMount.unmount();
+
+    state.thread = 'restored-thread';
+    state.ready = true;
+    render(<AuiTaggableComposer />);
+    act(() => vi.runOnlyPendingTimers());
+    expect(screen.getByLabelText('Message input')).toHaveValue(draft);
+    expect(state.send).not.toHaveBeenCalled();
+  });
+
   it('retains the draft while selection takes longer than one second, then applies after reset', () => {
     requestOpenCompanionChat({ draftText: 'Help me explore my idea.' });
     const view = render(<AuiTaggableComposer />);

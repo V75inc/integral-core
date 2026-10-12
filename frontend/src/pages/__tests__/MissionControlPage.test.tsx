@@ -5,6 +5,9 @@ import '@testing-library/jest-dom/vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
+const mockOwnershipInbox = vi.fn(async () => ({ complete: true, proposals: [] }));
+vi.mock('../../api/accessControl', () => ({ ownershipConsentApi: { inbox: () => mockOwnershipInbox() } }));
+
 const mockGetSnapshot = vi.fn();
 const mockListApprovals = vi.fn(async () => ({ approvals: [] }));
 const mockListPendingStagedChanges = vi.fn(async () => []);
@@ -142,7 +145,7 @@ describe('<MissionControlPage /> counters', () => {
 
     await waitFor(() => {
       expect(metricValue('Entries today')).toBe('2');
-      expect(screen.getByText('No pending approvals.')).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: 'Approval inbox' })).not.toBeInTheDocument();
     });
     expect(metricValue('Active tracks')).toBe('2');
     expect(metricValue('Unread')).toBe('9');

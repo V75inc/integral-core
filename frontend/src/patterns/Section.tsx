@@ -39,7 +39,7 @@ export function Section({ title, description, actions, children }: SectionProps)
             {title}
           </Text>
           {description && (
-            <Text variant="body-sm" tone="subtle" as="p" className="mt-0.5">
+            <Text variant="subtitle" tone="muted" as="p" className="mt-0.5">
               {description}
             </Text>
           )}

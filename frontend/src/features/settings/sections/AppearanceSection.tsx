@@ -1,3 +1,4 @@
+import { PageMeta } from '../../../components/ui';
 import { useTheme } from '../../../context/ThemeContext';
 import { SettingsField, SettingsSection } from '../components/Field';
 import { Text } from '../../../ui';
@@ -23,9 +24,9 @@ export function AppearanceSection({ settings, update }: Props) {
         <Text variant="heading-md" weight="semibold" as="h2">
           Appearance
         </Text>
-        <Text variant="body" tone="muted" as="p" className="mt-1">
+        <PageMeta as="p">
           Choose how Integral looks across the workspace.
-        </Text>
+        </PageMeta>
       </div>
 
       <SettingsSection

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Button } from '../ui';
+import { RefreshCw } from 'lucide-react';
+import { Button, LINE_ICON_STROKE } from '../ui';
 import { Surface, Text } from '../../ui';
 import { workItemsApi, type WorkItemStatusResponse } from '../../api/workItems';
 import { formatRelativeTime } from '../../utils';
@@ -47,33 +48,51 @@ export function WorkItemsSection({ workspaceId }: { workspaceId: string }) {
     return () => window.clearInterval(timer);
   }, [items, load]);
 
-  return <section aria-label="Workspace work">
-    <div className="mb-3 flex items-center justify-between gap-3">
-      <Text as="h2" weight="medium">Workspace work</Text>
-      <Button size="sm" variant="ghost" disabled={loading} onClick={() => void load()}>Refresh work</Button>
+  return <Surface as="section" aria-label="Workspace work" tone="panel" border="subtle" radius="card" padding="lg">
+    <header className="flex flex-wrap items-start justify-between gap-4">
+      <div className="min-w-0 flex-1 basis-64">
+        <Text as="h2" variant="heading-md">Workspace work</Text>
+        <Text as="p" tone="muted" variant="subtitle" className="mt-1">
+          App installs, updates, and other workspace tasks. Queued tasks haven’t started yet.
+        </Text>
+      </div>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        loading={loading}
+        aria-label="Refresh work"
+        aria-busy={loading}
+        icon={<RefreshCw size={14} strokeWidth={LINE_ICON_STROKE} aria-hidden />}
+        className="shrink-0"
+        onClick={() => void load()}
+      >
+        {loading ? 'Refreshing…' : 'Refresh work'}
+      </Button>
+    </header>
+    <div className="mt-5">
+      {error && <div role="alert"><Text tone="danger">{error}</Text></div>}
+      {loading && <div role="status"><Text variant="meta">Loading work status…</Text></div>}
+      {!loading && !error && items.length === 0 && <Text as="p" tone="muted" variant="body-sm">No workspace work yet.</Text>}
+      <div className="space-y-3">
+        {items.map(item => <Surface key={item.work_item_id} tone="panel" border="subtle" radius="card" className="min-w-0 space-y-3 p-4">
+          <Text as="h3" weight="medium">{item.kind === 'app_lifecycle' ? (operationLabels[item.operation ?? ''] ?? 'App lifecycle') : item.kind.replace(/_/g, ' ')} · {statusLabels[item.status] ?? item.status}</Text>
+          <Text as="p" variant="meta" tone="subtle">Updated {formatRelativeTime(item.updated_at)} · Attempt {item.attempt}</Text>
+          <dl className="space-y-2">
+            <div className="space-y-1">
+              <Text as="dt" variant="label" tone="subtle">Work ID</Text>
+              <Text as="dd" variant="mono" truncate title={item.work_item_id} className="min-w-0">{item.work_item_id}</Text>
+            </div>
+            {item.app_id && <div className="space-y-1">
+              <Text as="dt" variant="label" tone="subtle">App ID</Text>
+              <Text as="dd" variant="mono" truncate title={item.app_id} className="min-w-0">{item.app_id}</Text>
+            </div>}
+          </dl>
+          {item.failure && <Text as="p" tone="danger">{item.failure.message || item.failure.code}</Text>}
+          {item.next_attempt_at && item.status === 'retry_wait' && <Text as="p" variant="meta">Next attempt: {item.next_attempt_at}</Text>}
+        </Surface>)}
+      </div>
+      {cursor && <Button className="mt-3" disabled={loading} onClick={() => void load(cursor)}>Load older work</Button>}
     </div>
-    <Text as="p" tone="subtle" variant="meta">Recent work in this workspace, including App updates and uninstalls. Queued work is not complete.</Text>
-    {error && <div role="alert"><Text tone="danger">{error}</Text></div>}
-    {loading && <div role="status"><Text variant="meta">Loading work status…</Text></div>}
-    {!loading && !error && items.length === 0 && <Text as="p" tone="subtle">No workspace work yet.</Text>}
-    <div className="mt-3 space-y-3">
-      {items.map(item => <Surface key={item.work_item_id} tone="panel" border="subtle" radius="card" className="min-w-0 space-y-3 p-4">
-        <Text as="h3" weight="medium">{item.kind === 'app_lifecycle' ? (operationLabels[item.operation ?? ''] ?? 'App lifecycle') : item.kind.replace(/_/g, ' ')} · {statusLabels[item.status] ?? item.status}</Text>
-        <Text as="p" variant="meta" tone="subtle">Updated {formatRelativeTime(item.updated_at)} · Attempt {item.attempt}</Text>
-        <dl className="space-y-2">
-          <div className="space-y-1">
-            <Text as="dt" variant="label" tone="subtle">Work ID</Text>
-            <Text as="dd" variant="mono" truncate title={item.work_item_id} className="min-w-0">{item.work_item_id}</Text>
-          </div>
-          {item.app_id && <div className="space-y-1">
-            <Text as="dt" variant="label" tone="subtle">App ID</Text>
-            <Text as="dd" variant="mono" truncate title={item.app_id} className="min-w-0">{item.app_id}</Text>
-          </div>}
-        </dl>
-        {item.failure && <Text as="p" tone="danger">{item.failure.message || item.failure.code}</Text>}
-        {item.next_attempt_at && item.status === 'retry_wait' && <Text as="p" variant="meta">Next attempt: {item.next_attempt_at}</Text>}
-      </Surface>)}
-    </div>
-    {cursor && <Button className="mt-3" disabled={loading} onClick={() => void load(cursor)}>Load older work</Button>}
-  </section>;
+  </Surface>;
 }

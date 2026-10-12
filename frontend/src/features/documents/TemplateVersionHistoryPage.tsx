@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { useMemo, useState } from 'react';
-import { PageHeading, PageShell, PageSection, Button } from '../../components/ui';
+import { PageHeading, PageMeta, PageShell, PageSection, Button } from '../../components/ui';
 import { Surface, Text } from '../../ui';
 import { documentsApi, type DocumentTemplateVersion } from './api';
 import { useDocumentTemplatesPageContext } from './useDocumentTemplatesPageContext';
@@ -93,10 +93,10 @@ export function TemplateVersionHistoryPage() {
         <div className="flex items-start justify-between gap-4">
           <div>
             <PageHeading>Template versions</PageHeading>
-            <Text as="p" variant="body" tone="muted" className="mt-2">
+            <PageMeta as="p">
               Published versions are immutable. Restore forks content into a new
               draft.
-            </Text>
+            </PageMeta>
           </div>
           <Link
             className="text-sm text-[var(--accent)]"

@@ -1,3 +1,4 @@
+import { Text, Input } from '../../ui';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -6,6 +7,7 @@ import { adminApi } from '../../api/admin';
 import {
   LINE_ICON_STROKE,
   PageHeading,
+  PageMeta,
   PageSection,
   PageShell,
   Skeleton,
@@ -74,21 +76,20 @@ function ResourceListPage({
     <PageShell>
       <PageSection>
         <PageHeading>{title}</PageHeading>
-        <p className="mt-2 text-sm text-[var(--text-muted)]">{subtitle}</p>
+        <PageMeta as="p">{subtitle}</PageMeta>
       </PageSection>
       <PageSection className="mt-6">
         <div className="relative max-w-md">
-          <Search
+          <Text as="span" tone="subtle" className="absolute left-3 top-1/2 -translate-y-1/2"><Search
             size={16}
             strokeWidth={LINE_ICON_STROKE}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-subtle)]"
-          />
-          <input
+            /></Text>
+          <Input
             type="search"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             placeholder={`Search ${title.toLowerCase()}…`}
-            className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--panel)] py-2 pl-9 pr-3 text-sm"
+            className="pl-9"
           />
         </div>
       </PageSection>
@@ -105,24 +106,24 @@ function ResourceListPage({
             <div className="overflow-x-auto rounded-xl border border-[var(--border-subtle)]">
               <table className="w-full min-w-[640px] text-sm">
                 <thead>
-                  <tr className="border-b border-[var(--border-subtle)] text-left text-[var(--text-subtle)]">
+                  <Text as="tr" variant="body" tone="subtle" className="border-b border-[var(--border-subtle)] text-left">
                     <th className="px-4 py-3 font-medium">Name</th>
                     <th className="px-4 py-3 font-medium">Workspace</th>
                     <th className="px-4 py-3 font-medium">Owner</th>
-                  </tr>
+                  </Text>
                 </thead>
                 <tbody>
                   {data.items.map((item) => (
-                    <tr key={item.id} className="border-b border-[var(--border-subtle)] last:border-0 hover:bg-[var(--panel)]">
+                    <tr key={item.id} className="border-b border-[var(--border-subtle)] last:border-0 hover:opacity-80">
                       <td className="px-4 py-3">
                         <AdminEntityLink
                           type={resourceType}
                           id={item.id}
                           label={item.name || 'Untitled'}
                         />
-                        <p className="text-xs text-[var(--text-subtle)] font-mono mt-0.5 truncate max-w-xs">
+                        <Text as="p" variant="mono" tone="subtle" className="mt-0.5 truncate max-w-xs">
                           {item.id}
-                        </p>
+                        </Text>
                       </td>
                       <td className="px-4 py-3">
                         <AdminEntityLink
@@ -139,22 +140,22 @@ function ResourceListPage({
                   ))}
                   {data.items.length === 0 && (
                     <tr>
-                      <td colSpan={3} className="px-4 py-8 text-center text-[var(--text-muted)]">
+                      <td colSpan={3} className="px-4 py-8 text-center"><Text variant="body" tone="muted">
                         No {title.toLowerCase()} match your search.
-                      </td>
+                      </Text></td>
                     </tr>
                   )}
                 </tbody>
               </table>
             </div>
             {data.total_pages > 1 && (
-              <div className="mt-4 flex items-center justify-between text-sm text-[var(--text-muted)]">
+              <Text as="div" variant="body" tone="muted" className="mt-4 flex items-center justify-between">
                 <span>Page {data.page} of {data.total_pages}</span>
                 <div className="flex gap-2">
                   <button type="button" disabled={!data.has_previous} onClick={() => setPage(page - 1)} className="rounded-lg px-3 py-1.5 disabled:opacity-40">Previous</button>
                   <button type="button" disabled={!data.has_next} onClick={() => setPage(page + 1)} className="rounded-lg px-3 py-1.5 disabled:opacity-40">Next</button>
                 </div>
-              </div>
+              </Text>
             )}
           </>
         )}

@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import { MessageSquare } from "lucide-react";
 
@@ -23,12 +22,6 @@ export function AssistantDockToggle() {
   // Only while the dock is shut: open, the header tab owns the count, and
   // two badges for one number is noise.
   const { actionableCount } = useAgentInbox({ enabled: !open });
-
-  // Preload the chat chunk in the background so opening on heavy pages (e.g.
-  // app dashboards with react-grid-layout) does not stall on Suspense.
-  useEffect(() => {
-    void import("./AssistantDockBody");
-  }, []);
 
   if (open) return null;
   if (isDockSuppressedPath(pathname)) return null;
