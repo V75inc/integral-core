@@ -13,6 +13,18 @@ vi.mock('./client', () => ({
 import apiClient from './client';
 import { appsApi } from './apps';
 
+describe('appsApi collaborator authority', () => {
+  it('preserves own editor authority when the directory is private', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({ data: {
+      collaborators: [], caller_role: 'editor', directory_visible: false,
+    } });
+    await expect(appsApi.getCollaboratorsDetailed('shared')).resolves.toEqual({
+      collaborators: [], caller_role: 'editor', directory_visible: false,
+    });
+    await expect(appsApi.listCollaborators('shared')).resolves.toEqual([]);
+  });
+});
+
 describe('appsApi.updateFromLibrary', () => {
   beforeEach(() => vi.clearAllMocks());
 

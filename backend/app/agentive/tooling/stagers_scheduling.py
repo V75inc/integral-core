@@ -48,14 +48,14 @@ async def stage_schedule_task(args: Dict[str, Any]) -> Dict[str, Any]:
     closed with a clear error rather than guessing a thread.
 
     Recurring: ``cron`` (+ optional ``timezone`` / ``max_runs``).
-    One-shot: ``run_at`` (ISO-8601 absolute); defaults ``max_runs=1``, empty cron.
+    One-shot: ``run_at`` (ISO-8601, local if offset omitted); defaults ``max_runs=1``, empty cron.
     Pass exactly one of ``cron`` / ``run_at``.
     """
     src = args or {}
     instruction = (src.get("instruction") or "").strip()
     cron = (src.get("cron") or "").strip()
     run_at = (src.get("run_at") or "").strip() or None
-    timezone = (src.get("timezone") or "UTC").strip() or "UTC"
+    timezone = (src.get("timezone") or "").strip()
     write_scope = list(src.get("write_scope") or [])
     max_runs = src.get("max_runs")
 
@@ -80,16 +80,6 @@ async def stage_schedule_task(args: Dict[str, Any]) -> Dict[str, Any]:
     elif run_at:
         max_runs = 1
 
-    # Validate run_at early so the staged card never shows a past/invalid time.
-    if run_at:
-        from app.agentive.services.routine_tasks import parse_run_at
-        from app.api.errors import BadRequestError
-
-        try:
-            run_at = parse_run_at(run_at)
-        except BadRequestError as exc:
-            raise ValueError(f"schedule_task: {exc.message}") from exc
-
     from app.agentive.tooling.bindings import (
         _bound_propose_principal,
         _bound_propose_session_id,
@@ -103,6 +93,22 @@ async def stage_schedule_task(args: Dict[str, Any]) -> Dict[str, Any]:
         )
 
     principal_id = _bound_propose_principal()
+    from app.schemas.user_timezone import UserTimezoneUpdate
+    from app.services.user_timezone import get_user_timezone
+
+    timezone = timezone or await get_user_timezone(principal_id)
+    timezone = UserTimezoneUpdate(timezone=timezone).timezone
+
+    # Validate run_at early so the staged card never shows a past/invalid time.
+    if run_at:
+        from app.agentive.services.routine_tasks import parse_run_at
+        from app.api.errors import BadRequestError
+
+        try:
+            run_at = parse_run_at(run_at, timezone)
+        except BadRequestError as exc:
+            raise ValueError(f"schedule_task: {exc.message}") from exc
+
     from app.services.chat_threads import get_thread_by_session
 
     # The shared resolver handles both provider session keys and Integral

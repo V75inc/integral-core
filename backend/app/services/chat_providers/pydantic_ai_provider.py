@@ -324,7 +324,7 @@ async def _resume_history(
 
     Library snapshots retain settled tool results, including failed runs. Core
     checks physical requests and effect receipts independently. A cancelled
-    run may retain unknown model billing without replaying its request.
+    or failed run may retain unknown model billing without replaying its request.
     Unknown effects remain blocked; continuation never dispatches the old run.
     """
     if not session.last_run_id:
@@ -338,12 +338,11 @@ async def _resume_history(
     previous_scope = scope.model_copy(update={"run_id": session.last_run_id})
     observations = await list_model_request_observations(scope=previous_scope)
     unsettled_requests = unsettled_model_request_ids(observations)
-    cancelled_run = (
+    terminal_run = (
         _terminal_run_matches(scope, previous_run)
-        and previous_run.status == "cancelled"
         and previous_run.run_id == session.last_run_id
     )
-    if unsettled_requests and not cancelled_run:
+    if unsettled_requests and not terminal_run:
         raise ResourceConflictError(
             message="The prior Harness run has an unsettled model request",
             details={
@@ -430,7 +429,7 @@ async def _resume_history(
     # process died, while the following session-pointer CAS did not run.
     latest = await store.latest_snapshot(run_id=session.last_run_id)
     if unsettled_requests:
-        # Stop has revoked the old run's dispatch/effect authority. A model
+        # Terminal failure or cancellation ends the old run's authority. A model
         # response cannot independently mutate Integral. Reuse only history
         # whose tool effects reconcile against the original Core receipts;
         # leave the physical request and its unknown cost untouched. This is
@@ -451,7 +450,7 @@ async def _resume_history(
         if history is not None:
             return history
         raise ResourceConflictError(
-            message="The cancelled Harness run needs effect reconciliation",
+            message="The terminal Harness run needs effect reconciliation",
             details={"reason": "harness_recovery_reconciliation_required"},
         )
     if latest is not None and latest.idempotency_key:
@@ -1270,6 +1269,9 @@ class PydanticAIProvider:
             "a pending change or require a button for an ordinary verbal decision. "
             "If this list is empty, older pending cards in history are not current authority."
         )
+        from app.services.user_timezone import user_time_context
+
+        time_context = await user_time_context(scope.principal_id)
         instructions = (
             "You are Integral's resident intelligence. A host continuation can "
             "carry a current approval outcome without a new user message. An empty "
@@ -1374,6 +1376,8 @@ class PydanticAIProvider:
             "concise limitation if "
             "discovery does not find the required capability.\n\n"
             + (ctx.system_context or "")
+            + "\n\n"
+            + time_context
             + receipt_instructions
             + approval_instructions
             + "\n\nRespond to the user with the final answer only. Do not "

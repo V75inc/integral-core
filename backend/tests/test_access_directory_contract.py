@@ -25,7 +25,28 @@ async def test_reader_cannot_enumerate_legacy_access_but_owner_can():
         assert reduced["collaborators"] == [] and reduced["directory_visible"] is False
         allowed = await function(request_for(owner.id, workspace.id), resource.id)
         assert allowed["collaborators"]
+        assert allowed["caller_role"] == "owner"
         assert all("preferences" not in row for row in allowed["collaborators"])
+
+
+@pytest.mark.parametrize("role", ["editor", "commenter", "viewer"])
+async def test_app_member_retains_own_role_without_directory_access(role):
+    from app.services.permissions import can_edit_app
+
+    _, reader, workspace, app, _, _ = await rooted_graph()
+    context = await app.get_context()
+    [grant] = await context.find_edges_between(
+        reader.id, app.id, edge_class=COLLABORATES_ON
+    )
+    grant.role = role
+    await grant.save()
+    response = await list_app_collaborators(
+        request_for(reader.id, workspace.id), app.id
+    )
+    assert response["collaborators"] == []
+    assert response["directory_visible"] is False
+    assert response["caller_role"] == role
+    assert await can_edit_app(reader.id, app.id) is (role == "editor")
 
 
 async def test_guest_member_pool_is_restricted_to_administration():

@@ -66,8 +66,8 @@ def compute_next_run_at(
     return nxt.astimezone(dt_timezone.utc).isoformat()
 
 
-def parse_run_at(run_at: str) -> str:
-    """Parse an absolute ISO-8601 fire time to UTC ISO; reject past/invalid."""
+def parse_run_at(run_at: str, timezone: str = "UTC") -> str:
+    """Convert absolute or zone-local ISO time to UTC; reject invalid/past/DST gaps."""
     from datetime import datetime
     from datetime import timezone as dt_timezone
 
@@ -82,7 +82,24 @@ def parse_run_at(run_at: str) -> str:
             details={"run_at": run_at},
         ) from exc
     if when.tzinfo is None:
-        when = when.replace(tzinfo=dt_timezone.utc)
+        from zoneinfo import ZoneInfo
+
+        from app.schemas.user_timezone import UserTimezoneUpdate
+
+        try:
+            tz = ZoneInfo(UserTimezoneUpdate(timezone=timezone).timezone)
+        except ValueError as exc:
+            raise BadRequestError(message="Invalid time zone") from exc
+        early = when.replace(tzinfo=tz, fold=0)
+        late = when.replace(tzinfo=tz, fold=1)
+        roundtrip = (
+            early.astimezone(dt_timezone.utc).astimezone(tz).replace(tzinfo=None)
+        )
+        if roundtrip != when or early.utcoffset() != late.utcoffset():
+            raise BadRequestError(
+                message="This local time is ambiguous or does not exist; provide an explicit UTC offset"
+            )
+        when = early
     when_utc = when.astimezone(dt_timezone.utc)
     now = datetime.now(dt_timezone.utc)
     if when_utc <= now:
@@ -120,7 +137,7 @@ async def create_routine_task(
     agent_id: str = "",
     instruction: str,
     cron: str = "",
-    timezone: str = "UTC",
+    timezone: Optional[str] = None,
     write_scope: Optional[List[Dict[str, str]]] = None,
     max_runs: Optional[int] = None,
     run_at: Optional[str] = None,
@@ -133,7 +150,7 @@ async def create_routine_task(
     the user has blessed the staged card describing this exact cadence +
     write-scope grant — never called speculatively.
 
-    Pass either recurring ``cron`` or one-shot ``run_at`` (absolute ISO-8601),
+    Pass either recurring ``cron`` or one-shot ``run_at`` (ISO-8601; local when offset omitted),
     not both. One-shots default ``max_runs=1`` and store an empty ``cron``;
     the scheduler clears ``next_run_at`` on dispatch so they cannot double-fire.
 
@@ -161,8 +178,16 @@ async def create_routine_task(
     if not run_at_s and not cron_s:
         raise BadRequestError(message="cron or run_at is required")
 
+    from app.schemas.user_timezone import UserTimezoneUpdate
+    from app.services.user_timezone import get_user_timezone
+
+    timezone = timezone or await get_user_timezone(user_id)
+    try:
+        timezone = UserTimezoneUpdate(timezone=timezone).timezone
+    except ValueError as exc:
+        raise BadRequestError(message="Invalid time zone") from exc
     if run_at_s:
-        next_run_at = parse_run_at(run_at_s)
+        next_run_at = parse_run_at(run_at_s, timezone)
         if max_runs is None:
             max_runs = 1
         cron_s = ""

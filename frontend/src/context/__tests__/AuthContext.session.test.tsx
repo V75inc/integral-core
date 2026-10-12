@@ -13,6 +13,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, renderHook, waitFor, cleanup } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
+vi.mock('../../api/userTimezone', () => ({ userTimezoneApi: { set: vi.fn(async () => ({ timezone: 'America/Guyana', configured: true })) } }));
+
 vi.mock('../../api', () => ({
   authApi: {
     me: vi.fn(),
@@ -36,6 +38,7 @@ vi.mock('../../features/ai-chat/threadSessionStore', () => ({
   resetThreadSessions: vi.fn(),
 }));
 
+import { userTimezoneApi } from '../../api/userTimezone';
 import { authApi } from '../../api';
 import { clearTokens, redirectToLogin } from '../../api/session';
 import { AuthProvider, useAuth } from '../AuthContext';
@@ -131,5 +134,28 @@ describe('AuthContext boot hydration', () => {
     expect(redirectToLogin).not.toHaveBeenCalled();
     expect(result.current.token).toBe('access-1');
     expect(result.current.user?.display_name).toBe('Ada');
+  });
+});
+
+
+describe('Account time zone detection', () => {
+  it('infers only for an authoritative unset profile', async () => {
+    vi.mocked(authApi.me).mockResolvedValue({ ...cachedUser, timezone: null } as never);
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.user?.timezone).toBe('America/Guyana'));
+    expect(userTimezoneApi.set).toHaveBeenCalledWith(expect.any(String), true);
+  });
+  it('keeps a manually saved zone on another device', async () => {
+    vi.mocked(authApi.me).mockResolvedValue({ ...cachedUser, timezone: 'Asia/Tokyo' } as never);
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.user?.timezone).toBe('Asia/Tokyo');
+    expect(userTimezoneApi.set).not.toHaveBeenCalled();
+  });
+  it('does not infer from a stale cached profile while offline', async () => {
+    vi.mocked(authApi.me).mockRejectedValue(new Error('offline'));
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(userTimezoneApi.set).not.toHaveBeenCalled();
   });
 });

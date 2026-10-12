@@ -169,7 +169,12 @@ async def test_complete_snapshot_must_contain_every_mutation_receipt(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_paid_model_only_failure_can_accept_a_new_user_request(monkeypatch):
+@pytest.mark.parametrize(
+    "outcome", ["responded", "failed", "outcome_unknown", "dispatch_intent"]
+)
+async def test_paid_model_only_failure_can_accept_a_new_user_request(
+    monkeypatch, outcome
+):
     """Settled paid attempts are history; they are not automatically retried."""
     from app.agentive.harness import model_observations
     from app.agentive.work_models import WorkApproval
@@ -180,7 +185,7 @@ async def test_paid_model_only_failure_can_accept_a_new_user_request(monkeypatch
         return [
             SimpleNamespace(
                 request_id="paid-attempt",
-                outcome="responded",
+                outcome=outcome,
                 observed_at=now,
                 dispatched_at=now,
             )
@@ -286,11 +291,13 @@ async def test_abandoned_read_is_audited_without_reissuing_the_tool(monkeypatch)
         ("write_tool", "failed", False),
     ],
 )
-async def test_cancelled_request_unknown_billing_does_not_replay_settled_effects(
+@pytest.mark.parametrize("terminal_status", ["failed", "cancelled"])
+async def test_terminal_request_unknown_billing_does_not_replay_settled_effects(
     monkeypatch,
     tool,
     status,
     allowed,
+    terminal_status,
 ):
     """Accounting uncertainty survives; missing mutation receipts still block."""
     from app.agentive.harness import model_observations
@@ -345,7 +352,7 @@ async def test_cancelled_request_unknown_billing_does_not_replay_settled_effects
         _scope("next-run"),
         SimpleNamespace(last_run_id="failed-run"),
         Store(),
-        previous_run=_run(status="cancelled"),
+        previous_run=_run(status=terminal_status),
     )
     if allowed:
         history = await call

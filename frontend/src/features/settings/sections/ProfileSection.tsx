@@ -1,3 +1,4 @@
+import { TimezoneSetting } from './TimezoneSetting';
 import { useEffect, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { authApi } from '../../../api';
@@ -115,6 +116,8 @@ export function ProfileSection() {
           collaborators.
         </Text>
       </div>
+
+      <TimezoneSetting />
 
       {/* Avatar */}
       <section className="rounded-[var(--radius-card)] border border-[var(--panel-border)] bg-[var(--panel)] p-4">

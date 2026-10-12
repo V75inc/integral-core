@@ -397,10 +397,14 @@ def insights_plan_preamble(
 
 async def plan_query(
     question: str,
-    timezone: str = "UTC",
+    timezone: Optional[str] = None,
     workspace_id: Optional[str] = None,
     user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Accept broker-bound authority while planning only the supplied question."""
-    del workspace_id, user_id
+    del workspace_id
+    if not timezone and user_id:
+        from app.services.user_timezone import get_user_timezone
+
+        timezone = await get_user_timezone(user_id)
     return build_query_plan(question, timezone_name=timezone or "UTC")
