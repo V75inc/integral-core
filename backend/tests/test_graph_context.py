@@ -71,11 +71,14 @@ async def recorded_graph(graph, tmp_path):
     """
     from jvspatial.core import GraphContext
     from jvspatial.core.context import get_default_context, scoped_default_context
+    from jvspatial.db import get_database_manager
     from jvspatial.db.sqlite import SQLiteDB
 
     source = get_default_context().database
     database = SQLiteDB(db_path=tmp_path / "recorded-context.db")
     context = GraphContext(database)
+    manager = get_database_manager()
+    original_prime = manager.get_prime_database()
     originals = []
     try:
         for collection in ("node", "edge", "object"):
@@ -83,9 +86,14 @@ async def recorded_graph(graph, tmp_path):
         for node in graph:
             originals.append((node, await node.get_context()))
             await node.set_context(context)
+        # Transactional helpers select their adapter from the prime database.
+        # Keep that selection on this complete fixture store too; otherwise a
+        # PostgreSQL suite opens a transaction outside the copied SQLite graph.
+        manager.set_prime_database(database)
         with scoped_default_context(context):
             yield graph
     finally:
+        manager.set_prime_database(original_prime)
         for node, original in originals:
             await node.set_context(original)
         await database.close()
