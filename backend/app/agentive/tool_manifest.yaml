@@ -787,7 +787,7 @@ domains:
         policy_action: entry.read
         params:
           question: {type: string, required: true, desc: "The user's question, unchanged."}
-          timezone: {type: string, optional: true, desc: "IANA timezone for today/this week/this month. Default UTC."}
+          timezone: {type: string, optional: true, desc: "IANA timezone for today/this week/this month. Defaults to the account time zone."}
         returns: { instrument: str, reason: str, filters: list, window: object, aggregation: object, traversal: object, sort: list, limit: integer, limits: list, on_failure: str }
         privacy: "Plans only. Reads no entries and returns no record titles."
       - name: integral_query_entries
@@ -2458,7 +2458,7 @@ domains:
           Create a routine that posts into THIS chat thread. Recurring: pass a
           5-field cron + IANA timezone when the user wants repetition ("every day
           at 9am", "every Monday"). One-shot deferred nudge: pass run_at (ISO-8601
-          absolute fire time) and omit cron — defaults max_runs=1 ("remind me in
+          fire time; omit the offset to use the account time zone) and omit cron — defaults max_runs=1 ("remind me in
           five minutes", "nudge me at 3pm"). Compute cron or run_at yourself from
           the user's phrasing — the tool does not parse natural language. If the
           instruction implies a write (e.g. "update the wiki"), resolve the target
@@ -2476,8 +2476,8 @@ domains:
         params:
           instruction: {type: string, required: true, desc: "Canonical natural-language prompt replayed verbatim on every run."}
           cron: {type: string, optional: true, desc: "5-field cron for recurring routines. Omit when using run_at."}
-          run_at: {type: string, optional: true, desc: "ISO-8601 absolute fire time for a one-shot. Omit when using cron. Defaults max_runs=1."}
-          timezone: {type: string, optional: true, default: "UTC", desc: "IANA timezone the cron is evaluated in (ignored for run_at, which is absolute)."}
+          run_at: {type: string, optional: true, desc: "ISO-8601 fire time for a one-shot. Include an offset for an absolute time; otherwise uses the chosen timezone. Omit when using cron. Defaults max_runs=1."}
+          timezone: {type: string, optional: true, desc: "IANA timezone; defaults to the account time zone. Used for cron and run_at without an offset. Absolute run_at offsets take precedence."}
           write_scope: {type: array, optional: true, items: {type: object}, desc: "[{resource_type: track|entry, resource_id}] the routine may auto-apply writes to unattended. Omit for read-only routines."}
           max_runs: {type: integer, optional: true, desc: "Stop automatically after this many SUCCESSFUL runs. Defaults to 1 for run_at; omit with cron for open-ended."}
         returns: { staged_token: str }

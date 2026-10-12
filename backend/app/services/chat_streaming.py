@@ -150,7 +150,10 @@ _ERROR_MESSAGES: Dict[str, str] = {
     "model_rate_limited": "The model provider's usage limit was reached. Check the provider's quota or try again later.",
     "model_unavailable": "The selected model is unavailable. Choose an available model in Settings → AI Models.",
     "model_provider_unavailable": "The model provider is temporarily unavailable. Check its status before trying again.",
-    "model_request_rejected": "The model provider rejected this request. Check that the selected model supports chat and tools in Settings → AI Models.",
+    "model_request_rejected": (
+        "The model provider rejected this step. Try again in this conversation. "
+        "If it keeps happening, review the selected model in Settings → AI Models."
+    ),
     "chat_storage_unavailable": (
         "Live chat is unavailable because this installation needs transactional "
         "storage. Ask your administrator to configure PostgreSQL for Integral."

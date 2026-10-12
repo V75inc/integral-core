@@ -953,3 +953,50 @@ async def test_run_scheduler_pass_clears_next_run_at_for_one_shot(monkeypatch):
     assert updated.next_run_at is None
     await asyncio.sleep(0.05)
     assert routine.id in dispatched_ids
+
+
+@pytest.mark.asyncio
+async def test_schedule_inherits_account_zone_and_freezes_it_before_approval():
+    from app.agentive.nodes import RoutineTask
+    from app.agentive.services.staging_apply import bless_and_execute
+    from app.schemas.user_timezone import UserTimezoneUpdate
+    from app.services.user_timezone import set_user_timezone
+
+    user_id, workspace_id, _, thread = await _bootstrap_user_workspace_track_thread(
+        "routine-account-zone@example.com"
+    )
+    await set_user_timezone(user_id, UserTimezoneUpdate(timezone="America/Guyana"))
+    result = await dispatch_tool(
+        "integral_schedule_task",
+        {"instruction": "Morning reminder", "cron": "0 9 * * *"},
+        principal_id=user_id,
+        scope=workspace_id,
+        session_id=thread.provider_session_id,
+    )
+    assert not result.is_error, result
+    await set_user_timezone(user_id, UserTimezoneUpdate(timezone="Asia/Tokyo"))
+    applied = await bless_and_execute(user_id=user_id, token=result.data["token"])
+    assert not applied["execute_result"].get("error"), applied
+    routines = await RoutineTask.find({"user_id": user_id})
+    assert len(routines) == 1
+    assert routines[0].timezone == "America/Guyana"
+
+    from app.agentive.services.routine_tasks import create_routine_task
+
+    direct = await create_routine_task(
+        user_id=user_id,
+        workspace_id=workspace_id,
+        thread_id=thread.id,
+        instruction="A new reminder after the preference change",
+        cron="0 9 * * *",
+    )
+    assert direct.timezone == "Asia/Tokyo"
+    overridden = await create_routine_task(
+        user_id=user_id,
+        workspace_id=workspace_id,
+        thread_id=thread.id,
+        instruction="Explicit-zone reminder",
+        cron="0 9 * * *",
+        timezone="Europe/London",
+    )
+    assert overridden.timezone == "Europe/London"

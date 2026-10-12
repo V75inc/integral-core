@@ -9,6 +9,11 @@ from pathlib import Path
 from typing import Optional
 
 from app.config import settings
+from app.logging_config import configure_db_operation_logging
+
+# Apply before database bootstrap, so startup queries are quiet too. The
+# standard console setup below preserves named logger levels.
+configure_db_operation_logging(settings.DB_OPERATION_LOG_LEVEL)
 
 
 def _running_under_pytest() -> bool:

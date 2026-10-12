@@ -122,6 +122,7 @@ export function AppDetailPage() {
     useState<OperationalModelNode | null>(null);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [collabs, setCollabs] = useState<CollabRow[]>([]);
+  const [callerRole, setCallerRole] = useState<string | null | undefined>(undefined);
   const [allTracks, setAllTracks] = useState<Track[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -216,7 +217,7 @@ export function AppDetailPage() {
       const [sp, tr, c, at, tpls, profile] = await Promise.all([
         appsApi.get(appId),
         appsApi.listTracks(appId),
-        appsApi.listCollaborators(appId) as Promise<CollabRow[]>,
+        appsApi.getCollaboratorsDetailed(appId),
         tracksApi.list(),
         appsApi.listTrackTemplates(appId).catch(() => []),
         operationalModelsApi.getAttachedForApp(appId).catch(() => null),
@@ -224,12 +225,14 @@ export function AppDetailPage() {
       setApp(sp);
       setAppOperationalModel(profile);
       setTracks(tr);
-      setCollabs(Array.isArray(c) ? c : []);
+      setCollabs(c.collaborators as CollabRow[]);
+      setCallerRole(c.caller_role);
       setAllTracks(at as Track[]);
       setTrackTemplates(tpls.map(t => ({ id: t.id, name: t.name })));
     } catch (e: unknown) {
       setError(errorMessageFromAxios(e, 'Failed to load app'));
       setApp(null);
+      setCallerRole(null);
       setAppOperationalModel(null);
     } finally {
       setLoading(false);
@@ -355,7 +358,11 @@ export function AppDetailPage() {
       ),
     [uniqueCollabs, me],
   );
-  const myRole = (myCollab?.role || '').toLowerCase();
+  // Non-admin responses withhold the directory but retain current caller
+  // authority. Only older servers that omit caller_role need the row fallback.
+  const myRole = (
+    callerRole === undefined ? myCollab?.role || '' : callerRole || ''
+  ).toLowerCase();
   const isAdminInCollab = myRole === 'admin';
   const isWorkspaceOwner = workspaces.find(w => w.id === app?.workspace_id)?.your_role === 'owner';
   const canAdmin = isWorkspaceOwner || isAppOwner || isAdminInCollab;

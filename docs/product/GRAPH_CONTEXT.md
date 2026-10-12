@@ -1,8 +1,9 @@
 # Workspace graph context
 
-Feature on `codex/ontology-context`, integrated with the published PyPI package
-`jvspatial==0.2.0`. See the [dependency qualification](../ops/qualification/ontology-context/PYPI-020.md)
-for verification and remaining production limits.
+Feature on `codex/ontology-context`; the current published dependency pin is
+`jvspatial==0.2.1`. The initial [graph dependency qualification](../ops/qualification/ontology-context/PYPI-020.md)
+covers 0.2.0 and its remaining production limits. The 0.2.1 logging upgrade is
+covered separately by the [logging verification](../ops/qualification/db-logging/2026-10-12.md).
 
 Integral's resident can answer ordinary questions about dependencies, blockers,
 and alternatives using the relationships already stored in the selected

@@ -702,13 +702,23 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
             )
             raise
         except BaseException as exc:
+            classified = model_request_error(exc)
+            # Explicit rejection before a response is a failed attempt. Network
+            # loss/timeouts still retain unknown outcome and billing; neither
+            # path automatically retries the physical request.
+            rejected = classified is not None and classified.code in {
+                "model_context_limit",
+                "model_authentication_failed",
+                "model_rate_limited",
+                "model_unavailable",
+                "model_request_rejected",
+            }
             await self._observe(
                 request_id=request_id,
                 request_context=request_context,
                 started_at=started_at,
-                outcome="outcome_unknown",
+                outcome="failed" if rejected else "outcome_unknown",
             )
-            classified = model_request_error(exc)
             if classified is not None:
                 raise classified from exc
             raise

@@ -1,3 +1,4 @@
+import { TimezoneSetting } from './TimezoneSetting';
 import { PageMeta } from '../../../components/ui';
 import { useEffect, useState } from 'react';
 import { Trash2 } from 'lucide-react';
@@ -115,6 +116,8 @@ export function ProfileSection() {
           collaborators.
         </PageMeta>
       </div>
+
+      <TimezoneSetting />
 
       {/* Avatar */}
       <section className="rounded-[var(--radius-card)] border border-[var(--panel-border)] bg-[var(--panel)] p-4">

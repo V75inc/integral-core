@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -239,6 +239,8 @@ class Settings(BaseSettings):
     SPEECH_TRANSCRIBE_TIMEOUT_SECONDS: float = 120.0
 
     LOG_LEVEL: str = "INFO"
+    # Query metrics stay enabled independently of noisy per-operation messages.
+    DB_OPERATION_LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING"] = "INFO"
     DB_LOGGING_ENABLED: bool = Field(
         default=True,
         validation_alias="JVSPATIAL_DB_LOGGING_ENABLED",
