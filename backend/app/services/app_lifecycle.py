@@ -1226,6 +1226,10 @@ async def finalize_install(
         )
     canonical = compile_canonical_manifest(manifest=attached_cp.manifest or {})
 
+    from app.services.entitlements import require_installed_app_entitlement
+
+    await require_installed_app_entitlement(app_node)
+
     # Fill schema defaults, validate, then persist settings.
     schema = app_node.settings_schema or {}
     settings = _apply_schema_defaults(settings or {}, schema)
@@ -1468,6 +1472,9 @@ async def resume_app(*, app_id: str, actor_id: str) -> Dict[str, Any]:
     app_node = await App.get(app_id)
     if not app_node:
         raise BadRequestError(message=f"App {app_id!r} not found")
+    from app.services.entitlements import require_installed_app_entitlement
+
+    await require_installed_app_entitlement(app_node)
     if app_node.lifecycle_state == "active":
         return {"app_id": app_id, "status": "active"}
     if app_node.lifecycle_state != "paused":
@@ -1479,40 +1486,6 @@ async def resume_app(*, app_id: str, actor_id: str) -> Dict[str, Any]:
             details={"app_id": app_id, "current_state": app_node.lifecycle_state},
         )
     await _check_app_dependencies_active(app_node)
-    # F3: if an entitlement row exists for this App's package, it must be
-    # active before resume (commercial revoke → pause cannot be undone
-    # without a new grant). Community Apps have no entitlement row.
-    slug = str(
-        getattr(app_node, "source_operational_model_slug", None)
-        or getattr(app_node, "installed_package_slug", None)
-        or ""
-    ).strip()
-    if slug and app_node.workspace_id:
-        from app.api.errors import InsufficientPermissionsError
-        from app.services.entitlements import (
-            entitlement_is_active,
-            entitlement_key_for_package,
-            find_entitlement,
-        )
-
-        key = entitlement_key_for_package(
-            slug=slug, package_meta={"slug": slug, "entitlement_key": slug}
-        )
-        row = await find_entitlement(
-            workspace_id=app_node.workspace_id, entitlement_key=key
-        )
-        if row is not None and not entitlement_is_active(row):
-            raise InsufficientPermissionsError(
-                message=(
-                    f"cannot resume App {app_id!r}: entitlement {key!r} "
-                    f"is {row.status!r}"
-                ),
-                details={
-                    "app_id": app_id,
-                    "entitlement_key": key,
-                    "status": row.status,
-                },
-            )
     if app_node.workspace_id:
         from app.services.hooks.install_hook import register_bundle_on_install
 

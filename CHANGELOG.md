@@ -6,6 +6,13 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Let trusted hosts supply temporary commercial entitlement access without
+  creating durable grants. Recheck installed package access during execution,
+  settings finalization, resume and startup; retain generic read/export access
+  when entitlement access is removed.
+- Expose read-only effective workspace model-key readiness so host quota notices
+  can reflect validated owner BYOK without exposing credentials or updating
+  usage telemetry.
 - Continue safely after terminal failed or cancelled assistant runs when scoped
   receipts permit it; preserve uncertain provider usage and unresolved-write
   fences. Close provider streams in their owning task during worker interruption.

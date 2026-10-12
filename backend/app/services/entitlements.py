@@ -266,6 +266,10 @@ async def require_active_entitlement(
             message="commercial_app requires package.slug or package.entitlement_key",
             details={"package": package_meta},
         )
+    from app.services.host_hooks import host_allows_entitlement_access
+
+    if await host_allows_entitlement_access(workspace_id, key, slug):
+        return None
     row = await find_entitlement(workspace_id=workspace_id, entitlement_key=key)
     if row is None or not entitlement_is_active(row):
         raise EntitlementRequiredError(
@@ -280,6 +284,38 @@ async def require_active_entitlement(
     return row
 
 
+async def require_installed_app_entitlement(app_node) -> Optional[Entitlement]:
+    """Resolve the active package contract before enforcing its access gate."""
+    if not getattr(app_node, "installed_from_library_id", None):
+        return None
+    from app.services.app_lifecycle import get_app_attached_operational_model
+    from app.services.application_definitions import get_active_application_definition
+    from app.services.operational_model_runtime import compile_canonical_manifest
+
+    definition = await get_active_application_definition(
+        app_node, repair_legacy_pointer=False
+    )
+    if definition is not None and definition.canonical_manifest:
+        canonical = dict(definition.canonical_manifest)
+    else:
+        attached = await get_app_attached_operational_model(app_node)
+        if attached is None:
+            raise BadRequestError(message="Installed App package contract is missing")
+        canonical = compile_canonical_manifest(manifest=attached.manifest or {})
+    package_meta = dict(canonical.get("package") or {})
+    # Compiled definitions omit the library slug. Installation provenance is
+    # the durable package identity, just as it is at the initial install gate.
+    package_meta["slug"] = str(
+        getattr(app_node, "source_operational_model_slug", None)
+        or getattr(app_node, "installed_package_slug", None)
+        or package_meta.get("slug")
+        or ""
+    ).strip()
+    return await require_active_entitlement(
+        workspace_id=app_node.workspace_id, package_meta=package_meta
+    )
+
+
 async def _pause_apps_for_entitlement(
     *,
     workspace_id: str,
@@ -290,6 +326,12 @@ async def _pause_apps_for_entitlement(
 ) -> List[str]:
     """Pause installed Apps matching the entitlement package slug."""
     paused: List[str] = []
+    from app.services.host_hooks import host_allows_entitlement_access
+
+    if await host_allows_entitlement_access(
+        workspace_id, entitlement_key, package_slug or entitlement_key
+    ):
+        return paused
     if (on_loss or "pause") != "pause":
         return paused
     slug = (package_slug or entitlement_key).strip()

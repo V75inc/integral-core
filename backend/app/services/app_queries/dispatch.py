@@ -86,6 +86,9 @@ async def list_app_queries(
         )
     if await resolve_role(user_id, "app", app_id) is None:
         raise InsufficientPermissionsError(message="Access denied")
+    from app.services.entitlements import require_installed_app_entitlement
+
+    await require_installed_app_entitlement(app)
     qs = list_registered_queries(workspace_id, app_id)
     return {
         "app_id": app_id,
@@ -136,6 +139,9 @@ async def invoke_app_query(
         )
     if await resolve_role(user_id, "app", app_id) is None:
         raise InsufficientPermissionsError(message="Access denied")
+    from app.services.entitlements import require_installed_app_entitlement
+
+    await require_installed_app_entitlement(app)
 
     spec = get_app_query(workspace_id, app_id, key)
     if spec is None:

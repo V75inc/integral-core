@@ -328,8 +328,10 @@ def preview_application_definition(
 
 async def get_active_application_definition(
     app_node: App,
+    *,
+    repair_legacy_pointer: bool = True,
 ) -> Optional[ApplicationDefinition]:
-    """Resolve the active revision and repair an absent legacy scalar pointer."""
+    """Resolve the active revision, optionally repairing its legacy pointer."""
     active_id = str(getattr(app_node, "active_definition_id", "") or "")
     if active_id:
         active = await ApplicationDefinition.get(active_id)
@@ -350,9 +352,10 @@ async def get_active_application_definition(
     if not active:
         return None
     chosen = max(active, key=lambda item: int(getattr(item, "revision", 0) or 0))
-    app_node.active_definition_id = chosen.id
-    app_node.active_definition_revision = int(getattr(chosen, "revision", 0) or 0)
-    await app_node.save()
+    if repair_legacy_pointer:
+        app_node.active_definition_id = chosen.id
+        app_node.active_definition_revision = int(getattr(chosen, "revision", 0) or 0)
+        await app_node.save()
     return chosen  # type: ignore[return-value]
 
 
