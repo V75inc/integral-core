@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { invitationsApi } from '../api';
-import { Button, PageHeading, Skeleton } from '../components/ui';
+import { Button, PageHeading, PageMeta, Skeleton } from '../components/ui';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import type { InvitationPreview } from '../api/invitations';
@@ -147,10 +147,10 @@ export function InvitationAcceptPage() {
     <div className="min-h-screen flex items-center justify-center px-4">
       <div className="app-card max-w-md w-full p-6">
         <PageHeading>Join {workspace?.name || 'workspace'}</PageHeading>
-        <p className="mt-3 text-sm text-[var(--text-muted)]">
+        <PageMeta as="p">
           You've been invited to <strong>{workspace?.name || 'a workspace'}</strong> as a{' '}
           <strong>{inv.role}</strong>.
-        </p>
+        </PageMeta>
         {inv.message ? (
           <blockquote className="mt-4 border-l-2 border-[var(--panel-border)] pl-3 text-sm text-[var(--text-muted)] italic">
             "{inv.message}"

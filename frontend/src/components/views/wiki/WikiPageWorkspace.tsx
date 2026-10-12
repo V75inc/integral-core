@@ -1,3 +1,4 @@
+import { PageMeta } from '../../../components/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, Edit2, Trash2 } from 'lucide-react';
 import { attachmentsApi, entriesApi } from '../../../api';
@@ -429,7 +430,7 @@ export function WikiPageWorkspace({
                     </div>
                   ) : null}
                 </div>
-                <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--text-subtle)]">
+                <PageMeta>
                   {localEntry.type ? (
                     <span className="text-[var(--text-muted)]">
                       {prettifyType(localEntry.type)}
@@ -441,7 +442,7 @@ export function WikiPageWorkspace({
                     </span>
                   ) : null}
                   {updatedLabel ? <span>{updatedLabel}</span> : null}
-                </div>
+                </PageMeta>
               </header>
               <div className="wiki-doc-body">
                 {bodyText ? (

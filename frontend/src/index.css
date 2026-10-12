@@ -414,6 +414,26 @@
     border-color: var(--panel-border);
     color: var(--text);
   }
+  /* Single-choice selects share an inset caret and reserve space for it.
+     Listboxes keep their native appearance; forced colors restores the OS caret. */
+  select.app-input:not([multiple]):is(:not([size]), [size="1"]) {
+    appearance: none;
+    padding-inline-end: 2.5rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23898989' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    background-size: 1rem;
+  }
+  select.app-input:dir(rtl) {
+    background-position: left 0.75rem center;
+  }
+  @media (forced-colors: active) {
+    select.app-input:not([multiple]):is(:not([size]), [size="1"]) {
+      appearance: auto;
+      background-image: none;
+      padding-inline-end: 0.75rem;
+    }
+  }
   .app-input::placeholder {
     color: var(--text-muted);
   }

@@ -1,3 +1,4 @@
+import { PageMeta } from '../../../components/ui';
 import { useEffect, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { authApi } from '../../../api';
@@ -5,7 +6,6 @@ import { useAuth } from '../../../context/AuthContext';
 import { useToast } from '../../../context/ToastContext';
 import { Avatar } from '../../../components/ui/Avatar';
 import { Button, LINE_ICON_STROKE } from '../../../components/ui';
-import { Text } from '../../../ui';
 import { DeleteAccountModal } from '../components/DeleteAccountModal';
 
 /**
@@ -110,10 +110,10 @@ export function ProfileSection() {
     <div className="flex flex-col gap-6">
       <div>
         <h2 className="text-lg font-semibold text-[var(--text)]">Profile</h2>
-        <Text variant="body" tone="muted" as="p" className="mt-1">
+        <PageMeta as="p">
           The name, avatar, and email that appear across Integral and to
           collaborators.
-        </Text>
+        </PageMeta>
       </div>
 
       {/* Avatar */}

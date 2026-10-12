@@ -7,6 +7,7 @@ import {
   Badge,
   LINE_ICON_STROKE,
   PageHeading,
+  PageMeta,
   PageSection,
   PageShell,
   Skeleton,
@@ -74,9 +75,9 @@ export function AdminWorkspacesPage() {
     <PageShell>
       <PageSection>
         <PageHeading>Workspaces</PageHeading>
-        <p className="mt-2 text-sm text-[var(--text-muted)]">
+        <PageMeta as="p">
           All personal and collaborative workspaces.
-        </p>
+        </PageMeta>
       </PageSection>
       <PageSection className="mt-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

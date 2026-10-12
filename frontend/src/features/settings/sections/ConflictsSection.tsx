@@ -1,3 +1,4 @@
+import { PageMeta } from '../../../components/ui';
 /**
  * Phase 8 Plan 08-02 Task 2 — Conflicts panel (SET-03).
  *
@@ -69,11 +70,11 @@ export function ConflictsSection() {
     <div className="flex flex-col gap-5">
       <div>
         <Text variant="heading-md" weight="semibold" as="h2">Conflicts</Text>
-        <Text variant="body" tone="muted" as="p" className="mt-1">
+        <PageMeta as="p">
           When a connector pulls in an update that clashes with a local
           edit, the disagreement lands here for review. Choose to keep your
           version, accept the external one, or mark it merged.
-        </Text>
+        </PageMeta>
       </div>
 
       <SettingsSection

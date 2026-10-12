@@ -1,3 +1,4 @@
+import { Text, Input, Textarea } from '../../ui';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -8,6 +9,7 @@ import {
   Button,
   LINE_ICON_STROKE,
   PageHeading,
+  PageMeta,
   PageSection,
   PageShell,
   Skeleton,
@@ -96,11 +98,11 @@ export function AdminWorkspaceDetailPage() {
       <PageSection>
         <Link
           to="/admin/workspaces"
-          className="inline-flex items-center gap-2 text-sm text-[var(--text-muted)] hover:text-[var(--text)]"
-        >
+          className="inline-flex items-center gap-2 hover:opacity-80"
+        ><Text variant="body" tone="muted" className="inline-flex items-center gap-2">
           <ArrowLeft size={14} strokeWidth={LINE_ICON_STROKE} />
           Back to workspaces
-        </Link>
+        </Text></Link>
         {isPending && <Skeleton className="mt-6 h-32 w-full rounded-xl" />}
         {error && (
           <p className="mt-6 text-sm text-[var(--danger-text)]">
@@ -111,12 +113,12 @@ export function AdminWorkspaceDetailPage() {
         {workspace && (
           <div className="mt-6">
             <PageHeading>{workspace.name}</PageHeading>
-            <p className="mt-1 text-sm capitalize text-[var(--text-muted)]">{workspace.kind}</p>
+            <PageMeta as="p" className="capitalize">{workspace.kind}</PageMeta>
             {workspace.owner ? (
-              <div className="mt-2 text-sm">
-                <span className="text-[var(--text-subtle)]">Owner: </span>
+              <PageMeta>
+                <Text as="span" variant="body" tone="subtle" className="">Owner: </Text>
                 <AdminOwnerCell owner={workspace.owner} />
-              </div>
+              </PageMeta>
             ) : null}
             <div className="mt-2 flex gap-2">
               <Badge>{workspace.member_count} members</Badge>
@@ -136,23 +138,23 @@ export function AdminWorkspaceDetailPage() {
       {workspace && (
         <>
           <PageSection className="mt-8">
-            <h2 className="text-sm font-semibold uppercase tracking-[0.08em] text-[var(--text-subtle)]">Edit</h2>
+            <Text as="h2" variant="body" tone="subtle" weight="semibold" className="uppercase tracking-[0.08em]">Edit</Text>
             <div className="mt-4 grid gap-4 max-w-lg">
               <label className="block text-sm">
-                <span className="text-[var(--text-muted)]">Name</span>
-                <input
+                <Text as="span" variant="body" tone="muted" className="">Name</Text>
+                <Input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--panel)] px-3 py-2"
+                  className="mt-1"
                 />
               </label>
               <label className="block text-sm">
-                <span className="text-[var(--text-muted)]">Description</span>
-                <textarea
+                <Text as="span" variant="body" tone="muted" className="">Description</Text>
+                <Textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   rows={3}
-                  className="mt-1 w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--panel)] px-3 py-2"
+                  className="mt-1"
                 />
               </label>
               <Button onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
@@ -160,7 +162,7 @@ export function AdminWorkspaceDetailPage() {
           </PageSection>
 
           <PageSection className="mt-8">
-            <h2 className="text-sm font-semibold uppercase tracking-[0.08em] text-[var(--text-subtle)]">Members</h2>
+            <Text as="h2" variant="body" tone="subtle" weight="semibold" className="uppercase tracking-[0.08em]">Members</Text>
             <div className="mt-4 space-y-2">
               {(membersData?.members ?? []).map((m) => (
                 <div key={m.id} className="flex items-center justify-between rounded-lg border border-[var(--border-subtle)] px-3 py-2 text-sm">
@@ -171,10 +173,10 @@ export function AdminWorkspaceDetailPage() {
                       label={m.display_name || m.email || m.id}
                     />
                     {m.email && m.display_name ? (
-                      <p className="text-[var(--text-muted)]">{m.email}</p>
+                      <Text as="p" variant="body" tone="muted" className="">{m.email}</Text>
                     ) : null}
                   </div>
-                  <span className="capitalize text-[var(--text-muted)]">{m.role}</span>
+                  <Text as="span" variant="body" tone="muted" className="capitalize">{m.role}</Text>
                 </div>
               ))}
             </div>

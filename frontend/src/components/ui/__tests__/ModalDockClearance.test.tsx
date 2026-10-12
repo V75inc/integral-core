@@ -181,13 +181,13 @@ describe('Modal dock clearance', () => {
     expect(cls).not.toContain('max-w-dialog-wide');
   });
 
-  it('EntryDetail wires expand toggle to appearance.entryDialogExpanded', () => {
+  it('EntryDetail wires the overflow size action to appearance.entryDialogExpanded', () => {
     const source = fs.readFileSync(
       path.resolve(process.cwd(), 'src/components/entries/EntryDetail.tsx'),
       'utf-8',
     );
     expect(source).toMatch(/entryDialogExpanded/);
-    expect(source).toMatch(/entry-dialog-expand/);
+    expect(source).toContain("key: 'dialog-size'");
     expect(source).toMatch(/max-w-dialog-workspace-max/);
   });
 });
