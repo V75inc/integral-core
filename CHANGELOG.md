@@ -6,11 +6,17 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc17 — 2026-10-12
+
 - Typed relation writers require current target-read authority and canonical
   Entry/Track/App containment. Declared cross-App targets resolve through the
   existing workspace and instance contract, and verified owning App IDs are
   stored on reference edges. Denials preserve the source record and links;
   delegated provenance does not supply independent authorization.
+- Establish governed access-control lifecycle checks and preserve authorization
+  fences across staged operations.
+- Return App and Track nodes to the caller's active graph context after creation
+  so subsequent writes remain usable and inside the enclosing transaction.
 
 ## 0.1.1rc16 — 2026-10-09
 
