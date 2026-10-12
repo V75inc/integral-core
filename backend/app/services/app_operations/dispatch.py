@@ -87,6 +87,9 @@ async def _ensure_app_active(app: App, user_id: str) -> None:
     role = await resolve_role(user_id, "app", app.id)
     if role is None:
         raise InsufficientPermissionsError(message="Access denied")
+    from app.services.entitlements import require_installed_app_entitlement
+
+    await require_installed_app_entitlement(app)
 
 
 async def list_app_operations(

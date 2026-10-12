@@ -111,6 +111,19 @@ async def resolve_agent_key_source(
     return "byok"
 
 
+async def resolve_agent_key_access(
+    workspace_id: Optional[str],
+) -> Literal["platform", "byok", "unavailable"]:
+    """Read-only route readiness for UI; never expose keys or touch usage."""
+    mode = (settings.INTEGRAL_AGENT_KEY_MODE or "hybrid").strip().lower()
+    if mode == "platform_only":
+        return "platform"
+    record = await _workspace_owner_credential(workspace_id) if workspace_id else None
+    if record and record.validated_at and _credential_funds_byok(record):
+        return "byok"
+    return "unavailable" if mode == "byo_strict" else "platform"
+
+
 async def resolve_native_model_override(
     workspace_id: Optional[str],
     *,
