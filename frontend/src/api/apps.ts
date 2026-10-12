@@ -133,8 +133,18 @@ export const appsApi = {
   reorderTracks: (appId: string, trackIds: string[]) =>
     apiClient.patch(`/apps/${appId}/tracks/order`, { track_ids: trackIds }),
   listCollaborators: async (appId: string) => {
+    return (await appsApi.getCollaboratorsDetailed(appId)).collaborators;
+  },
+  getCollaboratorsDetailed: async (appId: string): Promise<{
+    collaborators: unknown[];
+    caller_role?: string | null;
+    directory_visible?: boolean;
+  }> => {
     const { data } = await apiClient.get(`/apps/${appId}/collaborators`);
-    return (data as { collaborators?: unknown[] })?.collaborators || [];
+    return {
+      ...data,
+      collaborators: Array.isArray(data?.collaborators) ? data.collaborators : [],
+    };
   },
   addCollaborator: (
     appId: string,

@@ -987,6 +987,8 @@ async def list_app_collaborators(request: Request, app_id: str) -> Dict[str, Any
         "collaborators": result,
         "total": len(result),
         "app_id": app_id,
+        "caller_role": await resolve_role(user_id, "app", app_id),
+        "directory_visible": True,
     }
 
 

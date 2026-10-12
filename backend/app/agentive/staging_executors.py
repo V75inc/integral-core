@@ -1272,7 +1272,7 @@ async def _x_routine_task_create(
         agent_id=payload.get("agent_id") or "",
         instruction=payload["instruction"],
         cron=payload.get("cron") or "",
-        timezone=payload.get("timezone") or "UTC",
+        timezone=payload.get("timezone"),
         write_scope=payload.get("write_scope") or [],
         max_runs=payload.get("max_runs"),
         run_at=payload.get("run_at"),

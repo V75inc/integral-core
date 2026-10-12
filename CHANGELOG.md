@@ -6,6 +6,18 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Continue safely after terminal failed or cancelled assistant runs when scoped
+  receipts permit it; preserve uncertain provider usage and unresolved-write
+  fences. Close provider streams in their owning task during worker interruption.
+- Preserve App editor controls when non-admin access responses hide the
+  collaborator directory, using the caller's current server-resolved role.
+- Store per-user IANA time zones, infer unset zones from the authenticated browser,
+  and expose an editable Profile setting. New reminders and relative-date query
+  plans inherit the account zone while existing and approved schedules retain
+  their saved zone; ambiguous local one-shots require an explicit offset.
+- Pin jvspatial 0.2.1. Routine database timings use DEBUG, keeping INFO logs quiet
+  while slow-query/failure warnings and operation metrics remain available.
+
 ## 0.1.1rc17 — 2026-10-12
 
 - Typed relation writers require current target-read authority and canonical

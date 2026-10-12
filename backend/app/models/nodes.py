@@ -232,6 +232,8 @@ class User(Node):
     # boundary enforces the shape. Written only by
     # ``PATCH /users/me/speech-preferences``.
     speech_preferences: Optional[Dict[str, Any]] = None
+    # IANA account zone. None permits first-login browser inference; storage stays UTC.
+    timezone: Optional[str] = None
     # Phase 9 Plan 09-05 (ONBD-01) — onboarding completion timestamp.
     # ``None`` means the user has not yet completed first-login onboarding
     # via the ``integral_onboard_user`` MCP tool. Existing pre-09-05 users

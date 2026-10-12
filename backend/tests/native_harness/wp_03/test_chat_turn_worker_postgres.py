@@ -325,14 +325,21 @@ class _HangingProvider(_Provider):
     def __init__(self):
         super().__init__([])
         self.cancelled = False
+        self.owner_task = None
+        self.cleanup_task = None
 
     async def stream_turn(self, _turn):
         self.calls += 1
-        yield {"type": "text-delta", "delta": "Partial answer."}
+        self.owner_task = asyncio.current_task()
         try:
+            yield {"type": "text-delta", "delta": "Partial answer."}
             await asyncio.Event().wait()
-        except asyncio.CancelledError:
+        except (asyncio.CancelledError, GeneratorExit):
+            # The worker may time out while persisting the first delta, when
+            # the generator is paused at yield. aclose() then uses GeneratorExit
+            # instead of cancelling the later await; both must release it.
             self.cancelled = True
+            self.cleanup_task = asyncio.current_task()
             raise
 
 
@@ -565,6 +572,7 @@ async def test_worker_times_out_and_cancels_a_stalled_provider_stream(
     assert finished.failure["code"] == "work.chat_stream_timeout"
     assert provider.calls == 1
     assert provider.cancelled is True
+    assert provider.cleanup_task is provider.owner_task
     page = await replay_work_item_chat_events(
         principal_id=principal_id,
         workspace_id=item.workspace_id,
@@ -584,6 +592,44 @@ async def test_worker_times_out_and_cancels_a_stalled_provider_stream(
     assistant = [message for message in messages if message.role == "assistant"]
     assert len(assistant) == 1
     assert assistant[0].parts[-1]["code"] == "work.chat_stream_timeout"
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_timeout_closes_provider_paused_during_event_persistence(
+    postgres_graph_context, monkeypatch
+) -> None:
+    """Saving a yielded delta must not leave cleanup to another task's finalizer."""
+    from app.config import settings
+    from app.services import chat_providers, chat_turn_events
+
+    item, _principal_id = await _submitted_claimed_turn()
+    provider = _HangingProvider()
+    original_append = chat_turn_events.append_work_item_chat_event
+    paused = asyncio.Event()
+
+    async def stalled_append(**fields):
+        result = await original_append(**fields)
+        if fields["event"].get("type") == "text-delta":
+            paused.set()
+            await asyncio.Event().wait()
+        return result
+
+    monkeypatch.setattr(settings, "INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS", 0.5)
+    monkeypatch.setattr(chat_providers, "get_registry", lambda: _Registry(provider))
+    monkeypatch.setattr(execution_runs, "start_run", _fake_start_run)
+    monkeypatch.setattr(chat_turn_events, "append_work_item_chat_event", stalled_append)
+    finished = await work_worker.execute_claimed_work(
+        item, worker_id="worker-persist-timeout", lease_seconds=120
+    )
+
+    assert paused.is_set()
+    assert finished.status == "failed"
+    assert finished.failure["code"] == "work.chat_stream_timeout"
+    assert provider.calls == 1
+    assert provider.cancelled is True
+    assert provider.cleanup_task is provider.owner_task
 
 
 @pytest.mark.contract
@@ -785,6 +831,80 @@ async def test_unsettled_model_request_blocks_native_chat_replay(
 
     assert error.value.details["reason"] == "harness_model_request_unsettled"
     assert error.value.details["request_count"] == 1
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_failed_model_request_can_continue_without_rewriting_unknown_accounting(
+    postgres_graph_context, monkeypatch
+):
+    """A persisted provider failure does not poison the next accepted turn."""
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    from pydantic_ai.messages import ModelRequest, UserPromptPart
+
+    from app.agentive.harness.contracts import (
+        HarnessExecutionScope,
+        PhysicalModelRequest,
+    )
+    from app.agentive.harness.jvspatial_store import JvSpatialStepStore
+    from app.agentive.harness.model_observations import (
+        list_model_request_observations,
+        persist_model_request_observation,
+        unsettled_model_request_ids,
+    )
+    from app.services.chat_providers.pydantic_ai_provider import _resume_history
+
+    monkeypatch.setattr(
+        "app.services.credential_crypto._resolve_key", lambda: (b"k" * 32, None)
+    )
+    item, principal_id = await _submitted_claimed_turn()
+    scope = HarnessExecutionScope(
+        tenant_id=item.workspace_id,
+        principal_id=principal_id,
+        workspace_id=item.workspace_id,
+        thread_id=item.thread_id,
+        session_id=f"session-{item.thread_id}",
+        run_id=f"failed-{uuid.uuid4().hex}",
+        permission_revision="permissions-v1",
+        capability_version="capabilities-v1",
+    )
+    run = await AgentRun.create(
+        run_id=scope.run_id,
+        thread_id=scope.thread_id,
+        user_id=scope.principal_id,
+        workspace_id=scope.workspace_id,
+        provider_id="integral_native",
+        status="failed",
+        started_at=datetime.now(timezone.utc).isoformat(),
+        capability_snapshot={"capabilities": []},
+    )
+    observation = PhysicalModelRequest(
+        request_id="failed-provider-call",
+        scope=scope,
+        provider="ollama_chat",
+        model="ollama_chat/deepseek-v4.1-flash",
+        attempt=1,
+        dispatched_at=datetime.now(timezone.utc),
+        outcome="outcome_unknown",
+    )
+    await persist_model_request_observation(observation)
+    before = await list_model_request_observations(scope=scope)
+    prompt = ModelRequest(parts=[UserPromptPart(content="Original request")])
+    history = await _resume_history(
+        scope.model_copy(update={"run_id": "next-user-turn"}),
+        SimpleNamespace(last_run_id=scope.run_id),
+        JvSpatialStepStore(scope=scope),
+        recovery_message=prompt,
+        previous_run=run,
+    )
+    assert history[0] == prompt
+    assert "stopped without a final answer" in history[-1].parts[0].content
+    after = await list_model_request_observations(scope=scope)
+    assert after == before
+    assert unsettled_model_request_ids(after) == [observation.request_id]
 
 
 @pytest.mark.contract
