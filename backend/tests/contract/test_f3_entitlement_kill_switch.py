@@ -83,6 +83,53 @@ async def _seed_community_library() -> OperationalModel:
 
 
 @pytest.mark.contract
+@pytest.mark.asyncio
+async def test_host_override_is_transient_and_restart_closes_access(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from app.api.errors import EntitlementRequiredError
+    from app.services import host_hooks
+    from app.services.app_lifecycle import pause_app
+    from app.services.application_definitions import get_active_application_definition
+    from app.services.entitlements import list_entitlements
+    from app.services.hooks.install_hook import rehydrate_all_installed_bundles
+    from app.services.resource_location import locate_resources
+
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(COMMERCIAL.parent))
+    monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
+    monkeypatch.setattr(
+        host_hooks, "_entitlement_access_resolver", AsyncMock(return_value=True)
+    )
+    ws = await make_org_workspace("transient-host-access")
+    actor = await workspace_owner_id(ws)
+    library = await _seed_commercial_library()
+    installed = await install_app(
+        workspace_id=ws.id,
+        library_cp_id=library.id,
+        actor_id=actor,
+        include_seed_data=False,
+    )
+    app_id = installed["app_id"]
+    assert await list_entitlements(workspace_id=ws.id) == []
+    # Most catalog packages use the installation slug as the default key;
+    # compiled definitions do not retain that library identity.
+    app_node = await App.get(app_id)
+    definition = await get_active_application_definition(app_node)
+    definition.canonical_manifest["package"].pop("slug", None)
+    definition.canonical_manifest["package"].pop("entitlement_key", None)
+    await definition.save()
+    assert (await locate_resources("app", [app_id]))[app_id] is not None
+    await pause_app(app_id=app_id, actor_id=actor)
+    await resume_app(app_id=app_id, actor_id=actor)
+    monkeypatch.setattr(host_hooks, "_entitlement_access_resolver", None)
+    await rehydrate_all_installed_bundles()
+    assert (await App.get(app_id)).lifecycle_state == "paused"
+    with pytest.raises(EntitlementRequiredError):
+        await resume_app(app_id=app_id, actor_id=actor)
+    assert await list_entitlements(workspace_id=ws.id) == []
+
+
+@pytest.mark.contract
 def test_commercial_package_class_resolves():
     """Commercial fixture resolves to package.class commercial_app."""
     assert COMMERCIAL.is_dir()

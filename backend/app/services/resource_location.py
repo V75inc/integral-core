@@ -396,6 +396,15 @@ class ResourceLocationWalker(Walker):
         if state not in self.allowed_app_states:
             self.valid = False
             return
+        if self.allowed_app_states == ACTIVE_APP_STATES:
+            from app.api.errors import EntitlementRequiredError
+            from app.services.entitlements import require_installed_app_entitlement
+
+            try:
+                await require_installed_app_entitlement(here)
+            except EntitlementRequiredError:
+                self.valid = False
+                return
         if not await self.check_workspace_catalog(here, "apps"):
             self.valid = False
             return
