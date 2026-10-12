@@ -9,7 +9,12 @@ from jvspatial.api import endpoint
 from pydantic import ValidationError
 
 from app.api.errors import BadRequestError, MissingAuthenticationError
-from app.api.utils import export_node, require_platform_admin, resolve_principal_id
+from app.api.utils import (
+    export_node,
+    platform_admin_admission,
+    require_platform_admin,
+    resolve_principal_id,
+)
 from app.schemas.admin import (
     AdminUserCreate,
     AdminUserDeleteRequest,
@@ -37,14 +42,16 @@ from app.services.user_lifecycle import (
 
 
 @endpoint("/admin/overview", methods=["GET"], auth=True, tags=["Admin"])
+@platform_admin_admission
 async def admin_overview(request: Request) -> Dict[str, Any]:
     """Platform-wide counts for the admin dashboard."""
-    require_platform_admin(request)
+    await require_platform_admin(request)
     overview = await get_admin_overview()
     return overview.model_dump()
 
 
 @endpoint("/admin/users", methods=["GET"], auth=True, tags=["Admin"])
+@platform_admin_admission
 async def admin_list_users(
     request: Request,
     page: int = 1,
@@ -54,7 +61,7 @@ async def admin_list_users(
     platform_admin: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """Paginated platform-wide user directory."""
-    require_platform_admin(request)
+    await require_platform_admin(request)
     result = await list_admin_users(
         page=page,
         per_page=per_page,
@@ -66,9 +73,10 @@ async def admin_list_users(
 
 
 @endpoint("/admin/users", methods=["POST"], auth=True, tags=["Admin"])
+@platform_admin_admission
 async def admin_create_user(request: Request) -> Dict[str, Any]:
     """Create AuthUser + graph User + personal workspace."""
-    require_platform_admin(request)
+    await require_platform_admin(request)
     actor_id = resolve_principal_id(request)
     if not actor_id:
         raise MissingAuthenticationError(message="Authentication required")
@@ -95,20 +103,22 @@ async def admin_create_user(request: Request) -> Dict[str, Any]:
 
 
 @endpoint("/admin/users/{user_id}", methods=["GET"], auth=True, tags=["Admin"])
+@platform_admin_admission
 async def admin_get_user(request: Request, user_id: str) -> Dict[str, Any]:
     """Full admin profile for a user."""
-    require_platform_admin(request)
+    await require_platform_admin(request)
     detail = await get_admin_user_detail(user_id)
     return {"user": detail.model_dump()}
 
 
 @endpoint("/admin/users/{user_id}", methods=["PATCH"], auth=True, tags=["Admin"])
+@platform_admin_admission
 async def admin_patch_user(
     request: Request,
     user_id: str,
 ) -> Dict[str, Any]:
     """Admin update of user profile, roles, or password."""
-    require_platform_admin(request)
+    await require_platform_admin(request)
     actor_id = resolve_principal_id(request)
     if not actor_id:
         raise MissingAuthenticationError(message="Authentication required")
@@ -142,9 +152,10 @@ async def admin_patch_user(
     auth=True,
     tags=["Admin"],
 )
+@platform_admin_admission
 async def admin_deactivate_user(request: Request, user_id: str) -> Dict[str, Any]:
     """Soft-deactivate a user (blocks login)."""
-    require_platform_admin(request)
+    await require_platform_admin(request)
     actor_id = resolve_principal_id(request)
     if not actor_id:
         raise MissingAuthenticationError(message="Authentication required")
@@ -177,9 +188,10 @@ async def admin_deactivate_user(request: Request, user_id: str) -> Dict[str, Any
     auth=True,
     tags=["Admin"],
 )
+@platform_admin_admission
 async def admin_reactivate_user(request: Request, user_id: str) -> Dict[str, Any]:
     """Re-enable a deactivated user."""
-    require_platform_admin(request)
+    await require_platform_admin(request)
     actor_id = resolve_principal_id(request)
     if not actor_id:
         raise MissingAuthenticationError(message="Authentication required")
@@ -206,9 +218,10 @@ async def admin_reactivate_user(request: Request, user_id: str) -> Dict[str, Any
     auth=True,
     tags=["Admin"],
 )
+@platform_admin_admission
 async def admin_promote_user(request: Request, user_id: str) -> Dict[str, Any]:
     """Grant platform admin role."""
-    require_platform_admin(request)
+    await require_platform_admin(request)
     actor_id = resolve_principal_id(request)
     if not actor_id:
         raise MissingAuthenticationError(message="Authentication required")
@@ -235,9 +248,10 @@ async def admin_promote_user(request: Request, user_id: str) -> Dict[str, Any]:
     auth=True,
     tags=["Admin"],
 )
+@platform_admin_admission
 async def admin_demote_user(request: Request, user_id: str) -> Dict[str, Any]:
     """Revoke platform admin role."""
-    require_platform_admin(request)
+    await require_platform_admin(request)
     actor_id = resolve_principal_id(request)
     if not actor_id:
         raise MissingAuthenticationError(message="Authentication required")
@@ -264,12 +278,13 @@ async def admin_demote_user(request: Request, user_id: str) -> Dict[str, Any]:
     auth=True,
     tags=["Admin"],
 )
+@platform_admin_admission
 async def admin_user_deletion_preview(
     request: Request,
     user_id: str,
 ) -> Dict[str, Any]:
     """Pre-flight impact summary for admin hard-delete."""
-    require_platform_admin(request)
+    await require_platform_admin(request)
     user = await resolve_user_for_admin(user_id)
     preview = await get_account_deletion_preview_for_admin(user.id)
     return preview.model_dump()
@@ -281,9 +296,10 @@ async def admin_user_deletion_preview(
     auth=True,
     tags=["Admin"],
 )
+@platform_admin_admission
 async def admin_delete_user(request: Request, user_id: str) -> Dict[str, Any]:
     """Permanently delete a user account (admin action)."""
-    require_platform_admin(request)
+    await require_platform_admin(request)
     actor_id = resolve_principal_id(request)
     if not actor_id:
         raise MissingAuthenticationError(message="Authentication required")
@@ -325,9 +341,10 @@ async def admin_delete_user(request: Request, user_id: str) -> Dict[str, Any]:
     auth=True,
     tags=["Admin"],
 )
+@platform_admin_admission
 async def admin_send_password_reset(request: Request, user_id: str) -> Dict[str, Any]:
     """Email a password-reset link to the target user."""
-    require_platform_admin(request)
+    await require_platform_admin(request)
     actor_id = resolve_principal_id(request)
     if not actor_id:
         raise MissingAuthenticationError(message="Authentication required")

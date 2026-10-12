@@ -10,10 +10,12 @@ from app.models.nodes import App
 
 
 @pytest.mark.asyncio
-async def test_create_app_for_user_library_delegates_to_install():
+async def test_create_app_for_user_library_delegates_to_install(test_user):
     """Library App creation must route through install_app, not blank create."""
     from app.services.app_service import create_app_for_user
+    from app.services.personal_workspace import ensure_personal_workspace
 
+    workspace = await ensure_personal_workspace(test_user)
     lib_app = App(id="app_installed_1")
     install_result = {
         "status": "active",
@@ -26,7 +28,7 @@ async def test_create_app_for_user_library_delegates_to_install():
         patch(
             "app.services.app_service.resolve_workspace_id",
             new_callable=AsyncMock,
-            return_value="ws_1",
+            return_value=workspace.id,
         ),
         patch(
             "app.services.app_service.can_create_app_under_workspace",
@@ -71,16 +73,17 @@ async def test_create_app_for_user_library_delegates_to_install():
         mock_cp_get.return_value = mock_cp
 
         result = await create_app_for_user(
-            "user_1",
+            test_user.id,
             "Ignored Name",
+            workspace_id=workspace.id,
             library_package_id="lib_cp_1",
         )
 
     mock_install.assert_awaited_once()
     call_kwargs = mock_install.await_args.kwargs
-    assert call_kwargs["workspace_id"] == "ws_1"
+    assert call_kwargs["workspace_id"] == workspace.id
     assert call_kwargs["library_cp_id"] == "lib_cp_1"
-    assert call_kwargs["actor_id"] == "user_1"
+    assert call_kwargs["actor_id"] == test_user.id
     assert result is lib_app
 
 

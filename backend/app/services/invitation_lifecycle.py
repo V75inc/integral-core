@@ -9,7 +9,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from datetime import datetime
-from typing import AsyncIterator
+from typing import AsyncIterator, Iterable
 
 from jvspatial.core.context import get_default_context
 
@@ -27,6 +27,7 @@ from app.services.authority_facts import (
 )
 from app.services.authorization_scope import authorization_scope
 from app.services.entry_write_scope import entry_write_scope
+from app.services.identity_admission import identity_admission
 from app.services.sharing import VALID_ROLES
 
 _active_invitation: ContextVar[tuple[str, object] | None] = ContextVar(
@@ -36,11 +37,20 @@ _active_invitation: ContextVar[tuple[str, object] | None] = ContextVar(
 
 @asynccontextmanager
 async def invitation_lifecycle_scope(
-    invitation_id: str, workspace_id: str
+    invitation_id: str,
+    workspace_id: str,
+    *,
+    principal_ids: Iterable[str] = (),
+    include_issuer: bool = False,
 ) -> AsyncIterator[Invitation]:
     """Yield freshly admitted state; callers must commit effects in this scope."""
     caller_context = get_default_context()
-    async with invitation_storage_scope(invitation_id, workspace_id):
+    async with invitation_storage_scope(
+        invitation_id,
+        workspace_id,
+        principal_ids=principal_ids,
+        include_issuer=include_issuer,
+    ):
         invitation = await _read_current_invitation(invitation_id, workspace_id)
         yield invitation
     await invitation.set_context(caller_context)
@@ -48,7 +58,12 @@ async def invitation_lifecycle_scope(
 
 @asynccontextmanager
 async def invitation_storage_scope(
-    invitation_id: str, workspace_id: str, *, legacy_review: bool = False
+    invitation_id: str,
+    workspace_id: str,
+    *,
+    legacy_review: bool = False,
+    principal_ids: Iterable[str] = (),
+    include_issuer: bool = False,
 ) -> AsyncIterator[None]:
     """Hold transition locks; consumers must perform their own strict admission.
 
@@ -61,9 +76,26 @@ async def invitation_storage_scope(
     token = _active_invitation.set((invitation_id, asyncio.current_task()))
     try:
         context = get_default_context()
+        preflight = await primary_node_record(
+            context.database, Invitation, invitation_id
+        )
+        if preflight is None:
+            raise AuthorizationUnavailableError()
+        principals = tuple(principal_ids)
+        issuer = ""
+        if include_issuer and preflight["context"].get("status") == "pending":
+            adopted = (
+                required_node_text(preflight, "adopted_by_user_id", allow_empty=True)
+                if "adopted_by_user_id" in preflight["context"]
+                or "adopted_by_user_id" in preflight
+                else ""
+            )
+            issuer = adopted or required_node_text(preflight, "invited_by_user_id")
+        participants = principals + ((issuer,) if issuer else ())
         if graph_transaction_available(context.database):
             async with (
                 postgres_graph_transaction(context.database),
+                identity_admission(participants, active_principal_ids=principals),
                 authorization_scope(workspace_id, authority_mutation=True),
             ):
                 context = get_default_context()
@@ -71,6 +103,16 @@ async def invitation_storage_scope(
                     context.database, Invitation, invitation_id
                 )
                 if original is None:
+                    raise AuthorizationUnavailableError()
+                if issuer and (
+                    original["context"].get("status")
+                    != preflight["context"].get("status")
+                    or (
+                        original["context"].get("adopted_by_user_id")
+                        or required_node_text(original, "invited_by_user_id")
+                    )
+                    != issuer
+                ):
                     raise AuthorizationUnavailableError()
                 revision = original["context"].get("invitation_revision")
                 if not (
@@ -87,7 +129,10 @@ async def invitation_storage_scope(
                     raise AuthorizationUnavailableError()
                 yield
         else:
-            async with entry_write_scope(f"invitation:{invitation_id}"):
+            async with (
+                entry_write_scope(f"invitation:{invitation_id}"),
+                identity_admission(participants, active_principal_ids=principals),
+            ):
                 yield
     finally:
         _active_invitation.reset(token)

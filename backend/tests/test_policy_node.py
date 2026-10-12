@@ -165,7 +165,7 @@ async def test_policy_registry_create_persists_policy():
     """create_policy persists a Policy with all fields populated (D-04)."""
     from app.services.policy_registry import create_policy, get_policy
 
-    p = await create_policy(
+    p = await _bounded_fixture_policy(
         subject_kind="agent",
         subject_id="a-reg-1",
         scope="track:t-1",
@@ -185,27 +185,19 @@ async def test_policy_registry_create_persists_policy():
 
 
 @pytest.mark.asyncio
-async def test_policy_registry_list_finds_policy_via_fallback_scan():
-    """list_policies_for_subject returns the policy even when no subject Node exists.
+async def test_policy_registry_missing_subject_is_not_an_executable_fallback():
+    """A scalar subject claim cannot activate an unattached legacy Policy."""
+    from app.exceptions import AuthorizationUnavailableError
+    from app.services.policy_registry import create_policy, list_policies_for_subject
 
-    The fallback Policy.find scan covers the AGENTIVE_ENABLED=0 / missing-fixture
-    case — the engine MUST still see the policy by (subject_kind, subject_id).
-    """
-    from app.services.policy_registry import (
-        create_policy,
-        list_policies_for_subject,
+    with pytest.raises(AuthorizationUnavailableError):
+        await create_policy(
+            subject_kind="agent", subject_id="missing", actions=["entry.read"]
+        )
+    await Policy.create(
+        subject_kind="agent", subject_id="missing", actions=["entry.read"]
     )
-
-    p = await create_policy(
-        subject_kind="agent",
-        subject_id="a-list-1",
-        scope="*",
-        actions=["entry.read"],
-    )
-    found = await list_policies_for_subject("agent", "a-list-1")
-    assert any(
-        x.id == p.id for x in found
-    ), "Policy not discoverable by list_policies_for_subject (fallback scan)"
+    assert await list_policies_for_subject("agent", "missing") == []
 
 
 @pytest.mark.asyncio
@@ -216,7 +208,7 @@ async def test_engine_agent_with_read_only_policy_allows_read():
     from app.services import policy_engine as pe
     from app.services.policy_registry import create_policy
 
-    p = await create_policy(
+    p = await _bounded_fixture_policy(
         subject_kind="agent",
         subject_id="a-narrow-allow",
         scope="track:t-1",
@@ -243,7 +235,7 @@ async def test_engine_agent_with_read_only_policy_denies_create():
     from app.services import policy_engine as pe
     from app.services.policy_registry import create_policy
 
-    await create_policy(
+    await _bounded_fixture_policy(
         subject_kind="agent",
         subject_id="a-readonly-deny",
         scope="track:t-2",
@@ -268,7 +260,7 @@ async def test_engine_entry_type_filter_match():
     from app.services import policy_engine as pe
     from app.services.policy_registry import create_policy
 
-    await create_policy(
+    await _bounded_fixture_policy(
         subject_kind="agent",
         subject_id="a-filtered-types",
         scope="track:t-3",
@@ -306,7 +298,7 @@ async def test_engine_tag_filter_match():
     from app.services import policy_engine as pe
     from app.services.policy_registry import create_policy
 
-    await create_policy(
+    await _bounded_fixture_policy(
         subject_kind="agent",
         subject_id="a-filtered-tags",
         scope="track:t-4",
@@ -345,7 +337,7 @@ async def test_engine_inactive_policy_skipped():
     from app.services import policy_engine as pe
     from app.services.policy_registry import create_policy
 
-    await create_policy(
+    await _bounded_fixture_policy(
         subject_kind="agent",
         subject_id="a-inactive",
         scope="*",
@@ -370,7 +362,7 @@ async def test_engine_wildcard_action_allows_all():
     from app.services import policy_engine as pe
     from app.services.policy_registry import create_policy
 
-    await create_policy(
+    await _bounded_fixture_policy(
         subject_kind="agent",
         subject_id="a-wildcard",
         scope="*",
@@ -390,7 +382,9 @@ async def test_engine_wildcard_action_allows_all():
         resource=Resource(kind="user", id="u-1", scope="user:u-1"),
     )
     assert d1.allowed is True
-    assert d2.allowed is True
+    assert (
+        d2.allowed is False
+    )  # No delegated user-record adapter or foreign identity grant.
 
 
 @pytest.mark.asyncio
@@ -401,7 +395,7 @@ async def test_engine_wildcard_resource_action_prefix():
     from app.services import policy_engine as pe
     from app.services.policy_registry import create_policy
 
-    await create_policy(
+    await _bounded_fixture_policy(
         subject_kind="agent",
         subject_id="a-entry-wild",
         scope="*",
@@ -439,7 +433,7 @@ async def test_engine_scope_mismatch_denies():
     from app.services import policy_engine as pe
     from app.services.policy_registry import create_policy
 
-    await create_policy(
+    await _bounded_fixture_policy(
         subject_kind="agent",
         subject_id="a-scope-narrow",
         scope="track:t-1",
@@ -564,13 +558,16 @@ async def test_post_policies_create_happy_path(authenticated_admin_client, test_
     """POST /api/policies — happy path; PolicyResponse with created_by populated."""
     resp = await authenticated_admin_client.post(
         "/api/policies",
-        json={
-            "subject_kind": "agent",
-            "subject_id": "a-rest-1",
-            "scope": "track:t-1",
-            "actions": ["entry.read"],
-            "is_active": True,
-        },
+        json=await _bounded_policy_body(
+            authenticated_admin_client,
+            {
+                "subject_kind": "agent",
+                "subject_id": "a-rest-1",
+                "scope": "track:t-1",
+                "actions": ["entry.read"],
+                "is_active": True,
+            },
+        ),
     )
     assert resp.status_code == 201, resp.text
     body = resp.json()
@@ -578,7 +575,9 @@ async def test_post_policies_create_happy_path(authenticated_admin_client, test_
     assert body["subject_id"] == "a-rest-1"
     assert body["actions"] == ["entry.read"]
     # created_by derives from authenticated principal — T-03-03-T01 mitigation.
-    assert body["created_by"] == _user_id(test_user)
+    current = await authenticated_admin_client.get("/api/auth/me")
+    actor = current.json().get("user", current.json())
+    assert body["created_by"] == (actor.get("user_id") or actor["id"])
     assert body["id"]
     assert body["created_at"]
     assert body["updated_at"]
@@ -666,18 +665,21 @@ async def test_post_policies_emits_change_event(authenticated_admin_client, test
     """
     resp = await authenticated_admin_client.post(
         "/api/policies",
-        json={
-            "subject_kind": "agent",
-            "subject_id": "a-rest-emit",
-            "scope": "*",
-            "actions": ["*"],
-        },
+        json=await _bounded_policy_body(
+            authenticated_admin_client,
+            {
+                "subject_kind": "agent",
+                "subject_id": "a-rest-emit",
+                "scope": "*",
+                "actions": ["*"],
+            },
+        ),
     )
     assert resp.status_code == 201, resp.text
     pid = resp.json()["id"]
 
     audit = await authenticated_admin_client.get(
-        f"/api/audit-log?scope=user:{_user_id(test_user)}"
+        f"/api/audit-log?scope=user:{resp.json()['created_by']}"
     )
     assert audit.status_code == 200, audit.text
     events = audit.json().get("events", [])
@@ -694,7 +696,10 @@ async def test_get_policy_by_id_happy_path(authenticated_admin_client):
     """GET /api/policies/{id} — happy path."""
     create_resp = await authenticated_admin_client.post(
         "/api/policies",
-        json={"subject_kind": "agent", "subject_id": "a-rest-get"},
+        json=await _bounded_policy_body(
+            authenticated_admin_client,
+            {"subject_kind": "agent", "subject_id": "a-rest-get"},
+        ),
     )
     assert create_resp.status_code == 201, create_resp.text
     pid = create_resp.json()["id"]
@@ -721,11 +726,14 @@ async def test_patch_policy_partial_update(authenticated_admin_client):
     """PATCH /api/policies/{id} — partial update + emit policy.update event."""
     create_resp = await authenticated_admin_client.post(
         "/api/policies",
-        json={
-            "subject_kind": "agent",
-            "subject_id": "a-rest-patch",
-            "is_active": True,
-        },
+        json=await _bounded_policy_body(
+            authenticated_admin_client,
+            {
+                "subject_kind": "agent",
+                "subject_id": "a-rest-patch",
+                "is_active": True,
+            },
+        ),
     )
     pid = create_resp.json()["id"]
 
@@ -750,7 +758,10 @@ async def test_patch_policy_extra_field_rejected(authenticated_admin_client):
     """
     create_resp = await authenticated_admin_client.post(
         "/api/policies",
-        json={"subject_kind": "agent", "subject_id": "a-rest-patch-extra"},
+        json=await _bounded_policy_body(
+            authenticated_admin_client,
+            {"subject_kind": "agent", "subject_id": "a-rest-patch-extra"},
+        ),
     )
     pid = create_resp.json()["id"]
 
@@ -779,7 +790,10 @@ async def test_delete_policy_returns_204_and_subsequent_get_404(
     """DELETE /api/policies/{id} — 204 + follow-up GET 404."""
     create_resp = await authenticated_admin_client.post(
         "/api/policies",
-        json={"subject_kind": "agent", "subject_id": "a-rest-delete"},
+        json=await _bounded_policy_body(
+            authenticated_admin_client,
+            {"subject_kind": "agent", "subject_id": "a-rest-delete"},
+        ),
     )
     pid = create_resp.json()["id"]
 
@@ -796,7 +810,10 @@ async def test_list_policies(authenticated_admin_client):
     # Seed one policy so the list is guaranteed non-empty.
     create_resp = await authenticated_admin_client.post(
         "/api/policies",
-        json={"subject_kind": "agent", "subject_id": "a-rest-list"},
+        json=await _bounded_policy_body(
+            authenticated_admin_client,
+            {"subject_kind": "agent", "subject_id": "a-rest-list"},
+        ),
     )
     assert create_resp.status_code == 201
 
@@ -813,11 +830,14 @@ async def test_list_policies_filter_by_subject(authenticated_admin_client):
     """GET /api/policies?subject_kind=...&subject_id=... — filter via list_policies_for_subject."""
     await authenticated_admin_client.post(
         "/api/policies",
-        json={
-            "subject_kind": "agent",
-            "subject_id": "a-rest-listfilter",
-            "actions": ["entry.read"],
-        },
+        json=await _bounded_policy_body(
+            authenticated_admin_client,
+            {
+                "subject_kind": "agent",
+                "subject_id": "a-rest-listfilter",
+                "actions": ["entry.read"],
+            },
+        ),
     )
     resp = await authenticated_admin_client.get(
         "/api/policies?subject_kind=agent&subject_id=a-rest-listfilter"
@@ -880,3 +900,86 @@ async def test_d_05_grep_gate_policies_module_no_offenders():
         f"backend/app/api/policies.py mutation handlers missing emit_change_event: "
         f"{offending}"
     )
+
+
+async def _bounded_fixture_policy(**fields):
+    """Root dialect fixtures and their current creator/target instead of orphans."""
+    from app.agentive.edges import HAS_ORG_AGENT
+    from app.agentive.nodes import AgentConfig
+    from app.models.edges import CONTAINS, IS_MEMBER_OF, OWNS
+    from app.models.nodes import App, Entry, Track, User, Workspace
+    from app.services.app_graph import (
+        catalog_app,
+        catalog_track,
+        catalog_user,
+        catalog_workspace,
+    )
+    from app.services.policy_registry import create_policy
+
+    owner_id = fields.get("created_by") or "u-creator"
+    owner = await User.find_one({"id": owner_id})
+    if owner is None:
+        owner = await User.create(id=owner_id, display_name="Policy issuer")
+        await catalog_user(owner)
+    workspace = await Workspace.create(name="Policy dialect fixture")
+    await catalog_workspace(workspace)
+    await owner.connect(workspace, edge=IS_MEMBER_OF, role="owner")
+    app = await App.create(name="Policy fixture", workspace_id=workspace.id)
+    await catalog_app(app)
+    await owner.connect(app, edge=OWNS)
+    scope = fields.get("scope", "*")
+    track_id = scope.split(":", 1)[1] if scope.startswith("track:") else "t-1"
+    track = await Track.create(
+        id=track_id, title="Policy fixture", workspace_id=workspace.id
+    )
+    await catalog_track(track)
+    await app.connect(track, edge=CONTAINS)
+    await owner.connect(track, edge=OWNS)
+    for entry_id in ["e-1", "e-2", "e-note", "e-q"]:
+        entry = await Entry.create(id=entry_id, title="Fixture", track_id=track.id)
+        await track.connect(entry, edge=CONTAINS)
+    agent = await AgentConfig.create(
+        id=fields["subject_id"],
+        scope="org_facing",
+        facet="org_facing",
+        workspace_id=workspace.id,
+        is_active=True,
+    )
+    await workspace.connect(agent, edge=HAS_ORG_AGENT)
+    fields["created_by"] = owner.id
+    return await create_policy(**fields)
+
+
+async def _bounded_policy_body(client, body):
+    """Use real current owned targets for positive Policy REST exercises."""
+    from uuid import uuid4
+
+    from app.agentive.nodes import AgentConfig
+    from app.models.edges import CONTAINS
+    from app.models.nodes import App
+
+    response = await client.post(
+        "/api/apps", json={"name": f"Policy grant fixture {uuid4().hex[:8]}"}
+    )
+    assert response.status_code in (200, 201), response.text
+    target = response.json().get("app", response.json())
+    app = await App.get(target["id"])
+    subject_id = body["subject_id"]
+    if (
+        body.get("subject_kind", "agent") == "agent"
+        and await AgentConfig.get(subject_id) is None
+    ):
+        agent = await AgentConfig.create(
+            id=subject_id,
+            app_id=app.id,
+            workspace_id=app.workspace_id,
+            scope="org_facing",
+            facet="org_facing",
+            is_active=True,
+        )
+        await app.connect(agent, edge=CONTAINS)
+    out = dict(body)
+    out["scope"] = f"app:{app.id}"
+    if any(action == "*" or action.endswith(".*") for action in out.get("actions", [])):
+        out["actions"] = ["app.read"]
+    return out

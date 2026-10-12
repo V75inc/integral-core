@@ -142,6 +142,24 @@ async def test_invoke_under_policy_and_fail_closed(
 
     me = await authenticated_client.get("/api/auth/me")
     user_id = me.json().get("id") or me.json().get("user", {}).get("id")
+    from uuid import uuid4
+
+    from jvspatial.api.auth.models import User as AuthUser
+
+    from app.services.permissions import get_user_node
+
+    owner_profile = await get_user_node(user_id)
+    assert owner_profile is not None
+    identity = await AuthUser.create(
+        email=f"mcp-owner-{uuid4().hex}@example.com",
+        password_hash="fixture",
+        roles=["user"],
+        is_active=True,
+    )
+    owner_profile.user_id = identity.id
+    owner_profile.email_verified = True
+    owner_profile.verified_email = identity.email
+    await owner_profile.save()
     auth = _stdio_auth()
     connector = await mount_mcp_connector(
         owner_id=user_id,
@@ -166,6 +184,70 @@ async def test_invoke_under_policy_and_fail_closed(
         else:
             text = str(result)
         assert "hello-mcp" in text
+
+        from unittest.mock import AsyncMock, patch
+
+        from app.models.nodes import Workspace
+        from app.schemas.policy import Resource, Subject
+        from app.services.policy_engine import evaluate
+        from app.services.policy_registry import create_policy
+        from app.services.service_delegation import policy_delegation_allowed
+        from tests.test_access_lifecycle import verified_subject
+
+        resource = Resource(
+            kind="connector", id=connector.id, scope=f"connector:{connector.id}"
+        )
+        # A shared-row member may call through the owner's grant but cannot become
+        # its delegator merely by being another active Policy issuer.
+        foreign = await verified_subject(
+            await Workspace.get(workspace_id), role="member"
+        )
+        connector.connection_mode = "shared"
+        await connector.save()
+        assert (
+            await evaluate(
+                subject=Subject(kind="human", id=foreign.id),
+                action="tool.invoke",
+                resource=resource,
+                _dry_run=True,
+            )
+        ).allowed
+        foreign_policy = await create_policy(
+            subject_kind="connector",
+            subject_id=connector.id,
+            scope=resource.scope,
+            actions=["tool.invoke"],
+            created_by=foreign.id,
+        )
+        assert not await policy_delegation_allowed(
+            policy=foreign_policy,
+            subject=Subject(kind="connector", id=connector.id),
+            action="tool.invoke",
+            resource=resource,
+        )
+        identity.is_active = False
+        await identity.save()
+        try:
+            for action in ("tool.invoke", "connector.read"):
+                assert not (
+                    await evaluate(
+                        subject=Subject(kind="connector", id=connector.id),
+                        action=action,
+                        resource=resource,
+                        _dry_run=True,
+                    )
+                ).allowed
+            with patch(
+                "app.agentive.connectors.mcp_proxy.call_remote_tool",
+                new_callable=AsyncMock,
+            ) as remote:
+                with pytest.raises(McpProxyError) as denied:
+                    await invoke_from_spec(echo_spec, {"message": "revoked-owner"}, ctx)
+                assert denied.value.error_code == "policy_denied"
+                remote.assert_not_awaited()
+        finally:
+            identity.is_active = True
+            await identity.save()
 
         # Fail-closed: delete connector Policies → connector subject denies.
         from app.middleware.permissions_cache import policy_decision_clear_for_subject

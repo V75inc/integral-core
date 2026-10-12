@@ -1,6 +1,6 @@
 # Access-control delivery reset
 
-Date: 11 October 2026. Status: authorized execution resumed; R1 primary-proof/policy/directory checkpoint qualified; R2/R3 parallel preparation. Branch: `codex/access-control-review`. Last committed milestone: `cb8670df`. This document governs sequencing and checkpoints; ACCESS_CONTROL_CONTRACT.md remains normative and ACCESS_CONTROL_PLAN.md retains the detailed requirements. No requirement is silently removed.
+Date: 11 October 2026. Status: qualified milestone; user requested push and pause. Branch: `codex/access-control-review`. This milestone builds on committed/pushed `5d0212a2`; the commit containing this document records the next checkpoint. See `docs/ops/qualification/access-control-review/MILESTONE_HANDOFF.md` and `milestone_qualification.json` for tested scope, remaining work and qualification. ACCESS_CONTROL_CONTRACT.md remains normative; no requirement is silently removed.
 
 ## Reassessment
 

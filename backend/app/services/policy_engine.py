@@ -280,6 +280,11 @@ async def _evaluate_human_default(
     (``track:`` / ``app:`` / ``user:``) — humans see anything in a track they
     can view, and mutations cascade through the parent track's edit gate.
     """
+    if action in {"approval.approve", "approval.reject"}:
+        from app.services.approval_authority import can_decide_policy_approval
+
+        return await can_decide_policy_approval(user_id, resource)
+
     rk = resource.kind
     rid = resource.id
     scope_str = resource.scope or ""
@@ -295,6 +300,17 @@ async def _evaluate_human_default(
 
     # Audit-log / event-feed scope dispatch — mirrors Phase 2 _user_permitted_for_scope.
     if action in ("audit_log.read", "event_feed.subscribe"):
+        if scope_str.startswith(("ws:", "workspace:")):
+            from app.services.workspace_permissions import can_access_workspace
+
+            current_role = await can_access_workspace(
+                user_id, scope_str.split(":", 1)[1]
+            )
+            return (
+                current_role in {"owner", "admin"}
+                if action == "audit_log.read"
+                else current_role != "none"
+            )
         if scope_str.startswith("track:"):
             return await can_view_track(user_id, scope_str.split(":", 1)[1])
         if scope_str.startswith("app:"):
@@ -323,6 +339,43 @@ async def _evaluate_human_default(
     sharing_decision = await _evaluate_sharing_human_action(action, resource, user_id)
     if sharing_decision is not None:
         return sharing_decision
+
+    if action in {"app.create", "track.create"}:
+        if rid or rk != action.split(".", 1)[0]:
+            return False
+        prefix, separator, workspace_id = scope_str.partition(":")
+        if prefix != "workspace" or not separator or not workspace_id:
+            return False
+        from app.services.resource_location import locate_resource
+
+        if await locate_resource("workspace", workspace_id) is None:
+            return False
+        from app.services.permissions import (
+            can_create_app_under_workspace,
+            can_create_track_under_workspace,
+        )
+
+        gate = (
+            can_create_app_under_workspace
+            if action == "app.create"
+            else can_create_track_under_workspace
+        )
+        return await gate(user_id, workspace_id)
+
+    if rk == "workspace":
+        if scope_str not in {f"ws:{rid}", f"workspace:{rid}"} or not rid:
+            return False
+        from app.services.workspace_governance import owner_governance_allowed
+        from app.services.workspace_permissions import can_access_workspace
+
+        role = await can_access_workspace(user_id, rid)
+        if action == "workspace.read":
+            return role != "none"
+        if action == "workspace.update":
+            return role == "admin" or (role == "owner" and owner_governance_allowed())
+        if action == "workspace.delete":
+            return role == "owner" and owner_governance_allowed()
+        return False
 
     # Resource-kind dispatch — track/app/entry/view handled by their own
     # can_view_*/can_edit_*/can_delete_* helpers.
@@ -668,6 +721,36 @@ def _is_write_action(action: str) -> bool:
     return True
 
 
+async def _current_write_action(action: str, resource: Resource) -> bool:
+    """Classify App actions from the current declaration, never their spelling."""
+    if not action.startswith("app:"):
+        return _is_write_action(action)
+    from app.exceptions import AuthorizationUnavailableError
+    from app.services.access_delegation import current_definition
+
+    parts = action.split(":", 2)
+    if (
+        len(parts) != 3
+        or resource.kind != "app"
+        or resource.id != parts[1]
+        or resource.scope != f"app:{parts[1]}"
+    ):
+        raise AuthorizationUnavailableError()
+    _, definition = await current_definition(parts[1])
+    specs = (definition["context"]["canonical_manifest"].get("app") or {}).get(
+        "operations", []
+    )
+    matches = [spec for spec in specs if spec.get("key") == parts[2]]
+    if len(matches) != 1 or matches[0].get("kind", "read") not in {
+        "read",
+        "propose",
+        "execute",
+        "destructive",
+    }:
+        raise AuthorizationUnavailableError()
+    return matches[0].get("kind", "read") != "read"
+
+
 async def evaluate_scoped(
     *, scope: ExecutionScope, action: str, resource: Resource
 ) -> Decision:
@@ -754,7 +837,11 @@ async def evaluate(
         re-run on approve replays the agent's original intent.
     """
     # Recursion guard (D-10) — the denial-emit path in Plan 05 sets _internal_actor.
-    if _internal_actor is not None and _internal_actor.kind == "system":
+    if (
+        _internal_actor is not None
+        and _internal_actor.kind == "system"
+        and _internal_actor.id == "policy_engine"
+    ):
         return Decision(allowed=True, reason="system_subject_internal")
 
     # System subject bypass (D-03) — reserved for internal background jobs.
@@ -771,19 +858,43 @@ async def evaluate(
     decision: Decision
 
     if subject.kind == "human":
-        # Default-human path — DELEGATES to existing helpers (POL-03 parity).
-        # See RESEARCH §"Pitfall 1": NEVER reimplement precedence rules here.
-        if _allow_owner_governance:
-            allowed = await _evaluate_human_default(action, resource, subject.id)
-        else:
-            from app.services.workspace_governance import ordinary_authority_only
+        if action.startswith("app:"):
+            from app.services.access_delegation import action_decision
 
-            with ordinary_authority_only():
+            action_app, separator, operation_key = action[4:].rpartition(":")
+            if (
+                not separator
+                or not operation_key
+                or resource.kind != "app"
+                or resource.id != action_app
+                or resource.scope != f"app:{action_app}"
+            ):
+                decision = Decision(allowed=False, reason="action_resource_mismatch")
+            else:
+                decision = await action_decision(
+                    principal_id=subject.id,
+                    app_id=action_app,
+                    operation_key=operation_key,
+                    payload=payload,
+                )
+        else:
+            # Default-human path — DELEGATES to existing helpers (POL-03 parity).
+            # See RESEARCH §"Pitfall 1": NEVER reimplement precedence rules here.
+            if _allow_owner_governance:
                 allowed = await _evaluate_human_default(action, resource, subject.id)
-        decision = Decision(
-            allowed=allowed,
-            reason="default_human_policy" if allowed else "default_human_policy_denied",
-        )
+            else:
+                from app.services.workspace_governance import ordinary_authority_only
+
+                with ordinary_authority_only():
+                    allowed = await _evaluate_human_default(
+                        action, resource, subject.id
+                    )
+            decision = Decision(
+                allowed=allowed,
+                reason=(
+                    "default_human_policy" if allowed else "default_human_policy_denied"
+                ),
+            )
     else:
         # Agents and connectors — graph-local Policy lookup via HAS_POLICY edges
         # (Plan 03-03). Per CONTEXT D-04: fail-closed when no active matching
@@ -813,6 +924,17 @@ async def evaluate(
                 if not ok:
                     mismatch_reason = mismatch_reason or fr
                     continue
+                from app.services.service_delegation import policy_delegation_allowed
+
+                if not await policy_delegation_allowed(
+                    policy=p,
+                    subject=subject,
+                    action=action,
+                    resource=resource,
+                    payload=payload,
+                ):
+                    mismatch_reason = mismatch_reason or "delegator_ceiling_denied"
+                    continue
                 matched = p
                 break
             if matched is not None:
@@ -825,10 +947,22 @@ async def evaluate(
                 # is generally only set on agent subjects, but the engine
                 # guards explicitly on subject.kind == 'agent' to match the
                 # documented CONTEXT scope).
+                from app.services.approved_effect import approved_policy_replay
+
                 if (
                     bool(getattr(matched, "requires_human_approval", False))
-                    and _is_write_action(action)
-                    and subject.kind == "agent"
+                    and await _current_write_action(action, resource)
+                    and (
+                        subject.kind == "agent"
+                        or (action.startswith("app:") and subject.kind == "connector")
+                    )
+                    and not await approved_policy_replay(
+                        subject=subject,
+                        action=action,
+                        resource=resource,
+                        payload=payload,
+                        policy_id=matched.id,
+                    )
                 ):
                     if _dry_run:
                         # Explain path — report intercept without minting
@@ -884,6 +1018,7 @@ async def evaluate(
                             action=action,
                             resource_kind=resource.kind,
                             resource_id=resource.id or "",
+                            resource_scope=resource.scope,
                             payload=payload or {},
                             policy_id=matched.id,
                             status="pending",

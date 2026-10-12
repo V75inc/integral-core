@@ -38,37 +38,36 @@ pytestmark = pytest.mark.smoke
 
 
 async def _user(suffix: str) -> User:
-    user = await User.create(
-        user_id=f"share_user_{suffix}", display_name=f"User {suffix}"
-    )
-    await catalog_user(user)
-    return user
+    return await _user_with_auth_email(f"share-{suffix}@example.com", f"User {suffix}")
 
 
 async def _user_with_auth_email(email: str, display_name: str) -> User:
-    """Graph User linked to an AuthUser with the given email (for invitation accept)."""
-    from datetime import datetime, timezone
-
+    """Create a unique primary identity and its rooted verified graph profile."""
     from jvspatial.api.auth.models import User as AuthUser
 
     from app.services.invitations import _normalize_email
 
     normalized = await _normalize_email(email)
     auth_user = await AuthUser.find_one({"context.email": normalized})
-    if not auth_user:
+    if auth_user is None:
         auth_user = await AuthUser.create(
             email=normalized,
             password_hash="test-hash",
             name=display_name,
+            roles=["user"],
+            is_active=True,
         )
     matches = await User.find({"context.user_id": auth_user.id})
     if matches:
         return matches[0]
-    return await User.create(
+    user = await User.create(
         user_id=auth_user.id,
         display_name=display_name,
-        created_at=datetime.now(timezone.utc).isoformat(),
+        email_verified=True,
+        verified_email=normalized,
     )
+    await catalog_user(user)
+    return user
 
 
 async def _workspace(name: str, kind: str = "organization") -> Workspace:
@@ -82,6 +81,7 @@ async def _space(name: str, workspace_id: str = "") -> App:
         name=name, name_fold=name.casefold(), workspace_id=workspace_id
     )
     await catalog_app(app)
+    await (await Workspace.get(workspace_id)).connect(app, edge=CONTAINS)
     return app
 
 
@@ -194,8 +194,10 @@ async def test_cross_workspace_share_auto_grants_guest_membership():
 async def test_ensure_guest_membership_idempotent():
     user = await _user("guest_idem")
     ws = await _workspace("W")
-    first = await ensure_guest_membership(user, ws.id, "system")
-    second = await ensure_guest_membership(user, ws.id, "system")
+    owner = await _user("guest_idem_owner")
+    await owner.connect(ws, edge=IS_MEMBER_OF, role="owner")
+    first = await ensure_guest_membership(user, ws.id, owner.id)
+    second = await ensure_guest_membership(user, ws.id, owner.id)
     assert first is True
     assert second is False
 
@@ -261,7 +263,8 @@ async def test_departing_member_owns_move_to_workspace_owner():
     assert not await member_ctx.find_edges_between(member.id, track.id, edge_class=OWNS)
     assert await owner_ctx.find_edges_between(owner.id, app.id, edge_class=OWNS)
     assert await owner_ctx.find_edges_between(owner.id, track.id, edge_class=OWNS)
-    assert not await owner_ctx.find_edges_between(
+    # A transfer preserves the successor's independent direct grant lifetime.
+    assert await owner_ctx.find_edges_between(
         owner.id, app.id, edge_class=COLLABORATES_ON
     )
     assert await member_ctx.find_edges_between(member.id, other_app.id, edge_class=OWNS)
@@ -440,8 +443,12 @@ async def test_share_link_redeem_idempotent_for_existing_collab():
     await target.connect(track, edge=COLLABORATES_ON, role="editor")
     minted = await mint_share_link(owner.id, "track", track.id, role="viewer")
     redeemed = await redeem_share_link(target.id, minted["token"])
-    assert redeemed["created_edge"] is False
-    # Existing higher role preserved.
+    assert redeemed["created_edge"] is True
+    repeated = await redeem_share_link(target.id, minted["token"])
+    assert repeated["created_edge"] is False
+    # The new link source and the stronger existing direct source stay independent.
+    assert await resolve_role(target.id, "track", track.id) == "editor"
+    await revoke_share_link(owner.id, minted["share_link"]["id"])
     assert await resolve_role(target.id, "track", track.id) == "editor"
 
 
@@ -453,9 +460,9 @@ async def test_revoked_link_cannot_be_redeemed():
     await owner.connect(track, edge=OWNS)
     minted = await mint_share_link(owner.id, "track", track.id, role="viewer")
     await revoke_share_link(owner.id, minted["share_link"]["id"])
-    from app.api.errors import BadRequestError
+    from app.api.errors import ResourceConflictError
 
-    with pytest.raises(BadRequestError):
+    with pytest.raises(ResourceConflictError):
         await redeem_share_link(target.id, minted["token"])
 
 

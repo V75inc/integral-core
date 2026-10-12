@@ -147,7 +147,10 @@ async def test_sdk_update_routes_revision_and_deferred_events_to_shared_command(
     )
 
     async def shared_update(**kwargs):
-        assert operation_write_active()
+        # Generic SDK writes must retain canonical guards, not a blanket bypass.
+        assert not operation_write_active()
+        assert kwargs["user_id"] == context.user_id
+        assert kwargs["actor_kind"] == context.actor_kind
         assert kwargs["expected_record_revision"] == 1
         assert kwargs["workspace_id"] == context.workspace_id
         assert kwargs["change_event_sink"] == context.deferred_change_events.append

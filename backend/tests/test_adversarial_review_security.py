@@ -98,7 +98,7 @@ async def test_public_intent_mint_and_redeem_paths():
     assert link is not None
     assert link_intent(link) == "public"
 
-    with pytest.raises(BadRequestError, match="public viewing"):
+    with pytest.raises(BadRequestError, match="cannot grant signed-in access"):
         await redeem_share_link(other.id, pub["token"])
 
 

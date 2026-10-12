@@ -289,7 +289,7 @@ async def create_notification(
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
 
-    require_platform_admin(request)
+    await require_platform_admin(request)
 
     # Phase 9 Plan 09-03a (NOTIF-02) — delegate to the notification router
     # (single-entry discipline, mirrors policy_engine.evaluate). The previous

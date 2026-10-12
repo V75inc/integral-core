@@ -1,34 +1,44 @@
 """Join membership removal to scoped ownership and grant cleanup."""
 
-from app.api.errors import BadRequestError, ResourceNotFoundError
+from app.api.errors import (
+    BadRequestError,
+    InsufficientPermissionsError,
+    ResourceNotFoundError,
+)
 from app.models.edges import IS_MEMBER_OF
 from app.models.nodes import User, Workspace
 from app.services.authority_facts import relationship_flag, relationship_literal
 from app.services.grant_history import grant_baseline, record_grant_change
 from app.services.ownership_transfer import reassign_departing_member_ownership
-from app.services.permissions_process_cache import invalidate_user_aliases
 from app.services.sharing import revoke_workspace_resource_grants
 from app.services.workspace_permissions import read_member_facts
 
 
 async def remove_workspace_membership(
-    *, member: User, workspace_id: str, clear_active_workspace: bool = False
+    *,
+    member: User,
+    workspace_id: str,
+    clear_active_workspace: bool = False,
+    actor_id: str = "",
 ) -> bool:
-    """Clean up before deleting membership; PostgreSQL commits all changes together.
-
-    JSON/memory development stores have no graph transaction. Their ordered
-    fallback preserves membership on a cleanup failure and keeps replacement
-    ownership edges present if a transfer is interrupted.
-    """
-    from app.services.membership_write_scope import membership_write_scope
-
-    async with membership_write_scope(workspace_id):
-        current = await User.find_one({"id": member.id})
-        removed = await _remove_membership(
-            current, workspace_id, clear_active_workspace
+    """Use canonical current actor admission rather than an unauthenticated writer."""
+    if not actor_id:
+        raise InsufficientPermissionsError(
+            message="Explicit departing actor identity required"
         )
-    invalidate_user_aliases(member)
-    return removed
+    from app.services.workspace_membership import remove_member
+
+    context = await member.get_context()
+    before = await context.find_edges_between(
+        member.id, workspace_id, edge_class=IS_MEMBER_OF
+    )
+    await remove_member(
+        actor_id=actor_id,
+        workspace_id=workspace_id,
+        member_id=member.id,
+        leave=clear_active_workspace,
+    )
+    return bool(before)
 
 
 async def _remove_membership(
@@ -61,6 +71,9 @@ async def _remove_membership(
     )
     await reassign_departing_member_ownership(member, workspace_id)
     await revoke_workspace_resource_grants(member, workspace_id)
+    from app.services.share_grant_sources import revoke_workspace_share_sources
+
+    await revoke_workspace_share_sources(member.id, workspace_id)
     if clear_active_workspace and member.active_workspace_id == workspace_id:
         member.active_workspace_id = ""
         member.active_workspace_id_explicit = False

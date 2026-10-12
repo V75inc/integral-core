@@ -119,7 +119,12 @@ async def respond_to_invitation_notification(
     caller_context = get_default_context()
     outbox_id = None
     async with (
-        invitation_lifecycle_scope(invitation_id, workspace_id) as current,
+        invitation_lifecycle_scope(
+            invitation_id,
+            workspace_id,
+            principal_ids=(user_id,),
+            include_issuer=action == "accept",
+        ) as current,
         entry_write_scope(f"notification-response:{notification_id}"),
     ):
         user = await get_user_node(user_id)

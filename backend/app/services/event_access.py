@@ -166,7 +166,10 @@ async def can_release_event(
         if kind == "workspace":
             from app.services.workspace_permissions import can_access_workspace
 
-            return await can_access_workspace(user_id, resource_id) != "none"
+            return scope in {
+                f"ws:{resource_id}",
+                f"workspace:{resource_id}",
+            } and await can_access_workspace(user_id, resource_id) in {"owner", "admin"}
         # Other snapshots need a declared resource audience. A caller's own
         # event scope is not blanket permission for arbitrary embedded data.
         return False

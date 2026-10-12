@@ -24,12 +24,13 @@ from __future__ import annotations
 
 import pytest
 
-from app.models.edges import CONTAINS, HAS_OPERATIONAL_MODEL
-from app.models.nodes import App, OperationalModel, Track, Workspace
+from app.models.edges import CONTAINS, HAS_OPERATIONAL_MODEL, IS_MEMBER_OF, OWNS
+from app.models.nodes import App, OperationalModel, Track, User, Workspace
 from app.services.app_deletion import delete_track_and_nested_content
 from app.services.app_graph import (
     catalog_app,
     catalog_track,
+    catalog_user,
     catalog_workspace,
     get_track_attached_operational_model,
 )
@@ -72,10 +73,13 @@ async def _build_app_with_template(*, workspace_id: str, template_key: str):
             id=workspace_id, kind="organization", name="Shared model fixture"
         )
     await catalog_workspace(workspace)
+    owner = await User.create(display_name="Shared model owner")
+    await catalog_user(owner)
+    await owner.connect(workspace, edge=IS_MEMBER_OF, role="owner")
     app_node = await App.create(
         name="Shared CP App",
         workspace_id=workspace_id,
-        owner_user_id="user-shared-cp",
+        owner_user_id=owner.id,
     )
     cp = await OperationalModel.create(
         name="Shared CP App Profile",
@@ -90,12 +94,13 @@ async def _build_app_with_template(*, workspace_id: str, template_key: str):
     await app_node.save()
     await workspace.connect(app_node, edge=CONTAINS)
     await catalog_app(app_node)
+    await owner.connect(app_node, edge=OWNS, role="owner")
     return app_node
 
 
 async def _track_inside(app_node: App, *, title: str, workspace_id: str) -> Track:
     track = await Track.create(
-        title=title, owner_id="user-shared-cp", workspace_id=workspace_id
+        title=title, owner_id=app_node.owner_user_id, workspace_id=workspace_id
     )
     await app_node.connect(track, edge=CONTAINS)
     await catalog_track(track)
@@ -126,7 +131,7 @@ async def test_deleting_one_sibling_track_does_not_delete_shared_template_cp():
 
     # Delete only the first anchor track (mirrors deleting a duplicate/test
     # Pay Run mid-session).
-    await delete_track_and_nested_content(anchor1)
+    await delete_track_and_nested_content(anchor1, actor_user_id=app_node.owner_user_id)
 
     # The shared OperationalModel must still exist and still resolve for the
     # sibling that is still using it.
@@ -139,7 +144,7 @@ async def test_deleting_one_sibling_track_does_not_delete_shared_template_cp():
 
 
 @pytest.mark.asyncio
-async def test_deleting_the_last_referencing_track_still_deletes_the_cp():
+async def test_last_track_preserves_rooted_template_until_parent_app_deleted():
     ws = "ws-shared-cp-2"
     app_node = await _build_app_with_template(
         workspace_id=ws, template_key="solo-detail"
@@ -152,9 +157,11 @@ async def test_deleting_the_last_referencing_track_still_deletes_the_cp():
     cp_id = anchor.attached_operational_model_id
     assert cp_id
 
-    await delete_track_and_nested_content(anchor)
+    await delete_track_and_nested_content(anchor, actor_user_id=app_node.owner_user_id)
 
-    # No other Track referenced this CP, so it's still torn down as before —
-    # the fix only guards the SHARED case, it doesn't leak orphan CPs.
-    gone = await OperationalModel.get(cp_id)
-    assert gone is None
+    # The App's declared template remains rooted and available to future anchors.
+    assert await OperationalModel.get(cp_id) is not None
+    from app.services.app_deletion import delete_app_cascade
+
+    await delete_app_cascade(app_node, actor_user_id=app_node.owner_user_id)
+    assert await OperationalModel.get(cp_id) is None

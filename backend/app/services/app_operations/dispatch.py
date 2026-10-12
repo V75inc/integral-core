@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import nullcontext
 from typing import Any, Dict, List, Optional
 
 from app.api.errors import (
@@ -94,7 +95,9 @@ async def list_app_operations(
     """Return public metadata for declarations registered on an app."""
     try:
         execution_scope = ExecutionScope.create(
-            principal_id=user_id, workspace_id=workspace_id, origin="app_declaration"
+            principal_id=user_id,
+            workspace_id=workspace_id,
+            origin="app_declaration",
         )
     except InvalidExecutionScope as exc:
         raise BadRequestError(message="no active workspace") from exc
@@ -107,12 +110,82 @@ async def list_app_operations(
         raise InsufficientPermissionsError(message="App/workspace mismatch")
     await _ensure_app_active(app, user_id)
     ops = list_registered_operations(workspace_id, app_id)
-    return {
-        "app_id": app_id,
-        "operations": [
-            _public_operation(s) for s in sorted(ops.values(), key=lambda o: o["key"])
-        ],
-    }
+    descriptors = []
+    for spec in sorted(ops.values(), key=lambda operation: operation["key"]):
+        descriptor = _public_operation(spec)
+        if spec.get("authorization"):
+            from app.services.access_delegation import (
+                action_decision,
+                current_definition,
+            )
+
+            _, definition = await current_definition(app_id)
+            if spec.get("_definition_fingerprint") != definition["context"].get(
+                "manifest_fingerprint"
+            ):
+                from app.exceptions import AuthorizationUnavailableError
+
+                raise AuthorizationUnavailableError()
+            decision = await action_decision(
+                principal_id=user_id, app_id=app_id, operation_key=spec["key"]
+            )
+            descriptor.update(
+                action=f"app:{app_id}:{spec['key']}",
+                definition_id=definition["id"],
+                allowed=decision.allowed,
+                decision_reason=decision.reason,
+            )
+        descriptors.append(descriptor)
+    return {"app_id": app_id, "operations": descriptors}
+
+
+async def resolve_action_payload(
+    *,
+    user_id: str,
+    workspace_id: str,
+    app_id: str,
+    operation_key: str,
+    spec: dict,
+    payload: dict,
+) -> dict:
+    """Resolve declared selectors read-only before exact current target authorization."""
+    authorization = spec.get("authorization") or {}
+    original_body = dict(payload)
+    body = dict(original_body)
+    if authorization.get("target_resolver"):
+        from app.services.access_delegation import action_role_delegable
+
+        if not await action_role_delegable(
+            principal_id=user_id, app_id=app_id, operation_key=operation_key
+        ):
+            raise InsufficientPermissionsError(
+                message="Current App function role required"
+            )
+        resolver_key = authorization["target_resolver"]
+        resolver_spec = get_workspace_tools(workspace_id).get(resolver_key)
+        if resolver_spec is None or resolver_spec.get("_bundle_slug") != spec.get(
+            "_bundle_slug"
+        ):
+            raise BadRequestError(message="Operation target resolver unavailable")
+        readonly_context = OperationContext(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            app_id=app_id,
+            operation_key=operation_key,
+            scope=f"operation:{app_id}:{operation_key}",
+            bundle_slug=str(spec.get("_bundle_slug") or ""),
+            read_only=True,
+        )
+        resolved = await run_tool(resolver_spec, original_body, readonly_context)
+        declared_keys = {target["input"] for target in authorization.get("targets", [])}
+        if (
+            not isinstance(resolved, dict)
+            or set(resolved) != declared_keys
+            or any(type(value) is not str or not value for value in resolved.values())
+        ):
+            raise BadRequestError(message="Operation targets could not be resolved")
+        body.update(resolved)
+    return body
 
 
 @ordinary_authority_call
@@ -125,11 +198,17 @@ async def invoke_app_operation(
     payload: Optional[Dict[str, Any]] = None,
     idempotency_key: Optional[str] = None,
     correlation_id: Optional[str] = None,
+    subject: Optional[Subject] = None,
 ) -> Dict[str, Any]:
     """Execute a typed operation with policy, validation, and idempotency."""
+    actor_subject = subject or Subject(kind="human", id=user_id)
+    if actor_subject.kind not in {"human", "agent", "connector"}:
+        raise InsufficientPermissionsError(message="Unsupported operation actor")
     try:
         execution_scope = ExecutionScope.create(
-            principal_id=user_id, workspace_id=workspace_id, origin="app_operation"
+            principal_id=actor_subject.id,
+            workspace_id=workspace_id,
+            origin="app_operation",
         )
     except InvalidExecutionScope as exc:
         raise BadRequestError(message="no active workspace") from exc
@@ -145,6 +224,15 @@ async def invoke_app_operation(
     if getattr(app, "workspace_id", None) != workspace_id:
         raise InsufficientPermissionsError(message="App/workspace mismatch")
 
+    if actor_subject.kind != "human":
+        from app.services.app_operation_authority import operation_read_principal
+
+        user_id = await operation_read_principal(
+            subject=actor_subject,
+            workspace_id=workspace_id,
+            app_id=app_id,
+            operation_key=key,
+        )
     ws_role = await can_access_workspace(user_id, workspace_id)
     if ws_role == "none":
         raise InsufficientPermissionsError(message="Access denied")
@@ -155,21 +243,86 @@ async def invoke_app_operation(
     if spec is None:
         raise ResourceNotFoundError(message=f"operation {key!r} not found for app")
 
+    if spec.get("authorization"):
+        from app.exceptions import AuthorizationUnavailableError
+        from app.services.access_delegation import current_definition
+
+        _, active_definition = await current_definition(app_id)
+        if spec.get("_definition_fingerprint") != active_definition["context"].get(
+            "manifest_fingerprint"
+        ):
+            raise AuthorizationUnavailableError()
     operation_kind = str(spec.get("kind") or "execute").strip().lower()
     if operation_kind not in _READ_KINDS | _MUTATION_KINDS:
         raise BadRequestError(message=f"unsupported operation kind {operation_kind!r}")
+    original_body = dict(payload or {})
+    validate_input(original_body, spec.get("input_schema") or {})
+    body = await resolve_action_payload(
+        user_id=user_id,
+        workspace_id=workspace_id,
+        app_id=app_id,
+        operation_key=key,
+        spec=spec,
+        payload=original_body,
+    )
+    from app.services.approved_effect import validate_app_replay
+
+    await validate_app_replay(
+        subject=actor_subject,
+        app_id=app_id,
+        operation_key=key,
+        workspace_id=workspace_id,
+        original_input=original_body,
+        resolved_input=body,
+    )
     declared_policy_action = str(spec.get("policy_action") or "app.read").strip()
-    policy_action = declared_policy_action
+    policy_action = (
+        f"app:{app_id}:{key}" if spec.get("authorization") else declared_policy_action
+    )
     if operation_kind in _MUTATION_KINDS and policy_action == "app.read":
         policy_action = "entry.create"
     resource = Resource(kind="app", id=app_id, scope=f"app:{app_id}")
-    decision = await policy_evaluate(
-        subject=Subject(kind="human", id=execution_scope.principal_id),
-        action=policy_action,
-        resource=resource,
-        execution_scope=execution_scope,
-    )
+    if spec.get("authorization"):
+        from app.services.app_operation_authority import operation_decision
+
+        decision, current_author = await operation_decision(
+            subject=actor_subject, app_id=app_id, operation_key=key, payload=body
+        )
+        if decision.allowed:
+            user_id = current_author
+    else:
+        if actor_subject.kind != "human":
+            raise InsufficientPermissionsError(
+                message="Service operations require explicit function declarations"
+            )
+        decision = await policy_evaluate(
+            subject=actor_subject,
+            action=policy_action,
+            resource=resource,
+            execution_scope=execution_scope,
+        )
     if not decision.allowed:
+        if (
+            spec.get("authorization")
+            and actor_subject.kind in {"agent", "connector"}
+            and decision.reason == "requires_human_approval"
+        ):
+            from app.services.app_operation_approval import defer_app_operation
+
+            if not str(idempotency_key or "").strip():
+                raise BadRequestError(
+                    message="idempotency_key is required for a mutating App operation"
+                )
+            return await defer_app_operation(
+                subject=actor_subject,
+                app_id=app_id,
+                operation_key=key,
+                workspace_id=workspace_id,
+                payload=body,
+                original_input=original_body,
+                policy_id=decision.matched_policy_id,
+                idempotency_key=str(idempotency_key).strip(),
+            )
         raise InsufficientPermissionsError(message="Access denied")
     policy_revision = core_modules().policy.revision(
         scope=execution_scope,
@@ -178,13 +331,7 @@ async def invoke_app_operation(
         decision=decision,
     )
 
-    body = dict(payload or {})
-    validate_input(body, spec.get("input_schema") or {})
-
-    from app.services.app_invariant_guards import (
-        reset_operation_write_active,
-        set_operation_write_active,
-    )
+    from app.services.app_operation_authority import operation_permit
     from app.services.app_operations.idempotency import (
         hash_request_payload,
         lookup_idempotent_result,
@@ -192,7 +339,7 @@ async def invoke_app_operation(
     )
     from app.services.app_operations.result_access import authorize_replayed_result
 
-    request_hash = hash_request_payload(body)
+    request_hash = hash_request_payload(original_body)
     idem_key = str(idempotency_key or "").strip()
     # Execution class, not a default policy action, determines whether a
     # declared capability can produce an effect.  A command that omitted its
@@ -220,7 +367,7 @@ async def invoke_app_operation(
             workspace_id=workspace_id,
             app_id=app_id,
             operation_key=key,
-            principal_id=user_id,
+            principal_id=actor_subject.id,
             idempotency_key=idem_key,
             request_hash=request_hash,
         )
@@ -237,6 +384,8 @@ async def invoke_app_operation(
         bundle_slug=str(spec.get("_bundle_slug") or ""),
         app_id=app_id,
         operation_key=key,
+        actor_kind=actor_subject.kind,
+        actor_id=actor_subject.id,
         idempotency_key=idempotency_key,
         correlation_id=correlation_id,
         deferred_change_events=[] if is_durable_command else None,
@@ -247,8 +396,21 @@ async def invoke_app_operation(
     handler_ref = str(spec.get("handler_ref") or "").strip()
 
     async def run_handler() -> Dict[str, Any]:
-        bypass_token = set_operation_write_active(is_durable_command)
-        try:
+        permit_scope = (
+            operation_permit(
+                principal_id=actor_subject.id,
+                workspace_id=workspace_id,
+                app_id=app_id,
+                operation_key=key,
+                payload=body,
+                subject=actor_subject,
+            )
+            if is_durable_command or spec.get("authorization")
+            else nullcontext()
+        )
+        async with permit_scope as bound_permit:
+            if actor_subject.kind != "human":
+                ctx.user_id = bound_permit.delegator_id
 
             async def invoke_handler():
                 if tool_key:
@@ -282,8 +444,18 @@ async def invoke_app_operation(
             if not isinstance(output, dict):
                 output = {"result": output}
             validate_output(output, spec.get("output_schema") or {})
-        finally:
-            reset_operation_write_active(bypass_token)
+            if spec.get("authorization"):
+                from app.services.app_operation_authority import current_operation_actor
+
+                if not await current_operation_actor(
+                    subject=actor_subject,
+                    workspace_id=workspace_id,
+                    app_id=app_id,
+                    operation_key=key,
+                ):
+                    raise InsufficientPermissionsError(
+                        message="Current function authority required before result release"
+                    )
 
         return await build_result(output)
 
@@ -387,7 +559,7 @@ async def invoke_app_operation(
             workspace_id=workspace_id,
             app_id=app_id,
             operation_key=key,
-            principal_id=user_id,
+            principal_id=actor_subject.id,
             idempotency_key=idem_key,
         )
         try:
@@ -405,9 +577,13 @@ async def invoke_app_operation(
             raise OperationTransactionUnavailableError() from exc
         if not execution.replayed:
             for sequence, _event in enumerate(ctx.deferred_change_events or []):
-                await deliver_operation_event(
-                    outbox_id=event_outbox_id(identity, sequence)
+                from app.services.approved_effect import (
+                    defer_approved_operation_delivery,
                 )
+
+                outbox_id = event_outbox_id(identity, sequence)
+                if not await defer_approved_operation_delivery(outbox_id):
+                    await deliver_operation_event(outbox_id=outbox_id)
         else:
             await authorize_replayed_result(
                 execution.result,
@@ -428,7 +604,7 @@ async def invoke_app_operation(
             workspace_id=workspace_id,
             app_id=app_id,
             operation_key=key,
-            principal_id=user_id,
+            principal_id=actor_subject.id,
             idempotency_key=idem_key,
             request_hash=request_hash,
             result=result,
@@ -449,6 +625,10 @@ def operations_from_canonical(
     out: List[Dict[str, Any]] = []
     for op in raw:
         item = dict(op)
+        if item.get("authorization"):
+            from app.services.application_definitions import definition_fingerprint
+
+            item["_definition_fingerprint"] = definition_fingerprint(canonical)
         ref = str(item.get("handler_ref") or "").strip()
         if ref:
             item["handler_ref"] = _normalize_handler_ref(

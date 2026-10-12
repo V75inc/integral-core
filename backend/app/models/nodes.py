@@ -1017,6 +1017,7 @@ class Policy(Node):
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     created_by: Optional[str] = None
+    delegation_revision: int = Field(default=1, ge=1)
 
 
 class Conflict(Node):
@@ -1065,6 +1066,9 @@ class Approval(Node):
     action: str = ""  # PolicyAction member (enforced at Pydantic boundary)
     resource_kind: str = ""
     resource_id: str = ""
+    resource_scope: str = ""
+    app_operation: Dict[str, Any] = Field(default_factory=dict)
+    decision_revision: int = Field(default=0, ge=0)
     payload: Dict[str, Any] = Field(default_factory=dict)
     policy_id: str = ""
     created_at: str = ""

@@ -1,0 +1,164 @@
+integral_operational_model_version: 3
+scope: app
+package:
+  name: Reference Review Queue
+  slug: reference-review-queue
+  class: community_app
+  version: 1.0.0
+  trust_tier: trusted
+  publisher: Integral Foundation
+  description: External reference App exercising explicit function delegation and
+    separation of duty.
+app:
+  description: Reference Review Queue
+  tracks:
+  - key: records
+    name: Records
+    entry_types:
+    - key: submission
+      name: Submission
+      fields:
+      - key: review_state
+        name: Decision state
+        type: select
+        enum:
+        - pending
+        - approved
+        required: true
+      - key: editor_note
+        name: Editor note
+        type: text
+      - key: routing_configuration
+        name: Routing configuration
+        type: text
+  tools:
+  - key: approve
+    name: Approve
+    description: Run an exact declared transition.
+    handler_ref: tools.actions:approve
+    parameters_schema:
+      type: object
+      properties:
+        entry_id:
+          type: string
+      required:
+      - entry_id
+      additionalProperties: false
+  - key: edit
+    name: Edit
+    description: Apply the editor function.
+    handler_ref: tools.actions:edit
+    parameters_schema: &id001
+      type: object
+      properties:
+        entry_id:
+          type: string
+        value:
+          type: string
+          maxLength: 4096
+      required:
+      - entry_id
+      - value
+      additionalProperties: false
+  - key: configure
+    name: Configure
+    description: Apply the configuration-admin function.
+    handler_ref: tools.actions:configure
+    parameters_schema: &id002
+      type: object
+      properties:
+        entry_id:
+          type: string
+        value:
+          type: string
+          maxLength: 4096
+      required:
+      - entry_id
+      - value
+      additionalProperties: false
+  operations:
+  - key: approve
+    name: Approve
+    kind: execute
+    tool: approve
+    policy_action: entry.update
+    idempotency_key: required
+    authorization:
+      version: 1
+      roles:
+      - reviewer
+      targets:
+      - input: entry_id
+        kind: entry
+      conditions:
+      - attribute: entry.author_id
+        operator: ne
+        principal: true
+      - attribute: entry.custom_fields
+        field: review_state
+        operator: eq
+        value: pending
+      mutations:
+      - entry_type: submission
+        kind: update
+        fields:
+        - review_state
+    input_schema:
+      type: object
+      properties:
+        entry_id:
+          type: string
+      required:
+      - entry_id
+      additionalProperties: false
+  - key: edit
+    name: Edit
+    kind: execute
+    tool: edit
+    policy_action: entry.update
+    idempotency_key: required
+    authorization:
+      version: 1
+      roles:
+      - editor
+      targets:
+      - input: entry_id
+        kind: entry
+      mutations:
+      - entry_type: submission
+        kind: update
+        fields:
+        - editor_note
+    input_schema: *id001
+  - key: configure
+    name: Configure
+    kind: execute
+    tool: configure
+    policy_action: entry.update
+    idempotency_key: required
+    authorization:
+      version: 1
+      roles:
+      - configuration-admin
+      targets:
+      - input: entry_id
+        kind: entry
+      mutations:
+      - entry_type: submission
+        kind: update
+        fields:
+        - routing_configuration
+    input_schema: *id002
+  protected_state:
+    submission:
+      fields:
+      - review_state
+      - editor_note
+      - routing_configuration
+      top_level:
+      - status
+      deny_delete: true
+      operations:
+      - approve
+      - edit
+      - configure

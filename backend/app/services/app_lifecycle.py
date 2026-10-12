@@ -646,7 +646,7 @@ async def install_app(
         await txn.checkpoint("app_create", app_id=app_node.id)
         txn.record(
             "app_create",
-            lambda app=app_node: _safe_destroy(app),  # type: ignore[misc, arg-type]
+            lambda app=app_node: _safe_destroy(app, actor_user_id=actor_id),  # type: ignore[misc, arg-type]
         )
 
         # OWNS edge + catalog registration. Unconditional: skipping the wire
@@ -696,7 +696,7 @@ async def install_app(
         created_tracks = await _materialize_tracks_for_app(app_node, actor_id)
         txn.record(
             "tracks_create",
-            lambda tracks=created_tracks: _delete_tracks(tracks),  # type: ignore[misc, arg-type]
+            lambda tracks=created_tracks: _delete_tracks(tracks, actor_user_id=actor_id),  # type: ignore[misc, arg-type]
         )
 
         # Step 7: Register skills (Plan 10-04).
@@ -767,7 +767,7 @@ async def install_app(
         if seed_pref:
             txn.record(
                 "seeds_plant",
-                lambda app_id=app_node.id: _unplant_seeds(app_id),  # type: ignore[misc, arg-type]
+                lambda app_id=app_node.id: _unplant_seeds(app_id, actor_user_id=actor_id),  # type: ignore[misc, arg-type]
             )
 
         # Phase 30 (DR-30-01 + DR-30-02) — register bundle tools + hooks
@@ -1105,7 +1105,7 @@ async def _register_agents_from_manifest(
 # ---------------------------------------------------------------------------
 
 
-async def _safe_destroy(node) -> None:
+async def _safe_destroy(node, *, actor_user_id: str = "") -> None:
     """Best-effort node removal wrapped to absorb errors.
 
     An ``App`` goes through ``delete_app_cascade`` so its attached
@@ -1118,7 +1118,7 @@ async def _safe_destroy(node) -> None:
         if isinstance(node, App):
             from app.services.app_deletion import delete_app_cascade
 
-            await delete_app_cascade(node)
+            await delete_app_cascade(node, actor_user_id=actor_user_id)
         else:
             await node.delete(cascade=False)
     except Exception:
@@ -1929,6 +1929,7 @@ async def uninstall_app(
     actor_id: str,
     archive: bool = True,
     reason: Optional[str] = None,
+    _change_event_sink=None,
 ) -> Dict[str, Any]:
     """Uninstall an App. Archive-by-default; dependents always hard-block.
 
@@ -1972,7 +1973,7 @@ async def uninstall_app(
     if not archive:
         try:
             await purge_app_with_bundle_teardown(
-                app_node, bundle_slug=bundle_slug_for_unregister
+                app_node, bundle_slug=bundle_slug_for_unregister, actor_user_id=actor_id
             )
         except Exception as e:
             logger.warning(
@@ -1980,6 +1981,7 @@ async def uninstall_app(
                 app_id,
                 e,
             )
+            raise
     else:
         app_node.lifecycle_state = "uninstalled"
         app_node.updated_at = utc_now_iso()
@@ -1993,17 +1995,21 @@ async def uninstall_app(
     if reason:
         details_payload["reason"] = reason
 
-    await emit_change_event(
-        actor_kind="human" if actor_id and actor_id != "system" else "system",
-        actor_id=actor_id or "system",
-        action="app.uninstalled",  # type: ignore[arg-type]
-        resource_type="App",
-        resource_id=app_id,
-        before={"lifecycle_state": pre_state},
-        after={"lifecycle_state": "uninstalled" if archive else "deleted"},
-        scope=f"app:{app_id}",
-        details=details_payload,
-    )
+    event = {
+        "actor_kind": "human" if actor_id and actor_id != "system" else "system",
+        "actor_id": actor_id or "system",
+        "action": "app.uninstalled",
+        "resource_type": "App",
+        "resource_id": app_id,
+        "before": {"lifecycle_state": pre_state},
+        "after": {"lifecycle_state": "uninstalled" if archive else "deleted"},
+        "scope": f"app:{app_id}",
+        "details": details_payload,
+    }
+    if _change_event_sink is not None:
+        _change_event_sink(event)
+    else:
+        await emit_change_event(**event)
     logger.info(
         "uninstall_app: app %s uninstalled (archive=%s, pre_state=%s, "
         "nulled_refs=%d, archived_sources=%d)",
@@ -2092,7 +2098,7 @@ async def unregister_app_bundle(*, workspace_id: str, bundle_slug: str) -> None:
 
 
 async def purge_app_with_bundle_teardown(
-    app_node: App, *, bundle_slug: Optional[str] = None
+    app_node: App, *, bundle_slug: Optional[str] = None, actor_user_id: str = ""
 ) -> Tuple[int, int]:
     """Cascade-delete an App AND tear down its bundle registrations.
 
@@ -2117,10 +2123,9 @@ async def purge_app_with_bundle_teardown(
     slug = (
         bundle_slug if bundle_slug is not None else await _resolve_bundle_slug(app_node)
     )
-    try:
-        return await delete_app_cascade(app_node)
-    finally:
-        await unregister_app_bundle(workspace_id=workspace_id, bundle_slug=slug)
+    result = await delete_app_cascade(app_node, actor_user_id=actor_user_id)
+    await unregister_app_bundle(workspace_id=workspace_id, bundle_slug=slug)
+    return result
 
 
 async def _collect_cascade_refs(

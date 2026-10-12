@@ -173,23 +173,14 @@ async def rooted_graph():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("changed", ["scope", "tags", "entry_type"])
 async def test_policy_memo_distinguishes_complete_resource(changed, monkeypatch):
-    policy = SimpleNamespace(
-        id="p",
-        is_active=True,
-        scope="track:allowed",
-        actions=["entry.read"],
-        entry_types=["allowed"],
-        tags=["allowed"],
-        requires_human_approval=False,
+    owner, agent, policy, track, entry = await rooted_policy_fixture(
+        entry_types=["allowed"], tags=["allowed"]
     )
-    monkeypatch.setattr(
-        pe, "_find_policies_for_subject", AsyncMock(return_value=[policy])
-    )
-    subject = Subject(kind="agent", id="perimeter-agent")
+    subject = Subject(kind="agent", id=agent.id)
     resource = Resource(
         kind="entry",
-        id="same",
-        scope="track:allowed",
+        id=entry.id,
+        scope=f"track:{track.id}",
         tags=["allowed"],
         entry_type="allowed",
     )
@@ -421,24 +412,54 @@ async def test_workspace_avatar_denies_outsider_before_storage_read(monkeypatch)
 
 @pytest.mark.asyncio
 async def test_policy_reduction_is_seen_within_same_request(monkeypatch):
-    policy = SimpleNamespace(
-        id="p",
-        is_active=True,
-        scope="track:allowed",
-        actions=["entry.read"],
-        entry_types=[],
-        tags=[],
-        requires_human_approval=False,
-    )
-    monkeypatch.setattr(
-        pe, "_find_policies_for_subject", AsyncMock(return_value=[policy])
-    )
+    _, agent, policy, track, entry = await rooted_policy_fixture()
     with isolated_permissions_cache():
         args = dict(
-            subject=Subject(kind="agent", id="perimeter-agent"),
+            subject=Subject(kind="agent", id=agent.id),
             action="entry.read",
-            resource=Resource(kind="entry", id="same", scope="track:allowed"),
+            resource=Resource(kind="entry", id=entry.id, scope=f"track:{track.id}"),
         )
         assert (await pe.evaluate(**args)).allowed
         policy.actions = []
+        await policy.save()
         assert not (await pe.evaluate(**args)).allowed
+
+
+async def rooted_policy_fixture(*, entry_types=None, tags=None):
+    """Use primary rooted subject/grant facts for memo and reduction assertions."""
+    from jvspatial.api.auth.models import User as AuthUser
+
+    from app.agentive.edges import HAS_ORG_AGENT
+    from app.agentive.nodes import AgentConfig
+    from app.services.app_graph import ensure_integral_app_graph
+    from app.services.policy_registry import create_policy
+
+    await ensure_integral_app_graph(include_library=False)
+    owner, _, workspace, _, track, entry = await rooted_graph()
+    identity = await AuthUser.create(
+        email=f"perimeter-{owner.id}@example.com",
+        password_hash="fixture",
+        roles=["user"],
+        is_active=True,
+    )
+    owner.user_id = identity.id
+    owner.email_verified = True
+    owner.verified_email = identity.email
+    await owner.save()
+    agent = await AgentConfig.create(
+        scope="org_facing",
+        facet="org_facing",
+        workspace_id=workspace.id,
+        is_active=True,
+    )
+    await workspace.connect(agent, edge=HAS_ORG_AGENT)
+    policy = await create_policy(
+        subject_kind="agent",
+        subject_id=agent.id,
+        scope=f"track:{track.id}",
+        actions=["entry.read"],
+        created_by=owner.id,
+        entry_types=entry_types or [],
+        tags=tags or [],
+    )
+    return owner, agent, policy, track, entry

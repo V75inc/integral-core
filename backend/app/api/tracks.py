@@ -47,7 +47,6 @@ from app.services.operational_model_runtime import (
     invalidate_manifest_cache,
     synchronize_track_view_default_flags,
 )
-from app.services.ownership_transfer import transfer_track_ownership
 from app.services.pagination import DEFAULT_ENTITY_SORT, paginate_nodes_by_ids
 from app.services.permissions import (
     count_user_accessible_entries,
@@ -640,7 +639,7 @@ async def delete_track(request: Request, track_id: str) -> Dict[str, Any]:
     # See app/services/entry_deletion.py for the rationale.
     from app.services.app_deletion import delete_track_and_nested_content
 
-    await delete_track_and_nested_content(track)
+    await delete_track_and_nested_content(track, actor_user_id=user_id)
 
     # D-05 single emission path. Sync inline emit before HTTP response (D-06).
     await emit_change_event(
@@ -1329,32 +1328,14 @@ async def post_transfer_track_ownership(
         raise InsufficientPermissionsError(
             message="Only the track owner can transfer ownership",
         )
-    prior_track = await Track.get(track_id)
-    prior_snapshot = await export_node(prior_track) if prior_track else None  # D-03
-    track = await transfer_track_ownership(
-        track_id=track_id,
-        acting_user_id=user_id,
-        new_owner_user_id=new_owner_user_id,
-    )
+    from app.services.ownership_consent import request_ownership_transfer
 
-    # D-05 single emission path. Sync inline emit before HTTP response (D-06).
-    await emit_change_event(
-        actor_kind="human",
+    return await request_ownership_transfer(
         actor_id=user_id,
-        action="track.update",
-        resource_type="Track",
-        resource_id=track.id,
-        before=prior_snapshot,
-        after=await export_node(track),
-        scope=f"track:{track.id}",
+        resource_type="track",
+        resource_id=track_id,
+        recipient_id=new_owner_user_id,
     )
-
-    return {
-        "message": "Ownership transferred",
-        "track": await export_node(track),
-        "track_id": track_id,
-        "new_owner_user_id": new_owner_user_id,
-    }
 
 
 # ---------------------------------------------------------------------------

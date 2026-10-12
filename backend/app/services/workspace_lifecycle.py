@@ -1,27 +1,17 @@
-"""Workspace lifecycle helpers: cascade-aware delete.
+"""Owner-only rooted workspace deletion; rehome requires explicit destination.
 
-Two delete modes:
-
-* **unlink** (default) — disassociate contained Apps and Tracks by
-  clearing ``workspace_id`` and removing their branch-registry CATALOGS
-  edge.  The Apps/Tracks themselves are preserved as user-owned.
-* **cascade** — fully delete contained Apps (via
-  ``purge_app_with_bundle_teardown``, which wraps ``delete_app_cascade``
-  with the bundle hook/tool unregister) and standalone Tracks (via
-  ``delete_track_and_nested_content``).  Tracks contained by an App
-  are handled by the App cascade.  ChatThreads in the workspace's
-  branch registry are deleted in both modes (no unlink semantics — a
-  thread without a workspace would have nowhere to live).
+Nonempty implicit unlink is rejected. Explicit cascade deletes canonical data
+and propagates all failures; PostgreSQL joins graph effects to one owner fence.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import List, Tuple, Type
 
 from jvspatial.core import Node
 
+from app.api.errors import InsufficientPermissionsError, ResourceConflictError
 from app.models.edges import CATALOGS
 from app.models.nodes import (
     Apps,
@@ -31,6 +21,9 @@ from app.models.nodes import (
     Workspace,
 )
 from app.services.app_deletion import delete_track_and_nested_content
+from app.services.membership_write_scope import membership_write_scope
+from app.services.workspace_governance import owner_governance_allowed
+from app.services.workspace_permissions import can_access_workspace
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +38,7 @@ async def _branch_for(workspace_id: str, kind: str):  # type: ignore[no-untyped-
         "chat_threads": ChatThreads,
     }
     cls = classes[kind]
-    return await cls.get(_workspace_branch_id(workspace_id, kind))
+    return await cls.find_one({"id": _workspace_branch_id(workspace_id, kind)})
 
 
 async def _collect_contained(workspace: Workspace, *, kind: str) -> List:
@@ -55,11 +48,44 @@ async def _collect_contained(workspace: Workspace, *, kind: str) -> List:
     # in the codebase passes. Filtering on "App" matched NOTHING, so this
     # helper returned an empty list and ``delete_workspace_cascade`` silently
     # neither cascaded nor unlinked any App.
-    target_node = {"apps": "WorkspaceApp", "tracks": "Track"}[kind]
+    from jvspatial.core.context import get_default_context
+
+    from app.exceptions import AuthorizationUnavailableError
+    from app.models.nodes import App, Track
+    from app.services.app_deletion import _named_children
+    from app.services.resource_location import KNOWN_APP_STATES, locate_resources
+
+    model = {"apps": App, "tracks": Track}[kind]
+    database = get_default_context().database
+    primary = await database.find(
+        "node",
+        {"entity": model._entity_name(), "context.workspace_id": workspace.id},
+        limit=10001,
+    )
+    if len(primary) > 10000:
+        raise AuthorizationUnavailableError()
     branch = await _branch_for(workspace.id, kind)
     if branch is None:
+        if primary:
+            raise AuthorizationUnavailableError()
         return []
-    return list(await branch.nodes(edge=[CATALOGS], node=[target_node]))
+    rows = await _named_children(branch, [CATALOGS])
+    if any(not isinstance(node, model) for node in rows) or {
+        node.id for node in rows
+    } != {row["id"] for row in primary}:
+        raise AuthorizationUnavailableError()
+    locations = await locate_resources(
+        "app" if kind == "apps" else "track",
+        [node.id for node in rows],
+        allowed_app_states=KNOWN_APP_STATES,
+        selected_records=primary,
+        workspace_hints=[workspace.id],
+    )
+    for node in rows:
+        location = locations.get(node.id)
+        if location is None or location.workspace_id != workspace.id:
+            raise AuthorizationUnavailableError()
+    return rows
 
 
 async def _collect_chat_threads(workspace: Workspace) -> List[ChatThread]:
@@ -69,40 +95,48 @@ async def _collect_chat_threads(workspace: Workspace) -> List[ChatThread]:
     return list(await branch.nodes(edge=[CATALOGS], node=["ChatThread"]))
 
 
-async def _unlink_node(workspace: Workspace, node) -> None:  # type: ignore[type-arg]
-    """Remove ``node`` from its workspace branch registry and clear the field."""
-    ctx = await workspace.get_context()
-    for kind in ("apps", "tracks"):
-        branch = await _branch_for(workspace.id, kind)
-        if branch is None:
-            continue
-        catalog_edges = await ctx.find_edges_between(
-            branch.id, node.id, edge_class=CATALOGS
-        )
-        if catalog_edges:
-            await asyncio.gather(*(e.delete() for e in catalog_edges))
-    if getattr(node, "workspace_id", None):
-        node.workspace_id = ""
-        try:
-            await node.save()
-        except Exception:
-            logger.exception("clear workspace_id on %s", getattr(node, "id", ""))
-
-
 async def _delete_branches(workspace: Workspace) -> None:
     """Delete the three per-workspace branch registry nodes."""
     for kind in ("apps", "tracks", "chat_threads"):
         branch = await _branch_for(workspace.id, kind)
         if branch is None:
             continue
-        try:
-            await branch.delete()
-        except Exception:
-            logger.exception("delete branch %s for workspace %s", kind, workspace.id)
+        await branch.delete()
 
 
 async def delete_workspace_cascade(
-    workspace: Workspace, *, cascade: bool = False
+    workspace: Workspace, *, cascade: bool = False, actor_id: str = ""
+) -> Tuple[int, int, int, int]:
+    """Current owner-only deletion; nonempty implicit unlink is rejected."""
+    if not actor_id:
+        raise InsufficientPermissionsError(
+            message="Explicit workspace owner identity required"
+        )
+    async with membership_write_scope(workspace.id, principal_ids=(actor_id,)):
+        current = await Workspace.find_one({"id": workspace.id})
+        if (
+            current is None
+            or await can_access_workspace(actor_id, workspace.id) != "owner"
+            or not owner_governance_allowed()
+        ):
+            raise InsufficientPermissionsError(
+                message="Only the workspace owner may delete"
+            )
+        from app.services.resource_cascade import resource_cascade_scope
+
+        async with resource_cascade_scope(
+            actor_id=actor_id,
+            resource_type="workspace",
+            resource_id=current.id,
+            workspace_id=current.id,
+        ):
+            return await _delete_admitted_workspace(
+                current, cascade=cascade, actor_id=actor_id
+            )
+
+
+async def _delete_admitted_workspace(
+    workspace: Workspace, *, cascade: bool, actor_id: str
 ) -> Tuple[int, int, int, int]:
     """Delete a Workspace with either unlink (default) or cascade semantics.
 
@@ -113,12 +147,45 @@ async def delete_workspace_cascade(
     """
     apps = await _collect_contained(workspace, kind="apps")
     tracks = await _collect_contained(workspace, kind="tracks")
+    from app.models.edges import CONTAINS
+
+    standalone = []
+    for track in tracks:
+        parents = await track.nodes(
+            edge=[CONTAINS], node=["WorkspaceApp"], direction="in", limit=2
+        )
+        if not parents:
+            standalone.append(track)
+    tracks = standalone
     threads = await _collect_chat_threads(workspace)
+    from app.models.edges import HAS_AUTHORIZATION_STATE, HAS_LIBRARY_MODEL
+    from app.models.nodes import WorkspaceAuthorizationState
+    from app.services.access_delegation import (
+        delete_workspace_delegation_roots,
+        workspace_delegation_roots,
+    )
+
+    delegation_roots = await workspace_delegation_roots(workspace.id)
+    library_models = await workspace.nodes(
+        edge=[HAS_LIBRARY_MODEL],
+        node=["OperationalModel"],
+        direction="out",
+        limit=10001,
+    )
+    if len(library_models) > 10000:
+        from app.exceptions import AuthorizationUnavailableError
+
+        raise AuthorizationUnavailableError()
 
     unlinked_spaces = unlinked_tracks = 0
     deleted_spaces = deleted_tracks = 0
 
+    if not cascade and (apps or tracks or delegation_roots or library_models):
+        raise ResourceConflictError(
+            message="Nonempty workspace requires explicit destination rehome or cascade deletion"
+        )
     if cascade:
+        await delete_workspace_delegation_roots(workspace.id)
         if apps:
             # Not ``delete_app_cascade`` directly — a deleted App whose bundle
             # registered hooks/tools would keep dispatching from the
@@ -127,19 +194,13 @@ async def delete_workspace_cascade(
             # OperationalModel, then unregisters.
             from app.services.app_lifecycle import purge_app_with_bundle_teardown
 
-            await asyncio.gather(*(purge_app_with_bundle_teardown(sp) for sp in apps))
+            for sp in apps:
+                await purge_app_with_bundle_teardown(sp, actor_user_id=actor_id)
             deleted_spaces = len(apps)
         if tracks:
-            await asyncio.gather(*(delete_track_and_nested_content(t) for t in tracks))
+            for track in tracks:
+                await delete_track_and_nested_content(track, actor_user_id=actor_id)
             deleted_tracks = len(tracks)
-    else:
-        if apps:
-            await asyncio.gather(*(_unlink_node(workspace, sp) for sp in apps))
-            unlinked_spaces = len(apps)
-        if tracks:
-            await asyncio.gather(*(_unlink_node(workspace, t) for t in tracks))
-            unlinked_tracks = len(tracks)
-
     if threads:
         from app.services.chat_threads import delete_thread_messages
 
@@ -147,13 +208,27 @@ async def delete_workspace_cascade(
             await delete_thread_messages(thread)
             await thread.delete()
 
-        await asyncio.gather(*(delete_thread(thread) for thread in threads))
+        for thread in threads:
+            await delete_thread(thread)
 
+    if cascade and library_models:
+        from app.services.app_deletion import delete_operational_model_subtree
+
+        for model in library_models:
+            await delete_operational_model_subtree(
+                model, allowed_consumer_ids=frozenset({workspace.id})
+            )
     await _delete_branches(workspace)
+    for state in await workspace.nodes(
+        edge=[HAS_AUTHORIZATION_STATE],
+        node=[WorkspaceAuthorizationState._entity_name()],
+        direction="out",
+        limit=2,
+    ):
+        await state.delete()
+    from app.services.app_deletion import delete_resource_side_cars
 
-    try:
-        await workspace.delete()
-    except Exception:
-        logger.exception("delete workspace %s", getattr(workspace, "id", ""))
+    await delete_resource_side_cars(workspace)
+    await workspace.delete()
 
     return unlinked_spaces, unlinked_tracks, deleted_spaces, deleted_tracks

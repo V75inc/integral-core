@@ -9,7 +9,7 @@ from app.api.errors import (
     InsufficientPermissionsError,
     MissingAuthenticationError,
 )
-from app.api.utils import is_platform_admin, resolve_principal_id
+from app.api.utils import current_platform_admin, resolve_principal_id
 from app.schemas.entitlement import (
     EntitlementGrantRequest,
     EntitlementResponse,
@@ -45,7 +45,7 @@ def _to_response(row) -> EntitlementResponse:
 async def _authorize_workspace(
     request: Request, user_id: str, workspace_id: str
 ) -> None:
-    if is_platform_admin(request):
+    if await current_platform_admin(request):
         return
     if await is_workspace_admin_or_owner(user_id, workspace_id):
         return

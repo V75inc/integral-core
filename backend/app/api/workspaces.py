@@ -542,7 +542,7 @@ async def delete_workspace(request: Request, workspace_id: str) -> Dict[str, Any
     from app.services.workspace_lifecycle import delete_workspace_cascade
 
     unlinked_spaces, unlinked_tracks, deleted_spaces, deleted_tracks = (
-        await delete_workspace_cascade(ws, cascade=cascade)
+        await delete_workspace_cascade(ws, cascade=cascade, actor_id=user_id)
     )
     await emit_change_event(
         actor_kind="human",

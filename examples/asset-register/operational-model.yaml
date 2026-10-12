@@ -1,6 +1,3 @@
-# Asset Register — WP-05 external package proof (Foundation public developer sprint).
-#
-# Installed via INTEGRAL_PACKAGE_PATHS; Core must not require this package to boot.
 integral_operational_model_version: 3
 scope: app
 package:
@@ -10,19 +7,16 @@ package:
   version: 1.0.0
   trust_tier: trusted
   publisher: Integral Foundation
-  description: >-
-    Catalog company assets, warranties, custody check-in/out, and service history
-    using typed app operations and declarative views.
+  description: Catalog company assets, warranties, custody check-in/out, and service history using typed
+    app operations and declarative views.
   tags:
   - assets
   - inventory
   - custody
   - contract-test
-
 app:
-  description: >-
-    Asset Register — assets, locations, custodians, custody records, and service
-    history with governed lifecycle transitions and warranty review.
+  description: "Asset Register \u2014 assets, locations, custodians, custody records, and service history\
+    \ with governed lifecycle transitions and warranty review."
   extension_views:
   - key: asset_detail
     name: Asset detail
@@ -39,7 +33,7 @@ app:
   tracks:
   - key: assets
     name: Assets
-    description: Governed asset catalog — one entry per physical unit.
+    description: "Governed asset catalog \u2014 one entry per physical unit."
     provision_on_create: true
     entry_types:
     - key: asset
@@ -54,7 +48,12 @@ app:
       - key: category
         name: Category
         type: select
-        enum: [it_equipment, furniture, vehicle, machinery, other]
+        enum:
+        - it_equipment
+        - furniture
+        - vehicle
+        - machinery
+        - other
         required: true
         index: true
       - key: serial_number
@@ -64,31 +63,41 @@ app:
       - key: lifecycle_state
         name: Lifecycle state
         type: select
-        enum: [available, checked_out, maintenance, retired]
+        enum:
+        - available
+        - checked_out
+        - maintenance
+        - retired
         required: true
         index: true
       - key: location
         name: Location
         type: relation
         relation:
-          target_entry_types: [location]
-          target_track_types: [locations]
+          target_entry_types:
+          - location
+          target_track_types:
+          - locations
           allow_cross_track: true
           many: false
       - key: current_custodian
         name: Current custodian
         type: relation
         relation:
-          target_entry_types: [custodian]
-          target_track_types: [custodians]
+          target_entry_types:
+          - custodian
+          target_track_types:
+          - custodians
           allow_cross_track: true
           many: false
       - key: current_custody
         name: Current custody record
         type: relation
         relation:
-          target_entry_types: [custody_record]
-          target_track_types: [custody]
+          target_entry_types:
+          - custody_record
+          target_track_types:
+          - custody
           allow_cross_track: true
           many: false
       - key: purchase_date
@@ -125,13 +134,15 @@ app:
     - key: assets_table
       name: Inventory
       view_type: table
-      entry_type_keys: [asset]
+      entry_type_keys:
+      - asset
       default_entry_type: asset
       is_default: true
     - key: assets_board
       name: Availability board
       view_type: kanban
-      entry_type_keys: [asset]
+      entry_type_keys:
+      - asset
       default_entry_type: asset
       group_by: custom_fields.lifecycle_state
       kanban_columns:
@@ -146,7 +157,8 @@ app:
     - key: warranty_calendar
       name: Warranty calendar
       view_type: calendar
-      entry_type_keys: [asset]
+      entry_type_keys:
+      - asset
       default_entry_type: asset
       calendar_mapping:
         dateField: custom_fields.warranty_end
@@ -154,7 +166,8 @@ app:
       name: Asset detail
       view_type: extension_view
       extension_view_key: asset_detail
-      entry_type_keys: [asset]
+      entry_type_keys:
+      - asset
       default_entry_type: asset
   - key: locations
     name: Locations
@@ -176,7 +189,8 @@ app:
     - key: locations_table
       name: Locations
       view_type: table
-      entry_type_keys: [location]
+      entry_type_keys:
+      - location
       default_entry_type: location
       is_default: true
   - key: custodians
@@ -202,7 +216,8 @@ app:
     - key: custodians_table
       name: Custodians
       view_type: table
-      entry_type_keys: [custodian]
+      entry_type_keys:
+      - custodian
       default_entry_type: custodian
       is_default: true
   - key: custody
@@ -219,8 +234,10 @@ app:
         type: relation
         required: true
         relation:
-          target_entry_types: [asset]
-          target_track_types: [assets]
+          target_entry_types:
+          - asset
+          target_track_types:
+          - assets
           allow_cross_track: true
           many: false
       - key: custodian
@@ -228,8 +245,10 @@ app:
         type: relation
         required: true
         relation:
-          target_entry_types: [custodian]
-          target_track_types: [custodians]
+          target_entry_types:
+          - custodian
+          target_track_types:
+          - custodians
           allow_cross_track: true
           many: false
       - key: checked_out_at
@@ -262,7 +281,8 @@ app:
     - key: custody_feed
       name: Custody history
       view_type: feed
-      entry_type_keys: [custody_record]
+      entry_type_keys:
+      - custody_record
       default_entry_type: custody_record
       is_default: true
   - key: service_history
@@ -279,8 +299,10 @@ app:
         type: relation
         required: true
         relation:
-          target_entry_types: [asset]
-          target_track_types: [assets]
+          target_entry_types:
+          - asset
+          target_track_types:
+          - assets
           allow_cross_track: true
           many: false
       - key: service_date
@@ -309,7 +331,8 @@ app:
     - key: service_feed
       name: Service history
       view_type: feed
-      entry_type_keys: [service_record]
+      entry_type_keys:
+      - service_record
       default_entry_type: service_record
       is_default: true
   relations:
@@ -390,7 +413,9 @@ app:
           type: string
         notes:
           type: string
-      required: [asset_tag, title]
+      required:
+      - asset_tag
+      - title
   - key: check_out_asset
     name: Check out asset
     description: Open custody when lifecycle_state is available.
@@ -408,7 +433,8 @@ app:
           type: string
         condition_notes:
           type: string
-      required: [custodian_id]
+      required:
+      - custodian_id
   - key: check_in_asset
     name: Check in asset
     description: Close active custody and return asset to available.
@@ -443,7 +469,8 @@ app:
           type: string
         notes:
           type: string
-      required: [summary]
+      required:
+      - summary
   - key: review_warranties
     name: Review warranties
     description: Query assets with warranty expiring within the configured horizon.
@@ -453,6 +480,13 @@ app:
       properties:
         horizon_days:
           type: integer
+  - key: asset_register_targets
+    name: Resolve action targets
+    description: Resolve exact App targets through current read-only audience.
+    handler_ref: tools.action_targets:resolve_targets
+    agent_visible: false
+    parameters_schema:
+      type: object
   operations:
   - key: list_available_assets
     kind: read
@@ -487,11 +521,42 @@ app:
           type: string
         title:
           type: string
-      required: [asset_tag, title]
+      required:
+      - asset_tag
+      - title
+    authorization:
+      version: 1
+      roles:
+      - asset-operator
+      target_resolver: asset_register_targets
+      targets:
+      - input: assets_track_id
+        kind: track
+      mutations:
+      - entry_type: asset
+        kind: create
+        fields:
+        - asset_tag
+        - category
+        - serial_number
+        - lifecycle_state
+        - location
+        - current_custodian
+        - current_custody
+        - purchase_date
+        - purchase_amount
+        - currency
+        - warranty_start
+        - warranty_end
+        - warranty_provider
+        - next_service_date
+        top_level:
+        - title
+        - body
   - key: check_out_asset
     kind: execute
     name: Check out asset
-    description: Conditional available→checked_out transition with custody record.
+    description: "Conditional available\u2192checked_out transition with custody record."
     policy_action: entry.create
     staging_level: none
     idempotency_key: supported
@@ -505,7 +570,42 @@ app:
           type: string
         custodian_id:
           type: string
-      required: [custodian_id]
+      required:
+      - custodian_id
+    authorization:
+      version: 1
+      roles:
+      - asset-operator
+      target_resolver: asset_register_targets
+      targets:
+      - input: asset_id
+        kind: entry
+      - input: custodian_id
+        kind: entry
+      - input: custody_track_id
+        kind: track
+      mutations:
+      - entry_type: asset
+        kind: update
+        fields:
+        - lifecycle_state
+        - current_custodian
+        - current_custody
+      - entry_type: custody_record
+        kind: create
+        fields:
+        - asset
+        - custodian
+        - checked_out_at
+        - expected_return
+        - returned_at
+        - condition_out
+        - condition_in
+        - operation_key
+        - correlation_id
+        top_level:
+        - title
+        - body
   - key: check_in_asset
     kind: execute
     name: Check in asset
@@ -521,6 +621,28 @@ app:
           type: string
         asset_tag:
           type: string
+    authorization:
+      version: 1
+      roles:
+      - asset-operator
+      target_resolver: asset_register_targets
+      targets:
+      - input: asset_id
+        kind: entry
+      - input: custody_id
+        kind: entry
+      mutations:
+      - entry_type: asset
+        kind: update
+        fields:
+        - lifecycle_state
+        - current_custodian
+        - current_custody
+      - entry_type: custody_record
+        kind: update
+        fields:
+        - returned_at
+        - condition_in
   - key: record_service
     kind: execute
     name: Record service
@@ -535,7 +657,8 @@ app:
           type: string
         summary:
           type: string
-      required: [summary]
+      required:
+      - summary
   - key: review_warranties
     kind: read
     name: Review warranties
@@ -584,33 +707,54 @@ app:
           items:
             type: object
             properties:
-              entry_id: {type: string}
-              title: {type: string}
-              asset_tag: {type: string}
-              category: {type: string}
-              lifecycle_state: {type: string}
-              location_id: {type: [string, "null"]}
-              warranty_end: {type: [string, "null"]}
-        total: {type: integer}
-        offset: {type: integer}
-        limit: {type: integer}
+              entry_id:
+                type: string
+              title:
+                type: string
+              asset_tag:
+                type: string
+              category:
+                type: string
+              lifecycle_state:
+                type: string
+              location_id:
+                type:
+                - string
+                - 'null'
+              warranty_end:
+                type:
+                - string
+                - 'null'
+        total:
+          type: integer
+        offset:
+          type: integer
+        limit:
+          type: integer
     dashboard:
       rows_path: assets
       total_path: total
-      params: {limit: 5000, offset: 0}
-      # Dashboard-enabled query handlers must be read-only and return the
-      # complete result set with an exact total, within the Core budget.
+      params:
+        limit: 5000
+        offset: 0
   protected_state:
     asset:
-      fields: [lifecycle_state, current_custodian, current_custody]
-      operations: [check_out_asset, check_in_asset]
+      fields:
+      - lifecycle_state
+      - current_custodian
+      - current_custody
+      operations:
+      - check_out_asset
+      - check_in_asset
+      - register_asset
   skills:
   - key: register_asset
     name: Register asset
     kind: declarative
     description: Register a new asset through the app operation after collecting required fields.
     prompt_template: skills/register-asset/SKILL.md
-    tools_required: [integral_invoke_app_operation]
+    tools_required:
+    - integral_invoke_app_operation
   - key: find_available_asset
     name: Find available asset
     kind: declarative
@@ -637,9 +781,8 @@ app:
     - review_warranties
     default_schedules:
     - name: daily_warranty_review
-      cron: "0 8 * * *"
+      cron: 0 8 * * *
       skill: review_warranties
       params:
         horizon_days: 30
-
 migrations: []

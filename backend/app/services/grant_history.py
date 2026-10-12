@@ -15,15 +15,18 @@ from typing import Any
 from jvspatial.core.context import get_default_context
 
 from app.exceptions import AuthorizationUnavailableError
+from app.models.access_lifecycle import OwnershipGrantHistory
 from app.models.edges import (
     COLLABORATES_ON,
     IS_MEMBER_OF,
+    OWNS,
     CollaborationGrantHistory,
     MembershipGrantHistory,
 )
 from app.utils.time import utc_now_iso
 
 _HISTORY_CLASSES = {
+    OWNS: OwnershipGrantHistory,
     IS_MEMBER_OF: MembershipGrantHistory,
     COLLABORATES_ON: CollaborationGrantHistory,
 }

@@ -39,10 +39,21 @@ from app.services.sharing import add_exclusion
 
 
 async def _user(suffix: str) -> User:
+    from jvspatial.api.auth.models import User as AuthUser
+
     from app.services.app_graph import catalog_user
 
+    identity = await AuthUser.create(
+        email=f"overview-{suffix}@example.com",
+        password_hash="fixture",
+        roles=["user"],
+        is_active=True,
+    )
     user = await User.create(
-        user_id=f"overview_user_{suffix}", display_name=f"Overview User {suffix}"
+        user_id=identity.id,
+        display_name=f"Overview User {suffix}",
+        email_verified=True,
+        verified_email=identity.email,
     )
     await catalog_user(user)
     return user
@@ -189,7 +200,9 @@ async def test_exclusion_appears_for_owned_resource(
     # a meaningful operation. Then assert the resulting EXCLUDED_FROM row
     # appears in the aggregator.
     from app.models.edges import COLLABORATES_ON, CONTAINS
+    from app.services.sharing import ensure_guest_membership
 
+    await ensure_guest_membership(other, app_node.workspace_id, test_user.id)
     await other.connect(app_node, edge=COLLABORATES_ON, role="editor")
     await app_node.connect(track, edge=CONTAINS)
     await add_exclusion(test_user.id, "track", track.id, other.id, reason="testing")
@@ -323,7 +336,9 @@ async def test_cross_user_exclusion_not_leaked(
     await second_user.connect(app_node, edge=OWNS)
     await second_user.connect(track, edge=OWNS)
     from app.models.edges import COLLABORATES_ON, CONTAINS
+    from app.services.sharing import ensure_guest_membership
 
+    await ensure_guest_membership(third, app_node.workspace_id, second_user.id)
     await third.connect(app_node, edge=COLLABORATES_ON, role="editor")
     await app_node.connect(track, edge=CONTAINS)
     await add_exclusion(second_user.id, "track", track.id, third.id)

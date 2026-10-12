@@ -292,6 +292,9 @@ def main(argv: list[str] | None = None) -> int:
         ("logs", "Read local process logs"),
         ("backup", "Stop and back up data, files and encryption keys"),
         ("restore", "Restore a backup into an empty installation"),
+        ("checkpoint", "Retain independent current authorization checkpoint"),
+        ("recovery-review", "Review quarantined restored authorization"),
+        ("recovery-apply", "Reconcile reviewed restore before serving"),
         ("upgrade", "Back up and switch to a chosen Core release"),
     ):
         lifecycle = sub.add_parser(command, help=description)
@@ -330,6 +333,17 @@ def main(argv: list[str] | None = None) -> int:
             lifecycle.add_argument("--output", type=Path, required=True)
         elif command == "restore":
             lifecycle.add_argument("source", type=Path)
+        elif command in {"checkpoint", "recovery-review", "recovery-apply"}:
+            lifecycle.add_argument(
+                "--checkpoint-directory", type=Path, required=command == "checkpoint"
+            )
+            if command == "recovery-apply":
+                lifecycle.add_argument("--review-digest", required=True)
+                lifecycle.add_argument("--owner-id", action="append", default=[])
+                lifecycle.add_argument(
+                    "--password-env",
+                    help="Environment variable containing new owner recovery password; otherwise prompt securely",
+                )
         elif command == "upgrade":
             choice = lifecycle.add_mutually_exclusive_group(required=True)
             choice.add_argument("--version", dest="release")
@@ -394,7 +408,18 @@ def main(argv: list[str] | None = None) -> int:
         shutil.copytree(source, args.output)
         print(f"Exported workspace to {args.output.resolve()}")
         return 0
-    if args.cmd in {"up", "status", "stop", "logs", "backup", "restore", "upgrade"}:
+    if args.cmd in {
+        "up",
+        "status",
+        "stop",
+        "logs",
+        "backup",
+        "restore",
+        "upgrade",
+        "checkpoint",
+        "recovery-review",
+        "recovery-apply",
+    }:
         from app import local_runtime as runtime
 
         home = (args.home or runtime.default_home()).expanduser().resolve()
@@ -423,6 +448,39 @@ def main(argv: list[str] | None = None) -> int:
             elif args.cmd == "restore":
                 runtime.restore(home, args.source.expanduser().resolve())
                 result = {"state": "stopped", "home": str(home)}
+            elif args.cmd in {"checkpoint", "recovery-review", "recovery-apply"}:
+                arguments = {
+                    "checkpoint_directory": (
+                        str(args.checkpoint_directory.expanduser().resolve())
+                        if args.checkpoint_directory
+                        else None
+                    )
+                }
+                if args.cmd == "recovery-apply":
+                    arguments.update(
+                        {
+                            "review_digest": args.review_digest,
+                            "owner_ids": args.owner_id,
+                        }
+                    )
+                    if not args.checkpoint_directory:
+                        import getpass
+
+                        import bcrypt
+
+                        password = (
+                            os.environ.get(args.password_env, "")
+                            if args.password_env
+                            else getpass.getpass(
+                                "New reviewed owner recovery password: "
+                            )
+                        )
+                        if len(password) < 12 or len(password.encode()) > 72:
+                            raise ValueError("Recovery password must be 12–72 bytes")
+                        arguments["password_hash"] = bcrypt.hashpw(
+                            password.encode(), bcrypt.gensalt()
+                        ).decode()
+                result = runtime.recovery_maintenance(home, args.cmd, arguments)
             elif args.cmd == "upgrade":
                 result = runtime.upgrade(
                     home,

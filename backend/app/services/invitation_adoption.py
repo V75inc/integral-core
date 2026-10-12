@@ -171,7 +171,7 @@ async def adopt_invitation(
         raise ValueError("invitation.invalid_adoption_review")
     caller_context = get_default_context()
     async with invitation_storage_scope(
-        invitation_id, workspace_id, legacy_review=True
+        invitation_id, workspace_id, legacy_review=True, principal_ids=(actor_id,)
     ):
         review = await _review(invitation_id, workspace_id, actor_id)
         if not secrets.compare_digest(review_digest, review["review_digest"]):

@@ -305,7 +305,10 @@ async def _user_in_workspace_member_pool(user: User, workspace_id: str) -> bool:
     """True if user has any IS_MEMBER_OF edge to the workspace (incl. guest)."""
     try:
         from app.services.workspace_permissions import read_member_facts
+        from app.services.workspace_suspension import workspace_suspended
 
+        if await workspace_suspended(user.id, workspace_id):
+            return False
         return await read_member_facts(user, workspace_id) is not None
     except Exception as exc:
         logger.warning("workspace membership check failed: %s", exc)
@@ -523,7 +526,18 @@ async def _direct_management_role(
             user, location.workspace_id
         ):
             return None
-        return await _direct_role_on_resource(user, resource_id)
+        from app.services.resource_access_blocks import resource_blocked
+        from app.services.share_grant_sources import share_grant_roles
+
+        if await resource_blocked(user.id, kind, resource_id, location=location):
+            return None
+        direct = await _direct_role_on_resource(user, resource_id)
+        sourced = await share_grant_roles(user.id, kind, resource_id)
+        return max(
+            ([direct] if direct else []) + sourced,
+            key=lambda value: ROLE_RANK[value],
+            default=None,
+        )
 
 
 async def can_admin_app(user_id: str, app_id: str) -> bool:
@@ -667,7 +681,7 @@ async def can_edit_entry(user_id: str, entry_id: str) -> bool:
         return bool(entry and entry.author_id and entry.author_id in identities)
     except Exception as exc:
         logger.warning("Error checking entry edit permission for %s: %s", user_id, exc)
-        return False
+        raise AuthorizationUnavailableError() from exc
 
 
 # --- View-level ---
@@ -1128,6 +1142,22 @@ async def _resolve_current_role(
     if location is None:
         return _finish(None)
     workspace_id = location.workspace_id
+    from app.services.workspace_suspension import workspace_suspended
+
+    if await workspace_suspended(user.id, workspace_id):
+        return _finish(None)
+    from app.services.resource_access_blocks import resource_blocked
+
+    if await resource_blocked(user.id, resource_type, resource_id, location=location):
+        return _finish(None)
+    from app.services.share_grant_sources import share_grant_roles
+
+    sourced = await share_grant_roles(user.id, resource_type, resource_id)
+    direct = max(
+        ([direct] if direct else []) + sourced,
+        key=lambda value: ROLE_RANK[value],
+        default=None,
+    )
     if not await _user_in_workspace_member_pool(user, workspace_id):
         ws = await _load_resource_node("workspace", workspace_id)
         # A resource OWNS edge survives a workspace-membership revoke. It
@@ -1472,6 +1502,19 @@ async def _direct_inventory_candidates(user: User) -> tuple[list[App], list[Trac
         if len(rows) <= 500:
             break
         cursor = page[-1]["id"]
+    from app.services.share_grant_sources import share_grant_targets
+
+    for kind, model, bucket in (("app", App, apps), ("track", Track, tracks)):
+        for identity in await share_grant_targets(user.id, kind):
+            record = await context.database.find(
+                "node", {"id": identity, "entity": model._entity_name()}, limit=2
+            )
+            if len(record) != 1:
+                raise AuthorizationUnavailableError()
+            node = await context._deserialize_entity(model, record[0])
+            if node is None:
+                raise AuthorizationUnavailableError()
+            bucket[node.id] = node
     return list(apps.values()), list(tracks.values())
 
 
@@ -1544,6 +1587,12 @@ async def _filter_canonical_resource_inventory(
             if location is None:
                 continue
             role = workspace_roles.get(location.workspace_id, "none")
+            from app.services.resource_access_blocks import resource_blocked
+
+            if not (
+                role == "owner" and owner_governance_allowed()
+            ) and await resource_blocked(user.id, kind, node.id, location=location):
+                continue
             if (
                 (role == "owner" and owner_governance_allowed())
                 or (role != "none" and direct[node.id] is not None)

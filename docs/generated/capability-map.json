@@ -120,6 +120,35 @@
       "version": "1.0.0"
     },
     {
+      "class": "community_app",
+      "operations": [
+        {
+          "key": "configure",
+          "kind": "execute",
+          "policy_action": "entry.update"
+        },
+        {
+          "key": "edit",
+          "kind": "execute",
+          "policy_action": "entry.update"
+        },
+        {
+          "key": "release",
+          "kind": "execute",
+          "policy_action": "entry.update"
+        }
+      ],
+      "queries": [],
+      "skills": [],
+      "slug": "reference-change-control",
+      "source": "examples/reference-change-control",
+      "tracks": [
+        "records"
+      ],
+      "trust_tier": "trusted",
+      "version": "1.0.0"
+    },
+    {
       "class": "commercial_app",
       "operations": [],
       "queries": [],
@@ -163,6 +192,35 @@
       ],
       "trust_tier": "trusted",
       "version": "1.1.0"
+    },
+    {
+      "class": "community_app",
+      "operations": [
+        {
+          "key": "approve",
+          "kind": "execute",
+          "policy_action": "entry.update"
+        },
+        {
+          "key": "configure",
+          "kind": "execute",
+          "policy_action": "entry.update"
+        },
+        {
+          "key": "edit",
+          "kind": "execute",
+          "policy_action": "entry.update"
+        }
+      ],
+      "queries": [],
+      "skills": [],
+      "slug": "reference-review-queue",
+      "source": "examples/reference-review-queue",
+      "tracks": [
+        "records"
+      ],
+      "trust_tier": "trusted",
+      "version": "1.0.0"
     }
   ],
   "capability_descriptors": [
@@ -861,7 +919,7 @@
   ],
   "counts": {
     "advertised": 123,
-    "apps": 3,
+    "apps": 5,
     "by_op_class": {
       "execute": 2,
       "propose": 68,

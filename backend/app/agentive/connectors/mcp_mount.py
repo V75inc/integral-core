@@ -369,6 +369,7 @@ async def mount_mcp_connector(
 
     connector = await create_connector(
         owner=owner_id,
+        workspace_id=workspace_id,
         kind="mcp",
         auth_state=auth_state,
         capabilities=["mcp.client"],

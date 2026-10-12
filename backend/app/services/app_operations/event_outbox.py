@@ -312,6 +312,9 @@ async def deliver_pending_operation_events(*, database: Any | None = None) -> in
             logger.exception(
                 "operation event delivery failed (id=%s)", ctx.get("outbox_id")
             )
+    from app.services.entry_cleanup_outbox import deliver_pending_cleanup
+
+    await deliver_pending_cleanup(database=db)
     return delivered
 
 

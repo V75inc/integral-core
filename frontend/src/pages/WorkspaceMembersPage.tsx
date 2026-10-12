@@ -8,6 +8,9 @@ import {
 } from '../api/members';
 import type { Workspace, WorkspaceMember } from '../api/workspaces';
 import { UserSearchPicker } from '../components/collab/UserSearchPicker';
+import { WorkspaceOwnershipConsent } from '../components/access/WorkspaceOwnershipConsent';
+import { WorkspaceAccessGroups } from '../components/access/WorkspaceAccessGroups';
+import { MemberSuspensionReview } from '../components/access/MemberSuspensionReview';
 import { InvitationAdoptionReview } from '../components/invitations/InvitationAdoptionReview';
 import {
   Avatar,
@@ -415,6 +418,12 @@ export function WorkspaceMembersPage() {
         </header>
       </PageSection>
 
+      {myRole === 'owner' && (
+        <PageSection>
+          <WorkspaceAccessGroups workspaceId={workspace.id} members={members} />
+          {!isPersonal && <WorkspaceOwnershipConsent workspaceId={workspace.id} members={members} />}
+        </PageSection>
+      )}
       <PageSection.Separator />
 
       <PageSection className={filterBar.sectionTop}>
@@ -726,6 +735,9 @@ export function WorkspaceMembersPage() {
                     }
                   />
                   <div className="flex flex-col items-stretch gap-2 shrink-0 sm:items-end">
+                    {myRole === 'owner' && !isRowOwner && !isSamePrincipal(me, memberKey) && (
+                      <MemberSuspensionReview workspaceId={workspace.id} memberId={memberKey} name={m.display_name} />
+                    )}
                     {canEditRow && memberKey ? (
                       <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--text)]">
                         <select

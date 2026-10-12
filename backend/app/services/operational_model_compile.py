@@ -2398,6 +2398,22 @@ def _parse_manifest_extension_views(
     return out
 
 
+def _parse_action_authorization(raw: Any) -> Optional[Dict[str, Any]]:
+    """Compile the bounded App action contract or reject malformed declarations."""
+    if raw is None:
+        return None
+    from pydantic import ValidationError
+
+    from app.schemas.access_delegation import ActionAuthorization
+
+    try:
+        return ActionAuthorization.model_validate(raw).model_dump()
+    except ValidationError as exc:
+        raise OperationalModelValidationError(
+            message="Invalid App action authorization"
+        ) from exc
+
+
 def _parse_manifest_operations(
     raw_ops: Any,
     *,
@@ -2429,6 +2445,10 @@ def _parse_manifest_operations(
         if key in seen:
             raise OperationalModelValidationError(
                 message=f"{where} duplicate key {key!r}"
+            )
+        if ed.get("authorization") and not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", key):
+            raise OperationalModelValidationError(
+                message="Authorized operation key must be a bounded exact key"
             )
         seen.add(key)
         kind = str(ed.get("kind") or "execute").strip().lower()
@@ -2480,6 +2500,7 @@ def _parse_manifest_operations(
                 "name": str(ed.get("name") or key),
                 "description": str(ed.get("description") or ""),
                 "policy_action": str(ed.get("policy_action") or "").strip() or None,
+                "authorization": _parse_action_authorization(ed.get("authorization")),
                 "capability": str(ed.get("capability") or "").strip() or None,
                 "staging_level": staging_level,
                 "idempotency_key": str(ed.get("idempotency_key") or "").strip() or None,
@@ -2944,7 +2965,7 @@ def _parse_manifest_protected_state(
             continue
         if isinstance(spec, list):
             fields = [str(f).strip() for f in spec if str(f).strip()]
-            out[key] = {"fields": fields}
+            out[key] = {"fields": fields, "top_level": [], "deny_delete": bool(fields)}
         else:
             ed = _as_dict(spec, where=f"{where}.{key}")
             fields = [
@@ -2952,8 +2973,27 @@ def _parse_manifest_protected_state(
                 for f in _as_list(ed.get("fields"), where=f"{where}.{key}.fields")
                 if str(f).strip()
             ]
+            unknown = set(ed) - {"fields", "operations", "top_level", "deny_delete"}
+            if unknown:
+                raise OperationalModelValidationError(
+                    message=f"{where}.{key} has unsupported keys"
+                )
+            top_level = ed.get("top_level") or []
+            if not isinstance(top_level, list) or any(
+                field not in {"title", "body", "status"} for field in top_level
+            ):
+                raise OperationalModelValidationError(
+                    message=f"{where}.{key}.top_level is invalid"
+                )
+            deny_delete = ed.get("deny_delete", bool(fields or top_level))
+            if type(deny_delete) is not bool:
+                raise OperationalModelValidationError(
+                    message=f"{where}.{key}.deny_delete requires bool"
+                )
             out[key] = {
                 "fields": fields,
+                "top_level": top_level,
+                "deny_delete": deny_delete,
                 "operations": [
                     str(o).strip()
                     for o in _as_list(
@@ -4053,6 +4093,12 @@ def compile_canonical_manifest(
                 app_node.get("operations"),
                 where="app.operations",
             )
+            for operation in app_operations:
+                resolver = (operation.get("authorization") or {}).get("target_resolver")
+                if resolver and resolver not in declared_tool_keys:
+                    raise OperationalModelValidationError(
+                        message="Operation target resolver must identify a declared App tool"
+                    )
             app_queries = _parse_manifest_queries(
                 app_node.get("queries"),
                 where="app.queries",

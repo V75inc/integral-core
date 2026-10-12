@@ -414,7 +414,7 @@ async def _sync_owned(connector, lease) -> Dict[str, int]:
                     resource=Resource(
                         kind="entry",
                         id=entry.id if entry else "",
-                        scope=f"connector:{connector.id}",
+                        scope=f"track:{record_target_track.id}",
                     ),
                     _dry_run=True,
                 )

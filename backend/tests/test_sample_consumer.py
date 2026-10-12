@@ -19,6 +19,26 @@ import asyncio
 import pytest
 
 
+async def _authorize_consumer(owner, track_id, monkeypatch):
+    from app.agentive.edges import HAS_AGENT_CONFIG
+    from app.agentive.nodes import AgentConfig
+    from app.services.policy_registry import create_policy
+
+    agent = await AgentConfig.create(
+        scope="personal", facet="personal", user_id=owner.id, is_active=True
+    )
+    await owner.connect(agent, edge=HAS_AGENT_CONFIG)
+    await create_policy(
+        subject_kind="agent",
+        subject_id=agent.id,
+        scope=f"track:{track_id}",
+        actions=["entry.create"],
+        created_by=owner.id,
+    )
+    monkeypatch.setenv("AGENTIVE_SAMPLE_CONSUMER_AGENT_ID", agent.id)
+    return agent.id
+
+
 async def _declared_tag(client, track_id, name):
     response = await client.post("/api/tags", json={"track_id": track_id, "name": name})
     assert response.status_code == 200, response.text
@@ -58,6 +78,7 @@ async def test_consumer_enabled_drafts_summary(
     )
     assert track_resp.status_code == 200, track_resp.text
     track_id = track_resp.json()["track"]["id"]
+    consumer_actor_id = await _authorize_consumer(test_user, track_id, monkeypatch)
 
     entry_resp = await authenticated_client.post(
         "/api/entries",
@@ -119,6 +140,7 @@ async def test_consumer_ignores_non_trigger_tag(
         "/api/tracks", json={"title": "Consumer Wrong Tag"}
     )
     track_id = track_resp.json()["track"]["id"]
+    consumer_actor_id = await _authorize_consumer(test_user, track_id, monkeypatch)
     await authenticated_client.post(
         "/api/entries",
         json={
@@ -151,6 +173,7 @@ async def test_consumer_no_recursion(authenticated_client, test_user, monkeypatc
         "/api/tracks", json={"title": "Consumer No Recursion"}
     )
     track_id = track_resp.json()["track"]["id"]
+    consumer_actor_id = await _authorize_consumer(test_user, track_id, monkeypatch)
     await authenticated_client.post(
         "/api/entries",
         json={
@@ -190,6 +213,7 @@ async def test_consumer_emit_appears_in_audit_log(
         "/api/tracks", json={"title": "Consumer Audit"}
     )
     track_id = track_resp.json()["track"]["id"]
+    consumer_actor_id = await _authorize_consumer(test_user, track_id, monkeypatch)
     await authenticated_client.post(
         "/api/entries",
         json={
@@ -210,8 +234,7 @@ async def test_consumer_emit_appears_in_audit_log(
     agent_events = [
         e
         for e in events
-        if e.get("actor_kind") == "agent"
-        and e.get("actor_id") == "sample.summary_drafter"
+        if e.get("actor_kind") == "agent" and e.get("actor_id") == consumer_actor_id
     ]
     assert len(agent_events) >= 1, (
         f"consumer's own write did NOT emit ChangeEvent visible in audit-log; "
@@ -276,3 +299,36 @@ def test_consumer_recursion_guard_in_source():
     assert "CONSUMER_ID" in src
     # Closes the D-05 loop — consumer's own write also emits.
     assert "create_entry_in_track" in src
+
+
+@pytest.mark.asyncio
+async def test_unconfigured_consumer_cannot_borrow_track_owner(
+    authenticated_client, monkeypatch
+):
+    """Opt-in alone cannot authorize a synthetic service actor."""
+    monkeypatch.setenv("AGENTIVE_SAMPLE_CONSUMER_ENABLED", "1")
+    monkeypatch.delenv("AGENTIVE_SAMPLE_CONSUMER_AGENT_ID", raising=False)
+    from app.agentive.sample_consumers import register_sample_consumers
+    from app.services import event_subscription_registry as esr
+
+    esr.reset_consumer_hooks()
+    register_sample_consumers()
+    try:
+        response = await authenticated_client.post(
+            "/api/tracks", json={"title": "Unconfigured consumer"}
+        )
+        assert response.status_code == 200
+        track_id = response.json()["track"]["id"]
+        tag_id = await _declared_tag(authenticated_client, track_id, "summarize-me")
+        source = await authenticated_client.post(
+            "/api/entries",
+            json={"track_id": track_id, "title": "Source only", "tags": [tag_id]},
+        )
+        assert source.status_code in (200, 201)
+        await asyncio.sleep(0.1)
+        listing = await authenticated_client.get(f"/api/entries?track_id={track_id}")
+        assert [entry["id"] for entry in listing.json()["entries"]] == [
+            source.json()["entry"]["id"]
+        ]
+    finally:
+        esr.reset_consumer_hooks()

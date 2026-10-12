@@ -193,11 +193,16 @@ async def add_member(
             message="Explicit member role and boolean creation rights required"
         )
     _validate_values(role, can_create_apps, can_create_tracks)
-    async with membership_write_scope(workspace_id):
+    async with membership_write_scope(
+        workspace_id, principal_ids=(actor_id, member_id)
+    ):
         actor, workspace, owner = await _manager(actor_id, workspace_id)
         member = await get_user_node(member_id)
         if member is None:
             raise ResourceNotFoundError(message="User not found")
+        from app.services.workspace_suspension import require_unsuspended
+
+        await require_unsuspended(member.id, workspace_id)
         row = await _membership(member, workspace_id)
         values = {
             "role": role,
@@ -249,7 +254,9 @@ async def update_member(
     if role is None and can_create_apps is None and can_create_tracks is None:
         raise BadRequestError(message="No fields to update")
     outbox_id = None
-    async with membership_write_scope(workspace_id):
+    async with membership_write_scope(
+        workspace_id, principal_ids=(actor_id, member_id)
+    ):
         actor, workspace, owner = await _manager(actor_id, workspace_id)
         member = await get_user_node(member_id)
         if member is None:
@@ -321,10 +328,20 @@ async def remove_member(
     *, actor_id: str, workspace_id: str, member_id: str, leave: bool = False
 ) -> dict:
     """Fence current removal authority, cleanup and durable audit together."""
+    from app.services.identity_admission import resolve_current_profile
     from app.services.workspace_departure import _remove_membership
+    from app.services.workspace_permissions import get_workspace_owner_user_id
 
     outbox_id = None
-    async with membership_write_scope(workspace_id):
+    prior_owner = await get_workspace_owner_user_id(workspace_id)
+    principals = (actor_id, member_id) + ((prior_owner,) if prior_owner else ())
+    async with membership_write_scope(
+        workspace_id, principal_ids=principals, active_principal_ids=(actor_id,)
+    ):
+        if await get_workspace_owner_user_id(workspace_id) != prior_owner:
+            raise ResourceConflictError(
+                message="Workspace ownership changed; retry departure"
+            )
         if leave:
             actor = await get_user_node(actor_id)
             workspace = await Workspace.find_one({"id": workspace_id})
@@ -334,13 +351,13 @@ async def remove_member(
                 or await locate_resource("workspace", workspace_id) is None
             ):
                 raise InsufficientPermissionsError(message="Access denied")
-            member = await get_user_node(member_id)
+            member = await resolve_current_profile(member_id, require_active=False)
             if member is None or member.id != actor.id:
                 raise InsufficientPermissionsError(message="Access denied")
             owner = False
         else:
             actor, workspace, owner = await _manager(actor_id, workspace_id)
-            member = await get_user_node(member_id)
+            member = await resolve_current_profile(member_id, require_active=False)
             if member is None:
                 raise ResourceNotFoundError(message="User not found")
         row = await _membership(member, workspace_id)

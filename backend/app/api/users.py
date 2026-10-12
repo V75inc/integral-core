@@ -186,7 +186,7 @@ async def create_user(
     current_user_id = resolve_principal_id(request)
     if not current_user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    require_platform_admin(request)
+    await require_platform_admin(request)
 
     # Note: This endpoint creates a User without an AuthUser
     # In production, this should create an AuthUser first, then link via user_id

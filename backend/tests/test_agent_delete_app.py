@@ -78,98 +78,57 @@ async def test_dispatch_delete_app_calls_the_rest_handler(monkeypatch):
     assert called["app_id"] == "n.App.xyz"
 
 
-@pytest.mark.asyncio
-async def test_delete_app_cascade_removes_accompanying_skill():
-    from app.agentive.services.agent_skills import create_workspace_skill
-    from app.models.nodes import App, Skill, Workspace
-    from app.services.app_deletion import delete_app_cascade
+async def _owned_cascade_app(name: str):
+    from app.models.nodes import App
+    from app.services.app_graph import catalog_app
+    from tests.fixtures.workspaces import make_org_workspace, workspace_owner_id
 
-    ws = await Workspace.create(name="WS-Cascade", kind="personal")
+    workspace = await make_org_workspace(name + " workspace")
+    owner_id = await workspace_owner_id(workspace)
     app = await App.create(
-        name="App With Skill", name_fold="app with skill", workspace_id=ws.id
+        name=name, name_fold=name.casefold(), workspace_id=workspace.id
     )
-    skill = await create_workspace_skill(
-        workspace_id=ws.id,
-        user_id="u1",
-        key="cascade_me",
-        name="Cascade Me",
-        description="Should die with the app.",
-        body_override="# SOP",
-        tools_required=[],
-        app_id=app.id,
-    )
-    skill_id = skill.id
-
-    await delete_app_cascade(app)
-
-    assert await Skill.get(skill_id) is None
+    await catalog_app(app)
+    return owner_id, workspace, app
 
 
 @pytest.mark.asyncio
-async def test_delete_app_cascade_no_tracks_still_removes_skill():
-    """Exercises the early-return (no-tracks) branch of delete_app_cascade."""
-    from app.agentive.services.agent_skills import create_workspace_skill
-    from app.models.nodes import App, Skill, Workspace
-    from app.services.app_deletion import delete_app_cascade
-
-    ws = await Workspace.create(name="WS-Cascade2", kind="personal")
-    app = await App.create(
-        name="Empty App With Skill",
-        name_fold="empty app with skill",
-        workspace_id=ws.id,
-    )
-    skill = await create_workspace_skill(
-        workspace_id=ws.id,
-        user_id="u1",
-        key="cascade_me_2",
-        name="Cascade Me 2",
-        description="No tracks on this app; still should die.",
-        body_override="# SOP",
-        tools_required=[],
-        app_id=app.id,
-    )
-    skill_id = skill.id
-
-    await delete_app_cascade(app)
-
-    assert await Skill.get(skill_id) is None
-
-
-@pytest.mark.asyncio
-async def test_delete_app_cascade_with_tracks_still_removes_skill():
-    """Exercises the main (has-tracks) branch of delete_app_cascade, not just
-    the no-tracks early return — proving the skill cleanup at the END of the
-    function (after track deletion) also runs."""
-    from datetime import datetime, timezone
-
+@pytest.mark.parametrize("with_track", [False, True])
+async def test_current_owner_cascade_removes_accompanying_skill(with_track):
     from app.agentive.services.agent_skills import create_workspace_skill
     from app.models.edges import CONTAINS
-    from app.models.nodes import App, Skill, Track, Workspace
+    from app.models.nodes import Skill, Track
     from app.services.app_deletion import delete_app_cascade
+    from app.services.app_graph import catalog_track
 
-    ws = await Workspace.create(name="WS-Cascade3", kind="personal")
-    app = await App.create(
-        name="App With Track And Skill",
-        name_fold="app with track and skill",
-        workspace_id=ws.id,
-    )
-    track = await Track.create(title="Some Track", workspace_id=ws.id)
-    await app.connect(
-        track, edge=CONTAINS, added_at=datetime.now(timezone.utc).isoformat()
-    )
-
+    owner_id, workspace, app = await _owned_cascade_app("Owned skill cascade")
+    if with_track:
+        track = await Track.create(
+            title="Owned cascade track", workspace_id=workspace.id
+        )
+        await app.connect(track, edge=CONTAINS)
+        await catalog_track(track)
     skill = await create_workspace_skill(
-        workspace_id=ws.id,
-        user_id="u1",
-        key="cascade_me_3",
-        name="Cascade Me 3",
-        description="App has a track; skill should still die.",
+        workspace_id=workspace.id,
+        user_id=owner_id,
+        key="cascade_owned",
+        name="Cascade owned",
+        description="Owner removes named subtree",
         body_override="# SOP",
         tools_required=[],
         app_id=app.id,
     )
-    skill_id = skill.id
+    await delete_app_cascade(app, actor_user_id=owner_id)
+    assert await Skill.get(skill.id) is None
 
-    await delete_app_cascade(app)
 
-    assert await Skill.get(skill_id) is None
+@pytest.mark.asyncio
+async def test_empty_actor_cascade_never_deletes_app():
+    from app.api.errors import InsufficientPermissionsError
+    from app.models.nodes import App
+    from app.services.app_deletion import delete_app_cascade
+
+    _, _, app = await _owned_cascade_app("No actor cascade")
+    with pytest.raises(InsufficientPermissionsError):
+        await delete_app_cascade(app)
+    assert await App.find_one({"id": app.id}) is not None

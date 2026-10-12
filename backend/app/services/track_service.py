@@ -12,7 +12,7 @@ CONTAINS edge into App, ChangeEvent emission).
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 # Errors imported from app.api.errors mirrors the pre-existing service-
 # layer pattern (see services/agent_scratch.py, services/share_links.py,
@@ -41,6 +41,7 @@ from app.services.app_graph import (
     get_track_attached_operational_model,
 )
 from app.services.change_event import emit_change_event
+from app.services.creation_write_scope import canonical_creation
 from app.services.entry_context import (
     attach_operational_model_defaults_to_track_data,
     attach_parent_app_to_track_data,
@@ -66,6 +67,7 @@ from app.services.workspace_resolver import resolve_workspace_id
 from app.utils.time import utc_now_iso
 
 
+@canonical_creation
 async def create_track_in_space(
     user_id: str,
     *,
@@ -80,6 +82,9 @@ async def create_track_in_space(
     app_track_template_operational_model_id: Optional[str] = None,
     app_track_type_key: Optional[str] = None,
     accent_color: Optional[str] = None,
+    actor_kind: str = "human",
+    actor_id: Optional[str] = None,
+    change_event_sink: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Track:
     """In-process Track creation for an authenticated principal.
 
@@ -319,16 +324,20 @@ async def create_track_in_space(
     invalidate_user_accessible_caches(user_id)
 
     # D-05 single emission path. Mirrors api/tracks.py::create_track.
-    await emit_change_event(
-        actor_kind="human",
-        actor_id=user_id,
-        action="track.create",
-        resource_type="Track",
-        resource_id=track.id,
-        before=None,
-        after=await export_node(track),
-        scope=(f"app:{app_id}" if app_id else f"track:{track.id}"),
-    )
+    event = {
+        "actor_kind": actor_kind,
+        "actor_id": actor_id or user_id,
+        "action": "track.create",
+        "resource_type": "Track",
+        "resource_id": track.id,
+        "before": None,
+        "after": await export_node(track),
+        "scope": (f"app:{app_id}" if app_id else f"track:{track.id}"),
+    }
+    if change_event_sink is not None:
+        change_event_sink(event)
+    else:
+        await emit_change_event(**event)
 
     return track
 

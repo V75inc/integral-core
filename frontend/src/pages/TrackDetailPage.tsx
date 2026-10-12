@@ -1608,15 +1608,14 @@ export function TrackDetailPage() {
     if (!id || !isOwner) return;
     const ok = await confirm({
       title: 'Transfer track ownership',
-      message: `Make ${displayName || 'this collaborator'} the track owner? You will keep access as an editor.`,
-      confirmLabel: 'Transfer',
+      message: `Ask ${displayName || 'this collaborator'} to accept track ownership? You remain the owner until they accept.`,
+      confirmLabel: 'Send proposal',
       variant: 'danger'
     });
     if (!ok) return;
     try {
-      const next = await tracksApi.transferOwnership(id, newOwnerUserId);
-      setTrack(next);
-      showToast('Ownership transferred', 'success');
+      await tracksApi.transferOwnership(id, newOwnerUserId);
+      showToast('Ownership proposal sent; waiting for acceptance', 'success');
       await invalidateTrackMeta();
     } catch (e: unknown) {
       showToast(errorMessageFromAxios(e, 'Transfer failed'), 'error');
@@ -1945,6 +1944,7 @@ export function TrackDetailPage() {
       />
 
       <TrackCollaboratorsModal
+        trackId={id}
         open={collaboratorsModalOpen}
         onClose={() => setCollaboratorsModalOpen(false)}
         canManageCollaborators={canManageCollaborators}

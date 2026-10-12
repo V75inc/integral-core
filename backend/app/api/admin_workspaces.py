@@ -9,7 +9,12 @@ from jvspatial.api import endpoint
 from pydantic import ValidationError
 
 from app.api.errors import BadRequestError, MissingAuthenticationError
-from app.api.utils import export_node, require_platform_admin, resolve_principal_id
+from app.api.utils import (
+    export_node,
+    platform_admin_admission,
+    require_platform_admin,
+    resolve_principal_id,
+)
 from app.schemas.admin import AdminWorkspaceUpdate
 from app.services.admin_workspaces import (
     delete_admin_workspace,
@@ -26,6 +31,7 @@ from app.services.change_event import emit_change_event
 
 
 @endpoint("/admin/workspaces", methods=["GET"], auth=True, tags=["Admin"])
+@platform_admin_admission
 async def admin_list_workspaces(
     request: Request,
     page: int = 1,
@@ -34,7 +40,7 @@ async def admin_list_workspaces(
     kind: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Paginated platform-wide workspace directory."""
-    require_platform_admin(request)
+    await require_platform_admin(request)
     result = await list_admin_workspaces(
         page=page,
         per_page=per_page,
@@ -47,12 +53,13 @@ async def admin_list_workspaces(
 @endpoint(
     "/admin/workspaces/{workspace_id}", methods=["GET"], auth=True, tags=["Admin"]
 )
+@platform_admin_admission
 async def admin_get_workspace(
     request: Request,
     workspace_id: str,
 ) -> Dict[str, Any]:
     """Full admin view of a workspace."""
-    require_platform_admin(request)
+    await require_platform_admin(request)
     detail = await get_admin_workspace_detail(workspace_id)
     return {"workspace": detail.model_dump()}
 
@@ -60,12 +67,13 @@ async def admin_get_workspace(
 @endpoint(
     "/admin/workspaces/{workspace_id}", methods=["PATCH"], auth=True, tags=["Admin"]
 )
+@platform_admin_admission
 async def admin_patch_workspace(
     request: Request,
     workspace_id: str,
 ) -> Dict[str, Any]:
     """Admin update of workspace metadata."""
-    require_platform_admin(request)
+    await require_platform_admin(request)
     actor_id = resolve_principal_id(request)
     if not actor_id:
         raise MissingAuthenticationError(message="Authentication required")
@@ -105,12 +113,13 @@ async def admin_patch_workspace(
 @endpoint(
     "/admin/workspaces/{workspace_id}", methods=["DELETE"], auth=True, tags=["Admin"]
 )
+@platform_admin_admission
 async def admin_delete_workspace(
     request: Request,
     workspace_id: str,
 ) -> Dict[str, Any]:
     """Cascade-delete a workspace (admin action)."""
-    require_platform_admin(request)
+    await require_platform_admin(request)
     actor_id = resolve_principal_id(request)
     if not actor_id:
         raise MissingAuthenticationError(message="Authentication required")
@@ -122,7 +131,7 @@ async def admin_delete_workspace(
 
         raise ResourceNotFoundError(message="Workspace not found")
     before_snapshot = await export_node(ws)
-    await delete_admin_workspace(workspace_id)
+    await delete_admin_workspace(workspace_id, actor_user_id=actor_id)
     await emit_change_event(
         actor_kind="human",
         actor_id=actor_id,
@@ -143,6 +152,7 @@ async def admin_delete_workspace(
     auth=True,
     tags=["Admin"],
 )
+@platform_admin_admission
 async def admin_list_workspace_members(
     request: Request,
     workspace_id: str,
@@ -151,7 +161,7 @@ async def admin_list_workspace_members(
     search: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Paginated workspace member roster (admin view)."""
-    require_platform_admin(request)
+    await require_platform_admin(request)
     result = await list_admin_workspace_members(
         workspace_id,
         page=page,
@@ -162,6 +172,7 @@ async def admin_list_workspace_members(
 
 
 @endpoint("/admin/apps", methods=["GET"], auth=True, tags=["Admin"])
+@platform_admin_admission
 async def admin_list_apps(
     request: Request,
     page: int = 1,
@@ -170,7 +181,7 @@ async def admin_list_apps(
     workspace_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Cross-workspace app directory."""
-    require_platform_admin(request)
+    await require_platform_admin(request)
     result = await list_admin_apps(
         page=page,
         per_page=per_page,
@@ -181,22 +192,25 @@ async def admin_list_apps(
 
 
 @endpoint("/admin/apps/{app_id}", methods=["GET"], auth=True, tags=["Admin"])
+@platform_admin_admission
 async def admin_get_app(request: Request, app_id: str) -> Dict[str, Any]:
     """Read-only admin view of an app."""
-    require_platform_admin(request)
+    await require_platform_admin(request)
     detail = await get_admin_app_detail(app_id)
     return {"resource": detail.model_dump()}
 
 
 @endpoint("/admin/tracks/{track_id}", methods=["GET"], auth=True, tags=["Admin"])
+@platform_admin_admission
 async def admin_get_track(request: Request, track_id: str) -> Dict[str, Any]:
     """Read-only admin view of a track."""
-    require_platform_admin(request)
+    await require_platform_admin(request)
     detail = await get_admin_track_detail(track_id)
     return {"resource": detail.model_dump()}
 
 
 @endpoint("/admin/tracks", methods=["GET"], auth=True, tags=["Admin"])
+@platform_admin_admission
 async def admin_list_tracks(
     request: Request,
     page: int = 1,
@@ -205,7 +219,7 @@ async def admin_list_tracks(
     workspace_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Cross-workspace track directory."""
-    require_platform_admin(request)
+    await require_platform_admin(request)
     result = await list_admin_tracks(
         page=page,
         per_page=per_page,

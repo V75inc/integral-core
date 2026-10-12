@@ -61,7 +61,7 @@ async def rescan_packages(request: Request) -> Dict[str, Any]:
         ``{"added": [...], "updated": [...], "removed": [...],
            "issues": [...], "reconciled_removed": [...]}``
     """
-    require_platform_admin(request)
+    await require_platform_admin(request)
     async with _RESCAN_LOCK:
         # Lazy imports keep the module import path lightweight and avoid
         # circular-import risk at startup (this module is imported by
@@ -155,7 +155,7 @@ async def list_loaded_profiles(request: Request) -> Dict[str, Any]:
     admin UI to render a "loaded bundles" table before deciding whether
     to trigger a rescan.
     """
-    require_platform_admin(request)
+    await require_platform_admin(request)
     from app.services.operational_model_loader import (
         load_library_operational_models_with_issues,
     )
@@ -198,7 +198,7 @@ async def list_workspaces_with_bundle(request: Request, slug: str) -> Dict[str, 
 
     Scans ``Workspace.applied_profiles`` for the slug. Read-only.
     """
-    require_platform_admin(request)
+    await require_platform_admin(request)
     from app.models.nodes import Workspace
 
     ids: List[str] = []

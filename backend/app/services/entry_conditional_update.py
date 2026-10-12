@@ -18,115 +18,61 @@ async def conditional_update_entry_custom_fields(
     scope: str = "",
     event_sink: Any = None,
     schema_revision: Optional[int] = None,
+    actor_kind: str = "human",
+    actor_id: str | None = None,
 ) -> Tuple[bool, Optional[str]]:
-    """Merge ``updates`` when ``custom_fields[state_field] == expected_state``.
+    """Use the canonical guarded command at an exact observed state/revision."""
+    from app.api.errors import InsufficientPermissionsError, ResourceConflictError
+    from app.models.nodes import Entry, Track
+    from app.services.entry_update import update_entry_in_track
+    from app.services.entry_write_scope import entry_write_scope
 
-    Use the active Entry graph context and jvspatial's native atomic update
-    implementation. Refuse stores that only inherit the non-atomic base
-    implementation; a check-then-save fallback violates this method's contract.
-    """
-    from app.models.nodes import Entry
-    from app.services.permissions import resolve_role
-
-    if not (user_id or "").strip():
+    if (
+        not user_id
+        or not isinstance(state_field, str)
+        or not state_field
+        or "." in state_field
+        or "$" in state_field
+    ):
         return False, "write_denied"
-    role = await resolve_role(user_id, "entry", entry_id)
-    if role not in ("owner", "admin", "editor"):
+    try:
+        async with entry_write_scope(entry_id):
+            current = await Entry.find_one({"id": entry_id})
+            if current is None:
+                return False, "not_found"
+            track = await Track.find_one({"id": current.track_id})
+            if track is None:
+                return False, "not_found"
+            from app.services.entry_effect_scope import entry_effect_scope
+
+            async with entry_effect_scope(
+                user_id=user_id,
+                actor_kind=actor_kind,
+                actor_id=actor_id,
+                action="entry.update",
+                target_kind="entry",
+                target_id=current.id,
+                workspace_id=track.workspace_id,
+                payload={"entry_id": entry_id, "custom_fields": dict(updates or {})},
+            ):
+                if (current.custom_fields or {}).get(state_field) != expected_state:
+                    return False, "state_conflict"
+                await update_entry_in_track(
+                    entry_id=entry_id,
+                    user_id=user_id,
+                    workspace_id=track.workspace_id,
+                    actor_kind=actor_kind,
+                    actor_id=actor_id,
+                    custom_fields=dict(updates or {}),
+                    expected_record_revision=current.record_revision,
+                    expected_schema_revision=schema_revision,
+                    change_event_sink=event_sink,
+                )
+                return True, None
+    except InsufficientPermissionsError:
         return False, "write_denied"
-
-    ent = await Entry.get(entry_id)
-    if ent is None:
-        return False, "not_found"
-
-    merged = dict(updates or {})
-    if state_field in merged and str(merged[state_field]) == expected_state:
+    except ResourceConflictError:
         return False, "state_conflict"
-
-    from jvspatial.db.database import Database
-
-    graph_context = await ent.get_context()
-    db = graph_context.database
-    # Wrappers expose ``inner``; inspect the concrete implementation instead
-    # of comparing a display class name that breaks as soon as instrumentation
-    # or cache layers are enabled.
-    concrete = db
-    seen = set()
-    while getattr(concrete, "inner", None) is not None and id(concrete) not in seen:
-        seen.add(id(concrete))
-        concrete = concrete.inner
-    native_atomic = (
-        type(concrete).find_one_and_update is not Database.find_one_and_update
-    )
-    lock = None
-    if not native_atomic:
-        # JsonDB and the in-memory test adapter are single-process stores. Their
-        # base CAS primitive is a read/modify/write, so serialize this helper's
-        # claims per entry and event loop. Multi-process production stores must
-        # provide a native atomic implementation; they fail closed above this
-        # adapter boundary rather than pretending this lock is distributed.
-        if type(concrete).__module__ not in {"jvspatial.db.jsondb", "jvspatial.memory"}:
-            return False, "atomic_update_unavailable"
-        loop_key = id(asyncio.get_running_loop())
-        lock = _LOCAL_CAS_LOCKS.setdefault(
-            (id(concrete), loop_key, entry_id), asyncio.Lock()
-        )
-
-    collection = graph_context._get_collection_name("n")
-    field_path = f"context.custom_fields.{state_field}"
-    query = {"id": entry_id, field_path: expected_state}
-    set_doc = {f"context.custom_fields.{k}": v for k, v in merged.items()}
-    from app.utils.time import utc_now_iso
-
-    set_doc.update(
-        {
-            "context.record_revision": int(getattr(ent, "record_revision", 1) or 1) + 1,
-            "context.updated_at": utc_now_iso(),
-        }
-    )
-    if schema_revision is not None:
-        set_doc["context.schema_revision"] = int(schema_revision)
-    if lock is None:
-        updated = await db.find_one_and_update(collection, query, {"$set": set_doc})
-    else:
-        async with lock:
-            updated = await db.find_one_and_update(collection, query, {"$set": set_doc})
-    if updated is None:
-        refreshed = await Entry.get(entry_id)
-        if refreshed is None:
-            return False, "not_found"
-        current = str((refreshed.custom_fields or {}).get(state_field) or "")
-        if current != expected_state:
-            return False, "state_conflict"
-        return False, "write_denied"
-
-    before = {k: (ent.custom_fields or {}).get(k) for k in merged}
-    existing = (updated.get("context") or {}).get("custom_fields") or {}
-    ent.custom_fields = dict(existing)
-    ent.record_revision = int(
-        (updated.get("context") or {}).get("record_revision")
-        or getattr(ent, "record_revision", 1)
-        or 1
-    )
-    ent.updated_at = (updated.get("context") or {}).get("updated_at")
-    if schema_revision is not None:
-        ent.schema_revision = int(schema_revision)
-    event = {
-        "actor_kind": "agent",
-        "actor_id": user_id,
-        "action": "entry.update",
-        "resource_type": "Entry",
-        "resource_id": entry_id,
-        "before": before,
-        "after": dict(merged),
-        "scope": scope or "entry_conditional_update",
-    }
-    if event_sink is not None:
-        event_sink(event)
-    else:
-        from app.services.change_event import emit_change_event
-
-        await emit_change_event(**event)
-    return True, None
 
 
 async def update_entry_custom_fields_if_revision(
