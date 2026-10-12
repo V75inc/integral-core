@@ -85,6 +85,10 @@ def canonical_creation(function):
                                     event=event,
                                 )
                             )
+        # A creator's returned Node must outlive the transaction opened here.
+        # For nested creation the restored context is the still-open outer
+        # transaction, so subsequent writes retain its rollback boundary.
+        await result.set_context(get_default_context())
         if external_sink is None:
             if outboxes:
                 for outbox in outboxes:
