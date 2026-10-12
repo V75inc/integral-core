@@ -1,7 +1,7 @@
 /**
  * Select — native `<select>` primitive.
  *
- * Wraps `<select>` with the canonical `app-input` styling. Use inside
+ * Wraps `<select>` with the canonical `app-input` styling and inset caret. Use inside
  * `<Field>` for label + hint composition; pass `<option>` children for
  * the option list. Mirrors `<Input>`/`<Textarea>` size/invalid props.
  *
@@ -47,7 +47,6 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
 ) {
   const classes = [
     'app-input',
-    'pr-8',
     SIZE_CLASSES[size],
     invalid
       ? 'border-[var(--danger-fg)] focus:shadow-[0_0_0_2px_var(--danger-bg)]'

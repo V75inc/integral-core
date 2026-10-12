@@ -1,3 +1,4 @@
+import { PageMeta } from '../components/ui';
 import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -91,9 +92,9 @@ export function SignupPage() {
           <AuthPanelHeading>
             Create your account
           </AuthPanelHeading>
-          <p className="mt-2 text-sm text-[var(--text-muted)]">
+          <PageMeta as="p">
             Your workspace is created automatically. Optionally name your collaborative workspace below.
-          </p>
+          </PageMeta>
 
           <form onSubmit={handleSubmit} className="mt-8 space-y-5">
             <div>

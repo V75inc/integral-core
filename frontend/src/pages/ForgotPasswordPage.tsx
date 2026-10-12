@@ -1,3 +1,4 @@
+import { PageMeta } from '../components/ui';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { authApi } from '../api/auth';
@@ -45,12 +46,12 @@ export function ForgotPasswordPage() {
               <AuthPanelHeading>
                 Check your inbox
               </AuthPanelHeading>
-              <p className="mt-3 text-sm text-[var(--text-muted)] leading-relaxed">
+              <PageMeta as="p">
                 If an account exists for{' '}
                 <span className="text-[var(--text)]">{email}</span>, we just
                 sent a reset link. It expires in 60 minutes and works only once.
                 Don't see it? Check your spam folder.
-              </p>
+              </PageMeta>
               <div className="mt-8 flex flex-col gap-2 text-sm text-[var(--text-muted)]">
                 <Link
                   to="/login"
@@ -75,10 +76,10 @@ export function ForgotPasswordPage() {
               <AuthPanelHeading>
                 Forgot your password?
               </AuthPanelHeading>
-              <p className="mt-2 text-sm text-[var(--text-muted)]">
+              <PageMeta as="p">
                 Enter the email on your account and we'll send you a link to set
                 a new one.
-              </p>
+              </PageMeta>
 
               <form onSubmit={handleSubmit} className="mt-8 space-y-5">
                 <div>

@@ -1,3 +1,4 @@
+import { PageMeta } from '../../../components/ui';
 /**
  * Thin Get Started section — destination for the first-login banner
  * (`OnboardingGetStartedBanner` → `/settings#get-started`).
@@ -25,9 +26,9 @@ export function GetStartedSection({
         <Text variant="heading-md" weight="semibold" as="h2">
           Get started
         </Text>
-        <Text variant="body" tone="muted" as="p" className="mt-1">
+        <PageMeta as="p">
           A few simple ways to make Integral useful for your everyday work.
-        </Text>
+        </PageMeta>
       </div>
 
       <SettingsSection

@@ -1347,7 +1347,7 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
                 <Text variant="heading-lg" weight="bold" as="h1">{track.title}</Text>
               </div>
               {track.purpose && (
-                <Text variant="body-sm" tone="muted" as="p" className="block leading-relaxed">
+                <Text variant="subtitle" tone="muted" as="p" className="block">
                   {track.purpose}
                 </Text>
               )}
@@ -1568,7 +1568,7 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
             <div>
               <Text variant="body-lg" weight="bold" as="h1">{track.title}</Text>
               {data.workspace?.name && (
-                <Text variant="meta" tone="subtle" weight="semibold" as="p" className="block uppercase tracking-wider">{data.workspace.name}</Text>
+                <Text variant="subtitle" tone="muted" as="p" className="block">{data.workspace.name}</Text>
               )}
             </div>
           </div>

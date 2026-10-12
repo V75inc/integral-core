@@ -1,3 +1,4 @@
+import { PageMeta } from '../../../components/ui';
 import {
   SettingsField,
   SettingsSection,
@@ -48,9 +49,9 @@ export function SearchModeSection({ settings, update }: Props) {
     <div className="flex flex-col gap-5">
       <div>
         <Text variant="heading-md" weight="semibold" as="h2">Search</Text>
-        <Text variant="body" tone="muted" as="p" className="mt-1">
+        <PageMeta as="p">
           Pick how every search box in Integral resolves your query.
-        </Text>
+        </PageMeta>
       </div>
 
       <SettingsSection

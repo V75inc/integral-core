@@ -1,3 +1,4 @@
+import { PageMeta } from '../../../components/ui';
 /**
  * Phase 8 Plan 08-01 Task 2 — Policies panel (SET-01).
  *
@@ -125,11 +126,11 @@ export function PoliciesSection() {
         <Text variant="heading-md" weight="semibold" as="h2">
           Policies
         </Text>
-        <Text variant="body" tone="muted" as="p" className="mt-1">
+        <PageMeta as="p">
           Define who can do what across the workspace. Each rule controls how
           a person, agent, or connector can access a specific resource. Integral
           checks every action against this list before allowing it.
-        </Text>
+        </PageMeta>
       </div>
 
       <SettingsSection

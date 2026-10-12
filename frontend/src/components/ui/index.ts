@@ -46,3 +46,6 @@ export {
   FilterActionRow,
   PageSearchInput,
 } from './FilterBar';
+
+export { PageMeta } from './PageMeta';
+export type { PageMetaProps } from './PageMeta';

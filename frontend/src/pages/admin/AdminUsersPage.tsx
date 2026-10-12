@@ -1,3 +1,5 @@
+import { Button } from '../../components/ui';
+import { Text, Input } from '../../ui';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -8,6 +10,7 @@ import {
   Badge,
   LINE_ICON_STROKE,
   PageHeading,
+  PageMeta,
   PageSection,
   PageShell,
   Skeleton,
@@ -75,41 +78,29 @@ export function AdminUsersPage() {
     <PageShell>
       <PageSection>
         <PageHeading>Users</PageHeading>
-        <p className="mt-2 text-sm text-[var(--text-muted)]">
+        <PageMeta as="p">
           View and manage all platform users.
-        </p>
+        </PageMeta>
       </PageSection>
       <PageSection className="mt-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative max-w-md flex-1">
-            <Search
+            <Text as="span" tone="subtle" className="absolute left-3 top-1/2 -translate-y-1/2"><Search
               size={16}
               strokeWidth={LINE_ICON_STROKE}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-subtle)]"
-            />
-            <input
+              /></Text>
+            <Input
               type="search"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Search by name or email…"
-              className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--panel)] py-2 pl-9 pr-3 text-sm"
+              className="pl-9"
             />
           </div>
           <div className="flex gap-2">
             {(['all', 'active', 'inactive'] as const).map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => setStatus(s)}
-                className={[
-                  'rounded-lg px-3 py-1.5 text-xs capitalize',
-                  status === s
-                    ? 'bg-[var(--nav-active-bg)] text-[var(--text)] font-medium'
-                    : 'text-[var(--text-muted)] hover:bg-[var(--panel)]',
-                ].join(' ')}
-              >
-                {s}
-              </button>
+              <Button key={s} size="sm" variant={status === s ? 'primary' : 'ghost'}
+                type="button" onClick={() => setStatus(s)} className="capitalize">{s}</Button>
             ))}
           </div>
         </div>
@@ -129,19 +120,19 @@ export function AdminUsersPage() {
             <div className="overflow-x-auto rounded-xl border border-[var(--border-subtle)]">
               <table className="w-full min-w-[640px] text-sm">
                 <thead>
-                  <tr className="border-b border-[var(--border-subtle)] text-left text-[var(--text-subtle)]">
+                  <Text as="tr" variant="body" tone="subtle" className="border-b border-[var(--border-subtle)] text-left">
                     <th className="px-4 py-3 font-medium">User</th>
                     <th className="px-4 py-3 font-medium">Status</th>
                     <th className="px-4 py-3 font-medium">Role</th>
                     <th className="px-4 py-3 font-medium">Created</th>
                     <th className="px-4 py-3 font-medium">Last active</th>
-                  </tr>
+                  </Text>
                 </thead>
                 <tbody>
                   {data.users.map((user) => (
                     <tr
                       key={user.id}
-                      className="border-b border-[var(--border-subtle)] last:border-0 hover:bg-[var(--panel)]"
+                      className="border-b border-[var(--border-subtle)] last:border-0 hover:opacity-80"
                     >
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
@@ -152,7 +143,7 @@ export function AdminUsersPage() {
                               id={user.id}
                               label={user.display_name || '—'}
                             />
-                            <p className="text-xs text-[var(--text-muted)]">{user.email || '—'}</p>
+                            <Text as="p" variant="body-sm" tone="muted" className="">{user.email || '—'}</Text>
                           </div>
                         </div>
                       </td>
@@ -165,33 +156,33 @@ export function AdminUsersPage() {
                         {user.is_platform_admin ? (
                           <Badge variant="info">Super Admin</Badge>
                         ) : (
-                          <span className="text-[var(--text-muted)]">Member</span>
+                          <Text as="span" variant="body" tone="muted" className="">Member</Text>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-[var(--text-muted)]">
+                      <td className="px-4 py-3"><Text variant="body" tone="muted">
                         {user.created_at
                           ? formatRelativeTime(user.created_at)
                           : '—'}
-                      </td>
-                      <td className="px-4 py-3 text-[var(--text-muted)]">
+                      </Text></td>
+                      <td className="px-4 py-3"><Text variant="body" tone="muted">
                         {user.last_accessed
                           ? formatRelativeTime(user.last_accessed)
                           : '—'}
-                      </td>
+                      </Text></td>
                     </tr>
                   ))}
                   {data.users.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="px-4 py-8 text-center text-[var(--text-muted)]">
+                      <td colSpan={5} className="px-4 py-8 text-center"><Text variant="body" tone="muted">
                         No users match your filters.
-                      </td>
+                      </Text></td>
                     </tr>
                   )}
                 </tbody>
               </table>
             </div>
             {data.total_pages > 1 && (
-              <div className="mt-4 flex items-center justify-between text-sm text-[var(--text-muted)]">
+              <Text as="div" variant="body" tone="muted" className="mt-4 flex items-center justify-between">
                 <span>
                   Page {data.page} of {data.total_pages} ({data.total} total)
                 </span>
@@ -200,7 +191,7 @@ export function AdminUsersPage() {
                     type="button"
                     disabled={!data.has_previous}
                     onClick={() => setPage(page - 1)}
-                    className="rounded-lg px-3 py-1.5 disabled:opacity-40 hover:bg-[var(--panel)]"
+                    className="rounded-lg px-3 py-1.5 disabled:opacity-40 hover:opacity-80"
                   >
                     Previous
                   </button>
@@ -208,12 +199,12 @@ export function AdminUsersPage() {
                     type="button"
                     disabled={!data.has_next}
                     onClick={() => setPage(page + 1)}
-                    className="rounded-lg px-3 py-1.5 disabled:opacity-40 hover:bg-[var(--panel)]"
+                    className="rounded-lg px-3 py-1.5 disabled:opacity-40 hover:opacity-80"
                   >
                     Next
                   </button>
                 </div>
-              </div>
+              </Text>
             )}
           </>
         )}

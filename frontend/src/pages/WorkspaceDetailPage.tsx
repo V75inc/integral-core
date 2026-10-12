@@ -20,6 +20,7 @@ import {
   Skeleton,
   LINE_ICON_STROKE,
   PageHeading,
+  PageMeta,
   PageShell,
   PageSection,
 } from '../components/ui';
@@ -294,7 +295,7 @@ export function WorkspaceDetailPage() {
             <PageHeading accentColor={workspace.accent_color} accentLabel={workspace.name}>
               {workspace.name}
             </PageHeading>
-            <div className="mt-3 md:mt-3.5 flex flex-wrap items-center gap-x-4 md:gap-x-6 gap-y-2 text-sm text-[var(--text-subtle)]">
+            <PageMeta>
               <span>{apps.length} {apps.length === 1 ? 'app' : 'apps'}</span>
               <span aria-hidden>·</span>
               <span>{workspaceTracks.length} {workspaceTracks.length === 1 ? 'track' : 'tracks'}</span>
@@ -306,15 +307,15 @@ export function WorkspaceDetailPage() {
                     ? `${workspaceAccessLabel(workspace)} workspace`
                     : `Your role · ${workspaceMembershipRoleLabel(workspace)}`}
               </span>
-            </div>
+            </PageMeta>
             {isPersonal && !isOwner ? (
-              <p className="text-sm text-[var(--text-muted)] mt-3 max-w-2xl">
+              <PageMeta as="p">
                 You were invited to this workspace.
-              </p>
+              </PageMeta>
             ) : workspace.description ? (
-              <p className="text-sm text-[var(--text-muted)] mt-3 max-w-2xl">
+              <PageMeta as="p">
                 {workspace.description}
-              </p>
+              </PageMeta>
             ) : null}
           </div>
         </div>
