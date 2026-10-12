@@ -26,18 +26,34 @@ from app.services.app_graph import (
 from app.services.app_lifecycle import install_app, pause_app, resume_app, uninstall_app
 from app.services.app_operations.context import OperationContext
 from app.services.app_operations.dispatch import invoke_app_operation
-from app.services.hooks.registry import get_workspace_tools
+from app.services.hooks.registry import (
+    get_workspace_tools,
+    unregister_bundle_registrations,
+)
 from app.services.hooks.tool_dispatch import run_tool
 from app.services.operational_model_loader import (
     load_library_operational_models_with_issues,
 )
 from app.services.permissions import get_user_accessible_apps
-from tests.contract.asset_register_helpers import seed_asset_register_library_cp
-from tests.fixtures.workspaces import make_org_workspace
+from tests.contract.asset_register_helpers import (
+    create_asset_entry,
+    grant_asset_operator,
+    run_authorized_asset_tool,
+    seed_asset_register_library_cp,
+)
+from tests.fixtures.workspaces import make_org_workspace, workspace_owner_id
 
 REPO = Path(__file__).resolve().parents[3]
 BUILD_SCRIPT = REPO / "examples" / "asset-register" / "build.py"
 SDK_ROOT = REPO / "sdk" / "python"
+
+_original_install_app = install_app
+
+
+async def install_app(**kwargs):
+    installed = await _original_install_app(**kwargs)
+    await grant_asset_operator(actor_id=kwargs["actor_id"], app_id=installed["app_id"])
+    return installed
 
 
 @pytest.fixture(autouse=True)
@@ -170,7 +186,7 @@ async def test_extracted_asset_register_materializes_its_warranty_schedule(
     installed = await install_app(
         workspace_id=workspace.id,
         library_cp_id=library_cp.id,
-        actor_id="u_archive_warranty",
+        actor_id=await workspace_owner_id(workspace),
         include_seed_data=False,
     )
     routines = await RoutineTask.find({"source_app_id": installed["app_id"]})
@@ -195,6 +211,8 @@ async def test_install_invalidates_cached_app_inventory_for_owner(monkeypatch):
     library_cp = await seed_asset_register_library_cp()
 
     assert await get_user_accessible_apps(owner.id) == []
+    # A legacy stale aggregate must not become authority after installation.
+    permissions_process_cache.set_cached(owner.id, "accessible_apps", [])
     assert permissions_process_cache.get_cached(owner.id, "accessible_apps") == []
 
     installed = await install_app(
@@ -228,14 +246,13 @@ async def test_extracted_asset_register_rehydrates_tools_without_duplicate_sched
     )
     from app.agentive.nodes import RoutineTask
     from app.services.hooks.install_hook import rehydrate_all_installed_bundles
-    from app.services.hooks.registry import unregister_bundle_registrations
 
     workspace = await make_org_workspace("ws-archive-rehydrate")
     library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
     installed = await install_app(
         workspace_id=workspace.id,
         library_cp_id=library_cp.id,
-        actor_id="u_archive_rehydrate",
+        actor_id=await workspace_owner_id(workspace),
         include_seed_data=False,
     )
     original_routines = await RoutineTask.find({"source_app_id": installed["app_id"]})
@@ -270,7 +287,6 @@ async def test_c6_a13_populated_upgrade_fences_due_work_across_restart_and_unins
 
     from app.agentive.nodes import RoutineTask
     from app.services.app_lifecycle import update_app_from_library
-    from app.services.hooks.registry import unregister_bundle_registrations
     from app.services.operational_model_loader import compute_bundle_fingerprint
     from app.services.routine_task_scheduler import run_scheduler_pass
     from app.utils.time import utc_now_iso
@@ -288,10 +304,7 @@ async def test_c6_a13_populated_upgrade_fences_due_work_across_restart_and_unins
     )
     monkeypatch.syspath_prepend(str(SDK_ROOT))
 
-    workspace = await make_org_workspace("ws-c6-a13-lifecycle-fence")
-    await test_user.connect(
-        workspace, edge=IS_MEMBER_OF, role="owner", joined_at="2026-01-01T00:00:00Z"
-    )
+    workspace = await make_org_workspace("ws-c6-a13-lifecycle-fence", owner=test_user)
     library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
     installed = await install_app(
         workspace_id=workspace.id,
@@ -310,7 +323,8 @@ async def test_c6_a13_populated_upgrade_fences_due_work_across_restart_and_unins
         app_id=app.id,
         operation_key="register_asset",
     )
-    entry = await context.create_entry(
+    entry = await create_asset_entry(
+        context,
         track_id=assets.id,
         entry_type_key="asset",
         title="Lifecycle Laptop",
@@ -384,7 +398,7 @@ import asyncio, json, os
 from app.agentive.nodes import RoutineTask
 from app.models.nodes import App
 from app.services.hooks.install_hook import rehydrate_all_installed_bundles
-from app.services.hooks.registry import get_workspace_tools
+from app.services.hooks.registry import get_workspace_tools, unregister_bundle_registrations
 import app.services.routine_task_scheduler as scheduler
 from app.services.routine_task_scheduler import run_scheduler_pass
 
@@ -613,7 +627,8 @@ async def test_declared_asset_dashboard_reads_populated_app_after_reinstall(
         operation_key="register_asset",
     )
     for tag in ("A-001", "A-002", "A-003"):
-        entry = await context.create_entry(
+        entry = await create_asset_entry(
+            context,
             track_id=asset_track.id,
             entry_type_key="asset",
             title=f"Test asset {tag}",
@@ -659,10 +674,7 @@ async def test_extracted_asset_register_read_operation_over_http(
     monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(extensions))
     monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
     monkeypatch.syspath_prepend(str(SDK_ROOT))
-    workspace = await make_org_workspace("ws-archive-http-operation")
-    await test_user.connect(
-        workspace, edge=IS_MEMBER_OF, role="owner", joined_at="2026-01-01T00:00:00Z"
-    )
+    workspace = await make_org_workspace("ws-archive-http-operation", owner=test_user)
     library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
     installed = await install_app(
         workspace_id=workspace.id,
@@ -705,10 +717,7 @@ async def test_declared_asset_query_matches_dashboard_http_resident_and_mcp(
     monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(extensions))
     monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
     monkeypatch.syspath_prepend(str(SDK_ROOT))
-    workspace = await make_org_workspace("ws-archive-query-parity")
-    await test_user.connect(
-        workspace, edge=IS_MEMBER_OF, role="owner", joined_at="2026-01-01T00:00:00Z"
-    )
+    workspace = await make_org_workspace("ws-archive-query-parity", owner=test_user)
     library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
     installed = await install_app(
         workspace_id=workspace.id,
@@ -728,7 +737,8 @@ async def test_declared_asset_query_matches_dashboard_http_resident_and_mcp(
         operation_key="register_asset",
     )
     for number in range(1, 4):
-        entry = await context.create_entry(
+        entry = await create_asset_entry(
+            context,
             track_id=asset_track.id,
             entry_type_key="asset",
             title=f"Parity asset {number}",
@@ -830,10 +840,7 @@ async def test_extracted_asset_register_tool_runs_through_resident_dispatch(
     monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(extensions))
     monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
     monkeypatch.syspath_prepend(str(SDK_ROOT))
-    workspace = await make_org_workspace("ws-archive-resident-tool")
-    await test_user.connect(
-        workspace, edge=IS_MEMBER_OF, role="owner", joined_at="2026-01-01T00:00:00Z"
-    )
+    workspace = await make_org_workspace("ws-archive-resident-tool", owner=test_user)
     library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
     installed = await install_app(
         workspace_id=workspace.id,
@@ -879,9 +886,8 @@ async def test_extracted_asset_register_lifecycle_revokes_and_restores_resident_
     monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(extensions))
     monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
     monkeypatch.syspath_prepend(str(SDK_ROOT))
-    workspace = await make_org_workspace("ws-archive-resident-lifecycle")
-    await test_user.connect(
-        workspace, edge=IS_MEMBER_OF, role="owner", joined_at="2026-01-01T00:00:00Z"
+    workspace = await make_org_workspace(
+        "ws-archive-resident-lifecycle", owner=test_user
     )
     library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
     installed = await install_app(
@@ -929,10 +935,7 @@ async def test_extracted_asset_register_read_operation_over_mcp_dispatch(
     monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(extensions))
     monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
     monkeypatch.syspath_prepend(str(SDK_ROOT))
-    workspace = await make_org_workspace("ws-archive-mcp-operation")
-    await test_user.connect(
-        workspace, edge=IS_MEMBER_OF, role="owner", joined_at="2026-01-01T00:00:00Z"
-    )
+    workspace = await make_org_workspace("ws-archive-mcp-operation", owner=test_user)
     library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
     installed = await install_app(
         workspace_id=workspace.id,
@@ -1032,10 +1035,7 @@ async def test_c6_a12_asset_write_reuses_one_receipt_across_transports(
     monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(extensions))
     monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
     monkeypatch.syspath_prepend(str(SDK_ROOT))
-    workspace = await make_org_workspace("ws-c6-a12-transport-replay")
-    await test_user.connect(
-        workspace, edge=IS_MEMBER_OF, role="owner", joined_at="2026-01-01T00:00:00Z"
-    )
+    workspace = await make_org_workspace("ws-c6-a12-transport-replay", owner=test_user)
     library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
     installed = await install_app(
         workspace_id=workspace.id,
@@ -1267,7 +1267,7 @@ async def test_extracted_asset_register_executes_registered_custody_tools(
     assert custodian is not None
 
     tools = get_workspace_tools(workspace.id)
-    registered = await run_tool(
+    registered = await run_authorized_asset_tool(
         tools["register_asset"],
         {"asset_tag": "ARCHIVE-001", "title": "Archive Laptop"},
         ctx,
@@ -1276,7 +1276,7 @@ async def test_extracted_asset_register_executes_registered_custody_tools(
     asset_id = registered["asset"]["entry_id"]
 
     ctx.operation_key = "check_out_asset"
-    checked_out = await run_tool(
+    checked_out = await run_authorized_asset_tool(
         tools["check_out_asset"],
         {"asset_id": asset_id, "custodian_id": custodian.id},
         ctx,
@@ -1338,7 +1338,7 @@ async def test_extracted_archive_operational_journey(tmp_path, monkeypatch):
     assert custodian is not None
 
     tools = get_workspace_tools(workspace.id)
-    registered = await run_tool(
+    registered = await run_authorized_asset_tool(
         tools["register_asset"],
         {"asset_tag": "JOURNEY-001", "title": "Journey Laptop"},
         ctx,
@@ -1346,13 +1346,13 @@ async def test_extracted_archive_operational_journey(tmp_path, monkeypatch):
     assert registered["ok"] is True
     asset_id = registered["asset"]["entry_id"]
     ctx.operation_key = "check_out_asset"
-    checked_out = await run_tool(
+    checked_out = await run_authorized_asset_tool(
         tools["check_out_asset"],
         {"asset_id": asset_id, "custodian_id": custodian.id},
         ctx,
     )
     assert checked_out["ok"] is True
-    conflict = await run_tool(
+    conflict = await run_authorized_asset_tool(
         tools["check_out_asset"],
         {"asset_id": asset_id, "custodian_id": custodian.id},
         ctx,

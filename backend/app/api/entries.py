@@ -54,11 +54,7 @@ from app.services.operational_model_runtime import (
     validate_tags_apply_to_entry_type,
     validate_taxonomy_constraints,
 )
-from app.services.permissions import (
-    ROLE_RANK,
-    get_user_node,
-    resolve_role,
-)
+from app.services.permissions import get_user_node
 from app.services.policy_engine import evaluate as policy_evaluate
 from app.services.request_scope import resolve_workspace_id_from_request
 from app.services.retrieval import get_embedding_store, semantic_retrieval_available
@@ -929,8 +925,12 @@ async def add_reaction(
         raise MissingAuthenticationError(message="Authentication required")
     # Substrate gate: reacting requires role ≥ commenter — viewer is
     # read-only by design (matches comment.create gate in api/comments.py).
-    role = await resolve_role(user_id, "entry", entry_id)
-    if role is None or ROLE_RANK.get(role, 0) < ROLE_RANK["commenter"]:
+    decision = await policy_evaluate(
+        subject=Subject(kind="human", id=user_id),
+        action="reaction.create",
+        resource=Resource(kind="entry", id=entry_id, scope=f"entry:{entry_id}"),
+    )
+    if not decision.allowed:
         raise InsufficientPermissionsError(
             message="You need commenter access or higher to react."
         )

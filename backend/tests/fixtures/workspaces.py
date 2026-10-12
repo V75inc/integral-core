@@ -13,15 +13,24 @@ from __future__ import annotations
 
 from app.models.edges import IS_MEMBER_OF
 from app.models.nodes import User, Workspace
+from app.services.app_graph import (
+    catalog_user,
+    catalog_workspace,
+    ensure_integral_app_graph,
+)
 from app.utils.time import utc_now_iso
 
 
-async def make_org_workspace(name: str = "WS Test", **overrides) -> Workspace:
+async def make_org_workspace(
+    name: str = "WS Test", *, owner: User | None = None, **overrides
+) -> Workspace:
     """Organization workspace with an owner, as production always has one.
 
+    ``owner`` selects the single canonical principal; omitted creates one.
     ``overrides`` passes through to ``Workspace.create`` for the few callers
     that need a different shape.
     """
+    await ensure_integral_app_graph(include_library=False)
     now = utc_now_iso()
     fields = {
         "kind": "organization",
@@ -33,6 +42,17 @@ async def make_org_workspace(name: str = "WS Test", **overrides) -> Workspace:
     }
     fields.update(overrides)
     ws = await Workspace.create(**fields)
-    owner = await User.create(name=f"{name} owner")
+    await catalog_workspace(ws)
+    owner = owner or await User.create(display_name=f"{name} owner")
+    await catalog_user(owner)
     await owner.connect(ws, edge=IS_MEMBER_OF, role="owner", joined_at=now)
     return ws
+
+
+async def workspace_owner_id(workspace: Workspace) -> str:
+    """Use the fixture's actual current graph owner rather than a placeholder."""
+    from app.services.workspace_permissions import get_workspace_owner_user_id
+
+    owner_id = await get_workspace_owner_user_id(workspace.id)
+    assert owner_id is not None
+    return owner_id

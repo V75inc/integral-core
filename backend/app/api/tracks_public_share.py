@@ -108,6 +108,25 @@ async def _track_has_active_public_share(track_id: str) -> bool:
     return False
 
 
+def _public_entry_admission(permission: str):
+    from functools import wraps
+
+    def decorate(function):
+        @wraps(function)
+        async def invoke(*args: Any, **kwargs: Any):
+            import inspect
+
+            from app.services.public_entry_effect import public_entry_write_scope
+
+            values = inspect.signature(function).bind(*args, **kwargs)
+            async with public_entry_write_scope(values.arguments["token"], permission):
+                return await function(*args, **kwargs)
+
+        return invoke
+
+    return decorate
+
+
 async def _resolve_public_track_link(token: str) -> ShareLink:
     if not token or len(token) < 16:
         raise ResourceNotFoundError(message="Shared track not found")
@@ -684,6 +703,7 @@ async def get_public_track_relation_options(
 @endpoint(
     "/public-share/track/{token}/entries", methods=["POST"], auth=False, tags=["Shares"]
 )
+@_public_entry_admission("create_entries")
 async def create_public_track_entry(request: Request, token: str) -> Dict[str, Any]:
     """Create an entry on a shared track publicly."""
     link = await _resolve_public_track_link(token)
@@ -868,6 +888,7 @@ async def upload_public_track_entry_attachment(
     auth=False,
     tags=["Shares"],
 )
+@_public_entry_admission("update_entries")
 async def update_public_track_entry(
     request: Request, token: str, entry_id: str
 ) -> Dict[str, Any]:
@@ -925,22 +946,33 @@ async def update_public_track_entry(
     if not entry_type:
         raise ResourceNotFoundError(message="Entry type not found")
 
-    if req.custom_fields is not None:
-        from app.services.app_invariant_guards import enforce_protected_field_write
-        from app.services.operational_model_compile import slug_manifest_key
+    from app.services.app_invariant_guards import enforce_protected_field_write
+    from app.services.operational_model_compile import slug_manifest_key
 
-        entry_type_key = slug_manifest_key(
-            str(
-                (entry_type.form_schema or {}).get("_manifest_entry_type_key")
-                or entry_type.name
-                or ""
-            )
+    entry_type_key = slug_manifest_key(
+        str(
+            (entry_type.form_schema or {}).get("_manifest_entry_type_key")
+            or entry_type.name
+            or ""
         )
-        await enforce_protected_field_write(
-            workspace_id=str(getattr(track, "workspace_id", "") or ""),
-            entry_type_key=entry_type_key,
-            proposed_custom_fields=req.custom_fields,
-        )
+    )
+    await enforce_protected_field_write(
+        principal_id="public",
+        workspace_id=track.workspace_id,
+        entry_type_key=entry_type_key,
+        proposed_custom_fields=req.custom_fields,
+        track_id=track.id,
+        entry_id=entry.id,
+        proposed_fields={
+            key: value
+            for key, value in {
+                "title": req.title,
+                "body": req.body,
+                "status": req.status,
+            }.items()
+            if value is not None
+        },
+    )
 
     if req.title is not None:
         validate_no_profanity(req.title, "title")

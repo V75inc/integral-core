@@ -140,7 +140,36 @@ async def test_generic_create_rejects_protected_app_field_before_persistence():
     user_id, track, entry_type = await _bootstrap_track_with_type(
         "typeid-protected@example.com"
     )
-    app_id = "app-protected-create-test"
+    from app.models.edges import CONTAINS, HAS_APPLICATION_DEFINITION, OWNS
+    from app.models.nodes import App, ApplicationDefinition
+    from app.services.app_graph import catalog_app
+    from app.services.application_definitions import definition_fingerprint
+    from app.services.permissions import get_user_node
+
+    app = await App.create(name="Protected create QA", workspace_id=track.workspace_id)
+    await catalog_app(app)
+    owner = await get_user_node(user_id)
+    await owner.connect(app, edge=OWNS)
+    await app.connect(track, edge=CONTAINS)
+    manifest = {
+        "app": {
+            "protected_state": {"post": {"fields": ["lifecycle_state"]}},
+            "operations": [],
+        }
+    }
+    definition = await ApplicationDefinition.create(
+        app_id=app.id,
+        workspace_id=track.workspace_id,
+        revision=1,
+        status="active",
+        canonical_manifest=manifest,
+        manifest_fingerprint=definition_fingerprint(manifest),
+    )
+    await app.connect(definition, edge=HAS_APPLICATION_DEFINITION)
+    app.active_definition_id = definition.id
+    app.active_definition_revision = 1
+    await app.save()
+    app_id = app.id
     register_protected_fields(track.workspace_id, app_id, {"post": ["lifecycle_state"]})
     try:
         with pytest.raises(BadRequestError) as ei:

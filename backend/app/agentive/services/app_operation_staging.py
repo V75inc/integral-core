@@ -87,6 +87,7 @@ async def prepare_agent_app_operation(
             payload=prepared["body"],
             expected_declaration_fingerprint=prepared["declaration_fingerprint"],
             expected_operation_kind="read",
+            expected_resolved_input=prepared.get("resolved_body"),
         )
         return {"_no_stage": True, "data": output}
 
@@ -102,6 +103,7 @@ async def prepare_agent_app_operation(
                 app_id,
                 key,
                 body,
+                prepared.get("resolved_body", body),
                 declaration,
                 str(args.get("idempotency_key") or ""),
             ],
@@ -114,6 +116,7 @@ async def prepare_agent_app_operation(
         "app_id": app_id,
         "operation_key": key,
         "input": body,
+        "resolved_input": prepared.get("resolved_body", body),
         "idempotency_key": "app-review:" + proposal_key,
         "operation_idempotency_key": str(args.get("idempotency_key") or "")
         or "app-review:" + proposal_key,

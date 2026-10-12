@@ -1026,7 +1026,7 @@ async def plant_seeds_for_install(
     return planted
 
 
-async def unplant_seeds(app_id: str) -> int:
+async def unplant_seeds(app_id: str, *, actor_user_id: str = "") -> int:
     """Delete all seed-planted entries for an App. Best-effort compensation."""
     try:
         prefix = f"seed:{app_id}:"
@@ -1047,7 +1047,7 @@ async def unplant_seeds(app_id: str) -> int:
     count = 0
     for entry in seeded:
         try:
-            await delete_entry_fast(entry)
+            await delete_entry_fast(entry, actor_user_id=actor_user_id)
             count += 1
         except Exception:
             logger.exception(
@@ -1085,14 +1085,14 @@ async def materialize_tracks_for_app(
     return [t for t in post if t.id not in pre_existing]
 
 
-async def delete_tracks(tracks: List[Track]) -> int:
+async def delete_tracks(tracks: List[Track], *, actor_user_id: str = "") -> int:
     """Compensation: delete a list of Tracks. Best-effort."""
     from app.services.app_deletion import delete_track_and_nested_content
 
     count = 0
     for tr in tracks:
         try:
-            await delete_track_and_nested_content(tr)
+            await delete_track_and_nested_content(tr, actor_user_id=actor_user_id)
             count += 1
         except Exception:
             logger.exception(

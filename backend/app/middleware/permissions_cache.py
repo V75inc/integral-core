@@ -2,7 +2,7 @@
 
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any, Dict, Iterator, Optional, Tuple, Union
+from typing import Any, Dict, Iterator, Optional, Tuple
 
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -10,14 +10,8 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 #   ("user_node", user_id)                                          — Phase 0
 #   ("etr", uid, tid)                                               — Phase 0 effective track role
 #   ("rr", resource_type, resource_id, user_id)                     — Phase 1 resolve_role
-#   ("policy", subject_kind, subject_id, action, resource_kind, resource_id)
-#                                                                   — Phase 3 D-11 policy_engine.evaluate
-PermissionCacheKey = Union[
-    Tuple[str, str],
-    Tuple[str, str, str],
-    Tuple[str, str, str, str],
-    Tuple[str, str, str, str, str, str],
-]
+#   ("policy", subject_kind, subject_id, action, authority_mode, complete_resource_json)
+PermissionCacheKey = Tuple[str, ...]
 
 _permissions_cache_var: ContextVar[Optional[Dict[PermissionCacheKey, Any]]] = (
     ContextVar("integral_permissions_cache", default=None)
@@ -73,8 +67,8 @@ def policy_decision_clear_for_subject(subject_kind: str, subject_id: str) -> int
     invalidation across requests is unnecessary (the next request starts with a
     fresh cache via ``reset_permissions_cache``).
 
-    Cache keys touched have the 6-tuple shape
-    ``("policy", subject_kind, subject_id, action, resource_kind, resource_id)``
+    Cache keys touched start with
+    ``("policy", subject_kind, subject_id, action, authority_mode, complete_resource_json)``
     written by ``policy_engine.evaluate``. Other key shapes (Phase 0 user_node,
     Phase 0 etr, Phase 1 rr) are not touched.
 
@@ -88,7 +82,7 @@ def policy_decision_clear_for_subject(subject_kind: str, subject_id: str) -> int
         for k in cache.keys()
         if (
             isinstance(k, tuple)
-            and len(k) == 6
+            and len(k) >= 3
             and k[0] == "policy"
             and k[1] == subject_kind
             and k[2] == subject_id
@@ -108,5 +102,7 @@ class PermissionsCacheMiddleware:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Clear the per-request permission cache for HTTP requests, then invoke the app."""
         if scope["type"] == "http":
-            reset_permissions_cache()
-        await self.app(scope, receive, send)
+            with isolated_permissions_cache():
+                await self.app(scope, receive, send)
+        else:
+            await self.app(scope, receive, send)

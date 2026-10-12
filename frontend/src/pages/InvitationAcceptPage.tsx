@@ -6,6 +6,7 @@ import { Button, PageHeading, Skeleton } from '../components/ui';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import type { InvitationPreview } from '../api/invitations';
+import { invitationAcceptanceMessage } from '../utils/invitationAcceptance';
 
 const NON_RETRYABLE_CODES = new Set([
   'invitation.token_invalid',
@@ -80,9 +81,9 @@ export function InvitationAcceptPage() {
     setWorking(true);
     try {
       const res = await invitationsApi.accept(token);
-      showToast(`Joined as ${res.role}`, 'success');
+      showToast(invitationAcceptanceMessage(res.role, res.invitation.grant_receipt), res.role ? 'success' : 'error');
       qc.invalidateQueries({ queryKey: ['workspaces'] });
-      navigate(`/workspaces/${res.invitation.workspace_id}`);
+      navigate(res.role ? `/workspaces/${res.invitation.workspace_id}` : '/');
     } catch (e: unknown) {
       const detail =
         (e as { response?: { data?: { detail?: string } } })?.response?.data

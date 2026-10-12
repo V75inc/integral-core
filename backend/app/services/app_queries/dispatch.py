@@ -28,6 +28,7 @@ from app.services.hooks.tool_dispatch import (
     validate_output,
 )
 from app.services.permissions import resolve_role
+from app.services.workspace_governance import ordinary_authority_call
 from app.services.workspace_permissions import can_access_workspace
 
 
@@ -94,6 +95,7 @@ async def list_app_queries(
     }
 
 
+@ordinary_authority_call
 async def invoke_app_query(
     *,
     user_id: str,

@@ -36,13 +36,42 @@ class _RollbackProbe(Exception):
 async def test_transaction_track_count_preserves_entry_access_overrides(
     postgres_raw_db,
 ) -> None:
-    from app.models.edges import COLLABORATES_ON, CONTAINS, EXCLUDED_FROM, OWNS
-    from app.models.nodes import Entry, Track, User
+    from jvspatial.core.context import GraphContext, scoped_default_context_async
+
+    from app.models.edges import (
+        COLLABORATES_ON,
+        CONTAINS,
+        EXCLUDED_FROM,
+        IS_MEMBER_OF,
+        OWNS,
+    )
+    from app.models.nodes import Entry, Track, User, Workspace
+    from app.services.app_graph import (
+        catalog_track,
+        catalog_user,
+        catalog_workspace,
+        ensure_integral_app_graph,
+    )
     from app.services.permissions import count_user_accessible_entries
+
+    async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+        await ensure_integral_app_graph(include_library=False)
 
     async with postgres_graph_transaction(postgres_raw_db):
         owner = await User.create(user_id=uuid.uuid4().hex, display_name="Owner")
-        track = await Track.create(title="Transaction count", owner_id=owner.id)
+        await catalog_user(owner)
+        workspace = await Workspace.create(
+            name="Transaction count", kind="organization"
+        )
+        await catalog_workspace(workspace)
+        governor = await User.create(display_name="Independent workspace owner")
+        await catalog_user(governor)
+        await governor.connect(workspace, edge=IS_MEMBER_OF, role="owner")
+        await owner.connect(workspace, edge=IS_MEMBER_OF, role="member")
+        track = await Track.create(
+            title="Transaction count", owner_id=owner.id, workspace_id=workspace.id
+        )
+        await catalog_track(track)
         await owner.connect(track, edge=OWNS)
         entries = [
             await Entry.create(title=str(i), author_id=owner.id, track_id=track.id)

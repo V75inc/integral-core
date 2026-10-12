@@ -82,6 +82,7 @@ async def test_me_invitations_lists_pending_for_caller_email(
         base_url="http://test",
         headers={"Authorization": f"Bearer {token_jwt}"},
     ) as invitee_client:
+        await _verify_invitee_mailbox(invitee_client)
         listed = await invitee_client.get("/api/me/invitations")
         assert listed.status_code == 200, listed.text
         rows = listed.json().get("invitations") or []
@@ -141,6 +142,7 @@ async def test_me_invitation_accept_marks_accepted_and_grants_membership(
 ):
     token_jwt, org_id = await _signup_invite_login(client, authenticated_client)
     async with _invitee_client(token_jwt) as invitee_client:
+        await _verify_invitee_mailbox(invitee_client)
         listed = await invitee_client.get("/api/me/invitations")
         assert listed.status_code == 200, listed.text
         inv = next(
@@ -166,6 +168,7 @@ async def test_me_invitation_decline_marks_declined(
 ):
     token_jwt, org_id = await _signup_invite_login(client, authenticated_client)
     async with _invitee_client(token_jwt) as invitee_client:
+        await _verify_invitee_mailbox(invitee_client)
         listed = await invitee_client.get("/api/me/invitations")
         assert listed.status_code == 200, listed.text
         inv = next(
@@ -180,3 +183,26 @@ async def test_me_invitation_decline_marks_declined(
         after = await invitee_client.get("/api/me/invitations")
         assert after.status_code == 200, after.text
         assert not any(r["id"] == inv["id"] for r in after.json()["invitations"])
+
+
+async def _verify_invitee_mailbox(caller):
+    """Exercise real mailbox verification with a test mail delivery fixture."""
+    import hashlib
+    from unittest.mock import AsyncMock, patch
+
+    from app.services.email_verification import create_verification_request
+    from app.services.permissions import get_user_node
+
+    me = (await caller.get("/api/auth/me")).json()["user"]
+    user = await get_user_node(me["user_id"])
+    code = "465872"
+    with (
+        patch(
+            "app.services.email_verification._generate_otp",
+            return_value=(code, hashlib.sha256(code.encode()).hexdigest()),
+        ),
+        patch("app.services.email_verification.send_email", new_callable=AsyncMock),
+    ):
+        await create_verification_request(user, me["email"])
+    response = await caller.post("/api/auth/verify-email", json={"code": code})
+    assert response.status_code == 200, response.text

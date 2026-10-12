@@ -9,6 +9,7 @@ import pytest
 from app.exceptions import BadRequestError
 from app.models.edges import COLLABORATES_ON, CONTAINS, OWNS, REFERENCES
 from app.models.nodes import Entry, EntryType, Track
+from app.services.app_graph import catalog_track
 from app.services.operational_model_entry_fields import _validate_relation_values
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.smoke]
@@ -30,14 +31,25 @@ async def _fixture(
         owner_id=writer_id,
         workspace_id=workspace_id,
     )
+    if writer is not None:
+        await catalog_track(source)
     local_track = await Track.create(
         title="Local targets",
         owner_id="relation-owner",
         workspace_id=source.workspace_id,
     )
+    if writer is not None:
+        await catalog_track(local_track)
+    if writer is not None and target_workspace:
+        from tests.fixtures.workspaces import make_org_workspace
+
+        foreign_workspace = await make_org_workspace("Relation foreign", owner=writer)
+        target_workspace = foreign_workspace.id
     foreign_track = await Track.create(
         title="Other targets", owner_id="relation-owner", workspace_id=target_workspace
     )
+    if writer is not None and target_workspace:
+        await catalog_track(foreign_track)
     target_type = await EntryType.create(
         name="Record",
         name_fold="record",
@@ -80,6 +92,9 @@ async def _fixture(
             ]
         },
     )
+    if writer is not None:
+        await source.connect(source_type, edge=CONTAINS)
+        await local_track.connect(target_type, edge=CONTAINS)
     return source, source_type, local, foreign, foreign_track
 
 
@@ -130,7 +145,7 @@ async def test_update_refuses_foreign_workspace_without_changing_record_or_edges
 async def test_create_refuses_foreign_workspace_before_creating_entry(test_user):
     from app.services.entry_create import create_entry_in_track
 
-    source, entry_type, _, foreign, _ = await _fixture()
+    source, entry_type, _, foreign, _ = await _fixture(writer=test_user)
     before = await source.nodes(edge=[CONTAINS], node=["Entry"])
     with pytest.raises(BadRequestError, match="workspace"):
         await create_entry_in_track(

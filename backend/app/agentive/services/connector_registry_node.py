@@ -305,7 +305,75 @@ async def materialize_policies_for_connector(
         is_active=True,
         created_by=actor_id,
     )
+    if subclass != "mcp" and getattr(connector, "kind", None) != "mcp":
+        await materialize_connector_target_policies(
+            connector=connector, actor_id=actor_id
+        )
     return policy
+
+
+async def materialize_connector_target_policies(
+    *, connector: Connector, actor_id: str
+) -> None:
+    """Issue exact destination grants only for current owner-authorized bindings."""
+    from app.models.edges import IS_CONNECTED_TO
+    from app.schemas.policy import Subject
+    from app.services.permissions import get_user_node
+    from app.services.policy_registry import create_policy
+    from app.services.service_delegation import validate_policy_issuance
+    from app.services.walkers.connector_bindings import resolve_connector_bindings
+
+    if (
+        connector.subclass_slug == "mcp"
+        or connector.kind == "mcp"
+        or not await connector.count_nodes(
+            edge=[IS_CONNECTED_TO], node=["Track"], direction="out"
+        )
+    ):
+        return
+    actor = await get_user_node(actor_id)
+    owner = await get_user_node(connector.owner)
+    if actor is None or owner is None or actor.id != owner.id:
+        from app.api.errors import InsufficientPermissionsError
+
+        raise InsufficientPermissionsError(
+            message="Connector owner must designate destinations"
+        )
+    routes = await resolve_connector_bindings(connector)
+    tracks = {track.id: track for track, _entry_type in routes.values()}
+    for track_id in tracks:
+        scope = f"track:{track_id}"
+        actions = ["entry.create", "entry.update"]
+        from jvspatial.core.context import get_default_context
+
+        from app.models.nodes import Policy
+
+        existing = await get_default_context().database.find(
+            "node",
+            {
+                "entity": Policy._entity_name(),
+                "context.subject_kind": "connector",
+                "context.subject_id": connector.id,
+                "context.scope": scope,
+            },
+            limit=1,
+        )
+        if existing:
+            # A disabled explicit grant remains disabled; binding retries cannot regrant it.
+            continue
+        await validate_policy_issuance(
+            issuer_id=actor.id,
+            subject=Subject(kind="connector", id=connector.id),
+            scope=scope,
+            actions=actions,
+        )
+        await create_policy(
+            subject_kind="connector",
+            subject_id=connector.id,
+            scope=scope,
+            actions=actions,
+            created_by=actor.id,
+        )
 
 
 async def get_connector(connector_id: str) -> Optional[Connector]:
@@ -447,3 +515,126 @@ async def list_connectors_for_owner(owner_id: str) -> List[Connector]:
             e,
         )
         return []
+
+
+def connector_binding_mutation(function):
+    """Hold current actor/service/workspace authority through binding mutations."""
+    import inspect
+    from contextlib import nullcontext
+    from functools import wraps
+
+    from app.schemas.connector_bindings import CreateConnectorBindingRequest
+
+    signature = inspect.signature(function)
+
+    @wraps(function)
+    async def invoke(*args: Any, **kwargs: Any):
+        from jvspatial.core.context import get_default_context
+        from pydantic import ValidationError
+
+        from app.api.errors import (
+            BadRequestError,
+            InsufficientPermissionsError,
+            ResourceNotFoundError,
+        )
+        from app.api.utils import resolve_principal_id
+        from app.schemas.policy import Subject
+        from app.services.app_operations.transaction_scope import (
+            graph_transaction_available,
+            postgres_graph_transaction,
+        )
+        from app.services.identity_admission import identity_admission
+        from app.services.membership_write_scope import membership_write_scope
+        from app.services.permissions import get_user_node
+        from app.services.request_scope import require_effect_target_scope
+        from app.services.resource_location import (
+            MANAGEMENT_APP_STATES,
+            locate_resource,
+        )
+        from app.services.service_delegation import delegated_subject_record
+        from app.services.workspace_permissions import can_access_workspace
+
+        values = signature.bind(*args, **kwargs)
+        request = values.arguments["request"]
+        actor_id = resolve_principal_id(request)
+        track_id = values.arguments.get("track_id")
+        if track_id is None:
+            try:
+                track_id = CreateConnectorBindingRequest.model_validate(
+                    await request.json()
+                ).track_id
+            except (ValueError, ValidationError) as exc:
+                raise BadRequestError(
+                    message="Invalid connector binding request"
+                ) from exc
+        location = await locate_resource(
+            "track", track_id, allowed_app_states=MANAGEMENT_APP_STATES
+        )
+        connector_id = values.arguments["connector_id"]
+        connector = await Connector.get(connector_id)
+        actor = await get_user_node(actor_id)
+        owner = await get_user_node(connector.owner) if connector else None
+        if (
+            location is None
+            or connector is None
+            or actor is None
+            or owner is None
+            or actor.id != owner.id
+        ):
+            raise ResourceNotFoundError(message="Connector binding target not found")
+        workspace_id = location.workspace_id
+        if connector.workspace_id and connector.workspace_id != workspace_id:
+            raise InsufficientPermissionsError(
+                message="Connector binding scope mismatch"
+            )
+        await require_effect_target_scope(request, actor.id, workspace_id)
+        database = get_default_context().database
+        transaction = (
+            postgres_graph_transaction(database)
+            if graph_transaction_available(database)
+            else nullcontext()
+        )
+        async with transaction, identity_admission((actor.id,)):
+            record = await delegated_subject_record(
+                Subject(kind="connector", id=connector_id)
+            )
+            if record is None:
+                raise InsufficientPermissionsError(message="Current connector required")
+            model, collection, identity = record
+            held = get_default_context().database
+            if (
+                graph_transaction_available(held)
+                and await held.find_one_and_update(
+                    collection,
+                    {"id": identity, "entity": model._entity_name()},
+                    {"$set": {}},
+                )
+                is None
+            ):
+                raise InsufficientPermissionsError(message="Current connector required")
+            async with membership_write_scope(workspace_id, principal_ids=(actor.id,)):
+                fresh = await Connector.get(connector_id)
+                current = await locate_resource(
+                    "track", track_id, allowed_app_states=MANAGEMENT_APP_STATES
+                )
+                if (
+                    fresh is None
+                    or fresh.owner != connector.owner
+                    or (fresh.workspace_id and fresh.workspace_id != workspace_id)
+                    or current is None
+                    or current.workspace_id != workspace_id
+                ):
+                    raise InsufficientPermissionsError(
+                        message="Connector binding authority changed"
+                    )
+                await delegated_subject_record(
+                    Subject(kind="connector", id=connector_id)
+                )
+                if await can_access_workspace(actor.id, workspace_id) == "none":
+                    raise ResourceNotFoundError(
+                        message="Connector binding target not found"
+                    )
+                await require_effect_target_scope(request, actor.id, workspace_id)
+                return await function(*args, **kwargs)
+
+    return invoke

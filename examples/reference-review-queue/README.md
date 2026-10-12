@@ -1,0 +1,3 @@
+Install through INTEGRAL_PACKAGE_PATHS. Workspace membership and ordinary resource read access are required. The workspace owner must assign the declared function role. The author cannot execute their own transition. Generic CRUD cannot edit protected state. Updating the definition requires explicit role reassignment. These examples are outside Core and do not grant themselves authority.
+
+The editor, decision approver, and configuration-admin roles are independent. `edit` changes only the editor note; `configure` changes only routing configuration. An approver cannot edit notes or configuration unless separately granted that role. Workspace ownership does not grant any of these business functions.

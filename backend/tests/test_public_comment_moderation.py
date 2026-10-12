@@ -75,6 +75,8 @@ async def _auth_user(email: str, name: str):
 
 async def _org(label: str):
     """Org workspace → app → track → entry, fully edge-wired (I-GRAPH-01)."""
+    from app.services.app_graph import catalog_app, catalog_track, catalog_workspace
+
     ws = await Workspace.create(
         kind="organization", name=f"Org {label}", name_fold=f"org {label}"
     )
@@ -84,6 +86,9 @@ async def _org(label: str):
     track = await Track.create(
         title=f"Track {label}", title_fold=f"track {label}", workspace_id=ws.id
     )
+    await catalog_workspace(ws)
+    await catalog_app(app)
+    await catalog_track(track)
     entry = await Entry.create(title=f"Entry {label}", track_id=track.id)
     await ws.connect(app, edge=CONTAINS)
     await app.connect(track, edge=CONTAINS)

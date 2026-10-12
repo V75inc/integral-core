@@ -68,6 +68,8 @@ PolicyAction = Literal[
     # Admin-tier in policy_engine, NOT the commenter tier its namesakes above
     # ride — see the ``_MODERATION_ACTIONS`` note there.
     "comment.moderate",
+    # Authorization-only reaction toggle; mutation remains audited as entry.update.
+    "reaction.create",
     "attachment.create",
     "attachment.attach",
     "attachment.delete",
@@ -83,6 +85,7 @@ PolicyAction = Literal[
     # (test_policy_action_strict_supersets_change_event_action) keeps these
     # in lockstep with the audit.py additions.
     "notification.mark_all_read",
+    "notification.respond",
     # Prompt Sheet queue mutations — mirror of the audit.py additions, kept in
     # lockstep by test_policy_action_strict_supersets_change_event_action.
     "prompt_queue.resolve_question",
@@ -106,16 +109,20 @@ PolicyAction = Literal[
     "user.update",
     "user.delete",
     # Workspace primitive — Personal + Organization unified.
+    "workspace.read",
     "workspace.create",
     "workspace.update",
     "workspace.delete",
     "workspace.member_add",
+    "workspace.member_provision",
     "workspace.member_update",
     "workspace.member_remove",
+    "workspace.member_leave",
     "workspace.invitation_create",
     "workspace.invitation_accept",
     "workspace.invitation_decline",
     "workspace.invitation_revoke",
+    "workspace.invitation_adopt",
     "workspace.invitation_expire",
     # Sharing primitives (resource = space | track | entry)
     "space.collaborator_add",
@@ -208,6 +215,8 @@ PolicyAction = Literal[
     # ORIGINAL action (e.g. entry.create) for approve, or ``policy.deny``
     # for reject. Single-Literal AST grep gate UNCHANGED — these are members
     # of the one existing definition.
+    "approval.approved",
+    "approval.rejected",
     "approval.approve",  # gate on POST /api/approvals/{id}/approve
     "approval.reject",  # gate on POST /api/approvals/{id}/reject
     # ---- Phase 10 Plan 10-05 additions ----
@@ -276,6 +285,7 @@ PolicyAction = Literal[
 
 
 ResourceKind = Literal[
+    "workspace",
     "entry",
     "track",
     "app",

@@ -28,6 +28,26 @@ Use canonical policy evaluation. Agents without applicable policy fail closed. P
 
 Explicit scope is `X-Integral-Scope: ws:<workspace_id>`; malformed supplied scope is rejected. Private workspace access is validated server-side. Ordinary omitted scope uses the personal default; specialized stored-active-scope paths are explicit. Bind chat and approval execution to authenticated scope. Public-read/share exceptions are narrow contracts, not general writes or private enumeration.
 
+Saved Track Views have exactly one incoming `HasView` (`HAS_VIEW`) edge from
+their canonical Track, created with the View in the same unit of work. The
+View's Track and OperationalModel caches must agree with that edge and the
+Track's model attachment and catalog. A shared OperationalModel never merges
+its Tracks' View authority or default configuration. Model-only View templates
+have no Track scope; accessing their exact catalog requires separate model
+authority. Missing, ambiguous or conflicting scope facts withhold access.
+Legacy saved Views receive scope edges only after a unique structural path is
+proven; scalar IDs alone cannot resolve a shared-model ambiguity.
+
+OperationalModel authority follows current named attachments, draft links and
+template definitions into the canonical root. Explicitly shared models validate
+their complete parent set within one workspace; mutations require configuration
+authority over every affected parent. Draft/source and ownership caches are
+checked against those paths rather than granting authority themselves. Consumed
+versions retain current parent-based read access but do not regain mutable
+configuration authority. Public library publication and private library ownership
+are separate named contracts; global catalog membership or an absent workspace
+cache cannot declare a private model public.
+
 ### I-UI-SCOPE-01 — Connector views follow the active scope
 
 Connector list and tool caches are partitioned by authenticated principal and active workspace. Switching scope replaces the mounted connector panel, clears open edit/configuration/inspection/authorization state, and requests the new workspace's list without requiring a reload. A delayed response from the previous workspace cannot populate the current list. Cache cleanup alone is insufficient for a mounted observer. Server permissions remain authoritative.
@@ -131,6 +151,10 @@ from regressing.
 
 ### I-ROLE-02 — Inherited-Role Cap At Editor (`inherited-role-caps-to-editor`)
 
+This cap governs ordinary collaborator inheritance. Protected workspace-owner
+governance is evaluated separately under I-GOVERN-01; it is not an inherited
+role, resource OWNS edge or blanket App business-action grant.
+
 **Statement.** When `resolve_role` recurses up the parent chain
 (Entry → Track → App), any inherited role above `editor` (i.e. `owner`
 or `admin`) is demoted to `editor` on the child. Roles at or below
@@ -177,7 +201,23 @@ The `services/sharing.py:_inherited_collaborators` cap variable
 `permissions._cap_inherited_role` MUST stay synchronized — single
 demotion rule, two consumers.
 
-### I-ROLE-03 — Default-Deny For New Collaborators (`new-collab-defaults-to-commenter`)
+### I-GOVERN-01 — Protected workspace-owner governance
+
+The unique live canonical workspace owner governs every canonical
+workspace-owned resource, including member-created private Apps, Tracks and
+Entries. Privacy and inherited exclusions cannot remove that authority.
+The decision states its workspace, target, capability and owner source; it
+does not create collaborator/ownership edges or alter ordinary role ranks.
+It passes through canonical validation and lifecycle services.
+
+App function execution still requires its active declaration and execution
+conditions. Workspace ownership grants neither personal credential export
+nor host execution authority. Ordinary workspace admins do not inherit
+protected ownership; delegation requires explicit scopes and ceilings.
+See [the access contract](product/ACCESS_CONTROL_CONTRACT.md) and the closure
+ledger for implementation and qualification status.
+
+### I-ROLE-03 — Least-Privilege Collaborator Default (`new-collab-defaults-to-commenter`)
 
 **Statement.** When the frontend invites a new collaborator via the
 collaborators modal (Track or App), the default role is `commenter` —

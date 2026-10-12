@@ -8,6 +8,10 @@ import {
 } from '../api/members';
 import type { Workspace, WorkspaceMember } from '../api/workspaces';
 import { UserSearchPicker } from '../components/collab/UserSearchPicker';
+import { WorkspaceOwnershipConsent } from '../components/access/WorkspaceOwnershipConsent';
+import { WorkspaceAccessGroups } from '../components/access/WorkspaceAccessGroups';
+import { MemberSuspensionReview } from '../components/access/MemberSuspensionReview';
+import { InvitationAdoptionReview } from '../components/invitations/InvitationAdoptionReview';
 import {
   Avatar,
   AvatarStackedMeta,
@@ -138,6 +142,14 @@ export function WorkspaceMembersPage() {
   }, [members, me]);
 
   const canManage = !isPersonal && (myRole === 'owner' || myRole === 'admin');
+
+  useEffect(() => {
+    if (myRole !== 'owner') {
+      setInviteRole(current => current === 'admin' ? 'member' : current);
+      setInviteCanCreateApps(false);
+      setInviteCanCreateTracks(false);
+    }
+  }, [myRole]);
 
   useSetCrumbs(
     workspace
@@ -406,6 +418,12 @@ export function WorkspaceMembersPage() {
         </header>
       </PageSection>
 
+      {myRole === 'owner' && (
+        <PageSection>
+          <WorkspaceAccessGroups workspaceId={workspace.id} members={members} />
+          {!isPersonal && <WorkspaceOwnershipConsent workspaceId={workspace.id} members={members} />}
+        </PageSection>
+      )}
       <PageSection.Separator />
 
       <PageSection className={filterBar.sectionTop}>
@@ -514,7 +532,7 @@ export function WorkspaceMembersPage() {
                   }
                   disabled={inviting}
                 >
-                  {ASSIGNABLE_ROLES.map(r => (
+                  {ASSIGNABLE_ROLES.filter(r => myRole === 'owner' || r !== 'admin').map(r => (
                     <option key={r} value={r}>
                       {r.charAt(0).toUpperCase() + r.slice(1)}
                     </option>
@@ -547,8 +565,8 @@ export function WorkspaceMembersPage() {
                 <input
                   type="checkbox"
                   checked={inviteCanCreateApps}
+                  disabled={inviting || myRole !== 'owner'}
                   onChange={e => setInviteCanCreateApps(e.target.checked)}
-                  disabled={inviting}
                 />
                 Can create apps
               </label>
@@ -556,8 +574,8 @@ export function WorkspaceMembersPage() {
                 <input
                   type="checkbox"
                   checked={inviteCanCreateTracks}
+                  disabled={inviting || myRole !== 'owner'}
                   onChange={e => setInviteCanCreateTracks(e.target.checked)}
-                  disabled={inviting}
                 />
                 Can create tracks
               </label>
@@ -638,9 +656,16 @@ export function WorkspaceMembersPage() {
                     <p className="text-xs text-[var(--text-muted)]">
                       {invitationCreationSummary(inv)}
                     </p>
+                    {myRole === 'owner' && workspaceId && (
+                      <InvitationAdoptionReview workspaceId={workspaceId} invitationId={inv.id} onAdopted={url => {
+                        setLastAcceptanceUrl(url);
+                        showToast('Invitation adopted. Send the replacement link to the recipient.', 'success');
+                        load();
+                      }} />
+                    )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <RoleBadge role={inv.role} />
+                    <RoleBadge role={inv.target_resource_role || inv.role} />
                     <InviteStatusPill status={inv.status} />
                     {canManage && (
                       <button
@@ -673,10 +698,12 @@ export function WorkspaceMembersPage() {
               const rawRole = String(m.role || 'member').toLowerCase();
               const isRowOwner = rawRole === 'owner';
               const memberKey = m.user_id || m.id;
-              const canEditRow =
-                canManage && !isRowOwner && !isSamePrincipal(me, memberKey);
-              const canRemove =
-                canManage && !isRowOwner && !isSamePrincipal(me, memberKey);
+              const protectedPeer = rawRole === 'admin' ||
+                m.can_create_apps === true || m.can_create_tracks === true;
+              const canEditRow = canManage && !isRowOwner &&
+                !isSamePrincipal(me, memberKey) &&
+                (myRole === 'owner' || !protectedPeer);
+              const canRemove = canEditRow;
               return (
                 <div
                   key={m.id}
@@ -708,6 +735,9 @@ export function WorkspaceMembersPage() {
                     }
                   />
                   <div className="flex flex-col items-stretch gap-2 shrink-0 sm:items-end">
+                    {myRole === 'owner' && !isRowOwner && !isSamePrincipal(me, memberKey) && (
+                      <MemberSuspensionReview workspaceId={workspace.id} memberId={memberKey} name={m.display_name} />
+                    )}
                     {canEditRow && memberKey ? (
                       <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--text)]">
                         <select
@@ -720,7 +750,7 @@ export function WorkspaceMembersPage() {
                             })
                           }
                         >
-                          {ASSIGNABLE_ROLES.map(r => (
+                          {ASSIGNABLE_ROLES.filter(r => myRole === 'owner' || r !== 'admin').map(r => (
                             <option key={r} value={r}>
                               {r.charAt(0).toUpperCase() + r.slice(1)}
                             </option>
@@ -729,7 +759,8 @@ export function WorkspaceMembersPage() {
                         <label className="flex items-center gap-1.5 cursor-pointer">
                           <input
                             type="checkbox"
-                            checked={Boolean(m.can_create_apps)}
+                            checked={m.can_create_apps === true}
+                            disabled={myRole !== 'owner'}
                             onChange={e =>
                               patchMember(memberKey, {
                                 can_create_apps: e.target.checked
@@ -741,7 +772,8 @@ export function WorkspaceMembersPage() {
                         <label className="flex items-center gap-1.5 cursor-pointer">
                           <input
                             type="checkbox"
-                            checked={Boolean(m.can_create_tracks)}
+                            checked={m.can_create_tracks === true}
+                            disabled={myRole !== 'owner'}
                             onChange={e =>
                               patchMember(memberKey, {
                                 can_create_tracks: e.target.checked

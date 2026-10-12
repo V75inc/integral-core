@@ -11,8 +11,11 @@ from __future__ import annotations
 import asyncio
 import inspect
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
 from functools import wraps
 from typing import Any, AsyncIterator
+from weakref import WeakSet
 
 from jvspatial.core.context import TransactionUnavailable as _JvTxnUnavailable
 from jvspatial.core.context import graph_transaction as _jv_graph_transaction
@@ -21,10 +24,24 @@ from jvspatial.db import get_prime_database
 from app.middleware.permissions_cache import reset_permissions_cache
 
 _TRANSACTION_COUNT_PAGE_SIZE = 256
+_prepared_transaction_databases: WeakSet[Any] = WeakSet()
 
 
 class OperationTransactionUnavailable(RuntimeError):
     """Raised when the configured store cannot host a graph transaction."""
+
+
+@dataclass
+class _TransactionScope:
+    database: Any
+    handle: Any
+    owner: Any
+    failed: bool = False
+
+
+_active_transaction: ContextVar[_TransactionScope | None] = ContextVar(
+    "integral_graph_transaction", default=None
+)
 
 
 class _SerializedTransaction:
@@ -39,6 +56,11 @@ class _SerializedTransaction:
     def __init__(self, transaction: Any) -> None:
         self.inner = transaction
         self._lock = asyncio.Lock()
+        self._closed = False
+
+    def _require_open(self) -> None:
+        if self._closed:
+            raise OperationTransactionUnavailable("Transaction is closing or closed")
 
     async def find_one(
         self, collection: str, query: dict[str, Any]
@@ -50,6 +72,7 @@ class _SerializedTransaction:
         the same serialization lock as every other transaction operation.
         """
         async with self._lock:
+            self._require_open()
             records = await self.inner.find(collection, query, limit=1)
         return records[0] if records else None
 
@@ -64,6 +87,7 @@ class _SerializedTransaction:
         native_count = getattr(self.inner, "count", None)
         if callable(native_count):
             async with self._lock:
+                self._require_open()
                 return await native_count(collection, query)
         total = 0
         last_id: str | None = None
@@ -97,6 +121,7 @@ class _SerializedTransaction:
         @wraps(value)
         async def serialized(*args: Any, **kwargs: Any) -> Any:
             async with self._lock:
+                self._require_open()
                 return await value(*args, **kwargs)
 
         return serialized
@@ -115,10 +140,14 @@ class _SerializedTransactionDatabase:
         return _SerializedTransaction(await self.inner.begin_transaction())
 
     async def commit_transaction(self, transaction: _SerializedTransaction) -> None:
-        await self.inner.commit_transaction(transaction.inner)
+        transaction._closed = True
+        async with transaction._lock:
+            await self.inner.commit_transaction(transaction.inner)
 
     async def rollback_transaction(self, transaction: _SerializedTransaction) -> None:
-        await self.inner.rollback_transaction(transaction.inner)
+        transaction._closed = True
+        async with transaction._lock:
+            await self.inner.rollback_transaction(transaction.inner)
 
 
 def _transaction_database(database: Any) -> Any:
@@ -136,8 +165,32 @@ def _transaction_database(database: Any) -> Any:
     return database
 
 
+def _matches_active_database(database: Any, active: _TransactionScope) -> bool:
+    allowed = {id(active.database)}
+    current = active.handle
+    while current is not None and id(current) not in allowed:
+        allowed.add(id(current))
+        current = getattr(current, "inner", None)
+    current = database
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        if id(current) in allowed:
+            return True
+        seen.add(id(current))
+        current = getattr(current, "inner", None)
+    return False
+
+
 def graph_transaction_available(database: Any | None = None) -> bool:
     """True when the prime store exposes begin/commit/rollback."""
+    active = _active_transaction.get()
+    if active is not None:
+        if active.owner is not asyncio.current_task():
+            raise OperationTransactionUnavailable(
+                "An inherited transaction cannot be joined by another task"
+            )
+        if database is None or _matches_active_database(database, active):
+            return True
     db = _transaction_database(database or get_prime_database())
     required = ("begin_transaction", "commit_transaction", "rollback_transaction")
     return db is not None and all(
@@ -155,6 +208,22 @@ async def postgres_graph_transaction(
     writes. Commit happens only after the caller exits successfully; any
     exception rolls back graph rows and raw transaction writes together.
     """
+    active = _active_transaction.get()
+    if active is not None:
+        if active.owner is not asyncio.current_task():
+            raise OperationTransactionUnavailable(
+                "An inherited transaction cannot be joined by another task"
+            )
+        if database is not None and not _matches_active_database(database, active):
+            raise OperationTransactionUnavailable("Cannot join a different database")
+        try:
+            yield active.handle
+        except BaseException:
+            # Catching a nested failure must not commit its partial mutations.
+            active.failed = True
+            raise
+        return
+
     # A missing argument must use the prime store, not an auto-created manager.
     bound = database or get_prime_database()
     concrete = _transaction_database(bound)
@@ -163,13 +232,34 @@ async def postgres_graph_transaction(
         if graph_transaction_available(concrete)
         else concrete
     )
+    if (
+        isinstance(adapter, _SerializedTransactionDatabase)
+        and concrete not in _prepared_transaction_databases
+    ):
+        # The pinned adapter bootstraps a cold collection through its pool,
+        # even when CRUD runs on an already-held transaction connection.
+        # Prepare Core's three persistence collections before acquisition so
+        # a one-connection pool cannot deadlock waiting for itself. Public,
+        # bounded reads retain adapter-owned schema/index initialization.
+        for collection in ("node", "edge", "object"):
+            await concrete.find(collection, {"id": ""}, limit=1)
+        _prepared_transaction_databases.add(concrete)
     try:
         async with _jv_graph_transaction(adapter) as ctx:
             # Memoized User nodes retain the GraphContext that loaded them.
             # A pre-transaction node would read ownership through the pool and
             # miss edges written on this transaction's uncommitted connection.
             reset_permissions_cache()
-            yield ctx.database
+            frame = _TransactionScope(concrete, ctx.database, asyncio.current_task())
+            token = _active_transaction.set(frame)
+            try:
+                yield ctx.database
+                if frame.failed:
+                    raise OperationTransactionUnavailable(
+                        "Nested transaction failure requires rollback"
+                    )
+            finally:
+                _active_transaction.reset(token)
     except _JvTxnUnavailable as exc:
         raise OperationTransactionUnavailable(str(exc)) from exc
     finally:

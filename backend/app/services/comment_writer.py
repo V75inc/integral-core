@@ -1,96 +1,98 @@
-"""Phase 7 Plan 07-04 — pure-service helper for comment.create.
+"""Exact approved top-level comment creation with current identified authority."""
 
-Used by ``approval_executor.execute_approval`` on the approve path.
-STANDALONE pure-service function.
+from typing import Any
 
-v1 limitation: only top-level comments on an Entry. Threaded replies +
-@mentions are NOT replicated; future hardening expands helper parity.
-"""
-
-from __future__ import annotations
-
-import logging
-from typing import Any, Dict, Optional
-
-from app.models.edges import AUTHORED_BY, HAS_COMMENT
-from app.models.nodes import Comment, Entry, User
+from app.api.errors import BadRequestError, InsufficientPermissionsError
 from app.schemas.policy import Resource, Subject
-from app.services.change_event import emit_change_event
-from app.services.policy_engine import evaluate as policy_evaluate
-from app.utils.time import utc_now_iso
-
-logger = logging.getLogger(__name__)
 
 
 async def create_comment_internal(
     *,
     actor_kind: str,
     actor_id: str,
-    payload: Dict[str, Any],
-    _internal_actor: Optional[Subject] = None,
-) -> Dict[str, Any]:
-    """Pure-service create_comment.
-
-    Required payload keys:
-      - ``entry_id`` (str)
-      - ``body`` (str)
-    """
-    entry_id = payload.get("entry_id", "")
-    body = payload.get("body", "")
-    if not entry_id:
-        raise ValueError("create_comment_internal: payload missing 'entry_id'")
-    if not body:
-        raise ValueError("create_comment_internal: payload missing 'body'")
-
-    entry = await Entry.get(entry_id)
-    if not entry:
-        raise ValueError(f"create_comment_internal: entry {entry_id!r} not found")
-
-    decision = await policy_evaluate(
-        subject=Subject(kind=actor_kind, id=actor_id),  # type: ignore[arg-type]
-        action="comment.create",
-        # Target the ENTRY, matching the REST handler
-        # (api/comments.py::create_comment). With ``kind="comment"`` and an
-        # empty id the engine had nothing entry-shaped to resolve and fell back
-        # to the track named in the scope — which is precisely the path that
-        # cannot see a per-ENTRY ``EXCLUDED_FROM`` edge. An approval executed
-        # on behalf of an excluded author would have posted the comment that
-        # the REST path refuses.
-        resource=Resource(
-            kind="entry",
-            id=entry_id,
-            scope=f"track:{entry.track_id or ''}",
-        ),
-        payload=payload,
-        _internal_actor=_internal_actor,
+    payload: dict[str, Any],
+    _internal_actor: Subject | None = None,
+) -> dict:
+    """Bind target, body and current human author before graph effects."""
+    from app.models.edges import AUTHORED_BY, HAS_COMMENT
+    from app.models.nodes import Comment, Entry
+    from app.services.approved_effect import (
+        approved_effect_principal,
+        capture_approved_change_event,
     )
-    if not decision.allowed:
-        raise PermissionError(
-            f"create_comment_internal: policy denied (reason={decision.reason!r})"
-        )
+    from app.services.change_event import emit_change_event
+    from app.services.membership_write_scope import membership_write_scope
+    from app.services.permissions import get_user_node
+    from app.services.policy_engine import evaluate
+    from app.services.resource_location import locate_resource
+    from app.utils.time import utc_now_iso
 
-    now = utc_now_iso()
-    comment = await Comment.create(
-        body=body,
-        author_id=actor_id,
-        entry_id=entry_id,
-        created_at=now,
-        updated_at=now,
-    )
-    await entry.connect(comment, edge=HAS_COMMENT, posted_at=now)
-
-    user = await User.get(actor_id)
-    if user:
-        await comment.connect(user, edge=AUTHORED_BY, authored_at=now)
-
-    await emit_change_event(
-        actor_kind=actor_kind,  # type: ignore[arg-type]
+    if (
+        set(payload) - {"entry_id", "body"}
+        or not isinstance(payload.get("entry_id"), str)
+        or not payload["entry_id"]
+        or not isinstance(payload.get("body"), str)
+        or not payload["body"].strip()
+    ):
+        raise BadRequestError(message="Invalid approved comment")
+    location = await locate_resource("entry", payload["entry_id"])
+    if location is None:
+        raise InsufficientPermissionsError(message="Comment target unavailable")
+    principal = await approved_effect_principal(
+        actor_kind=actor_kind,
         actor_id=actor_id,
         action="comment.create",
-        resource_type="Comment",
-        resource_id=comment.id,
-        before=None,
-        after=await comment.export(flat=True),
-        scope=f"track:{entry.track_id or ''}",
+        resource_type="entry",
+        resource_id=payload["entry_id"],
+        payload=payload,
     )
-    return await comment.export(flat=True)
+    if principal is None:
+        if actor_kind != "human":
+            raise InsufficientPermissionsError(
+                message="Exact approved authority required"
+            )
+        user = await get_user_node(actor_id)
+        principal = user.id if user else ""
+    async with membership_write_scope(
+        location.workspace_id, principal_ids=(principal,)
+    ):
+        current = await locate_resource("entry", payload["entry_id"])
+        if current != location:
+            raise InsufficientPermissionsError(message="Comment target changed")
+        decision = await evaluate(
+            subject=Subject(kind=actor_kind, id=actor_id),
+            action="comment.create",
+            resource=Resource(
+                kind="entry", id=payload["entry_id"], scope=f"track:{location.track_id}"
+            ),
+            payload=payload,
+        )
+        if not decision.allowed:
+            raise InsufficientPermissionsError(message="Comment creation denied")
+        user = await get_user_node(principal)
+        entry = await Entry.find_one({"id": payload["entry_id"]})
+        if user is None or entry is None:
+            raise InsufficientPermissionsError(message="Comment target unavailable")
+        now = utc_now_iso()
+        comment = await Comment.create(
+            body=payload["body"],
+            author_id=user.id,
+            entry_id=entry.id,
+            created_at=now,
+            updated_at=now,
+        )
+        await entry.connect(comment, edge=HAS_COMMENT, posted_at=now)
+        await comment.connect(user, edge=AUTHORED_BY, authored_at=now)
+        event = {
+            "actor_kind": actor_kind,
+            "actor_id": actor_id,
+            "action": "comment.create",
+            "resource_type": "Comment",
+            "resource_id": comment.id,
+            "before": None,
+            "after": await comment.export(flat=True),
+            "scope": f"track:{location.track_id}",
+        }
+        if not await capture_approved_change_event(event):
+            await emit_change_event(**event)
+        return await comment.export(flat=True)

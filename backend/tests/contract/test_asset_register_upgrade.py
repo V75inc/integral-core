@@ -14,6 +14,7 @@ from app.services.operational_model_runtime import compile_canonical_manifest
 from app.utils.time import utc_now_iso
 from tests.contract.asset_register_helpers import (
     ASSET_APP,
+    create_asset_entry,
     seed_asset_register_library_cp,
 )
 from tests.fixtures.workspaces import make_org_workspace
@@ -41,13 +42,14 @@ async def test_upgrade_preserves_app_settings_and_bumps_version(monkeypatch):
     assert app is not None
     tracks = await app.nodes(edge=[CONTAINS], node=["Track"])
     assets = next(track for track in tracks if track.title == "Assets")
-    asset = await OperationContext(
-        user_id=actor_id,
-        workspace_id=ws.id,
-        scope=f"operation:{app_id}:upgrade-fixture",
-        app_id=app_id,
-        operation_key="upgrade-fixture",
-    ).create_entry(
+    asset = await create_asset_entry(
+        OperationContext(
+            user_id=actor_id,
+            workspace_id=ws.id,
+            scope=f"operation:{app_id}:upgrade-fixture",
+            app_id=app_id,
+            operation_key="upgrade-fixture",
+        ),
         track_id=assets.id,
         entry_type_key="asset",
         title="Upgrade-preserved laptop",

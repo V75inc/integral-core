@@ -1341,7 +1341,9 @@ def drafts_from_events(events: Iterable[Dict[str, Any]]) -> List["_AssistantDraf
     return _collapse_duplicate_drafts(drafts)
 
 
-async def _humanize_text(text: Optional[str]) -> Optional[str]:
+async def _humanize_text(
+    text: Optional[str], *, user_id: str | None = None, workspace_id: str | None = None
+) -> Optional[str]:
     """Resolve raw node ids (n.<Type>.<hex>) in assistant prose → human names.
 
     Best-effort: returns the text unchanged on any failure. See
@@ -1355,7 +1357,11 @@ async def _humanize_text(text: Optional[str]) -> Optional[str]:
         from app.services.id_resolver import humanize_ids
 
         cleaned = strip_host_markers_for_display(text)
-        return await humanize_ids(cleaned) if cleaned else cleaned
+        return (
+            await humanize_ids(cleaned, user_id=user_id, workspace_id=workspace_id)
+            if cleaned
+            else cleaned
+        )
     except Exception:  # noqa: BLE001
         logger.debug("ai_chat.humanize_failed", exc_info=True)
         return text
@@ -1363,6 +1369,9 @@ async def _humanize_text(text: Optional[str]) -> Optional[str]:
 
 async def _humanize_text_parts(
     parts: List[Dict[str, Any]],
+    *,
+    user_id: str | None = None,
+    workspace_id: str | None = None,
 ) -> List[Dict[str, Any]]:
     """Humanize ids inside ``{type:'text'}`` parts; leave tool-call parts alone."""
     out: List[Dict[str, Any]] = []
@@ -1373,7 +1382,9 @@ async def _humanize_text_parts(
             and isinstance(part.get("text"), str)
         ):
             new_part = dict(part)
-            new_part["text"] = await _humanize_text(part["text"])
+            new_part["text"] = await _humanize_text(
+                part["text"], user_id=user_id, workspace_id=workspace_id
+            )
             out.append(new_part)
         else:
             out.append(part)
@@ -1470,7 +1481,13 @@ async def _patch_checkpointed_observability(
     window = assistants[-len(prior) :]
     for draft, msg in zip(prior, window):
         final_content = (
-            await _humanize_text(draft.final_content) if draft.final_content else None
+            await _humanize_text(
+                draft.final_content,
+                user_id=getattr(thread, "user_id", None),
+                workspace_id=getattr(thread, "workspace_id", None),
+            )
+            if draft.final_content
+            else None
         )
         meta = dict(getattr(msg, "provider_metadata", None) or {})
         meta.update(
@@ -1502,12 +1519,22 @@ async def _persist_assistant_drafts(
         interact_payload=interact_payload,
     )
     for i in range(start_index, min(end_index, len(drafts))):
-        parts = await _humanize_text_parts(drafts[i].to_parts())
+        parts = await _humanize_text_parts(
+            drafts[i].to_parts(),
+            user_id=getattr(thread, "user_id", None),
+            workspace_id=getattr(thread, "workspace_id", None),
+        )
         if not parts:
             continue
         draft = drafts[i]
         final_content = (
-            await _humanize_text(draft.final_content) if draft.final_content else None
+            await _humanize_text(
+                draft.final_content,
+                user_id=getattr(thread, "user_id", None),
+                workspace_id=getattr(thread, "workspace_id", None),
+            )
+            if draft.final_content
+            else None
         )
         await chat_store.append_message(
             thread=thread,

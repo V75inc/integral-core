@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "milestone": "M2-model-creator-curation-foundation",
+  "status": "qualified_partial",
+  "source": {
+    "base": "5bac17e4b50278b6695547cda76566a9ef60a526",
+    "branch": "codex/access-control-review",
+    "runtime_staged_sha256": "c0ffed67ca1b455c7d386fcacbe13ef57daaa4a3bdf111a3c663f1a00ee9fe90",
+    "runtime_unstaged_bytes": 0,
+    "tests_staged_sha256": "43c9077b4c3a2e4a3bb2245b9a37cffbb69c6f431024dbaffb3567859470519f",
+    "tests_unstaged_bytes": 0
+  },
+  "gates": [
+    {
+      "lane": "core",
+      "exit": 0,
+      "log": "/tmp/integral-model-creator-full-2-core.log"
+    },
+    {
+      "lane": "extension",
+      "exit": 0,
+      "log": "/tmp/integral-model-creator-full-2-extension.log"
+    },
+    {
+      "lane": "postgres-focused",
+      "exit": 0,
+      "log": "/tmp/integral-model-creator-full-2-postgres-focused.log"
+    },
+    {
+      "lane": "postgres-spikes-contract",
+      "exit": 0,
+      "log": "/tmp/integral-model-creator-full-2-postgres-spikes-contract.log"
+    },
+    {
+      "lane": "verify",
+      "exit": 0,
+      "log": "/tmp/integral-model-creator-full-2-verify.log"
+    }
+  ],
+  "reports": {
+    "backend": {
+      "tests": 5719,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 300,
+      "passed": 5419
+    },
+    "smoke": {
+      "tests": 1106,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 10,
+      "passed": 1096
+    },
+    "postgres_focused": {
+      "tests": 836,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "passed": 836
+    },
+    "extension": {
+      "tests": 284,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 232,
+      "passed": 52
+    }
+  },
+  "frontend": {
+    "files_passed": 279,
+    "tests_passed": 1583
+  },
+  "wheel_sha256": "d4d8e49192f802142113ea8be30ebcc70ae46bc72ca8f22c74fcb5d78b985bd0",
+  "limits": [
+    "No review finding or use-case closure; this qualifies the current creator designation and creation-identity repair slice.",
+    "Only newly issued private-library creator grants have current recipient membership lifetime binding. Legacy grants/migration, complete suspension/re-entry and multiple independent source projections remain open.",
+    "No atomic creation/revocation/effect or release fence, complete dependency/definition epoch or immutable creation action execution-binding claim.",
+    "Fresh invitation probes retain AC-07 stale issuer/revoke interleave, AC-21 effective receipt mismatch and AC-09 invitation ceiling bypass. Their next shared lifecycle repair remains required.",
+    "The required broader PostgreSQL lane retained one explicit loopback-route restore skip. External gateway round-trip evidence is recorded separately; current-revocation quarantine/restore acceptance remains open.",
+    "No GitHub CI, deployment, production migration, release or browser/MCP parity claim."
+  ]
+}

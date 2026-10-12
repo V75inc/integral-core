@@ -91,17 +91,20 @@ async def test_protected_fields_block_generic_write():
 
 
 @pytest.mark.asyncio
-async def test_protected_fields_allow_during_operation():
+async def test_ambient_operation_flag_cannot_bypass_protected_fields():
     ws = "ws_test_guard2"
     app = "app_test_guard2"
     register_protected_fields(ws, app, {"asset": ["lifecycle_state"]})
     token = set_operation_write_active(True)
     try:
-        await enforce_protected_field_write(
-            workspace_id=ws,
-            entry_type_key="asset",
-            proposed_custom_fields={"lifecycle_state": "checked_out"},
-        )
+        from app.api.errors import BadRequestError
+
+        with pytest.raises(BadRequestError):
+            await enforce_protected_field_write(
+                workspace_id=ws,
+                entry_type_key="asset",
+                proposed_custom_fields={"lifecycle_state": "checked_out"},
+            )
     finally:
         reset_operation_write_active(token)
         unregister_protected_fields(ws, app)

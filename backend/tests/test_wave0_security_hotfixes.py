@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from app.services.app_graph import catalog_track, catalog_user, catalog_workspace
+
 
 def test_get_user_handler_uses_public_user_view():
     """GET /users/{id} must not call export_node on User (prefs leak)."""
@@ -77,7 +79,9 @@ async def test_excluded_author_cannot_edit_entry():
     from app.utils.time import utc_now_iso
 
     owner = await User.create(display_name="Owner")
+    await catalog_user(owner)
     author = await User.create(display_name="Author")
+    await catalog_user(author)
     now = utc_now_iso()
     ws = await Workspace.create(
         kind="organization",
@@ -87,9 +91,11 @@ async def test_excluded_author_cannot_edit_entry():
         created_at=now,
         updated_at=now,
     )
+    await catalog_workspace(ws)
     await owner.connect(ws, edge=IS_MEMBER_OF, role="owner", added_at=now)
     await author.connect(ws, edge=IS_MEMBER_OF, role="member", added_at=now)
     track = await Track.create(title="T", owner_id=owner.id, workspace_id=ws.id)
+    await catalog_track(track)
     await ws.connect(track, edge=CONTAINS, added_at=now)
     await owner.connect(track, edge=OWNS, added_at=now)
     await author.connect(track, edge=COLLABORATES_ON, role="editor", added_at=now)

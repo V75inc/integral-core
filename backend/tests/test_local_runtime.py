@@ -164,9 +164,14 @@ def test_backup_restore_retains_identity_keys_and_files(tmp_path):
     restored = tmp_path / "restored"
     runtime.restore(restored, archive)
     actual = runtime.initialize(restored)
-    assert actual == {
-        key: value for key, value in config.items() if key != "runtime_python"
-    }
+    assert actual["installation_id"] == config["installation_id"]
+    assert actual["credential_key"] == config["credential_key"]
+    assert actual["oauth_key"] == config["oauth_key"]
+    assert actual["jwt_key"] != config["jwt_key"]
+    assert actual["control_token"] != config["control_token"]
+    assert runtime.read_json(restored / "recovery.json")["status"] == "quarantined"
+    with pytest.raises(runtime.RuntimeErrorDetail, match="quarantined"):
+        runtime.start(restored, open_browser=False)
     assert (restored / "files/note.txt").read_text() == "retained knowledge"
     with pytest.raises(runtime.RuntimeErrorDetail):
         runtime.restore(restored, archive)

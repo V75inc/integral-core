@@ -523,6 +523,7 @@ async def test_mcp_declared_app_query_matches_authenticated_http_query(
     from tests.conftest import get_app
     from tests.contract.asset_register_helpers import (
         ASSET_APP,
+        create_asset_entry,
         seed_asset_register_library_cp,
     )
 
@@ -553,7 +554,8 @@ async def test_mcp_declared_app_query_matches_authenticated_http_query(
         operation_key="register_asset",
     )
     for number in range(1, 4):
-        entry = await context.create_entry(
+        entry = await create_asset_entry(
+            context,
             track_id=asset_track.id,
             entry_type_key="asset",
             title=f"MCP parity asset {number}",

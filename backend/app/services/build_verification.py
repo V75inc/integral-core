@@ -901,26 +901,24 @@ class _Reader:
     async def _views(self, track_id: str) -> List[Any]:
         if track_id not in self._view_cache:
             await self._role("track", track_id)
-            from app.models.nodes import View
+            from app.services.view_scope import list_scoped_track_views
 
-            found = await View.find({"context.track_id": track_id})
-            if not found:
-                found = await View.find({"track_id": track_id})
+            found = await list_scoped_track_views(track_id)
             self._view_cache[track_id] = list(found or [])
         return self._view_cache[track_id]
 
     async def _view(self, locator: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        from app.models.nodes import View
+        from app.services.view_scope import get_scoped_view
 
         track_id = str(locator.get("track_id") or "")
         await self._role("track", track_id)
-        view = await View.get(str(locator.get("object_id") or ""))
+        view = await get_scoped_view(str(locator.get("object_id") or ""))
         if view is None:
             return None
         if track_id and getattr(view, "track_id", "") not in ("", track_id):
             return {
-                "name": view.name,
-                "type": view.type,
+                "name": "",
+                "type": "",
                 "is_default": False,
                 "wrong_track": True,
             }

@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Literal, Optional
 
 from jvspatial.core import Node
 from jvspatial.core.annotations import attribute, compound_index
-from pydantic import Field
+from pydantic import Field, PrivateAttr
 
 from app.schemas.provenance import Provenance
 
@@ -254,6 +254,9 @@ class User(Node):
     # after the user becomes part of an org.
     active_workspace_id_explicit: bool = False
     email_verified: bool = False
+    # Server-owned mailbox binding. A legacy boolean alone grants no
+    # invitation-discovery authority; changed addresses require new proof.
+    verified_email: str = ""
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -319,6 +322,18 @@ class Workspace(Node):
     applied_profiles: List[Dict[str, Any]] = Field(default_factory=list)
 
 
+class WorkspaceAuthorizationState(Node):
+    """Workspace-attached authorization revision, written only by atomic updates.
+
+    Kept separate from Workspace so stale ordinary settings saves cannot
+    overwrite revocation revisions. ACL services use authorization_scope;
+    this record is not a user-editable settings object.
+    """
+
+    workspace_id: str = ""
+    revision: int = Field(default=0, ge=0)
+
+
 class Invitation(Node):
     """Pending invitation — workspace-level or resource-level.
 
@@ -350,6 +365,20 @@ class Invitation(Node):
     email: str = attribute(default="", indexed=True)  # casefold-normalized
     invited_user_id: Optional[str] = None  # resolved at create if email maps to a User
     invited_by_user_id: str = ""
+    issuer_membership_id: str = (
+        ""  # Pending authority binds to this membership lifetime.
+    )
+    invitation_revision: int = 0
+    audit_outbox_id: str = ""
+    grant_baseline: str = ""
+    grant_outcome: str = ""
+    granted_role: Optional[str] = None
+    effective_role_at_acceptance: Optional[str] = None
+    granted_can_create_apps: Optional[bool] = None
+    granted_can_create_tracks: Optional[bool] = None
+    adopted_by_user_id: str = ""
+    adopted_membership_id: str = ""
+    adopted_at: Optional[str] = None
     role: str = "member"  # member | admin | guest (workspace-level only)
     can_create_apps: bool = False
     can_create_tracks: bool = False
@@ -551,6 +580,10 @@ class EntryType(Node):
 class Entry(Node):
     """Fundamental unit of content within a Track."""
 
+    # Ephemeral response payload from this selection's canonical parents.
+    # Never persisted, serialized as an Entry field, or used to grant access.
+    _read_parent_navigation: Optional[Dict[str, Any]] = PrivateAttr(default=None)
+
     type_id: str = ""
     title: str = ""
     author_id: str = attribute(default="", indexed=True)
@@ -585,6 +618,12 @@ class Entry(Node):
     # are unaffected. Values: "pending" | "running" | "complete" | "failed".
     migration_status: str = "complete"
     migration_error: Optional[str] = None  # populated on "failed"; last error message
+
+    async def save(self) -> "Entry":
+        """Drop response-only parent data before persistence warms graph caches."""
+        self._read_parent_navigation = None
+        await super().save()
+        return self
 
 
 class Comment(Node):
@@ -980,6 +1019,7 @@ class Policy(Node):
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     created_by: Optional[str] = None
+    delegation_revision: int = Field(default=1, ge=1)
 
 
 class Conflict(Node):
@@ -1028,6 +1068,9 @@ class Approval(Node):
     action: str = ""  # PolicyAction member (enforced at Pydantic boundary)
     resource_kind: str = ""
     resource_id: str = ""
+    resource_scope: str = ""
+    app_operation: Dict[str, Any] = Field(default_factory=dict)
+    decision_revision: int = Field(default=0, ge=0)
     payload: Dict[str, Any] = Field(default_factory=dict)
     policy_id: str = ""
     created_at: str = ""

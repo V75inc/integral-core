@@ -1,3 +1,4 @@
+import { ResourceAccessReview } from '../../access/ResourceAccessReview';
 import { Avatar } from '../../ui';
 import { Modal } from '../../ui/Modal';
 import { Pill } from '../../ui';
@@ -11,6 +12,7 @@ import type { User } from '../../../types';
 
 export interface TrackCollaboratorsModalProps {
   open: boolean;
+  trackId?: string;
   onClose: () => void;
   canManageCollaborators: boolean;
   canManageCollabRows: boolean;
@@ -35,6 +37,7 @@ export interface TrackCollaboratorsModalProps {
 
 export function TrackCollaboratorsModal({
   open,
+  trackId,
   onClose,
   canManageCollaborators,
   canManageCollabRows,
@@ -53,6 +56,7 @@ export function TrackCollaboratorsModal({
   return (
     <Modal open={open} onClose={onClose} title="Collaborators">
       <div className="space-y-5 p-4">
+        {trackId && <ResourceAccessReview resourceType="track" resourceId={trackId} />}
         {canManageCollaborators ? (
           <div className="space-y-2">
             <h3 className="text-[13px] font-semibold uppercase tracking-[0.12em] text-[color:var(--text-muted)]">
@@ -77,9 +81,7 @@ export function TrackCollaboratorsModal({
             <span className="font-medium text-[color:var(--text)]">
               track owner or admin
             </span>{' '}
-            can add, remove, or change collaborator roles. A Private Track stays
-            hidden from workspace owners and admins until they are added. This
-            dialog cannot grant that to you.
+            can add, remove, or change collaborator roles. Workspace owners retain governance over private Tracks. Other members need an eligible grant.
           </p>
         )}
 

@@ -7,6 +7,7 @@ from app.middleware.permissions_cache import reset_permissions_cache
 from app.models.edges import COLLABORATES_ON, CONTAINS, IS_MEMBER_OF, OWNS, REFERENCES
 from app.models.nodes import App, Entry, EntryType, Track, Workspace
 from app.schemas.policy import Subject
+from app.services.app_graph import catalog_app, catalog_track, catalog_workspace
 from app.services.permissions import can_view_entry
 from app.services.relation_runtime import validate_cross_app_relation_set
 
@@ -15,6 +16,7 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.smoke]
 
 async def _fixture(writer, owner):
     ws = await Workspace.create(name="Relation admission", kind="organization")
+    await catalog_workspace(ws)
     await writer.connect(ws, edge=IS_MEMBER_OF, role="member")
     await owner.connect(ws, edge=IS_MEMBER_OF, role="owner")
     source = await Track.create(
@@ -23,12 +25,14 @@ async def _fixture(writer, owner):
         workspace_id=ws.id,
         visibility="private",
     )
+    await catalog_track(source)
     target_track = await Track.create(
         title="Targets",
         owner_id=owner.user_id,
         workspace_id=ws.id,
         visibility="private",
     )
+    await catalog_track(target_track)
     await ws.connect(source, edge=CONTAINS)
     await ws.connect(target_track, edge=CONTAINS)
     await writer.connect(source, edge=OWNS)
@@ -129,12 +133,15 @@ async def _apps(ws, source, target_track, user):
     source_app = await App.create(
         name="consumer", workspace_id=ws.id, owner_user_id=user.user_id
     )
+    await catalog_app(source_app)
     provider = await App.create(
         name="provider", workspace_id=ws.id, owner_user_id=user.user_id
     )
+    await catalog_app(provider)
     rogue = await App.create(
         name="rogue", workspace_id=ws.id, owner_user_id=user.user_id
     )
+    await catalog_app(rogue)
     for app in (source_app, provider, rogue):
         await ws.connect(app, edge=CONTAINS)
         await user.connect(app, edge=OWNS)
@@ -216,6 +223,7 @@ async def test_authorized_cross_app_write_stamps_canonical_target_app(
         skip_profanity=True,
         actor_kind="agent",
         actor_id="delegated-provenance",
+        authorization_subject=Subject(kind="human", id=test_user.user_id),
     )
     edges = await graph.find_edges_between(entry.id, target.id, edge_class=REFERENCES)
     assert len(edges) == 1
@@ -232,6 +240,29 @@ async def test_independent_actor_does_not_borrow_human_target_grant(
     await test_user.connect(target, edge=COLLABORATES_ON, role="viewer")
     reset_permissions_cache()
     assert await can_view_entry(test_user.user_id, target.id)
+    from app.agentive.edges import HAS_ORG_AGENT
+    from app.agentive.edges import OWNS as OWNS_CONNECTOR
+    from app.agentive.nodes import AgentConfig, Connector
+    from app.models.edges import HAS_CONNECTOR, IS_CONNECTED_TO
+    from app.services.policy_registry import create_policy
+
+    if kind == "agent":
+        actor = await AgentConfig.create(
+            scope="org_facing", facet="org_facing", workspace_id=ws.id, is_active=True
+        )
+        await ws.connect(actor, edge=HAS_ORG_AGENT)
+    else:
+        actor = await Connector.create(owner=test_user.id, workspace_id=ws.id)
+        await test_user.connect(actor, edge=OWNS_CONNECTOR)
+        await ws.connect(actor, edge=HAS_CONNECTOR)
+        await actor.connect(source, edge=IS_CONNECTED_TO)
+    await create_policy(
+        subject_kind=kind,
+        subject_id=actor.id,
+        scope=f"track:{source.id}",
+        actions=["entry.create"],
+        created_by=test_user.id,
+    )
     with pytest.raises(BadRequestError, match="read|access"):
         await create_entry_in_track(
             track=source,
@@ -242,7 +273,7 @@ async def test_independent_actor_does_not_borrow_human_target_grant(
             custom_fields={"related": target.id},
             skip_profanity=True,
             actor_kind=kind,
-            authorization_subject=Subject(kind=kind, id="ungoverned-actor"),
+            authorization_subject=Subject(kind=kind, id=actor.id),
         )
 
 
@@ -335,6 +366,7 @@ async def test_operation_facade_cannot_link_an_unreadable_target(
     app = await App.create(
         name="Writer app", workspace_id=ws.id, owner_user_id=test_user.user_id
     )
+    await catalog_app(app)
     await ws.connect(app, edge=CONTAINS)
     await app.connect(source, edge=CONTAINS)
     await test_user.connect(app, edge=OWNS)
@@ -413,7 +445,10 @@ async def test_labeled_relation_does_not_create_before_declared_target_admission
         required=True, validation={"create_from_label": True, "write_label_to": "name"}
     )
     field["relation"].update(
-        target_app="provider", allow_cross_app=True, target_track_types=["targets"]
+        target_app="provider",
+        allow_cross_app=True,
+        target_track_types=["targets"],
+        target_entry_types=["target_record"],
     )
     if mismatch == "entry_type":
         field["relation"]["target_entry_types"] = ["absent_type"]
@@ -464,7 +499,10 @@ async def test_failed_source_create_rolls_back_inferred_target_and_retry(
         required=True, validation={"create_from_label": True, "write_label_to": "name"}
     )
     field["relation"].update(
-        target_app="provider", allow_cross_app=True, target_track_types=["targets"]
+        target_app="provider",
+        allow_cross_app=True,
+        target_track_types=["targets"],
+        target_entry_types=["target_record"],
     )
     source_type.form_schema["fields"].extend(
         [

@@ -28,6 +28,46 @@ class OWNS(Edge):
     bidirectional: bool = False
 
 
+class HasAuthorizationState(Edge):
+    """Workspace → its single authorization revision record."""
+
+    bidirectional: bool = False
+
+
+HAS_AUTHORIZATION_STATE = HasAuthorizationState
+
+
+class HasView(Edge):
+    """Track → its saved View; canonical scope independent of shared models.
+
+    A View has exactly one incoming scope edge. Operational-model catalog
+    membership organizes configuration but does not confer Track ownership.
+    """
+
+    bidirectional: bool = False
+
+
+HAS_VIEW = HasView
+
+
+class HasLibraryModel(Edge):
+    """Workspace → its private library Model; cataloging is not ownership."""
+
+    bidirectional: bool = False
+
+
+HAS_LIBRARY_MODEL = HasLibraryModel
+
+
+class PublishesLibraryModel(Edge):
+    """IntegralApp → an explicitly published platform library Model."""
+
+    bidirectional: bool = False
+
+
+PUBLISHES_LIBRARY_MODEL = PublishesLibraryModel
+
+
 class IS_MEMBER_OF(Edge):
     """Workspace membership: User → Workspace.
 
@@ -45,6 +85,7 @@ class IS_MEMBER_OF(Edge):
     """
 
     role: str = "member"
+    grant_revision: int = 0
     joined_at: Optional[str] = None
     can_create_apps: bool = False
     can_create_tracks: bool = False
@@ -78,9 +119,42 @@ class COLLABORATES_ON(Edge):
     """
 
     role: str = "editor"
+    grant_revision: int = 0
     invited_at: Optional[str] = None
     invited_by: Optional[str] = None
+    # Exact private-library creator curation. Legacy grants have no binding;
+    # their migration remains separate from this producer's grant contract.
+    grant_source: Optional[str] = None
+    grant_workspace_id: Optional[str] = None
+    grant_membership_id: Optional[str] = None
+    grant_issuer_id: Optional[str] = None
     bidirectional: bool = False
+
+
+class MembershipGrantHistory(Edge):
+    """User → Workspace lifetime clock; never an admission grant."""
+
+    revision: int
+    grant_id: Optional[str]
+    last_grant_id: str
+    grant_fingerprint: str
+    changed_at: str
+    bidirectional: bool = False
+
+
+class CollaborationGrantHistory(Edge):
+    """User → resource lifetime clock, retained when collaboration ends."""
+
+    revision: int
+    grant_id: Optional[str]
+    last_grant_id: str
+    grant_fingerprint: str
+    changed_at: str
+    bidirectional: bool = False
+
+
+MEMBERSHIP_GRANT_HISTORY = MembershipGrantHistory
+COLLABORATION_GRANT_HISTORY = CollaborationGrantHistory
 
 
 class HasAgentPreference(Edge):

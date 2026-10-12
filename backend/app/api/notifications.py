@@ -25,12 +25,11 @@ from app.api.errors import (
     ResourceNotFoundError,
 )
 from app.api.utils import export_node, require_platform_admin, resolve_principal_id
-from app.models.nodes import Notification, Track, User, Workspace
+from app.models.nodes import Notification, User
 from app.services import notification_router
 from app.services.app_graph import link_notification
 from app.services.change_event import emit_change_event
 from app.services.permissions import get_user_node
-from app.utils.time import utc_now_iso
 
 
 @endpoint("/notifications", methods=["GET"], auth=True, tags=["Notifications"])
@@ -237,92 +236,30 @@ async def mark_all_notifications_as_read(
 async def respond_to_notification(
     request: Request,
     notification_id: str,
-    # Injected by auth
-    action: str = "accept",  # accept or decline (from request body)
 ) -> Dict[str, Any]:
-    """Respond to an invite notification.
+    """Respond to the exact canonical invitation displayed in this delivery."""
+    from app.schemas.notification_response import InvitationNotificationResponse
+    from app.services.invitation_notifications import respond_to_invitation_notification
 
-    Args:
-        notification_id: ID of the notification
-        user_id: ID of the authenticated user
-        action: Response action ('accept' or 'decline')
-
-    Returns:
-        Updated notification with response
-    """
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    notification = await Notification.get(notification_id)
-    if not notification:
-        raise ResourceNotFoundError(message="Notification not found")
+    if request.query_params:
+        raise BadRequestError(message="Invitation consent must be supplied as JSON")
+    try:
+        consent = InvitationNotificationResponse.model_validate(await request.json())
+    except ValueError as exc:
+        raise BadRequestError(message="Invalid invitation response") from exc
+    if request.headers.get("x-integral-scope") is not None:
+        from app.services.request_scope import resolve_workspace_id_from_request
 
-    # Verify ownership
-    if notification.user_id != user_id:
-        raise InsufficientPermissionsError(
-            message="You can only respond to your own notifications"
-        )
-
-    # Verify it's an invite type
-    if notification.type != "invite":
-        raise BadRequestError(message="Only invite notifications can be responded to")
-
-    # Validate action
-    if action not in ["accept", "decline"]:
-        raise BadRequestError(message="Action must be 'accept' or 'decline'")
-
-    # Process the invite response
-    if action == "accept":
-        # Get the track or organization ID from metadata
-        if "track_id" in notification.metadata:
-            track_id = notification.metadata["track_id"]
-            role = notification.metadata.get("role", "viewer")
-
-            # Add user as collaborator
-            track = await Track.get(track_id)
-            if track:
-                user = await get_user_node(user_id)
-                if user:
-                    from app.models.edges import COLLABORATES_ON
-
-                    await user.connect(
-                        track,
-                        edge=COLLABORATES_ON,
-                        role=role,
-                        invited_at=notification.created_at or utc_now_iso(),
-                    )
-
-        elif "workspace_id" in notification.metadata:
-            workspace_id = notification.metadata["workspace_id"]
-            role = notification.metadata.get("role", "member")
-
-            workspace = await Workspace.get(workspace_id)
-            from app.services.workspace_kind import is_collaborative_kind
-
-            if workspace and is_collaborative_kind(workspace.kind):
-                user = await get_user_node(user_id)
-                if user:
-                    from app.models.edges import IS_MEMBER_OF
-
-                    await user.connect(
-                        workspace,
-                        edge=IS_MEMBER_OF,
-                        role=role,
-                        joined_at=utc_now_iso(),
-                    )
-
-    # Mark as read and update metadata
-    notification.read = True
-    notification.metadata["response"] = action
-    notification.metadata["responded_at"] = utc_now_iso()
-    await notification.save()
-
-    notif_data = await export_node(notification)
-
-    return {
-        "notification": notif_data,
-        "message": f"Invite {action}ed successfully",
-    }
+        await resolve_workspace_id_from_request(request, user_id)
+    return await respond_to_invitation_notification(
+        notification_id=notification_id,
+        user_id=user_id,
+        action=consent.action,
+        invitation_revision=consent.invitation_revision,
+    )
 
 
 @endpoint("/notifications", methods=["POST"], auth=True, tags=["Notifications"])
@@ -352,7 +289,7 @@ async def create_notification(
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
 
-    require_platform_admin(request)
+    await require_platform_admin(request)
 
     # Phase 9 Plan 09-03a (NOTIF-02) — delegate to the notification router
     # (single-entry discipline, mirrors policy_engine.evaluate). The previous

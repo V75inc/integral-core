@@ -6,7 +6,7 @@ import base64
 import json
 from datetime import date, datetime
 from numbers import Real
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from app.api.errors import (
     BadRequestError,
@@ -28,6 +28,8 @@ from app.services.query_boundary import generic_entry_read
 from app.services.query_filters import entry_field_value, filter_matches
 from app.services.workspace_permissions import can_access_workspace
 from app.utils.time import utc_now_iso
+
+TargetGate = Callable[[str, str], Awaitable[bool]]
 
 
 def _encode_cursor(offset: int) -> str:
@@ -223,6 +225,7 @@ async def _run_core_open(
     user_id: str,
     workspace_id: str,
     spec: QuerySpec,
+    target_gate: Optional[TargetGate] = None,
 ) -> QueryResult:
     from app.models.nodes import App, Track
 
@@ -263,6 +266,8 @@ async def _run_core_open(
             return fields_by_type[type_id]
 
         for track in tracks:
+            if target_gate is not None and not await target_gate("track", track.id):
+                continue
             if await resolve_role(user_id, "track", track.id) is None:
                 continue
             if not (await generic_entry_read(track)).allowed:
@@ -273,6 +278,8 @@ async def _run_core_open(
             except Exception as exc:  # noqa: BLE001
                 raise QueryUnavailableError() from exc
             for e in entries:
+                if target_gate is not None and not await target_gate("entry", e.id):
+                    continue
                 if await resolve_role(user_id, "entry", e.id) is None:
                     continue
                 entry_fields = await fields_for(e)
@@ -335,6 +342,8 @@ async def _run_core_open(
         tracks = await Track.find({"context.workspace_id": workspace_id})
         candidates = []
         for track in tracks:
+            if target_gate is not None and not await target_gate("track", track.id):
+                continue
             if await resolve_role(user_id, "track", track.id) is None:
                 continue
             if not (await generic_entry_read(track)).allowed:
@@ -377,6 +386,8 @@ async def _run_core_open(
         apps = await App.find({"workspace_id": workspace_id})
         candidates = []
         for app in apps:
+            if target_gate is not None and not await target_gate("app", app.id):
+                continue
             if await resolve_role(user_id, "app", app.id) is None:
                 continue
             if _matches_core_filters("app", app, spec.filters):
@@ -453,6 +464,7 @@ async def _run_declared(
     workspace_id: str,
     spec: QuerySpec,
     catalogue_generation: Optional[str],
+    target_gate: Optional[TargetGate] = None,
 ) -> QueryResult:
     from app.services.app_queries.dispatch import invoke_app_query
     from app.services.app_queries.registry import all_workspace_query_apps
@@ -466,6 +478,8 @@ async def _run_declared(
         # Resolve unique app that owns this query key
         matches = []
         for aid, bucket in all_workspace_query_apps(workspace_id).items():
+            if target_gate is not None and not await target_gate("app", aid):
+                continue
             if bare in bucket or key in bucket:
                 matches.append(aid)
         if len(matches) == 1:
@@ -481,6 +495,8 @@ async def _run_declared(
                 details={"error_code": "capability_ambiguous", "apps": matches},
             )
 
+    if target_gate is not None and not await target_gate("app", app_id):
+        raise InsufficientPermissionsError(message="Access denied")
     # Reject attempting to use core_open semantics against app records via fake keys
     invoked = await invoke_app_query(
         user_id=user_id,
@@ -527,8 +543,14 @@ async def execute_query(
     workspace_id: str,
     spec: QuerySpec,
     catalogue_generation: Optional[str] = None,
+    target_gate: Optional[TargetGate] = None,
 ) -> QueryResult:
-    """Dispatch a QuerySpec to declared-capability or Core open mode."""
+    """Dispatch a query, applying a trusted execution gate before selection.
+
+    The gate is a server-side constraint, never a QuerySpec field. It must run
+    before pagination and aggregates so excluded targets cannot affect counts,
+    cursors, ambiguity responses, or handler selection.
+    """
     if not workspace_id:
         raise BadRequestError(message="no active workspace")
     ws_role = await can_access_workspace(user_id, workspace_id)
@@ -543,10 +565,14 @@ async def execute_query(
             workspace_id=workspace_id,
             spec=spec,
             catalogue_generation=catalogue_generation,
+            target_gate=target_gate,
         )
     if spec.mode == "core_open":
         # Hard reject filters that name App package entry types via resource misuse
         return await _run_core_open(
-            user_id=user_id, workspace_id=workspace_id, spec=spec
+            user_id=user_id,
+            workspace_id=workspace_id,
+            spec=spec,
+            target_gate=target_gate,
         )
     raise BadRequestError(message=f"unknown query mode {spec.mode!r}")

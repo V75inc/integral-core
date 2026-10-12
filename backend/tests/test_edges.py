@@ -111,21 +111,20 @@ async def test_create_tagged_with_edge():
 
 @pytest.mark.asyncio
 async def test_track_views_registry_catalogs_view():
-    """Views registry CATALOGS each View (Track → Views unnamed; Views → View CATALOGS)."""
+    """Track HasView scope and model Views catalog attach the same saved View."""
     from jvspatial.core import Edge
 
     from app.models.nodes import Views
     from app.services.app_graph import (
-        catalog_track,
         catalog_view_under_track,
         get_or_create_views_registry_for_operational_model,
         get_track_attached_operational_model,
     )
+    from tests.test_resource_location import graph
 
-    track = await Track.create(title="View Track", owner_id="user_123")
-    await catalog_track(track)
+    owner, _, _, track, _ = await graph()
     view = await View.create(
-        name="Kanban", type="kanban", track_id=track.id, created_by="user_123"
+        name="Kanban", type="kanban", track_id=track.id, created_by=owner.id
     )
 
     await catalog_view_under_track(track, view)
@@ -136,6 +135,10 @@ async def test_track_views_registry_catalogs_view():
     assert isinstance(vreg, Views)
     linked = await vreg.nodes(edge=[CATALOGS], node=["View"])
     assert any(v.id == view.id for v in linked)
+    from app.models.edges import HAS_VIEW
+
+    scopes = await track.nodes(edge=[HAS_VIEW], node=["View"])
+    assert any(v.id == view.id for v in scopes)
 
 
 @pytest.mark.asyncio

@@ -414,3 +414,110 @@ async def test_review_execution_rejects_replaced_package(operation_contract):
             ],
         )
     handler.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_review_execution_rejects_changed_resolved_targets(
+    operation_contract, monkeypatch
+):
+    from app.api.errors import BadRequestError
+
+    _, handler, _ = operation_contract
+    monkeypatch.setattr(
+        operations,
+        "resolve_action_payload",
+        AsyncMock(
+            side_effect=[
+                {"title": "Checked vendor page", "entry_id": "first-target"},
+                {"title": "Checked vendor page", "entry_id": "replacement-target"},
+            ]
+        ),
+    )
+    staged = await prepare_agent_app_operation(
+        _args(), principal_id="u1", workspace_id=WS
+    )
+    assert staged["payload"]["input"] == {"title": "Checked vendor page"}
+    assert staged["payload"]["resolved_input"]["entry_id"] == "first-target"
+    with pytest.raises(BadRequestError, match="targets changed"):
+        await operations.invoke_app_operation(
+            user_id="u1",
+            workspace_id=WS,
+            app_id=APP,
+            operation_key="retain_findings",
+            payload=staged["payload"]["input"],
+            idempotency_key=staged["payload"]["operation_idempotency_key"],
+            expected_declaration_fingerprint=staged["payload"][
+                "declaration_fingerprint"
+            ],
+            expected_resolved_input=staged["payload"]["resolved_input"],
+        )
+    handler.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_proposal_identity_binds_resolved_targets(
+    operation_contract, monkeypatch
+):
+    monkeypatch.setattr(
+        operations,
+        "resolve_action_payload",
+        AsyncMock(
+            side_effect=[
+                {"title": "Checked vendor page", "entry_id": "first-target"},
+                {"title": "Checked vendor page", "entry_id": "replacement-target"},
+            ]
+        ),
+    )
+    first = await prepare_agent_app_operation(
+        _args(idempotency_key="same-call"), principal_id="u1", workspace_id=WS
+    )
+    second = await prepare_agent_app_operation(
+        _args(idempotency_key="same-call"), principal_id="u1", workspace_id=WS
+    )
+    assert first["payload"]["idempotency_key"] != second["payload"]["idempotency_key"]
+
+
+@pytest.mark.asyncio
+async def test_changed_definition_at_effect_admission_never_calls_old_handler(
+    operation_contract, monkeypatch
+):
+    from contextlib import asynccontextmanager
+
+    from app.api.errors import BadRequestError
+    from app.services.app_operations import execution_receipts
+
+    spec, handler, _ = operation_contract
+    monkeypatch.setattr(
+        operations,
+        "get_app_operation",
+        lambda *args: {**spec, "_definition_fingerprint": "reviewed-definition"},
+    )
+
+    @asynccontextmanager
+    async def newly_admitted_definition(**kwargs):
+        yield SimpleNamespace(fingerprint="replacement-definition")
+
+    async def execute_once(**kwargs):
+        return SimpleNamespace(result=await kwargs["execute"](), replayed=False)
+
+    monkeypatch.setattr(
+        "app.services.app_operation_authority.operation_permit",
+        newly_admitted_definition,
+    )
+    monkeypatch.setattr(execution_receipts, "execute_operation_once", execute_once)
+    staged = await prepare_agent_app_operation(
+        _args(), principal_id="u1", workspace_id=WS
+    )
+    with pytest.raises(BadRequestError, match="changed since review"):
+        await operations.invoke_app_operation(
+            user_id="u1",
+            workspace_id=WS,
+            app_id=APP,
+            operation_key="retain_findings",
+            payload=staged["payload"]["input"],
+            idempotency_key=staged["payload"]["operation_idempotency_key"],
+            expected_declaration_fingerprint=staged["payload"][
+                "declaration_fingerprint"
+            ],
+        )
+    handler.assert_not_awaited()

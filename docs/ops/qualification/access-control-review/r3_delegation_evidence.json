@@ -1,0 +1,277 @@
+{
+  "schema_version": 1,
+  "package": "R3",
+  "date": "2026-10-11",
+  "branch": "codex/access-control-review",
+  "base_head": "5d0212a2e08c3b6c51fc55d460069cd90a25300e",
+  "status": "implemented_partial_qualification_frozen_for_milestone",
+  "authority": "Evidence handoff only. Coordinator owns shared closure/delivery ledgers and final commit/push gates.",
+  "freeze": {
+    "runtime_examples_tests": "Runtime and examples remain frozen except authorized milestone-gate compatibility fixes. Later gate repairs updated connector sync/current binding admission and supporting tests; no emergency override or feature expansion was added.",
+    "new_emergency_override_added": false,
+    "new_gap_tests_added_after_final_instruction": false
+  },
+  "qualification": {
+    "postgres": {
+      "receipt_path": "/tmp/integral-current-admin-app-approval-6-pg.xml",
+      "receipt_sha256": "a06a616067a45c16d192c2c4537dd087d97752bf952e6da310255dd8cf14012b",
+      "selected_cases": [
+        {
+          "node": "backend/tests/contract/test_access_delegation_postgres.py::test_service_exact_function_executes_viewer_approval_with_original_actor[agent-direct]",
+          "result": "passed"
+        },
+        {
+          "node": "backend/tests/contract/test_access_delegation_postgres.py::test_service_exact_function_executes_viewer_approval_with_original_actor[agent-deferred]",
+          "result": "passed"
+        },
+        {
+          "node": "backend/tests/contract/test_access_delegation_postgres.py::test_service_exact_function_executes_viewer_approval_with_original_actor[agent-revoked]",
+          "result": "passed"
+        },
+        {
+          "node": "backend/tests/contract/test_access_delegation_postgres.py::test_service_exact_function_executes_viewer_approval_with_original_actor[agent-definition_changed]",
+          "result": "passed"
+        },
+        {
+          "node": "backend/tests/contract/test_access_delegation_postgres.py::test_service_exact_function_executes_viewer_approval_with_original_actor[connector-direct]",
+          "result": "passed"
+        },
+        {
+          "node": "backend/tests/contract/test_access_delegation_postgres.py::test_service_exact_function_executes_viewer_approval_with_original_actor[connector-deferred]",
+          "result": "passed"
+        }
+      ],
+      "limits": [
+        "Selected agent/connector cases passed; the whole receipt has an unrelated admin-fixture failure reported and repaired by the coordinator.",
+        "The shared scalar Approval row lock was added during this run. Final frozen-source gate must rerun the supported cases.",
+        "Disposable local PostgreSQL evidence is not deployment/provider/browser qualification."
+      ]
+    },
+    "source_runs": [
+      {
+        "log": "/tmp/integral-delegation-approval-compat-1.log",
+        "passed": 47,
+        "selection": [
+          "tests/test_approval_executor.py",
+          "tests/test_exact_operation_authority.py",
+          "tests/contract/test_asset_register_artifact.py -m not postgres"
+        ],
+        "limit": "Run began before final namespace cleanup refinements; final gate remains required."
+      },
+      {
+        "log": "/tmp/integral-delegation-sharing-2.log",
+        "passed": 30,
+        "selection": [
+          "tests/test_sharing.py"
+        ]
+      },
+      {
+        "log": "/tmp/integral-delegation-appapproval-cap.log",
+        "passed": 1,
+        "selection": [
+          "tests/test_exact_operation_authority.py::test_namespace_approval_payload_cap_refuses_before_store_access"
+        ]
+      }
+    ],
+    "static_checks": {
+      "flake8": "Owned runtime modules passed repository configuration.",
+      "mypy": "Seven new/delegation modules passed with follow-imports=skip.",
+      "limits": [
+        "Focused static checks do not replace make verify."
+      ]
+    },
+    "deepseek_smoke": "Coordinator owns the required DeepSeek 4.1 Flash Cloud live smoke. This worker did not execute or claim that lane.",
+    "milestone_gate_fixture_repair": {
+      "receipt_path": "/tmp/integral-milestone-delegation-fixture-3.xml",
+      "receipt_sha256": "6240be2b03dbce83174ee7656b2d9493e5e582ad5e253085ae7a0d35d7d76039",
+      "passed": 25,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0,
+      "environment": {
+        "TESTING": "1",
+        "DEBUG": "false",
+        "dotenv_files_present": false,
+        "working_directory": "backend",
+        "xdist_workers": 2,
+        "distribution": "loadfile",
+        "marker": "smoke and not domain_app and not slow"
+      },
+      "selection": [
+        "tests/test_access_perimeter_regressions.py",
+        "tests/test_declarative_action_examples.py"
+      ],
+      "changes": [
+        "Replaced synthetic Policy/list mocks in memo and within-request policy-reduction assertions with primary rooted AgentConfig/HAS_POLICY/current creator facts and real persisted reduction.",
+        "Moved unit marker to pure compiler tests; async declaration-role assertions receive fresh per-test GraphContext/store and explicit Root/IntegralApp bootstrap."
+      ],
+      "limit": "Repairs retain current authority ceilings; focused CI reproduction does not replace coordinator full gate."
+    },
+    "connector_gate_compatibility": {
+      "runtime_change": "Sync default connector-scoped metadata cannot authorize canonical Track Entry effects. The existing owner-authorized binding producer now issues exact Track create/update policies; current binding plus current issuer rights remain mandatory at every Entry effect. Binding add/remove holds actor, service, and workspace admission in the canonical lock order.",
+      "baseline_receipt": "/tmp/integral-milestone-sync-targeted-1.xml",
+      "baseline_passed": 50,
+      "fenced_receipt": "/tmp/integral-milestone-sync-targeted-2.xml",
+      "fenced_passed": 49,
+      "fenced_failure": "Foreign Track denial status changed from existing privacy-preserving404 to403; failure-only repair restored404.",
+      "repair_receipt": "/tmp/integral-milestone-sync-binding-final.xml",
+      "repair_receipt_sha256": "7ebb1d9b0186dba88e049091363cd497925321ead3d054dda0359cbc5817012b",
+      "repair_passed": 11,
+      "repair_failures": 0,
+      "remaining_receipt": "Coordinator executes tests/contract/test_connector_sync_fencing_postgres.py::test_binding_api_revocation_orders_before_canonical_connector_entry_effect and final frozen-source full gate.",
+      "source_hashes": {
+        "backend/app/agentive/services/connector_registry_node.py": "5b24e4ba8bc614b58486d095333fdc9801524aaeb34c577b0cd0cd61202ebadb",
+        "backend/app/agentive/api/connectors.py": "f1b85b4cd112544a652fbb7723f035eb0ec98826df32c84ac0340ee33e88afe6",
+        "backend/app/services/connectors/sync_runtime.py": "2195a478379703373d7418b7fed2f0673107cea6c8b75e42e0c906b45647a009",
+        "backend/app/services/service_delegation.py": "3bae3ca3391b86cc151af6fecbaa275477806c94be347519e9bd1c2f9bebb6d9"
+      },
+      "limits": [
+        "No wildcard/empty-actor exemption added. Existing disabled/narrowed destination policy is not automatically regranted.",
+        "Focused source tests preserve provenance, replay, conflict, lifecycle, and removed-binding zero-effect assertions. Final full gate and queued PostgreSQL ordering remain authoritative."
+      ]
+    }
+  },
+  "requirements": [
+    {
+      "id": "AC-13",
+      "requirement": "**Administering a policy subject is not a target-authority ceiling.** Policy CRUD checks that the caller owns/administers the agent/connector, but accepts wildcard scope/actions without checking all target authority. Engine matches an agent/connector Policy without intersecting the owner's current membership/resource authority. `api/policies.py:71,180`; `policy_engine.py:710`; `policy_registry.py:62`. Probe `test_policy_authority_scope_is_not_intersected` uses a synthetic wildcard Policy and confirms engine behavior, not an end-to-end connector exploit. Native resident dispatch commonly uses the human perimeter, so this is not evidence every resident call bypasses human access. Constrain issuance and intersect at every execution boundary.",
+      "status": "pending_final_gate",
+      "named_assertions": [
+        "backend/tests/test_service_delegation_ceiling.py::test_legacy_scoped_wildcard_is_intersected_at_exact_current_target",
+        "backend/tests/test_service_delegation_ceiling.py::test_subject_ownership_does_not_give_issuer_foreign_resource_authority",
+        "backend/tests/test_service_delegation_ceiling.py::test_primary_policy_narrowing_cannot_reuse_stale_hydrated_grant",
+        "backend/tests/test_policies_subject_authz.py::test_owner_can_disable_legacy_unbounded_policy_without_implicit_adoption",
+        "backend/tests/contract/test_access_delegation_postgres.py::test_held_delegator_disable_prevents_later_policy_creation",
+        "backend/tests/contract/test_access_delegation_postgres.py::test_held_policy_revocation_blocks_later_stale_policy_object",
+        "backend/tests/contract/test_access_delegation_postgres.py::test_service_exact_function_executes_viewer_approval_with_original_actor"
+      ],
+      "remaining_proof": [
+        "Final frozen-source full gate and independently retained receipts remain the release checkpoint."
+      ]
+    },
+    {
+      "id": "AC-14",
+      "requirement": "**Declarative App functions are not fully delegable.** Human Policies are bypassed by the human default branch; operation `capability` is metadata while execution uses coarse `policy_action`. No complete user/group-to-App-action grant contract appears in the reviewed dispatcher. `policy_engine.py:701`; `app_operations/dispatch.py:59,153`; `schemas/app_operations.py:10`. Need namespaced actions, role bindings, bounded conditions, grant administration and identical enforcement across surfaces.",
+      "status": "partial",
+      "named_assertions": [
+        "backend/tests/test_app_action_delegation.py::test_group_action_grant_revocation_and_owner_no_implicit_action",
+        "backend/tests/test_app_action_delegation.py::test_group_api_scope_and_strict_body",
+        "backend/tests/test_exact_operation_authority.py::test_exact_permit_cannot_be_used_for_other_fields_targets_or_delete",
+        "backend/tests/test_declarative_action_examples.py::test_external_roles_separate_editor_approver_configuration",
+        "backend/tests/contract/test_access_delegation_postgres.py::test_service_exact_function_executes_viewer_approval_with_original_actor"
+      ],
+      "remaining_proof": [
+        "Browser/UI and HTTP invocation parity receipts for named function roles have not been collected here.",
+        "Pending group/declaration lifecycle and emergency override assertions are enumerated below; this file does not close the finding."
+      ]
+    },
+    {
+      "id": "U49",
+      "requirement": "Named users/groups receive exact functions; approver \u2260 editor \u2260 schema admin",
+      "status": "partial",
+      "named_assertions": [
+        "backend/tests/test_declarative_action_examples.py::test_external_action_contract_compiles",
+        "backend/tests/test_declarative_action_examples.py::test_external_roles_separate_editor_approver_configuration",
+        "backend/tests/contract/test_access_delegation_postgres.py::test_service_exact_function_executes_viewer_approval_with_original_actor"
+      ],
+      "remaining_proof": [
+        "Both external Apps have separate edit/configure declarations and decision assertions; actual edit/configure dispatcher effects and configuration audit proof are still needed."
+      ]
+    },
+    {
+      "id": "U50",
+      "requirement": "Bounded server-derived condition; generic CRUD cannot bypass transition or separation-of-duty rule",
+      "status": "partial",
+      "named_assertions": [
+        "backend/tests/test_exact_operation_authority.py::test_conditions_use_server_state_and_each_complete_grant",
+        "backend/tests/test_exact_operation_authority.py::test_conditions_missing_state_cannot_satisfy_negative_conditions",
+        "backend/tests/test_exact_operation_authority.py::test_exact_permit_cannot_be_used_for_other_fields_targets_or_delete",
+        "backend/tests/test_exact_operation_authority.py::test_ambient_flag_is_not_a_permit",
+        "backend/tests/test_exact_operation_authority.py::test_top_level_and_delete_are_protected_without_custom_fields",
+        "backend/tests/test_app_action_delegation.py::test_current_definition_guards_ignore_stale_worker_registry",
+        "backend/tests/contract/test_access_delegation_postgres.py::test_service_exact_function_executes_viewer_approval_with_original_actor"
+      ],
+      "remaining_proof": [
+        "Reference approval executes real protected conditional update in PostgreSQL. Final gate must retain generic HTTP/tool mutation bypass assertions; helper-only negatives are not HTTP flow receipts."
+      ]
+    },
+    {
+      "id": "U51",
+      "requirement": "Rooted workspace group; changes revoke downstream grants consistently",
+      "status": "partial",
+      "named_assertions": [
+        "backend/tests/test_app_action_delegation.py::test_group_action_grant_revocation_and_owner_no_implicit_action",
+        "backend/tests/test_app_action_delegation.py::test_human_binding_expires_when_membership_lifetime_changes",
+        "backend/tests/test_app_action_delegation.py::test_review_fingerprint_changes_and_revoked_binding_cleanup",
+        "backend/tests/contract/test_access_delegation_postgres.py::test_held_group_revocation_prevents_later_exact_operation_effect"
+      ],
+      "remaining_proof": [
+        "Existing leave/rejoin test exercises a direct human binding, not a group-based binding.",
+        "Add group-sourced pending service approval invalidation after membership removal/leave/rejoin and verify no protected effect or resurrected grant."
+      ]
+    },
+    {
+      "id": "U52",
+      "requirement": "New authority reviewed; immutable definition revision; stale action grants fail closed",
+      "status": "partial",
+      "named_assertions": [
+        "backend/tests/test_app_action_delegation.py::test_definition_revision_invalidates_grants_without_silent_new_functions",
+        "backend/tests/test_exact_operation_authority.py::test_permit_does_not_escape_to_child_task_and_definition_revision",
+        "backend/tests/contract/test_access_delegation_postgres.py::test_service_exact_function_executes_viewer_approval_with_original_actor[agent-definition_changed]"
+      ],
+      "remaining_proof": [
+        "Definition revision source test replaces the same manifest, and deferred PG negative alters the captured definition fingerprint.",
+        "Add actual declared-function change through update_app_from_library; verify old binding denied, new function initially denied, explicit current-definition regrant allowed."
+      ]
+    },
+    {
+      "id": "U69",
+      "requirement": "Lifecycle is owner-delegated; no silent new grant, stale group/action binding, public audience or old token resurrection",
+      "status": "partial",
+      "named_assertions": [
+        "backend/tests/test_app_action_delegation.py::test_review_fingerprint_changes_and_revoked_binding_cleanup",
+        "backend/tests/contract/test_access_delegation_postgres.py::test_service_exact_function_executes_viewer_approval_with_original_actor[agent-definition_changed]"
+      ],
+      "remaining_proof": [
+        "Rooted App delegation deletion helper is tested directly; a real install/update/uninstall/fresh-install lifecycle with preexisting group/action grants is not yet qualified here.",
+        "Restore checkpoint qualification belongs to the coordinator/lifecycle evidence and is not waived or inferred from this R3 file."
+      ]
+    },
+    {
+      "id": "U70",
+      "requirement": "Each allow is satisfied as one complete grant; scope/action constraints cannot be mixed; block wins; cross-workspace membership denied",
+      "status": "partial",
+      "named_assertions": [
+        "backend/tests/test_app_action_delegation.py::test_binding_conditions_do_not_mix_across_overlapping_sources",
+        "backend/tests/test_app_action_delegation.py::test_foreign_group_and_unknown_function_cannot_grant",
+        "backend/tests/test_exact_operation_authority.py::test_conditions_use_server_state_and_each_complete_grant"
+      ],
+      "remaining_proof": [
+        "Overlapping-source test currently uses two human bindings, not two groups.",
+        "Add two overlapping groups with separately unsatisfied condition sets; prove no mixing, one complete source permits, current resource block/exclusion denies as applicable, and foreign group cannot grant."
+      ]
+    },
+    {
+      "id": "U73",
+      "requirement": "Definition-change and override authority are explicit and audited; execution conditions cannot be silently bypassed by a generic operation flag",
+      "status": "partial",
+      "named_assertions": [
+        "backend/tests/test_exact_operation_authority.py::test_ambient_flag_is_not_a_permit",
+        "backend/tests/test_declarative_action_examples.py::test_external_roles_separate_editor_approver_configuration",
+        "backend/tests/test_app_action_delegation.py::test_definition_revision_invalidates_grants_without_silent_new_functions"
+      ],
+      "remaining_proof": [
+        "No emergency-override function or role was added before the user-requested freeze.",
+        "Add external reference declaration with separately delegated override role, required bounded reason, exact protected mutation, and durable audit; ordinary owner/configurator cannot invoke it implicitly.",
+        "Add actual configuration/workflow-definition change audit positive and no implicit new authority assertions."
+      ]
+    }
+  ],
+  "continuation_order": [
+    "Preserve frozen milestone and reconcile the coordinator full-gate receipts.",
+    "Close finite declaration/group lifecycle assertions listed for U51,U52,U69,U70.",
+    "Add external reference emergency override and actual configuration audit assertions for U73/U49 using existing declaration/dispatch; no Core domain logic or ambient bypass.",
+    "Collect remaining UI/API/tool/deferred surface receipts and integrate shared ledgers only when their applicable assertions pass."
+  ],
+  "source_snapshot_note": "Current filenames identify implementations, not a claim that every historical receipt ran these exact bytes. Frozen-source final verification is authoritative."
+}

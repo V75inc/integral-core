@@ -6,6 +6,8 @@ import os
 # Register all core @endpoint modules (side effect: route registration)
 # Agentive routes register via main.py at startup.
 for _mod in (
+    "access_lifecycle",
+    "access_delegation",
     "access",  # Phase 2 — unified collaborator/exclusion/access endpoints
     "admin_packages",  # M11 Phase C1 — admin hot-load + introspection endpoints
     "admin_users",  # Platform admin user management

@@ -20,6 +20,7 @@ from app.models.edges import (
 )
 from app.models.nodes import App, Entry, EntryType, Track
 from app.schemas.graph_context import GraphContextRequest
+from app.services.app_graph import catalog_app, catalog_track, catalog_workspace
 from app.services.graph_context import capture_workspace_graph
 from app.services.personal_workspace import ensure_personal_workspace
 
@@ -31,10 +32,12 @@ async def graph(test_user, test_user2):
     ws = await ensure_personal_workspace(test_user)
     await test_user2.connect(ws, edge=IS_MEMBER_OF, role="guest")
     app = await App.create(name="Research", workspace_id=ws.id)
+    await catalog_app(app)
     await ws.connect(app, edge=CONTAINS)
     await test_user.connect(app, edge=OWNS)
     await test_user2.connect(app, edge=COLLABORATES_ON, role="viewer")
     track = await Track.create(title="Decisions", workspace_id=ws.id)
+    await catalog_track(track)
     await app.connect(track, edge=CONTAINS)
     await test_user.connect(track, edge=OWNS)
     first = await Entry.create(
@@ -58,6 +61,36 @@ async def graph(test_user, test_user2):
     return ws, app, track, first, second, third, kind, test_user, test_user2
 
 
+@pytest.fixture
+async def recorded_graph(graph, tmp_path):
+    """Qualify semantic detail on a complete native SQL store under real access.
+
+    The capture's cooperative deadline is unchanged. JSON lookup timing is
+    not a reliable way to assert complete projection semantics after adding
+    fresh primary identity and containment checks.
+    """
+    from jvspatial.core import GraphContext
+    from jvspatial.core.context import get_default_context, scoped_default_context
+    from jvspatial.db.sqlite import SQLiteDB
+
+    source = get_default_context().database
+    database = SQLiteDB(db_path=tmp_path / "recorded-context.db")
+    context = GraphContext(database)
+    originals = []
+    try:
+        for collection in ("node", "edge", "object"):
+            await database.bulk_save(collection, await source.find(collection, {}))
+        for node in graph:
+            originals.append((node, await node.get_context()))
+            await node.set_context(context)
+        with scoped_default_context(context):
+            yield graph
+    finally:
+        for node, original in originals:
+            await node.set_context(original)
+        await database.close()
+
+
 async def _capture(graph, **kwargs):
     ws, _, _, _, _, _, _, _, viewer = graph
     return await capture_workspace_graph(
@@ -67,7 +100,8 @@ async def _capture(graph, **kwargs):
     )
 
 
-async def test_workspace_graph_has_paths_and_declared_meanings(graph):
+async def test_workspace_graph_has_paths_and_declared_meanings(recorded_graph):
+    graph = recorded_graph
     ws, app, track, first, second, _, _, _, _ = graph
     data = await _capture(graph, max_depth=4)
     nodes = {n["id"]: n for n in data["nodes"]}
@@ -77,7 +111,17 @@ async def test_workspace_graph_has_paths_and_declared_meanings(graph):
         "title": "Expand capacity",
         "status": "active",
     }
-    assert data["paths"][first.id]["nodes"] == [ws.id, app.id, track.id, first.id]
+    # Catalog membership adds a second valid rooted path; first-discovery
+    # order may choose either without changing evidence or authority.
+    path = data["paths"][first.id]
+    assert path["nodes"] in (
+        [ws.id, app.id, track.id, first.id],
+        [ws.id, f"n.Tracks.{ws.id}", track.id, first.id],
+    )
+    edges = {edge["id"]: edge for edge in data["edges"]}
+    assert [
+        (edges[key]["source"], edges[key]["target"]) for key in path["edges"]
+    ] == list(zip(path["nodes"], path["nodes"][1:]))
     assert data["ontology"]["evidence_class"] == "application_declared"
     assert data["meta"]["consistency"] == "best_effort"
     assert "statistics" not in data
@@ -86,7 +130,8 @@ async def test_workspace_graph_has_paths_and_declared_meanings(graph):
         assert e["source"] in nodes and e["target"] in nodes
 
 
-async def test_relationship_evidence_retains_typed_metadata(graph):
+async def test_relationship_evidence_retains_typed_metadata(recorded_graph):
+    graph = recorded_graph
     first, second = graph[3:5]
     data = await _capture(
         graph, root_id=first.id, edge_types=("REFERENCES",), max_depth=1
@@ -116,6 +161,7 @@ async def test_cross_workspace_target_is_not_exposed(graph):
     foreign_track = await Track.create(
         title="Other workspace", workspace_id=other_ws.id
     )
+    await catalog_track(foreign_track)
     await other_ws.connect(foreign_track, edge=CONTAINS)
     await owner.connect(foreign_track, edge=OWNS)
     await graph[-1].connect(foreign_track, edge=COLLABORATES_ON, role="viewer")
@@ -152,7 +198,8 @@ async def test_paused_app_cannot_be_a_bridge(graph):
     assert graph[2].id not in json.dumps(data)
 
 
-async def test_expansion_rechecks_live_permission(graph):
+async def test_expansion_rechecks_live_permission(recorded_graph):
+    graph = recorded_graph
     first, second = graph[3:5]
     initial = await _capture(
         graph, root_id=first.id, edge_types=("REFERENCES",), max_depth=1
@@ -182,7 +229,8 @@ async def test_view_and_budget_caps_have_no_dangling_evidence(graph, view):
         assert e["source"] in nodes and e["target"] in nodes
 
 
-async def test_anchor_uses_the_persisted_edge_name(graph):
+async def test_anchor_uses_the_persisted_edge_name(recorded_graph):
+    graph = recorded_graph
     first, track = graph[3], graph[2]
     await first.connect(track, edge=ANCHORS, field_key="details")
     data = await _capture(graph, root_id=first.id, edge_types=("Anchors",), max_depth=1)
@@ -254,7 +302,7 @@ async def test_native_sqlite_projection_pages_candidates_without_workspace_scan(
     try:
         # Copy the small rooted test fixture, then run the complete Core
         # permission and projection stack on SQL rather than mocking access.
-        for collection in ("node", "edge"):
+        for collection in ("node", "edge", "object"):
             await db.bulk_save(collection, await source.find(collection, {}))
         node_batches, edge_pages = [], []
         original_nodes, original_edges, original_find = (
@@ -423,7 +471,8 @@ async def _declare_recorded(graph):
     await first.save()
 
 
-async def test_recorded_fields_evidence_and_qualified_relation(graph):
+async def test_recorded_fields_evidence_and_qualified_relation(recorded_graph):
+    graph = recorded_graph
     await _declare_recorded(graph)
     data = await _capture(
         graph, root_id=graph[3].id, edge_types=("REFERENCES",), detail="recorded"
@@ -443,7 +492,8 @@ async def test_recorded_fields_evidence_and_qualified_relation(graph):
     assert len(json.dumps(data, separators=(",", ":")).encode()) <= 24576
 
 
-async def test_recorded_old_schema_never_gets_new_meaning_or_fields(graph):
+async def test_recorded_old_schema_never_gets_new_meaning_or_fields(recorded_graph):
+    graph = recorded_graph
     await _declare_recorded(graph)
     graph[3].schema_revision = 2
     await graph[3].save()
@@ -457,8 +507,9 @@ async def test_recorded_old_schema_never_gets_new_meaning_or_fields(graph):
 
 
 async def test_recorded_authorization_is_rechecked_after_type_discovery(
-    graph, monkeypatch
+    recorded_graph, monkeypatch
 ):
+    graph = recorded_graph
     from app.services import graph_context as service
 
     await _declare_recorded(graph)
@@ -508,7 +559,10 @@ def test_context_declaration_rejects_unselected_hidden_and_non_scalar(declaratio
         )
 
 
-async def test_recorded_same_key_different_type_does_not_inherit_meaning(graph):
+async def test_recorded_same_key_different_type_does_not_inherit_meaning(
+    recorded_graph,
+):
+    graph = recorded_graph
     await _declare_recorded(graph)
     other = await EntryType.create(name="Other", track_id=graph[2].id)
     await graph[2].connect(other, edge=CONTAINS)
@@ -525,11 +579,13 @@ async def test_recorded_same_key_different_type_does_not_inherit_meaning(graph):
             assert edge["relation"]["status"] == "unresolved"
 
 
-async def test_recorded_cross_workspace_and_private_paths_remain_closed(graph):
+async def test_recorded_cross_workspace_and_private_paths_remain_closed(recorded_graph):
+    graph = recorded_graph
     await _declare_recorded(graph)
     await graph[-1].connect(graph[4], edge=EXCLUDED_FROM)
     other_ws = await ensure_personal_workspace(graph[-1])
     other_track = await Track.create(title="Other workspace", workspace_id=other_ws.id)
+    await catalog_track(other_track)
     await other_ws.connect(other_track, edge=CONTAINS)
     foreign = await Entry.create(title="FOREIGN_DETAIL", track_id=other_track.id)
     await other_track.connect(foreign, edge=CONTAINS)
@@ -542,7 +598,8 @@ async def test_recorded_cross_workspace_and_private_paths_remain_closed(graph):
     assert "FOREIGN_DETAIL" not in json.dumps(data)
 
 
-async def test_recorded_budget_is_shared_across_passes(graph, monkeypatch):
+async def test_recorded_budget_is_shared_across_passes(recorded_graph, monkeypatch):
+    graph = recorded_graph
     from jvspatial.core.context import get_default_context
 
     ctx = get_default_context()
@@ -561,7 +618,10 @@ async def test_recorded_budget_is_shared_across_passes(graph, monkeypatch):
     assert sum(count for _, count in spent) <= 50
 
 
-async def test_recorded_conflicting_units_and_evidence_are_not_cross_attributed(graph):
+async def test_recorded_conflicting_units_and_evidence_are_not_cross_attributed(
+    recorded_graph,
+):
+    graph = recorded_graph
     from app.services.operational_model_compile import normalize_entry_type_form_schema
 
     await _declare_recorded(graph)
@@ -593,7 +653,10 @@ async def test_recorded_conflicting_units_and_evidence_are_not_cross_attributed(
             assert "verification" not in field["evidence"]
 
 
-async def test_recorded_byte_trim_remains_endpoint_and_definition_closed(graph):
+async def test_recorded_byte_trim_remains_endpoint_and_definition_closed(
+    recorded_graph,
+):
+    graph = recorded_graph
     await _declare_recorded(graph)
     data = await _capture(graph, root_id=graph[3].id, detail="recorded", max_bytes=8192)
     assert len(json.dumps(data, separators=(",", ":")).encode()) <= 8192
@@ -604,7 +667,10 @@ async def test_recorded_byte_trim_remains_endpoint_and_definition_closed(graph):
         assert set(edge["relation"]["definition_ids"]) <= definitions
 
 
-async def test_recorded_legacy_container_in_scalar_field_is_never_exposed(graph):
+async def test_recorded_legacy_container_in_scalar_field_is_never_exposed(
+    recorded_graph,
+):
+    graph = recorded_graph
     await _declare_recorded(graph)
     graph[3].custom_fields["readiness"] = {"secret": "NESTED_PRIVATE_SENTINEL"}
     await graph[3].save()
@@ -617,8 +683,9 @@ async def test_recorded_legacy_container_in_scalar_field_is_never_exposed(graph)
 
 
 async def test_recorded_schema_access_revocation_does_not_leave_relation_meanings(
-    graph, monkeypatch
+    recorded_graph, monkeypatch
 ):
+    graph = recorded_graph
     from app.services import graph_context as service
 
     await _declare_recorded(graph)
@@ -637,7 +704,10 @@ async def test_recorded_schema_access_revocation_does_not_leave_relation_meaning
     assert data["relation_definitions"] == {}
 
 
-async def test_recorded_root_byte_limit_is_not_reported_as_permission_denial(graph):
+async def test_recorded_root_byte_limit_is_not_reported_as_permission_denial(
+    recorded_graph,
+):
+    graph = recorded_graph
     from app.api.errors import BadRequestError
 
     await _declare_recorded(graph)

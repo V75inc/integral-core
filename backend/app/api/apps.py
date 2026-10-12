@@ -60,12 +60,12 @@ from app.services.operational_model_runtime import (
     normalize_entry_type_form_schema,
     normalize_view_config,
 )
-from app.services.ownership_transfer import transfer_app_ownership
 from app.services.permissions import (
     can_create_app_under_workspace,
     count_user_accessible_entries,
     get_user_accessible_apps,
     get_user_node,
+    resolve_role,
 )
 from app.services.policy_engine import evaluate as policy_evaluate
 from app.services.request_scope import (
@@ -226,7 +226,9 @@ async def create_app(
             )
         from app.api.operational_models import resolve_type_hint
 
-        matches = await resolve_type_hint(type_hint, workspace_id=workspace_id)
+        matches = await resolve_type_hint(
+            type_hint, workspace_id=workspace_id, user_id=user_id
+        )
         if not matches:
             type_hint_warning = (
                 "type_hint did not resolve to any library package; "
@@ -587,7 +589,9 @@ async def delete_app(request: Request, app_id: str) -> Dict[str, Any]:
     # which would keep dispatching for a deleted App until restart.
     from app.services.app_lifecycle import purge_app_with_bundle_teardown
 
-    deleted_tracks, unlinked_tracks = await purge_app_with_bundle_teardown(sp)
+    deleted_tracks, unlinked_tracks = await purge_app_with_bundle_teardown(
+        sp, actor_user_id=user_id
+    )
 
     # D-05 single emission path. Sync inline emit before HTTP response (D-06).
     await emit_change_event(
@@ -922,6 +926,17 @@ async def list_app_collaborators(request: Request, app_id: str) -> Dict[str, Any
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
+    from app.services.sharing import can_review_resource_access
+
+    if not await can_review_resource_access(user_id, "app", app_id):
+        return {
+            "collaborators": [],
+            "total": 0,
+            "effective_total": 0,
+            "app_id": app_id,
+            "caller_role": await resolve_role(user_id, "app", app_id),
+            "directory_visible": False,
+        }
     _decision = await policy_evaluate(
         subject=Subject(kind="human", id=user_id),
         action="app.read",
@@ -940,7 +955,12 @@ async def list_app_collaborators(request: Request, app_id: str) -> Dict[str, Any
         node=["User"],
         limit=500,
     )
-    owner_node = await get_user_node(sp.owner_user_id) if sp.owner_user_id else None
+    owners = await sp.nodes(edge=["OWNS"], direction="in", node=["User"], limit=2)
+    if len(owners) > 1:
+        from app.exceptions import AuthorizationUnavailableError
+
+        raise AuthorizationUnavailableError()
+    owner_node = await get_user_node(owners[0].id) if owners else None
 
     role_by_user: Dict[str, str] = {}
     if collaborators:
@@ -1082,32 +1102,14 @@ async def post_transfer_app_ownership(
         raise InsufficientPermissionsError(
             message="Only the App owner can transfer ownership",
         )
-    prior_sp = await App.get(app_id)
-    prior_snapshot = await export_node(prior_sp) if prior_sp else None  # D-03
-    sp = await transfer_app_ownership(
-        app_id=app_id,
-        acting_user_id=user_id,
-        new_owner_user_id=new_owner_user_id,
-    )
+    from app.services.ownership_consent import request_ownership_transfer
 
-    # D-05 single emission path. Sync inline emit before HTTP response (D-06).
-    await emit_change_event(
-        actor_kind="human",
+    return await request_ownership_transfer(
         actor_id=user_id,
-        action="app.update",
-        resource_type="App",
-        resource_id=sp.id,
-        before=prior_snapshot,
-        after=await export_node(sp),
-        scope=f"app:{sp.id}",
+        resource_type="app",
+        resource_id=app_id,
+        recipient_id=new_owner_user_id,
     )
-
-    return {
-        "message": "Ownership transferred",
-        "app": await export_node(sp),
-        "app_id": app_id,
-        "new_owner_user_id": new_owner_user_id,
-    }
 
 
 async def _require_app_attached_cp(app_id: str) -> tuple[App, OperationalModel]:
@@ -1156,8 +1158,21 @@ async def _record_effective_definition_after_library_apply(
 
 
 async def _preview_app_library_apply(
-    app_node: App, library_cp: OperationalModel
+    app_node: App, library_cp: OperationalModel, *, user_id: Optional[str] = None
 ) -> Dict[str, Any]:
+    from app.services.library_dependencies import admitted_library_dependency_chain
+    from app.services.resource_location import MANAGEMENT_APP_STATES, locate_resource
+
+    location = await locate_resource(
+        "app", app_node.id, allowed_app_states=MANAGEMENT_APP_STATES
+    )
+    if location is None:
+        raise ResourceNotFoundError(message="App not found")
+    library_cp = (
+        await admitted_library_dependency_chain(
+            library_cp.id, location.workspace_id, user_id=user_id
+        )
+    )[-1]
     canonical = compile_canonical_manifest(manifest=library_cp.manifest or {})
     scope = str(canonical.get("scope") or "")
     preview: Dict[str, Any] = {
@@ -1205,6 +1220,7 @@ async def _preview_app_library_apply(
             preview["migration_safety"] = await assert_package_upgrade_migration_safe(
                 attached_profile=attached_profile,
                 library_profile=library_cp,
+                user_id=user_id,
             )
         except OperationalModelValidationError as exc:
             preview["migration_safety"] = {
@@ -1399,12 +1415,11 @@ async def merge_library_into_app_operational_model(
     )
 
     migration_safety = await assert_package_upgrade_migration_safe(
-        attached_profile=sacp,
-        library_profile=lib,
+        attached_profile=sacp, library_profile=lib, user_id=user_id
     )
     prior_snapshot = await export_node(sacp)  # D-03 before-snapshot
     await merge_library_manifest_into_operational_model(
-        lib, sacp, track=None, for_space=True
+        lib, sacp, track=None, for_space=True, user_id=user_id
     )
     sp.library_merge_source_id = lib.id
     await sp.save()
@@ -1482,7 +1497,7 @@ async def preview_app_operational_model_merge(
     assert_library_artifact_trusted(lib)
     return {
         "app_id": app_id,
-        "preview": await _preview_app_library_apply(sp, lib),
+        "preview": await _preview_app_library_apply(sp, lib, user_id=user_id),
     }
 
 
@@ -1515,7 +1530,7 @@ async def apply_app_operational_model_library(
     from app.services.package_trust import assert_library_artifact_trusted
 
     assert_library_artifact_trusted(lib)
-    preview = await _preview_app_library_apply(sp, lib)
+    preview = await _preview_app_library_apply(sp, lib, user_id=user_id)
     if (preview.get("definition_upgrade") or {}).get("status") == "conflicts":
         from app.exceptions import ApplicationDefinitionUpgradeConflictError
 
@@ -1528,12 +1543,11 @@ async def apply_app_operational_model_library(
     )
 
     migration_safety = await assert_package_upgrade_migration_safe(
-        attached_profile=sacp,
-        library_profile=lib,
+        attached_profile=sacp, library_profile=lib, user_id=user_id
     )
     prior_snapshot = await export_node(sacp)  # D-03 before-snapshot
     await merge_library_manifest_into_operational_model(
-        lib, sacp, track=None, for_space=True
+        lib, sacp, track=None, for_space=True, user_id=user_id
     )
     sp.library_merge_source_id = lib.id
     await sp.save()

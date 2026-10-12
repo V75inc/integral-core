@@ -22,7 +22,8 @@ import hashlib
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional, Tuple
+from functools import wraps
+from typing import Any, Awaitable, Callable, Optional, ParamSpec, Tuple
 
 from app.bootstrap_admin import _find_user_by_email
 from app.config import settings
@@ -44,6 +45,7 @@ ERR_EMAIL_INVALID = "invitation.email_invalid"
 ERR_USER_NOT_FOUND = "invitation.user_not_found"
 ERR_WORKSPACE_NOT_FOUND = "invitation.workspace_not_found"
 ERR_EMAIL_MISMATCH = "invitation.email_mismatch"
+ERR_EMAIL_UNVERIFIED = "invitation.email_unverified"
 ERR_GRANT_FAILED = "invitation.grant_failed"
 ERR_RESOURCE_NOT_FOUND = "invitation.resource_not_found"
 ERR_NOT_FOUND = "invitation.not_found"
@@ -57,9 +59,22 @@ def _invitation_snapshot(invitation: Invitation) -> dict:
         "email": invitation.email,
         "status": invitation.status,
         "role": invitation.role,
+        "can_create_apps": invitation.can_create_apps,
+        "can_create_tracks": invitation.can_create_tracks,
         "target_resource_type": invitation.target_resource_type or None,
         "target_resource_id": invitation.target_resource_id or None,
         "target_resource_role": invitation.target_resource_role or None,
+        "invitation_revision": invitation.invitation_revision,
+        "grant_outcome": invitation.grant_outcome,
+        "granted_role": invitation.granted_role,
+        "granted_can_create_apps": invitation.granted_can_create_apps,
+        "granted_can_create_tracks": invitation.granted_can_create_tracks,
+        "original_issuer_id": invitation.invited_by_user_id,
+        "issuer_membership_id": invitation.issuer_membership_id,
+        "grant_baseline": invitation.grant_baseline,
+        "adopted_by_user_id": invitation.adopted_by_user_id,
+        "adopted_membership_id": invitation.adopted_membership_id,
+        "adopted_at": invitation.adopted_at,
     }
 
 
@@ -70,6 +85,7 @@ async def _emit_invitation_change(
     invitation: Invitation,
     before: Optional[dict] = None,
     scope: Optional[str] = None,
+    system_actor: bool = False,
 ) -> None:
     from typing import cast
 
@@ -81,16 +97,56 @@ async def _emit_invitation_change(
     if invitation.target_resource_type and invitation.target_resource_id:
         resource_type = invitation.target_resource_type.capitalize()
         resource_id = invitation.target_resource_id
-    await emit_change_event(
-        actor_kind="human",
-        actor_id=actor_user_id,
-        action=cast(ChangeEventAction, action),
-        resource_type=resource_type,
-        resource_id=resource_id,
-        before=before,
-        after=_invitation_snapshot(invitation),
-        scope=scope or f"user:{actor_user_id}",
-    )
+    event = {
+        "actor_kind": "system" if system_actor else "human",
+        "actor_id": actor_user_id,
+        "action": cast(ChangeEventAction, action),
+        "resource_type": resource_type,
+        "resource_id": resource_id,
+        "before": before,
+        "after": _invitation_snapshot(invitation),
+        "scope": scope or f"user:{actor_user_id}",
+    }
+    from jvspatial.core.context import get_default_context
+
+    from app.services.entry_write_scope import is_postgres_entry_transaction
+
+    database = get_default_context().database
+    if is_postgres_entry_transaction(database):
+        from app.services.app_operations.event_outbox import insert_revision_event
+
+        invitation.audit_outbox_id = await insert_revision_event(
+            transaction=database,
+            workspace_id=invitation.workspace_id,
+            namespace="invitation-lifecycle-v1",
+            subject_id=invitation.id,
+            revision=invitation.invitation_revision,
+            event=event,
+        )
+        await invitation.save()
+    else:
+        await emit_change_event(**event)
+
+
+async def _deliver_invitation_audit(invitation: Invitation) -> None:
+    """Try committed delivery; a failed sink leaves durable pending intent."""
+    if not invitation.audit_outbox_id:
+        return
+    from jvspatial.core.context import get_default_context
+
+    from app.services.entry_write_scope import is_postgres_entry_transaction
+
+    database = get_default_context().database
+    if is_postgres_entry_transaction(database):
+        return  # The outer command owns commit and outbox recovery.
+    from app.services.app_operations.event_outbox import deliver_operation_event
+
+    try:
+        await deliver_operation_event(
+            outbox_id=invitation.audit_outbox_id, database=database
+        )
+    except Exception:
+        logger.exception("Invitation audit delivery pending for %s", invitation.id)
 
 
 def _now_utc() -> datetime:
@@ -132,21 +188,9 @@ async def _normalize_email(email: str) -> str:
 
 async def _auth_email_for_graph_user(user: User) -> Optional[str]:
     """Return normalized AuthUser email for a graph ``User``, if linked."""
-    auth_id = (getattr(user, "user_id", None) or "").strip()
-    if not auth_id:
-        return None
-    try:
-        from jvspatial.api.auth.models import User as AuthUser
+    from app.services.email_identity import current_account_email
 
-        auth_user = await AuthUser.get(auth_id)
-        if not auth_user:
-            return None
-        raw = (getattr(auth_user, "email", None) or "").strip()
-        if not raw:
-            return None
-        return await _normalize_email(raw)
-    except Exception:
-        return None
+    return await current_account_email(user)
 
 
 async def _invitee_email_matches_user(invitation: Invitation, user: User) -> bool:
@@ -158,7 +202,29 @@ async def _invitee_email_matches_user(invitation: Invitation, user: User) -> boo
     auth_email = await _auth_email_for_graph_user(user)
     if not auth_email:
         return False
-    return secrets.compare_digest(invite_email, auth_email)
+    return secrets.compare_digest(
+        invite_email.encode("utf-8"), auth_email.encode("utf-8")
+    )
+
+
+async def _verified_invitee_for_id(
+    invitation: Invitation, user_id: str
+) -> Tuple[Optional[User], Optional[str]]:
+    """An invitation ID supplies no mailbox proof, unlike its bearer token."""
+    from app.services.email_identity import verified_current_email
+    from app.services.permissions import get_user_node
+
+    user = await get_user_node(user_id)
+    if not user:
+        return None, ERR_USER_NOT_FOUND
+    email = await verified_current_email(user)
+    if not email:
+        return user, ERR_EMAIL_UNVERIFIED
+    if not secrets.compare_digest(
+        email.encode("utf-8"), invitation.email.strip().casefold().encode("utf-8")
+    ):
+        return user, ERR_EMAIL_MISMATCH
+    return user, None
 
 
 async def _wire_invitation_edges(
@@ -212,6 +278,7 @@ async def _emit_invitation_in_app_notification(
             kind="invitation",
             payload={
                 "invitation_id": invitation.id,
+                "invitation_revision": invitation.invitation_revision,
                 "workspace_id": invitation.workspace_id or "",
                 "actor_name": actor,
                 "role": summary_role,
@@ -221,7 +288,10 @@ async def _emit_invitation_in_app_notification(
             actor_id=inviter_user_id,
             actor_kind="human",
             channels=["in_app"],
-            idempotency_key=f"invitation:{invitation.id}:{invited_user_id}",
+            idempotency_key=(
+                f"invitation:{invitation.id}:{invitation.invitation_revision}:"
+                f"{invited_user_id}"
+            ),
         )
     except Exception:
         logger.exception(
@@ -241,6 +311,131 @@ async def _existing_membership(workspace_id: str, user_id: str) -> bool:
     return bool(edges)
 
 
+_IssuanceArgs = ParamSpec("_IssuanceArgs")
+
+
+def _atomic_invitation_issuance(
+    function: Callable[_IssuanceArgs, Awaitable[Tuple[Invitation, str, str]]],
+) -> Callable[_IssuanceArgs, Awaitable[Tuple[Invitation, str, str]]]:
+    """Join source admission, new rooted state and audit before delivery.
+
+    This serializes issuers using the workspace fence. Other ACL writers still
+    need to adopt that fence before full distributed source revocation closes.
+    """
+
+    @wraps(function)
+    async def issue(*args: _IssuanceArgs.args, **kwargs: _IssuanceArgs.kwargs):
+        from jvspatial.core.context import get_default_context
+
+        from app.exceptions import AuthorizationUnavailableError
+        from app.services.app_operations.transaction_scope import (
+            OperationTransactionUnavailable,
+            graph_transaction_available,
+            postgres_graph_transaction,
+        )
+        from app.services.authorization_scope import authorization_scope
+        from app.services.entry_write_scope import (
+            entry_write_scope,
+            is_postgres_entry_transaction,
+        )
+        from app.services.identity_admission import identity_admission
+        from app.services.resource_location import (
+            MANAGEMENT_APP_STATES,
+            locate_resource,
+        )
+
+        workspace = kwargs.get("workspace")
+        workspace_id = (
+            workspace.id
+            if isinstance(workspace, Workspace)
+            else kwargs.get("workspace_id")
+        )
+        if not workspace_id:
+            location = await locate_resource(
+                kwargs.get("resource_type"),
+                kwargs.get("resource_id"),
+                allowed_app_states=MANAGEMENT_APP_STATES,
+            )
+            if location is None:
+                raise AuthorizationUnavailableError()
+            workspace_id = location.workspace_id
+        caller_context = get_default_context()
+        if is_postgres_entry_transaction(caller_context.database):
+            # Delivery has no outer-transaction commit callback yet. Refuse
+            # before creation instead of releasing a token for uncommitted intent.
+            raise OperationTransactionUnavailable(
+                "Invitation issuance must own its graph transaction and delivery boundary"
+            )
+        database = caller_context.database
+        if graph_transaction_available(database):
+            async with (
+                postgres_graph_transaction(database),
+                identity_admission((kwargs["inviter_user_id"],)),
+                authorization_scope(
+                    workspace_id,
+                    authority_mutation=True,
+                ),
+            ):
+                result = await function(*args, **kwargs)
+        else:
+            async with (
+                entry_write_scope(f"invitation-issuance:{workspace_id}"),
+                identity_admission((kwargs["inviter_user_id"],)),
+            ):
+                result = await function(*args, **kwargs)
+        invitation, _, url = result
+        await invitation.set_context(caller_context)
+        await _deliver_invitation_audit(invitation)
+        await _deliver_new_invitation(
+            invitation,
+            url,
+            send_email_notification=kwargs.get("send_email_notification", True),
+            inviter_display_name=kwargs.get("inviter_display_name"),
+            resource_label=kwargs.get("resource_label", ""),
+        )
+        return result
+
+    return issue
+
+
+async def _deliver_new_invitation(
+    invitation: Invitation,
+    acceptance_url: str,
+    *,
+    send_email_notification: bool,
+    inviter_display_name: Optional[str],
+    resource_label: str,
+) -> None:
+    """Delivery occurs after graph commit; it never grants access."""
+    workspace = await Workspace.find_one({"id": invitation.workspace_id})
+    label = resource_label or (workspace.name if workspace else "a workspace")
+    role = invitation.target_resource_role or invitation.role
+    if send_email_notification:
+        with contextlib.suppress(Exception):
+            msg = render_invitation_email(
+                recipient_email=invitation.email,
+                inviter_name=inviter_display_name,
+                organization_name=label,
+                role=role,
+                acceptance_url=acceptance_url,
+                message=invitation.message,
+                expires_days=settings.INVITATION_EXPIRY_DAYS,
+            )
+            await send_email(msg)
+    if invitation.invited_user_id:
+        await _emit_invitation_in_app_notification(
+            invitation=invitation,
+            invited_user_id=invitation.invited_user_id,
+            inviter_user_id=(
+                invitation.adopted_by_user_id or invitation.invited_by_user_id
+            ),
+            inviter_display_name=inviter_display_name,
+            target_label=label,
+            role=role,
+        )
+
+
+@_atomic_invitation_issuance
 async def create_invitation(
     *,
     workspace: Workspace,
@@ -255,12 +450,23 @@ async def create_invitation(
 ) -> Tuple[Invitation, str, str]:
     """Create a pending Invitation and return ``(invitation, token, url)``.
 
-    Caller is responsible for the role enum check (the API layer rejects
-    invalid roles before reaching the service).
+    The service validates the current issuer, target and delegation ceiling;
+    callers cannot bypass these checks by invoking it without the HTTP layer.
 
     Raises ValueError with one of the ERR_* codes for create-time failures.
     """
     from app.api.validators_common import validate_email
+    from app.services.invitation_authority import require_workspace_invitation_authority
+
+    workspace, inviter_user_id, issuer_membership_id = (
+        await require_workspace_invitation_authority(
+            inviter_user_id,
+            workspace.id,
+            role=role,
+            can_create_apps=can_create_apps,
+            can_create_tracks=can_create_tracks,
+        )
+    )
 
     try:
         normalized_email = validate_email(email)
@@ -268,8 +474,6 @@ async def create_invitation(
         raise ValueError("invitation.email_invalid")
 
     invited_user_id = await _resolve_user_id_for_email(normalized_email)
-    if invited_user_id and await _existing_membership(workspace.id, invited_user_id):
-        raise ValueError(ERR_ALREADY_MEMBER)
 
     # Reject duplicate pending invitations to the same email for the same workspace.
     pending = await Invitation.find(
@@ -282,6 +486,11 @@ async def create_invitation(
     if pending:
         raise ValueError(ERR_DUPLICATE_PENDING)
 
+    from app.services.invitation_grants import capture_grant_baseline
+
+    baseline = await capture_grant_baseline(
+        invited_user_id, workspace.id, workspace_membership=True
+    )
     plaintext, token_hash = _generate_token()
     now_iso = _now_utc().isoformat()
     invitation = await Invitation.create(
@@ -289,6 +498,8 @@ async def create_invitation(
         email=normalized_email,
         invited_user_id=invited_user_id,
         invited_by_user_id=inviter_user_id,
+        issuer_membership_id=issuer_membership_id,
+        grant_baseline=baseline,
         role=role,
         can_create_apps=can_create_apps,
         can_create_tracks=can_create_tracks,
@@ -299,35 +510,9 @@ async def create_invitation(
         expires_at=_expiry_iso(settings.INVITATION_EXPIRY_DAYS),
     )
     await _wire_invitation_edges(invitation, workspace=workspace, issued_at=now_iso)
-    try:
-        await catalog_invitation(invitation)
-    except Exception:
-        logger.exception("catalog_invitation failed for %s", invitation.id)
+    await catalog_invitation(invitation)
 
     acceptance_url = _build_acceptance_url(plaintext)
-
-    if send_email_notification:
-        with contextlib.suppress(Exception):
-            msg = render_invitation_email(
-                recipient_email=email.strip() or normalized_email,
-                inviter_name=inviter_display_name,
-                organization_name=workspace.name or "a workspace",
-                role=role,
-                acceptance_url=acceptance_url,
-                message=message,
-                expires_days=settings.INVITATION_EXPIRY_DAYS,
-            )
-            await send_email(msg)
-
-    if invited_user_id:
-        await _emit_invitation_in_app_notification(
-            invitation=invitation,
-            invited_user_id=invited_user_id,
-            inviter_user_id=inviter_user_id,
-            inviter_display_name=inviter_display_name,
-            target_label=workspace.name or "a workspace",
-            role=role,
-        )
 
     await _emit_invitation_change(
         actor_user_id=inviter_user_id,
@@ -372,34 +557,46 @@ async def _materialize_invitation_grants(
     user: User, invitation: Invitation
 ) -> Optional[str]:
     """Create membership/collaboration edges. Returns an ERR_* code on failure."""
+    from app.services.resource_access_blocks import require_unblocked
+    from app.services.workspace_suspension import require_unsuspended
+
+    await require_unsuspended(user.id, invitation.workspace_id)
+    if invitation.target_resource_type:
+        await require_unblocked(
+            user.id, invitation.target_resource_type, invitation.target_resource_id
+        )
     is_resource_invite = bool(
         invitation.target_resource_type and invitation.target_resource_id
     )
 
     if invitation.workspace_id:
-        ws = await Workspace.get(invitation.workspace_id)
+        ws = await Workspace.find_one({"id": invitation.workspace_id})
         if ws is None and not is_resource_invite:
             return ERR_WORKSPACE_NOT_FOUND
         if ws is not None and not is_resource_invite:
-            from app.services.edge_upsert import ensure_edge
+            from app.services.invitation_grants import apply_invitation_grant
 
             invite_role = invitation.role or "member"
-            await ensure_edge(
+            result = await apply_invitation_grant(
                 user,
                 ws,
-                IS_MEMBER_OF,
+                baseline=invitation.grant_baseline,
+                workspace_membership=True,
                 role=invite_role,
                 joined_at=_now_utc().isoformat(),
                 can_create_apps=bool(invitation.can_create_apps),
                 can_create_tracks=bool(invitation.can_create_tracks),
             )
+            invitation.grant_outcome = result["outcome"]
+            invitation.granted_role = result["role"]
+            invitation.granted_can_create_apps = result["can_create_apps"]
+            invitation.granted_can_create_tracks = result["can_create_tracks"]
     elif not is_resource_invite:
         return ERR_WORKSPACE_NOT_FOUND
 
     if not is_resource_invite:
         return None
 
-    from app.models.edges import COLLABORATES_ON
     from app.services.sharing import _load_resource, ensure_guest_membership
 
     resource = await _load_resource(
@@ -409,7 +606,20 @@ async def _materialize_invitation_grants(
     if resource is None:
         return ERR_RESOURCE_NOT_FOUND
 
-    if invitation.workspace_id:
+    from app.services.invitation_grants import apply_invitation_grant
+
+    result = await apply_invitation_grant(
+        user,
+        resource,
+        baseline=invitation.grant_baseline,
+        workspace_membership=False,
+        role=invitation.target_resource_role,
+        invited_at=_now_utc().isoformat(),
+        invited_by=invitation.invited_by_user_id,
+    )
+    invitation.grant_outcome = result["outcome"]
+    invitation.granted_role = result["role"]
+    if invitation.workspace_id and result["role"] is not None:
         await ensure_guest_membership(
             user,
             invitation.workspace_id,
@@ -420,17 +630,6 @@ async def _materialize_invitation_grants(
                 f"{invitation.target_resource_id}"
             ),
         )
-    role = invitation.target_resource_role or "viewer"
-    from app.services.edge_upsert import ensure_edge
-
-    await ensure_edge(
-        user,
-        resource,
-        COLLABORATES_ON,
-        role=role,
-        invited_at=_now_utc().isoformat(),
-        invited_by=invitation.invited_by_user_id or "system:invitation",
-    )
     return None
 
 
@@ -439,17 +638,78 @@ async def _finalize_invitation_acceptance(
     invitation: Invitation,
     user: User,
     accepting_user_id: str,
+    require_verified_email: bool = False,
+    expected_token_hash: Optional[str] = None,
 ) -> Tuple[Optional[Invitation], Optional[str]]:
-    """Materialize grants and mark a pending invitation accepted."""
+    """Join current invitation admission, grant and terminal state on PostgreSQL."""
+    from app.services.invitation_lifecycle import invitation_lifecycle_scope
+    from app.services.permissions import get_user_node
+
     try:
-        grant_err = await _materialize_invitation_grants(user, invitation)
+        async with invitation_lifecycle_scope(
+            invitation.id,
+            invitation.workspace_id,
+            principal_ids=(accepting_user_id,),
+            include_issuer=True,
+        ) as current:
+            if expected_token_hash is not None and not secrets.compare_digest(
+                current.token_hash, expected_token_hash
+            ):
+                return current, ERR_INVALID_TOKEN
+            user = await get_user_node(accepting_user_id)
+            if user is None:
+                return current, ERR_USER_NOT_FOUND
+            if require_verified_email:
+                _, proof_error = await _verified_invitee_for_id(current, user.id)
+                if proof_error:
+                    return current, proof_error
+            elif not await _invitee_email_matches_user(current, user):
+                return current, ERR_EMAIL_MISMATCH
+            if current.status == "accepted":
+                return current, (
+                    None if current.invited_user_id == user.id else ERR_CONSUMED
+                )
+            if current.status != "pending":
+                return current, {
+                    "revoked": ERR_REVOKED,
+                    "declined": ERR_DECLINED,
+                    "expired": ERR_EXPIRED,
+                }.get(current.status, ERR_INVALID_TOKEN)
+            if _is_past(current.expires_at):
+                return current, ERR_EXPIRED
+            result = await _accept_admitted_invitation(
+                invitation=current, user=user, accepting_user_id=accepting_user_id
+            )
+        await _deliver_invitation_audit(current)
+        return result
+    except _InvitationGrantFailure as exc:
+        return invitation, exc.code
     except Exception:
         logger.exception(
             "failed to materialize grants for invitation %s", invitation.id
         )
         return invitation, ERR_GRANT_FAILED
+
+
+class _InvitationGrantFailure(RuntimeError):
+    """A soft materializer failure must unwind the graph unit before returning."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
+async def _accept_admitted_invitation(
+    *, invitation: Invitation, user: User, accepting_user_id: str
+) -> Tuple[Optional[Invitation], Optional[str]]:
+    """Apply grant and terminal state inside the caller's held lifecycle scope."""
+    from app.services.invitation_authority import require_current_invitation_issuer
+
+    prior = _invitation_snapshot(invitation)
+    await require_current_invitation_issuer(invitation)
+    grant_err = await _materialize_invitation_grants(user, invitation)
     if grant_err:
-        return invitation, grant_err
+        raise _InvitationGrantFailure(grant_err)
 
     # Acceptance may grant membership and a direct collaborator edge after a
     # prior access check cached denial under the auth principal. Make the
@@ -458,8 +718,22 @@ async def _finalize_invitation_acceptance(
 
     invalidate_user_aliases(user)
 
-    prior = _invitation_snapshot(invitation)
+    if invitation.target_resource_type:
+        from app.services.permissions import resolve_role
+
+        invitation.effective_role_at_acceptance = await resolve_role(
+            user.id, invitation.target_resource_type, invitation.target_resource_id
+        )
+    else:
+        from app.services.workspace_permissions import can_access_workspace
+
+        current_role = await can_access_workspace(user.id, invitation.workspace_id)
+        invitation.effective_role_at_acceptance = (
+            None if current_role == "none" else current_role
+        )
+
     invitation.status = "accepted"
+    invitation.invitation_revision += 1
     invitation.consumed_at = _now_utc().isoformat()
     invitation.invited_user_id = user.id
     await invitation.save()
@@ -492,15 +766,9 @@ async def consume_invitation_token(
         return invitation, err
     if not invitation:
         return None, ERR_INVALID_TOKEN
-    if err == ERR_CONSUMED:
-        if (
-            invitation.invited_user_id
-            and invitation.invited_user_id != accepting_user_id
-        ):
-            return invitation, ERR_CONSUMED
-        return invitation, None
+    from app.services.permissions import get_user_node
 
-    user = await User.get(accepting_user_id)
+    user = await get_user_node(accepting_user_id)
     if not user:
         return invitation, ERR_USER_NOT_FOUND
 
@@ -511,6 +779,7 @@ async def consume_invitation_token(
         invitation=invitation,
         user=user,
         accepting_user_id=accepting_user_id,
+        expected_token_hash=hashlib.sha256(plaintext.encode("utf-8")).hexdigest(),
     )
 
 
@@ -521,13 +790,9 @@ async def accept_invitation_by_id(
     invitation = await Invitation.get(invitation_id)
     if not invitation:
         return None, ERR_NOT_FOUND
-    if invitation.status == "accepted":
-        if (
-            invitation.invited_user_id
-            and invitation.invited_user_id != accepting_user_id
-        ):
-            return invitation, ERR_CONSUMED
-        return invitation, None
+    user, proof_error = await _verified_invitee_for_id(invitation, accepting_user_id)
+    if proof_error or user is None:
+        return invitation, proof_error
     preview_err: Optional[str] = None
     if invitation.status == "revoked":
         preview_err = ERR_REVOKED
@@ -535,24 +800,20 @@ async def accept_invitation_by_id(
         preview_err = ERR_DECLINED
     elif invitation.status == "expired" or _is_past(invitation.expires_at):
         preview_err = ERR_EXPIRED
-    elif invitation.status != "pending":
+    elif invitation.status not in {"pending", "accepted"}:
         preview_err = ERR_INVALID_TOKEN
     if preview_err:
         return invitation, preview_err
-
-    user = await User.get(accepting_user_id)
-    if not user:
-        return invitation, ERR_USER_NOT_FOUND
-    if not await _invitee_email_matches_user(invitation, user):
-        return invitation, ERR_EMAIL_MISMATCH
 
     return await _finalize_invitation_acceptance(
         invitation=invitation,
         user=user,
         accepting_user_id=accepting_user_id,
+        require_verified_email=True,
     )
 
 
+@_atomic_invitation_issuance
 async def create_resource_invitation(
     *,
     resource_type: str,
@@ -579,16 +840,21 @@ async def create_resource_invitation(
         raise ValueError(ERR_EMAIL_INVALID) from None
     if resource_type not in ("app", "track", "entry"):
         raise ValueError("invitation.invalid_resource_type")
-    if role not in ("owner", "admin", "editor", "commenter", "viewer"):
+    from app.services.sharing import VALID_ROLES
+
+    if role not in VALID_ROLES:
         raise ValueError("invitation.invalid_role")
 
-    from app.services.sharing import _require_true_owner_for_owner_grant
+    from app.services.invitation_authority import require_resource_invitation_authority
 
-    await _require_true_owner_for_owner_grant(
-        inviter_user_id,
-        resource_type,  # type: ignore[arg-type]
-        resource_id,
-        role,
+    workspace_id, inviter_user_id, issuer_membership_id = (
+        await require_resource_invitation_authority(
+            inviter_user_id,
+            resource_type,
+            resource_id,
+            workspace_id,
+            role=role,
+        )
     )
 
     invited_user_id = await _resolve_user_id_for_email(normalized_email)
@@ -604,6 +870,11 @@ async def create_resource_invitation(
     if pending:
         raise ValueError(ERR_DUPLICATE_PENDING)
 
+    from app.services.invitation_grants import capture_grant_baseline
+
+    baseline = await capture_grant_baseline(
+        invited_user_id, resource_id, workspace_membership=False
+    )
     plaintext, token_hash = _generate_token()
     now_iso = _now_utc().isoformat()
     invitation = await Invitation.create(
@@ -611,6 +882,8 @@ async def create_resource_invitation(
         email=normalized_email,
         invited_user_id=invited_user_id,
         invited_by_user_id=inviter_user_id,
+        issuer_membership_id=issuer_membership_id,
+        grant_baseline=baseline,
         role="guest",  # workspace-level placeholder; resource-level fields drive the grant
         can_create_apps=False,
         can_create_tracks=False,
@@ -633,36 +906,9 @@ async def create_resource_invitation(
         resource=resource,
         issued_at=now_iso,
     )
-    try:
-        await catalog_invitation(invitation)
-    except Exception:
-        logger.exception("catalog_invitation failed for %s", invitation.id)
+    await catalog_invitation(invitation)
 
     acceptance_url = _build_acceptance_url(plaintext)
-
-    if send_email_notification:
-        with contextlib.suppress(Exception):
-            msg = render_invitation_email(
-                recipient_email=email.strip() or normalized_email,
-                inviter_name=inviter_display_name,
-                organization_name=resource_label
-                or f"{resource_type.capitalize()} (Integral)",
-                role=role,
-                acceptance_url=acceptance_url,
-                message=message,
-                expires_days=settings.INVITATION_EXPIRY_DAYS,
-            )
-            await send_email(msg)
-
-    if invited_user_id:
-        await _emit_invitation_in_app_notification(
-            invitation=invitation,
-            invited_user_id=invited_user_id,
-            inviter_user_id=inviter_user_id,
-            inviter_display_name=inviter_display_name,
-            target_label=resource_label or f"{resource_type.capitalize()} (Integral)",
-            role=role,
-        )
 
     await _emit_invitation_change(
         actor_user_id=inviter_user_id,
@@ -678,9 +924,54 @@ async def _finalize_invitation_decline(
     invitation: Invitation,
     user: User,
     declining_user_id: str,
+    require_verified_email: bool = False,
+    expected_token_hash: Optional[str] = None,
+) -> Tuple[Invitation, Optional[str]]:
+    """Recheck proof and pending state while holding the lifecycle unit."""
+    from app.services.invitation_lifecycle import invitation_lifecycle_scope
+    from app.services.permissions import get_user_node
+
+    async with invitation_lifecycle_scope(
+        invitation.id, invitation.workspace_id, principal_ids=(declining_user_id,)
+    ) as current:
+        if expected_token_hash is not None and not secrets.compare_digest(
+            current.token_hash, expected_token_hash
+        ):
+            return current, ERR_INVALID_TOKEN
+        current_user = await get_user_node(declining_user_id)
+        if current_user is None:
+            return current, ERR_USER_NOT_FOUND
+        if require_verified_email:
+            _, proof_error = await _verified_invitee_for_id(current, current_user.id)
+            if proof_error:
+                return current, proof_error
+        elif not await _invitee_email_matches_user(current, current_user):
+            return current, ERR_EMAIL_MISMATCH
+        if current.status != "pending":
+            return current, {
+                "accepted": ERR_CONSUMED,
+                "declined": ERR_DECLINED,
+                "revoked": ERR_REVOKED,
+                "expired": ERR_EXPIRED,
+            }.get(current.status, ERR_INVALID_TOKEN)
+        if _is_past(current.expires_at):
+            return current, ERR_EXPIRED
+        result = await _decline_admitted_invitation(
+            invitation=current,
+            user=current_user,
+            declining_user_id=declining_user_id,
+        )
+    await _deliver_invitation_audit(current)
+    return result
+
+
+async def _decline_admitted_invitation(
+    *, invitation: Invitation, user: User, declining_user_id: str
 ) -> Tuple[Invitation, None]:
+    """Persist the terminal decline after current state and recipient proof."""
     prior = _invitation_snapshot(invitation)
     invitation.status = "declined"
+    invitation.invitation_revision += 1
     invitation.consumed_at = _now_utc().isoformat()
     invitation.invited_user_id = user.id
     await invitation.save()
@@ -723,6 +1014,7 @@ async def decline_invitation(
         invitation=invitation,
         user=user,
         declining_user_id=declining_user_id,
+        expected_token_hash=hashlib.sha256(plaintext.encode("utf-8")).hexdigest(),
     )
 
 
@@ -734,6 +1026,9 @@ async def decline_invitation_by_id(
     invitation = await Invitation.get(invitation_id)
     if not invitation:
         return None, ERR_NOT_FOUND
+    user, proof_error = await _verified_invitee_for_id(invitation, declining_user_id)
+    if proof_error or user is None:
+        return invitation, proof_error
     if invitation.status == "declined":
         return invitation, ERR_DECLINED
     if invitation.status in ("revoked", "accepted", "expired"):
@@ -747,23 +1042,46 @@ async def decline_invitation_by_id(
     if _is_past(invitation.expires_at):
         return invitation, ERR_EXPIRED
 
-    user = await User.get(declining_user_id)
-    if not user:
-        return invitation, ERR_USER_NOT_FOUND
-    if not await _invitee_email_matches_user(invitation, user):
-        return invitation, ERR_EMAIL_MISMATCH
-
     return await _finalize_invitation_decline(
         invitation=invitation,
         user=user,
         declining_user_id=declining_user_id,
+        require_verified_email=True,
     )
 
 
 async def revoke_invitation(invitation: Invitation, *, actor_user_id: str) -> None:
-    """Revoke a pending invitation (irreversible)."""
+    """Cancel one current pending invitation through the held lifecycle scope."""
+    from app.api.errors import ResourceConflictError
+    from app.services.invitation_authority import require_invitation_revoke_authority
+    from app.services.invitation_lifecycle import invitation_lifecycle_scope
+
+    async with invitation_lifecycle_scope(
+        invitation.id, invitation.workspace_id, principal_ids=(actor_user_id,)
+    ) as current:
+        await require_invitation_revoke_authority(current, actor_user_id)
+        if current.status == "revoked":
+            invitation.status = current.status
+            invitation.consumed_at = current.consumed_at
+            invitation.invitation_revision = current.invitation_revision
+            return
+        if current.status != "pending":
+            raise ResourceConflictError(message="Invitation is no longer pending")
+        await _revoke_admitted_invitation(current, actor_user_id=actor_user_id)
+        invitation.status = current.status
+        invitation.consumed_at = current.consumed_at
+        invitation.invitation_revision = current.invitation_revision
+        invitation.audit_outbox_id = current.audit_outbox_id
+    await _deliver_invitation_audit(current)
+
+
+async def _revoke_admitted_invitation(
+    invitation: Invitation, *, actor_user_id: str
+) -> None:
+    """Write cancellation only after current lifecycle and actor admission."""
     prior = _invitation_snapshot(invitation)
     invitation.status = "revoked"
+    invitation.invitation_revision += 1
     invitation.consumed_at = _now_utc().isoformat()
     await invitation.save()
     action = (
@@ -791,16 +1109,47 @@ async def expire_invitations(*, batch_limit: int = 500) -> int:
     Scans pending rows only (status-indexed). ``batch_limit`` caps work per
     scheduler tick so a large backlog cannot block the event loop.
     """
+    from jvspatial.core.context import get_default_context
+
+    from app.services.authority_facts import required_node_text
+    from app.services.invitation_lifecycle import invitation_lifecycle_scope
+
+    if type(batch_limit) is not int or batch_limit < 1 or batch_limit > 500:
+        raise ValueError("batch_limit must be an integer between 1 and 500")
     count = 0
-    pending = await Invitation.find({"context.status": "pending"})
     now_iso = _now_utc().isoformat()
-    for inv in pending:
-        if count >= batch_limit:
-            break
-        if not _is_past(inv.expires_at):
-            continue
-        inv.status = "expired"
-        inv.consumed_at = now_iso
-        await inv.save()
-        count += 1
+    # Node.find treats keyword arguments as field predicates, not DB options.
+    # Apply the hard limit to the primary database before any hydration.
+    pending = await get_default_context().database.find(
+        "node",
+        {
+            "entity": Invitation._entity_name(),
+            "context.status": "pending",
+            "context.expires_at": {"$lte": now_iso},
+        },
+        limit=batch_limit,
+    )
+    for row in pending:
+        invitation_id = row.get("id")
+        if not isinstance(invitation_id, str) or not invitation_id:
+            raise ValueError("Invalid invitation identity in expiry inventory")
+        workspace_id = required_node_text(row, "workspace_id")
+        async with invitation_lifecycle_scope(invitation_id, workspace_id) as current:
+            if current.status != "pending" or not _is_past(current.expires_at):
+                continue
+            before = _invitation_snapshot(current)
+            current.status = "expired"
+            current.invitation_revision += 1
+            current.consumed_at = now_iso
+            await current.save()
+            await _emit_invitation_change(
+                actor_user_id="system:invitation-expiry",
+                action="workspace.invitation_expire",
+                system_actor=True,
+                invitation=current,
+                before=before,
+                scope=f"ws:{workspace_id}",
+            )
+            count += 1
+        await _deliver_invitation_audit(current)
     return count

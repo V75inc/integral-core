@@ -39,8 +39,7 @@ async def test_upsert_writes_bundle_fingerprint_to_metadata(
     cps_r = await OperationalModels.get(OPERATIONAL_MODELS_REGISTRY_ID)
     assert cps_r is not None
 
-    async def noop_edge(reg, cp):  # type: ignore[no-untyped-def]
-        return None
+    from app.services.app_graph import ensure_catalog_edge as noop_edge
 
     spec = LibraryProfileSpec(
         name="Test B3 Metadata",
@@ -104,8 +103,7 @@ async def test_upsert_updates_when_bundle_fingerprint_changes(
     cps_r = await OperationalModels.get(OPERATIONAL_MODELS_REGISTRY_ID)
     assert cps_r is not None
 
-    async def noop_edge(reg, cp):  # type: ignore[no-untyped-def]
-        return None
+    from app.services.app_graph import ensure_catalog_edge as noop_edge
 
     manifest = {
         "operational_model_schema_version": 2,
@@ -175,8 +173,7 @@ async def test_upsert_matches_existing_row_by_slug_when_name_changes(
     cps_r = await OperationalModels.get(OPERATIONAL_MODELS_REGISTRY_ID)
     assert cps_r is not None
 
-    async def noop_edge(reg, cp):  # type: ignore[no-untyped-def]
-        return None
+    from app.services.app_graph import ensure_catalog_edge as noop_edge
 
     first = LibraryProfileSpec(
         name="Original Display Name",

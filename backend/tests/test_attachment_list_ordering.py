@@ -47,7 +47,14 @@ async def _entry_with_attachments(created_ats: list[str]) -> tuple[str, str]:
     from app.models.edges import CONTAINS, IS_MEMBER_OF, OWNS
     from app.models.nodes import App, User, Workspace
 
-    # Fully edge-wired to a rooted parent (I-GRAPH-01).
+    # Canonical workspace registry and structural ancestry (I-GRAPH-01).
+    from app.services.app_graph import (
+        catalog_app,
+        catalog_track,
+        catalog_user,
+        catalog_workspace,
+    )
+
     ws = await Workspace.create(
         kind="organization", name="Ordering", name_fold="ordering"
     )
@@ -57,6 +64,9 @@ async def _entry_with_attachments(created_ats: list[str]) -> tuple[str, str]:
     track = await Track.create(
         title="Ordering", title_fold="ordering", workspace_id=ws.id
     )
+    await catalog_workspace(ws)
+    await catalog_app(app_node)
+    await catalog_track(track)
     entry = await Entry.create(title="Ordered attachments", track_id=track.id)
     await ws.connect(app_node, edge=CONTAINS)
     await app_node.connect(track, edge=CONTAINS)
@@ -66,6 +76,7 @@ async def _entry_with_attachments(created_ats: list[str]) -> tuple[str, str]:
         UserCreate(email="attach-order@example.com", password="testpassword123")
     )
     owner = await User.create(user_id=resp.id, display_name="Owner")
+    await catalog_user(owner)
     # Workspace membership AND a track grant: an org workspace gates everything
     # inside it, so a track grant alone resolves to no access at all.
     await owner.connect(ws, edge=IS_MEMBER_OF, role="admin")

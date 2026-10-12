@@ -457,7 +457,9 @@ def _prettify_placeholders(text: str) -> str:
     return _BATCH_PLACEHOLDER_RE.sub(_repl, text)
 
 
-async def _humanize_card_text(text: str) -> str:
+async def _humanize_card_text(
+    text: str, *, user_id: str | None = None, workspace_id: str | None = None
+) -> str:
     """Resolve raw node ids → names and prettify batch placeholders in card text.
 
     Best-effort: a resolution failure leaves the text as-is (the card still
@@ -468,7 +470,7 @@ async def _humanize_card_text(text: str) -> str:
     try:
         from app.services.id_resolver import humanize_ids
 
-        text = await humanize_ids(text)
+        text = await humanize_ids(text, user_id=user_id, workspace_id=workspace_id)
     except Exception:  # noqa: BLE001
         logger.debug("staging.humanize_failed", exc_info=True)
     return _prettify_placeholders(text)
@@ -717,21 +719,24 @@ async def create_staged_change(
     if not kind:
         raise ValueError("kind is required")
 
-    # Resolve raw node ids → human names (and prettify batch placeholders) in
-    # the human-facing card strings. ``diff_machine``/``payload`` keep their
-    # ids — the agent/executor need them; only what the USER reads is humanized.
-    summary = await _humanize_card_text(summary)
-    diff_human = await _humanize_card_text(diff_human)
-
-    # Dispatch passes its authenticated workspace explicitly: the temporary
-    # stager scope has already been reset. Older internal callers retain the
-    # bound-context fallback. Execution must not inherit a later UI workspace.
+    # Bind the authenticated dispatch workspace before resolving labels.
+    # Execution retains this scope even if the UI later switches workspace.
     try:
         from app.services.agent_scope import active_workspace_id
 
         minted_workspace_id = workspace_id or active_workspace_id()
     except Exception:  # noqa: BLE001
         minted_workspace_id = workspace_id
+
+    # Resolve raw node ids → human names (and prettify batch placeholders) in
+    # the human-facing card strings. ``diff_machine``/``payload`` keep their
+    # ids — the agent/executor need them; only what the USER reads is humanized.
+    summary = await _humanize_card_text(
+        summary, user_id=user_id, workspace_id=minted_workspace_id
+    )
+    diff_human = await _humanize_card_text(
+        diff_human, user_id=user_id, workspace_id=minted_workspace_id
+    )
 
     now = _now()
     idem = str((payload or {}).get("idempotency_key") or "").strip() or None

@@ -1,5 +1,7 @@
 import pytest
 
+from app.services.app_graph import catalog_track, catalog_workspace
+
 
 @pytest.fixture
 async def shared_track_setup(test_user):
@@ -16,6 +18,7 @@ async def shared_track_setup(test_user):
         created_at=now,
         updated_at=now,
     )
+    await catalog_workspace(ws)
     await test_user.connect(ws, edge=IS_MEMBER_OF, role="owner", added_at=now)
 
     track = await Track.create(
@@ -24,6 +27,7 @@ async def shared_track_setup(test_user):
         workspace_id=ws.id,
         visibility="private",
     )
+    await catalog_track(track)
     await test_user.connect(track, edge=COLLABORATES_ON, role="owner", added_at=now)
 
     et = await EntryType.create(

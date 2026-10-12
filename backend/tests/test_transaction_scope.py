@@ -206,3 +206,124 @@ async def test_transaction_count_refuses_a_nonadvancing_cursor():
 
     with pytest.raises(RuntimeError, match="cursor did not advance"):
         await _SerializedTransaction(Connection()).count("node", {})
+
+
+@pytest.mark.asyncio
+async def test_nested_transaction_joins_handle_and_caught_failure_requires_rollback(
+    monkeypatch,
+):
+    from app.services.app_operations import transaction_scope as seam
+
+    calls = []
+    database = object()
+
+    @asynccontextmanager
+    async def fake(bound):
+        calls.append("begin")
+
+        class Context:
+            database = "held-handle"
+
+        try:
+            yield Context()
+        except BaseException:
+            calls.append("rollback")
+            raise
+        else:
+            calls.append("commit")
+
+    monkeypatch.setattr(seam, "_jv_graph_transaction", fake)
+    async with seam.postgres_graph_transaction(database) as outer:
+        async with seam.postgres_graph_transaction() as inner:
+            assert inner is outer
+        assert seam.graph_transaction_available(outer)
+        async with seam.postgres_graph_transaction(outer) as explicit:
+            assert explicit is outer
+    assert calls == ["begin", "commit"]
+    calls.clear()
+    with pytest.raises(seam.OperationTransactionUnavailable, match="requires rollback"):
+        async with seam.postgres_graph_transaction(database):
+            try:
+                async with seam.postgres_graph_transaction():
+                    raise ValueError("partial write")
+            except ValueError:
+                pass
+    assert calls == ["begin", "rollback"]
+
+
+@pytest.mark.asyncio
+async def test_nested_transaction_cannot_escape_store_or_inherit_into_child_task(
+    monkeypatch,
+):
+    import asyncio
+
+    from app.services.app_operations import transaction_scope as seam
+
+    @asynccontextmanager
+    async def fake(bound):
+        class Context:
+            database = "held-handle"
+
+        yield Context()
+
+    monkeypatch.setattr(seam, "_jv_graph_transaction", fake)
+
+    async def child():
+        with pytest.raises(seam.OperationTransactionUnavailable, match="another task"):
+            seam.graph_transaction_available()
+        with pytest.raises(seam.OperationTransactionUnavailable, match="another task"):
+            async with seam.postgres_graph_transaction():
+                pass
+
+    async with seam.postgres_graph_transaction(object()):
+        with pytest.raises(
+            seam.OperationTransactionUnavailable, match="different database"
+        ):
+            async with seam.postgres_graph_transaction(object()):
+                pass
+        await asyncio.create_task(child())
+
+
+@pytest.mark.asyncio
+async def test_transaction_cleanup_waits_for_io_and_refuses_queued_or_late_reads():
+    import asyncio
+
+    from app.services.app_operations.transaction_scope import (
+        OperationTransactionUnavailable,
+        _SerializedTransaction,
+        _SerializedTransactionDatabase,
+    )
+
+    started, release = asyncio.Event(), asyncio.Event()
+    calls = []
+
+    class Connection:
+        async def find(self, value):
+            calls.append(value)
+            started.set()
+            await release.wait()
+            return value
+
+    class Store:
+        async def rollback_transaction(self, connection):
+            assert connection is raw
+            calls.append("rollback")
+
+    raw = Connection()
+    handle = _SerializedTransaction(raw)
+    running = asyncio.create_task(handle.find("inflight"))
+    await started.wait()
+    queued = asyncio.create_task(handle.find("queued"))
+    cleanup = asyncio.create_task(
+        _SerializedTransactionDatabase(Store()).rollback_transaction(handle)
+    )
+    await asyncio.sleep(0)
+    assert not cleanup.done()
+    release.set()
+    assert await running == "inflight"
+    with pytest.raises(OperationTransactionUnavailable, match="closing or closed"):
+        await queued
+    await cleanup
+    with pytest.raises(OperationTransactionUnavailable, match="closing or closed"):
+        await handle.find("late")
+    assert calls == ["inflight", "rollback"]

@@ -26,6 +26,7 @@ from typing import get_args
 import pytest
 
 from app.schemas.policy import PolicyAction
+from app.services.app_graph import catalog_track, catalog_user, catalog_workspace
 from app.services.operational_model_authoring import (
     describe_operational_model,
     describe_substrate,
@@ -209,13 +210,16 @@ async def test_describe_operational_model_round_trips_related_views():
         display_name="Introspection Owner",
         created_at=now,
     )
+    await catalog_user(user)
     workspace = await Workspace.create(name="Introspection Org", kind="organization")
+    await catalog_workspace(workspace)
     await user.connect(workspace, edge=IS_MEMBER_OF, role="owner")
     track = await Track.create(
         title="Anchored Parent",
         owner_id=user.id,
         workspace_id=workspace.id,
     )
+    await catalog_track(track)
     await workspace.connect(track, edge=CONTAINS)
     await user.connect(track, edge=COLLABORATES_ON, role="owner")
 

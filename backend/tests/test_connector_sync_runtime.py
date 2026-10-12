@@ -17,6 +17,7 @@ from unittest.mock import patch
 
 import pytest
 
+from app.agentive.edges import OWNS as CONNECTOR_OWNERSHIP
 from app.agentive.nodes import Connector
 from app.models.edges import IS_CONNECTED_TO
 from app.models.nodes import Conflict, Entry, Track
@@ -94,29 +95,56 @@ async def _bind_connector_to_track(connector: Connector, track: Track) -> None:
     """Materialize the IS_CONNECTED_TO edge — sync_runtime reads it via
     ``connector.nodes(edge=["IsConnectedTo"], direction="out", node=["Track"])``.
     """
+    from uuid import uuid4
+
+    from jvspatial.api.auth.models import User as AuthUser
+
     from app.agentive.services.connector_registry_node import (
+        attach_connector_to_workspace,
         materialize_policies_for_connector,
     )
     from app.models.edges import CONTAINS, OWNS
     from app.models.nodes import User
     from app.services.app_graph import (
+        catalog_track,
         catalog_user,
+        ensure_integral_app_graph,
         ensure_track_attached_operational_model,
     )
     from app.services.personal_workspace import ensure_personal_workspace
 
-    user = await User.create(user_id=connector.owner, display_name="Sync test owner")
-    await catalog_user(user)
+    await ensure_integral_app_graph(include_library=False)
+    user = await User.find_one({"id": connector.owner})
+    if user is None:
+        user = await User.find_one({"context.user_id": connector.owner})
+    if user is None:
+        identity = await AuthUser.find_one({"id": connector.owner})
+        if identity is None:
+            identity = await AuthUser.create(
+                email=f"sync-{uuid4().hex}@example.com",
+                password_hash="fixture",
+                roles=["user"],
+                is_active=True,
+            )
+        user = await User.create(
+            user_id=identity.id,
+            display_name="Sync test owner",
+            email_verified=True,
+            verified_email=identity.email,
+        )
+        await catalog_user(user)
     ws = await ensure_personal_workspace(user)
     track.workspace_id = ws.id
     await track.save()
+    await catalog_track(track)
     await ws.connect(track, edge=CONTAINS)
     await user.connect(track, edge=OWNS)
     await ensure_track_attached_operational_model(track)
     connector.workspace_id = ws.id
     connector.owner = user.id
     await connector.save()
-    await user.connect(connector, edge=OWNS)
+    await user.connect(connector, edge=CONNECTOR_OWNERSHIP)
+    await attach_connector_to_workspace(connector, ws.id)
     await connector.connect(track, edge=IS_CONNECTED_TO, mapping_profile_yaml="")
     await materialize_policies_for_connector(
         connector=connector, actor_id=connector.owner
@@ -124,8 +152,18 @@ async def _bind_connector_to_track(connector: Connector, track: Track) -> None:
 
 
 async def _make_owner_user_id() -> str:
-    """Helper — connector.owner is a string in the model; tests use a stable id."""
-    return "u-test-owner-1"
+    """Return a real active primary identity for the fixture connector owner."""
+    from uuid import uuid4
+
+    from jvspatial.api.auth.models import User as AuthUser
+
+    identity = await AuthUser.create(
+        email=f"sync-{uuid4().hex}@example.com",
+        password_hash="fixture",
+        roles=["user"],
+        is_active=True,
+    )
+    return identity.id
 
 
 # ---------------------------------------------------------------------------
@@ -880,7 +918,15 @@ async def test_two_instances_in_one_workspace_have_distinct_identity():
         owner=first.owner,
         workspace_id=first.workspace_id,
     )
-    await (await User.get(first.owner)).connect(second, edge=OWNS)
+    from app.agentive.edges import OWNS as CONNECTOR_OWNERSHIP
+
+    await (await User.get(first.owner)).connect(second, edge=CONNECTOR_OWNERSHIP)
+    from app.agentive.edges import OWNS as CONNECTOR_OWNERSHIP
+    from app.agentive.services.connector_registry_node import (
+        attach_connector_to_workspace,
+    )
+
+    await attach_connector_to_workspace(second, first.workspace_id)
     await second.connect(track, edge=IS_CONNECTED_TO, mapping_profile_yaml="")
     await materialize_policies_for_connector(connector=second, actor_id=second.owner)
     for connector in (first, second):
@@ -946,3 +992,51 @@ async def test_connector_reconciles_declared_tag_edges_and_rejects_unknown_tags(
     with pytest.raises(ValueError, match="taxonomy"):
         await sync_one_connector(connector)
     assert (await Entry.get(entry.id)).record_revision == revision
+
+
+@pytest.mark.asyncio
+async def test_removed_current_binding_blocks_canonical_connector_crud_without_effects():
+    """A retained Track policy cannot write after its destination binding disappears."""
+    from app.api.errors import InsufficientPermissionsError
+    from app.models.nodes import EntryType
+    from app.services.entry_create import create_entry_in_track
+    from app.services.entry_update import update_entry_in_track
+
+    records = [ExternalRecord(external_id="bound-record", payload={"title": "Retain"})]
+    _build_fake_connector_class(slug="bound-policy", records=records)
+    track = await Track.create(title="Bound target", workspace_id="temporary")
+    connector = await Connector.create(
+        subclass_slug="bound-policy", owner=await _make_owner_user_id()
+    )
+    await _bind_connector_to_track(connector, track)
+    assert (await sync_one_connector(connector))["created"] == 1
+    entry = (await Entry.find({"context.track_id": track.id}))[0]
+    revision = entry.record_revision
+    context = await connector.get_context()
+    edges = await context.find_edges_between(
+        connector.id, track.id, edge_class=IS_CONNECTED_TO
+    )
+    assert len(edges) == 1
+    await edges[0].delete()
+    with pytest.raises(InsufficientPermissionsError):
+        await update_entry_in_track(
+            entry_id=entry.id,
+            user_id=connector.owner,
+            workspace_id=track.workspace_id,
+            actor_kind="connector",
+            actor_id=connector.id,
+            title="Unauthorized",
+        )
+    with pytest.raises(InsufficientPermissionsError):
+        await create_entry_in_track(
+            track=track,
+            user_id=connector.owner,
+            workspace_id=track.workspace_id,
+            actor_kind="connector",
+            actor_id=connector.id,
+            title="Unauthorized",
+            entry_type=await EntryType.get(entry.type_id),
+        )
+    current = await Entry.get(entry.id)
+    assert current.title == "Retain" and current.record_revision == revision
+    assert len(await Entry.find({"context.track_id": track.id})) == 1

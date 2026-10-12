@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Dict
+from typing import TYPE_CHECKING, Any, Dict
+
+from jvspatial.core import Walker
+from jvspatial.core.decorators import on_visit
 
 from app.api.errors import BadRequestError, ResourceNotFoundError
-from app.models.edges import COLLABORATES_ON, OWNS
+from app.exceptions import AuthorizationUnavailableError
+from app.models.edges import OWNS
+from app.models.nodes import App as AppNode
+from app.models.nodes import Track as TrackNode
+from app.models.nodes import User
+from app.services.grant_history import grant_baseline, record_grant_change
+from app.services.invitation_grants import _current_grant
 from app.services.permissions import get_user_node
+from app.services.resource_location import locate_resource
 from app.utils.time import utc_now_iso
 
 if TYPE_CHECKING:
@@ -14,132 +24,46 @@ if TYPE_CHECKING:
 
 
 async def transfer_app_ownership(
-    *,
-    app_id: str,
-    acting_user_id: str,
-    new_owner_user_id: str,
+    *, app_id: str, acting_user_id: str, new_owner_user_id: str
 ) -> "App":
-    """Promote an existing app collaborator to owner; demote prior owner to editor.
+    """Legacy immediate transfer is closed; issue and accept a consent proposal."""
+    from app.api.errors import ResourceConflictError
 
-    Args:
-        app_id: Target app_node.
-        acting_user_id: Current owner (principal).
-        new_owner_user_id: User node id of an existing collaborator.
-
-    Returns:
-        Updated App node.
-
-    Raises:
-        ResourceNotFoundError: Missing app or user.
-        BadRequestError: Invalid transfer target or self-transfer.
-    """
-    from app.models.nodes import App
-
-    if new_owner_user_id == acting_user_id:
-        raise BadRequestError(message="Cannot transfer ownership to yourself")
-
-    sp = await App.get(app_id)
-    if not sp:
-        raise ResourceNotFoundError(message="App not found")
-
-    old_owner = await get_user_node(acting_user_id)
-    new_owner = await get_user_node(new_owner_user_id)
-    if not old_owner or not new_owner:
-        raise ResourceNotFoundError(message="User not found")
-
-    old_ctx = await old_owner.get_context()
-    owns_edges = await old_ctx.find_edges_between(old_owner.id, app_id, edge_class=OWNS)
-    if not owns_edges:
-        raise BadRequestError(message="Only the App owner can transfer ownership")
-
-    new_ctx = await new_owner.get_context()
-    collab_edges = await new_ctx.find_edges_between(
-        new_owner.id, app_id, edge_class=COLLABORATES_ON
-    )
-    if not collab_edges:
-        raise BadRequestError(
-            message="New owner must be an existing app collaborator",
-        )
-
-    now = utc_now_iso()
-
-    for edge in collab_edges:
-        await edge.delete()
-
-    for edge in owns_edges:
-        await edge.delete()
-
-    await old_owner.connect(
-        sp,
-        edge=COLLABORATES_ON,
-        role="editor",
-        invited_at=now,
-        invited_by=acting_user_id,
-    )
-    await new_owner.connect(sp, edge=OWNS, role="owner", granted_at=now)
-
-    sp.owner_user_id = new_owner.id
-    await sp.save()
-    return sp
+    raise ResourceConflictError(message="Explicit recipient ownership consent required")
 
 
 async def transfer_track_ownership(
-    *,
-    track_id: str,
-    acting_user_id: str,
-    new_owner_user_id: str,
+    *, track_id: str, acting_user_id: str, new_owner_user_id: str
 ) -> "Track":
-    """Promote an existing track collaborator to owner; demote prior owner to editor."""
-    from app.models.nodes import Track
+    """Legacy immediate transfer is closed; issue and accept a consent proposal."""
+    from app.api.errors import ResourceConflictError
 
-    if new_owner_user_id == acting_user_id:
-        raise BadRequestError(message="Cannot transfer ownership to yourself")
+    raise ResourceConflictError(message="Explicit recipient ownership consent required")
 
-    track = await Track.get(track_id)
-    if not track:
-        raise ResourceNotFoundError(message="Track not found")
 
-    old_owner = await get_user_node(acting_user_id)
-    new_owner = await get_user_node(new_owner_user_id)
-    if not old_owner or not new_owner:
-        raise ResourceNotFoundError(message="User not found")
+class DepartingOwnershipWalker(Walker):
+    """Collect canonical ownership before cleanup, never trusting scalar scope alone."""
 
-    old_ctx = await old_owner.get_context()
-    owns_edges = await old_ctx.find_edges_between(
-        old_owner.id, track_id, edge_class=OWNS
-    )
-    if not owns_edges:
-        raise BadRequestError(message="Only the track owner can transfer ownership")
+    workspace_id: str
+    resources: Dict[str, Any] = {}
 
-    new_ctx = await new_owner.get_context()
-    collab_edges = await new_ctx.find_edges_between(
-        new_owner.id, track_id, edge_class=COLLABORATES_ON
-    )
-    if not collab_edges:
-        raise BadRequestError(
-            message="New owner must be an existing track collaborator",
+    @on_visit(User)
+    async def on_user(self, here: User) -> None:
+        targets = await here.nodes(
+            edge=[OWNS], node=["WorkspaceApp", "Track"], direction="out", limit=10001
         )
+        if len(targets) > 10000:
+            raise AuthorizationUnavailableError()
+        await self.visit(targets)
 
-    now = utc_now_iso()
-
-    for edge in collab_edges:
-        await edge.delete()
-
-    for edge in owns_edges:
-        await edge.delete()
-
-    await old_owner.connect(
-        track,
-        edge=COLLABORATES_ON,
-        role="editor",
-        invited_at=now,
-        invited_by=acting_user_id,
-    )
-    await new_owner.connect(track, edge=OWNS, role="owner", granted_at=now)
-
-    track.owner_id = new_owner.id
-    await track.save()
-    return track
+    @on_visit(AppNode, TrackNode)
+    async def on_resource(self, here: Any) -> None:
+        kind = "app" if isinstance(here, AppNode) else "track"
+        location = await locate_resource(kind, here.id)
+        if location is None:
+            raise AuthorizationUnavailableError()
+        if location.workspace_id == self.workspace_id:
+            self.resources[here.id] = (kind, here)
 
 
 async def reassign_departing_member_ownership(
@@ -158,13 +82,14 @@ async def reassign_departing_member_ownership(
     from app.services.permissions_process_cache import invalidate_user_aliases
     from app.services.workspace_permissions import get_workspace_owner_user_id
 
-    resources = []
-    for node_type, kind in (("WorkspaceApp", "app"), ("Track", "track")):
-        for resource in await user.nodes(
-            edge=[OWNS], node=[node_type], direction="out"
-        ):
-            if str(getattr(resource, "workspace_id", "") or "") == workspace_id:
-                resources.append((kind, resource))
+    walker = DepartingOwnershipWalker(workspace_id=workspace_id)
+    await walker.spawn(user)
+    if any(
+        isinstance(item, dict) and item.get("hook_error")
+        for item in await walker.get_report()
+    ):
+        raise AuthorizationUnavailableError()
+    resources = list(walker.resources.values())
     if not resources:
         return moved
 
@@ -181,15 +106,25 @@ async def reassign_departing_member_ownership(
         owns_edges = await ctx.find_edges_between(user.id, resource.id, edge_class=OWNS)
         if not owns_edges:
             continue
+        candidates = await ctx.database.find(
+            "edge", {"target": resource.id, "entity": OWNS.__name__}, limit=2
+        )
+        if len(candidates) != 1 or candidates[0].get("source") != user.id:
+            raise AuthorizationUnavailableError()
         already_owns = await ctx.find_edges_between(
             owner.id, resource.id, edge_class=OWNS
         )
+        before_member = await _current_grant(user.id, resource.id, OWNS)
+        before_owner = await _current_grant(owner.id, resource.id, OWNS)
+        for subject, before in ((user, before_member), (owner, before_owner)):
+            await grant_baseline(
+                source_id=subject.id,
+                target_id=resource.id,
+                grant_class=OWNS,
+                grant=before,
+            )
         if not already_owns:
             await owner.connect(resource, edge=OWNS, role="owner", granted_at=now)
-        for edge in await ctx.find_edges_between(
-            owner.id, resource.id, edge_class=COLLABORATES_ON
-        ):
-            await edge.delete()
         if kind == "app":
             resource.owner_user_id = owner.id
             moved["apps"] += 1
@@ -199,6 +134,15 @@ async def reassign_departing_member_ownership(
         await resource.save()
         for edge in owns_edges:
             await edge.delete()
+        for subject, before in ((user, before_member), (owner, before_owner)):
+            after = await _current_grant(subject.id, resource.id, OWNS)
+            await record_grant_change(
+                source=subject,
+                target=resource,
+                grant_class=OWNS,
+                before=before,
+                after=after,
+            )
 
     invalidate_user_aliases(user)
     invalidate_user_aliases(owner)

@@ -9,6 +9,10 @@ from pydantic import BaseModel, Field
 
 class AppOperationDescriptor(BaseModel):
     key: str
+    action: Optional[str] = None
+    definition_id: Optional[str] = None
+    allowed: Optional[bool] = None
+    decision_reason: Optional[str] = None
     kind: str
     name: str
     description: str = ""

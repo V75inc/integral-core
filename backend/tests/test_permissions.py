@@ -2,6 +2,7 @@
 
 import pytest
 
+from app.exceptions import AuthorizationUnavailableError
 from app.models.edges import (
     COLLABORATES_ON,
     CONTAINS,
@@ -9,7 +10,8 @@ from app.models.edges import (
     IS_MEMBER_OF,
     OWNS,
 )
-from app.models.nodes import App, Entry, Track, User, View, Workspace
+from app.models.nodes import Entry
+from app.services.app_graph import create_track_view
 from app.services.permissions import (
     can_delete_track,
     can_edit_app,
@@ -26,6 +28,7 @@ from app.services.permissions import (
     iter_user_accessible_entry_batches,
     resolve_role,
 )
+from tests.rooted_access_fixture import rooted_access_graph
 
 # Part of the per-PR smoke gate (see pyproject [tool.pytest.ini_options] markers).
 # CI bills only this subset; the full suite runs locally via `make verify` and nightly.
@@ -37,19 +40,21 @@ pytestmark = pytest.mark.smoke
 
 
 @pytest.mark.asyncio
-async def test_owner_can_view_track():
-    user = await User.create(user_id="perm_owner_1", display_name="Owner")
-    track = await Track.create(title="My Track", owner_id=user.id)
+async def test_owner_can_view_track(rooted_access_graph):
+    user = await rooted_access_graph.user(user_id="perm_owner_1", display_name="Owner")
+    track = await rooted_access_graph.track(title="My Track", owner_id=user.id)
     await user.connect(track, edge=OWNS)
 
     assert await can_view_track(user.id, track.id) is True
 
 
 @pytest.mark.asyncio
-async def test_collaborator_viewer_can_view_track():
-    owner = await User.create(user_id="perm_owner_2", display_name="Owner")
-    viewer = await User.create(user_id="perm_viewer_1", display_name="Viewer")
-    track = await Track.create(title="Shared Track", owner_id=owner.id)
+async def test_collaborator_viewer_can_view_track(rooted_access_graph):
+    owner = await rooted_access_graph.user(user_id="perm_owner_2", display_name="Owner")
+    viewer = await rooted_access_graph.user(
+        user_id="perm_viewer_1", display_name="Viewer"
+    )
+    track = await rooted_access_graph.track(title="Shared Track", owner_id=owner.id)
     await owner.connect(track, edge=OWNS)
     await viewer.connect(track, edge=COLLABORATES_ON, role="viewer")
 
@@ -57,10 +62,12 @@ async def test_collaborator_viewer_can_view_track():
 
 
 @pytest.mark.asyncio
-async def test_collaborator_viewer_cannot_edit_track():
-    owner = await User.create(user_id="perm_owner_3", display_name="Owner")
-    viewer = await User.create(user_id="perm_viewer_2", display_name="Viewer")
-    track = await Track.create(title="Read-Only Track", owner_id=owner.id)
+async def test_collaborator_viewer_cannot_edit_track(rooted_access_graph):
+    owner = await rooted_access_graph.user(user_id="perm_owner_3", display_name="Owner")
+    viewer = await rooted_access_graph.user(
+        user_id="perm_viewer_2", display_name="Viewer"
+    )
+    track = await rooted_access_graph.track(title="Read-Only Track", owner_id=owner.id)
     await owner.connect(track, edge=OWNS)
     await viewer.connect(track, edge=COLLABORATES_ON, role="viewer")
 
@@ -68,10 +75,12 @@ async def test_collaborator_viewer_cannot_edit_track():
 
 
 @pytest.mark.asyncio
-async def test_editor_can_edit_track():
-    owner = await User.create(user_id="perm_owner_4", display_name="Owner")
-    editor = await User.create(user_id="perm_editor_1", display_name="Editor")
-    track = await Track.create(title="Editable Track", owner_id=owner.id)
+async def test_editor_can_edit_track(rooted_access_graph):
+    owner = await rooted_access_graph.user(user_id="perm_owner_4", display_name="Owner")
+    editor = await rooted_access_graph.user(
+        user_id="perm_editor_1", display_name="Editor"
+    )
+    track = await rooted_access_graph.track(title="Editable Track", owner_id=owner.id)
     await owner.connect(track, edge=OWNS)
     await editor.connect(track, edge=COLLABORATES_ON, role="editor")
 
@@ -79,10 +88,12 @@ async def test_editor_can_edit_track():
 
 
 @pytest.mark.asyncio
-async def test_only_owner_can_delete_track():
-    owner = await User.create(user_id="perm_owner_5", display_name="Owner")
-    editor = await User.create(user_id="perm_editor_2", display_name="Editor")
-    track = await Track.create(title="Delete Track", owner_id=owner.id)
+async def test_only_owner_can_delete_track(rooted_access_graph):
+    owner = await rooted_access_graph.user(user_id="perm_owner_5", display_name="Owner")
+    editor = await rooted_access_graph.user(
+        user_id="perm_editor_2", display_name="Editor"
+    )
+    track = await rooted_access_graph.track(title="Delete Track", owner_id=owner.id)
     await owner.connect(track, edge=OWNS)
     await editor.connect(track, edge=COLLABORATES_ON, role="editor")
 
@@ -91,11 +102,11 @@ async def test_only_owner_can_delete_track():
 
 
 @pytest.mark.asyncio
-async def test_public_standalone_track_grants_viewer():
+async def test_public_standalone_track_grants_viewer(rooted_access_graph):
     """``visibility="public"`` on a standalone track grants read to any
     authenticated user (ARCHITECTURE §9.5 step 4)."""
-    user = await User.create(user_id="perm_anon_1", display_name="Anon")
-    track = await Track.create(
+    user = await rooted_access_graph.user(user_id="perm_anon_1", display_name="Anon")
+    track = await rooted_access_graph.track(
         title="Public Track",
         owner_id="someone_else",
         visibility="public",
@@ -106,10 +117,14 @@ async def test_public_standalone_track_grants_viewer():
 
 
 @pytest.mark.asyncio
-async def test_track_owner_still_edits_under_new_visibility_semantics():
+async def test_track_owner_still_edits_under_new_visibility_semantics(
+    rooted_access_graph,
+):
     """``OWNS`` always grants owner regardless of visibility value."""
-    owner = await User.create(user_id="perm_pub_owner", display_name="Pub Owner")
-    track = await Track.create(
+    owner = await rooted_access_graph.user(
+        user_id="perm_pub_owner", display_name="Pub Owner"
+    )
+    track = await rooted_access_graph.track(
         title="My Track", owner_id=owner.id, visibility="inherit"
     )
     await owner.connect(track, edge=OWNS)
@@ -119,9 +134,11 @@ async def test_track_owner_still_edits_under_new_visibility_semantics():
 
 
 @pytest.mark.asyncio
-async def test_private_track_not_visible_to_stranger():
-    user = await User.create(user_id="perm_stranger_1", display_name="Stranger")
-    track = await Track.create(
+async def test_private_track_not_visible_to_stranger(rooted_access_graph):
+    user = await rooted_access_graph.user(
+        user_id="perm_stranger_1", display_name="Stranger"
+    )
+    track = await rooted_access_graph.track(
         title="Private Track", owner_id="owner_xyz", visibility="private"
     )
 
@@ -134,19 +151,19 @@ async def test_private_track_not_visible_to_stranger():
 
 
 @pytest.mark.asyncio
-async def test_space_owner_can_view():
-    user = await User.create(user_id="ts_perm_1", display_name="TS Owner")
-    ts = await App.create(name="My App", owner_user_id=user.id)
+async def test_space_owner_can_view(rooted_access_graph):
+    user = await rooted_access_graph.user(user_id="ts_perm_1", display_name="TS Owner")
+    ts = await rooted_access_graph.app(name="My App", owner_user_id=user.id)
     await user.connect(ts, edge=OWNS)
 
     assert await can_view_app(user.id, ts.id) is True
 
 
 @pytest.mark.asyncio
-async def test_space_editor_can_edit():
-    owner = await User.create(user_id="ts_perm_2", display_name="Owner")
-    editor = await User.create(user_id="ts_perm_3", display_name="Editor")
-    ts = await App.create(name="Editable App", owner_user_id=owner.id)
+async def test_space_editor_can_edit(rooted_access_graph):
+    owner = await rooted_access_graph.user(user_id="ts_perm_2", display_name="Owner")
+    editor = await rooted_access_graph.user(user_id="ts_perm_3", display_name="Editor")
+    ts = await rooted_access_graph.app(name="Editable App", owner_user_id=owner.id)
     await owner.connect(ts, edge=OWNS)
     await editor.connect(ts, edge=COLLABORATES_ON, role="editor")
 
@@ -154,10 +171,10 @@ async def test_space_editor_can_edit():
 
 
 @pytest.mark.asyncio
-async def test_space_viewer_cannot_edit():
-    owner = await User.create(user_id="ts_perm_4", display_name="Owner")
-    viewer = await User.create(user_id="ts_perm_5", display_name="Viewer")
-    ts = await App.create(name="Read App", owner_user_id=owner.id)
+async def test_space_viewer_cannot_edit(rooted_access_graph):
+    owner = await rooted_access_graph.user(user_id="ts_perm_4", display_name="Owner")
+    viewer = await rooted_access_graph.user(user_id="ts_perm_5", display_name="Viewer")
+    ts = await rooted_access_graph.app(name="Read App", owner_user_id=owner.id)
     await owner.connect(ts, edge=OWNS)
     await viewer.connect(ts, edge=COLLABORATES_ON, role="viewer")
 
@@ -165,12 +182,12 @@ async def test_space_viewer_cannot_edit():
 
 
 @pytest.mark.asyncio
-async def test_space_cascade_grants_track_access():
+async def test_space_cascade_grants_track_access(rooted_access_graph):
     """App editor should inherit track access via cascade."""
-    owner = await User.create(user_id="ts_cas_1", display_name="Owner")
-    collab = await User.create(user_id="ts_cas_2", display_name="Collab")
-    ts = await App.create(name="Cascade App", owner_user_id=owner.id)
-    track = await Track.create(title="Cascaded Track", owner_id=owner.id)
+    owner = await rooted_access_graph.user(user_id="ts_cas_1", display_name="Owner")
+    collab = await rooted_access_graph.user(user_id="ts_cas_2", display_name="Collab")
+    ts = await rooted_access_graph.app(name="Cascade App", owner_user_id=owner.id)
+    track = await rooted_access_graph.track(title="Cascaded Track", owner_id=owner.id)
     await owner.connect(ts, edge=OWNS)
     await ts.connect(track, edge=CONTAINS)
     await collab.connect(ts, edge=COLLABORATES_ON, role="editor")
@@ -180,11 +197,11 @@ async def test_space_cascade_grants_track_access():
 
 
 @pytest.mark.asyncio
-async def test_space_cascade_viewer_cannot_edit_track():
-    owner = await User.create(user_id="ts_cas_3", display_name="Owner")
-    viewer = await User.create(user_id="ts_cas_4", display_name="Viewer")
-    ts = await App.create(name="Viewer App", owner_user_id=owner.id)
-    track = await Track.create(title="Cascaded Track 2", owner_id=owner.id)
+async def test_space_cascade_viewer_cannot_edit_track(rooted_access_graph):
+    owner = await rooted_access_graph.user(user_id="ts_cas_3", display_name="Owner")
+    viewer = await rooted_access_graph.user(user_id="ts_cas_4", display_name="Viewer")
+    ts = await rooted_access_graph.app(name="Viewer App", owner_user_id=owner.id)
+    track = await rooted_access_graph.track(title="Cascaded Track 2", owner_id=owner.id)
     await owner.connect(ts, edge=OWNS)
     await ts.connect(track, edge=CONTAINS)
     await viewer.connect(ts, edge=COLLABORATES_ON, role="viewer")
@@ -199,12 +216,12 @@ async def test_space_cascade_viewer_cannot_edit_track():
 
 
 @pytest.mark.asyncio
-async def test_entry_visible_all_track_members():
+async def test_entry_visible_all_track_members(rooted_access_graph):
     """Any track member who can view the track can view entries in it."""
-    owner = await User.create(user_id="ev_1", display_name="Owner")
-    viewer = await User.create(user_id="ev_2", display_name="Viewer")
-    track = await Track.create(title="VR Track", owner_id=owner.id)
-    entry = await Entry.create(
+    owner = await rooted_access_graph.user(user_id="ev_1", display_name="Owner")
+    viewer = await rooted_access_graph.user(user_id="ev_2", display_name="Viewer")
+    track = await rooted_access_graph.track(title="VR Track", owner_id=owner.id)
+    entry = await rooted_access_graph.entry(
         title="Open Entry", author_id=owner.id, track_id=track.id
     )
     await owner.connect(track, edge=OWNS)
@@ -215,12 +232,12 @@ async def test_entry_visible_all_track_members():
 
 
 @pytest.mark.asyncio
-async def test_entry_visible_to_all_track_viewers_no_per_entry_acl():
+async def test_entry_visible_to_all_track_viewers_no_per_entry_acl(rooted_access_graph):
     """Viewers see all entries in a track when they can view the track."""
-    owner = await User.create(user_id="ev_3", display_name="Owner")
-    other = await User.create(user_id="ev_4", display_name="Other")
-    track = await Track.create(title="Shared Track", owner_id=owner.id)
-    entry = await Entry.create(
+    owner = await rooted_access_graph.user(user_id="ev_3", display_name="Owner")
+    other = await rooted_access_graph.user(user_id="ev_4", display_name="Other")
+    track = await rooted_access_graph.track(title="Shared Track", owner_id=owner.id)
+    entry = await rooted_access_graph.entry(
         title="Entry",
         author_id=owner.id,
         track_id=track.id,
@@ -234,13 +251,19 @@ async def test_entry_visible_to_all_track_viewers_no_per_entry_acl():
 
 
 @pytest.mark.asyncio
-async def test_author_needs_track_access_to_view_entry():
+async def test_author_needs_track_access_to_view_entry(rooted_access_graph):
     """Author without collaboration on the track cannot view the entry."""
-    author = await User.create(user_id="ev_7_author", display_name="Author")
-    owner = await User.create(user_id="ev_7_owner", display_name="TrackOwner")
-    track = await Track.create(title="Author Track", owner_id=owner.id)
+    author = await rooted_access_graph.user(
+        user_id="ev_7_author", display_name="Author"
+    )
+    owner = await rooted_access_graph.user(
+        user_id="ev_7_owner", display_name="TrackOwner"
+    )
+    track = await rooted_access_graph.track(title="Author Track", owner_id=owner.id)
     await owner.connect(track, edge=OWNS)
-    entry = await Entry.create(title="My Entry", author_id=author.id, track_id=track.id)
+    entry = await rooted_access_graph.entry(
+        title="My Entry", author_id=author.id, track_id=track.id
+    )
     await track.connect(entry, edge=CONTAINS)
 
     assert await can_view_entry(author.id, entry.id) is False
@@ -255,13 +278,13 @@ async def test_author_needs_track_access_to_view_entry():
 
 
 @pytest.mark.asyncio
-async def test_view_inherits_track_access():
+async def test_view_inherits_track_access(rooted_access_graph):
     """View access defaults to track access."""
-    owner = await User.create(user_id="vp_1", display_name="Owner")
-    viewer = await User.create(user_id="vp_2", display_name="Viewer")
-    track = await Track.create(title="View Track", owner_id=owner.id)
-    view = await View.create(
-        name="Board", type="kanban", track_id=track.id, created_by=owner.id
+    owner = await rooted_access_graph.user(user_id="vp_1", display_name="Owner")
+    viewer = await rooted_access_graph.user(user_id="vp_2", display_name="Viewer")
+    track = await rooted_access_graph.track(title="View Track", owner_id=owner.id)
+    view = await create_track_view(
+        track, name="Board", type="kanban", track_id=track.id, created_by=owner.id
     )
     await owner.connect(track, edge=OWNS)
     await viewer.connect(track, edge=COLLABORATES_ON, role="viewer")
@@ -271,15 +294,15 @@ async def test_view_inherits_track_access():
 
 
 @pytest.mark.asyncio
-async def test_get_user_accessible_entries_batched_multiple_tracks():
+async def test_get_user_accessible_entries_batched_multiple_tracks(rooted_access_graph):
     """Unscoped listing uses one batched track_id query (behavior: all visible entries)."""
-    owner = await User.create(user_id="batch_e1", display_name="O")
-    t1 = await Track.create(title="T1", owner_id=owner.id)
-    t2 = await Track.create(title="T2", owner_id=owner.id)
+    owner = await rooted_access_graph.user(user_id="batch_e1", display_name="O")
+    t1 = await rooted_access_graph.track(title="T1", owner_id=owner.id)
+    t2 = await rooted_access_graph.track(title="T2", owner_id=owner.id)
     await owner.connect(t1, edge=OWNS)
     await owner.connect(t2, edge=OWNS)
-    e1 = await Entry.create(title="A", author_id=owner.id, track_id=t1.id)
-    e2 = await Entry.create(title="B", author_id=owner.id, track_id=t2.id)
+    e1 = await rooted_access_graph.entry(title="A", author_id=owner.id, track_id=t1.id)
+    e2 = await rooted_access_graph.entry(title="B", author_id=owner.id, track_id=t2.id)
     await t1.connect(e1, edge=CONTAINS)
     await t2.connect(e2, edge=CONTAINS)
 
@@ -294,16 +317,18 @@ async def test_get_user_accessible_entries_batched_multiple_tracks():
 
 
 @pytest.mark.asyncio
-async def test_get_user_accessible_entries_batches_entry_overrides():
+async def test_get_user_accessible_entries_batches_entry_overrides(rooted_access_graph):
     """Entry exclusions block Track inheritance; direct Entry grants win."""
-    owner = await User.create(user_id="batch_entry_acl", display_name="O")
-    track = await Track.create(title="Entry ACL Track", owner_id=owner.id)
+    owner = await rooted_access_graph.user(user_id="batch_entry_acl", display_name="O")
+    track = await rooted_access_graph.track(title="Entry ACL Track", owner_id=owner.id)
     await owner.connect(track, edge=OWNS)
-    excluded = await Entry.create(
+    excluded = await rooted_access_graph.entry(
         title="Excluded", author_id=owner.id, track_id=track.id
     )
-    direct = await Entry.create(title="Direct", author_id=owner.id, track_id=track.id)
-    inherited = await Entry.create(
+    direct = await rooted_access_graph.entry(
+        title="Direct", author_id=owner.id, track_id=track.id
+    )
+    inherited = await rooted_access_graph.entry(
         title="Inherited", author_id=owner.id, track_id=track.id
     )
     for entry in (excluded, direct, inherited):
@@ -318,15 +343,19 @@ async def test_get_user_accessible_entries_batches_entry_overrides():
 
 
 @pytest.mark.asyncio
-async def test_paged_entry_reads_preserve_direct_grants_and_exclusions():
-    owner = await User.create(user_id="paged_entry_acl", display_name="O")
-    track = await Track.create(title="Paged ACL Track", owner_id=owner.id)
+async def test_paged_entry_reads_preserve_direct_grants_and_exclusions(
+    rooted_access_graph,
+):
+    owner = await rooted_access_graph.user(user_id="paged_entry_acl", display_name="O")
+    track = await rooted_access_graph.track(title="Paged ACL Track", owner_id=owner.id)
     await owner.connect(track, edge=OWNS)
-    excluded = await Entry.create(
+    excluded = await rooted_access_graph.entry(
         title="A excluded", author_id=owner.id, track_id=track.id
     )
-    direct = await Entry.create(title="B direct", author_id=owner.id, track_id=track.id)
-    inherited = await Entry.create(
+    direct = await rooted_access_graph.entry(
+        title="B direct", author_id=owner.id, track_id=track.id
+    )
+    inherited = await rooted_access_graph.entry(
         title="C inherited", author_id=owner.id, track_id=track.id
     )
     for entry in (excluded, direct, inherited):
@@ -354,18 +383,24 @@ async def test_paged_entry_reads_preserve_direct_grants_and_exclusions():
 
 
 @pytest.mark.asyncio
-async def test_space_scoped_entries_do_not_include_author_entries_outside_space():
+async def test_space_scoped_entries_do_not_include_author_entries_outside_space(
+    rooted_access_graph,
+):
     """App feed matches per-track listing: no global author merge for that app_node."""
-    owner = await User.create(user_id="sp_scope_1", display_name="O")
-    sp = await App.create(name="S", owner_user_id=owner.id)
-    t_in = await Track.create(title="In", owner_id=owner.id)
-    t_out = await Track.create(title="Out", owner_id=owner.id)
+    owner = await rooted_access_graph.user(user_id="sp_scope_1", display_name="O")
+    sp = await rooted_access_graph.app(name="S", owner_user_id=owner.id)
+    t_in = await rooted_access_graph.track(title="In", owner_id=owner.id)
+    t_out = await rooted_access_graph.track(title="Out", owner_id=owner.id)
     await owner.connect(sp, edge=OWNS)
     await owner.connect(t_in, edge=OWNS)
     await owner.connect(t_out, edge=OWNS)
     await sp.connect(t_in, edge=CONTAINS)
-    e_in = await Entry.create(title="In entry", author_id=owner.id, track_id=t_in.id)
-    e_out = await Entry.create(title="Out entry", author_id=owner.id, track_id=t_out.id)
+    e_in = await rooted_access_graph.entry(
+        title="In entry", author_id=owner.id, track_id=t_in.id
+    )
+    e_out = await rooted_access_graph.entry(
+        title="Out entry", author_id=owner.id, track_id=t_out.id
+    )
     await t_in.connect(e_in, edge=CONTAINS)
     await t_out.connect(e_out, edge=CONTAINS)
 
@@ -376,7 +411,7 @@ async def test_space_scoped_entries_do_not_include_author_entries_outside_space(
 
 
 @pytest.mark.asyncio
-async def test_view_admin_can_edit_editor_cannot():
+async def test_view_admin_can_edit_editor_cannot(rooted_access_graph):
     """Track-config split: views are admin-only substrate.
 
     Editor role grants entry CRUD authority but NOT view-config mutation;
@@ -384,12 +419,12 @@ async def test_view_admin_can_edit_editor_cannot():
     permissions split introduced when track-config was separated from
     entry-CRUD in the COLLABORATES_ON role ladder.
     """
-    owner = await User.create(user_id="vp_3", display_name="Owner")
-    admin = await User.create(user_id="vp_admin", display_name="Admin")
-    editor = await User.create(user_id="vp_4", display_name="Editor")
-    track = await Track.create(title="Edit View Track", owner_id=owner.id)
-    view = await View.create(
-        name="Table", type="table", track_id=track.id, created_by=owner.id
+    owner = await rooted_access_graph.user(user_id="vp_3", display_name="Owner")
+    admin = await rooted_access_graph.user(user_id="vp_admin", display_name="Admin")
+    editor = await rooted_access_graph.user(user_id="vp_4", display_name="Editor")
+    track = await rooted_access_graph.track(title="Edit View Track", owner_id=owner.id)
+    view = await create_track_view(
+        track, name="Table", type="table", track_id=track.id, created_by=owner.id
     )
     await owner.connect(track, edge=OWNS)
     await admin.connect(track, edge=COLLABORATES_ON, role="admin")
@@ -401,7 +436,9 @@ async def test_view_admin_can_edit_editor_cannot():
 
 
 @pytest.mark.asyncio
-async def test_private_track_cascades_from_space_editor_with_workspace_membership():
+async def test_private_track_cascades_from_space_editor_with_workspace_membership(
+    rooted_access_graph,
+):
     """Regression: ``visibility="private"`` must NOT block App cascade.
 
     Mirrors the dev-monorepo-rebuild probe: an organization-kind workspace
@@ -411,9 +448,13 @@ async def test_private_track_cascades_from_space_editor_with_workspace_membershi
     editor on every track in that space — only ``EXCLUDED_FROM`` overrides
     cascade.
     """
-    owner = await User.create(user_id="cv_priv_a", display_name="Owner A")
-    member = await User.create(user_id="cv_priv_b", display_name="Member B")
-    ws = await Workspace.create(name="ProbeCo Cascade", kind="organization")
+    owner = await rooted_access_graph.user(user_id="cv_priv_a", display_name="Owner A")
+    member = await rooted_access_graph.user(
+        user_id="cv_priv_b", display_name="Member B"
+    )
+    ws = await rooted_access_graph.workspace(
+        name="ProbeCo Cascade", kind="organization"
+    )
     await owner.connect(ws, edge=IS_MEMBER_OF, role="owner")
     await member.connect(
         ws,
@@ -423,7 +464,7 @@ async def test_private_track_cascades_from_space_editor_with_workspace_membershi
         can_create_tracks=True,
     )
 
-    sp = await App.create(
+    sp = await rooted_access_graph.app(
         name="Cascade Probe App",
         owner_user_id=owner.id,
         workspace_id=ws.id,
@@ -431,7 +472,7 @@ async def test_private_track_cascades_from_space_editor_with_workspace_membershi
     )
     await owner.connect(sp, edge=OWNS)
 
-    track = await Track.create(
+    track = await rooted_access_graph.track(
         title="Cascade Probe Track",
         owner_id=owner.id,
         workspace_id=ws.id,
@@ -448,11 +489,15 @@ async def test_private_track_cascades_from_space_editor_with_workspace_membershi
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("track_scoped", [True, False])
-async def test_feed_listing_excludes_entries_before_pagination_and_counts(track_scoped):
+async def test_feed_listing_excludes_entries_before_pagination_and_counts(
+    track_scoped, rooted_access_graph
+):
     from app.services.entry_listing import fetch_accessible_entries_page
 
-    user = await User.create(user_id="feed_entry_acl", display_name="Reader")
-    track = await Track.create(title="Feed ACL Track", owner_id=user.id)
+    user = await rooted_access_graph.user(
+        user_id="feed_entry_acl", display_name="Reader"
+    )
+    track = await rooted_access_graph.track(title="Feed ACL Track", owner_id=user.id)
     await user.connect(track, edge=OWNS)
     hidden = await Entry.create(title="Hidden", track_id=track.id, author_id=user.id)
     direct = await Entry.create(title="Direct", track_id=track.id, author_id=user.id)
@@ -464,7 +509,6 @@ async def test_feed_listing_excludes_entries_before_pagination_and_counts(track_
         await entry.save()
         await track.connect(entry, edge=CONTAINS)
     await user.connect(hidden, edge=EXCLUDED_FROM)
-    await user.connect(hidden, edge=COLLABORATES_ON, role="invalid_legacy_role")
     await user.connect(direct, edge=EXCLUDED_FROM)
     await user.connect(direct, edge=COLLABORATES_ON, role="viewer")
 
@@ -487,25 +531,52 @@ async def test_feed_listing_excludes_entries_before_pagination_and_counts(track_
     assert set(seen) == {direct.id, inherited.id}
     assert len(seen) == 2
 
+    # Corrupt authority must fail closed rather than masquerade as an empty
+    # page; preserve the historical invalid-role boundary independently.
+    await user.connect(hidden, edge=COLLABORATES_ON, role="invalid_legacy_role")
+    with pytest.raises(AuthorizationUnavailableError):
+        await fetch_accessible_entries_page(
+            user.id,
+            track_id=track.id if track_scoped else None,
+            limit=1,
+            include_total=True,
+        )
+
 
 @pytest.mark.asyncio
 async def test_feed_listing_resolves_authenticated_principal_to_graph_user(
-    authenticated_client, test_user
+    authenticated_client, test_user, test_user2
 ):
+    from tests.fixtures.workspaces import make_org_workspace
+
+    # An ordinary member/Track owner, not the protected Workspace owner.
+    workspace = await make_org_workspace("Feed aliases", owner=test_user2)
+    await test_user.connect(
+        workspace,
+        edge=IS_MEMBER_OF,
+        role="member",
+        can_create_apps=True,
+        can_create_tracks=True,
+    )
+    headers = {"X-Integral-Scope": f"ws:{workspace.id}"}
     assert test_user.id != test_user.user_id
     response = await authenticated_client.post(
-        "/api/tracks", json={"title": "Authenticated feed privacy"}
+        "/api/tracks", json={"title": "Authenticated feed privacy"}, headers=headers
     )
     assert response.status_code == 200
     track_id = response.json()["track"]["id"]
     response = await authenticated_client.post(
-        "/api/entries", json={"track_id": track_id, "title": "Private feed record"}
+        "/api/entries",
+        json={"track_id": track_id, "title": "Private feed record"},
+        headers=headers,
     )
     assert response.status_code == 200
     entry = await Entry.get(response.json()["entry"]["id"])
     await test_user.connect(entry, edge=EXCLUDED_FROM)
     response = await authenticated_client.get(
-        "/api/entries", params={"track_id": track_id, "include_total": True}
+        "/api/entries",
+        params={"track_id": track_id, "include_total": True},
+        headers=headers,
     )
     assert response.status_code == 200
     assert response.json()["entries"] == []

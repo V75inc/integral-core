@@ -22,6 +22,7 @@ from app.models.edges import (
 )
 from app.models.nodes import (
     App,
+    Apps,
     Attachment,
     Comment,
     Entry,
@@ -36,9 +37,20 @@ from app.models.nodes import (
     Workspace,
 )
 from app.services import bulk_move_entries, track_restructuring
+from app.services.app_graph import catalog_workspace, create_track_view
 
 
 async def _track_with_model(app: App, title: str, key: str, fields=None):
+    # Structural-only tests stub policy; their persisted fixtures still need
+    # the actual named root/catalog paths required of every saved View.
+    workspace = await Workspace.find_one({"id": app.workspace_id})
+    if workspace is None:
+        workspace = await Workspace.create(
+            id=app.workspace_id, name="Restructuring QA", kind="organization"
+        )
+    await catalog_workspace(workspace)
+    app_registry = await Apps.get(f"n.Apps.{workspace.id}")
+    await app_registry.connect(app, edge=CATALOGS)
     track = await Track.create(
         title=title,
         owner_id="merge-user",
@@ -57,6 +69,8 @@ async def _track_with_model(app: App, title: str, key: str, fields=None):
     await track.connect(model, edge=HAS_OPERATIONAL_MODEL)
     track.attached_operational_model_id = model.id
     await track.save()
+    track_registry = await Tracks.get(f"n.Tracks.{workspace.id}")
+    await track_registry.connect(track, edge=CATALOGS)
     entry_type = await EntryType.create(
         name=f"{title} record",
         form_schema={"_manifest_entry_type_key": key, "fields": fields or []},
@@ -254,7 +268,8 @@ async def test_merge_tracks_moves_entries_tags_and_views_atomically(monkeypatch)
         track_id=source.id, operational_model_id=source_model.id
     )
     await source_model.connect(source_registry)
-    source_view = await View.create(
+    source_view = await create_track_view(
+        source,
         name="Source board",
         name_fold="source board",
         type="feed",
@@ -598,7 +613,8 @@ async def test_merge_requires_explicit_view_name_mapping_on_collision(monkeypatc
     ):
         registry = await Views.create(track_id=track.id, operational_model_id=model.id)
         await model.connect(registry)
-        view = await View.create(
+        view = await create_track_view(
+            track,
             name="Board",
             name_fold="board",
             type="feed",
@@ -798,7 +814,8 @@ async def test_merge_track_retirement_failure_rolls_back_moves_and_view_copy(
         track_id=source.id, operational_model_id=source_model.id
     )
     await source_model.connect(source_registry)
-    source_view = await View.create(
+    source_view = await create_track_view(
+        source,
         name="Rollback board",
         type="feed",
         track_id=source.id,
@@ -937,7 +954,8 @@ async def test_split_track_clones_schema_tags_views_and_moves_selected_entries(
         track_id=source.id, operational_model_id=source_model.id
     )
     await source_model.connect(registry)
-    source_view = await View.create(
+    source_view = await create_track_view(
+        source,
         name="Urgent board",
         name_fold="urgent board",
         type="feed",
@@ -961,7 +979,7 @@ async def test_split_track_clones_schema_tags_views_and_moves_selected_entries(
     await entry.connect(tag, edge=TAGGED_WITH, tagged_by="split-user")
     user = await User.create(id="split-user", email="split@example.com")
 
-    tracks_registry = await Tracks.create(workspace_id=source.workspace_id)
+    tracks_registry = await Tracks.get(f"n.Tracks.{source.workspace_id}")
     created_track_ids = []
     original_track_create = Track.create
 

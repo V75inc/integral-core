@@ -1,4 +1,5 @@
 import apiClient from './client';
+import type { InvitationGrantReceipt } from '../types';
 
 // Shape of a row inside an access snapshot bucket.
 export interface AccessRow {
@@ -168,7 +169,7 @@ export const sharingApi = {
 
   async acceptMyInvitation(
     invitationId: string,
-  ): Promise<{ invitation: MyInvitation; role: string; workspace?: { id: string; name: string } }> {
+  ): Promise<{ invitation: MyInvitation; role: string | null; grant_receipt?: InvitationGrantReceipt; workspace?: { id: string; name: string } }> {
     const res = await apiClient.post(`/me/invitations/${invitationId}/accept`);
     return res.data;
   },

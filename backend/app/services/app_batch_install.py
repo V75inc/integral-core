@@ -160,6 +160,9 @@ def default_settings_for_canonical(canonical: Dict[str, Any]) -> Dict[str, Any]:
 
 async def _expand_with_dependencies(
     items: List[Dict[str, Any]],
+    *,
+    workspace_id: str,
+    actor_id: str,
 ) -> Tuple[List[Dict[str, Any]], int]:
     """Append auto-resolved HARD app dependencies from the library catalog.
 
@@ -176,8 +179,11 @@ async def _expand_with_dependencies(
     ]
     name_to_id: Dict[str, str] = {}
     requires: Dict[str, List[str]] = {}
-    for cp in await OperationalModel.all():
-        if not getattr(cp, "library_package", False):
+    from app.services.library_package_visibility import visible_library_model
+
+    for candidate in await OperationalModel.all():
+        cp = await visible_library_model(candidate.id, workspace_id, user_id=actor_id)
+        if cp is None:
             continue
         try:
             canonical = compile_canonical_manifest(manifest=cp.manifest or {})
@@ -187,6 +193,8 @@ async def _expand_with_dependencies(
         if not app:
             continue  # track-scope bundles aren't installable apps
         for alias in _library_bundle_aliases(canonical, cp):
+            if alias in name_to_id and name_to_id[alias] != cp.id:
+                raise BadRequestError(message="Ambiguous library dependency")
             name_to_id[alias] = cp.id
         requires[cp.id] = [
             str(dep.get("key") or "").strip()
@@ -237,7 +245,9 @@ async def batch_install(
 
     auto_dependencies = 0
     if resolve_dependencies:
-        items, auto_dependencies = await _expand_with_dependencies(items)
+        items, auto_dependencies = await _expand_with_dependencies(
+            items, workspace_id=workspace_id, actor_id=actor_id
+        )
 
     # ---- Pre-flight: load every library + compile canonical manifest ----
     loaded: Dict[str, Dict[str, Any]] = {}
@@ -249,8 +259,13 @@ async def batch_install(
             raise BadRequestError(
                 message=f"batch_install: duplicate library_cp_id {lib_id!r} in batch"
             )
-        cp = await OperationalModel.get(lib_id)
-        if cp is None or not getattr(cp, "library_package", False):
+        from app.services.library_dependencies import admitted_library_dependency_chain
+
+        chain = await admitted_library_dependency_chain(
+            lib_id, workspace_id, user_id=actor_id
+        )
+        cp = chain[-1]
+        if not cp.library_package:
             raise BadRequestError(
                 message=f"batch_install: library bundle {lib_id!r} not found or not a library package"
             )

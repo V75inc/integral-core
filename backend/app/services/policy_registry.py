@@ -19,7 +19,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from app.models.edges import HAS_POLICY
-from app.models.nodes import Policy, User
+from app.models.nodes import Policy
 from app.utils.time import utc_now_iso
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,9 @@ async def _resolve_subject_node(subject_kind: str, subject_id: str) -> Optional[
       - the resolved Node id is missing in the graph
     """
     if subject_kind == "human":
-        return await User.get(subject_id)
+        from app.services.permissions import get_user_node
+
+        return await get_user_node(subject_id)
     if subject_kind == "agent":
         try:
             from app.agentive.nodes import AgentConfig
@@ -79,6 +81,11 @@ async def create_policy(
     ``Policy.find`` scan by ``(subject_kind, subject_id)`` so the Policy
     remains discoverable.
     """
+    from app.exceptions import AuthorizationUnavailableError
+
+    subject_node = await _resolve_subject_node(subject_kind, subject_id)
+    if subject_node is None:
+        raise AuthorizationUnavailableError()
     now = utc_now_iso()
     policy = await Policy.create(
         subject_kind=subject_kind,
@@ -100,17 +107,7 @@ async def create_policy(
     # When the subject resolves but the wire raises, roll back — otherwise
     # we leave an orphan Policy that walkers cannot reach (I-GRAPH-01).
     try:
-        subject_node = await _resolve_subject_node(subject_kind, subject_id)
-        if subject_node is not None:
-            await subject_node.connect(policy, edge=HAS_POLICY)
-        else:
-            logger.warning(
-                "create_policy: subject node not found for %s/%s — Policy "
-                "persisted without HAS_POLICY edge (will be discoverable via "
-                "the Policy.find fallback scan in list_policies_for_subject)",
-                subject_kind,
-                subject_id,
-            )
+        await subject_node.connect(policy, edge=HAS_POLICY)
     except Exception as e:  # noqa: BLE001 — fail-loud convention
         logger.warning(
             "create_policy: HAS_POLICY edge wire failed: %s; "
@@ -135,38 +132,106 @@ async def get_policy(policy_id: str) -> Optional[Policy]:
     return await Policy.get(policy_id)
 
 
+def current_policy_body(row: dict, *, subject_kind: str, subject_id: str) -> dict:
+    """Validate all primary grant facts before hydration can invent defaults."""
+    from app.exceptions import AuthorizationUnavailableError
+
+    body = row.get("context")
+    if (
+        not isinstance(body, dict)
+        or body.get("subject_kind") != subject_kind
+        or body.get("subject_id") != subject_id
+    ):
+        raise AuthorizationUnavailableError()
+    if (
+        subject_kind not in {"human", "agent", "connector", "system"}
+        or type(subject_id) is not str
+        or not subject_id
+        or len(subject_id) > 256
+    ):
+        raise AuthorizationUnavailableError()
+    for key in ("is_active", "requires_human_approval"):
+        if type(body.get(key)) is not bool:
+            raise AuthorizationUnavailableError()
+    revision = body.get("delegation_revision")
+    if type(revision) is not int or revision < 1:
+        raise AuthorizationUnavailableError()
+    for key in ("scope", "created_by"):
+        value = body.get(key)
+        if (
+            type(value) is not str
+            or not value
+            or len(value) > 2048
+            or value.strip() != value
+        ):
+            raise AuthorizationUnavailableError()
+    for key in ("actions", "entry_types", "tags"):
+        values = body.get(key)
+        if (
+            not isinstance(values, list)
+            or len(values) > 256
+            or any(
+                type(value) is not str
+                or not value
+                or len(value) > 512
+                or value.strip() != value
+                for value in values
+            )
+            or len(values) != len(set(values))
+        ):
+            raise AuthorizationUnavailableError()
+    return body
+
+
 async def list_policies_for_subject(subject_kind: str, subject_id: str) -> List[Policy]:
-    """Return all Policies attached to a subject (active or not).
+    """Read only complete primary Policies with a unique named subject attachment.
 
-    Walks the ``HAS_POLICY`` edge from the subject Node when it exists. Falls
-    back to a ``Policy.find`` scan by ``(subject_kind, subject_id)`` when the
-    subject Node lookup fails — covers the rare case where the edge was lost
-    or never wired (e.g. a partial initialization that nevertheless has
-    Policy rows referencing an agent_id).
-
-    Filtering by ``is_active`` is the caller's responsibility — the engine
-    enforces that filter in ``_find_policies_for_subject``.
+    Malformed or orphan grants never receive model defaults or scalar fallback.
     """
+    from jvspatial.core.context import get_default_context
+
+    from app.exceptions import AuthorizationUnavailableError
+    from app.services.authority_facts import primary_node_record
+
     subject_node = await _resolve_subject_node(subject_kind, subject_id)
     if subject_node is None:
-        # Fallback: scan all Policies by (subject_kind, subject_id).
-        all_for_subject = await Policy.find(
-            {
-                "context.subject_kind": subject_kind,
-                "context.subject_id": subject_id,
-            }
-        )
-        return list(all_for_subject)
-    try:
-        attached = await subject_node.nodes(
-            edge=[HAS_POLICY],
-            direction="out",
-            node=["Policy"],
-        )
-        return list(attached) if attached else []
-    except Exception as e:  # noqa: BLE001
-        logger.warning("list_policies_for_subject: HAS_POLICY traversal failed: %s", e)
         return []
+    context = get_default_context()
+    rows = await context.database.find(
+        "edge",
+        {"source": subject_node.id, "entity": HAS_POLICY._entity_name()},
+        limit=257,
+    )
+    if len(rows) > 256:
+        raise AuthorizationUnavailableError()
+    policies = []
+    seen = set()
+    for edge in rows:
+        identity = edge.get("target")
+        if not isinstance(identity, str) or not identity or identity in seen:
+            raise AuthorizationUnavailableError()
+        seen.add(identity)
+        row = await primary_node_record(context.database, Policy, identity)
+        if row is None:
+            raise AuthorizationUnavailableError()
+        try:
+            current_policy_body(row, subject_kind=subject_kind, subject_id=subject_id)
+        except AuthorizationUnavailableError:
+            # A disabled legacy source cannot execute or acquire defaults.
+            # Preserve its raw row for explicit owner cleanup outside this evaluator.
+            if row["context"].get("is_active") is False:
+                continue
+            raise
+        roots = await context.database.find(
+            "edge", {"target": identity, "entity": HAS_POLICY._entity_name()}, limit=2
+        )
+        if len(roots) != 1 or roots[0].get("source") != subject_node.id:
+            raise AuthorizationUnavailableError()
+        policy = await context._deserialize_entity(Policy, row)
+        if policy is None:
+            raise AuthorizationUnavailableError()
+        policies.append(policy)
+    return policies
 
 
 async def update_policy(
@@ -201,6 +266,7 @@ async def update_policy(
     if is_active is not None:
         p.is_active = is_active
     p.updated_at = utc_now_iso()
+    p.delegation_revision += 1
     await p.save()
     return p
 

@@ -9,6 +9,7 @@ import pytest
 
 from app.models.edges import CONTAINS, IS_MEMBER_OF, OWNS, REFERENCES
 from app.models.nodes import App, Entry, EntryType, Track, Workspace
+from app.services.app_graph import catalog_app, catalog_track, catalog_workspace
 from app.services.permissions import can_edit_entry
 from app.services.sharing import add_collaborator, remove_collaborator
 
@@ -21,6 +22,7 @@ async def _fixture(editor, owner, many):
     workspace = await Workspace.create(
         name="HTTP relation admission", kind="organization"
     )
+    await catalog_workspace(workspace)
     await owner.connect(workspace, edge=IS_MEMBER_OF, role="owner")
     await editor.connect(workspace, edge=IS_MEMBER_OF, role="member")
     apps, tracks, types = {}, {}, {}
@@ -28,6 +30,7 @@ async def _fixture(editor, owner, many):
         app = await App.create(
             name=name, workspace_id=workspace.id, owner_user_id=owner.user_id
         )
+        await catalog_app(app)
         await workspace.connect(app, edge=CONTAINS)
         await owner.connect(app, edge=OWNS)
         track = await Track.create(
@@ -37,6 +40,7 @@ async def _fixture(editor, owner, many):
             workspace_id=workspace.id,
             visibility="inherit" if name == "consumer" else "private",
         )
+        await catalog_track(track)
         await app.connect(track, edge=CONTAINS)
         await owner.connect(track, edge=OWNS)
         entry_type = await EntryType.create(

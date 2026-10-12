@@ -3,9 +3,15 @@
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
+from app.exceptions import AuthorizationUnavailableError
 from app.models.edges import REFERENCES, Anchors
-from app.models.nodes import Attachment, Entry, Tag, Track
+from app.models.nodes import App, Attachment, Entry, Tag, Track
 from app.services.operational_model_runtime import resolve_track_runtime_profile
+from app.services.resource_location import (
+    DATA_APP_STATES,
+    locate_resource,
+    locate_resources,
+)
 
 
 async def export_node(node) -> dict:
@@ -339,43 +345,52 @@ async def attach_operational_model_defaults_to_track_data(
     return track_data
 
 
+def _parent_navigation(node: Any, *, app: bool = False) -> Dict[str, Any]:
+    """Entry access grants navigation context, never full parent content."""
+    label = "name" if app else "title"
+    return {
+        "id": node.id,
+        label: getattr(node, label, ""),
+        "icon": getattr(node, "icon", ""),
+        "workspace_id": node.workspace_id,
+    }
+
+
 async def prefetch_tracks_and_spaces_for_entries(
     entries: List[Entry],
 ) -> Tuple[Dict[str, Track], Dict[str, Optional[Dict[str, Any]]]]:
-    """Batch-load tracks and parent space exports for a page of entries (list view).
-
-    Returns:
-        (track_by_id, space_export_by_track_id). Missing ``track_id`` on an entry
-        is skipped; callers fall back to per-entry graph resolution.
-    """
-    track_ids: set[str] = set()
-    for e in entries:
-        tid = (getattr(e, "track_id", None) or "").strip()
-        if tid:
-            track_ids.add(tid)
-    if not track_ids:
+    """Resolve canonical parents and prepare their minimal navigation projection."""
+    entries = [entry for entry in entries if entry._read_parent_navigation is None]
+    if not entries:
         return {}, {}
-    tracks = await Track.find({"id": {"$in": list(track_ids)}})
-    track_by_id = {t.id: t for t in tracks if getattr(t, "id", None)}
-    space_export_by_track: Dict[str, Optional[Dict[str, Any]]] = {}
-    # Single bulk edge pass for every track's parent app (vs one traversal
-    # per track) — jvspatial Node.nodes_bulk.
     try:
-        apps_by_track = await Track.nodes_bulk(
-            list(track_by_id.keys()),
-            direction="in",
-            edge=["CONTAINS"],
-            node=["WorkspaceApp"],
+        locations = await locate_resources(
+            "entry", [e.id for e in entries], allowed_app_states=DATA_APP_STATES
         )
-    except Exception:
-        apps_by_track = {}
-    for tid in track_by_id:
-        try:
-            apps = apps_by_track.get(tid) or []
-            space_export_by_track[tid] = await export_node(apps[0]) if apps else None
-        except Exception:
-            space_export_by_track[tid] = None
-    return track_by_id, space_export_by_track
+        if any(location is None for location in locations.values()):
+            raise AuthorizationUnavailableError()
+        track_ids = {location.track_id for location in locations.values()}
+        app_ids = {
+            location.app_id for location in locations.values() if location.app_id
+        }
+        tracks = await Track.find({"id": {"$in": list(track_ids)}})
+        apps = await App.find({"id": {"$in": list(app_ids)}}) if app_ids else []
+        track_by_id = {node.id: node for node in tracks}
+        app_by_id = {node.id: node for node in apps}
+        if set(track_by_id) != track_ids or set(app_by_id) != app_ids:
+            raise AuthorizationUnavailableError()
+        app_by_track = {}
+        for location in locations.values():
+            app_by_track[location.track_id] = (
+                _parent_navigation(app_by_id[location.app_id], app=True)
+                if location.app_id
+                else None
+            )
+        return track_by_id, app_by_track
+    except AuthorizationUnavailableError:
+        raise
+    except Exception as exc:
+        raise AuthorizationUnavailableError() from exc
 
 
 async def attach_track_and_space(
@@ -389,33 +404,41 @@ async def attach_track_and_space(
     attachment_lookup: Optional[Dict[str, List[Attachment]]] = None,
 ) -> Dict[str, Any]:
     """Mutates ``entry_data`` with ``track`` and optional parent ``app`` exports."""
-    resolved: Optional[Track] = track
-    use_prefetch = use_prefetched_track_app and track is not None
-
-    if not use_prefetch and resolved is None:
-        t_id = entry.track_id
-        if t_id:
-            resolved = await Track.get(t_id)
-        if not resolved:
-            tracks = await entry.nodes(
-                edge=["CONTAINS"], direction="in", node=["Track"]
-            )
-            resolved = tracks[0] if tracks else None
-
-    if resolved:
-        entry_data["track"] = await export_node(resolved)
-        if use_prefetch:
-            if prefetched_app_export is not None:
-                entry_data["app"] = prefetched_app_export
-        else:
+    navigation = entry._read_parent_navigation
+    if navigation is not None:
+        entry_data["track"] = dict(navigation["track"])
+        entry_data.pop("app", None)
+        if navigation.get("app") is not None:
+            entry_data["app"] = dict(navigation["app"])
+    else:
+        resolved = track
+        if not use_prefetched_track_app or resolved is None:
             try:
-                apps = await resolved.nodes(
-                    edge=["CONTAINS"], direction="in", node=["WorkspaceApp"]
+                location = await locate_resource(
+                    "entry", entry.id, allowed_app_states=DATA_APP_STATES
                 )
-                if apps:
-                    entry_data["app"] = await export_node(apps[0])
-            except Exception:
-                pass
+                if location is None:
+                    raise AuthorizationUnavailableError()
+                resolved = await Track.get(location.track_id)
+                parent = await App.get(location.app_id) if location.app_id else None
+                if resolved is None or (location.app_id and parent is None):
+                    raise AuthorizationUnavailableError()
+                prefetched_app_export = (
+                    _parent_navigation(parent, app=True) if parent else None
+                )
+            except AuthorizationUnavailableError:
+                raise
+            except Exception as exc:
+                raise AuthorizationUnavailableError() from exc
+        entry_data["track"] = _parent_navigation(resolved)
+        # Replace rather than merge: an earlier enrichment cannot retain private fields.
+        entry_data.pop("app", None)
+        if prefetched_app_export is not None:
+            entry_data["app"] = {
+                key: prefetched_app_export[key]
+                for key in ("id", "name", "icon", "workspace_id")
+                if key in prefetched_app_export
+            }
 
     # Attach the entry-type slug so the frontend can drive view-scoped
     # filtering (TrackDetailPage's slice-view filter uses ``entry.type``

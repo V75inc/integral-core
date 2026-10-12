@@ -484,20 +484,9 @@ async def ensure_track_views_materialized_from_tier(track: Track) -> bool:
 
 
 async def _catalog_views_for_track(track: Track) -> List[View]:
-    cp = await get_track_attached_operational_model(track)
-    if not cp:
-        return []
-    vreg = await get_or_create_views_registry_for_operational_model(cp, track=track)
-    views = await vreg.nodes(edge=[CATALOGS], node=["View"])
-    # Anchored tracks share one Views registry per template CP. Default-flag
-    # sync and pickers must only see this track's rows — otherwise one
-    # track's default clears ``is_default`` on every sibling.
-    return [
-        v
-        for v in views
-        if isinstance(v, View)
-        and str(getattr(v, "track_id", "") or "") == str(track.id)
-    ]
+    from app.services.view_scope import list_scoped_track_views
+
+    return await list_scoped_track_views(track.id)
 
 
 async def pick_default_view_id_for_track(
@@ -584,7 +573,9 @@ class LibraryPackageSummary:
     description: str
 
 
-async def list_library_packages() -> List[LibraryPackageSummary]:
+async def list_library_packages(
+    *, user_id: Optional[str] = None, workspace_id: Optional[str] = None
+) -> List[LibraryPackageSummary]:
     """Return cataloged library-package OperationalModels as typed summaries.
 
     Mirrors the query shape used by
@@ -595,21 +586,49 @@ async def list_library_packages() -> List[LibraryPackageSummary]:
     # Local import avoids the circular dep with app.models.nodes that
     # would occur at module-import time (this module is itself imported
     # by services/app_graph.py which models/nodes.py transitively pulls).
-    from app.models.nodes import OperationalModel
+    from jvspatial.core.context import get_default_context
 
-    raw = await OperationalModel.find({"context.library_package": True})
-    if raw is None:
-        rows: list = []
-    elif isinstance(raw, (list, tuple)):
-        rows = list(raw)
-    else:
-        rows = [raw]
-    return [
-        LibraryPackageSummary(
-            id=cp.id,
-            name=cp.name,
-            scope=cp.scope,
-            description=cp.description,
+    from app.exceptions import AuthorizationUnavailableError
+    from app.models.nodes import OperationalModel
+    from app.services.library_package_visibility import visible_library_model
+
+    if user_id is not None:
+        from app.api.errors import InsufficientPermissionsError
+        from app.middleware.permissions_cache import isolated_permissions_cache
+        from app.services.permissions import get_user_node
+        from app.services.workspace_permissions import can_access_workspace
+
+        with isolated_permissions_cache():
+            if await get_user_node(user_id) is None:
+                raise InsufficientPermissionsError(message="Access denied")
+            if workspace_id is not None and await can_access_workspace(
+                user_id, workspace_id
+            ) not in {"owner", "admin", "member", "guest"}:
+                raise InsufficientPermissionsError(message="Access denied")
+
+    # Capture raw candidates so failed hydration cannot fabricate an empty
+    # successful list. Discovery scanning is not a bounded-work qualification.
+    rows = await get_default_context().database.find(
+        "node",
+        {"entity": OperationalModel._entity_name(), "context.library_package": True},
+    )
+    summaries: List[LibraryPackageSummary] = []
+    for row in rows:
+        if (
+            not isinstance(row, dict)
+            or not isinstance(row.get("id"), str)
+            or not row["id"].strip()
+        ):
+            raise AuthorizationUnavailableError()
+        cp = await visible_library_model(row["id"], workspace_id, user_id=user_id)
+        if cp is None:
+            continue
+        summaries.append(
+            LibraryPackageSummary(
+                id=cp.id,
+                name=cp.name,
+                scope=str((cp.manifest or {}).get("scope") or ""),
+                description=cp.description,
+            )
         )
-        for cp in rows
-    ]
+    return summaries

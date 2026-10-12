@@ -50,7 +50,6 @@ of magnitude faster on tagged entries.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import List
 
@@ -75,58 +74,65 @@ logger = logging.getLogger(__name__)
 
 
 async def _collect_descendant_comments(entry: Entry) -> List[Comment]:
-    """Walk the comment subtree and return every descendant Comment.
+    """Capture the complete named comment subtree or refuse destructive effects."""
+    from jvspatial.core import Walker
+    from jvspatial.core.context import get_default_context
+    from jvspatial.core.decorators import on_visit
 
-    Traverses Entry → HAS_COMMENT → Comment → HAS_COMMENT → … .
+    from app.exceptions import AuthorizationUnavailableError
+    from app.models.edges import HAS_COMMENT
+    from app.services.authority_facts import primary_node_record
 
-    Bounded by what the user actually wrote, not by global graph fan-out.
-    Uses BFS so deeply nested threads don't blow the recursion limit; each
-    layer's children are fetched concurrently (``asyncio.gather``) so a
-    deep thread doesn't pay one round-trip per level.
-    """
-    collected: List[Comment] = []
-    seen_ids: set[str] = set()
+    class CommentInventory(Walker):
+        comments: List[Comment] = []
+        visited_ids: set[str] = set()
 
-    # Top-level comments off the entry.
-    frontier: List[Comment] = list(
-        await entry.nodes(edge=["HAS_COMMENT"], direction="out", node=["Comment"])
-    )
+        @on_visit(Entry, Comment)
+        async def collect(self, here):
+            if here.id in self.visited_ids:
+                raise AuthorizationUnavailableError()
+            self.visited_ids.add(here.id)
+            if len(self.visited_ids) > 10000:
+                raise AuthorizationUnavailableError()
+            database = get_default_context().database
+            if isinstance(here, Comment):
+                self.comments.append(here)
+            edges = await database.find(
+                "edge",
+                {"source": here.id, "entity": HAS_COMMENT._entity_name()},
+                limit=10001,
+            )
+            if len(edges) > 10000:
+                raise AuthorizationUnavailableError()
+            children = []
+            for edge in edges:
+                target = edge.get("target")
+                if not isinstance(target, str) or not target:
+                    raise AuthorizationUnavailableError()
+                parents = await database.find(
+                    "edge",
+                    {"target": target, "entity": HAS_COMMENT._entity_name()},
+                    limit=2,
+                )
+                if len(parents) != 1 or parents[0].get("source") != here.id:
+                    raise AuthorizationUnavailableError()
+                record = await primary_node_record(database, Comment, target)
+                if record is None:
+                    raise AuthorizationUnavailableError()
+                child = await get_default_context()._deserialize_entity(Comment, record)
+                if child is None:
+                    raise AuthorizationUnavailableError()
+                children.append(child)
+            await self.visit(children)
 
-    while frontier:
-        # Dedupe — defensive against cycles (shouldn't happen with
-        # threaded-comments semantics, but cheap insurance).
-        layer: List[Comment] = []
-        for c in frontier:
-            cid = getattr(c, "id", None)
-            if not cid or cid in seen_ids:
-                continue
-            seen_ids.add(cid)
-            layer.append(c)
-            collected.append(c)
-        if not layer:
-            break
-
-        # Fetch the next layer concurrently.
-        children_lists = await asyncio.gather(
-            *(
-                c.nodes(edge=["HAS_COMMENT"], direction="out", node=["Comment"])
-                for c in layer
-            ),
-            return_exceptions=True,
-        )
-        next_frontier: List[Comment] = []
-        for result in children_lists:
-            if isinstance(result, BaseException):
-                # A single failing query shouldn't abort the whole
-                # cascade; log and keep going. Worst case: an orphan
-                # comment is left behind, which is invisible to the
-                # user (no entry to view it through).
-                logger.warning("entry_deletion: child-comment fetch failed: %s", result)
-                continue
-            next_frontier.extend(result)  # type: ignore[arg-type]
-        frontier = next_frontier
-
-    return collected
+    walker = CommentInventory()
+    await walker.spawn(entry)
+    if any(
+        isinstance(item, dict) and "hook_error" in item
+        for item in await walker.get_report()
+    ):
+        raise AuthorizationUnavailableError()
+    return walker.comments
 
 
 async def soft_delete_entry_embedding(entry_id: str) -> None:
@@ -155,50 +161,135 @@ async def soft_delete_entry_embedding(entry_id: str) -> None:
         )
 
 
-async def _delete_upload_sessions(entry: Entry) -> None:
-    """Cancel + delete every UploadSession hanging off ``entry``.
+async def _delete_upload_sessions(entry: Entry) -> list[str]:
+    """Delete the complete named session set; defer physical files until commit."""
+    from jvspatial.core.context import get_default_context
 
-    ``cancel_session`` removes the staged chunk directory; the node is then
-    dropped with ``cascade=False`` (removes the HAS_UPLOAD_SESSION edge).
-    Best-effort — a stale session row must never block the entry delete.
-    """
-    try:
-        sessions = await entry.nodes(
-            edge=["HAS_UPLOAD_SESSION"], direction="out", node=["UploadSession"]
+    from app.exceptions import AuthorizationUnavailableError
+    from app.models.edges import HAS_UPLOAD_SESSION
+    from app.models.nodes import UploadSession
+    from app.services.authority_facts import primary_node_record
+
+    context = get_default_context()
+    rows = await context.database.find(
+        "edge",
+        {"source": entry.id, "entity": HAS_UPLOAD_SESSION._entity_name()},
+        limit=1001,
+    )
+    if len(rows) > 1000:
+        raise AuthorizationUnavailableError()
+    identifiers = []
+    for row in rows:
+        target = row.get("target")
+        if not isinstance(target, str) or not target or target in identifiers:
+            raise AuthorizationUnavailableError()
+        parents = await context.database.find(
+            "edge",
+            {"target": target, "entity": HAS_UPLOAD_SESSION._entity_name()},
+            limit=2,
         )
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "entry_deletion: failed to enumerate upload sessions for %s: %s",
-            getattr(entry, "id", "?"),
-            exc,
-        )
-        return
-    if not sessions:
-        return
-    from app.services.chunked_upload import cancel_session
-
-    async def _one(session) -> None:  # type: ignore[type-arg]
-        try:
-            await cancel_session(session)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "entry_deletion: upload session cancel failed for %s: %s",
-                getattr(session, "id", "?"),
-                exc,
-            )
-        try:
-            await session.delete(cascade=False)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "entry_deletion: upload session delete failed for %s: %s",
-                getattr(session, "id", "?"),
-                exc,
-            )
-
-    await asyncio.gather(*(_one(s) for s in sessions))
+        record = await primary_node_record(context.database, UploadSession, target)
+        if len(parents) != 1 or parents[0].get("source") != entry.id or record is None:
+            raise AuthorizationUnavailableError()
+        session = await context._deserialize_entity(UploadSession, record)
+        if session is None or session.entry_id != entry.id:
+            raise AuthorizationUnavailableError()
+        await session.delete(cascade=False)
+        identifiers.append(target)
+    return identifiers
 
 
 async def delete_entry_fast(
+    entry: Entry,
+    *,
+    actor_user_id: str = "",
+    actor_kind: str = "human",
+    expected_record_revision: int | None = None,
+) -> None:
+    """Delete using a fresh entity on the command's held transaction."""
+    from app.exceptions import AuthorizationUnavailableError
+    from app.models.nodes import EntryType, Track
+    from app.services.app_invariant_guards import enforce_protected_field_write
+    from app.services.entry_write_scope import entry_write_scope
+    from app.services.operational_model_compile import slug_manifest_key
+    from app.services.resource_cascade import entry_cascade_permitted
+
+    async with entry_write_scope(entry.id):
+        current = await Entry.find_one({"id": entry.id})
+        if current is None:
+            raise AuthorizationUnavailableError()
+        if (
+            expected_record_revision is not None
+            and current.record_revision != expected_record_revision
+        ):
+            from app.api.errors import ResourceConflictError
+
+            raise ResourceConflictError(
+                message="Entry has changed since approval review"
+            )
+        if await entry_cascade_permitted(actor_user_id, current.id):
+            await _delete_admitted_entry(
+                current, actor_user_id=actor_user_id, actor_kind=actor_kind
+            )
+            return
+        track = await Track.find_one({"id": current.track_id})
+        entry_type = (
+            await EntryType.find_one({"id": current.type_id})
+            if current.type_id
+            else None
+        )
+        if track is None:
+            raise AuthorizationUnavailableError()
+        key = (
+            slug_manifest_key(
+                str(
+                    (entry_type.form_schema or {}).get("_manifest_entry_type_key")
+                    or entry_type.name
+                )
+            )
+            if entry_type
+            else ""
+        )
+        from app.services.entry_effect_scope import entry_effect_scope
+
+        async with entry_effect_scope(
+            user_id=actor_user_id,
+            actor_kind=actor_kind,
+            actor_id=actor_user_id if actor_kind in {"agent", "connector"} else None,
+            action="entry.delete",
+            target_kind="entry",
+            target_id=current.id,
+            workspace_id=track.workspace_id,
+            payload={
+                "entry_id": current.id,
+                **(
+                    {"expected_record_revision": expected_record_revision}
+                    if expected_record_revision is not None
+                    else {}
+                ),
+            },
+            entry_type_key=key,
+        ):
+            await enforce_protected_field_write(
+                principal_id=actor_user_id,
+                workspace_id=track.workspace_id,
+                entry_type_key=key,
+                proposed_custom_fields=current.custom_fields,
+                track_id=track.id,
+                entry_id=current.id,
+                mutation_kind="delete",
+                proposed_fields={
+                    "title": current.title,
+                    "body": current.body,
+                    "status": current.status,
+                },
+            )
+            await _delete_admitted_entry(
+                current, actor_user_id=actor_user_id, actor_kind=actor_kind
+            )
+
+
+async def _delete_admitted_entry(
     entry: Entry,
     *,
     actor_user_id: str = "",
@@ -313,7 +404,9 @@ async def delete_entry_fast(
 
             # Allow → hard-delete the anchored Track + its nested entries.
             try:
-                await delete_track_and_nested_content(anchored)
+                await delete_track_and_nested_content(
+                    anchored, actor_user_id=actor_user_id
+                )
             except Exception as exc:
                 logger.warning(
                     "delete_track_and_nested_content failed for anchored Track %s "
@@ -352,26 +445,15 @@ async def delete_entry_fast(
 
     # Entry-scoped side-cars — must be enumerated BEFORE the entry (and its
     # edges) are gone.
-    await _delete_upload_sessions(entry)
+    session_ids = await _delete_upload_sessions(entry)
     from app.services.app_deletion import delete_resource_side_cars
 
     await delete_resource_side_cars(entry)
 
+    from app.services.entry_cleanup_outbox import retain_cleanup
+
+    await retain_cleanup(entry_id=entry_id, session_ids=session_ids)
     await entry.delete(cascade=False)
 
-    if comments:
-
-        async def _safe_delete(c: Comment) -> None:
-            try:
-                await c.delete(cascade=False)
-            except Exception as exc:
-                logger.warning(
-                    "entry_deletion: comment delete failed for %s: %s",
-                    getattr(c, "id", "?"),
-                    exc,
-                )
-
-        await asyncio.gather(*(_safe_delete(c) for c in comments))
-
-    if entry_id:
-        await soft_delete_entry_embedding(entry_id)
+    for comment in reversed(comments):
+        await comment.delete(cascade=False)

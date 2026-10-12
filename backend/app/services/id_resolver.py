@@ -8,11 +8,11 @@ might echo a raw id — the agent's chat prose, staging approval cards — runs
 Design goals (per the substrate usability review):
 
 - **Seamless & adaptable:** one generic pass, not per-call-site edits. New node
-  types and new stagers are covered for free — labels come from a dynamic
-  priority chain (``title`` → ``name`` → …), and nodes load via jvspatial's
-  discriminator-dispatching ``Node.get`` regardless of class.
-- **Cheap:** all ids in a blob resolve in ONE batched ``$in`` query per
-  collection, backed by jvspatial's in-memory LRU cache.
+  types need a governed read contract before label disclosure; labels use a
+  priority chain (``title`` → ``name`` → …) after the corresponding Core
+  read contract admits the exact target.
+- **Current:** labels require explicit recipient identity, canonical scope
+  and current resource read admission; unknown families remain opaque.
 - **Safe:** best-effort. Any resolution failure leaves the original text
   untouched; an unresolved id degrades to a short ``<Type> …abcd`` form, never
   a stack trace. We humanize human-facing TEXT only — never tool-call inputs or
@@ -81,110 +81,84 @@ def _pick_label(node, node_id: str) -> str:
     return _short(node_id)
 
 
-async def _operational_model_label(cp) -> str:
-    """Name a OperationalModel by the resource it shapes, not its own field.
+async def resolve_id_labels(
+    ids: Iterable[str], *, user_id: str | None = None, workspace_id: str | None = None
+) -> Dict[str, str]:
+    """Resolve only current readable metadata for an explicit recipient.
 
-    A profile's own ``name`` is usually a generic "Default", which tells a user
-    nothing. The useful identity is the Track/App it's attached to — "the
-    Opportunities profile" reads far better than "Default" or a raw id. A draft
-    attaches to no resource, so resolve via its published parent (``draft_of_id``).
-    Library packages keep their own (meaningful) package name.
+    Missing identity and unsupported graph/object families use an opaque
+    fallback. An arbitrary ID in generated prose is never read authority.
     """
-    if getattr(cp, "library_package", False):
-        return str(getattr(cp, "name", None) or _short(cp.id))
+    uniq = {identity for identity in ids if identity}
+    out = {identity: _short(identity) for identity in uniq}
+    if not uniq or not user_id:
+        return out
+    from app.middleware.permissions_cache import isolated_permissions_cache
+    from app.models.nodes import App, Entry, OperationalModel, Track, View, Workspace
+    from app.schemas.policy import Resource
+    from app.services.model_authority import (
+        model_action_authorized,
+        model_scope_matches,
+    )
+    from app.services.permissions import can_view_view, get_user_node, resolve_role
+    from app.services.resource_location import DATA_APP_STATES, locate_resource
 
-    candidate_ids = [cp.id]
-    parent = getattr(cp, "draft_of_id", None)
-    if parent:
-        candidate_ids.append(parent)
-
-    try:
-        from app.models.nodes import App, Track
-
-        for cid in candidate_ids:
-            tracks = await Track.find({"context.attached_operational_model_id": cid})
-            for track in tracks:
-                title = (getattr(track, "title", "") or "").strip()
-                if title:
-                    return f"the {title} profile"
-            apps = await App.find({"context.attached_operational_model_id": cid})
-            for app in apps:
-                name = (getattr(app, "name", "") or "").strip()
-                if name:
-                    return f"the {name} profile"
-    except Exception:  # noqa: BLE001
-        logger.debug(
-            "id_resolver: operational-model owner lookup failed", exc_info=True
-        )
-
-    return _pick_label(cp, cp.id)
-
-
-async def resolve_id_labels(ids: Iterable[str]) -> Dict[str, str]:
-    """Batch-resolve node ids → labels. One ``$in`` query per collection.
-
-    Always returns a label for every input id (short fallback for misses).
-    """
-    uniq = {i for i in ids if i}
-    if not uniq:
-        return {}
-
-    # Ensure concrete Node/Object subclasses are imported so jvspatial's
-    # discriminator dispatch (find_subclass_by_name) can resolve each row to
-    # its real class. The server imports these at boot; this makes the resolver
-    # robust when called from a lean context too.
-    try:
-        import app.models.nodes  # noqa: F401
-    except Exception:  # noqa: BLE001
-        logger.debug("id_resolver: app.models.nodes import failed", exc_info=True)
-
-    out: Dict[str, str] = {}
-
-    # Users resolve through the canonical principal resolver, which handles BOTH
-    # the graph-node form (n.User.*) AND the AuthUser principal form (o.User.*) —
-    # the latter is NOT a queryable graph node, so the generic node/object batch
-    # below would miss it and degrade to "User …abcd".
-    user_ids = [i for i in uniq if ".User." in i]
-    if user_ids:
-        try:
-            from app.services.permissions import (
-                batch_resolve_users_by_principal_ids,
-            )
-
-            umap = await batch_resolve_users_by_principal_ids(user_ids)
-            for pid, user in umap.items():
-                if user is not None:
-                    out[pid] = _pick_label(user, pid)
-        except Exception:  # noqa: BLE001
-            logger.debug("id_resolver: user batch resolve failed", exc_info=True)
-
-    node_ids = [i for i in uniq if i.startswith("n.") and i not in out]
-    obj_ids = [i for i in uniq if i.startswith("o.") and i not in out]
-
-    if node_ids:
-        try:
-            from jvspatial.core import Node
-
-            for node in await Node.find({"id": {"$in": node_ids}}):
-                if type(node).__name__ == "OperationalModel":
-                    # Profiles are most usefully named by what they shape.
-                    out[node.id] = await _operational_model_label(node)
+    kinds = {
+        "App": ("app", App),
+        "WorkspaceApp": ("app", App),
+        "Track": ("track", Track),
+        "Entry": ("entry", Entry),
+        "View": ("view", View),
+        "Workspace": ("workspace", Workspace),
+        "OperationalModel": ("operational_model", OperationalModel),
+    }
+    with isolated_permissions_cache():
+        principal = await get_user_node(user_id)
+        if principal is None:
+            return out
+        for identity in uniq:
+            try:
+                if identity in {principal.id, principal.user_id}:
+                    out[identity] = _pick_label(principal, identity)
+                    continue
+                parts = identity.split(".")
+                if len(parts) != 3 or parts[0] != "n" or parts[1] not in kinds:
+                    continue
+                kind, node_type = kinds[parts[1]]
+                if kind == "operational_model":
+                    resource = Resource(
+                        kind=kind, id=identity, scope=f"{kind}:{identity}"
+                    )
+                    if workspace_id and not await model_scope_matches(
+                        workspace_id, resource, principal_id=user_id
+                    ):
+                        continue
+                    if not await model_action_authorized(
+                        user_id, "operational_model.read", resource
+                    ):
+                        continue
                 else:
-                    out[node.id] = _pick_label(node, node.id)
-        except Exception:  # noqa: BLE001
-            logger.debug("id_resolver: node batch resolve failed", exc_info=True)
-
-    if obj_ids:
-        try:
-            from jvspatial.core import Object
-
-            for obj in await Object.find({"id": {"$in": obj_ids}}):
-                out[obj.id] = _pick_label(obj, obj.id)
-        except Exception:  # noqa: BLE001
-            logger.debug("id_resolver: object batch resolve failed", exc_info=True)
-
-    for i in uniq:
-        out.setdefault(i, _short(i))
+                    location = await locate_resource(
+                        kind, identity, allowed_app_states=DATA_APP_STATES
+                    )
+                    if location is None or (
+                        workspace_id and location.workspace_id != workspace_id
+                    ):
+                        continue
+                    allowed = (
+                        await can_view_view(user_id, identity)
+                        if kind == "view"
+                        else await resolve_role(user_id, kind, identity) is not None
+                    )
+                    if not allowed:
+                        continue
+                node = await node_type.find_one({"id": identity})
+                if node is not None:
+                    # Model labels use the admitted model's own metadata;
+                    # naming an arbitrary attached parent would need its own gate.
+                    out[identity] = _pick_label(node, identity)
+            except Exception:  # noqa: BLE001 — best-effort disclosure fails closed
+                logger.debug("id_resolver: label admission failed", exc_info=True)
     return out
 
 
@@ -225,7 +199,9 @@ def _unmask_humanize_protected(text: str, slots: List[str]) -> str:
     return _PLACEHOLDER_RE.sub(repl, text)
 
 
-async def humanize_ids(text: str) -> str:
+async def humanize_ids(
+    text: str, *, user_id: str | None = None, workspace_id: str | None = None
+) -> str:
     """Replace every raw node id in ``text`` with its human label.
 
     Idempotent (a label has no id shape) and best-effort — returns ``text``
@@ -239,7 +215,9 @@ async def humanize_ids(text: str) -> str:
     if not ids:
         return text
     try:
-        labels = await resolve_id_labels(ids)
+        labels = await resolve_id_labels(
+            ids, user_id=user_id, workspace_id=workspace_id
+        )
     except Exception:  # noqa: BLE001
         logger.debug("humanize_ids: resolve failed", exc_info=True)
         return text

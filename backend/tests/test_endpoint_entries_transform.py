@@ -3,6 +3,8 @@
 import pytest
 from httpx import AsyncClient
 
+from app.services.app_graph import catalog_track, catalog_workspace
+
 
 @pytest.mark.asyncio
 async def test_transform_resolves_hook_and_creates_target_entry(
@@ -26,13 +28,16 @@ async def test_transform_resolves_hook_and_creates_target_entry(
         created_at=now,
         updated_at=now,
     )
+    await catalog_workspace(ws)
     await owner.connect(ws, edge=IS_MEMBER_OF, role="owner", added_at=now)
     src_track = await Track.create(
         title="Project Proposals", owner_id=owner.id, workspace_id=ws.id
     )
+    await catalog_track(src_track)
     tgt_track = await Track.create(
         title="Opportunities", owner_id=owner.id, workspace_id=ws.id
     )
+    await catalog_track(tgt_track)
     await owner.connect(src_track, edge=COLLABORATES_ON, role="owner", added_at=now)
     await owner.connect(tgt_track, edge=COLLABORATES_ON, role="owner", added_at=now)
     src_et = await EntryType.create(
@@ -150,9 +155,12 @@ async def test_transform_unknown_hook_returns_404(authenticated_client, test_use
         created_at=now,
         updated_at=now,
     )
+    await catalog_workspace(ws)
     await owner.connect(ws, edge=IS_MEMBER_OF, role="owner", added_at=now)
     src = await Track.create(title="X", owner_id=owner.id, workspace_id=ws.id)
+    await catalog_track(src)
     tgt = await Track.create(title="Y", owner_id=owner.id, workspace_id=ws.id)
+    await catalog_track(tgt)
     await owner.connect(src, edge=COLLABORATES_ON, role="owner", added_at=now)
     await owner.connect(tgt, edge=COLLABORATES_ON, role="owner", added_at=now)
     et = await EntryType.create(name="X", name_fold="x", track_id=src.id)

@@ -72,6 +72,11 @@ export interface Invitation {
   email: string;
   invited_user_id?: string | null;
   invited_by_user_id: string;
+  target_resource_type?: 'app' | 'track' | 'entry' | null;
+  target_resource_id?: string | null;
+  target_resource_role?: string | null;
+  adopted_by_user_id?: string | null;
+  adopted_at?: string | null;
   role: WorkspaceRole | string;
   can_create_apps: boolean;
   can_create_tracks: boolean;
@@ -80,6 +85,16 @@ export interface Invitation {
   created_at?: string;
   expires_at?: string;
   consumed_at?: string;
+  grant_receipt?: InvitationGrantReceipt;
+}
+
+export interface InvitationGrantReceipt {
+  outcome: 'created' | 'upgraded' | 'unchanged' | 'conflict' | null;
+  granted_role: string | null;
+  can_create_apps?: boolean | null;
+  can_create_tracks?: boolean | null;
+  effective_role_at_acceptance: string | null;
+  revision: number;
 }
 
 /** Minimal Workspace shape used by invitation previews. */

@@ -100,46 +100,41 @@ def test_pending_agent_write_node_has_locked_9_field_shape():
 
 
 @pytest.mark.asyncio
-async def test_policy_engine_intercept_fires_for_agent_write_with_requires_human_approval():
+async def test_policy_engine_intercept_fires_for_agent_write_with_requires_human_approval(
+    authenticated_client, test_user
+):
     """Intercept fires for agent + write + requires_human_approval=True.
 
     Returns Decision(allowed=False, reason='requires_human_approval',
     approval_id=<persisted Approval.id>).
     """
-    from app.models.nodes import Policy
+    from app.agentive.edges import HAS_AGENT_CONFIG
+    from app.agentive.nodes import AgentConfig
     from app.services.policy_engine import evaluate
-    from app.utils.time import utc_now_iso
+    from app.services.policy_registry import create_policy
 
-    # Create a Policy attached to an agent subject with requires_human_approval=True
-    policy = await Policy.create(
+    response = await authenticated_client.post(
+        "/api/tracks", json={"title": "Approval target"}
+    )
+    assert response.status_code == 200, response.text
+    track_id = response.json()["track"]["id"]
+    agent = await AgentConfig.create(
+        scope="personal", facet="personal", user_id=test_user.id, is_active=True
+    )
+    await test_user.connect(agent, edge=HAS_AGENT_CONFIG)
+    await create_policy(
         subject_kind="agent",
-        subject_id="agent-rha-1",
-        scope="*",
+        subject_id=agent.id,
+        scope=f"track:{track_id}",
         actions=["entry.create"],
-        entry_types=[],
-        tags=[],
         requires_human_approval=True,
-        is_active=True,
-        created_at=utc_now_iso(),
+        created_by=test_user.id,
     )
-    # Attach the Policy to the agent's HAS_POLICY edge surface
-    # (handled by the engine's _find_policies_for_subject; for the RED test
-    # we simulate via direct edge connection — see Phase 3 Plan 03-03 idiom).
-    from app.models.edges import HAS_POLICY
-    from app.models.nodes import User
-
-    user_or_agent = await User.create(
-        email="agent-rha-1@example.com",
-        password_hash="x",
-        user_id="agent-rha-1",
-    )
-    await user_or_agent.connect(policy, edge=HAS_POLICY, attached_at=utc_now_iso())
-
     decision = await evaluate(
-        subject=Subject(kind="agent", id="agent-rha-1"),
+        subject=Subject(kind="agent", id=agent.id),
         action="entry.create",
-        resource=Resource(kind="entry", id="", scope="track:t-1"),
-        payload={"title": "test"},
+        resource=Resource(kind="entry", id="", scope=f"track:{track_id}"),
+        payload={"title": "test", "track_id": track_id},
     )
 
     assert (
@@ -157,7 +152,7 @@ async def test_policy_engine_intercept_fires_for_agent_write_with_requires_human
     pw = await Approval.get(decision.approval_id)
     assert pw is not None
     assert pw.actor_kind == "agent"
-    assert pw.actor_id == "agent-rha-1"
+    assert pw.actor_id == agent.id
     assert pw.action == "entry.create"
     assert pw.status == "pending"
 

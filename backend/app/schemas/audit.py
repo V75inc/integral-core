@@ -125,6 +125,7 @@ ChangeEventAction = Literal[
     # notifications.mark_all_notifications_as_read).
     "notification.read",
     "notification.mark_all_read",
+    "notification.respond",
     # Prompt Sheet queue (ADR-003 one-audit-trail): answering a clarifying
     # question, resolving a staged write, and cancelling the queue all mutate
     # ChatThread.prompt_queue and were previously unaudited.
@@ -154,12 +155,15 @@ ChangeEventAction = Literal[
     "workspace.update",
     "workspace.delete",
     "workspace.member_add",
+    "workspace.member_provision",
     "workspace.member_update",
     "workspace.member_remove",
+    "workspace.member_leave",
     "workspace.invitation_create",
     "workspace.invitation_accept",
     "workspace.invitation_decline",
     "workspace.invitation_revoke",
+    "workspace.invitation_adopt",
     "workspace.invitation_expire",
     # Sharing primitives (resource = space | track | entry)
     "space.collaborator_add",
@@ -230,6 +234,8 @@ ChangeEventAction = Literal[
     # ``test_policy_action_strict_supersets_change_event_action``
     # whitelists this member alongside the existing audit-only exemptions.
     "approval.expired",
+    "approval.approved",
+    "approval.rejected",
     # ---- Phase 10 Plan 10-05 additions ----
     # App lifecycle audit actions. PolicyAction mirrors these in lockstep
     # (INVARIANTS.md L43-63 strict-superset gate / I-CHA invariant).

@@ -21,7 +21,30 @@ export interface InvitationPreview {
   error_code?: string | null;
 }
 
+export interface InvitationAdoptionReview {
+  review_digest: string;
+  email: string;
+  expires_at: string;
+  target_resource_type: string | null;
+  target_resource_id: string | null;
+  original_issuer_id: string;
+  requested_role: string | null;
+  requested_can_create_apps: boolean | null;
+  requested_can_create_tracks: boolean | null;
+}
+
 export const invitationsApi = {
+  reviewAdoption: async (workspaceId: string, invitationId: string): Promise<InvitationAdoptionReview> => {
+    const { data } = await apiClient.get(`/workspaces/${workspaceId}/invitations/${invitationId}/adoption`);
+    return data as InvitationAdoptionReview;
+  },
+
+  adopt: async (workspaceId: string, invitationId: string, body: {
+    review_digest: string; role: string; can_create_apps: boolean; can_create_tracks: boolean;
+  }): Promise<CreateInvitationResponse> => {
+    const { data } = await apiClient.post(`/workspaces/${workspaceId}/invitations/${invitationId}/adoption`, body);
+    return data as CreateInvitationResponse;
+  },
   /** Owner/admin issues a new invitation. Returns the invitation + acceptance URL. */
   create: async (
     workspaceId: string,
@@ -34,7 +57,7 @@ export const invitationsApi = {
     return data as CreateInvitationResponse;
   },
 
-  /** List invitations for a workspace (any member may read). */
+  /** List invitations for a workspace (owner/admin only). */
   list: async (
     workspaceId: string,
     status?: InvitationStatus,
@@ -75,12 +98,12 @@ export const invitationsApi = {
   },
 
   /** Authenticated accept — materialises IS_MEMBER_OF for the calling user. */
-  accept: async (token: string): Promise<{ invitation: Invitation; role: string }> => {
+  accept: async (token: string): Promise<{ invitation: Invitation; role: string | null }> => {
     const { data } = await apiClient.post(`/invitations/${token}/accept`);
-    return data as { invitation: Invitation; role: string };
+    return data as { invitation: Invitation; role: string | null };
   },
 
-  /** Decline — token alone is sufficient auth for this. */
+  /** Decline as the signed-in recipient whose email matches the invitation. */
   decline: async (token: string): Promise<Invitation> => {
     const { data } = await apiClient.post(`/invitations/${token}/decline`);
     return unwrapResource<Invitation>(data, 'invitation');

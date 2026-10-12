@@ -1,15 +1,7 @@
-"""An App must never reach a state where nobody can administer it.
+"""Resource stewardship is distinct from protected workspace governance.
 
-Track creation, operational-model mutation and collaborator management all gate
-on ``app.update`` → ``can_admin_app`` → ``resolve_role(...) in ("owner",
-"admin")``. An org workspace owner resolves only to the implicit staff
-``viewer`` (inventory visibility by design), so an App with no ``OWNS`` edge is
-administrable by *no* human and no UI surface can repair it.
-
-``wire_app_owner`` used to return silently when the actor did not resolve to a
-graph profile, which is exactly how that state was reached. Observed in a dev
-workspace: an active App with zero ``OWNS`` edges whose ``owner_user_id`` still
-named a principal — the field claimed an owner the graph did not have.
+Apps retain a canonical resource owner. A workspace owner can govern rooted
+private content without a fabricated resource ownership grant.
 """
 
 from datetime import datetime
@@ -20,6 +12,7 @@ from app.models.edges import IS_MEMBER_OF, OWNS
 from app.models.nodes import App, User, Workspace
 from app.services.app_graph import (
     AppOwnerWireError,
+    catalog_app,
     catalog_workspace,
     ensure_integral_app_graph,
     wire_app_owner,
@@ -49,10 +42,10 @@ async def _org_workspace(owner: User | None) -> Workspace:
     return ws
 
 
-async def _bare_app(ws: Workspace) -> App:
+async def _bare_app(ws: Workspace, *, rooted: bool = True) -> App:
     """An App with no owner wired yet — the state wire_app_owner resolves."""
     now = datetime.now().isoformat()
-    return await App.create(
+    app = await App.create(
         name="Grant Test App",
         name_fold="grant test app",
         workspace_id=ws.id,
@@ -60,6 +53,10 @@ async def _bare_app(ws: Workspace) -> App:
         created_at=now,
         updated_at=now,
     )
+
+    if rooted:
+        await catalog_app(app)
+    return app
 
 
 async def _owns_edge_exists(user: User, app: App) -> bool:
@@ -150,17 +147,9 @@ async def test_is_idempotent_and_does_not_duplicate_the_grant():
 @pytest.mark.parametrize(
     "visibility, expected_role", [("private", None), ("workspace", "commenter")]
 )
-async def test_workspace_owner_alone_cannot_administer_an_ownerless_app(
+async def test_workspace_owner_governs_rooted_ownerless_app_without_ordinary_owner_role(
     visibility, expected_role
 ):
-    # Pins the reason the missing grant is fatal rather than cosmetic: org
-    # staff get the implicit participation role and nothing more, so without
-    # the edge the 403 is unavoidable. If this ever starts resolving as
-    # owner/admin, the fallback above is redundant and should be revisited.
-    #
-    # Non-private resources grant staff `commenter`; private resources grant
-    # nothing without an explicit edge (ARCHITECTURE §9.5). Neither case
-    # gives the workspace owner resource administration authority.
     await ensure_integral_app_graph(include_library=False)
     ws_owner = await User.create(name="Unwired Owner")
     ws = await _org_workspace(ws_owner)
@@ -169,4 +158,8 @@ async def test_workspace_owner_alone_cannot_administer_an_ownerless_app(
     app.visibility = visibility
     await app.save()
     assert await resolve_role(ws_owner.id, "app", app.id) == expected_role
-    assert not await can_admin_app(ws_owner.id, app.id)
+    assert await can_admin_app(ws_owner.id, app.id)
+    assert not await _owns_edge_exists(ws_owner, app)
+    unrooted = await _bare_app(ws, rooted=False)
+    assert await resolve_role(ws_owner.id, "app", unrooted.id) is None
+    assert not await can_admin_app(ws_owner.id, unrooted.id)

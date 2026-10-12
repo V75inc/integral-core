@@ -40,15 +40,18 @@ async def test_mission_control_filters_exclusions_before_previews_and_counts(
         OWNS,
     )
     from app.models.nodes import App, Entry, Track
+    from app.services.app_graph import catalog_app, catalog_track
     from app.services.personal_workspace import ensure_personal_workspace
 
     workspace = await ensure_personal_workspace(test_user2)
     await test_user.connect(workspace, edge=IS_MEMBER_OF, role="guest")
     app = await App.create(name="Privacy smoke", workspace_id=workspace.id)
+    await catalog_app(app)
     await workspace.connect(app, edge=CONTAINS)
     await test_user2.connect(app, edge=OWNS)
     await test_user.connect(app, edge=COLLABORATES_ON, role="viewer")
     track = await Track.create(title="Privacy evidence", workspace_id=workspace.id)
+    await catalog_track(track)
     await app.connect(track, edge=CONTAINS)
     entries = []
     for title in ("Visible", "DENIED_HOME_SENTINEL", "Direct grant wins"):

@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence
 
 from app.models.nodes import App, OperationalModel, Track
+from app.services.model_authority import platform_seed_model
 from app.services.operational_model_library_seed import upsert_seeded_library_packages
 from app.services.operational_model_loader import (
     LibraryProfileSpec,
@@ -104,14 +105,18 @@ async def reconcile_removed_seeded_packages(
         else:
             matches = [rows]
         for cp in matches:
-            if getattr(cp, "workspace_id", None):
+            current = await platform_seed_model(cp.id)
+            if current is None:
                 outcomes.append(
                     {
                         "slug": slug,
                         "operational_model_id": cp.id,
-                        "status": "skipped_workspace",
+                        "status": "skipped_unproven_publication",
                     }
                 )
+                continue
+            cp = current
+            if not cp.library_package or (cp.metadata or {}).get("slug") != slug:
                 continue
             referenced = await _is_library_operational_model_referenced(cp.id)
             status = await _deactivate_removed_seeded_profile(
@@ -176,11 +181,13 @@ async def sync_library_catalog_from_disk(
             "context.metadata.seed_status": "active",
         }
     )
-    persisted_slugs = {
-        str((row.metadata or {}).get("slug"))
-        for row in seeded_rows or []
-        if not getattr(row, "workspace_id", None) and (row.metadata or {}).get("slug")
-    }
+    persisted_slugs = set()
+    for row in seeded_rows or []:
+        current = await platform_seed_model(row.id)
+        if current is not None and current.library_package:
+            slug = (current.metadata or {}).get("slug")
+            if isinstance(slug, str) and slug:
+                persisted_slugs.add(slug)
     removed = sorted((set(prior) | persisted_slugs) - set(now_index))
 
     if upsert_specs:
