@@ -121,6 +121,7 @@ def _seed_field_difference(
     approved_fields: Dict[str, Any],
     planned_fields: Dict[str, Any],
     member_keys: set[str],
+    relation_targets: Optional[Dict[str, str]] = None,
 ) -> Optional[str]:
     """Name how a planned seed differs from the approved field map.
 
@@ -143,7 +144,11 @@ def _seed_field_difference(
     )
     missing = sorted(key for key in approved if key not in planned)
     mismatched = sorted(
-        key for key in approved if key in planned and planned[key] != approved[key]
+        key
+        for key in approved
+        if key in planned
+        and planned[key] != approved[key]
+        and planned[key] != (relation_targets or {}).get(key, approved[key])
     )
     if not extra and not missing and not mismatched:
         return None
@@ -359,6 +364,11 @@ def plan_fidelity_errors(
         }
         for p in by_tool.get("integral_create_entry", [])
     }
+    seed_titles: Dict[str, List[str]] = {}
+    for seed in blueprint.get("seeds") or []:
+        seed_titles.setdefault(seed["title"].strip().casefold(), []).append(
+            seed["title"]
+        )
     for seed in blueprint.get("seeds") or []:
         identity = (tracks[seed["track"]]["name"].casefold(), seed["title"].casefold())
         want = {tag.casefold() for tag in seed.get("tags") or []}
@@ -388,8 +398,31 @@ def plan_fidelity_errors(
                 for field in entry_type.get("fields") or []
                 if field.get("type") == "member"
             }
+            # Compilation binds named entry relations to batch references.
+            # Accept only the reference derived from this approved value,
+            # and only when its title identifies exactly one approved seed.
+            # Text fields and redirected relations retain literal equality.
+            relation_keys = {
+                str(field.get("key") or "")
+                for entry_type in tracks[seed["track"]].get("entry_types") or []
+                for field in entry_type.get("fields") or []
+                if field.get("type") == "relation"
+                and (field.get("relation") or {}).get("target") == "entry"
+            }
+            relation_targets = {}
+            for key in relation_keys:
+                value = approved_fields.get(key)
+                if not isinstance(value, str):
+                    continue
+                targets = seed_titles.get(value.strip().casefold(), [])
+                if len(targets) == 1:
+                    relation_targets[key] = "{{entry.id:" + targets[0] + "}}"
             difference = _seed_field_difference(
-                seed["title"], approved_fields, planned_fields, member_keys
+                seed["title"],
+                approved_fields,
+                planned_fields,
+                member_keys,
+                relation_targets,
             )
             if difference:
                 errors.append(difference)
