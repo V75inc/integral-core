@@ -57,6 +57,14 @@ _REQUIRED_SKILLS_BY_TOOL = {
     "integral_verify_build": "integral-scaffold",
 }
 
+# These three read instruments cover subject discovery and relationship
+# capture. Disclose them only after an owning workflow is loaded; the rest of
+# the catalogue stays deferred. This avoids repeated unknown-tool turns while
+# preserving model selection, host scope and broker authorization.
+_PRIMARY_INSIGHT_READS = frozenset(
+    {"integral_query", "integral_query_entries", "integral_get_graph_context"}
+)
+
 
 def _resource_links_for_model(payload: dict[str, Any]) -> dict[str, Any]:
     """Supply canonical navigation URLs on Core resource read results.
@@ -339,12 +347,34 @@ def _make_handler(
         )
 
         async def dispatch() -> Any:
+            connector_id = None
+            if capability_source == "connector":
+                from app.agentive.connectors.connector_resolution import ResolutionError
+                from app.agentive.connectors.tool_binding import (
+                    resolve_mounted_tool_connector,
+                )
+                from app.schemas.capability_broker import CapabilityResult
+
+                try:
+                    connector, _ = await resolve_mounted_tool_connector(
+                        workspace_id=scope.workspace_id,
+                        principal_id=scope.principal_id,
+                        capability_key=capability_name,
+                    )
+                except ResolutionError as exc:
+                    return CapabilityResult(
+                        ok=False,
+                        error_code=exc.error_code,
+                        message="Connector tool is unavailable in this scope.",
+                    )
+                connector_id = str(connector.id)
             return await invoke_declared(
                 principal_id=scope.principal_id,
                 workspace_id=scope.workspace_id,
                 capability_key=capability_name,
                 origin="chat",
                 source=capability_source,
+                connector_id=connector_id,
                 op_class=capability_op_class,
                 arguments=arguments,
                 run_id=scope.run_id,
@@ -376,6 +406,22 @@ def _make_handler(
                     await assert_chat_attachment_read_inputs(item=item)
                 result = await dispatch()
         model_result = _resource_links_for_model(result.for_model())
+        if (
+            capability_source == "connector"
+            and capability_op_class == "read"
+            and result.ok
+            and not result.replayed
+            and result.receipt is not None
+            and result.receipt.step_id
+        ):
+            from app.services.tool_source_observations import source_projection
+
+            if source_projection(result.data) is not None:
+                model_result["_observation_ref"] = {
+                    "kind": "tool_observation",
+                    "id": result.receipt.step_id,
+                    "session_id": scope.session_id,
+                }
         if capability_name == "integral_build_approved_design":
             call_state["build_succeeded"] = bool(result.ok)
             if not result.ok and result.error_code in {
@@ -631,6 +677,11 @@ def build_brokered_tools(
                         else frozenset()
                     ),
                     call_state,
+                    eager_read_owners=(
+                        frozenset(skill_owners.get(name, ()))
+                        if op_class == "read" and name in _PRIMARY_INSIGHT_READS
+                        else frozenset()
+                    ),
                 ),
                 defer_loading=name not in immediately_available,
                 # Public Pydantic barriers preserve model-emitted order for
@@ -661,6 +712,8 @@ def _prepare_capability_tool(
     required_skill: str | None,
     skill_owners: frozenset[str] = frozenset(),
     call_state: dict[str, Any] | None = None,
+    *,
+    eager_read_owners: frozenset[str] = frozenset(),
 ):
     """Disclose skill tools while preserving the build authority boundary."""
 
@@ -679,6 +732,8 @@ def _prepare_capability_tool(
             # The build tool is the model's semantic selection at this saved
             # design decision point. Its handler persists approval against the
             # exact current turn before any build effect.
+            return replace(tool_def, defer_loading=False)
+        if eager_read_owners.intersection(ctx.active_capability_ids):
             return replace(tool_def, defer_loading=False)
         # Core validates the typed blueprint and live coverage on proposal
         # dispatch. Hiding the proposal here would break amendments because

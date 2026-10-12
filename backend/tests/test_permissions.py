@@ -2,6 +2,7 @@
 
 import pytest
 
+from app.exceptions import AuthorizationUnavailableError
 from app.models.edges import (
     COLLABORATES_ON,
     CONTAINS,
@@ -9,6 +10,7 @@ from app.models.edges import (
     IS_MEMBER_OF,
     OWNS,
 )
+from app.models.nodes import Entry
 from app.services.app_graph import create_track_view
 from app.services.permissions import (
     can_delete_track,
@@ -483,3 +485,99 @@ async def test_private_track_cascades_from_space_editor_with_workspace_membershi
 
     assert await can_view_track(member.id, track.id) is True
     assert await can_edit_track(member.id, track.id) is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("track_scoped", [True, False])
+async def test_feed_listing_excludes_entries_before_pagination_and_counts(
+    track_scoped, rooted_access_graph
+):
+    from app.services.entry_listing import fetch_accessible_entries_page
+
+    user = await rooted_access_graph.user(
+        user_id="feed_entry_acl", display_name="Reader"
+    )
+    track = await rooted_access_graph.track(title="Feed ACL Track", owner_id=user.id)
+    await user.connect(track, edge=OWNS)
+    hidden = await Entry.create(title="Hidden", track_id=track.id, author_id=user.id)
+    direct = await Entry.create(title="Direct", track_id=track.id, author_id=user.id)
+    inherited = await Entry.create(
+        title="Inherited", track_id=track.id, author_id=user.id
+    )
+    for entry in (hidden, direct, inherited):
+        entry.created_at = entry.updated_at = "2026-10-11T12:00:00+00:00"
+        await entry.save()
+        await track.connect(entry, edge=CONTAINS)
+    await user.connect(hidden, edge=EXCLUDED_FROM)
+    await user.connect(direct, edge=EXCLUDED_FROM)
+    await user.connect(direct, edge=COLLABORATES_ON, role="viewer")
+
+    seen = []
+    cursor = None
+    for _ in range(3):
+        page, response = await fetch_accessible_entries_page(
+            user.id,
+            track_id=track.id if track_scoped else None,
+            cursor=cursor,
+            limit=1,
+            include_total=True,
+        )
+        assert response["total"] == 2
+        assert len(page) == 1
+        seen.extend(entry.id for entry in page)
+        cursor = response["next_cursor"]
+        if not response["has_more"]:
+            break
+    assert set(seen) == {direct.id, inherited.id}
+    assert len(seen) == 2
+
+    # Corrupt authority must fail closed rather than masquerade as an empty
+    # page; preserve the historical invalid-role boundary independently.
+    await user.connect(hidden, edge=COLLABORATES_ON, role="invalid_legacy_role")
+    with pytest.raises(AuthorizationUnavailableError):
+        await fetch_accessible_entries_page(
+            user.id,
+            track_id=track.id if track_scoped else None,
+            limit=1,
+            include_total=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_feed_listing_resolves_authenticated_principal_to_graph_user(
+    authenticated_client, test_user, test_user2
+):
+    from tests.fixtures.workspaces import make_org_workspace
+
+    # An ordinary member/Track owner, not the protected Workspace owner.
+    workspace = await make_org_workspace("Feed aliases", owner=test_user2)
+    await test_user.connect(
+        workspace,
+        edge=IS_MEMBER_OF,
+        role="member",
+        can_create_apps=True,
+        can_create_tracks=True,
+    )
+    headers = {"X-Integral-Scope": f"ws:{workspace.id}"}
+    assert test_user.id != test_user.user_id
+    response = await authenticated_client.post(
+        "/api/tracks", json={"title": "Authenticated feed privacy"}, headers=headers
+    )
+    assert response.status_code == 200
+    track_id = response.json()["track"]["id"]
+    response = await authenticated_client.post(
+        "/api/entries",
+        json={"track_id": track_id, "title": "Private feed record"},
+        headers=headers,
+    )
+    assert response.status_code == 200
+    entry = await Entry.get(response.json()["entry"]["id"])
+    await test_user.connect(entry, edge=EXCLUDED_FROM)
+    response = await authenticated_client.get(
+        "/api/entries",
+        params={"track_id": track_id, "include_total": True},
+        headers=headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["entries"] == []
+    assert response.json()["total"] == 0

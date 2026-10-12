@@ -10,6 +10,7 @@ export interface BatchInstallEntry {
   reason?: string | null;
   error?: string | null;
   error_code?: string | null;
+  details?: Record<string, unknown> | null;
   install_token?: string | null;
   settings_schema?: Record<string, unknown> | null;
 }
@@ -86,6 +87,7 @@ export const appsApi = {
     visibility?: string;
     library_operational_model_id?: string;
     accent_color?: string;
+    icon?: string;
     include_seed_data?: boolean;
   }) =>
     apiClient
@@ -103,6 +105,7 @@ export const appsApi = {
       workspace_id?: string | null;
       visibility?: string;
       accent_color?: string;
+      icon?: string;
     }
   ) =>
     apiClient

@@ -175,6 +175,9 @@ def build_native_runtime(
             model,
             instructions=build_integral_run_instructions(instructions),
             tools=list(tools),
+            # Discovery and workflow loading each have one bounded output retry
+            # for providers that cannot force tool choice, plus one correction.
+            retries={"output": 3},
             capabilities=capabilities,
         ),
         scoped_store,

@@ -1,5 +1,6 @@
 """App CRUD API endpoints with collaborator and track management."""
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -61,6 +62,7 @@ from app.services.operational_model_runtime import (
 )
 from app.services.permissions import (
     can_create_app_under_workspace,
+    count_user_accessible_entries,
     get_user_accessible_apps,
     get_user_node,
     resolve_role,
@@ -185,6 +187,7 @@ async def create_app(
     visibility: Optional[str] = None,
     library_operational_model_id: Optional[str] = None,
     accent_color: Optional[str] = None,
+    icon: Optional[str] = None,
     type_hint: Optional[str] = None,
     include_seed_data: bool = True,
 ) -> Dict[str, Any]:
@@ -255,6 +258,7 @@ async def create_app(
         visibility=visibility,
         library_package_id=library_operational_model_id,
         accent_color=accent_color,
+        icon=icon,
         include_seed_data=include_seed_data,
     )
 
@@ -454,6 +458,7 @@ async def update_app(
     description: Optional[str] = None,
     visibility: Optional[str] = None,
     accent_color: Optional[str] = None,
+    icon: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Update an App (editor or owner only).
 
@@ -501,6 +506,10 @@ async def update_app(
         sp.name_fold = new_fold
     if description is not None:
         sp.description = description
+    if icon is not None:
+        from app.services.app_identity import validate_app_icon
+
+        sp.icon = validate_app_icon(icon)
     if accent_color is not None:
         sp.accent_color = validate_hex_color(accent_color, allow_empty=True)
     if visibility is not None:
@@ -641,23 +650,29 @@ async def list_app_tracks(
         node=["Track"],
         limit=500,
     )
+    decisions = await asyncio.gather(
+        *(
+            policy_evaluate(
+                subject=Subject(kind="human", id=user_id),
+                action="track.read",
+                resource=Resource(kind="track", id=t.id, scope=f"track:{t.id}"),
+            )
+            for t in tracks
+        )
+    )
+    tracks = [t for t, decision in zip(tracks, decisions) if decision.allowed]
     if not include_nav_hidden:
         tracks = [t for t in tracks if getattr(t, "nav_visible", True)]
     track_ids = [t.id for t in tracks if getattr(t, "id", None)]
     entry_counts: Dict[str, int] = {}
     track_positions: Dict[str, int] = {}
     if track_ids:
-        import asyncio
-
         from app.models.edges import CONTAINS
 
         ctx = await sp.get_context()
 
         async def _count_for_track(tid: str) -> tuple:
-            c = await ctx.database.count(
-                "node", {"entity": "Entry", "context.track_id": tid}
-            )
-            return (tid, c)
+            return (tid, await count_user_accessible_entries(user_id, tid))
 
         async def _position_for_track(tid: str) -> tuple:
             edges = await ctx.find_edges_between(sp.id, tid, edge_class=CONTAINS)

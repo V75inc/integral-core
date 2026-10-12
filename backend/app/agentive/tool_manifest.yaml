@@ -294,12 +294,14 @@ domains:
         privacy: "PC-3 on the exact app — the caller's effective role on this app is resolved at the boundary (app.read)."
       - name: integral_invoke_app_operation
         status: existing
-        op_class: execute
+        op_class: propose
+        staging_kind: invoke_app_operation
         priority: P1
         summary: >-
-          Invoke a typed app operation registered on an installed App instance.
-          Same dispatcher as POST /api/extensions/{app_id}/operations/{key} and
-          the in-process operation bridge — AC-04 shared semantics.
+          Invoke a typed App read immediately, or stage a typed App command for
+          review without executing its handler. Approved commands use the same
+          dispatcher as POST /api/extensions/{app_id}/operations/{key} and the
+          in-process operation bridge, with current permission checks.
         http: "POST /api/extensions/{app_id}/operations/{operation_key}"
         policy_action: app.read
         params:
@@ -511,6 +513,33 @@ domains:
   B_retrieval:
     description: "Query and retrieval. ALL results permission-filtered at source (I-RET-01); index is never a bypass (I-RET-02)."
     tools:
+      - name: integral_get_graph_context
+        status: existing
+        op_class: read
+        priority: P0
+        summary: >-
+          Inspect a bounded workspace relationship, hierarchy or ontology graph
+          to understand how readable apps, tracks, entries and entry types relate.
+          Default root is the bound workspace; choose a known readable root_id
+          for a focused neighborhood. Returns stable IDs, paths, declared type
+          meanings, capture timestamps, expansion points and truncation metadata.
+          Use detail=recorded for schema-declared operational facts, dates,
+          same-record evidence, field states and qualified relation definitions.
+          Default summary preserves topology-only context. Recorded facts do not
+          certify readiness; lifecycle status is not workflow completion.
+          All nodes, edges and paths stay inside the active workspace under the
+          requesting user's current access; cross-workspace links are excluded
+          even when both ends are readable. Stored relationships are evidence,
+          not inferred causation. Installed-App records require declared queries. Use this for relationship
+          context before decision making; use QuerySpec for exact rankings/counts.
+        http: "POST /api/graph-context"
+        policy_action: null
+        params:
+          spec:
+            type: object
+            optional: true
+            desc: "Bounded graph context configuration; defaults to workspace ontology."
+
       - name: integral_query_spec
         status: existing
         op_class: read
@@ -713,7 +742,7 @@ domains:
         op_class: read
         priority: P0
         summary: >-
-          Unified SEMANTIC / hybrid retrieval across entries the caller can read — the
+          Unified SEMANTIC / hybrid retrieval across readable entries in the active workspace — the
           tool for open-ended "find anything about X", concept search, and
           "where did we mention Y" questions, including across tracks. It ranks by
           meaning + graph relevance, NOT by any numeric or date field. IMPORTANT: it
@@ -737,11 +766,11 @@ domains:
         params:
           query: {type: string, required: true, desc: "Natural-language search text describing the concept or thing to find. Matched semantically — phrase it as what the content is about, not as a field comparison."}
           mode: {type: string, enum: [graph, semantic, hybrid], default: hybrid, desc: "Retrieval strategy: 'semantic' = embedding similarity, 'graph' = relationship/keyword traversal, 'hybrid' = both (default, recommended)."}
-          scope: {type: string, optional: true, desc: "Optional pre-filter to one track, written as 'track:<track_id>'. Omit to search across every track the caller can read."}
+          scope: {type: string, optional: true, desc: "Optional narrowing to 'track:<track_id>' inside the active workspace. Omit to search readable tracks in that workspace. A different workspace or foreign track is refused."}
           top_n: {type: integer, default: 20, desc: "Maximum number of results to return (default 20). Raise it when you need broad recall before reasoning over the set."}
           filters: {type: object, optional: true, desc: "Optional custom-field equality constraints applied to candidates (a dict of field_key -> value). This is an exact match filter, not a ranking — it cannot sort by a value."}
         returns: { results: [{entry_id: str, title: str, snippet: str, track_id: str, score: number}], mode: str, requested_mode: str, degraded: bool }
-        privacy: "Every candidate permission-checked via policy_engine before return (I-RET-01). PC-4, PC-5 (restricted-stub honored)."
+        privacy: "Host-bound workspace membership and current per-entry policy checked before return, independently of vector-store pre-filters (I-RET-01). PC-4, PC-5 (restricted-stub honored)."
       - name: integral_plan_query
         status: existing
         op_class: read
@@ -2559,11 +2588,11 @@ domains:
 # SUMMARY COUNTS (for review convenience; keep in sync)
 # =============================================================================
 summary:
-  total_tools: 125
-  existing_tools: 123    # status: existing
+  total_tools: 126
+  existing_tools: 124    # status: existing
   gap_tools_proposed: 2  # status: gap (workspace_setup, onboard_user deferred)
-  by_op_class: { read: 53, propose: 70, execute: 2 }
-  by_priority: { P0: 15, P1: 41, P2: 69 }
+  by_op_class: { read: 54, propose: 71, execute: 1 }
+  by_priority: { P0: 16, P1: 41, P2: 69 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
   policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)

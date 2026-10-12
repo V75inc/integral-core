@@ -407,6 +407,7 @@ async def install_app(
     settings: Optional[Dict[str, Any]] = None,
     name_override: Optional[str] = None,
     description_override: Optional[str] = None,
+    icon_override: Optional[str] = None,
     include_seed_data: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """Atomic install transaction — 12 steps per app_bundles_v1.md §9.1.
@@ -621,11 +622,14 @@ async def install_app(
                 or None
             )
         now = utc_now_iso()
+        from app.services.app_identity import validate_app_icon
+
         app_node = await App.create(
             name=app_name,
             name_fold=app_name.casefold(),
             owner_user_id=actor_id,
             description=app_description,
+            icon=validate_app_icon(icon_override),
             visibility="private",
             workspace_id=workspace_id,
             lifecycle_state="installing",

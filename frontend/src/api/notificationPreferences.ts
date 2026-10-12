@@ -37,7 +37,8 @@ export type NotificationKind =
   | 'agent_pending_write'
   | 'invitation'
   | 'system'
-  | 'whatsapp_welcome';
+  | 'whatsapp_welcome'
+  | 'entry_update';
 
 export type ChannelName = 'in_app' | 'email' | 'whatsapp';
 
@@ -67,8 +68,14 @@ export async function fetchNotificationPreferences(): Promise<NotificationPrefer
   return data;
 }
 
+export interface NotificationPreferencesPatch {
+  channels?: Partial<ChannelMatrix>;
+  kinds?: Partial<Record<NotificationKind, Partial<ChannelMatrix>>>;
+  whatsapp?: { phone_e164?: string | null };
+}
+
 export async function patchNotificationPreferences(
-  partial: Partial<NotificationPreferences>,
+  partial: NotificationPreferencesPatch,
 ): Promise<NotificationPreferences> {
   const { data } = await apiClient.patch<NotificationPreferences>(
     '/users/me/notification-preferences',

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { PageHeading, PageShell, PageSection } from '../ui';
 import { Select, Text } from '../../ui';
 import { useSetCrumbs } from '../../context/CrumbsContext';
@@ -7,7 +7,7 @@ import {
   type ApprovalResponse,
 } from '../../api/approvals';
 import { ApprovalsListBody } from './ApprovalsListBody';
-import { StagedChatApprovals } from './StagedChatApprovals';
+import { StagedApprovalsList, useStagedApprovals } from './StagedChatApprovals';
 
 type StatusFilter = 'pending' | 'approved' | 'rejected' | 'expired';
 
@@ -18,20 +18,27 @@ export function ApprovalsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('pending');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [stagedCount, setStagedCount] = useState(0);
+  const staged = useStagedApprovals();
+  const stagedCount = staged.rows.length;
+  const [loadedStatus, setLoadedStatus] = useState<StatusFilter | null>(null);
+  const requestRevision = useRef(0);
 
   const refetch = useCallback(async () => {
+    const revision = ++requestRevision.current;
     setLoading(true);
     setError(null);
     try {
       const data = await listApprovals({ status: statusFilter });
+      if (revision !== requestRevision.current) return;
       setRows(data.approvals);
+      setLoadedStatus(statusFilter);
     } catch (err) {
+      if (revision !== requestRevision.current) return;
       const msg =
         err instanceof Error ? err.message : 'Failed to load approvals';
       setError(msg);
     } finally {
-      setLoading(false);
+      if (revision === requestRevision.current) setLoading(false);
     }
   }, [statusFilter]);
 
@@ -64,7 +71,13 @@ export function ApprovalsPage() {
                 {statusFilter === 'pending' &&
                 pendingCount === 0 &&
                 stagedCount === 0
-                  ? 'All clear'
+                  ? loading || !staged.loaded
+                    ? 'Checking approvals…'
+                    : error || staged.refreshFailed
+                      ? 'Could not refresh approvals'
+                      : loadedStatus !== statusFilter
+                        ? 'Checking approvals…'
+                        : 'All clear'
                   : `Showing ${statusFilter}`}
               </span>
             </div>
@@ -113,9 +126,9 @@ export function ApprovalsPage() {
           onDecide={() => void refetch()}
           // Its empty state is worded for the whole page; let it speak only
           // when there is genuinely nothing pending anywhere.
-          hideEmptyState={showStaged && stagedCount > 0}
+          hideEmptyState={showStaged && (stagedCount > 0 || !staged.loaded || staged.refreshFailed)}
         />
-        {showStaged && <StagedChatApprovals onCountChange={setStagedCount} />}
+        {showStaged && <StagedApprovalsList {...staged} />}
       </PageSection>
     </PageShell>
   );

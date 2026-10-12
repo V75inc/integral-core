@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Check, MessageSquare, X } from 'lucide-react';
+import { Eye, X } from 'lucide-react';
 import { LINE_ICON_STROKE } from '../ui';
 import { Text } from '../../ui';
 import { formatRelativeTime } from '../../utils';
 import { listPendingStagedChanges } from '../../api/agentive';
 import { useStagedChange } from '../../features/ai-chat/staging/useStagedChange';
+import { StagedChangeReviewModal } from '../../features/ai-chat/staging/StagedChangeReviewModal';
+import { useConfirm } from '../../context/ConfirmContext';
 
 import type { StagedChange } from '../../features/ai-chat/staging/types';
 
@@ -19,13 +20,11 @@ import type { StagedChange } from '../../features/ai-chat/staging/types';
  * endpoints the chat card calls, so the inline card reconciles to the
  * terminal state on its next mount.
  */
-export function StagedChatApprovals({
-  onCountChange,
-}: {
-  onCountChange?: (count: number) => void;
-}) {
+/** Bounded proposal collection shared by the full page and global Inbox. */
+export function useStagedApprovals() {
   const [rows, setRows] = useState<StagedChange[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [refreshFailed, setRefreshFailed] = useState(false);
 
   const refetch = useCallback(async () => {
     try {
@@ -34,13 +33,13 @@ export function StagedChatApprovals({
       // showing it here collapsed design confirm into a bless dialog.
       setRows(
         pending.filter(
-          (sc) => sc.state === 'pending' && sc.kind !== 'design_proposal',
+          (sc) => (sc.state === 'pending' || sc.state === 'blessed') && sc.kind !== 'design_proposal',
         ),
       );
+      setRefreshFailed(false);
     } catch {
-      // Silent: this section is supplementary — the policy-approvals list
-      // above owns the page-level error surface.
-      setRows([]);
+      // Preserve known proposals; a failed refresh is not an "all clear".
+      setRefreshFailed(true);
     } finally {
       setLoaded(true);
     }
@@ -48,22 +47,57 @@ export function StagedChatApprovals({
 
   useEffect(() => {
     void refetch();
+    // External MCP proposals have no local chat event. Refresh boundedly and
+    // on the events shared by chat/Inbox so this page does not require reload.
+    const refresh = () => void refetch();
+    const interval = window.setInterval(refresh, 15_000);
+    window.addEventListener('focus', refresh);
+    window.addEventListener('integral:staging-created', refresh);
+    window.addEventListener('integral:staging-state-changed', refresh);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('integral:staging-created', refresh);
+      window.removeEventListener('integral:staging-state-changed', refresh);
+    };
   }, [refetch]);
 
-  useEffect(() => {
-    if (loaded) onCountChange?.(rows.length);
-  }, [loaded, rows.length, onCountChange]);
+  return { rows, loaded, refreshFailed, refetch };
+}
 
-  if (!loaded || rows.length === 0) return null;
+export function StagedChatApprovals({
+  onCountChange,
+}: {
+  onCountChange?: (count: number) => void;
+}) {
+  const collection = useStagedApprovals();
+  useEffect(() => {
+    if (collection.loaded) onCountChange?.(collection.rows.length);
+  }, [collection.loaded, collection.rows.length, onCountChange]);
+  return <StagedApprovalsList {...collection} />;
+}
+
+export function StagedApprovalsList({
+  rows, loaded, refreshFailed, refetch,
+}: ReturnType<typeof useStagedApprovals>) {
+  if (!loaded || (rows.length === 0 && !refreshFailed)) return null;
 
   return (
-    <section aria-label="Agent chat approvals" className="mt-8">
+    <section aria-label="Proposed changes" className="mt-8">
       <Text as="h2" variant="body-sm" tone="muted" weight="medium" className="mb-3 block">
-        Agent chat approvals
+        Proposed changes
         <Text as="span" variant="body-sm" tone="subtle" className="ml-2">
-          staged in conversation — authorizing allows the agent to apply the change
+          review the details before authorizing a change
         </Text>
       </Text>
+      {refreshFailed && (
+        <div role="status">
+          <Text as="p" variant="body-sm" tone="warn" className="mb-3 block">
+            Proposed changes could not be refreshed.{' '}
+            <button type="button" onClick={() => void refetch()} className="underline">Retry</button>
+          </Text>
+        </div>
+      )}
       <div className="space-y-2">
         {rows.map(sc => (
           <StagedChangeRow key={sc.token} staged={sc} onDecide={refetch} />
@@ -89,11 +123,20 @@ function StagedChangeRow({
   // nothing invalidated the caches.
   //
   // No `onNeedsAgentNudge`: this surface has no conversation to nudge. When
-  // a bless lands without a write, the agent picks it up on its next turn.
-  const { busy, error, state, bless, revoke } = useStagedChange(staged, {
+  // a bless lands without a write, do not imply execution or retry is underway.
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const confirm = useConfirm();
+  const controls = useStagedChange(staged, {
     onTerminal: () => onDecide(),
+    onNeedsStrongConfirmation: (summary) => confirm({
+      title: 'Confirm high-impact change',
+      message: `Review the affected records, access, or structure, then confirm this exact action: ${summary}`,
+      confirmLabel: 'Confirm change',
+      variant: 'danger',
+    }),
   });
-  const awaitingExecution = state === 'blessed';
+  const { busy, error, state, revoke } = controls;
+  const approved = state === 'blessed';
 
   return (
     <div className="flex items-start gap-3 rounded-lg border border-[var(--panel-border)] bg-[var(--nav-active-bg)] p-4">
@@ -106,23 +149,24 @@ function StagedChangeRow({
           {staged.summary}
         </Text>
         <Text as="p" variant="meta" tone="muted" className="mt-0.5 block">
-          {awaitingExecution
-            ? 'Authorized · waiting for the agent to apply it'
+          {approved
+            ? (error ? 'Approved · action incomplete' : 'Approved · not yet applied')
             : `Awaiting authorization · staged ${formatRelativeTime(staged.created_at)}`}
           <span className="mx-1.5" aria-hidden>
             ·
           </span>
-          expires {formatRelativeTime(staged.expires_at)}
+          expires {formatRelativeTime(staged.expires_at).trim()}
           <span className="mx-1.5" aria-hidden>
             ·
           </span>
-          <Link
-            to="/agent"
+          <button
+            type="button"
+            onClick={() => setReviewOpen(true)}
             className="inline-flex items-center gap-1 text-[var(--link)] hover:text-[var(--link-hover)] hover:underline"
           >
-            <MessageSquare size={11} strokeWidth={LINE_ICON_STROKE} />
-            Review in chat
-          </Link>
+            <Eye size={11} strokeWidth={LINE_ICON_STROKE} />
+            Review change
+          </button>
         </Text>
         {error && (
           <div className="mt-2 rounded-[var(--radius-input)] border border-[color:var(--danger-fg)]/20 bg-[var(--danger-bg)] px-2 py-1 text-[11px] text-[var(--danger-fg)]">
@@ -130,28 +174,35 @@ function StagedChangeRow({
           </div>
         )}
       </div>
-      {!awaitingExecution && (
+      {(state === 'pending' || approved) && (
         <div className="flex shrink-0 items-center gap-1">
           <button
             type="button"
             disabled={busy}
-            onClick={() => void bless()}
-            aria-label="Authorize staged change"
+            onClick={() => setReviewOpen(true)}
+            aria-label="Review staged change"
             className="rounded-lg p-1.5 text-[var(--success-fg)] transition-colors hover:bg-[var(--nav-active-bg)] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <Check size={14} strokeWidth={LINE_ICON_STROKE} />
+            <Eye size={14} strokeWidth={LINE_ICON_STROKE} />
           </button>
           <button
             type="button"
             disabled={busy}
             onClick={() => void revoke()}
-            aria-label="Reject staged change"
+            aria-label={approved ? 'Cancel approved change' : 'Reject staged change'}
+            title={approved ? 'Cancel approval' : 'Reject change'}
             className="rounded-lg p-1.5 text-[var(--danger-fg)] transition-colors hover:bg-[var(--nav-active-bg)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <X size={14} strokeWidth={LINE_ICON_STROKE} />
           </button>
         </div>
       )}
+      <StagedChangeReviewModal
+        staged={staged}
+        open={reviewOpen}
+        onClose={() => setReviewOpen(false)}
+        controls={controls}
+      />
     </div>
   );
 }

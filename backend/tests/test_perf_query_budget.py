@@ -147,9 +147,11 @@ async def test_retrieve_graph_query_budget(
     )
     assert larger.status_code == 200, larger.text
     large_count = int(larger.headers["X-DB-Round-Trip-Count"])
-    # 2026-10-11, pinned jvspatial 0.1.1 + fresh primary admission: 17
-    # operations at both 1 and 13 Entries. Bound absolute overhead and scaling.
-    assert count <= 20, f"graph retrieve used {count} DB round-trips (budget 20)"
+    # 2026-10-12, pinned jvspatial 0.2.0 + current identity and main's
+    # request-workspace binding: 21 operations at both 1 and 13 Entries.
+    # Keep fresh authority; bound fixed overhead and preserve the +2 scaling
+    # ceiling rather than restoring the older unbound request path.
+    assert count <= 22, f"graph retrieve used {count} DB round-trips (budget 22)"
     assert (
         large_count <= count + 2
     ), f"retrieve scaled from {count} to {large_count} operations"

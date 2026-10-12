@@ -632,7 +632,7 @@ async def test_open_queue_blocks_execute_but_allows_reads(monkeypatch):
     )
 
     execute = await tooling_dispatch.dispatch_tool(
-        "integral_invoke_app_operation",
+        "integral_mark_notification_read",
         {},
         principal_id="u-gate",
         scope="ws-gate",

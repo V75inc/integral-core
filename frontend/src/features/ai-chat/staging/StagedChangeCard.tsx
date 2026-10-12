@@ -215,47 +215,26 @@ export function StagedChangeCard({ staged, onTerminal }: StagedChangeCardProps) 
         </div>
       )}
 
-      {/* `blessed` means approved, NOT applied — and this card often cannot
-          tell which. The error from a failed write lives only in the hook
-          instance that performed the bless, so a card that learned the state
-          from the WS push or from reconcile-on-mount (approved on the
-          Approvals page, in the inbox, or before a reload) has the state and
-          nothing else. "Awaiting agent execution" asserts work is in flight,
-          which was flatly untrue for a write the backend refused with 403 —
-          observed live. Say only what the state guarantees; the error banner
-          below adds the reason whenever this instance knows it. */}
-      {executionFailed && (
-        <div className="flex items-center gap-1 text-xs text-[var(--danger-fg)]">
-          <FileWarning size={12} /> Could not apply this authorized change. It can be retried.
-        </div>
-      )}
-
-      {isBlessed && !executionFailed && !staged.autonomy_grant_used && (
-        <div className="flex items-center justify-between gap-2 text-xs text-[var(--text-muted)]">
+      {/* Approval authorizes an attempt; it does not establish completion or
+          safe retry. Cancellation revokes the remaining approval, not any
+          partial effects the server may have recorded. */}
+      {isBlessed && (
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--text-muted)]">
           <span className="inline-flex items-center gap-1">
-            <CheckIcon size={12} className="text-[var(--success-fg)]" />
-            Approved — not yet applied.
+            {executionFailed ? <FileWarning size={12} className="text-[var(--danger-fg)]" /> : <CheckIcon size={12} className="text-[var(--success-fg)]" />}
+            {executionFailed
+              ? 'Could not apply this authorized change.'
+              : staged.autonomy_grant_used
+                ? 'Auto-approved (session grant).'
+                : 'Approved — not yet applied.'}
           </span>
           <button
+            type="button"
             onClick={() => void revoke()}
-            className="text-[var(--text-subtle)] hover:text-[var(--danger-fg)]"
+            disabled={status.kind === 'loading'}
+            className="text-[var(--text-subtle)] hover:text-[var(--danger-fg)] disabled:opacity-50"
           >
-            Undo
-          </button>
-        </div>
-      )}
-
-      {isBlessed && !executionFailed && staged.autonomy_grant_used && (
-        <div className="flex items-center justify-between gap-2 text-xs text-[var(--text-muted)]">
-          <span className="inline-flex items-center gap-1">
-            <Sparkles size={12} className="text-[var(--brand-accent)]" />
-            Auto-approved (session grant).
-          </span>
-          <button
-            onClick={() => void revoke()}
-            className="text-[var(--text-subtle)] hover:text-[var(--danger-fg)]"
-          >
-            Undo
+            Cancel approval
           </button>
         </div>
       )}

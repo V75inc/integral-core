@@ -12,6 +12,7 @@ import { useScope } from '../../context/ScopeContext';
 import type { OperationalModelNode, App } from '../../types';
 import { appPath } from '../../utils/resourcePaths';
 import { OperationalModelPicker } from '../library/OperationalModelPicker';
+import { AppIconPicker } from './AppIconPicker';
 import { IncludeSeedDataToggle } from './IncludeSeedDataToggle';
 import { countManifestSeedEntries } from '../../utils/manifestSeeds';
 
@@ -40,6 +41,8 @@ export function AppModal({ open, onClose, onSaved, editApp, mode }: AppModalProp
   const isBlank = mode === 'blank';
 
   const [name, setName] = useState(editApp?.name || '');
+  const [iconLoading, setIconLoading] = useState(false);
+  const [icon, setIcon] = useState(editApp?.icon || '');
   const [description, setDescription] = useState(editApp?.description || '');
   const [visibilityChoice, setVisibilityChoice] = useState<VisibilityChoice>(() =>
     isEdit ? normalizeAppVisibility(editApp?.visibility) : 'inherit'
@@ -103,10 +106,12 @@ export function AppModal({ open, onClose, onSaved, editApp, mode }: AppModalProp
     if (!open) return;
     if (editApp) {
       setName(editApp.name || '');
+      setIcon(editApp.icon || '');
       setDescription(editApp.description || '');
       setVisibilityChoice(normalizeAppVisibility(editApp.visibility));
     } else {
       setName('');
+      setIcon('');
       setDescription('');
       setVisibilityChoice('inherit');
       setLibraryPackageId('');
@@ -123,6 +128,7 @@ export function AppModal({ open, onClose, onSaved, editApp, mode }: AppModalProp
   }, [libraryPackageId, libraryPackages]);
 
   const handleSubmit = async () => {
+    if (iconLoading) return;
     if (!name.trim()) {
       showToast('Name is required', 'error');
       return;
@@ -134,12 +140,14 @@ export function AppModal({ open, onClose, onSaved, editApp, mode }: AppModalProp
         sp = await appsApi.update(editApp.id, {
           name: name.trim(),
           description: description.trim(),
+          icon,
           visibility: visibilityChoice,
         });
       } else {
         sp = await appsApi.create({
           name: name.trim(),
           description: description.trim() || undefined,
+          icon,
           ...(scope?.workspaceId ? { workspace_id: scope.workspaceId } : {}),
           ...(visibilityChoice === 'inherit' ? {} : { visibility: visibilityChoice }),
           ...(libraryPackageId
@@ -194,6 +202,7 @@ export function AppModal({ open, onClose, onSaved, editApp, mode }: AppModalProp
           onChange={e => setDescription(e.target.value)}
         />
       </div>
+      <AppIconPicker name={name} value={icon} onChange={setIcon} onProcessing={setIconLoading} />
       <div className="rounded-[var(--radius-card)] border border-[var(--panel-border)] bg-[var(--panel-2)]/25 p-4 space-y-3">
         <label className="text-sm font-medium text-[var(--text)] block">
           Visibility
@@ -228,7 +237,7 @@ export function AppModal({ open, onClose, onSaved, editApp, mode }: AppModalProp
         onSubmit={handleSubmit}
         submitLabel="Save changes"
         submitLoading={saving}
-        submitDisabled={!name.trim()}
+        submitDisabled={!name.trim() || iconLoading}
       >
         {detailsBody}
       </FormDialog>
@@ -245,7 +254,7 @@ export function AppModal({ open, onClose, onSaved, editApp, mode }: AppModalProp
         onSubmit={handleSubmit}
         submitLabel="Create"
         submitLoading={saving}
-        submitDisabled={!name.trim()}
+        submitDisabled={!name.trim() || iconLoading}
       >
         {detailsBody}
       </FormDialog>
@@ -292,7 +301,7 @@ export function AppModal({ open, onClose, onSaved, editApp, mode }: AppModalProp
             <Button
               variant="primary"
               loading={saving}
-              disabled={!name.trim()}
+              disabled={!name.trim() || iconLoading}
               onClick={handleSubmit}
             >
               Create

@@ -25,6 +25,7 @@ async def entry_effect_scope(
     workspace_id: str,
     payload: dict,
     entry_type_key: str = "",
+    authorization_subject: Subject | None = None,
 ):
     """Join the command transaction; hold authority until its effects finish."""
     from app.api.errors import InsufficientPermissionsError
@@ -49,12 +50,34 @@ async def entry_effect_scope(
             )
         yield user_id
         return
-    subject = Subject(
-        kind=(
-            actor_kind if actor_id and actor_kind in {"agent", "connector"} else "human"
-        ),
-        id=actor_id if actor_id and actor_kind in {"agent", "connector"} else user_id,
-    )
+    # Agentive provenance is independent of actor authority. A canonical
+    # human alias retains that human; other service claims must be admitted.
+    # Opaque provenance requires an explicit human authorization subject.
+    human = Subject(kind="human", id=user_id)
+    if authorization_subject is not None and authorization_subject.kind in {
+        "agent",
+        "connector",
+    }:
+        subject = authorization_subject
+    elif authorization_subject is not None and authorization_subject.kind == "human":
+        from app.services.permissions import get_user_node
+
+        caller = await get_user_node(user_id)
+        author = await get_user_node(authorization_subject.id)
+        if caller is None or author is None or caller.id != author.id:
+            raise AuthorizationUnavailableError()
+        subject = human
+    elif actor_id and actor_kind in {"agent", "connector"}:
+        subject = Subject(kind=actor_kind, id=actor_id)
+        if actor_id == user_id or actor_id.startswith(("n.User.", "o.User.")):
+            from app.services.permissions import get_user_node
+
+            caller = await get_user_node(user_id)
+            author = await get_user_node(actor_id)
+            if caller is not None and author is not None and caller.id == author.id:
+                subject = human
+    else:
+        subject = human
     participants = (
         (subject.id,)
         if subject.kind == "human"

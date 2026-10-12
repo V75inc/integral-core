@@ -275,6 +275,11 @@ async def test_batch_install_partial_success(test_user) -> None:
     assert len(result["installed"]) == 1
     assert len(result["failed"]) == 1
     assert result["failed"][0]["library_cp_id"] == broken.id
+    from app.schemas.app_batch_install import BatchInstallResponse
+
+    failure = BatchInstallResponse.model_validate(result).failed[0]
+    assert failure.error_code == "app_dependency_error"
+    assert failure.details["missing_deps"] == ["never_installed_dep"]
 
 
 @pytest.mark.asyncio
@@ -422,3 +427,45 @@ async def test_batch_install_workspace_provisioning_crm_and_projects(test_user) 
     installed_names = {r["name"] for r in result["installed"]}
     assert "Projects" in installed_names
     assert "CRM" in installed_names
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("typed_error", [True, False])
+async def test_batch_install_retains_only_public_error_details(
+    test_user, monkeypatch, typed_error
+):
+    """Partial results retain public denial metadata, not arbitrary exception internals."""
+    from app.api.errors import BadRequestError
+    from app.schemas.app_batch_install import BatchInstallResponse
+
+    ws = await _make_workspace("Structured failure")
+    await test_user.connect(ws, edge=IS_MEMBER_OF, role="owner", added_at=utc_now_iso())
+    blocked = await _seed_library("Restricted package")
+    allowed = await _seed_library("Allowed package")
+    details = {"required_capability": "example"}
+    error = (
+        BadRequestError(message="Access required", details=details)
+        if typed_error
+        else RuntimeError("Install failed")
+    )
+    if not typed_error:
+        error.details = {"private_internal": "must not project"}
+
+    async def install_fixture(**kwargs):
+        if kwargs["library_cp_id"] == blocked.id:
+            raise error
+        return {"app_id": "fixture-app", "status": "active"}
+
+    monkeypatch.setattr("app.services.app_batch_install.install_app", install_fixture)
+    result = BatchInstallResponse.model_validate(
+        await batch_install(
+            workspace_id=ws.id,
+            items=[{"library_cp_id": blocked.id}, {"library_cp_id": allowed.id}],
+            actor_id=test_user.id,
+        )
+    ).model_dump()
+    assert len(result["installed"]) == 1
+    failure = result["failed"][0]
+    assert failure["name"] == "Restricted package"
+    assert failure["error_code"] == ("bad_request" if typed_error else "install_failed")
+    assert failure.get("details") == (details if typed_error else None)

@@ -15,7 +15,7 @@
 
 import React from 'react';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, cleanup, waitFor } from '@testing-library/react';
+import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import '@testing-library/jest-dom/vitest';
 
@@ -65,7 +65,11 @@ function renderCard() {
   );
 }
 
-beforeEach(() => cleanup());
+beforeEach(async () => {
+  cleanup();
+  const { getStagingTokenState } = await import('../../../../api/agentive');
+  vi.mocked(getStagingTokenState).mockResolvedValue({ state: 'blessed' } as never);
+});
 afterEach(() => vi.clearAllMocks());
 
 describe('StagedChangeCard — blessed state', () => {
@@ -80,11 +84,11 @@ describe('StagedChangeCard — blessed state', () => {
     expect(screen.queryByText(/awaiting agent execution/i)).toBeNull();
   });
 
-  it('still offers Undo, since an approved-but-unapplied change is revocable', async () => {
+  it('still offers cancellation, since an approved-but-unapplied change is revocable', async () => {
     renderCard();
 
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /undo/i })).toBeInTheDocument(),
+      expect(screen.getByRole('button', { name: 'Cancel approval' })).toBeInTheDocument(),
     );
   });
 
@@ -106,4 +110,15 @@ describe('StagedChangeCard — blessed state', () => {
     expect(screen.getByText('Cannot add a track to this app')).toBeInTheDocument();
     expect(screen.queryByText(/approved — not yet applied/i)).toBeNull();
   });
+  it('keeps cancellation available after execution refusal without promising a safe retry', async () => {
+    const { getStagingTokenState, revokeStagingToken } = await import('../../../../api/agentive');
+    vi.mocked(getStagingTokenState).mockResolvedValue({ state: 'blessed', last_error: { message: 'Source changed.' } } as never);
+    vi.mocked(revokeStagingToken).mockResolvedValue({ ok: true } as never);
+    renderCard();
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel approval' }));
+    expect(revokeStagingToken).toHaveBeenCalledWith(staged.token);
+    expect(screen.queryByText(/It can be retried/)).not.toBeInTheDocument();
+    await screen.findByText('Rejected.');
+  });
+
 });

@@ -14,8 +14,8 @@ from jvspatial.api import endpoint
 from app.api.errors import MissingAuthenticationError
 from app.api.utils import attach_author_exports, export_node, resolve_principal_id
 from app.services.permissions import (
-    _collect_entries_for_tracks,
     get_user_accessible_apps,
+    get_user_accessible_entries,
     get_user_accessible_tracks,
 )
 from app.services.query_boundary import generic_entry_read, keep_open_entries
@@ -50,17 +50,13 @@ async def get_mission_control_snapshot(
         for t in tracks
         if getattr(t, "nav_visible", True) and getattr(t, "kind", None) != "settings"
     ]
-    # Reuse the tracks we just resolved to gather entries, instead of calling
-    # get_user_accessible_entries(workspace_id=None) — which re-runs the single
-    # most expensive step (get_user_accessible_tracks) a second time. Every track
-    # here is already access-verified, so entries under them need no per-entry
-    # re-check; _collect_entries_for_tracks is two indexed $in finds.
+    # Track access does not prove Entry access: explicit Entry exclusions
+    # still apply. The canonical listing reuses request-cached Track grants
+    # and batches Entry overrides before any preview or count is computed.
     decisions = await asyncio.gather(*(generic_entry_read(t) for t in tracks))
     open_ids = {t.id for t, d in zip(tracks, decisions) if d.allowed}
     blocked_ids = {t.id for t in tracks} - open_ids
-    entries = await _collect_entries_for_tracks(
-        user_id, list(open_ids), include_author_entries=True
-    )
+    entries = await get_user_accessible_entries(user_id, strict=True)
     # Authored entries can sit on tracks outside the accessible list.
     stray, excluded_stray = await keep_open_entries(
         [

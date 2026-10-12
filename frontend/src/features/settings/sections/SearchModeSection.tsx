@@ -55,7 +55,7 @@ export function SearchModeSection({ settings, update }: Props) {
 
       <SettingsSection
         title="Search mode"
-        description="Applied across the whole workspace. The next search uses the new mode immediately."
+        description="Saved in this browser and used by its search boxes. Other people’s preferences are unchanged."
       >
         <SettingsField
           label="Mode"
@@ -67,7 +67,7 @@ export function SearchModeSection({ settings, update }: Props) {
                 : 'Fastest. Plain text match against the items currently loaded on screen.'
           }
         >
-          <div className="flex gap-1 rounded-[var(--radius-pill)] border border-[var(--panel-border)] bg-[var(--panel-2)] p-1">
+          <div role="group" aria-label="Search mode" className="flex flex-wrap gap-1 rounded-[var(--radius-pill)] border border-[var(--panel-border)] bg-[var(--panel-2)] p-1">
             {(['semantic', 'hybrid', 'graph'] as const).map(m => (
               <button
                 key={m}

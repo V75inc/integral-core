@@ -772,7 +772,7 @@ async def export_qualification_run(request: Request, run_id: str) -> Dict[str, A
     if payload is None:
         # Do not reveal whether a run exists outside the caller's scope.
         raise ResourceNotFoundError(message="Run not found")
-    return QualificationRunExport.model_validate(payload).model_dump()
+    return QualificationRunExport.model_validate(payload).model_dump(mode="json")
 
 
 @endpoint(
@@ -2334,6 +2334,7 @@ async def _start_user_turn(
             "Image" if images else ("File" if attachment_file_parts else "")
         )
         thread.title = _derive_thread_title(user_text or fallback_title)
+        thread.title_source = "fallback"
         await thread.save()
     elif had_pending_question and not durable_turn:
         await thread.save()

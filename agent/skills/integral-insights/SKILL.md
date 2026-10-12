@@ -1,12 +1,143 @@
 ---
 name: integral-insights
-description: Search existing Integral records and current workspace state to answer one-time questions. Find whether information is already filed, search entries by meaning, summarize, count, rank, compare, or break down current data; optionally save a query as a View. For a new operational app, use integral-scaffold. For periodic or recurring review deliverables, use integral-review.
-allowed-tools: integral_describe_capabilities integral_governed_query integral_query_spec integral_plan_query integral_query integral_query_entries integral_count_entries integral_aggregate integral_activity_digest integral_get_digest integral_save_view integral_list_apps integral_list_tracks integral_get_track_schema integral_resolve_entry integral_describe_substrate integral_get_feed integral_list_notifications integral_mark_notification_read integral_search_cross_track integral_list_tags
+description: Read workflow instructions. Load with load_capability; this skill name is never a callable tool. Search existing Integral records and current workspace state to answer one-time questions. Find whether information is already filed, search entries by meaning, explain what could hold up work, dependencies, risks, fallback options and stored intra-workspace relationships; summarize, count, rank, compare, or break down current data; optionally save a query as a View. For a new operational app, use integral-scaffold. For periodic or recurring review deliverables, use integral-review.
+allowed-tools: integral_get_graph_context integral_describe_capabilities integral_governed_query integral_query_spec integral_plan_query integral_query integral_query_entries integral_count_entries integral_aggregate integral_activity_digest integral_get_digest integral_save_view integral_list_apps integral_list_tracks integral_get_track_schema integral_resolve_entry integral_describe_substrate integral_get_feed integral_list_notifications integral_mark_notification_read integral_search_cross_track integral_list_tags
 ---
 
 # Integral insights — SOP
 
+## Start after loading
+
+Read native format v2 correctly before composing an answer:
+- Each `nodes[]` item is one record. Its **`context` contains actual values**.
+  For a declared path `custom_fields.<key>`, read
+  `node.context["custom_fields.<key>"]` from that same node.
+- **`fields` is metadata**, not the value store. Its `evidence.verification`
+  is a verification note; never substitute it for operational state.
+- Pair each label, state, date and quantity within its own node. Do not zip
+  separate lists, sort dates separately, or borrow an adjacent node's deadline.
+  Make a small record-by-record table: Record | operational state | deadline |
+  quantity/unit | verification note. Copy each cell from that row's node context
+  and metadata. Then explain the edges separately.
+- A deadline is not an observation date. Null quantity means unknown for that
+  record; it does not mean another prerequisite lacks a reservation. Apply
+  qualification/reservation conditions only to the relation they describe.
+
+For a dated decision question, start your final answer with a Markdown table.
+This visible table is REQUIRED, not an internal preparation step:
+
+| Record | Recorded state | Deadline | Quantity / evidence |
+| --- | --- | --- | --- |
+| <node.label> | <that node's operational value> | <that node's deadline value> | <that node's quantity/unit and verification note> |
+
+Include the subject and each relevant prerequisite/fallback as separate rows.
+Before emitting a date, match the row label to its node and copy that node's
+`context` deadline value exactly. Never take a date from another node or
+observation field. If a value is absent, write unknown. Follow the table with
+two short sentences explaining mitigation and remaining evidence gaps.
+The final answer must cover this compact structure:
+- **Prerequisites:** each relevant record's name, recorded operational state,
+  and its returned deadline. Include dates; naming the prerequisites alone
+  leaves the timing question unanswered.
+- **Fallback:** returned candidate quantity and units, qualification/reservation
+  state, and returned deadline; explain which prerequisite it could mitigate
+  and which separate prerequisite remains.
+- **Evidence gaps:** identify unconfirmed commitments or missing facts. Attribute
+  dated notes as recorded evidence. Do not substitute generic lifecycle status
+  for operational state or a verification note for its field's actual value.
+Populate these from the current capture. Omit a quantity/date only when it was
+not returned; say unknown when its selected value is null or missing. Do not
+omit a returned date or proposed quantity merely because it is unconfirmed:
+report it as a dated proposal, with the qualification/reservation caveat.
+
+Your next action is a READ FUNCTION, never `integral-insights`:
+- Named subject: `integral_query_entries(query="<focused subject phrase>", limit=5)`.
+- Concept: `integral_query(query="<focused concept>", top_n=5)`.
+Use the returned entry ID for the relationship capture below. If a prior call
+reported "Unknown tool name" for this skill, do not repeat that call. The skill
+is already loaded; call the actual read function. Search for its exact name
+only if that function's schema is absent.
+
+This skill is instructions, not a callable tool. Do not invoke the skill's
+name as a tool. Loading it discloses the primary read schemas:
+`integral_query_entries`, `integral_query`, and `integral_get_graph_context`.
+Use those actual tools directly. If a required schema is absent, call
+`search_capabilities` for that read, then use the returned name and arguments.
+For a named subject, use `integral_query_entries`; for a concept, use
+`integral_query`. Other instruments remain discoverable as needed.
+Do not call this skill's name, promise to search, or ask for records before
+attempting the authorized read.
+
+## Dependency and decision questions
+
+For blockers, prerequisites, connected risks, or fallback options:
+
+1. **Find the subject.** Use a focused phrase from the question in
+   `integral_query_entries` (cross-track keyword search) for a named record,
+   or `integral_query` for a concept. Search only the active workspace.
+   Resolve IDs from returned records; never ask the user for an internal ID.
+   For `integral_query_entries`, use the matching entry's `id`. For
+   `integral_query`, use the matching result's `entry_id`, not its `track_id`.
+   A track ID identifies the containing collection, not the subject entry.
+   If one record clearly matches, proceed. Ask for clarification only after
+   the read finds no plausible subject or multiple genuinely ambiguous ones.
+2. **Read its relationships.** Call `integral_get_graph_context`
+   with that returned `root_id`, `view="ontology"`, `detail="recorded"`,
+   and `max_depth=3`, `max_bytes=49152`.
+   For entry dependency/reference questions use `edge_types=["REFERENCES"]`.
+   If the schema is not yet disclosed, search for relationship context.
+   Finding the subject is an intermediate result, not the complete answer:
+   text search alone cannot establish the connected dependency paths.
+   REFERENCES connects entries to entries. If you accidentally captured a
+   container and received only that container with no edges, correct the root
+   to the subject's already-returned entry ID and capture again. Do not treat
+   a container-only capture as evidence that the entry has no dependencies.
+3. **Answer the decision question.** Explain the relevant readable named
+   prerequisites and how the fallback connects. Use returned relationship
+   metadata, declared relation definitions, recorded fields and paths.
+   Use operational state, due dates and recorded verification when returned.
+   `status=active` is substrate lifecycle, not completion. Field states
+   distinguish present, null, missing and truncated; missing is unknown.
+   Evidence is recorded, not independently verified. Check observation dates
+   before treating a fact as current. For a dated decision, include the relevant
+   prerequisite and fallback deadlines returned by the capture. If fallback
+   capacity is indicative or qualification/reservation is pending, say so
+   explicitly; a candidate quantity is not committed capacity. Explain which
+   prerequisite it could mitigate and which separate prerequisite still applies.
+   Do not invent an exclusive supplier requirement or declare a pending task
+   already overdue without a returned deadline supporting that claim. Unresolved/ambiguous meanings cannot
+   establish a prerequisite merely from its field name. Describe a stored link as evidence, not proof that a
+   blocker has happened or that a mitigation guarantees success. Missing
+   completion/capacity evidence means readiness is unconfirmed. Distinguish
+   verified stored relationships from your interpretation in plain language.
+   Respect incomplete captures and current access; do not infer hidden facts,
+   traverse another workspace, or expose unrelated readable records.
+
+Keep tool names and internal identifiers out of the user's explanation unless
+requested. This is a read workflow; do not create or change any records.
+Answer in at most 150 words: name the stored prerequisites, explain which one
+the fallback addresses, report the useful recorded detail, and identify the
+remaining evidence gaps. Do not issue a blanket completion/capacity caveat
+when specific recorded evidence answers it; attribute that evidence and its date. Do not imply the fallback solves an unrelated prerequisite.
+Cite captured labels as plain text unless the result supplies a canonical
+`url`; then copy that URL exactly. Never construct a link from a node ID.
+
+Example: "What could delay opening our new site, and how would temporary
+space help?" Discover the entry search, search for "new site", and select
+the matching returned entry. Then discover relationship context and capture
+that entry's REFERENCES paths. Explain only the captured prerequisites and
+the path connecting temporary space to a prerequisite. Search matches that
+are outside those paths are not established dependencies. Do not turn a
+fallback into a guarantee, or claim it solves an unrelated prerequisite.
+
 ## When to use
+
+Ordinary questions such as "What could hold up our next delivery?", "What
+needs to happen first?", or "How would a fallback help?" ask for workspace
+insights. The user does not need to name a tool, record ID, graph, or ontology.
+Find the relevant readable records yourself before requesting more context.
+Do not claim that you lack workspace access without first attempting the
+appropriate authorized read.
 
 The user is asking about **state** of their substrate — "what's
 overdue," "how many open bugs," "what happened last week,"
@@ -19,10 +150,21 @@ This is distinct from individual entry reads in `integral-entries`:
   `integral-entries`) — fetch specific known entries inside a known
   track. Use when the user references a known target.
 - **`integral_query`** — unified hybrid retrieval (graph / semantic /
-  hybrid) across everything the caller can read. This is the primary
+  hybrid) across readable entries in the active workspace. This is the primary
   open-ended retrieval tool: use it for "find anything about X,"
   cross-track concept search, or "what relates to Y" when the user
   isn't naming one track.
+- **`integral_get_graph_context`** — bounded relationship, hierarchy, or
+  ontology evidence for decision making. Start with the workspace default
+  or a known readable entry/track/app root. Use returned paths and declared
+  meanings to explain connections; stored edges do not establish causation.
+  Check completeness, radius, and expansion points before drawing conclusions.
+  Expand only a relevant included point with a fresh call. Private records and
+  installed-App entry records are excluded, so absence is not proof of absence.
+  All evidence stays inside the active workspace under the current user's
+  permissions. Never combine workspace captures to reconstruct an excluded
+  relationship, even when the user can read both endpoints.
+  This is on-demand context, not a workspace-wide snapshot or exact count.
 - **`integral_query_spec`** — deterministic, bounded Core queries over
   entries, tracks, or apps with explicit projection, filters, sorting,
   and at most one graph hop. Use when the answer depends on exact
@@ -65,8 +207,9 @@ This is distinct from individual entry reads in `integral-entries`:
 
 ## Procedure
 
-Choose the simplest read that answers the request, execute it, and present
-its result. Ordinary reads should not become multi-call investigations.
+For dependency and decision questions, follow the workflow above through the
+relationship capture before answering. For simple retrieval, choose the
+simplest read that answers the request, execute it, and present its result.
 
 1. **Choose by outcome.** For open-ended "find anything about X" or
    "is anything filed about X?" questions, call integral_query directly.
@@ -79,7 +222,10 @@ its result. Ordinary reads should not become multi-call investigations.
    digest tools for recent activity. Resolve an ID or field key only when
    the selected operation needs it.
 
-2. **Stop when the result is authoritative.** A successful, non-degraded
+2. **Stop when the result is authoritative for the requested outcome.**
+   For a dependency or fallback question, retrieval finds the subject;
+   continue to its relationship capture as specified above. For simple
+   retrieval, a successful, non-degraded
    integral_query answers an open-ended concept search, including when it
    returns zero matches. Report that no matching readable entries were
    found and stop. Do not repeat it with keyword search, inventory the
@@ -100,6 +246,10 @@ its result. Ordinary reads should not become multi-call investigations.
    wrong_workspace, schema_drift, refused, error, or over_budget as
    authoritative outcomes.
 
+   - Explain known relationships or structure before a decision →
+     integral_get_graph_context. Cite readable names and supporting paths;
+     separate stored facts from your inference. Respect truncation and App
+     boundaries. Use QuerySpec or declared App queries for exact business facts.
    - Concept or meaning search → integral_query; inspect its mode and
      degraded fields. If semantic retrieval is unavailable or degraded,
      concise keyword retrieval may be a useful fallback.
@@ -242,7 +392,7 @@ this turn.
 
 ## Grounding
 
-- Cite entry titles, ids, and counts the API actually returned this
+- Cite entry titles and counts the API actually returned this
   turn — never carry numbers from earlier conversations.
 - For aggregates, surface the `total_matched` and `filters_applied`
   from the response so the user can verify the question was

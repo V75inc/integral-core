@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import copy
+import hashlib
+import json
 import logging
 from contextlib import nullcontext
 from typing import Any, Dict, List, Optional
@@ -188,8 +191,30 @@ async def resolve_action_payload(
     return body
 
 
-@ordinary_authority_call
-async def invoke_app_operation(
+def operation_declaration_fingerprint(spec: Dict[str, Any], app: Any = None) -> str:
+    """Bind a review to the registered contract, handler, and package identity."""
+    return hashlib.sha256(
+        json.dumps(
+            {
+                "operation": spec,
+                "installed_identity": {
+                    key: getattr(app, key, None)
+                    for key in (
+                        "installed_package_slug",
+                        "installed_package_version",
+                        "installed_artifact_fingerprint",
+                        "active_definition_id",
+                        "active_definition_revision",
+                    )
+                },
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+
+
+async def _prepare_app_operation(
     *,
     user_id: str,
     workspace_id: str,
@@ -197,10 +222,10 @@ async def invoke_app_operation(
     operation_key: str,
     payload: Optional[Dict[str, Any]] = None,
     idempotency_key: Optional[str] = None,
-    correlation_id: Optional[str] = None,
+    permit_deferred_decision: bool = False,
     subject: Optional[Subject] = None,
 ) -> Dict[str, Any]:
-    """Execute a typed operation with policy, validation, and idempotency."""
+    """Read current declaration, inputs and authority without invoking its handler."""
     actor_subject = subject or Subject(kind="human", id=user_id)
     if actor_subject.kind not in {"human", "agent", "connector"}:
         raise InsufficientPermissionsError(message="Unsupported operation actor")
@@ -243,6 +268,7 @@ async def invoke_app_operation(
     if spec is None:
         raise ResourceNotFoundError(message=f"operation {key!r} not found for app")
 
+    spec = copy.deepcopy(spec)
     if spec.get("authorization"):
         from app.exceptions import AuthorizationUnavailableError
         from app.services.access_delegation import current_definition
@@ -255,7 +281,7 @@ async def invoke_app_operation(
     operation_kind = str(spec.get("kind") or "execute").strip().lower()
     if operation_kind not in _READ_KINDS | _MUTATION_KINDS:
         raise BadRequestError(message=f"unsupported operation kind {operation_kind!r}")
-    original_body = dict(payload or {})
+    original_body = copy.deepcopy(dict(payload or {}))
     validate_input(original_body, spec.get("input_schema") or {})
     body = await resolve_action_payload(
         user_id=user_id,
@@ -301,6 +327,119 @@ async def invoke_app_operation(
             resource=resource,
             execution_scope=execution_scope,
         )
+    if not decision.allowed and not (
+        permit_deferred_decision
+        and spec.get("authorization")
+        and actor_subject.kind in {"agent", "connector"}
+        and decision.reason == "requires_human_approval"
+    ):
+        raise InsufficientPermissionsError(message="Access denied")
+    policy_revision = core_modules().policy.revision(
+        scope=execution_scope,
+        action=policy_action,
+        resource=resource,
+        decision=decision,
+    )
+
+    return {
+        "execution_scope": execution_scope,
+        "actor_subject": actor_subject,
+        "principal_id": user_id,
+        "spec": spec,
+        "body": copy.deepcopy(original_body),
+        "resolved_body": copy.deepcopy(body),
+        "key": key,
+        "operation_kind": operation_kind,
+        "policy_revision": policy_revision,
+        "decision": decision,
+        "app": app,
+        "declaration_fingerprint": operation_declaration_fingerprint(spec, app),
+    }
+
+
+@ordinary_authority_call
+async def prepare_app_operation(
+    *,
+    user_id: str,
+    workspace_id: str,
+    app_id: str,
+    operation_key: str,
+    payload: Optional[Dict[str, Any]] = None,
+    subject: Optional[Subject] = None,
+) -> Dict[str, Any]:
+    """Authorize and resolve reviewed inputs without running an operation handler."""
+    return await _prepare_app_operation(
+        user_id=user_id,
+        workspace_id=workspace_id,
+        app_id=app_id,
+        operation_key=operation_key,
+        payload=payload,
+        subject=subject,
+    )
+
+
+@ordinary_authority_call
+async def invoke_app_operation(
+    *,
+    user_id: str,
+    workspace_id: str,
+    app_id: str,
+    operation_key: str,
+    payload: Optional[Dict[str, Any]] = None,
+    idempotency_key: Optional[str] = None,
+    correlation_id: Optional[str] = None,
+    subject: Optional[Subject] = None,
+    expected_declaration_fingerprint: Optional[str] = None,
+    expected_operation_kind: Optional[str] = None,
+    expected_resolved_input: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Execute under current actor authority and the exact reviewed declaration."""
+    prepared = await _prepare_app_operation(
+        user_id=user_id,
+        workspace_id=workspace_id,
+        app_id=app_id,
+        operation_key=operation_key,
+        payload=payload,
+        subject=subject,
+        idempotency_key=idempotency_key,
+        permit_deferred_decision=True,
+    )
+    execution_scope = prepared["execution_scope"]
+    workspace_id = execution_scope.workspace_id
+    user_id, actor_subject = prepared["principal_id"], prepared["actor_subject"]
+    spec, original_body, body = (
+        prepared["spec"],
+        prepared["body"],
+        prepared["resolved_body"],
+    )
+    key, operation_kind = prepared["key"], prepared["operation_kind"]
+    decision, app, policy_revision = (
+        prepared["decision"],
+        prepared["app"],
+        prepared["policy_revision"],
+    )
+    if (
+        expected_operation_kind is not None
+        and operation_kind != expected_operation_kind
+    ):
+        raise BadRequestError(message="App operation execution class changed")
+    if expected_declaration_fingerprint is not None and (
+        (
+            operation_kind != expected_operation_kind
+            if expected_operation_kind
+            else operation_kind not in _MUTATION_KINDS
+        )
+        or prepared["declaration_fingerprint"] != expected_declaration_fingerprint
+    ):
+        raise BadRequestError(
+            message="App operation changed since review; prepare a new proposal",
+            details={"error_code": "operation_declaration_changed"},
+        )
+    if expected_resolved_input is not None and body != expected_resolved_input:
+        raise BadRequestError(
+            message="App operation targets changed since review; prepare a new proposal",
+            details={"error_code": "operation_targets_changed"},
+        )
     if not decision.allowed:
         if (
             spec.get("authorization")
@@ -324,12 +463,6 @@ async def invoke_app_operation(
                 idempotency_key=str(idempotency_key).strip(),
             )
         raise InsufficientPermissionsError(message="Access denied")
-    policy_revision = core_modules().policy.revision(
-        scope=execution_scope,
-        action=policy_action,
-        resource=resource,
-        decision=decision,
-    )
 
     from app.services.app_operation_authority import operation_permit
     from app.services.app_operations.idempotency import (
@@ -409,6 +542,18 @@ async def invoke_app_operation(
             else nullcontext()
         )
         async with permit_scope as bound_permit:
+            # A definition can change after preparation while the receipt is
+            # being admitted. Never enter an obsolete registered handler under
+            # the replacement definition's freshly acquired permit.
+            if (
+                bound_permit is not None
+                and spec.get("_definition_fingerprint")
+                and bound_permit.fingerprint != spec["_definition_fingerprint"]
+            ):
+                raise BadRequestError(
+                    message="App operation changed since review; prepare a new proposal",
+                    details={"error_code": "operation_declaration_changed"},
+                )
             if actor_subject.kind != "human":
                 ctx.user_id = bound_permit.delegator_id
 

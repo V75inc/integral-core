@@ -11,10 +11,6 @@ export const WORKSPACE_SWITCH_UNSCOPED_PREFIXES = [
   'views',
   'tags',
   'notifications',
-  // The connectors list is filtered server-side by the active workspace but
-  // its key carries no workspace id, so without this a switch showed the
-  // previous workspace's connectors until the next refetch.
-  'connectors',
 ] as const;
 
 /**
@@ -46,6 +42,15 @@ export function removeUnscopedCachesOnWorkspaceSwitch(qc: QueryClient): void {
   qc.removeQueries({
     predicate: (q) =>
       Array.isArray(q.queryKey) && isUnscopedTracksListQueryKey(q.queryKey),
+  });
+  // Connector panels with legacy keys still need cleanup. Preserve the new
+  // workspace-partitioned observers; removing their cache disconnects future
+  // invalidations from the mounted list.
+  qc.removeQueries({
+    predicate: (q) => q.queryKey[0] === 'connectors' && !(
+      ['list', 'tools', 'catalog'].includes(String(q.queryKey[1])) &&
+      typeof q.queryKey[2] === 'string' && typeof q.queryKey[3] === 'string'
+    ),
   });
 }
 

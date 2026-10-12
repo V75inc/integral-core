@@ -1,0 +1,33 @@
+{
+  "scenario": "fictional coastal cold-chain pilot",
+  "model": "ollama_chat/deepseek-v4.1-flash:cloud",
+  "api_checks": {
+    "passed": 18,
+    "total": 18
+  },
+  "ordinary_queries": [
+    {
+      "passed_fact_and_relationship_checks": true,
+      "seconds": 18.9,
+      "reported_total_tokens": 69375,
+      "exact_generated_urls": 7
+    },
+    {
+      "passed_fact_and_relationship_checks": true,
+      "seconds": 17.7,
+      "reported_total_tokens": 85886,
+      "exact_generated_urls": 4
+    }
+  ],
+  "citation_readback": "passed",
+  "search_ms": 80,
+  "recorded_ms": 328,
+  "recorded_bytes": 45923,
+  "nodes": 8,
+  "edges": 7,
+  "provider_cost": "unavailable",
+  "scope": "local isolated synthetic acceptance; not production or statistical evaluation",
+  "saved_projection_validation": "same-record evidence and exact referenced definition closure passed",
+  "documentation_links": "passed",
+  "static": "guards/precommit/format-check passed"
+}

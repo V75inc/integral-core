@@ -914,6 +914,7 @@ async def postgres_raw_db():
     # instead of silently opening a second, unowned pool on each test loop.
     await _close_postgres_test_database(previous)
     manager.set_prime_database(database)
+    await _reset_postgres_test_tables()
     try:
         yield database
     finally:
@@ -1066,6 +1067,13 @@ async def _install_postgres_test_log_db() -> object:
 
     log_database = create_database(db_type="postgres", dsn=_PG_TEST_DSN)
     manager._databases["logs"] = log_database
+    # Server startup initializes DBLog's collection before protected effects.
+    # Reproduce that here: cold log-adapter DDL on a separate connection
+    # otherwise waits for the transaction that is awaiting the audit write.
+    from jvspatial.core import GraphContext
+    from jvspatial.logging.models import DBLog
+
+    await GraphContext(database=log_database).ensure_indexes(DBLog)
     return log_database
 
 
