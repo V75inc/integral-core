@@ -11,6 +11,8 @@ import {
   scheduleProactiveRefresh,
   setTokens,
 } from '../api/session';
+import { userTimezoneApi } from '../api/userTimezone';
+import { browserTimezone } from '../utils/userTimezone';
 import type { User } from '../types';
 
 interface AuthCtx {
@@ -31,6 +33,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [profileVerified, setProfileVerified] = useState(false);
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -39,6 +42,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const onLogout = () => {
       setToken(null);
       setUser(null);
+      setProfileVerified(false);
       // 401 interceptor path — wipe every cached query so the next
       // signed-in user doesn't inherit the previous user's
       // workspaces / scope / notifications / etc.
@@ -83,6 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .then(u => {
           disarmRetry();
           setUser(u);
+          setProfileVerified(true);
           localStorage.setItem('t75_user', JSON.stringify(u));
         })
         .catch((err: unknown) => {
@@ -95,6 +100,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             redirectToLogin();
             setToken(null);
             setUser(null);
+            setProfileVerified(false);
             return;
           }
           if (!getAccessToken()) {
@@ -120,11 +126,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Infer only after the authoritative profile arrives. The server's conditional
+  // write preserves manual choices and another device's earlier inference.
+  useEffect(() => {
+    if (loading || !profileVerified || !user || user.timezone) return;
+    let active = true;
+    const accountId = user.id;
+    void userTimezoneApi.set(browserTimezone(), true).then(result => {
+      if (!active) return;
+      setUser(current => {
+        if (!current || current.id !== accountId) return current;
+        const updated = { ...current, timezone: result.timezone };
+        localStorage.setItem('t75_user', JSON.stringify(updated));
+        return updated;
+      });
+    }).catch(() => {
+      // Detection is optional; settings offers an explicit retry/save.
+    });
+    return () => { active = false; };
+  }, [loading, profileVerified, user?.id, user?.timezone]);
+
   const login = useCallback(async (email: string, password: string) => {
     const res = await authApi.login(email, password);
     setTokens(res);
     setToken(res.access_token);
     const u = await authApi.me();
+    setProfileVerified(true);
     setUser(u); localStorage.setItem('t75_user', JSON.stringify(u));
   }, []);
 
@@ -145,6 +172,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setTokens(res);
       setToken(res.access_token);
       const u = await authApi.me();
+      setProfileVerified(true);
       setUser(u);
       localStorage.setItem('t75_user', JSON.stringify(u));
     },
@@ -162,6 +190,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       clearTokens();
       setToken(null);
       setUser(null);
+      setProfileVerified(false);
       // Drop every cached query so the next signed-in user can't
       // inherit the previous user's workspaces / active scope /
       // notifications / etc. Pairs with the localStorage wipe in
@@ -177,6 +206,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshUser = useCallback(async () => {
     const u = await authApi.me();
+    setProfileVerified(true);
     setUser(u); localStorage.setItem('t75_user', JSON.stringify(u));
   }, []);
 

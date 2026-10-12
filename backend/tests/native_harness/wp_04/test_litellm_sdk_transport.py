@@ -1196,4 +1196,14 @@ async def test_sdk_failures_survive_client_wrapping_without_private_details(
     assert actual == code
     assert "private-key-and-url" not in message
     assert "Something went wrong" not in message
-    assert observations == ["dispatch_intent", "outcome_unknown"]
+    rejected = not stream and code in {
+        "model_context_limit",
+        "model_authentication_failed",
+        "model_rate_limited",
+        "model_unavailable",
+        "model_request_rejected",
+    }
+    assert observations == [
+        "dispatch_intent",
+        "failed" if rejected else "outcome_unknown",
+    ]

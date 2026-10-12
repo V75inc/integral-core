@@ -47,6 +47,7 @@ for _mod in (
     "retrieval_config",  # Phase 8 Plan 08-04 — GET /api/retrieval/config (SET-06)
     "shared_with_me",  # Phase 5 — /me/shared and /me/invitations
     "shares",  # Phase 4 — signed-in share-link endpoints
+    "user_timezone",
     "speech_preferences",  # Chat dictation — per-user voice input settings
     "tags",
     "tools",  # Phase 30 Wave D (DR-30-01) — direct bundle-tool invocation

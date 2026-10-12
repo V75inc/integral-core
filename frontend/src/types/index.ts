@@ -14,6 +14,8 @@ export interface User {
   updated_at?: string;
   bio?: string;
   preferences?: Record<string, unknown>;
+  /** Persisted IANA account zone; unset before first browser detection. */
+  timezone?: string | null;
   /** Phase 9 Plan 09-05 (ONBD-01) — onboarding completion timestamp.
    *  `null`/`undefined` means the user has not yet completed first-login
    *  onboarding; Layout mounts OnboardingModal (A2) or

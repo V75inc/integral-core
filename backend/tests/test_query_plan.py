@@ -143,3 +143,24 @@ def test_bad_input_is_not_an_empty_result():
     zone = build_query_plan("highest deal", timezone_name="Not/AZone", now=_NOW)
     assert zone["error"] == "invalid_timezone"
     assert "value" not in zone
+
+
+import pytest
+
+
+@pytest.mark.asyncio
+async def test_plan_query_uses_account_zone_unless_explicitly_overridden(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from app.services import user_timezone
+    from app.services.query_plan import plan_query
+
+    resolver = AsyncMock(return_value="America/Guyana")
+    monkeypatch.setattr(user_timezone, "get_user_timezone", resolver)
+    inherited = await plan_query("how many entries today", user_id="caller")
+    assert inherited["window"]["timezone"] == "America/Guyana"
+    explicit = await plan_query(
+        "how many entries today", user_id="caller", timezone="Asia/Tokyo"
+    )
+    assert explicit["window"]["timezone"] == "Asia/Tokyo"
+    resolver.assert_awaited_once_with("caller")

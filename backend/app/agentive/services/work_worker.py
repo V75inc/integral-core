@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+from contextlib import aclosing
 from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, AsyncGenerator, Awaitable, Callable, Optional, cast
 
 from app.agentive.services import work_execution, work_items
 from app.agentive.work_models import WorkItem
@@ -752,21 +753,27 @@ async def _handle_chat_turn(
     async def _body() -> None:
         nonlocal event_ordinal, saw_message_finish
         await work_execution.assert_effect_boundary_allowed(ctx)
-        async for event in provider.stream_turn(turn):
-            await work_execution.assert_effect_boundary_allowed(ctx)
-            # Provider session identifiers are adapter state, not public
-            # events. Reasoning is intentionally excluded from chat replay.
-            event_type = str(event.get("type") or "")
-            if event_type in {"_meta", "reasoning-delta"}:
-                continue
-            await append_work_item_chat_event(
-                context=ctx,
-                event_key=f"{ctx.run_id}:{event_ordinal}",
-                event=event,
-            )
-            event_ordinal += 1
-            if event_type == "message-finish":
-                saw_message_finish = True
+        # Cancellation can arrive while persisting a yielded event, with the
+        # provider paused at yield. Close it in this task so Harness resources
+        # and ContextVar tokens are released before terminalizing the turn.
+        async with aclosing(
+            cast(AsyncGenerator[dict[str, Any], None], provider.stream_turn(turn))
+        ) as stream:
+            async for event in stream:
+                await work_execution.assert_effect_boundary_allowed(ctx)
+                # Provider session identifiers are adapter state, not public
+                # events. Reasoning is intentionally excluded from chat replay.
+                event_type = str(event.get("type") or "")
+                if event_type in {"_meta", "reasoning-delta"}:
+                    continue
+                await append_work_item_chat_event(
+                    context=ctx,
+                    event_key=f"{ctx.run_id}:{event_ordinal}",
+                    event=event,
+                )
+                event_ordinal += 1
+                if event_type == "message-finish":
+                    saw_message_finish = True
 
     failure: dict[str, str] | None = None
     status: ChatTerminalStatus = "succeeded"
