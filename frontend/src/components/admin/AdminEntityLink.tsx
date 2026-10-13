@@ -1,3 +1,4 @@
+import { Text } from '../../ui';
 import { Link } from 'react-router-dom';
 
 export type AdminEntityType = 'user' | 'workspace' | 'app' | 'track';
@@ -35,9 +36,10 @@ export function AdminEntityLink({
   fallback?: string;
 }) {
   if (!id) {
-    return <span className={className ?? 'text-[var(--text-muted)]'}>{fallback}</span>;
+    return <Text tone="muted" className={className}>{fallback}</Text>;
   }
-  const text = label?.trim() || id;
+  const name = label?.trim();
+  const text = name && name !== id ? name : `Unnamed ${type}`;
   return (
     <Link
       to={adminEntityPath(type, id)}
@@ -50,17 +52,17 @@ export function AdminEntityLink({
 
 export function AdminOwnerCell({ owner }: { owner?: AdminOwnerSummary | null }) {
   if (!owner?.id) {
-    return <span className="text-[var(--text-muted)]">—</span>;
+    return <Text tone="muted">—</Text>;
   }
   return (
     <div>
       <AdminEntityLink
         type="user"
         id={owner.id}
-        label={owner.display_name || owner.email || owner.id}
+        label={owner.display_name || owner.email || 'Unnamed user'}
       />
       {owner.email && owner.display_name ? (
-        <p className="text-xs text-[var(--text-muted)]">{owner.email}</p>
+        <Text as="p" variant="meta" tone="muted">{owner.email}</Text>
       ) : null}
     </div>
   );

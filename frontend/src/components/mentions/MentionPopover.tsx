@@ -203,7 +203,7 @@ export function MentionPopover({
                   `}
                 >
                   <Avatar
-                    name={u.display_name || u.email || u.id}
+                    name={u.display_name || u.email || 'Unnamed user'}
                     size="xs"
                     attachmentId={u.avatar_attachment_id}
                     userId={u.id}

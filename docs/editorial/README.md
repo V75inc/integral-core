@@ -31,3 +31,7 @@ The targeted backend run completed with 35 passed and one failure in `test_I_APP
 ## Maintenance
 
 Use the current guides and contracts rather than adding another parallel plan. Regenerate source-derived artifacts. Keep machine fixtures separate from reader documentation. Run scripts/check_documentation.py after editing links or consolidating paths. Browser-readable review pages can be built with scripts/build_documentation.py; they are local artifacts until publication is authorized.
+
+### Follow-up review — 12 October 2026
+
+The unreferenced Mongo performance guide was retired because the documented runtime fails closed for Mongo durable work and has no supported production performance path. The general qualification guide retains adapter-specific performance and evidence boundaries. The tool-source observations guide was renamed from its former `PLAN` filename to reflect its implementation and qualification content; the backend ADRs and dated qualification records now have explicit indexes.

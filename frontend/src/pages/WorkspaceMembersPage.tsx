@@ -731,7 +731,7 @@ export function WorkspaceMembersPage() {
                     }
                     secondary={
                       <p className="text-xs text-[var(--text-muted)] truncate">
-                        {m.email || m.id}
+                        {m.email || 'Email unavailable'}
                       </p>
                     }
                   />

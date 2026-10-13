@@ -1,14 +1,18 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
+vi.mock('../../context/AuthContext', () => ({ useAuthOptional: () => ({ user: { id: 'u-1' } }) }));
 
 const mockOwnershipInbox = vi.fn(async () => ({ complete: true, proposals: [] }));
 vi.mock('../../api/accessControl', () => ({ ownershipConsentApi: { inbox: () => mockOwnershipInbox() } }));
 
 const mockGetSnapshot = vi.fn();
+const mockScopeState = { workspaceId: 'ws-1', accessible: true };
+const mockSetScope = vi.fn();
 const mockListApprovals = vi.fn(async () => ({ approvals: [] }));
 const mockListPendingStagedChanges = vi.fn(async () => []);
 
@@ -41,8 +45,8 @@ vi.mock('../../context/ScopeContext', async importOriginal => {
   return {
     ...actual,
     useScope: () => ({
-      scope: { workspaceId: 'ws-1' },
-      workspaces: [
+      scope: { workspaceId: mockScopeState.workspaceId },
+      workspaces: mockScopeState.accessible ? [
         {
           id: 'ws-1',
           kind: 'organization',
@@ -50,8 +54,9 @@ vi.mock('../../context/ScopeContext', async importOriginal => {
           accent_color: '#2244ff',
           avatar_url: null,
         },
-      ],
-      setScope: vi.fn(),
+        { id: 'ws-2', kind: 'organization', name: 'Workspace Two' },
+      ] : [],
+      setScope: mockSetScope,
     }),
   };
 });
@@ -82,6 +87,10 @@ vi.mock('../../context/ToastContext', () => ({
   useToast: () => ({ showToast: vi.fn() }),
 }));
 
+vi.mock('../../features/ai-chat/components/HomeChatComposer', () => ({
+  HomeChatComposer: ({workspaceId, principalId}: {workspaceId: string | null; principalId: string | null}) =>
+    <div data-testid="home-composer" data-workspace={workspaceId ?? ''} data-principal={principalId ?? ''} />,
+}));
 import { MissionControlPage } from '../MissionControlPage';
 
 afterEach(() => {
@@ -95,96 +104,91 @@ function renderPage() {
       mutations: { retry: false },
     },
   });
-  return render(
+  const view = render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
         <MissionControlPage />
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  return { ...view, queryClient };
 }
 
-function metricValue(label: string): string {
-  const section = screen.getByRole('region', { name: /at a glance/i });
-  const labelNode = within(section).getByText(label);
-  const card = labelNode.closest('div, a');
-  const valueNode = card?.querySelector('p:nth-of-type(2)');
-  return valueNode?.textContent?.trim() ?? '';
-}
-
-describe('<MissionControlPage /> counters', () => {
+describe('<MissionControlPage /> Home', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
+    mockScopeState.workspaceId = 'ws-1';
+    mockScopeState.accessible = true;
     mockGetSnapshot.mockReset();
-    mockListApprovals.mockReset().mockResolvedValue({ approvals: [] });
-    mockListPendingStagedChanges.mockReset().mockResolvedValue([]);
+    mockListApprovals.mockResolvedValue({ approvals: [] });
+    mockListPendingStagedChanges.mockResolvedValue([]);
+  });
+  it('preserves the header, exposes scoped links and canonical record destinations', async () => {
+    mockGetSnapshot.mockResolvedValue({ apps: [{ id: 'app-1', name: 'Personal Life Manager', workspace_id: 'ws-1' }], tracks: [],
+      preview_entries: [{ id: 'e-1', title: 'Groceries', track_id: 't-1' }, { id: 'e-2', title: 'Coffee' }] });
+    renderPage();
+    expect(await screen.findByText('Personal Life Manager')).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Home' })).toBeVisible();
+    expect(screen.getByText('Your workspaces and recent activity in one place. Choose a workspace to get started.')).toBeVisible();
+    expect(screen.getByRole('link', { name: /Apps in Workspace One/ })).toHaveAttribute('href', '/apps');
+    expect(screen.getByRole('link', { name: /Feed in Workspace One/ })).toHaveAttribute('href', '/feed');
+    expect(screen.getByRole('link', { name: /Groceries/ })).toHaveAttribute('href', '/tracks/t-1?entry=e-1');
+    expect(screen.getByRole('link', { name: /Coffee/ })).toHaveAttribute('href', '/entries/e-2');
+    expect(screen.queryByRole('region', { name: /at a glance/i })).not.toBeInTheDocument();
+  });
+  it('mounts the shared Home composer with authenticated workspace identity', async () => {
+    mockGetSnapshot.mockResolvedValue({ apps: [], tracks: [], preview_entries: [] });
+    renderPage();
+    await screen.findByText('No pending approvals.');
+    expect(screen.getByTestId('home-composer')).toHaveAttribute('data-workspace', 'ws-1');
+    expect(screen.getByTestId('home-composer')).toHaveAttribute('data-principal', 'u-1');
+  });
+  it('does not present unavailable data as an empty first visit and supports retry', async () => {
+    mockGetSnapshot.mockRejectedValueOnce(new Error('unavailable')).mockResolvedValue({ apps: [], tracks: [], preview_entries: [] });
+    renderPage();
+    expect(await screen.findByText(/Could not refresh recent work/)).toBeVisible();
+    expect(screen.queryByText(/Your recent Apps will appear/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry recent work' }));
+    expect(await screen.findByText(/Your recent Apps will appear/)).toBeVisible();
+    expect(mockGetSnapshot).toHaveBeenCalledTimes(2);
+  });
+  it('removes the Home composer workspace when access disappears', async () => {
+    mockGetSnapshot.mockResolvedValue({ apps: [], tracks: [], preview_entries: [] });
+    const view = renderPage();
+    await screen.findByText('No pending approvals.');
+    mockScopeState.accessible = false;
+    view.rerender(<QueryClientProvider client={view.queryClient}><MemoryRouter><MissionControlPage /></MemoryRouter></QueryClientProvider>);
+    expect(screen.getByTestId('home-composer')).toHaveAttribute('data-workspace', '');
+  });
+  it('shows stable loading sections without an empty-state claim', () => {
+    mockGetSnapshot.mockReturnValue(new Promise(() => {}));
+    renderPage();
+    expect(screen.getAllByLabelText('Loading recent work')).toHaveLength(2);
+    expect(screen.queryByText(/Your recent Apps will appear/)).not.toBeInTheDocument();
   });
 
-  it('renders counters from the server-aggregated mission-control snapshot', async () => {
-    const today = new Date().toISOString();
-    mockGetSnapshot.mockResolvedValue({
-      workspaces: [],
-      apps: [],
-      tracks: [
-        {
-          id: 't-1',
-          title: 'Track One',
-          workspace_id: 'ws-1',
-          updated_at: '2026-05-22T12:00:00Z',
-          created_at: '2026-05-20T12:00:00Z',
-          entry_count: 5,
-        },
-      ],
-      preview_entries: [
-        { id: 'e-p1', track_id: 't-1', created_at: today, title: 'Preview only' },
-      ],
-      entries_today: 2,
-      active_tracks: 2,
-    });
-
-    renderPage();
-
-    await waitFor(() => {
-      expect(metricValue('Entries today')).toBe('2');
-      expect(screen.queryByRole('heading', { name: 'Approval inbox' })).not.toBeInTheDocument();
-    });
-    expect(metricValue('Active tracks')).toBe('2');
-    expect(metricValue('Unread')).toBe('9');
-    expect(mockGetSnapshot).toHaveBeenCalledWith(50);
+  it('keeps available recent work visible when its refresh fails', async () => {
+    mockGetSnapshot.mockResolvedValueOnce({ apps: [{ id: 'a1', name: 'Available App' }], tracks: [], preview_entries: [] })
+      .mockRejectedValue(new Error('refresh unavailable'));
+    const { queryClient } = renderPage();
+    expect(await screen.findByText('Available App')).toBeVisible();
+    await queryClient.refetchQueries();
+    expect(await screen.findByText(/Showing the last available snapshot/)).toBeVisible();
+    expect(screen.getByText('Available App')).toBeVisible();
   });
 
-  it('hides nav_visible=false tracks from Tracks in motion', async () => {
-    mockGetSnapshot.mockResolvedValue({
-      workspaces: [],
-      apps: [],
-      tracks: [
-        {
-          id: 't-lines',
-          title: 'Expense lines',
-          workspace_id: 'ws-1',
-          nav_visible: false,
-          updated_at: '2026-10-06T16:50:00Z',
-          entry_count: 0,
-        },
-        {
-          id: 't-expenses',
-          title: 'Expenses',
-          workspace_id: 'ws-1',
-          nav_visible: true,
-          updated_at: '2026-10-05T12:00:00Z',
-          entry_count: 3,
-        },
-      ],
-      preview_entries: [],
-      entries_today: 0,
-      active_tracks: 1,
-    });
 
-    renderPage();
-
-    await waitFor(() => {
-      expect(screen.getByText('Expenses')).toBeInTheDocument();
-    });
-    expect(screen.queryByText('Expense lines')).not.toBeInTheDocument();
-    expect(metricValue('Total tracks')).toBe('1');
+  it('binds the agent to the main active workspace without another workspace selector', async () => {
+    mockGetSnapshot.mockResolvedValue({ apps: [], tracks: [], preview_entries: [] });
+    const view = renderPage();
+    await screen.findByText('No pending approvals.');
+    expect(screen.queryByLabelText('AI action workspace')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Agent workspace')).toHaveTextContent('Workspace One');
+    mockScopeState.workspaceId = 'ws-2';
+    view.rerender(<QueryClientProvider client={view.queryClient}><MemoryRouter><MissionControlPage /></MemoryRouter></QueryClientProvider>);
+    expect(screen.getByLabelText('Agent workspace')).toHaveTextContent('Workspace Two');
+    expect(screen.getByTestId('home-composer')).toHaveAttribute('data-workspace', 'ws-2');
+    expect(screen.queryByText(/Actions stay in/)).not.toBeInTheDocument();
+    expect(mockSetScope).not.toHaveBeenCalled();
   });
 });

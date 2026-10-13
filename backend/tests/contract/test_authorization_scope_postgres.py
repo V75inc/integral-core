@@ -56,7 +56,7 @@ async def test_explicit_held_handles_join_and_caught_failure_rolls_back(
                 current = await Workspace.find_one({"id": workspace.id})
                 current.name = "Committed nested write"
                 await current.save()
-            async with postgres_graph_transaction(held.inner) as raw_joined:
+            async with postgres_graph_transaction(held) as raw_joined:
                 assert raw_joined is outer
         assert (
             await Workspace.find_one({"id": workspace.id})

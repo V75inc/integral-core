@@ -38,7 +38,7 @@ export function ResourceAccessReview({ resourceType, resourceId }: { resourceTyp
           const blocked = sources.some(source => source.resource_id === resourceId && source.source === 'ResourceAccessBlock' && source.state === 'blocked');
           return <li key={person.user_id} className="app-card p-3 space-y-2">
             <p>{person.user_id} · current role: {person.role || 'none'}</p>
-            <ul>{sources.map(source => <li key={source.source_id}>{source.source} · {source.role || source.state || 'retained'} · {source.resource_id}
+            <ul>{sources.map(source => <li key={source.source_id}>{source.source} · {source.role || source.state || 'retained'} · {source.resource_id === resourceId ? 'This resource' : 'Inherited resource'}
               {source.link_id && source.state === 'active' && <Button variant="secondary" disabled={busy} onClick={() => run(async () => {
                 await apiClient.delete(`/shares/${source.link_id}/grants/${person.user_id}`); await load();
               })}>Revoke this accepted link grant</Button>}

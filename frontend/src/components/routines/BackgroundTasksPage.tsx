@@ -102,13 +102,13 @@ export function BackgroundTasksPage() {
               size="sm"
               variant="outline"
               loading={loading}
-              aria-label="Refresh routines"
+              aria-label="Refresh"
               aria-busy={loading}
               icon={<RefreshCw size={14} strokeWidth={LINE_ICON_STROKE} aria-hidden />}
               className="shrink-0"
               onClick={() => void refetch()}
             >
-              {loading ? 'Refreshing…' : 'Refresh routines'}
+              {loading ? 'Refreshing…' : 'Refresh'}
             </Button>
           </header>
           <div className="mt-5">

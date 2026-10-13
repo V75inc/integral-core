@@ -40,12 +40,12 @@ from app.agentive.harness.pydantic_ai_compat import (
     ModelResponse,
     ModelRetry,
     RetryPromptPart,
-    SystemPromptPart,
     TextPart,
     ToolEffectRecord,
     ToolReturnPart,
     UsageLimits,
     UserPromptPart,
+    build_integral_host_turn,
     classify_integral_harness_exception,
     continue_run,
 )
@@ -1630,7 +1630,7 @@ class PydanticAIProvider:
                 run_history = (
                     [
                         *history,
-                        ModelRequest(parts=[SystemPromptPart(content=host_outcome)]),
+                        build_integral_host_turn(host_outcome, run_id=scope.run_id),
                     ]
                     if host_outcome
                     else history

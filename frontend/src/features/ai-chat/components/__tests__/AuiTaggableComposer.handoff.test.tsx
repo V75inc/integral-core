@@ -6,6 +6,9 @@ import { AuiTaggableComposer } from '../AuiTaggableComposer';
 const state = vi.hoisted(() => ({
   thread: null as string | null,
   ready: false,
+  running: false,
+  workspaceId: 'ws-1',
+  principalId: 'u-1',
   text: '',
   setText: vi.fn(),
   send: vi.fn(),
@@ -17,8 +20,10 @@ vi.mock('@assistant-ui/react', () => ({
   useAuiState: () => state.text,
 }));
 vi.mock('../../AIChatSurface', () => ({
-  useChatActivity: () => ({ activeThreadId: state.thread, composerReady: state.ready }),
+  useChatActivity: () => ({ activeThreadId: state.thread, composerReady: state.ready, isRunning: state.running }),
 }));
+vi.mock('../../../../context/AuthContext', () => ({ useAuthOptional: () => ({ user: { id: state.principalId } }) }));
+vi.mock('../../../../context/ScopeContext', () => ({ useScope: () => ({ scope: { workspaceId: state.workspaceId } }) }));
 vi.mock('../../../../context/ChatEntityRefsContext', () => ({
   useChatEntityRefsOptional: () => null,
 }));
@@ -35,6 +40,9 @@ beforeEach(() => {
   sessionStorage.clear();
   state.thread = null;
   state.ready = false;
+  state.running = false;
+  state.workspaceId = 'ws-1';
+  state.principalId = 'u-1';
   state.text = '';
   vi.clearAllMocks();
 });
@@ -91,4 +99,68 @@ describe('contextual composer draft handoff', () => {
     expect(screen.getByLabelText('Message input')).toHaveValue('');
     expect(state.send).not.toHaveBeenCalled();
   });
+  it('sends a Home submission once after thread selection is ready', () => {
+    requestOpenCompanionChat({ draftText: 'Find my recent records.', submit: true, workspaceId: 'ws-1', principalId: 'u-1' });
+    const view = render(<AuiTaggableComposer />);
+    act(() => vi.advanceTimersByTime(5000));
+    expect(state.send).not.toHaveBeenCalled();
+    state.thread = 'restored-thread';
+    state.ready = true;
+    view.rerender(<AuiTaggableComposer />);
+    act(() => vi.runOnlyPendingTimers());
+    expect(state.setText).toHaveBeenLastCalledWith('Find my recent records.');
+    expect(screen.getByLabelText('Message input')).toHaveValue('');
+    expect(state.send).toHaveBeenCalledTimes(1);
+    act(() => requestOpenCompanionChat());
+    act(() => vi.runOnlyPendingTimers());
+    state.thread = 'another-thread';
+    view.rerender(<AuiTaggableComposer />);
+    act(() => vi.runOnlyPendingTimers());
+    expect(state.send).toHaveBeenCalledTimes(1);
+  });
+  it('waits for a running turn to finish before sending the Home submission', () => {
+    state.ready = true;
+    state.running = true;
+    requestOpenCompanionChat({ draftText: 'Follow up.', submit: true, workspaceId: 'ws-1', principalId: 'u-1' });
+    const view = render(<AuiTaggableComposer />);
+    act(() => vi.runOnlyPendingTimers());
+    expect(state.send).not.toHaveBeenCalled();
+    state.running = false;
+    view.rerender(<AuiTaggableComposer />);
+    act(() => vi.runOnlyPendingTimers());
+    expect(state.send).toHaveBeenCalledTimes(1);
+  });
+  it('does not send a deferred Home submission in another workspace', () => {
+    requestOpenCompanionChat({ draftText: 'Private request.', submit: true, workspaceId: 'ws-1', principalId: 'u-1' });
+    const view = render(<AuiTaggableComposer />);
+    state.workspaceId = 'ws-2';
+    state.ready = true;
+    view.rerender(<AuiTaggableComposer />);
+    act(() => vi.runOnlyPendingTimers());
+    expect(state.send).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Message input')).toHaveValue('');
+  });
+
+  it('does not submit another user’s saved Home request after an account switch', () => {
+    requestOpenCompanionChat({ draftText: 'Private request.', submit: true, workspaceId: 'ws-1', principalId: 'u-1' });
+    state.principalId = 'u-2';
+    state.ready = true;
+    render(<AuiTaggableComposer />);
+    act(() => vi.runOnlyPendingTimers());
+    expect(state.send).not.toHaveBeenCalled();
+  });
+
+  it('lets Home keep its composer independent while the dock consumes a contextual draft', () => {
+    state.ready = true;
+    requestOpenCompanionChat({draftText: 'Review this record.'});
+    const home = render(<AuiTaggableComposer acceptHandoff={false} />);
+    act(() => vi.runOnlyPendingTimers());
+    expect(screen.getByLabelText('Message input')).toHaveValue('');
+    home.unmount();
+    render(<AuiTaggableComposer />);
+    act(() => vi.runOnlyPendingTimers());
+    expect(screen.getByLabelText('Message input')).toHaveValue('Review this record.');
+    expect(state.send).not.toHaveBeenCalled();
+  });
+
 });

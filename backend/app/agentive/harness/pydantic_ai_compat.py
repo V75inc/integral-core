@@ -455,6 +455,33 @@ def build_integral_run_instructions(
     return instructions
 
 
+_HOST_TURN_METADATA_KEY = "integral_host_turn_v1"
+
+
+def build_integral_host_turn(content: str, *, run_id: str) -> ModelRequest:
+    """Mark a Core-generated event boundary without fabricating a user turn."""
+    if not run_id or run_id != run_id.strip():
+        raise ValueError("host turn requires a canonical Core run ID")
+    return ModelRequest(
+        parts=[SystemPromptPart(content=content)],
+        metadata={_HOST_TURN_METADATA_KEY: run_id},
+    )
+
+
+def _active_turn_start(messages) -> int | None:
+    """Find a human turn or a typed Core event; prompt prose is never a marker."""
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if not isinstance(message, ModelRequest):
+            continue
+        if any(isinstance(part, UserPromptPart) for part in message.parts):
+            return index
+        marker = (message.metadata or {}).get(_HOST_TURN_METADATA_KEY)
+        if isinstance(marker, str) and marker and marker == marker.strip():
+            return index
+    return None
+
+
 @dataclass
 class IntegralToolResultCompaction(ClearToolResults):
     """Clear completed-turn payloads without erasing the active task's inputs.
@@ -466,18 +493,17 @@ class IntegralToolResultCompaction(ClearToolResults):
     it. Completed turns retain only the library's bounded recent window.
     """
 
+    async def before_model_request(self, ctx, request_context):
+        # Request-only projection must also become the checkpoint working
+        # history. Otherwise later runs resurrect the completed-turn payloads.
+        before = list(request_context.messages)
+        processed = await super().before_model_request(ctx, request_context)
+        if processed.messages != before:
+            ctx.messages[:] = processed.messages
+        return processed
+
     async def compact(self, messages, ctx):
-        turn_start = next(
-            (
-                index
-                for index in range(len(messages) - 1, -1, -1)
-                if isinstance(messages[index], ModelRequest)
-                and any(
-                    isinstance(part, UserPromptPart) for part in messages[index].parts
-                )
-            ),
-            None,
-        )
+        turn_start = _active_turn_start(messages)
         if turn_start is None:
             return await super().compact(messages, ctx)
         history = await super().compact(messages[:turn_start], ctx)
@@ -522,17 +548,7 @@ class IntegralHistorySummary(SummarizingCompaction):
         # it mid-batch can erase a queued effect receipt and provoke restaging.
         # ClearToolResults still bounds older payloads; the library usage limits
         # bound a long active turn. Summarization owns completed-turn history.
-        turn_start = next(
-            (
-                index
-                for index in range(len(messages) - 1, -1, -1)
-                if isinstance(messages[index], ModelRequest)
-                and any(
-                    isinstance(part, UserPromptPart) for part in messages[index].parts
-                )
-            ),
-            0,
-        )
+        turn_start = _active_turn_start(messages) or 0
         history, active_turn = messages[:turn_start], messages[turn_start:]
         if (
             len(history) <= self.keep_messages
@@ -616,6 +632,7 @@ def classify_integral_harness_exception(exc: BaseException) -> str | None:
 
 
 __all__ = [
+    "build_integral_host_turn",
     "Agent",
     "AgentRunResultEvent",
     "CancellationToken",

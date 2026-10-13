@@ -208,7 +208,7 @@ export function AppUninstallModal(props: AppUninstallModalProps) {
               {deps.map(d => (
                 <li key={d.app_id}>
                   <Text variant="body-sm" weight="medium">
-                    {d.app_name || d.app_id}
+                    {d.app_name || 'Untitled app'}
                   </Text>
                   {d.dep_key ? (
                     <Text variant="body-sm" tone="subtle">
@@ -232,14 +232,14 @@ export function AppUninstallModal(props: AppUninstallModalProps) {
             <ul className="list-disc ml-5 text-xs space-y-0.5">
               {Object.entries(
                 refs.reduce<Record<string, number>>((acc, r) => {
-                  const key = r.source_app_name || r.source_app_id;
+                  const key = r.source_app_id;
                   acc[key] = (acc[key] || 0) + 1;
                   return acc;
                 }, {}),
               ).map(([refAppName, count]) => (
                 <li key={refAppName}>
                   <Text variant="body-sm" weight="medium">
-                    {refAppName}
+                    {refs.find(ref => ref.source_app_id === refAppName)?.source_app_name || 'Untitled app'}
                   </Text>
                   :{' '}
                   <Text variant="body-sm" tone="subtle">

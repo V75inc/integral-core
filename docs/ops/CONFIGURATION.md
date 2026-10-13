@@ -32,12 +32,20 @@ Core-only mode and an empty App catalog do not disable agentive boot. `AGENTIVE_
 | `INTEGRAL_NATIVE_DURABLE_CHAT_ENABLED` | false | Durable native dispatch/replay/recovery rollout |
 | `INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS` | 900 | Accepted turn deadline |
 | `INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS` | 180 | Individual provider request ceiling |
-| `INTEGRAL_NATIVE_TURN_TOKEN_LIMIT` | 600000 | Aggregate turn token ceiling |
+| `INTEGRAL_NATIVE_TURN_TOKEN_LIMIT` | 1200000 | Aggregate turn token ceiling |
 | `INTEGRAL_NATIVE_TURN_REQUEST_LIMIT` | 20 | Model requests per turn |
 | `INTEGRAL_HARNESS_SESSION_RETENTION_DAYS` | 90 | Terminal private execution-record retention |
 | `INTEGRAL_NATIVE_MODEL` | unset | Optional server model; workspace model setup works independently |
 
 Configure the model, route, and credential reference according to the selected binding. A default model identifier in Compose is not a supplied credential or a universal provider guarantee.
+
+`INTEGRAL_NATIVE_TURN_TOKEN_LIMIT` sums input and output across all model calls
+in one chat turn, including repeated/cached context and history-summary calls.
+It is separate from the model's per-request context window, output ceiling,
+request/tool count and turn deadline. A larger allowance permits more aggregate
+work but does not repair repeated queries or oversized tool responses. See the
+[token-budget investigation](qualification/token-budget/2026-10-12.md) for
+reproductions, context repairs and workload qualification guidance.
 
 ## Secrets and credentials
 

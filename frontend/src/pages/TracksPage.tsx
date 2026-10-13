@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Plus, ClipboardList, MessageSquare } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { tracksApi } from '../api';
+import { apiResponseMessage } from '../lib/apiResponseMessage';
 import { TrackModal } from '../components/tracks/TrackModal';
 import { PinButton } from '../components/sidebar/PinButton';
 import {
@@ -83,8 +84,7 @@ function buildTrackSections(tracks: Track[]): TrackSection[] {
 }
 
 function tracksPageErrorMessage(err: unknown): string {
-  const e = err as { response?: { data?: { detail?: string } } };
-  return String(e?.response?.data?.detail || 'Failed to load tracks');
+  return apiResponseMessage(err, 'Failed to load tracks');
 }
 
 export function TracksPage() {
@@ -161,7 +161,7 @@ export function TracksPage() {
             <PageHeading>Tracks</PageHeading>
             <PageMeta>
               <span>
-                {tracks.length} {tracks.length === 1 ? 'track' : 'tracks'} in {scopeLabel}
+                {!tracksQuery.data && (loading || error) ? '—' : tracks.length} {tracks.length === 1 ? 'track' : 'tracks'} in {scopeLabel}
               </span>
               <span aria-hidden>·</span>
               <span>Keep notes and updates together by project or topic</span>
@@ -215,7 +215,7 @@ export function TracksPage() {
               <Skeleton key={i} className="h-14" />
             ))}
           </div>
-        ) : filtered.length === 0 ? (
+        ) : error && filtered.length === 0 ? null : filtered.length === 0 ? (
           <EmptyState
             surface="card"
             icon={

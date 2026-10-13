@@ -20,9 +20,10 @@ Current package YAML uses `integral_operational_model_version: 3`; compiled mani
 ## Reading path
 
 - [Composition patterns](COMPOSITION_PATTERNS.md)
+- [Package discovery and indexing](../backend/operational-model-search-index.md)
 - [View palette](VIEW_PALETTE.md), [composites](COMPOSITES.md), and [regions](REGION_SYSTEM.md)
 - [Draft and publish](DRAFT_PUBLISH.md), then [migrations](MIGRATIONS.md)
 - [Agent authoring contract](AGENT_CONTRACT.md)
-- [UI components](UI_COMPONENTS_GUIDE.md), [packs](UI_PACKS.md), and [plugins](PLUGINS.md)
+- [UI components](UI_COMPONENTS_GUIDE.md), [interface complements](UI_COMPLEMENTS.md), [packs](UI_PACKS.md), and [plugins](PLUGINS.md)
 
 The [App quickstart](../developer/quickstart.md) provides the runnable package example. [Invariants](../INVARIANTS.md) preserve the substrate constraints.

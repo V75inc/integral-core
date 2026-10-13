@@ -1,0 +1,59 @@
+{
+  "jvspatial_version": "0.2.2",
+  "artifact_source": "local wheel from PR 59 commit 07c1099",
+  "wheel_sha256": "c37a045b023fa4762d49a31e53ee7baa9f3b08fca87edc6b5a2f1fb84b63ba3a",
+  "backend_source": "primary working checkout",
+  "frontend_source": "codex/home-layout working checkout",
+  "core_tests": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "35",
+    "time": "20.089",
+    "timestamp": "2026-10-13T04:15:22.924751-04:00",
+    "hostname": "Eldons-MacBook-Pro.local"
+  },
+  "overview": {
+    "total_users": 23,
+    "active_users": 23,
+    "inactive_users": 0,
+    "platform_admins": 1,
+    "personal_workspaces": 23,
+    "organization_workspaces": 0,
+    "total_apps": 22,
+    "total_tracks": 24
+  },
+  "workspace_detail": {
+    "workspace": {
+      "id": "n.Workspace.da4ad47a13104515911cf79a",
+      "kind": "personal",
+      "name": "Release Validation",
+      "workspace_type": "personal",
+      "description": "Your private workspace.",
+      "member_count": 2,
+      "app_count": 22,
+      "track_count": 24,
+      "created_at": "2026-10-13T08:01:58.950438+00:00",
+      "updated_at": "2026-10-13T08:01:58.950438+00:00",
+      "owner": {
+        "id": "n.User.9d3e5c109ed84683be4459e6",
+        "display_name": "Release Validation",
+        "email": "release022@example.com"
+      }
+    }
+  },
+  "expected_graph_answers": {
+    "total": 508,
+    "expense_count": 6,
+    "linked_business_count": 5,
+    "unlinked_expense": "Coffee purchase",
+    "largest_expense_business": "Berghotel Grosse Scheidegg",
+    "largest_expense_contact": "XYZ Supplies"
+  },
+  "core_version": "0.1.1rc17+qa.jvspatial022",
+  "core_runtime_source": "installed local wheel",
+  "frontend_runtime_source": "compiled assets bundled in the local Core wheel, served by integral web",
+  "dependency_check": "all installed packages compatible",
+  "core_wheel_sha256": "2aec0a03429a86cdb5cb21b8cd9f1da45eb7211f041874d68bfdfc3706fe1e64"
+}

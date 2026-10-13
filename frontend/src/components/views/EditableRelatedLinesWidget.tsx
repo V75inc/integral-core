@@ -92,7 +92,7 @@ function toColumnChoices(rows: unknown, labelFields: string[]): ColumnChoice[] {
         .filter(Boolean)
         .join(' ');
       const label =
-        composed || String(row.label || row.name || row.title || '').trim() || id;
+        composed || String(row.label || row.name || row.title || '').trim() || 'Untitled record';
       const rateRaw = row.rate_percent ?? row.ratePercent;
       const ratePercent =
         rateRaw != null && rateRaw !== '' && Number.isFinite(Number(rateRaw))

@@ -1,0 +1,31 @@
+{
+  "kind": "offline deterministic probe; no provider calls or billing",
+  "active_task": {
+    "tool_results": 12,
+    "source_result_chars": 240000,
+    "retained_result_chars": 240000,
+    "exact_grounding_preserved": true
+  },
+  "new_host_event": {
+    "unmarked_boundary_result_chars": 240000,
+    "marked_boundary_result_chars": 100147,
+    "retained_recent_tool_pairs": 5,
+    "checkpoint_marker_round_trip": true
+  },
+  "cumulative_limit": [
+    {
+      "usage_source": "synthetic FunctionModel usage, not provider telemetry",
+      "token_limit": 600000,
+      "model_calls": 15,
+      "synthetic_total_tokens": 601500,
+      "outcome": "token_limit"
+    },
+    {
+      "usage_source": "synthetic FunctionModel usage, not provider telemetry",
+      "token_limit": 1200000,
+      "model_calls": 20,
+      "synthetic_total_tokens": 802000,
+      "outcome": "completed"
+    }
+  ]
+}

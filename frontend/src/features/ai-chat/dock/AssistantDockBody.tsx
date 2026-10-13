@@ -1,16 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Maximize2, Menu, Sparkles, X } from "lucide-react";
+import { Maximize2, Menu, X } from "lucide-react";
+import { peekLastActiveChatThreadId } from "../chatHandoff";
+import { useScope } from "../../../context/ScopeContext";
 import { AIChatRuntimeBoundary } from "../AIChatSurface";
 import { AIChatThread } from "../components/Thread";
 import { AIChatThreadList } from "../components/ThreadList";
 import { useActiveChatProvider } from "../useActiveChatProvider";
 import { useAssistantDock } from "../../../context/AssistantDockContext";
-import { useFirstLoginOnboarding } from "../../../hooks/useFirstLoginOnboarding";
-import { useAuthOptional } from "../../../context/AuthContext";
-import { useQueryClient } from "@tanstack/react-query";
 import { InboxView } from "../inbox/InboxView";
 import "../inbox/inbox.css";
+import { OnboardingStrip } from "./OnboardingStrip";
 import { AssistantViewTabs } from "../inbox/AssistantViewTabs";
 import { LINE_ICON_STROKE } from "../../../components/ui";
 
@@ -34,64 +34,6 @@ function CloseChatButton({ onClose }: { onClose: () => void }) {
   );
 }
 
-/**
- * First-login framing inside the dock: what to say, and a way out.
- *
- * Replaces the header + Skip that used to belong to the onboarding modal.
- * Keeping it inline means onboarding is the same surface as every later
- * conversation rather than a one-off dialog the user never sees again.
- */
-function OnboardingStrip() {
-  const { dismiss } = useFirstLoginOnboarding();
-  const { setOnboarding } = useAssistantDock();
-  const auth = useAuthOptional();
-  const qc = useQueryClient();
-
-  const handleSkip = () => {
-    // Refresh the user so a completed `onboarded_at` propagates even when the
-    // chat surface never signalled completion — belt and braces, same as the
-    // modal did.
-    auth?.refreshUser?.().catch(() => {
-      /* best effort */
-    });
-    qc.invalidateQueries({ queryKey: ["auth", "me"] });
-    setOnboarding(false);
-    dismiss();
-  };
-
-  return (
-    <div
-      data-testid="onboarding-seed-hint"
-      className="shrink-0 border-b border-[var(--panel-border)] bg-[var(--panel)] px-3 py-3"
-    >
-      <div className="flex items-start gap-3 rounded-[var(--radius-card)] border border-[var(--panel-border)] bg-[var(--panel-2)] p-3 shadow-sm">
-        <span
-          aria-hidden="true"
-          className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--badge-muted-bg)] text-[var(--brand-accent)]"
-        >
-          <Sparkles size={15} strokeWidth={1.8} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium leading-snug text-[var(--text)] [text-wrap:balance]">
-            Get started with your workspace
-          </p>
-          <p className="mt-1 text-xs leading-relaxed text-[var(--text-muted)] [text-wrap:pretty]">
-            Say hello and I&rsquo;ll help you set up your Apps and Tracks.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={handleSkip}
-          aria-label="Skip workspace introduction"
-          className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-[var(--radius-input)] px-2 text-xs font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--surface)] hover:text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring-color)]"
-        >
-          Skip
-        </button>
-      </div>
-    </div>
-  );
-}
-
 export interface AssistantDockBodyProps {
   onClose: () => void;
 }
@@ -107,6 +49,10 @@ export interface AssistantDockBodyProps {
  */
 export default function AssistantDockBody({ onClose }: AssistantDockBodyProps) {
   const provider = useActiveChatProvider();
+  const { scope } = useScope();
+  // Capture the handoff before the child runtime mounts and updates its remembered ID.
+  const target = useRef({ workspaceId: scope?.workspaceId, threadId: peekLastActiveChatThreadId(scope?.workspaceId) });
+  const initialThreadId = target.current.workspaceId === scope?.workspaceId ? target.current.threadId : null;
   const { onboarding, view, setView } = useAssistantDock();
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -126,7 +72,8 @@ export default function AssistantDockBody({ onClose }: AssistantDockBodyProps) {
     <AIChatRuntimeBoundary
       key={provider.id}
       provider={provider}
-      startNewThread={onboarding}
+      initialThreadId={initialThreadId}
+      startNewThread={onboarding && !initialThreadId}
     >
       <div className="flex h-full min-h-0 flex-col bg-[var(--section-bg)]">
       <header
@@ -220,7 +167,7 @@ export default function AssistantDockBody({ onClose }: AssistantDockBodyProps) {
           </div>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col bg-[var(--section-bg)]">
+        <div className="relative flex min-h-0 flex-1 flex-col bg-[var(--section-bg)]">
           {view === "inbox" ? (
             <InboxView />
           ) : (

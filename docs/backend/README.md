@@ -11,7 +11,8 @@ The backend supplies the graph substrate, resource authority, App lifecycle, and
 | Resident | [Chat](ai-chat.md), [skills](skill-format-standard.md), [workspace overlay](workspace-agent-profile.md), [scaffold recovery](scaffold-recovery.md) |
 | Review and work | [Prompt queue](prompt-queue.md), [bounded-work contract](work-mandate-contract.md) |
 | Integrations | [Connectors](connectors.md), [files](attachment-agent-contract.md), [speech](speech-input.md) |
+| Tool evidence | [Source observations](tool-source-observations.md) |
 | Account timing | [Time zones and reminders](user-timezone.md) |
 | Authority and writes | [Credentials](model-credentials-byok.md), [service layer](service-layer.md) |
 
-Architecture decisions in `adr/` explain preserved boundaries. They describe a current decision, not a frozen release acceptance claim. Operational configuration belongs in the [operations guides](../ops/DEPLOY.md).
+The [architecture decision index](adr/README.md) explains preserved boundaries. ADRs describe decisions, not release acceptance. Dated results live in [qualification records](../ops/QUALIFICATION.md); operational configuration belongs in the [operations guides](../ops/DEPLOY.md).

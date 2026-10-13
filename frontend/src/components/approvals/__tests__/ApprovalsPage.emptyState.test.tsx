@@ -157,7 +157,7 @@ describe('ApprovalsPage empty state', () => {
     renderPage();
     await screen.findByText('All clear');
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'approved' } });
-    expect(await screen.findByText('Ownership transfer for Track track-a')).toBeVisible();
+    expect(await screen.findByText('Ownership transfer for Track')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Accept ownership' })).not.toBeInTheDocument();
     expect(screen.getByText('1 item')).toBeVisible();
   });

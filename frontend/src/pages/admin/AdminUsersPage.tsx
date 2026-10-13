@@ -18,6 +18,7 @@ import {
 import { useSetCrumbs } from '../../context/CrumbsContext';
 import { formatRelativeTime } from '../../utils';
 import { AdminEntityLink } from '../../components/admin/AdminEntityLink';
+import { adminQueryRecovery } from './adminQueryRecovery';
 
 export function AdminUsersPage() {
   useSetCrumbs([
@@ -59,6 +60,7 @@ export function AdminUsersPage() {
         search: debouncedSearch || undefined,
         status,
       }),
+    ...adminQueryRecovery,
   });
 
   function setStatus(next: 'all' | 'active' | 'inactive') {
@@ -85,7 +87,7 @@ export function AdminUsersPage() {
       <PageSection className="mt-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative max-w-md flex-1">
-            <Text as="span" tone="subtle" className="absolute left-3 top-1/2 -translate-y-1/2"><Search
+            <Text as="span" tone="subtle" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2"><Search
               size={16}
               strokeWidth={LINE_ICON_STROKE}
               /></Text>

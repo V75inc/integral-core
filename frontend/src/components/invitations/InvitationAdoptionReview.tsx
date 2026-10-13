@@ -60,9 +60,8 @@ export function InvitationAdoptionReview({ workspaceId, invitationId, onAdopted 
       {review && (
         <div role="group" aria-label="Owner invitation adoption" className="space-y-2 text-sm">
           <p>Recipient: {review.email}. Target: {review.target_resource_type
-            ? `${review.target_resource_type} ${review.target_resource_id}` : 'this workspace'}.</p>
+            ? review.target_resource_type : 'this workspace'}.</p>
           <p>Originally requested: {review.requested_role || 'unspecified'}. Expires: {review.expires_at}.</p>
-          <p>Original issuer: {review.original_issuer_id}.</p>
           <p>You will take responsibility for this pending invitation. The existing link will stop working. Send the new link to the recipient. No access is granted until acceptance.</p>
           <label className="block">Adopted role
             <select aria-label="Adopted role" value={role} disabled={busy} onChange={e => setRole(e.target.value)} className="app-input ml-2">

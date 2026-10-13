@@ -432,9 +432,12 @@ async def demote_platform_admin(user_id: str, *, actor_id: str) -> AdminUserDeta
 
 async def get_admin_overview() -> AdminOverview:
     """Platform-wide entity counts."""
-    user_pager = ObjectPager(User, page_size=1)
-    await user_pager.get_page(page=1)
-    total_users = user_pager.to_dict()["total_items"]
+    # Overview needs counts, not a page of hydrated nodes. ObjectPager relies
+    # on ``database.find_ids`` for its count/page path, which is not available
+    # on every supported Postgres transaction implementation. Use the entity
+    # count API so this platform-wide summary works across backends without
+    # materializing every node.
+    total_users = await User.count()
 
     active_users = 0
     inactive_users = 0
@@ -451,25 +454,10 @@ async def get_admin_overview() -> AdminOverview:
         if _is_platform_admin_auth(row):
             platform_admins += 1
 
-    personal_ws_pager = ObjectPager(
-        Workspace, page_size=1, filters={"context.kind": "personal"}
-    )
-    await personal_ws_pager.get_page(page=1)
-    personal_workspaces = personal_ws_pager.to_dict()["total_items"]
-
-    org_ws_pager = ObjectPager(
-        Workspace, page_size=1, filters={"context.kind": "organization"}
-    )
-    await org_ws_pager.get_page(page=1)
-    organization_workspaces = org_ws_pager.to_dict()["total_items"]
-
-    app_pager = ObjectPager(App, page_size=1)
-    await app_pager.get_page(page=1)
-    total_apps = app_pager.to_dict()["total_items"]
-
-    track_pager = ObjectPager(Track, page_size=1)
-    await track_pager.get_page(page=1)
-    total_tracks = track_pager.to_dict()["total_items"]
+    personal_workspaces = await Workspace.count({"context.kind": "personal"})
+    organization_workspaces = await Workspace.count({"context.kind": "organization"})
+    total_apps = await App.count()
+    total_tracks = await Track.count()
 
     return AdminOverview(
         total_users=total_users,

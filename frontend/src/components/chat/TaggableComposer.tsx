@@ -52,7 +52,7 @@ function userToEntityRef(user: User): ChatEntityRef {
   return normalizeEntityRef({
     kind: 'user',
     id: user.id,
-    label: (user.display_name || user.email || user.id).trim(),
+    label: (user.display_name || user.email || 'Unnamed user').trim(),
     display_name: user.display_name,
     email: user.email,
   });

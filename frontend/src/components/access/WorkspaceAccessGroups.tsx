@@ -50,7 +50,7 @@ export function WorkspaceAccessGroups({ workspaceId, members }: {
       {selected && <div role="group" aria-label={`Members of ${selected.name}`} className="app-card p-4 space-y-3">
         <p>{selected.name}</p>
         <ul>{people.map(row => <li key={row.user.id} className="flex gap-2 items-center">
-          <span>{row.user.display_name || row.user.id}{!row.active ? ' · previous membership; no current grant' : ''}</span>
+          <span>{row.user.display_name || 'Unnamed user'}{!row.active ? ' · previous membership; no current grant' : ''}</span>
           <Button variant="secondary" disabled={busy} onClick={() => run(async () => { await accessControlApi.groupMember(selected.id, row.user.id, false); await select(selected); })}>Remove</Button>
         </li>)}</ul>
         {peopleCursor && <Button variant="secondary" disabled={busy} onClick={() => run(() => select(selected, peopleCursor))}>Load more members</Button>}

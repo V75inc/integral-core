@@ -334,6 +334,8 @@ async def test_provider_persists_session_and_resumes_previous_run(
         assert '"attachment_id":"attachment-b"' in part.content
         assert '<untrusted_data name="uploaded_file_references">' in part.content
         assert "new user upload" in part.content
+    if not second_text and (routine_output or staging_continuation or attachment_only):
+        assert observed_histories[-1][-1].metadata == {"integral_host_turn_v1": "run-b"}
     assert ctx.text == second_text
     if routine_output == "quiet":
         assert not [event for event in second if event.get("type") == "text-delta"]

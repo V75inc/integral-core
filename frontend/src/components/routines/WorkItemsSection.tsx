@@ -61,13 +61,13 @@ export function WorkItemsSection({ workspaceId }: { workspaceId: string }) {
         size="sm"
         variant="outline"
         loading={loading}
-        aria-label="Refresh work"
+        aria-label="Refresh"
         aria-busy={loading}
         icon={<RefreshCw size={14} strokeWidth={LINE_ICON_STROKE} aria-hidden />}
         className="shrink-0"
         onClick={() => void load()}
       >
-        {loading ? 'Refreshing…' : 'Refresh work'}
+        {loading ? 'Refreshing…' : 'Refresh'}
       </Button>
     </header>
     <div className="mt-5">
@@ -78,16 +78,7 @@ export function WorkItemsSection({ workspaceId }: { workspaceId: string }) {
         {items.map(item => <Surface key={item.work_item_id} tone="panel" border="subtle" radius="card" className="min-w-0 space-y-3 p-4">
           <Text as="h3" weight="medium">{item.kind === 'app_lifecycle' ? (operationLabels[item.operation ?? ''] ?? 'App lifecycle') : item.kind.replace(/_/g, ' ')} · {statusLabels[item.status] ?? item.status}</Text>
           <Text as="p" variant="meta" tone="subtle">Updated {formatRelativeTime(item.updated_at)} · Attempt {item.attempt}</Text>
-          <dl className="space-y-2">
-            <div className="space-y-1">
-              <Text as="dt" variant="label" tone="subtle">Work ID</Text>
-              <Text as="dd" variant="mono" truncate title={item.work_item_id} className="min-w-0">{item.work_item_id}</Text>
-            </div>
-            {item.app_id && <div className="space-y-1">
-              <Text as="dt" variant="label" tone="subtle">App ID</Text>
-              <Text as="dd" variant="mono" truncate title={item.app_id} className="min-w-0">{item.app_id}</Text>
-            </div>}
-          </dl>
+
           {item.failure && <Text as="p" tone="danger">{item.failure.message || item.failure.code}</Text>}
           {item.next_attempt_at && item.status === 'retry_wait' && <Text as="p" variant="meta">Next attempt: {item.next_attempt_at}</Text>}
         </Surface>)}

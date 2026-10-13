@@ -31,7 +31,7 @@ const EXPECTED_CONSUMER_SURFACES = [
   'src/components/tracks/TrackCard.tsx',        // 5
   'src/components/collab/UserSearchPicker.tsx', // 6
   'src/pages/AppDetailPage.tsx',              // 7
-  'src/pages/ProfilePage.tsx',                  // 8
+  'src/features/settings/sections/ProfileSection.tsx', // 8 — canonical profile
   'src/pages/WorkspaceMembersPage.tsx',         // 9
   // 10 — was src/pages/TrackDetailPage.tsx until the Wave 4 split moved the
   // collaborator list (and its Avatar) out of the page. The surface is the
@@ -52,7 +52,7 @@ describe('Avatar consumer surfaces (AVT-02 lockfile)', () => {
       // Match either ``<Avatar `` (single-line, props inline) OR
       // ``<Avatar\n`` (multi-line JSX, props on subsequent lines) OR
       // ``<AvatarUploadControl`` (the upload-aware wrapper that itself
-      // renders <Avatar> internally — e.g. ProfilePage's
+      // renders <Avatar> internally — e.g. a profile
       // Facebook-style upload affordance).
       expect(content).toMatch(/<(Avatar|AvatarUploadControl)[\s\n]/);
       // Accept either JSX prop form (``attachmentId=``) or the

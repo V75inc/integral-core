@@ -112,7 +112,7 @@ export function SharingSection() {
   const handleRevokeLink = async (link: OutboundShareLink) => {
     const ok = await confirm({
       title: 'Revoke this share link?',
-      message: `${link.resource_type}:${link.resource_label || link.resource_id} — role ${link.role}. This cannot be undone.`,
+      message: `${link.resource_type}:${link.resource_label || 'Unnamed resource'} — role ${link.role}. This cannot be undone.`,
       confirmLabel: 'Revoke',
       variant: 'danger',
     });
@@ -123,7 +123,7 @@ export function SharingSection() {
   const handleClearExclusion = async (excl: OutboundExclusion) => {
     const ok = await confirm({
       title: 'Clear this exclusion?',
-      message: `Restore ${excl.excluded_user_display || excl.excluded_user_id} to ${excl.resource_type}:${excl.resource_label || excl.resource_id}.`,
+      message: `Restore ${excl.excluded_user_display || 'Unnamed user'} to ${excl.resource_type}:${excl.resource_label || 'Unnamed resource'}.`,
       confirmLabel: 'Clear',
       variant: 'danger',
     });
@@ -138,7 +138,7 @@ export function SharingSection() {
   const handleRevokeInvitation = async (inv: OutboundInvitation) => {
     const ok = await confirm({
       title: 'Revoke this invitation?',
-      message: `${inv.resource_type}:${inv.resource_label || inv.resource_id} — invitee ${inv.invitee_email || inv.invitee_user_id || '(unknown)'}.`,
+      message: `${inv.resource_type}:${inv.resource_label || 'Unnamed resource'} — invitee ${inv.invitee_email || 'Unnamed invitee'}.`,
       confirmLabel: 'Revoke',
       variant: 'danger',
     });
@@ -238,7 +238,7 @@ export function SharingSection() {
                     {excl.resource_label || `${excl.resource_type}:${excl.resource_id}`}
                   </Link>
                   <p className="text-xs text-[var(--text-subtle)]">
-                    Excluded: {excl.excluded_user_display || excl.excluded_user_id}
+                    Excluded: {excl.excluded_user_display || 'Unnamed user'}
                     {excl.reason ? ` · "${excl.reason}"` : ''}
                   </p>
                 </div>
@@ -284,7 +284,7 @@ export function SharingSection() {
                   </Link>
                   <p className="text-xs text-[var(--text-subtle)]">
                     {inv.resource_type} · role {inv.role} · invited{' '}
-                    {inv.invitee_email || inv.invitee_user_id || '(unknown)'}
+                    {inv.invitee_email || 'Unnamed invitee'}
                   </p>
                 </div>
                 <Button

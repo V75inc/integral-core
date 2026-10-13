@@ -60,14 +60,14 @@ function getUnifiedFiles(value: unknown, labels: Record<string, string>): Unifie
             labels[id]
             || (typeof obj.name === 'string' ? obj.name : '')
             || (typeof obj.filename === 'string' ? obj.filename : '')
-            || id,
+            || 'Attachment',
         });
         continue;
       }
     }
     if (typeof item === 'string' && item.trim()) {
       const id = item.trim();
-      out.push({ id, name: labels[id] || id });
+      out.push({ id, name: labels[id] || 'Attachment' });
     }
   }
   return out;
@@ -169,7 +169,7 @@ export function SeamlessFileFieldInner({
             publicShare.entryId,
           );
           for (const att of listed.attachments || []) {
-            if (att.id) next[att.id] = att.filename || att.id;
+            if (att.id) next[att.id] = att.filename || 'Attachment';
           }
         } catch {
           for (const id of missing) next[id] = id;
@@ -180,7 +180,7 @@ export function SeamlessFileFieldInner({
             try {
               const detail = await attachmentsApi.get(id);
               const att = detail.attachment as AttachmentRecord;
-              next[id] = att.filename || id;
+              next[id] = att.filename || 'Attachment';
             } catch {
               next[id] = id;
             }

@@ -9,12 +9,14 @@ import { useChatEntityRefsOptional } from "../../../context/ChatEntityRefsContex
 import type { ChatEntityRef } from "../../../types/chatEntityRefs";
 import { useChatActivity } from "../AIChatSurface";
 import { useComposerDictationActions } from "../../speech/ComposerDictationContext";
-import { consumePendingChatDraft, OPEN_AI_CHAT_EVENT } from "../chatHandoff";
+import { useAuthOptional } from "../../../context/AuthContext";
+import { useScope } from "../../../context/ScopeContext";
+import { consumePendingChatInput, OPEN_AI_CHAT_EVENT } from "../chatHandoff";
 
 type AuiTaggableComposerProps = Omit<
   React.TextareaHTMLAttributes<HTMLTextAreaElement>,
   "value" | "onChange"
->;
+> & { acceptHandoff?: boolean; onSendAttempt?: () => void };
 
 export function AuiTaggableComposer({
   className,
@@ -24,9 +26,14 @@ export function AuiTaggableComposer({
   rows,
   autoFocus,
   "aria-label": ariaLabel,
+  acceptHandoff = true,
+  onSendAttempt,
 }: AuiTaggableComposerProps) {
   const aui = useAui();
-  const { activeThreadId, composerReady } = useChatActivity();
+  const { scope } = useScope();
+  const auth = useAuthOptional();
+  const principalId = auth?.user?.id ?? null;
+  const { activeThreadId, composerReady, isRunning } = useChatActivity();
   const composerText = useAuiState((s) => s.composer.text ?? "");
   const [localValue, setLocalValue] = useState(composerText);
   // The composer is one box for the whole surface. Switching chats (including
@@ -56,7 +63,7 @@ export function AuiTaggableComposer({
   }, [activeThreadId, aui, entityRefsCtx]);
 
   useEffect(() => {
-    if (!composerReady) return;
+    if (!acceptHandoff || !composerReady || isRunning || disabled) return;
     let timer: number | null = null;
     const applyPendingDraft = () => {
       if (timer != null) window.clearTimeout(timer);
@@ -65,10 +72,22 @@ export function AuiTaggableComposer({
       // a slow thread list must not silently consume the user's draft.
       timer = window.setTimeout(() => {
         timer = null;
-        const text = consumePendingChatDraft();
-        if (!text) return;
-        setLocalValue(text);
-        aui.composer().setText(text);
+        const input = consumePendingChatInput();
+        if (!input) return;
+        // A Home submission belongs to the workspace in which it was clicked.
+        // Never send a deferred handoff after the user switches workspace.
+        if (input.submit && (!input.workspaceId || input.workspaceId !== scope?.workspaceId || !input.principalId || input.principalId !== principalId)) return;
+        setLocalValue(input.text);
+        aui.composer().setText(input.text);
+        if (input.submit) {
+          setEntityRefs([]);
+          entityRefsCtx?.setPendingEntityRefs([]);
+          entityRefsCtx?.flushPendingEntityRefs();
+          void aui.composer().send();
+          // Sending resets runtime text synchronously; its value may remain
+          // unchanged (empty), so the local controlled value must reset too.
+          setLocalValue("");
+        }
       }, 0);
     };
     applyPendingDraft();
@@ -77,7 +96,7 @@ export function AuiTaggableComposer({
       window.removeEventListener(OPEN_AI_CHAT_EVENT, applyPendingDraft);
       if (timer != null) window.clearTimeout(timer);
     };
-  }, [activeThreadId, aui, composerReady]);
+  }, [acceptHandoff, activeThreadId, aui, composerReady, isRunning, disabled, scope?.workspaceId, principalId, entityRefsCtx]);
 
   useEffect(() => {
     entityRefsCtx?.registerComposerEntityRefsReset(() => setEntityRefs([]));
@@ -103,8 +122,9 @@ export function AuiTaggableComposer({
   const sendNow = useCallback(() => {
     entityRefsCtx?.setPendingEntityRefs(entityRefsRef.current);
     entityRefsCtx?.flushPendingEntityRefs();
+    onSendAttempt?.();
     void aui.composer().send();
-  }, [aui, entityRefsCtx]);
+  }, [aui, entityRefsCtx, onSendAttempt]);
 
   const handleSubmit = useCallback(() => {
     // Finish dictation first so the last words land before the message goes.
