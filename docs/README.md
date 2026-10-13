@@ -20,7 +20,7 @@ Follow the [App quickstart](developer/quickstart.md), then use the [extension co
 
 ## Operate it
 
-Use the [CLI guide](ops/LOCAL_INSTALLATION.md) for local startup, logs, backups, restore, and upgrades. For hosted environments, use the [deployment runbook](ops/DEPLOY.md), [configuration guide](ops/CONFIGURATION.md), [security guide](ops/SECURITY.md), and [qualification record](ops/QUALIFICATION.md). Deployment, publication, CI, and user-flow acceptance are distinct checks.
+Use the [CLI guide](ops/LOCAL_INSTALLATION.md) for local startup, logs, backups, restore, and upgrades. For hosted environments, use the [deployment runbook](ops/DEPLOY.md), [configuration guide](ops/CONFIGURATION.md), [security guide](ops/SECURITY.md), and [qualification record](ops/QUALIFICATION.md). Commercial distributions also use the [commercial host integration guide](platform/commercial-host-integration.md); payment-provider and plan settings remain in the host. Deployment, publication, CI, and user-flow acceptance are distinct checks.
 
 ## Maintain it
 

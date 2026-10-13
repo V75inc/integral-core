@@ -8,6 +8,10 @@ Core owns authenticated identity, workspace scope, resource access, schema valid
 
 Core must not import `app.packages` or `app.plugins` from services, APIs, models, or schemas. It must not branch on App slug, EntryType name, or Track identity. Core-only boot must work without domain packages.
 
+## Commercial hosts
+
+The [commercial host integration guide](commercial-host-integration.md) defines extension loading, workspace entitlements, temporary host access, quota and usage hooks, and access-loss recovery. Host registrations are trusted process configuration, separate from App manifest hooks and resource authorization.
+
 ## Information and capabilities
 
 The preferred facade supplies `get(object_ref)`, `query(query_spec)`, and `invoke(operation_key, payload)`. Query modes are `declared_capability` and `core_open`; mode selects a contract, never a permission bypass. Field and revision contracts distinguish base values, custom fields, relation definitions, and record/schema revisions.

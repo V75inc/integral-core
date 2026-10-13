@@ -23,6 +23,8 @@ The launcher validates its saved installation identity before starting. A missin
 | `INTEGRAL_HOST_EXTENSION_MODULE` | empty | Explicit host-owned extension module |
 | `MAX_CONCURRENT_TURNS_PER_USER` | 5 | Ordinary per-worker turn ceiling; not universal shared admission |
 
+For commercial deployments, see the [commercial host integration guide](../platform/commercial-host-integration.md) for extension startup, entitlements, quota/usage hooks, and recovery. `INTEGRAL_SUBSCRIPTION_REQUIRED` is a host-owned Business setting, not a Core switch that disables commercial App checks.
+
 Core-only mode and an empty App catalog do not disable agentive boot. `AGENTIVE_ENABLED` is not a current settings gate.
 
 ## Native resident and continuity
