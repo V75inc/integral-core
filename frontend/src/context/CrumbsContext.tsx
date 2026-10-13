@@ -16,6 +16,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -66,27 +67,28 @@ function fallbackCrumbsFromPath(pathname: string): Crumb[] {
 
 export function CrumbsProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
-  const [published, setPublished] = useState<Crumb[] | null>(null);
+  const [published, setPublished] = useState<{ routeId: string; crumbs: Crumb[] } | null>(null);
+  const pathname = location.pathname;
+  const routeId = `${location.key}:${pathname}`;
+  const committedRoute = useRef(routeId);
+  useLayoutEffect(() => { committedRoute.current = routeId; }, [routeId]);
 
-  // Reset on navigation — each page is responsible for re-publishing its
-  // crumbs after it mounts; without this, stale crumbs would briefly
-  // flash from the previous page.
-  const lastPathRef = useRef(location.pathname);
-  useEffect(() => {
-    if (lastPathRef.current !== location.pathname) {
-      setPublished(null);
-      lastPathRef.current = location.pathname;
-    }
-  }, [location.pathname]);
-
+  // Page effects can finish after navigation. Bind each publisher to its
+  // originating route; a delayed old page must not overwrite the new trail.
   const setCrumbs = useCallback((next: Crumb[]) => {
-    setPublished(next);
-  }, []);
-  const clearCrumbs = useCallback(() => setPublished(null), []);
+    setPublished(current => committedRoute.current === routeId
+      ? { routeId, crumbs: next }
+      : current);
+  }, [routeId]);
+  const clearCrumbs = useCallback(() => {
+    setPublished(current => current?.routeId === routeId ? null : current);
+  }, [routeId]);
 
+  // Choose the URL fallback during render, rather than clearing published
+  // state in a parent effect that can erase the destination page's effect.
   const crumbs = useMemo(
-    () => published ?? fallbackCrumbsFromPath(location.pathname),
-    [published, location.pathname]
+    () => published?.routeId === routeId ? published.crumbs : fallbackCrumbsFromPath(pathname),
+    [published, pathname, routeId]
   );
 
   const value = useMemo<CrumbsContextValue>(
@@ -113,5 +115,5 @@ export function useSetCrumbs(crumbs: Crumb[]): void {
   useEffect(() => {
     setCrumbs(crumbs);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, setCrumbs]);
 }

@@ -42,7 +42,7 @@ function tagChipLabel(tag: Tag): string {
   const raw = (tag.name ?? '').trim();
   const id = tag.id ?? '';
   if (raw && raw !== id && !/^n\.tag\./i.test(raw)) return raw;
-  return raw || id.replace(/^n\.Tag\./i, '') || 'Tag';
+  return 'Tag';
 }
 
 function tagChipStyle(tag: Tag) {

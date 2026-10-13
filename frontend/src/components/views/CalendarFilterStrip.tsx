@@ -1,3 +1,5 @@
+import { Input, Surface, Text } from '../../ui';
+import { Button } from '../ui';
 import { Filter, Search, X } from 'lucide-react';
 import { DatePicker } from '../ui/DatePicker';
 import { LINE_ICON_STROKE } from '../ui/IconWell';
@@ -29,37 +31,28 @@ export function CalendarFilterStrip({
   };
 
   return (
-    <div className="flex flex-col gap-2 border-b border-[var(--panel-border)] bg-[var(--panel)] px-3 md:px-4 py-2 md:py-2.5">
+    <Surface tone="panel" border="none" radius="none" className="flex flex-col gap-2 border-b border-[var(--panel-border)] px-3 md:px-4 py-2 md:py-2.5">
       <div className="flex flex-wrap items-center gap-2 min-w-0">
         <div className="relative flex-1 min-w-[10rem]">
           <Search
             size={14}
             strokeWidth={LINE_ICON_STROKE}
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-subtle)]"
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 opacity-60"
             aria-hidden
           />
-          <input
+          <Input
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search entries…"
             aria-label="Search calendar entries"
-            className="
-              w-full bg-[var(--panel-2)]
-              border border-[var(--panel-border)]
-              rounded-[var(--radius-input)]
-              py-2 pl-8 pr-3 text-sm
-              text-[var(--text)] placeholder:text-[var(--text-subtle)]
-              transition-colors duration-fast
-              hover:border-[var(--text-subtle)]
-              focus:outline-none focus:border-[var(--text-muted)] focus:bg-[var(--panel)]
-            "
+            className="pl-9"
           />
         </div>
 
-        <div className="flex items-center gap-1.5 shrink-0 text-xs text-[var(--text-muted)]">
+        <Text variant="meta" tone="muted" className="flex items-center gap-1.5 shrink-0">
           <Filter size={12} strokeWidth={LINE_ICON_STROKE} aria-hidden />
           <span className="hidden sm:inline">Date range</span>
-        </div>
+        </Text>
 
         <div className="flex flex-wrap items-center gap-2 min-w-0">
           <DatePicker
@@ -71,7 +64,7 @@ export function CalendarFilterStrip({
             variant="field"
             className="min-w-[8.5rem] max-w-[10rem]"
           />
-          <span className="text-xs text-[var(--text-subtle)]" aria-hidden>
+          <span className="text-xs opacity-60" aria-hidden>
             –
           </span>
           <DatePicker
@@ -86,22 +79,22 @@ export function CalendarFilterStrip({
         </div>
 
         {anyActive ? (
-          <button
+          <Button variant="ghost" size="sm"
             type="button"
             onClick={clearAll}
             aria-label="Clear calendar filters"
             className="
               inline-flex items-center gap-1 text-sm shrink-0
-              text-[var(--text-subtle)]
-              hover:text-[var(--text)]
+              opacity-60
+              hover:opacity-100
               transition-colors duration-fast
             "
           >
             <X size={12} strokeWidth={LINE_ICON_STROKE} aria-hidden />
             Clear
-          </button>
+          </Button>
         ) : null}
       </div>
-    </div>
+    </Surface>
   );
 }

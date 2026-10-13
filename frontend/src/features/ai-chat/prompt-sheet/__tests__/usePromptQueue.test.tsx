@@ -23,6 +23,12 @@ afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); });
 async function settled() { await act(async () => { await Promise.resolve(); }); }
 
 describe('approval queue refresh', () => {
+  it('observes a stale resolved approval on mount without starting a model run', async () => {
+    vi.mocked(getPromptQueue).mockResolvedValue({...closedQueue, resume_text: "Change didn't go through", resume_required: true});
+    renderHook(() => usePromptQueue()); await settled();
+    expect(state.append).toHaveBeenCalledOnce();
+    expect(state.startRun).not.toHaveBeenCalled();
+  });
   it('closes a chat-resolved review and appends its receipt without another continuation', async () => {
     const { result } = renderHook(() => usePromptQueue()); await settled();
     vi.mocked(getPromptQueue).mockResolvedValueOnce({ ...closedQueue, resume_text: 'Updates applied', resume_required: false });
@@ -48,7 +54,7 @@ describe('approval queue refresh', () => {
     await act(async () => { await result.current.refresh(); });
     vi.mocked(getPromptQueue).mockResolvedValueOnce(closed);
     await act(async () => { await result.current.refresh(); });
-    expect(state.append).toHaveBeenCalledTimes(2); expect(state.startRun).toHaveBeenCalledTimes(2);
+    expect(state.append).toHaveBeenCalledTimes(2); expect(state.startRun).toHaveBeenCalledTimes(1);
   });
   it('keeps the review on failure, honors backoff, and closes only on verified empty state', async () => {
     const { result } = renderHook(() => usePromptQueue());

@@ -1,0 +1,210 @@
+{
+  "hotel": {
+    "status": 200,
+    "elapsed_seconds": 3.313,
+    "result": {
+      "coverage": {
+        "decision_sufficiency": "not_assessed",
+        "field_states": {
+          "missing": 0,
+          "null": 0,
+          "present": 8,
+          "truncated": 0
+        },
+        "requested_radius": 2,
+        "selected_detail": "represented_authorized_fields_only"
+      },
+      "edges": [],
+      "expansion_points": [
+        "n.Entry.b2bfe92e5c5e4eda86fc7084"
+      ],
+      "format_version": 2,
+      "meta": {
+        "captured_at": "2026-10-13T10:30:40.018060+00:00",
+        "complete": false,
+        "consistency": "best_effort",
+        "continuation": "new_live_capture",
+        "detail_complete": true,
+        "direction": "out",
+        "edge_policy": "traversal",
+        "execution_mode": "native",
+        "max_depth": 2,
+        "ordering": "breadth_first_edge_id",
+        "read_finished_at": "2026-10-13T10:30:40.367574+00:00",
+        "request_fingerprint": "c9f4defa17582de0e5ad718098e5ffafbf5377b5919eef46a371346ef79a30cc",
+        "root_available": true,
+        "root_id": "n.Entry.b2bfe92e5c5e4eda86fc7084",
+        "scope": "ws:n.Workspace.da4ad47a13104515911cf79a",
+        "stop_reasons": [
+          "timeout"
+        ],
+        "view": "relationships"
+      },
+      "nodes": [
+        {
+          "context": {
+            "provenance.source": "human",
+            "record_revision": 1,
+            "schema_revision": 1,
+            "status": "active",
+            "title": "Hotel expenses at Berghotel Grosse Scheidegg",
+            "track_id": "n.Track.42287fc4f1cd4c1cb6fff9a6",
+            "type_id": "n.EntryType.2d39558a0f1b4204953dd64f",
+            "updated_at": "2026-10-13T08:16:26.115567+00:00"
+          },
+          "entity": "Entry",
+          "fields": {
+            "provenance.source": {
+              "evidence": {
+                "revision": 1,
+                "source": "human",
+                "status": "complete",
+                "value_class": "recorded"
+              },
+              "path": "provenance.source",
+              "record_id": "n.Entry.b2bfe92e5c5e4eda86fc7084",
+              "state": "present"
+            },
+            "record_revision": {
+              "evidence": {
+                "revision": 1,
+                "source": "human",
+                "status": "complete",
+                "value_class": "recorded"
+              },
+              "path": "record_revision",
+              "record_id": "n.Entry.b2bfe92e5c5e4eda86fc7084",
+              "state": "present"
+            },
+            "schema_revision": {
+              "evidence": {
+                "revision": 1,
+                "source": "human",
+                "status": "complete",
+                "value_class": "recorded"
+              },
+              "path": "schema_revision",
+              "record_id": "n.Entry.b2bfe92e5c5e4eda86fc7084",
+              "state": "present"
+            },
+            "status": {
+              "description": "Substrate lifecycle state; not operational completion.",
+              "evidence": {
+                "revision": 1,
+                "source": "human",
+                "status": "complete",
+                "value_class": "recorded"
+              },
+              "path": "status",
+              "record_id": "n.Entry.b2bfe92e5c5e4eda86fc7084",
+              "state": "present"
+            },
+            "title": {
+              "evidence": {
+                "revision": 1,
+                "source": "human",
+                "status": "complete",
+                "value_class": "recorded"
+              },
+              "path": "title",
+              "record_id": "n.Entry.b2bfe92e5c5e4eda86fc7084",
+              "state": "present"
+            },
+            "track_id": {
+              "evidence": {
+                "revision": 1,
+                "source": "human",
+                "status": "complete",
+                "value_class": "recorded"
+              },
+              "path": "track_id",
+              "record_id": "n.Entry.b2bfe92e5c5e4eda86fc7084",
+              "state": "present"
+            },
+            "type_id": {
+              "evidence": {
+                "revision": 1,
+                "source": "human",
+                "status": "complete",
+                "value_class": "recorded"
+              },
+              "path": "type_id",
+              "record_id": "n.Entry.b2bfe92e5c5e4eda86fc7084",
+              "state": "present"
+            },
+            "updated_at": {
+              "evidence": {
+                "revision": 1,
+                "source": "human",
+                "status": "complete",
+                "value_class": "recorded"
+              },
+              "path": "updated_at",
+              "record_id": "n.Entry.b2bfe92e5c5e4eda86fc7084",
+              "state": "present"
+            }
+          },
+          "id": "n.Entry.b2bfe92e5c5e4eda86fc7084",
+          "label": "Hotel expenses at Berghotel Grosse Scheidegg",
+          "truncated_fields": []
+        }
+      ],
+      "paths": {
+        "n.Entry.b2bfe92e5c5e4eda86fc7084": {
+          "edges": [],
+          "nodes": [
+            "n.Entry.b2bfe92e5c5e4eda86fc7084"
+          ]
+        }
+      },
+      "profile": {
+        "profile_id": "integral-recorded",
+        "revision": "1"
+      },
+      "relation_definitions": {}
+    }
+  },
+  "workspace": {
+    "status": 400,
+    "elapsed_seconds": 3.243,
+    "result": {
+      "error_code": "bad_request",
+      "message": "Use a narrower graph root for recorded detail",
+      "timestamp": "2026-10-13T10:30:43.596882+00:00",
+      "path": "/api/graph-context"
+    }
+  },
+  "member_login": 200,
+  "/tracks": {
+    "status": 200,
+    "count": 3
+  },
+  "/admin/overview": {
+    "status": 403,
+    "count": null
+  },
+  "/admin/users": {
+    "status": 403,
+    "count": null
+  },
+  "/admin/workspaces": {
+    "status": 403,
+    "count": null
+  },
+  "/admin/apps": {
+    "status": 403,
+    "count": null
+  },
+  "/admin/tracks": {
+    "status": 403,
+    "count": null
+  },
+  "/entries/n.Entry.92dcbe19c2ea4316ac18e855": {
+    "status": 403,
+    "count": null
+  },
+  "passive_chat_reopen": {
+    "additional_chat_mutations": 0,
+    "answer_restored": true
+  }
+}

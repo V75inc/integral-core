@@ -228,7 +228,7 @@ export function FeedFilterStrip({
               w-full bg-[var(--panel)]
               border border-[var(--panel-border)]
               rounded-[var(--radius-input)]
-              py-2 pl-8 pr-3 text-sm
+              py-2 pl-9 pr-3 text-sm
               text-[var(--text)] placeholder:text-[var(--text-subtle)]
               transition-colors duration-fast
               hover:border-[var(--text-subtle)]

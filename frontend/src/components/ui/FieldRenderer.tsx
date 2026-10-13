@@ -272,13 +272,12 @@ export function FieldRenderer({
     }
 
     case 'relation': {
-      const id = String(value);
       return (
         <span
           className={`inline-flex items-center gap-1 text-[var(--text)] ${compact ? 'truncate' : ''} ${className}`}
         >
           <span className="text-[var(--text-subtle)]">↳</span>
-          {id}
+          Linked record
         </span>
       );
     }
@@ -295,7 +294,7 @@ export function FieldRenderer({
 
     case 'file': {
       const id = String(value);
-      const label = field.attachmentLabelOf?.(id) ?? id;
+      const label = field.attachmentLabelOf?.(id) || 'Attachment';
       return (
         <span
           className={`inline-flex items-center gap-1 text-[var(--text)] ${compact ? 'truncate' : ''} ${className}`}
@@ -311,7 +310,7 @@ export function FieldRenderer({
       const arr = Array.isArray(value) ? value : [value];
       const labels = arr
         .map((v) => String(v))
-        .map((id) => field.attachmentLabelOf?.(id) ?? id);
+        .map((id) => field.attachmentLabelOf?.(id) || 'Attachment');
       if (compact) {
         return (
           <span className={`text-[var(--text)] truncate inline-block max-w-full ${className}`}>

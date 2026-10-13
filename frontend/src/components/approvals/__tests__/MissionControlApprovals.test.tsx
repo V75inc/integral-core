@@ -49,7 +49,7 @@ describe('MissionControlApprovals', () => {
     renderPanel();
 
     expect(await screen.findByText('3 pending items across policy, agent chat and ownership.')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Review approvals →' })).toHaveAttribute('href', '/approvals');
+    expect(screen.getByRole('link', { name: /3 pending items/ })).toHaveAttribute('href', '/approvals');
   });
 
   it('does not report an empty inbox when a source fails', async () => {
@@ -59,7 +59,7 @@ describe('MissionControlApprovals', () => {
     renderPanel();
 
     await waitFor(() => expect(mocks.listApprovals).toHaveBeenCalled());
-    expect(screen.queryByRole('heading', { name: 'Approval inbox' })).not.toBeInTheDocument();
+    expect(await screen.findByText('Approval inbox unavailable')).toBeVisible();
   });
   it('includes ownership in the one summary without inline acceptance controls', async () => {
     mocks.inbox.mockResolvedValue({ complete: true, proposals: [{ status: 'pending', expired: false }] });
@@ -72,18 +72,16 @@ describe('MissionControlApprovals', () => {
     mocks.inbox.mockResolvedValue({ complete: false, proposals: [] });
     renderPanel();
     await waitFor(() => expect(mocks.inbox).toHaveBeenCalled());
-    expect(screen.queryByRole('heading', { name: 'Approval inbox' })).not.toBeInTheDocument();
+    expect(await screen.findByText('Approval inbox unavailable')).toBeVisible();
     expect(screen.queryByText('No pending approvals.')).not.toBeInTheDocument();
   });
-  it('hides the home section while loading and when all queues are empty', async () => {
+  it('distinguishes loading from empty and updates when approval data changes', async () => {
     const { client } = renderPanel();
-    expect(screen.queryByRole('heading', { name: 'Approval inbox' })).not.toBeInTheDocument();
-    await waitFor(() => expect(client.isFetching()).toBe(0));
-    expect(screen.queryByRole('link', { name: 'Review approvals →' })).not.toBeInTheDocument();
+    expect(screen.getByText('Checking for pending approvals…')).toBeVisible();
+    expect(await screen.findByText('No pending approvals.')).toBeVisible();
     act(() => client.setQueryData(['mission-control', 'pending-policy-approvals'], { approvals: [{ id: 'new-request' }] }));
     expect(await screen.findByText('1 pending item across policy, agent chat and ownership.')).toBeVisible();
     act(() => client.setQueryData(['mission-control', 'pending-policy-approvals'], { approvals: [] }));
-    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Approval inbox' })).not.toBeInTheDocument());
+    expect(await screen.findByText('No pending approvals.')).toBeVisible();
   });
-
 });

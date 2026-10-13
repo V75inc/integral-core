@@ -368,8 +368,11 @@ async def test_http_rejects_malformed_and_untrusted_requests(
 
 
 async def test_capture_does_not_reuse_stale_request_or_process_permission_grants(
-    graph, monkeypatch
+    recorded_graph, monkeypatch
 ):
+    # This verifies access/cache semantics, independently of JSON I/O timing
+    # under the capture's fixed cooperative deadline.
+    graph = recorded_graph
     from app.middleware.permissions_cache import permissions_cache_get
     from app.services import permissions_process_cache as process_cache
 

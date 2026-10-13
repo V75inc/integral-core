@@ -1,26 +1,25 @@
 # Capability and release qualification
 
-This edition reflects the staging source audited on 8 October 2026. Its base revision was `d8b8b93345675798f88e80fbca48b4a2a7d3ed8d`, with additional local changes present. It is not a sealed release artifact.
+This guide describes how to qualify a Core change; it is not a live release-status page. The dated records below preserve the exact scope, revision, and limits of earlier checks. Their results do not qualify today's source or artifact.
 
 A source feature, green CI, a built wheel, a healthy container, and an accepted user journey are separate facts. Record evidence for the exact artifact and configuration being promoted.
 
-## Present capability boundaries
+## Qualification domains
 
-| Area | Current implementation | Qualification boundary |
+| Area | Qualification focus |
 |---|---|---|
-| Knowledge | Typed rooted records and explicit relations | Validate scope, traversal, cascade, and restore on the selected adapter |
-| Collaboration | Workspace/resource roles, direct grants, exclusions, shares | Include revocation, public-read exceptions, and cross-workspace denial |
-| Modeling | Authoring YAML v3, runtime schema v2, drafts and migrations | Test existing-record impact, interrupted migration, and failed-item retry |
-| Apps | Packages, lifecycle, active definitions, queries, operations, extensions | Test actual dependencies, trust policy, pause, upgrade, and uninstall |
-| Experience | Views, App Home, dashboards, files, conversation | Browser readback must agree with authorized query/record results |
-| Resident | Built-in Pydantic AI resident | Qualify actual providers, BYOK modes, approvals, and tool outcomes |
-| Native durable chat | Implemented rollout paths; off by default | Process interruption, event replay, cancellation, multi-client isolation |
-| Durable work | Leases, fencing, effect IDs, outbox and approvals | Production PostgreSQL contracts and external-effect reconciliation |
-| Work mandates | Reviewed contract and guarded foundations | Public admission/execution remains incomplete and non-runnable |
-| Retrieval | Scoped text/index paths and backend-dependent semantics | Do not infer universal vector search from pgvector installation |
-| Connectors | Native and MCP integration mechanisms | Qualify each actual service and credential flow |
-| Attachment screening | Configurable adapter | Default noop is not malware screening |
-| Usage | Physical observations and source-aware reconciliation | Estimates/unavailable cost do not establish definitive billing |
+| Knowledge | Scope, traversal, cascade, restore on the selected adapter |
+| Collaboration | Workspace/resource roles, direct grants, exclusions, shares, revocation, public-read exceptions, cross-workspace denial |
+| Modeling | Authoring/runtime schema compatibility, drafts, existing-record impact, interrupted migration, failed-item retry |
+| Apps | Actual dependencies, trust policy, pause, upgrade, uninstall, active-definition behavior |
+| Experience | Browser readback agrees with authorized query and record results |
+| Resident AI | Actual providers, BYOK modes, approvals, tool outcomes, interruption and recovery |
+| Durable work | Production PostgreSQL contracts, lease/fencing behavior, external-effect reconciliation |
+| Work mandates | Public admission and execution boundaries; do not infer runnable support from a reviewed contract |
+| Retrieval | Scope prefilters and backend-specific semantics; do not infer universal vector search from pgvector installation |
+| Connectors | Each actual service, credential flow, revocation and failure behavior |
+| Attachment screening | Configured adapter behavior; a no-op is not malware screening |
+| Usage | Physical observations and source-aware reconciliation; estimates or unavailable cost do not establish definitive billing |
 
 ## Source gates
 
@@ -51,6 +50,23 @@ The backend rerun completed with 4,951 passed and 282 skipped tests; the fronten
 Record commit and artifact identity, lockfile, non-secret settings, database adapter, provider routes, test commands/results, browser journeys, remaining defects, and rollback/restore method. Do not copy credentials into the record. Release approval should address this concrete evidence.
 
 The roadmap's wider ambitions are not substitutes for these checks. See [deployment](DEPLOY.md) and [security](SECURITY.md).
+
+## Dated qualification records
+
+These records are historical evidence, not current package or deployment status:
+
+- [Core foundation and resident harness — 9 October](qualification/2026-10-09-core-foundation.md)
+- [Native harness — 9 October](qualification/2026-10-09-native-harness.md)
+- [Managed environment isolation — 9 October](qualification/2026-10-09-managed-environment-isolation.md)
+- [Business model configuration — 9 October](qualification/2026-10-09-business-model-configuration.md)
+- [Build field identity — 9 October](qualification/2026-10-09-build-field-identity.md)
+- [Core 0.1.1rc16 release preflight — 9 October](qualification/2026-10-09-core-rc16-preflight.md)
+- [UI polish — 10–12 October](qualification/ui-polish/2026-10-10.md)
+- [Core rc18 and published JV Spatial 0.2.2 — 13 October](qualification/core-rc18/2026-10-13.md)
+- [Database operation logging — 12 October](qualification/db-logging/2026-10-12.md)
+- [Harness recovery — 12 October](qualification/harness-recovery/2026-10-12.md)
+- [Access-control review and qualification](qualification/access-control-review/README.md)
+- [Workspace ontology context qualification](qualification/ontology-context/FINAL-ACCEPTANCE.md)
 
 ## Native harness reliability review, 9 October 2026
 

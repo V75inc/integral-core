@@ -13,7 +13,7 @@
  *   </Field>
  */
 
-import { forwardRef, type TextareaHTMLAttributes } from 'react';
+import { forwardRef, type ReactNode, type TextareaHTMLAttributes } from 'react';
 
 export type TextareaSize = 'sm' | 'md' | 'lg';
 
@@ -30,6 +30,8 @@ export interface TextareaProps
   monospace?: boolean;
   /** Disable resize handle. Default: `false`. */
   noResize?: boolean;
+  /** Action displayed inside the composer chrome, below the editable text. */
+  action?: ReactNode;
   /**
    * Layout-positioning classes only (max-width caps, grid placement).
    * NEVER size/spacing/color — use typed props.
@@ -44,6 +46,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
       invalid = false,
       monospace = false,
       noResize = false,
+      action,
       className,
       rows = 3,
       ...rest
@@ -62,6 +65,14 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
     ]
       .filter(Boolean)
       .join(' ');
+    if (action) {
+      return <div className="app-input relative p-0 focus-within:ring-2 focus-within:ring-[var(--focus-ring-color)]">
+        <textarea ref={ref} rows={rows} className={classes + ' block w-full'}
+          aria-invalid={invalid || undefined} {...rest}
+          style={{ ...rest.style, border: 0, background: 'transparent', paddingBottom: '4rem', boxShadow: 'none' }} />
+        <div className="absolute bottom-2 right-2">{action}</div>
+      </div>;
+    }
     return (
       <textarea
         ref={ref}

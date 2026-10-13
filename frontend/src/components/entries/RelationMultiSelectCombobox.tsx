@@ -244,7 +244,7 @@ export function RelationMultiSelectCombobox({
               selected.map(id => {
                 const choice = options.find(o => o.value === id);
                 const target = targets.find(t => t.id === id);
-                const displayLabel = choice?.label || target?.label || id;
+                const displayLabel = choice?.label || target?.label || 'Linked record';
                 const route = target ? routeForRelationTarget(target, navContext) : null;
 
                 return (
@@ -339,7 +339,7 @@ export function RelationMultiSelectCombobox({
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
                   placeholder={`Filter ${field.name.toLowerCase()}…`}
-                  className="w-full rounded-md border border-[var(--panel-border)] bg-transparent pl-8 pr-7 py-1.5 text-xs focus:outline-none focus:border-[var(--brand-accent)] focus:ring-1 focus:ring-[var(--brand-accent)]"
+                  className="w-full rounded-md border border-[var(--panel-border)] bg-transparent pl-9 pr-7 py-1.5 text-xs focus:outline-none focus:border-[var(--brand-accent)] focus:ring-1 focus:ring-[var(--brand-accent)]"
                   onClick={e => e.stopPropagation()}
                 />
                 {searchQuery && (

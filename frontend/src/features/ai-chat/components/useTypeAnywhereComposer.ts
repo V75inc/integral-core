@@ -99,7 +99,7 @@ export function isActiveSurface(root: HTMLElement | null): boolean {
   // Deliberately NOT an offsetParent/visibility probe: offsetParent is null for
   // any `position: fixed` ancestor chain, so that test fails on exactly the
   // surface it is meant to admit.
-  if (!active || active === document.body) return true;
+  if (!active || active === document.body) return root.dataset.chatSurface !== 'home';
   return root.contains(active);
 }
 

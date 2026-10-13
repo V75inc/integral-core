@@ -342,7 +342,7 @@ export function AppManagerDialog({
         ) {
           pendingSettings.push({
             appId: row.app_id,
-            appName: row.name || row.library_cp_id,
+            appName: row.name || 'Untitled app',
             installToken: row.install_token,
             settingsSchema: row.settings_schema,
           });
@@ -515,10 +515,10 @@ export function AppManagerDialog({
                             const pf = preflights.get(app.id);
                             const blockers = [
                               ...(pf?.blocking_dependents || []).map(
-                                d => d.app_name || d.app_id,
+                                d => d.app_name || 'Untitled app',
                               ),
                               ...(pf?.blocking_references || []).map(
-                                r => r.source_app_name || r.source_app_id,
+                                r => r.source_app_name || 'Untitled app',
                               ),
                             ];
                             const blocked =
@@ -1055,7 +1055,7 @@ function ResultsView({
                     <li key={row.library_cp_id} className="flex items-center gap-2">
                       <Check size={14} className="text-[var(--brand-accent)]" />
                       <Text variant="body">
-                        {row.name || row.library_cp_id}
+                        {row.name || 'Untitled app'}
                         {row.status === 'awaiting_settings'
                           ? ' (needs settings)'
                           : ''}
@@ -1071,7 +1071,7 @@ function ResultsView({
                     return (
                       <li key={row.library_cp_id} className="space-y-2">
                         <Text as="p" variant="body" tone="danger">
-                          {row.name || row.library_cp_id} — {denial?.message || row.error}
+                          {row.name || 'Untitled app'} — {denial?.message || row.error}
                         </Text>
                         {denial?.actionLabel && denial.onAction ? (
                           <Button variant="outline" size="sm" onClick={denial.onAction}>

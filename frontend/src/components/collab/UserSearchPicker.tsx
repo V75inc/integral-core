@@ -126,7 +126,7 @@ export function UserSearchPicker({
           placeholder={
             pool === 'workspace' ? 'Search workspace members…' : 'Search by name…'
           }
-          className="app-input !pl-10 pr-3.5 text-sm w-full"
+          className="app-input pl-10 pr-3.5 text-sm w-full"
           aria-label={embedded ? label : 'Search users by name'}
           disabled={pool === 'workspace' && !workspaceId}
         />

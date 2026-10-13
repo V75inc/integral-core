@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import GridLayout from 'react-grid-layout/legacy';
-import { GripVertical, LayoutDashboard, Plus, Sparkles, Trash2 } from 'lucide-react';
+import { RefreshCw, GripVertical, LayoutDashboard, Plus, Sparkles, Trash2 } from 'lucide-react';
 import 'react-grid-layout/css/styles.css';
 import {
   dashboardsApi,
@@ -572,8 +572,8 @@ export function AppDashboardPanel({
                 <tbody>
                   {drillResult.items.map((item, index) => (
                     <tr key={String(item.id ?? index)}>
-                      <td>{String(item.title ?? item.id ?? 'Record')}</td>
-                      <td>{String(item.track_id ?? '—')}</td>
+                      <td>{String(item.title || 'Untitled record')}</td>
+                      <td>{String(item.track_title || 'Track')}</td>
                       <td>{Object.entries(item)
                         .filter(([key]) => key.startsWith('custom_fields.'))
                         .map(([key, value]) => `${key.slice('custom_fields.'.length)}: ${typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value)}`)
@@ -610,8 +610,9 @@ export function AppDashboardPanel({
             <Button
               variant="secondary"
               disabled={drillMutation.isPending}
+              icon={<RefreshCw size={14} strokeWidth={LINE_ICON_STROKE} aria-hidden />}
               onClick={() => openDrillThrough(drillTarget.widget, drillTarget.groupKey)}
-            >Refresh current matches</Button>
+            >Refresh</Button>
           ) : null}
           {drillResult && !drillResult.items?.length ? (
             <Text variant="body-sm" tone="muted" as="p">No matching records in this result set.</Text>

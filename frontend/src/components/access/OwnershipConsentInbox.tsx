@@ -1,3 +1,4 @@
+import { RefreshCw } from 'lucide-react';
 import { Surface, Text } from '../../ui';
 import { Link } from 'react-router-dom';
 import { useState } from 'react';
@@ -35,7 +36,7 @@ export function OwnershipConsentInbox({
   return <section aria-label="Ownership proposals" className="mt-8">
     <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
       <Text as="h2" variant="body-sm" tone="muted" weight="medium">Ownership proposals</Text>
-      <Button variant="secondary" size="sm" loading={inbox.isFetching} disabled={busy} onClick={() => void load()}>Refresh ownership proposals</Button>
+      <Button variant="secondary" size="sm" icon={<RefreshCw size={14} aria-hidden />} loading={inbox.isFetching} disabled={busy} onClick={() => void load()}>Refresh</Button>
     </div>
     {inbox.isPending && <Text as="p" variant="body-sm" tone="muted">Checking ownership proposals…</Text>}
     {inbox.isError && <div role="status"><Text as="p" variant="body-sm" tone="warn">Ownership proposals could not be loaded. Refresh before making a decision.</Text></div>}
@@ -47,7 +48,7 @@ export function OwnershipConsentInbox({
       return <Surface as="li" key={proposal.proposal_id} tone="panel" border="default" radius="input" style={pending ? { backgroundColor: 'var(--nav-active-bg)' } : undefined} className="flex items-start gap-4 p-4">
         <span aria-hidden className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: pending ? 'var(--warn-fg)' : proposal.status === 'accepted' ? 'var(--success-fg)' : 'var(--text-subtle)' }} />
         <div className="min-w-0 flex-1 space-y-2">
-          <Text as="p" variant="body" weight="medium" className="[overflow-wrap:anywhere]">Ownership transfer for {resourceKind} {proposal.resource_id}</Text>
+          <Text as="p" variant="body" weight="medium" className="[overflow-wrap:anywhere]">Ownership transfer for {resourceKind}</Text>
           <Text as="p" variant="body-sm" tone="muted">Accepting makes you responsible for this resource. Expires <time dateTime={proposal.expires_at}>{new Date(proposal.expires_at).toLocaleString()}</time>.</Text>
           <Link to={href} className="inline-block hover:underline"><Text variant="meta" tone="muted">Review affected record</Text></Link>
           {pending && proposal.ownership_current ? <div className="flex flex-wrap gap-2">

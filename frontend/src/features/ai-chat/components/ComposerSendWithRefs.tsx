@@ -8,9 +8,11 @@ import { useComposerDictationActions } from "../../speech/ComposerDictationConte
 export function ComposerSendWithRefs({
   className,
   "aria-label": ariaLabel = "Send message",
+  label,
 }: {
   className?: string;
   "aria-label"?: string;
+  label?: string;
 }) {
   const aui = useAui();
   const canSend = useAuiState((s) => s.composer.canSend);
@@ -21,6 +23,7 @@ export function ComposerSendWithRefs({
     <button
       type="button"
       aria-label={ariaLabel}
+      title={ariaLabel}
       className={className}
       disabled={!canSend}
       onClick={() => {
@@ -33,6 +36,7 @@ export function ComposerSendWithRefs({
       }}
     >
       <ArrowUpIcon size={16} strokeWidth={2.5} />
+      {label}
     </button>
   );
 }

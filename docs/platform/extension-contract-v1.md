@@ -32,7 +32,7 @@ interpretation and approved persistence through their declared operations.
 
 This is an input/read reference, not an owning-App mutation `object_refs` value.
 Keep it as structured machine data. See the [implementation and invariant
-review](../backend/TOOL_SOURCE_OBSERVATIONS_PLAN.md). Older distributions may
+review](../backend/tool-source-observations.md). Older distributions may
 return `None` for this kind; package adoption requires qualification against a
 Core release carrying the contract.
 

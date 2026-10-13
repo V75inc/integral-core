@@ -57,6 +57,7 @@ export function usePromptQueue() {
   useLayoutEffect(() => { openRef.current = open; }, [open]);
   const [index, setIndex] = useState(0);
   const resumedRefreshes = useRef(new Set<string>());
+  const reviewNotes = useRef(new Map<string, Promise<string | null>>());
   const reviewEpisode = useRef<{ threadId: string; queue: PromptQueue } | null>(null);
   // Resume we saw while a stream was active — retry once it settles.
   // getPromptQueue only returns resume_text on the reconcile that closes the
@@ -88,6 +89,8 @@ export function usePromptQueue() {
       // second Prompt Sheet resume while its stream is active — and do not
       // mark the key consumed until we actually resume, or a mid-stream
       // poll permanently drops the continuation.
+      // A passive observation must not replace an explicit continuation.
+      if (pendingResumeRef.current?.threadId === threadId && pendingResumeRef.current.resumeRequired && !resumeRequired) return;
       pendingResumeRef.current = { threadId, resumeText: text, resultQueue, resumeRequired };
       return;
     }
@@ -96,10 +99,19 @@ export function usePromptQueue() {
       : reviewEpisode.current?.threadId === threadId ? reviewEpisode.current.queue : undefined;
     // Deduplicate one resolved review, not identical wording across new reviews.
     const key = JSON.stringify([threadId, episode?.opened_at, episode?.items.map((item) => item.id), text]);
-    if (resumedRefreshes.current.has(key)) return;
-    resumedRefreshes.current.add(key);
+    if (resumeRequired && resumedRefreshes.current.has(key)) return;
+    if (resumeRequired) resumedRefreshes.current.add(key);
     if (resumedRefreshes.current.size > 64) resumedRefreshes.current.delete(resumedRefreshes.current.values().next().value!);
-    void resumeIfNeeded(live.current.threadRuntime, text, live.current.appendAssistantNote,
+    // Share the persisted receipt across action/poll races. A passive receipt
+    // does not consume the explicit action's authority to continue afterward.
+    let note = reviewNotes.current.get(key);
+    if (!note) {
+      const appendNote = live.current.appendAssistantNote;
+      note = Promise.resolve().then(() => appendNote(text));
+      reviewNotes.current.set(key, note);
+      if (reviewNotes.current.size > 64) reviewNotes.current.delete(reviewNotes.current.keys().next().value!);
+    }
+    void resumeIfNeeded(live.current.threadRuntime, text, () => note!,
       () => live.current.activeThreadId === threadId && !live.current.isThreadStreaming(threadId), resumeRequired);
   }, []);
 
@@ -117,7 +129,8 @@ export function usePromptQueue() {
       retryAt.current = 0;
       setRefreshError(null);
       if (!res.open) {
-        resumeOnce(threadId, res.resume_text, res.queue as unknown as PromptQueue, res.resume_required);
+        // Refreshing or reopening observes status; it never authorizes a model run.
+        resumeOnce(threadId, res.resume_text, res.queue as unknown as PromptQueue, false);
         setQueue(null);
         setOpen(false);
         return;

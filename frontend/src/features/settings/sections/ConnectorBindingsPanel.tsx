@@ -107,7 +107,7 @@ export function ConnectorBindingsPanel({ connectorId }: Props) {
   const handleUnlink = async (binding: ConnectorBinding) => {
     const ok = await confirm({
       title: 'Unlink this Track binding?',
-      message: `Removes the IS_CONNECTED_TO edge between this connector and ${binding.track_title || binding.track_id}.`,
+      message: `Removes the IS_CONNECTED_TO edge between this connector and ${binding.track_title || 'Untitled track'}.`,
       confirmLabel: 'Unlink',
       variant: 'danger',
     });
@@ -167,7 +167,7 @@ export function ConnectorBindingsPanel({ connectorId }: Props) {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-xs text-[var(--text)]">
                   {b.track_title || (
-                    <span className="font-mono">{b.track_id}</span>
+                    'Untitled track'
                   )}
                 </p>
                 <p className="truncate text-[10px] text-[var(--text-subtle)]">
@@ -207,7 +207,7 @@ export function ConnectorBindingsPanel({ connectorId }: Props) {
             <option value="">— select a track —</option>
             {availableTracks.map(t => (
               <option key={t.id} value={t.id}>
-                {t.title || t.id}
+                {t.title || 'Untitled track'}
               </option>
             ))}
           </select>

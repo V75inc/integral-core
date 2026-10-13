@@ -1,3 +1,4 @@
+import { RefreshCw } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Button } from '../../components/ui/Button';
@@ -88,9 +89,10 @@ export function TemplatePreviewPanel({
             (!versionId && !templateId) ||
             (mode === 'live' && !contextEntryId)
           }
+          icon={<RefreshCw size={14} aria-hidden />}
           onClick={() => previewM.mutate()}
         >
-          {previewM.isPending ? 'Rendering…' : 'Refresh preview'}
+          {previewM.isPending ? 'Rendering…' : 'Refresh'}
         </Button>
       </div>
       {signatureBlocks.length > 0 ? (
@@ -134,7 +136,7 @@ export function TemplatePreviewPanel({
       ) : (
         <div className="doc-preview-frame doc-preview-frame--empty">
           <Text variant="body-sm" tone="muted" as="p">
-            No preview yet. Click Refresh preview to render this draft.
+            No preview yet. Click Refresh to render this draft.
           </Text>
         </div>
       )}

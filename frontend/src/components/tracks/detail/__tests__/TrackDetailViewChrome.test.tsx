@@ -19,7 +19,7 @@ describe('TrackDetailViewChrome', () => {
     render(<TrackDetailViewChrome {...config} />);
     const actions = within(screen.getByRole('group', { name: 'View actions' }));
     const edit = actions.getByRole('button', { name: 'Edit view layout' });
-    expect(actions.getByRole('button', { name: 'Improve this view' })).toBeInTheDocument();
+    expect(actions.getByRole('button', { name: 'Enhance this view' })).toBeInTheDocument();
     expect(within(screen.getByRole('tablist', { name: 'Track views' })).getByRole('button', { name: 'Edit view layout' })).toBe(edit);
     fireEvent.click(edit);
     expect(config.onEditLayout).toHaveBeenCalledOnce();

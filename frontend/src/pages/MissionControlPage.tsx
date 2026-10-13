@@ -1,260 +1,64 @@
 import { useCallback, useEffect, useMemo } from 'react';
-import { AppIcon } from '../ui';
-import { notifyApiFailure } from '../components/system';
 import { Link } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
+import { ArrowUpRight } from 'lucide-react';
 import { missionControlApi } from '../api';
-import { isOwnedPersonalWorkspace, workspaceAccessLabel } from '../api/workspaces';
+import { isOwnedPersonalWorkspace } from '../api/workspaces';
 import { formatRelativeTime, resolveIdentityColor } from '../utils';
-import { markdownToPlainExcerpt } from '../utils/markdownExcerpt';
-import { isTrackNavVisible } from '../utils/trackNav';
-import type { App, Entry, Track } from '../types';
-// Phase 9 Plan 09-02 (NOTIF-01) — migrated to the canonical useNotifications
-// hook. Mission Control's "unread" metric tile now shares the single
-// notifications cache used by NotificationsPage + the header bell.
 import { useNotifications } from '../hooks/useNotifications';
+import { useAuthOptional } from '../context/AuthContext';
 import { useSetCrumbs } from '../context/CrumbsContext';
 import { workspaceIdOf, useScope } from '../context/ScopeContext';
 import { missionControlSnapshotQueryKey } from '../queryKeys';
-import { Avatar, PageHeading, PageMeta, PageShell, PageSection, Skeleton, TrackDot } from '../components/ui';
+import { AppIcon, Surface, Text } from '../ui';
+import { Button, LogoMark, PageHeading, PageMeta, PageShell, PageSection, Skeleton } from '../components/ui';
 import { PendingInvitationsPanel } from '../components/invitations/PendingInvitationsPanel';
 import { MissionControlApprovals } from '../components/approvals/MissionControlApprovals';
 import { usePublishPageContext } from '../hooks/usePublishPageContext';
+import { notifyApiFailure } from '../components/system';
+import { HomeChatComposer } from '../features/ai-chat/components/HomeChatComposer';
+import { requestOpenCompanionChat } from '../features/ai-chat/chatHandoff';
 
-/**
- * MissionControlPage — cross-scope birds-eye.
- *
- * Unlike the Feed/Chat/Sidebar which honour the active workspace scope,
- * Mission Control deliberately ignores it. It's the only surface that
- * shows highlights across **all** workspaces a user belongs to:
- *
- *   1. Metrics — totals across everything the user can read.
- *   2. Workspaces — Personal + each org as a single row, each row
- *      summarising last activity. Click to switch scope and dive in.
- *   3. Recent apps — top 5 by recency, scope-agnostic, with a small
- *      workspace chip. Section hides entirely when the user has no
- *      apps anywhere readable.
- *   4. Tracks in motion — top 5 by recency, scope-agnostic, with a
- *      small workspace chip per row so the user knows where each
- *      lives at a glance.
- *   5. Latest activity — same treatment for entries.
- *
- * Information density is deliberately capped: a small fixed number of
- * rows per section, one secondary metadata column, no nested grids.
- * The ⌘K command palette is the escape hatch for anything else.
- */
-
-const WORKSPACES_LIMIT = 6;
-const APPS_LIMIT = 5;
-const MOTION_LIMIT = 5;
-const ACTIVITY_LIMIT = 6;
-
-
-interface WorkspaceSummary {
-  id: string;
-  kind: 'personal' | 'org';
-  isOwnedPersonal: boolean;
-  accessLabel: string;
-  label: string;
-  accent?: string;
-  avatarUrl?: string;
-  lastActivityIso?: string;
-  href: string;
-}
-
+/** Home previews readable work across workspaces; AI actions use the active scope. */
 export function MissionControlPage() {
-  // Mission Control is the home surface; Layout's leading "Home" crumb
-  // covers it without a tail.
   useSetCrumbs([]);
-
-  const queryClient = useQueryClient();
-  const { workspaces, setScope, scope } = useScope();
-  const {
-    unreadCount,
-    loading: notificationsLoading,
-    error: notificationsError,
-    refetch: refetchNotifications
-  } = useNotifications();
-
-  const missionControlQuery = useQuery({
+  const auth = useAuthOptional();
+  const { workspaces, scope } = useScope();
+  const { unreadCount, loading: notificationsLoading, error: notificationsError } = useNotifications();
+  const snapshot = useQuery({
     queryKey: missionControlSnapshotQueryKey(scope?.workspaceId),
-    queryFn: () => missionControlApi.getSnapshot(50)
+    queryFn: () => missionControlApi.getSnapshot(50),
   });
-
-  const tracks: Track[] = useMemo(
-    () => missionControlQuery.data?.tracks ?? [],
-    [missionControlQuery.data],
-  );
-  // Line-item / settings tracks stay out of Mission Control nav surfaces
-  // (same rule as /tracks and App track lists).
-  const visibleTracks = useMemo(
-    () => tracks.filter(isTrackNavVisible),
-    [tracks],
-  );
-  const apps: App[] = useMemo(
-    () => missionControlQuery.data?.apps ?? [],
-    [missionControlQuery.data],
-  );
-  const previewEntries: Entry[] = missionControlQuery.data?.preview_entries ?? [];
-
+  const apps = snapshot.data?.apps ?? [];
+  const tracks = snapshot.data?.tracks ?? [];
+  const previewEntries = snapshot.data?.preview_entries ?? [];
+  const recentApps = useMemo(() => [...apps].sort((a, b) =>
+    new Date(b.updated_at || b.created_at || 0).getTime() -
+    new Date(a.updated_at || a.created_at || 0).getTime()).slice(0, 4), [apps]);
+  const workspaceLabel = (id?: string | null) => {
+    const ws = workspaces.find(item => item.id === id);
+    return ws?.name?.trim() || (ws && isOwnedPersonalWorkspace(ws) ? 'Personal' : 'Workspace');
+  };
+  const activeWorkspace = workspaces.find(ws => ws.id === scope?.workspaceId);
+  const actionLabel = workspaceLabel(activeWorkspace?.id);
+  const retry = useCallback(() => { void snapshot.refetch(); }, [snapshot.refetch]);
+  useEffect(() => {
+    if (snapshot.error) notifyApiFailure(snapshot.error, { context: 'loading Home', onRetry: retry });
+  }, [snapshot.error, retry]);
   usePublishPageContext({
     pageKind: 'mission_control',
-    // Counts in metadata + a small sample — full inventory is a tool read,
-    // not prompt ballast on every Mission Control greeting.
     visibleData: {
-      tracks: tracks.slice(0, 5).map((tr) => ({ id: tr.id, title: tr.title || undefined })),
-      entries: previewEntries.slice(0, 5).map((e) => ({
-        id: e.id,
-        title: e.title || undefined,
-        status: e.status || undefined,
-        entry_type: e.type || undefined,
-      })),
+      tracks: tracks.slice(0, 5).map(tr => ({ id: tr.id, title: tr.title || undefined })),
+      entries: previewEntries.slice(0, 5).map(e => ({ id: e.id, title: e.title || undefined,
+        status: e.status || undefined, entry_type: e.type || undefined })),
       total_count: Math.max(tracks.length, previewEntries.length),
     },
-    metadata: {
-      workspace_count: workspaces.length,
-      app_count: apps.length,
-      track_count: tracks.length,
-      entry_preview_count: previewEntries.length,
-      unread_notifications: unreadCount,
-    },
+    metadata: { workspace_count: workspaces.length, app_count: apps.length,
+      track_count: tracks.length, entry_preview_count: previewEntries.length,
+      unread_notifications: unreadCount },
   });
-  const appsLoading = missionControlQuery.isPending;
-  const countersLoading = missionControlQuery.isPending;
-
-  const loading =
-    missionControlQuery.isPending ||
-    notificationsLoading;
-
-  // Errors surface through the global system-bar — see useEffect below.
-
-  const retryAll = useCallback(() => {
-    void Promise.all([
-      queryClient.invalidateQueries({
-        queryKey: missionControlSnapshotQueryKey(scope?.workspaceId)
-      }),
-      refetchNotifications(),
-    ]);
-  }, [queryClient, refetchNotifications, scope?.workspaceId]);
-
-  // Attach page-specific retry to the global API-failure notification
-  // whenever a Mission Control load fails. The axios interceptor pushes
-  // the notification first; this effect upgrades it with a Retry action.
-  const firstError = missionControlQuery.error ?? notificationsError ?? null;
-  useEffect(() => {
-    if (firstError) {
-      notifyApiFailure(firstError, {
-        context: 'loading Mission Control',
-        onRetry: retryAll
-      });
-    }
-  }, [firstError, retryAll]);
-
-  const unread = unreadCount;
-
-  const activeTracks = missionControlQuery.data?.active_tracks ?? 0;
-  const entriesToday = missionControlQuery.data?.entries_today ?? 0;
-
-  // Group tracks by their containing Workspace (workspaceIdOf reads the
-  // direct workspace_id and falls back to the parent App's id).
-  const workspaceSummaries = useMemo<WorkspaceSummary[]>(() => {
-    const byWorkspace = new Map<
-      string,
-      { tracks: Track[]; lastActivityIso?: string }
-    >();
-    for (const t of tracks) {
-      const wsId = workspaceIdOf(t);
-      if (!wsId) continue;
-      const bucket = byWorkspace.get(wsId) ?? { tracks: [] };
-      bucket.tracks.push(t);
-      const candidate = t.updated_at || t.created_at;
-      if (
-        candidate &&
-        (!bucket.lastActivityIso || candidate > bucket.lastActivityIso)
-      ) {
-        bucket.lastActivityIso = candidate;
-      }
-      byWorkspace.set(wsId, bucket);
-    }
-
-    const summaries: WorkspaceSummary[] = workspaces.map(ws => {
-      const bucket = byWorkspace.get(ws.id) ?? { tracks: [] };
-      return {
-        id: ws.id,
-        kind: isOwnedPersonalWorkspace(ws) ? 'personal' : 'org',
-        isOwnedPersonal: isOwnedPersonalWorkspace(ws),
-        accessLabel: workspaceAccessLabel(ws),
-        label: ws.name?.trim() || (isOwnedPersonalWorkspace(ws) ? 'Personal' : 'Workspace'),
-        accent: ws.accent_color,
-        avatarUrl: ws.avatar_url,
-        lastActivityIso: bucket.lastActivityIso,
-        href: isOwnedPersonalWorkspace(ws) ? '/tracks' : `/workspaces/${ws.id}`
-      };
-    });
-
-    return summaries
-      .sort((a, b) => {
-        if (a.kind === 'personal') return -1;
-        if (b.kind === 'personal') return 1;
-        const ax = a.lastActivityIso || '';
-        const bx = b.lastActivityIso || '';
-        return bx.localeCompare(ax);
-      })
-      .slice(0, WORKSPACES_LIMIT);
-  }, [tracks, workspaces]);
-
-  const recentTracks = useMemo(() => {
-    const score = (t: Track) =>
-      new Date(t.updated_at || t.created_at || 0).getTime();
-    return [...visibleTracks]
-      .sort((a, b) => score(b) - score(a))
-      .slice(0, MOTION_LIMIT);
-  }, [visibleTracks]);
-
-  const recentApps = useMemo(() => {
-    const score = (a: App) =>
-      new Date(a.updated_at || a.created_at || 0).getTime();
-    return [...apps].sort((a, b) => score(b) - score(a)).slice(0, APPS_LIMIT);
-  }, [apps]);
-
-  // Build workspace chip lookup for activity + tracks rows.
-  const workspaceChipFor = useMemo(() => {
-    const wsById = new Map<string, typeof workspaces[number]>();
-    for (const ws of workspaces) wsById.set(ws.id, ws);
-    return (item: {
-      workspace_id?: string | null;
-      space?: { workspace_id?: string | null };
-    }):
-      | {
-          label: string;
-          accent?: string;
-          avatarUrl?: string;
-          isPersonal?: boolean;
-        }
-      | null => {
-      const wsId = workspaceIdOf(item);
-      if (!wsId) return null;
-      const ws = wsById.get(wsId);
-      if (!ws) return { label: 'Workspace' };
-      return {
-        label: ws.name?.trim() || (isOwnedPersonalWorkspace(ws) ? 'Personal' : 'Workspace'),
-        accent: ws.accent_color,
-        avatarUrl: ws.avatar_url,
-        isPersonal: isOwnedPersonalWorkspace(ws)
-      };
-    };
-  }, [workspaces]);
-
-  const switchAndGo = (ws: WorkspaceSummary) => {
-    setScope({ workspaceId: ws.id });
-  };
-
-  return (
-    /* PageShell owns vertical rhythm; PageSections re-apply the gutter
-       so the full-bleed separator below can span main column edge-to-edge. */
-    <PageShell>
-      <PageSection>
-        {/* Editorial header */}
+  return <PageShell className="home-overview">
+    <PageSection>
         <header className="mb-8 md:mb-10">
           <PageHeading>Home</PageHeading>
           <PageMeta>
@@ -263,7 +67,7 @@ export function MissionControlPage() {
             </span>
             <span aria-hidden className="hidden sm:inline">·</span>
             <span>
-              {unread} unread {unread === 1 ? 'notification' : 'notifications'}
+              {notificationsLoading || notificationsError ? '—' : unreadCount} unread {unreadCount === 1 ? 'notification' : 'notifications'}
             </span>
             {previewEntries[0]?.created_at ? (
               <>
@@ -283,437 +87,82 @@ export function MissionControlPage() {
             Your workspaces and recent activity in one place. Choose a workspace to get started.
           </PageMeta>
         </header>
-      </PageSection>
-
-      {/* Full-bleed section divider — main column edge to edge. */}
-      <PageSection.Separator />
-
-      <PageSection className="mt-8">
-        {/* Load failures route through the global system-bar; the
-            page renders the data it has + a quiet skeleton elsewhere. */}
-
-        {/* Metrics — totals across everything readable. */}
-        <div className="mc-metrics-container mb-12">
-          <section aria-label="At a glance" className="mc-metrics-grid">
-            <div className="mc-metrics-primary">
-              <Metric label="Workspaces" value={workspaces.length} />
-              <Metric label="Total tracks" value={visibleTracks.length} />
-              <Metric label="Entries today" value={countersLoading ? '—' : entriesToday} to="/feed" />
-            </div>
-            <div className="mc-metrics-secondary">
-              <Metric label="Unread" value={unread} />
-              <Metric label="Active tracks" value={countersLoading ? '—' : activeTracks} />
-            </div>
-          </section>
-        </div>
-
-        <PendingInvitationsPanel />
-        <MissionControlApprovals />
-
-        {/* Workspaces — birds-eye across all the user belongs to. */}
-        <section aria-labelledby="mc-workspaces" className="mb-12">
-          <div className="flex items-baseline justify-between mb-4">
-            <h2
-              id="mc-workspaces"
-              className="text-[13px] uppercase tracking-[0.16em] text-[var(--text-subtle)] font-medium"
-            >
-              Workspaces
-            </h2>
-            <Link
-              to="/workspaces"
-              className="text-xs text-[var(--text-subtle)] hover:text-[var(--text)] transition-colors duration-fast"
-            >
-              View all →
-            </Link>
+    </PageSection>
+    <PageSection.Separator />
+    <PageSection className="mt-8">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.8fr)_minmax(280px,1fr)]">
+        <Surface as="section" aria-labelledby="home-ai-heading" border="subtle" padding="lg" className="home-widget home-widget--ai min-w-0">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <Text as="h2" id="home-ai-heading" variant="heading-sm" weight="semibold" className="flex items-center gap-2">
+              <LogoMark size="sm" /> Integral AI
+            </Text>
+            <span aria-label="Agent workspace" className="max-w-48 truncate"><Text variant="meta" tone="muted">{activeWorkspace ? actionLabel : 'Choose a workspace'}</Text></span>
           </div>
-          {loading ? (
-            <WorkspaceSkeletonList />
-          ) : workspaceSummaries.length === 0 ? (
-            <p className="text-sm text-[var(--text-subtle)] italic py-6">
-              No workspaces with tracks yet. Create a collaborative workspace or
-              start a personal track.
-            </p>
-          ) : (
-            <ul>
-              {workspaceSummaries.map(ws => (
-                <li key={ws.id}>
-                  <Link
-                    to={ws.href}
-                    onClick={() => switchAndGo(ws)}
-                    className="
-                      grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 py-4
-                      lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:gap-x-[18px]
-                      border-b border-[var(--border-subtle)] last:border-b-0
-                      px-4 rounded-[2px]
-                      transition-colors duration-fast
-                      hover:bg-[var(--panel)]
-                    "
-                  >
-                    <Avatar
-                      name={ws.label}
-                      url={ws.avatarUrl}
-                      size="sm"
-                      ringVariant="none"
-                      className="mt-[3px]"
-                    />
-                    <div className="min-w-0">
-                      <p className="text-[15px] font-medium text-[var(--text)] truncate">
-                        {ws.label}
-                      </p>
-                      <p className="text-sm text-[var(--text-muted)] mt-0.5 line-clamp-1">
-                        {ws.isOwnedPersonal
-                          ? 'Your private tracks and apps'
-                          : ws.accessLabel === 'Invited'
-                            ? 'Invited workspace'
-                            : 'Organization workspace'}
-                      </p>
-                    </div>
-                    <div className="col-start-2 mt-1 text-xs text-[var(--text-subtle)] tabular-nums text-left lg:col-start-3 lg:row-start-1 lg:mt-0 lg:text-right lg:pt-0.5">
-                      {ws.lastActivityIso ? (
-                        <div>
-                          {formatRelativeTime(ws.lastActivityIso)}
-                        </div>
-                      ) : (
-                        <div className="italic">No recent activity</div>
-                      )}
-                    </div>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        {/* Recent apps — cross-scope; hidden entirely if user has no apps. */}
-        {(appsLoading || recentApps.length > 0) && (
-          <section aria-labelledby="mc-apps" className="mb-12">
-            <div className="flex items-baseline justify-between mb-4">
-              <h2
-                id="mc-apps"
-                className="text-[13px] uppercase tracking-[0.16em] text-[var(--text-subtle)] font-medium"
-              >
-                Recent apps
-              </h2>
-              <Link
-                to="/apps"
-                className="text-xs text-[var(--text-subtle)] hover:text-[var(--text)] transition-colors duration-fast"
-              >
-                View all →
+          <HomeChatComposer workspaceId={activeWorkspace?.id ?? null} principalId={auth?.user?.id ?? null} />
+        </Surface>
+        <Surface as="section" aria-labelledby="home-attention-heading" tone="panel-2" border="subtle" padding="lg" className="home-widget home-widget--attention min-w-0">
+          <Text as="h2" id="home-attention-heading" variant="heading-sm" weight="semibold" className="mb-4">Needs your attention</Text>
+          <MissionControlApprovals />
+          <HomeLink to="/notifications">{notificationsLoading ? 'Checking notifications…' : notificationsError ? 'Notifications unavailable — open inbox' : `${unreadCount} unread ${unreadCount === 1 ? 'notification' : 'notifications'}`}</HomeLink>
+          <HomeLink to="/background-tasks">Background tasks in {actionLabel}</HomeLink>
+          <PendingInvitationsPanel compact />
+        </Surface>
+      </div>
+      {snapshot.isError && <div role="status" className="my-4 flex flex-wrap items-center gap-3">
+        <Text tone="muted" variant="body-sm">Could not refresh recent work. {snapshot.data ? 'Showing the last available snapshot.' : 'Try again to load your Apps and activity.'}</Text>
+        <Button variant="outline" onClick={retry} loading={snapshot.isFetching}>Retry recent work</Button>
+      </div>}
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <Surface as="section" aria-labelledby="mc-apps" border="subtle" padding="lg" className="home-widget home-widget--work min-w-0">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <Text as="h2" id="mc-apps" variant="heading-sm" weight="semibold">Continue working</Text>
+            <HomeLink to="/apps">Apps in {actionLabel}</HomeLink>
+          </div>
+          {snapshot.isPending ? <HomeSkeleton /> : recentApps.length ? <ul>
+            {recentApps.map(app => <li key={app.id}>
+              <Link to={`/apps/${app.id}`} className="flex min-h-20 items-start gap-3 py-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+                <AppIcon name={app.name} icon={app.icon} color={resolveIdentityColor(app.accent_color)} />
+                <div className="min-w-0 flex-1">
+                  <Text as="p" variant="body" weight="semibold" className="truncate">{app.name}</Text>
+                  {app.description && <Text as="p" variant="body-sm" tone="muted" className="line-clamp-1">{app.description}</Text>}
+                  <Text as="p" variant="meta" tone="subtle" className="mt-1">{workspaceLabel(workspaceIdOf(app))}{(app.updated_at || app.created_at) ? ` · Updated ${formatRelativeTime(app.updated_at || app.created_at!)}` : ''}</Text>
+                </div><ArrowUpRight size={16} aria-hidden />
               </Link>
-            </div>
-            {appsLoading && recentApps.length === 0 ? (
-              <RowSkeletonList rows={3} />
-            ) : (
-              <ul>
-                {recentApps.map(app => {
-                  const chip = workspaceChipFor(app);
-                  return (
-                    <li key={app.id}>
-                      <Link
-                        to={`/apps/${app.id}`}
-                        className="
-                          grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 py-4
-                          lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:gap-x-[18px]
-                          border-b border-[var(--border-subtle)] last:border-b-0
-                          px-4 rounded-[2px]
-                          transition-colors duration-fast
-                          hover:bg-[var(--panel)]
-                        "
-                      >
-                        <AppIcon
-                          name={app.name}
-                          icon={app.icon}
-                          color={resolveIdentityColor(app.accent_color, chip?.accent)}
-                        />
-                        <div className="min-w-0">
-                          <div className="flex min-w-0 flex-col items-start gap-1 lg:flex-row lg:items-center lg:gap-2">
-                            <p className="w-full min-w-0 truncate text-[15px] font-medium text-[var(--text)] lg:w-auto">
-                              {app.name}
-                            </p>
-                            <ScopeChip chip={chip} />
-                          </div>
-                          {app.description ? (
-                            <p className="text-sm text-[var(--text-muted)] mt-0.5 line-clamp-1">
-                              {app.description}
-                            </p>
-                          ) : null}
-                        </div>
-                        <div className="col-start-2 mt-1 text-xs text-[var(--text-subtle)] tabular-nums text-left lg:col-start-3 lg:row-start-1 lg:mt-0 lg:text-right lg:pt-0.5">
-                          {app.updated_at || app.created_at ? (
-                            <div>
-                              {formatRelativeTime(app.updated_at || app.created_at!)}
-                            </div>
-                          ) : null}
-                        </div>
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
-        )}
-
-        {/* Tracks in motion — cross-scope; each row carries a small workspace chip. */}
-        <section aria-labelledby="mc-tracks" className="mb-12">
-          <div className="flex items-baseline justify-between mb-4">
-            <h2
-              id="mc-tracks"
-              className="text-[13px] uppercase tracking-[0.16em] text-[var(--text-subtle)] font-medium"
-            >
-              Tracks in motion
-            </h2>
-            <Link
-              to="/tracks"
-              className="text-xs text-[var(--text-subtle)] hover:text-[var(--text)] transition-colors duration-fast"
-            >
-              View all →
-            </Link>
+            </li>)}
+          </ul> : !snapshot.isError && <div>
+            <Text as="p" variant="body-sm" tone="muted">Your recent Apps will appear here. Describe what you want to manage to get started.</Text>
+            <Button variant="outline" className="mt-4 min-h-11" disabled={!activeWorkspace}
+              onClick={() => requestOpenCompanionChat({ draftText: 'Help me design an App for this workspace.' })}>Design an App with Integral</Button>
+          </div>}
+        </Surface>
+        <Surface as="section" aria-labelledby="mc-activity" border="subtle" padding="lg" className="home-widget home-widget--activity min-w-0">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <Text as="h2" id="mc-activity" variant="heading-sm" weight="semibold">Recent activity</Text>
+            <HomeLink to="/feed">Feed in {actionLabel}</HomeLink>
           </div>
-          {loading ? (
-            <RowSkeletonList rows={3} />
-          ) : recentTracks.length === 0 ? (
-            <p className="text-sm text-[var(--text-subtle)] italic py-6">
-              No tracks yet. Create one to get started.
-            </p>
-          ) : (
-            <ul>
-              {recentTracks.map(track => {
-                const chip = workspaceChipFor(track);
-                return (
-                  <li key={track.id}>
-                    <Link
-                      to={`/tracks/${track.id}`}
-                      className="
-                        grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 py-4
-                        lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:gap-x-[18px]
-                        border-b border-[var(--border-subtle)] last:border-b-0
-                        px-4 rounded-[2px]
-                        transition-colors duration-fast
-                        hover:bg-[var(--panel)]
-                      "
-                    >
-                      <TrackDot
-                        color={resolveIdentityColor(track.accent_color, chip?.accent)}
-                        size="md"
-                        className="mt-[8px] shrink-0"
-                        title={track.title}
-                      />
-                      <div className="min-w-0">
-                        <div className="flex min-w-0 flex-col items-start gap-1 lg:flex-row lg:items-center lg:gap-2">
-                          <p className="w-full min-w-0 truncate text-[15px] font-medium text-[var(--text)] lg:w-auto">
-                            {track.title}
-                          </p>
-                          <ScopeChip chip={chip} />
-                        </div>
-                        <p className="text-sm text-[var(--text-muted)] mt-0.5 line-clamp-1">
-                          {track.purpose ||
-                            track.description ||
-                            'No purpose yet.'}
-                        </p>
-                      </div>
-                      <div className="col-start-2 mt-1 flex flex-wrap gap-x-2 text-xs text-[var(--text-subtle)] tabular-nums text-left lg:col-start-3 lg:row-start-1 lg:mt-0 lg:block lg:text-right lg:pt-0.5">
-                        <div>{track.entry_count || 0} {(track.entry_count || 0) === 1 ? 'entry' : 'entries'}</div>
-                        {track.updated_at ? (
-                          <div className="lg:mt-0.5">
-                            {formatRelativeTime(track.updated_at)}
-                          </div>
-                        ) : null}
-                      </div>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
-
-        {/* Latest activity — cross-scope. */}
-        <section aria-labelledby="mc-latest" className="mb-12">
-          <div className="flex items-baseline justify-between mb-4">
-            <h2
-              id="mc-latest"
-              className="text-[13px] uppercase tracking-[0.16em] text-[var(--text-subtle)] font-medium"
-            >
-              Latest activity
-            </h2>
-            <Link
-              to="/feed"
-              className="text-xs text-[var(--text-subtle)] hover:text-[var(--text)] transition-colors duration-fast"
-            >
-              View feed →
-            </Link>
-          </div>
-          {loading ? (
-            <RowSkeletonList rows={4} />
-          ) : previewEntries.length === 0 ? (
-            <p className="text-sm text-[var(--text-subtle)] italic py-6">
-              Nothing to show yet — posts will surface here as your workspaces
-              grow.
-            </p>
-          ) : (
-            <ul>
-              {previewEntries.slice(0, ACTIVITY_LIMIT).map(entry => {
-                const trackOfEntry = tracks.find(t => t.id === entry.track_id);
-                const chip = trackOfEntry ? workspaceChipFor(trackOfEntry) : null;
-                return (
-                  <li key={entry.id}>
-                    <Link
-                      to={
-                        entry.track_id
-                          ? `/tracks/${entry.track_id}?entry=${encodeURIComponent(entry.id)}`
-                          : '/feed'
-                      }
-                      className="
-                        grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 py-4
-                        lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:gap-x-[18px]
-                        border-b border-[var(--border-subtle)] last:border-b-0
-                        px-4 rounded-[2px]
-                        transition-colors duration-fast
-                        hover:bg-[var(--panel)]
-                      "
-                    >
-                      <TrackDot
-                        size="md"
-                        className="mt-[8px] shrink-0"
-                        title={trackOfEntry?.title}
-                      />
-                      <div className="min-w-0">
-                        <div className="flex min-w-0 flex-col items-start gap-1 lg:flex-row lg:items-center lg:gap-2">
-                          <p className="w-full min-w-0 truncate text-[15px] font-medium text-[var(--text)] lg:w-auto">
-                            {entry.title || `New ${entry.type} update`}
-                          </p>
-                          <ScopeChip chip={chip} />
-                        </div>
-                        <p className="text-sm text-[var(--text-muted)] mt-0.5 line-clamp-1">
-                          {entry.body
-                            ? markdownToPlainExcerpt(entry.body, 200)
-                            : 'Open this thread for details.'}
-                        </p>
-                      </div>
-                      <div className="col-start-2 mt-1 text-xs text-[var(--text-subtle)] tabular-nums lg:col-start-3 lg:row-start-1 lg:mt-0 lg:pt-0.5">
-                        {formatRelativeTime(entry.created_at)}
-                      </div>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
-      </PageSection>
-    </PageShell>
-  );
+          {snapshot.isPending ? <HomeSkeleton /> : previewEntries.length ? <ul>
+            {previewEntries.slice(0, 4).map(entry => <li key={entry.id}>
+              <Link to={entry.track_id ? `/tracks/${entry.track_id}?entry=${encodeURIComponent(entry.id)}` : `/entries/${entry.id}`}
+                className="flex min-h-20 items-start gap-3 py-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+                <ArrowUpRight size={16} aria-hidden className="mt-1 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <Text as="p" variant="body" weight="semibold" className="truncate">{entry.title || 'Untitled entry'}</Text>
+                  <Text as="p" variant="meta" tone="muted" className="mt-1">{workspaceLabel(workspaceIdOf(tracks.find(track => track.id === entry.track_id) ?? {}))}{entry.created_at ? ` · ${formatRelativeTime(entry.created_at)}` : ''}</Text>
+                </div>
+              </Link>
+            </li>)}
+          </ul> : !snapshot.isError && <Text as="p" variant="body-sm" tone="muted">Recent records across your accessible workspaces will appear here.</Text>}
+        </Surface>
+      </div>
+    </PageSection>
+  </PageShell>;
 }
 
-/** Inline metric — label above, value below, no chrome. */
-function Metric({
-  label,
-  value,
-  to,
-}: {
-  label: string;
-  /** Pass a number for computed values; pass '—' while data is loading
-   *  to show a neutral placeholder instead of a stale / wrong count. */
-  value: number | string;
-  /** When provided, the metric becomes a Link to the given path.
-   *  Used for the "Entries today" tile so users can drill into the
-   *  per-day feed instead of staring at a dead number. */
-  to?: string;
-}) {
-  const alignment = 'mc-metric flex min-w-0 flex-col';
-  const body = (
-    <>
-      <p className="min-h-10 text-xs leading-5 uppercase tracking-[0.08em] text-[var(--text-subtle)] font-medium">
-        {label}
-      </p>
-      <p className="mt-2 text-[28px] font-semibold tracking-tight text-[var(--text)] tabular-nums leading-none">
-        {value}
-      </p>
-    </>
-  );
-  if (to) {
-    return (
-      <Link
-        to={to}
-        className={`
-          min-w-0 rounded-[var(--radius-input)] -mx-1 -my-1 px-1 py-1
-          ${alignment}
-          transition-colors duration-fast
-          hover:bg-[var(--panel-2)]
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]
-        `}
-      >
-        {body}
-      </Link>
-    );
-  }
-  return <div className={alignment}>{body}</div>;
+function HomeLink({ to, children }: { to: string; children: React.ReactNode }) {
+  return <Link to={to} className="flex min-h-11 items-center justify-between gap-3 py-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+    <Text variant="body-sm">{children}</Text><ArrowUpRight size={14} aria-hidden className="shrink-0" />
+  </Link>;
 }
-
-function ScopeChip({
-  chip
-}: {
-  chip: { label: string; accent?: string; avatarUrl?: string } | null;
-}) {
-  // No chip data → the resource has no workspace (shouldn't normally
-  // happen post-W2 backfill, but render a quiet placeholder).
-  const label = chip?.label || 'Personal';
-  return (
-    <span
-      className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.08em] text-[var(--text-muted)] shrink-0"
-      title={label}
-    >
-      <Avatar
-        name={label}
-        url={chip?.avatarUrl}
-        size="xs"
-        ringVariant="none"
-      />
-      <span className="truncate max-w-[220px] lg:max-w-[110px]">{label}</span>
-    </span>
-  );
-}
-
-function WorkspaceSkeletonList() {
-  return (
-    <div>
-      {[1, 2, 3].map(i => (
-        <div
-          key={i}
-          className="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-x-[18px] py-4 border-b border-[var(--border-subtle)] last:border-b-0"
-        >
-          <Skeleton className="w-[18px] h-[18px] rounded-md mt-[6px] shrink-0" />
-          <div className="min-w-0">
-            <Skeleton className="h-4 w-[40%] max-w-[260px] rounded" />
-            <Skeleton className="h-3 w-[60%] max-w-[400px] rounded mt-2" />
-          </div>
-          <div className="text-right space-y-1.5">
-            <Skeleton className="h-3 w-16 rounded ml-auto" />
-            <Skeleton className="h-3 w-20 rounded ml-auto" />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function RowSkeletonList({ rows }: { rows: number }) {
-  return (
-    <div>
-      {Array.from({ length: rows }, (_, i) => (
-        <div
-          key={i}
-          className="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-x-[18px] py-4 border-b border-[var(--border-subtle)] last:border-b-0"
-        >
-          <Skeleton className="w-2.5 h-2.5 rounded-full mt-[7px] shrink-0" />
-          <div className="min-w-0">
-            <Skeleton className="h-4 w-[45%] max-w-[300px] rounded" />
-            <Skeleton className="h-3 w-[65%] max-w-[440px] rounded mt-2" />
-          </div>
-          <Skeleton className="h-3 w-20 rounded shrink-0" />
-        </div>
-      ))}
-    </div>
-  );
+function HomeSkeleton() {
+  return <div aria-label="Loading recent work" aria-busy="true" className="space-y-4"><Skeleton className="h-14 w-full" /><Skeleton className="h-14 w-full" /></div>;
 }

@@ -10,12 +10,8 @@ describe('Workspace work', () => {
     list.mockResolvedValueOnce({ items: [item], next_cursor: 'next' }).mockResolvedValueOnce({ items: [{ ...item, work_item_id: 'failed-1', status: 'failed', failure: { code: 'error', message: 'Update failed' } }], next_cursor: null });
     render(<WorkItemsSection workspaceId="workspace-1" />);
     await screen.findByRole('heading', { name: 'App lifecycle · Completed', level: 3 });
-    expect(screen.getByText('Work ID').tagName).toBe('DT');
-    expect(screen.getByText('update-1').tagName).toBe('DD');
-    expect(screen.getByText('App ID').tagName).toBe('DT');
-    expect(screen.getByText('app-1').tagName).toBe('DD');
-    expect(screen.getByText('update-1')).toHaveClass('truncate');
-    expect(screen.getByText('update-1')).toHaveAttribute('title', 'update-1');
+    expect(screen.queryByText('update-1')).not.toBeInTheDocument();
+    expect(screen.queryByText('app-1')).not.toBeInTheDocument();
     expect(list).toHaveBeenCalledWith('workspace-1', undefined);
     fireEvent.click(screen.getByText('Load older work'));
     await screen.findByText('Update failed');
@@ -25,7 +21,7 @@ describe('Workspace work', () => {
     list.mockRejectedValueOnce(new Error('Status unavailable')).mockResolvedValueOnce({ items: [], next_cursor: null });
     render(<WorkItemsSection workspaceId="workspace-1" />);
     await screen.findByRole('alert');
-    fireEvent.click(screen.getByText('Refresh work'));
+    fireEvent.click(screen.getByText('Refresh'));
     await screen.findByText('No workspace work yet.');
   });
   it('ignores results arriving after the scoped component unmounts', async () => {

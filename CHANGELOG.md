@@ -6,6 +6,21 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc18 — 2026-10-13
+
+- Pin published jvspatial 0.2.2 and remove the transaction compatibility adapter.
+  Restore admin inventory and owner labels, invited-user track listing, and
+  quiet successful database operations while preserving error logs and metrics.
+- Prevent passive approval reconciliation from starting another model run;
+  retain explicit-action continuations and single receipts across refresh races.
+- Streamline Home and Admin, unify chat composer capabilities and theme styles,
+  send Home and Enhance requests immediately, and dismiss the floating welcome
+  hint after acknowledgement or a user message.
+- Correct search-icon spacing, navigation and profile routing, and remove
+  internal IDs from ordinary lists, details, pickers and missing-name fallbacks.
+- Default native turns to 1,200,000 tokens with bounded context retrieval.
+- Refresh documentation and add PostgreSQL, browser and artifact evidence.
+
 - Let trusted hosts supply temporary commercial entitlement access without
   creating durable grants. Recheck installed package access during execution,
   settings finalization, resume and startup; retain generic read/export access
@@ -22,8 +37,6 @@ bump does not establish that a release is available on a package index.
   and expose an editable Profile setting. New reminders and relative-date query
   plans inherit the account zone while existing and approved schedules retain
   their saved zone; ambiguous local one-shots require an explicit offset.
-- Pin jvspatial 0.2.1. Routine database timings use DEBUG, keeping INFO logs quiet
-  while slow-query/failure warnings and operation metrics remain available.
 
 ## 0.1.1rc17 — 2026-10-12
 

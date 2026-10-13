@@ -694,7 +694,7 @@ export function SkillEditorModal({
                         {detail.app_id ? (
                           <>
                             <Text as="span" variant="mono" tone="muted">app</Text>
-                            <span className="truncate">{detail.app_slug || detail.app_id}</span>
+                            <span className="truncate">{detail.app_slug || 'App'}</span>
                           </>
                         ) : null}
                       </Surface>

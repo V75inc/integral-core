@@ -123,6 +123,11 @@
   --badge-muted-bg: #f1f1f3;
   --badge-muted-fg: #4a4a52;
 
+  /* Chat keeps user turns distinct with a quiet slate surface. */
+  --chat-user-bg: #e7ecf2;
+  --chat-user-border: #d5dce5;
+  --chat-user-fg: #27313e;
+
   /* ── Brand ───────────────────────────────────────────────── */
   --brand-accent:           #ff5a1f;
   --brand-accent-contrast:  #1a1a1a;
@@ -130,6 +135,10 @@
   --brand-accent-default-contrast: #1a1a1a;
   --brand-accent-soft:      rgba(255, 90, 31, 0.10);
   --brand-accent-line:      rgba(255, 90, 31, 0.28);
+  /* Cool slate keeps the auth watermark distinct without a faded orange cast. */
+  --auth-mark: #738196;
+  --chat-edit-bg:           var(--chat-user-bg);
+  --chat-edit-border:       var(--chat-user-border);
   --track-accent-bg: var(--brand-accent);
   --track-accent-fg: var(--brand-accent-contrast);
   --track-accent-fg-muted: rgba(255, 255, 255, 0.65);
@@ -139,8 +148,17 @@
   --success-fg: #2f9856;   --success-bg: rgba(47, 152, 86, 0.10);
   --warn-fg:    #c98715;   --warn-bg:    rgba(201, 135, 21, 0.10);
   --danger-fg:  #c14848;   --danger-bg:  rgba(193, 72, 72, 0.10);
+  --danger-text: #b4232d;  --danger-border: #c14848;
   --ai-fg:      #8e7afc;   --ai-bg:      rgba(142, 122, 252, 0.10);
   --presence:   #34c46d;
+
+  /* Conversation surfaces: warm paper for the user's turn, cool neutral for AI. */
+  --chat-user-accent: var(--brand-accent);
+  --chat-assistant-bg: #e9ecef;
+  --chat-assistant-border: #d4d9df;
+  --chat-error-bg: transparent;
+  --chat-error-fg: #b93636;
+  --chat-error-border: #d35b5b;
 
   /* ── Radii ──────────────────────────────────────────────── */
   --radius-card:  0.875rem;    /* 14px — cards, panels, composer */
@@ -294,6 +312,11 @@
   --badge-muted-bg: #666666;  /* lifted from #2d2d2d — was 1.26:1 vs --bg, now 3.03:1 (WCAG AA non-text) */
   --badge-muted-fg: #ededed;  /* --text; 4.90:1 on the new bg (WCAG AA normal text) */
 
+  /* Slate stays distinct from the charcoal canvas without brand-orange fill. */
+  --chat-user-bg: #303844;
+  --chat-user-border: #414c5b;
+  --chat-user-fg: #e7ecf2;
+
   /* ── Brand (slightly warmer for legibility on dark ground) */
   --brand-accent:           #ff8552;
   --brand-accent-contrast:  #1a1a1a;
@@ -301,6 +324,9 @@
   --brand-accent-default-contrast: #1a1a1a;
   --brand-accent-soft:      rgba(255, 133, 82, 0.10);
   --brand-accent-line:      rgba(255, 133, 82, 0.28);
+  --auth-mark: #8794a6;
+  --chat-edit-bg:           var(--chat-user-bg);
+  --chat-edit-border:       var(--chat-user-border);
   --track-accent-bg: var(--brand-accent);
   --track-accent-fg: var(--brand-accent-contrast);
   --track-accent-fg-muted: rgba(255, 255, 255, 0.65);
@@ -310,8 +336,17 @@
   --success-fg: #65d895;   --success-bg: rgba(101, 216, 149, 0.10);
   --warn-fg:    #ffd166;   --warn-bg:    rgba(255, 209, 102, 0.10);
   --danger-fg:  #ef6f6f;   --danger-bg:  rgba(239, 111, 111, 0.10);
+  --danger-text: #ff8585;  --danger-border: #ef6f6f;
   --ai-fg:      #b59cd6;   --ai-bg:      rgba(181, 156, 214, 0.12);
   --presence:   #65d895;
+
+  /* Warm charcoal keeps the user's turn distinct while AI text stays quiet. */
+  --chat-user-accent: var(--brand-accent);
+  --chat-assistant-bg: #222427;
+  --chat-assistant-border: #363a40;
+  --chat-error-bg: rgba(239, 111, 111, 0.06);
+  --chat-error-fg: #ff8580;
+  --chat-error-border: #c95c5c;
 
   /* ── Shadows (deeper, more atmospheric on dark) ──────────── */
   --shadow-sm:   0 2px 4px rgba(0, 0, 0, 0.20);
@@ -399,13 +434,9 @@
   }
 }
 
-@layer utilities {
-  .app-card {
-    border-radius: var(--radius-card);
-    @apply border;
-    background: var(--panel);
-    border-color: var(--panel-border);
-  }
+/* Input baseline belongs below utility classes so icon padding and size
+   variants can override it consistently across every search field. */
+@layer components {
   .app-input {
     width: 100%;
     border-radius: var(--radius-input);
@@ -439,6 +470,15 @@
   }
   .app-input:focus {
     box-shadow: 0 0 0 2px var(--focus-ring-color);
+    border-color: var(--panel-border);
+  }
+}
+
+@layer utilities {
+  .app-card {
+    border-radius: var(--radius-card);
+    @apply border;
+    background: var(--panel);
     border-color: var(--panel-border);
   }
   .auth-field-input {
@@ -674,13 +714,16 @@
   }
 
   .chat-message--user .chat-message-bubble {
-    background: var(--cta-bg);
-    color: var(--cta-fg);
+    background: var(--chat-user-bg);
+    border: 1px solid var(--chat-user-border);
+    border-top: 3px solid var(--chat-user-accent);
+    color: var(--text);
     border-bottom-right-radius: 4px;
   }
 
   .chat-message--assistant .chat-message-bubble {
-    background: var(--panel-2);
+    background: transparent;
+    border: none;
     color: var(--text);
     border-bottom-left-radius: 4px;
   }
@@ -1066,11 +1109,11 @@
   .auth-ripple--auth {
     width: 100%;
     height: 100%;
-    opacity: 0.14;
+    opacity: 0.2;
   }
   .auth-ripple-mark {
     fill: none;
-    stroke: var(--auth-accent, var(--brand-accent));
+    stroke: var(--auth-mark);
     stroke-width: 6;
   }
   .auth-ripple-mark path { vector-effect: non-scaling-stroke; }
@@ -1471,4 +1514,36 @@
     .auth-hero-copy h1 { font-size: 28px; line-height: 1.15; }
     .auth-hero-copy p { font-size: 15px; line-height: 1.5; }
   }
+}
+
+/* Home needs visible section/control boundaries on the light canvas.
+   Scope these semantic overrides so other pages and dark-mode ink stay intact. */
+:root:not(.theme-dark) .home-overview {
+  --panel-2: #ededf0;
+  --border-subtle: #e3e3e8;
+  --text-muted: #42424a;
+  --text-subtle: #55555e;
+}
+:root:not(.theme-dark) .home-overview .app-input:focus,
+:root:not(.theme-dark) .home-overview .app-input:focus-within {
+  border-color: #85858f;
+}
+:root:not(.theme-dark) .home-overview section {
+  --panel-border: #d7d7dc;
+  box-shadow: var(--shadow-sm);
+}
+.theme-dark .home-overview section {
+  border-color: transparent;
+}
+
+/* Home's shared chat composer retains the familiar filled input surface. */
+.home-overview .home-chat-composer {
+  background: var(--panel-2);
+  border-color: var(--panel-border);
+}
+
+/* Home widgets share one primary accent; titles, logos and surfaces retain
+   their neutral theme colors in both modes. */
+.home-overview section.home-widget {
+  border-top: 3px solid var(--brand-accent-default);
 }

@@ -1,3 +1,5 @@
+import { KebabMenu } from '../../../components/ui/KebabMenu';
+import { useChatEntityRefsOptional } from '../../../context/ChatEntityRefsContext';
 import { PageMeta } from '../../../components/ui';
 import {
   ActionBarMorePrimitive,
@@ -725,8 +727,8 @@ function MessageError() {
     <MessagePrimitive.Error>
       <ErrorPrimitive.Root
         className="
-          mt-2 rounded-[var(--radius-card)] border border-[var(--danger-fg)]
-          bg-[var(--danger-bg)] p-3 text-sm text-[var(--danger-fg)]
+          chat-message-error mt-2 rounded-[var(--radius-card)] border border-[var(--chat-error-border)]
+          bg-[var(--chat-error-bg)] p-3 text-sm text-[var(--chat-error-fg)]
         "
       >
         <ErrorPrimitive.Message className="line-clamp-2" />
@@ -1117,9 +1119,10 @@ function UserMessage() {
       <div className="relative col-start-2 min-w-0">
         <div
           className="
-            [overflow-wrap:anywhere] peer rounded-2xl
-            bg-[var(--brand-accent-soft)]
-            border border-[var(--brand-accent-line)]
+            chat-user-message-bubble [overflow-wrap:anywhere] peer rounded-2xl
+            bg-[var(--chat-user-bg)]
+            border border-[var(--chat-user-border)]
+            border-t-[3px] border-t-[var(--chat-user-accent)]
             px-4 py-2.5 text-[var(--text)]
             empty:hidden
           "
@@ -1171,7 +1174,8 @@ function EditComposer() {
       <ComposerPrimitive.Root
         className="
           ms-auto flex w-full max-w-[85%] flex-col rounded-2xl
-          bg-[var(--panel-2)] border border-[var(--border-subtle)]
+          bg-[var(--chat-edit-bg)] border border-[var(--chat-edit-border)]
+          border-t-[3px] border-t-[var(--chat-user-accent)]
         "
       >
         <ComposerPrimitive.Input
@@ -1225,7 +1229,7 @@ function ComposerHostAccessory() {
   return <Hint workspaceId={workspaceId} />;
 }
 
-function Composer({ locked = false }: { locked?: boolean }) {
+export function Composer({ locked = false, home = false, onSendAttempt }: { locked?: boolean; home?: boolean; onSendAttempt?: () => void }) {
   const { blockedReason } = useAgentiveCapability();
   const { composerReady = true } = useChatActivity();
 
@@ -1283,7 +1287,7 @@ function Composer({ locked = false }: { locked?: boolean }) {
         <div
           className="
             flex w-full flex-col gap-2 rounded-[var(--radius-card)]
-            border border-[var(--border-subtle)] bg-[var(--panel)] p-2
+            border border-[var(--border-subtle)] bg-[var(--panel)] p-2 home-chat-composer
             transition-[border-color,box-shadow] duration-fast
             focus-within:border-[var(--brand-accent-line)]
             focus-within:shadow-[0_0_0_3px_var(--focus-ring-color)]
@@ -1298,10 +1302,12 @@ function Composer({ locked = false }: { locked?: boolean }) {
             }}
           />
           <AuiTaggableComposer
-            autoFocus
-            rows={1}
-            placeholder="Ask Integral…"
-            aria-label="Message input"
+            autoFocus={!home}
+            rows={home ? 2 : 1}
+            placeholder={home ? "Tell Integral what you need…" : "Ask Integral…"}
+            aria-label={home ? "Draft for Integral AI" : "Message input"}
+            acceptHandoff={!home}
+            onSendAttempt={onSendAttempt}
             className="
               block w-full resize-none bg-transparent
               px-2 py-1.5 text-sm leading-5 text-[var(--text)]
@@ -1309,7 +1315,7 @@ function Composer({ locked = false }: { locked?: boolean }) {
               outline-none focus:outline-none
             "
           />
-          <ComposerAction />
+          <ComposerAction home={home} />
         </div>
       </ComposerDictationProvider>
     </ComposerPrimitive.Root>
@@ -1412,9 +1418,14 @@ function AttachmentChip() {
   );
 }
 
-function ComposerAction() {
+function ComposerAction({ home = false }: { home?: boolean }) {
+  const suggestions = useScopedSuggestions();
+  const aui = useAui();
+  const refs = useChatEntityRefsOptional();
+  const canSuggest = useAuiState(s => !s.thread.isRunning);
+  const actionRef = useRef<HTMLDivElement>(null);
   return (
-    <div className="relative flex items-center justify-between">
+    <div ref={actionRef} className="relative flex items-center justify-between">
       <div className="flex items-center gap-1">
         <ComposerPrimitive.AddAttachment asChild>
           <button
@@ -1432,21 +1443,29 @@ function ComposerAction() {
           </button>
         </ComposerPrimitive.AddAttachment>
         <ComposerMicButton />
+        <KebabMenu portal={!home} ariaLabel="Suggestions" align="start" menuTitle="Try asking Integral" menuCaption="Choose a prompt, then make it your own." icon={<Sparkles size={15} aria-hidden />} items={suggestions.map(suggestion => ({
+          key: suggestion.label, label: suggestion.label, description: suggestion.text, disabled: !canSuggest,
+          onClick: () => {
+            refs?.resetComposerEntityRefs();
+            aui.composer().setText(suggestion.text);
+            actionRef.current?.parentElement?.querySelector('textarea')?.focus();
+          },
+        }))} />
         <span className="px-1 text-[11px] text-[var(--text-subtle)]">
           @people, #apps/tracks
         </span>
       </div>
       <AuiIf condition={(s) => !s.thread.isRunning}>
         <ComposerSendWithRefs
-          aria-label="Send message"
-          className="
+          aria-label={home ? "Ask Integral" : "Send message"}
+          className={home ? "flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[var(--cta-bg)] text-[var(--cta-fg)] hover:bg-[var(--cta-hover)] disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]" : `
             flex h-8 w-8 items-center justify-center rounded-full
             bg-[var(--cta-bg)] text-[var(--cta-fg)]
             transition-colors hover:bg-[var(--cta-hover)]
             disabled:bg-[var(--badge-muted-bg)] disabled:text-[var(--text-subtle)]
             disabled:cursor-not-allowed
             focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]
-          "
+          `}
         />
       </AuiIf>
       <AuiIf condition={(s) => s.thread.isRunning}>

@@ -99,7 +99,7 @@ export function TrackModal({
       const { entryTypeCount, viewCount } = summarizeLibraryManifest(manifest);
       items.push({
         value: `template:${tpl.id}`,
-        name: tpl.name || tpl.id,
+        name: tpl.name || 'Untitled model',
         description: tpl.description?.trim().slice(0, 140) || 'App-defined track template.',
         entryTypeCount,
         viewCount,
