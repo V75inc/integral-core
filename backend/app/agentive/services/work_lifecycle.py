@@ -72,6 +72,18 @@ async def run_startup_recovery() -> Any:
     return await run_recovery_pass(reclaim_worker_id="startup-recovery")
 
 
+async def _app_schedule_loop(*, idle_sleep: float = 60.0) -> None:
+    """Queue scheduled App tools on their cron slots (see app_schedules)."""
+    from app.agentive.services.app_schedules import enqueue_due_app_schedules
+
+    while True:
+        try:
+            await enqueue_due_app_schedules()
+        except Exception:  # noqa: BLE001
+            log.exception("App schedule pass failed")
+        await asyncio.sleep(idle_sleep)
+
+
 async def _recovery_loop(*, idle_sleep: float = 15.0) -> None:
     from app.agentive.services.work_recovery import run_recovery_pass
     from app.services.app_operations.event_outbox import (
@@ -175,6 +187,7 @@ async def start_work_kernel_background(
         )
     )
     background_tasks.append(asyncio.create_task(_recovery_loop(), name="work-recovery"))
+    background_tasks.append(asyncio.create_task(_app_schedule_loop(), name="app-schedules"))
     background_tasks.append(
         asyncio.create_task(
             work_events.event_consumer_loop(), name="work-event-consumer"
