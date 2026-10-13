@@ -40,17 +40,39 @@ review](../backend/tool-source-observations.md). Older distributions may
 return `None` for this kind; package adoption requires qualification against a
 Core release carrying the contract.
 
+### Background App jobs
+
+A tool can hand long work to Core with `ctx.enqueue_job(tool_key, payload,
+idempotency_key=..., label=...)`. Core records a durable work item (kind
+`app_tool`) and runs that tool later on a dedicated App job worker, as the same
+person in the same workspace. The job survives restarts, is retried when the
+tool returns `{ok: false, retry: true}`, and fails with the tool's `reason`
+otherwise. An App may queue only its own tools; repeating an idempotency key
+returns the existing job. Inside the job, `ctx.job_id` is set and
+`ctx.report_progress(done, total, label)` records progress; `ctx.job_status(id)`
+reads a job the App queued. Work item status and the background tasks list
+show the App's label and reported progress.
+
+Jobs keep their steps short and resumable: save progress on the record, make
+every step safe to repeat, and treat a job as one worker's sequential run, not a
+transaction. A tool may update its own App's records in the workspace where the
+App is installed; the workspace comes from Core, never from the tool.
+
 OperationContext is injected by Core. Its identity includes principal, workspace, scope, bundle slug, installed App, operation key, and optional idempotency/correlation keys. It offers validated create/update helpers, conditional updates, audit emission, deduplicated notifications, and the preferred facade. Raw private Core imports are forbidden.
 
 ## Declaration requirements
 
 Packages declare input/output schemas, operation policy and staging behavior, query shape, tools, hooks, skills, and presentation assets. Python implementations require their trust tier and signature posture. An installed App resolves the immutable active ApplicationDefinition before using its effective capability contract.
 
+A tool may declare `schedule` as a cron string or `{cron, timezone}`. Core
+queues it as a background App job once per due slot, as the App's installing
+person; slots missed while the service is down are skipped.
+
 The frozen hook catalog contains `entry.transform`, `entry.public_share`, `entry.precompute`, `entry.create`, `entry.validate`, `entry.update`, `connector.dedup`, `connector.auto_link`, and `email.sent`. A new point requires a reviewed decision and invariant update. Registration collisions fail rather than silently replacing another package's tool.
 
 ## Presentation
 
-App-owned declarative composites use registered Core primitives. Sandboxed iframe extension views use declared assets, hosted paths, and the view handshake. This is an implemented extension surface; arbitrary remote React plugins or inline executable manifest code are not substitutes.
+App-owned declarative composites use registered Core primitives. Sandboxed iframe extension views use declared assets, hosted paths, and the view handshake; a view's `config.min_height` lets a compact view size below the default frame height. This is an implemented extension surface; arbitrary remote React plugins or inline executable manifest code are not substitutes.
 
 Package App Home uses declared queries/actions under the active definition. Dashboards are instance projections. Unavailable data must remain distinguishable from empty results; action preparation does not silently submit a chat turn.
 
