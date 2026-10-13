@@ -30,6 +30,7 @@ from app.agentive.harness.contracts import (
     HarnessExecutionScope,
     PhysicalModelRequest,
 )
+from app.agentive.harness.disclosure import public_disclosure_response
 from app.agentive.harness.events import PydanticAIEventTranslator, SettledTextBuffer
 from app.agentive.harness.litellm_model import build_litellm_sdk_model
 from app.agentive.harness.model_observations import persist_model_request_observation
@@ -883,19 +884,41 @@ def _bind_integral_turn_context(ctx: ChatTurnContext):
     """Bind the trusted turn scope used by existing Integral tool services."""
     from app.services.agent_scope import (
         current_chat_thread_id,
+        current_focused_app_id,
         current_focused_track_id,
         current_focused_view_id,
         current_page_context,
+        current_page_context_bound,
+        current_page_context_run_id,
         current_scope_workspace_id,
     )
     from app.services.turn_binding import current_user_sentence
 
     page_context = (ctx.extra_data or {}).get("page_context")
+    app_focus, track_focus, view_focus = (
+        ctx.focused_space_id,
+        ctx.focused_track_id,
+        ctx.focused_view_id,
+    )
+    if isinstance(page_context, dict) and "route_path" in page_context:
+        from app.services.chat_page_context import sanitize_page_snapshot
+
+        try:
+            reported = sanitize_page_snapshot(page_context)
+            app_focus = reported.get("focused_app_id")
+            track_focus = reported.get("focused_track_id")
+            view_focus = reported.get("focused_view_id")
+        except (ValueError, TypeError):
+            # Conflicting/stale UI state supplies no implicit operation target.
+            app_focus = track_focus = view_focus = None
     bindings = (
         (current_user_sentence, ctx.text or ""),
         (current_scope_workspace_id, ctx.workspace_id),
-        (current_focused_track_id, ctx.focused_track_id),
-        (current_focused_view_id, ctx.focused_view_id),
+        (current_focused_app_id, app_focus),
+        (current_focused_track_id, track_focus),
+        (current_page_context_bound, True),
+        (current_page_context_run_id, (ctx.extra_data or {}).get("run_id")),
+        (current_focused_view_id, view_focus),
         (
             current_page_context,
             page_context if isinstance(page_context, dict) else None,
@@ -1026,21 +1049,10 @@ class PydanticAIProvider:
         with isolated_permissions_cache():
             return await self._prepare_current(ctx)
 
-    async def _prepare_current(self, ctx: ChatTurnContext):
-        raw_work_context = (ctx.extra_data or {}).get("work_execution_context")
-        work_execution_context = (
-            WorkExecutionContext.model_validate(raw_work_context)
-            if raw_work_context is not None
-            else None
-        )
+    async def _validate_chat_scope(self, ctx: ChatTurnContext):
+        """Shared authority check for operational runs and public support."""
         if not ctx.workspace_id:
             raise InsufficientPermissionsError(message="Workspace scope is required")
-        if work_execution_context is not None and (
-            work_execution_context.principal_id != ctx.user_id
-            or work_execution_context.workspace_id != ctx.workspace_id
-            or work_execution_context.thread_id != ctx.thread_id
-        ):
-            raise WorkError("work.policy_denied", "execution scope mismatch")
         thread = await ChatThread.get(ctx.thread_id)
         if (
             thread is None
@@ -1056,7 +1068,24 @@ class PydanticAIProvider:
         if workspace_role == "none":
             raise InsufficientPermissionsError(message="Workspace access is required")
 
+        return thread, workspace_role
+
+    async def _prepare_current(self, ctx: ChatTurnContext):
+        raw_work_context = (ctx.extra_data or {}).get("work_execution_context")
+        work_execution_context = (
+            WorkExecutionContext.model_validate(raw_work_context)
+            if raw_work_context is not None
+            else None
+        )
+        if work_execution_context is not None and (
+            work_execution_context.principal_id != ctx.user_id
+            or work_execution_context.workspace_id != ctx.workspace_id
+            or work_execution_context.thread_id != ctx.thread_id
+        ):
+            raise WorkError("work.policy_denied", "execution scope mismatch")
+        thread, workspace_role = await self._validate_chat_scope(ctx)
         from app.services.credential_crypto import encryption_available
+        from app.services.workspace_permissions import can_access_workspace
 
         if not encryption_available():
             raise ServiceUnavailableError(
@@ -1385,6 +1414,11 @@ class PydanticAIProvider:
             "assistant-message envelope unless the user explicitly requests "
             "that format."
         )
+        from app.services.chat_page_context import page_context_availability_hint
+
+        instructions += "\n\n" + page_context_availability_hint(
+            (ctx.extra_data or {}).get("page_context")
+        )
         skill_temp = tempfile.TemporaryDirectory(prefix="integral-native-skills-")
         try:
             allowed_skill_names = materialize_standard_skill_library(
@@ -1440,6 +1474,12 @@ class PydanticAIProvider:
             agent, store = build_native_runtime(
                 model=model,
                 instructions=instructions,
+                protected_instruction_text=instructions.replace(
+                    ctx.system_context or "", ""
+                )
+                .replace(receipt_instructions, "")
+                .replace(approval_instructions, "")
+                .replace(time_context, ""),
                 tools=tools,
                 scope=scope,
                 agent_name="integral_core",
@@ -1499,6 +1539,64 @@ class PydanticAIProvider:
         if active_task is not None:
             self._active_tasks[ctx.thread_id] = active_task
         try:
+            public_response = (
+                public_disclosure_response(ctx.text)
+                if ctx.text
+                and (ctx.extra_data or {}).get("origin")
+                in (None, "", "interactive_chat")
+                else None
+            )
+            if public_response is not None:
+                # Host support is persisted by the ordinary chat event consumer.
+                # No model, workspace tool, private context, or resume-pointer write.
+                from app.agentive.services.execution_runs import AgentRun
+                from app.middleware.permissions_cache import isolated_permissions_cache
+
+                raw_work = (ctx.extra_data or {}).get("work_execution_context")
+                public_work = (
+                    WorkExecutionContext.model_validate(raw_work)
+                    if raw_work is not None
+                    else None
+                )
+                if public_work is not None and (
+                    public_work.principal_id != ctx.user_id
+                    or public_work.workspace_id != ctx.workspace_id
+                    or public_work.thread_id != ctx.thread_id
+                    or public_work.run_id != (ctx.extra_data or {}).get("run_id")
+                ):
+                    raise WorkError("work.policy_denied", "execution scope mismatch")
+                with isolated_permissions_cache():
+                    await self._validate_chat_scope(ctx)
+                run_id = str((ctx.extra_data or {}).get("run_id") or "").strip()
+                core_run = (
+                    await AgentRun.find_one({"run_id": run_id}) if run_id else None
+                )
+                if (
+                    core_run is None
+                    or core_run.thread_id != ctx.thread_id
+                    or core_run.user_id != ctx.user_id
+                    or core_run.workspace_id != ctx.workspace_id
+                    or core_run.provider_id != self.id
+                    or core_run.status != "running"
+                ):
+                    raise InsufficientPermissionsError(
+                        message="Native execution run scope mismatch"
+                    )
+                if cancellation.cancelled or (
+                    ctx.is_disconnected and await ctx.is_disconnected()
+                ):
+                    raise asyncio.CancelledError
+                try:
+                    await _assert_work_output_authority_current(public_work)
+                    yield {"type": "text-delta", "delta": public_response}
+                    await _assert_work_output_authority_current(public_work)
+                    yield {"type": "message-finish"}
+                finally:
+                    if self._active_tokens.get(ctx.thread_id) is cancellation:
+                        self._active_tokens.pop(ctx.thread_id, None)
+                    if self._active_tasks.get(ctx.thread_id) is active_task:
+                        self._active_tasks.pop(ctx.thread_id, None)
+                return
             prepared = await self._prepare(ctx)
         except BaseException:
             if self._active_tokens.get(ctx.thread_id) is cancellation:

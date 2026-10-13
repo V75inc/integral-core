@@ -103,7 +103,11 @@ async def create_app_dashboard(request: Request, app_id: str) -> Dict[str, Any]:
             app_id=app_id,
             name=body.name,
             layout=body.layout.model_dump() if body.layout else None,
-            widgets=[w.model_dump() for w in body.widgets] if body.widgets else None,
+            widgets=(
+                [w.model_dump() for w in body.widgets]
+                if body.widgets is not None
+                else None
+            ),
             is_default=body.is_default,
         )
     except PermissionError:
@@ -197,7 +201,11 @@ async def patch_app_dashboard(
             dashboard_id=dashboard_id,
             name=body.name,
             layout=body.layout.model_dump() if body.layout else None,
-            widgets=[w.model_dump() for w in body.widgets] if body.widgets else None,
+            widgets=(
+                [w.model_dump() for w in body.widgets]
+                if body.widgets is not None
+                else None
+            ),
             is_default=body.is_default,
         )
     except PermissionError:

@@ -459,6 +459,7 @@ async def update_app(
     visibility: Optional[str] = None,
     accent_color: Optional[str] = None,
     icon: Optional[str] = None,
+    home: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Update an App (editor or owner only).
 
@@ -482,8 +483,20 @@ async def update_app(
 
     await require_effect_target_scope(request, user_id, sp.workspace_id)
 
+    normalized_home = None
+    if home is not None:
+        from app.services.app_home_override import validate_home_composition
+
+        try:
+            normalized_home = await validate_home_composition(
+                user_id=user_id, app_id=app_id, home=home
+            )
+        except ValueError as exc:
+            raise BadRequestError(message=str(exc)) from exc
     prior_snapshot = await export_node(sp)  # D-03 before-snapshot
 
+    if normalized_home is not None:
+        sp.home_composition = normalized_home or None
     if name is not None:
         safe_name = non_empty_after_strip(name, "name")
         if len(safe_name) > 200:
