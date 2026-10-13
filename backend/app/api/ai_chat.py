@@ -2162,9 +2162,8 @@ async def send_message(
             session_id=getattr(thread, "provider_session_id", None),
             thread=thread,
         )
-    # Route awareness: page_context on visitor.data feeds
-    # integral/ui_route_interact_action (orchestration parameter) and
-    # integral_get_page_context. Do not prepend a stub onto the utterance.
+    # Native route awareness is an on-demand, scoped integral_get_page_context
+    # read. Keep its immutable snapshot outside the human utterance.
     entity_refs_preamble = wrap_injected_context(
         "entity_refs", ref_resolution.context_preamble or ""
     )

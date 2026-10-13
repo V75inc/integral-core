@@ -12,12 +12,18 @@ from typing import Any, Collection, Sequence
 
 from app.agentive.harness.capability_search import pydantic_tool_search_strategy
 from app.agentive.harness.contracts import HarnessExecutionScope
+from app.agentive.harness.disclosure import (
+    DISCLOSURE_POLICY,
+    instruction_output_validator,
+)
 from app.agentive.harness.jvspatial_store import JvSpatialStepStore
 from app.agentive.harness.pydantic_ai_compat import (
     Agent,
     ConversationSearch,
+    InstructionDisclosureGuard,
     Instrumentation,
     IntegralToolDisclosure,
+    PublicConversationHistorySource,
     Skills,
     SnapshotHistorySource,
     StepPersistence,
@@ -70,6 +76,7 @@ def build_native_agent(
 def build_native_runtime(
     *,
     model: Any,
+    protected_instruction_text: str | None = None,
     instructions: str,
     tools: Sequence[Any],
     step_store_backend: StepStore | None = None,
@@ -104,6 +111,16 @@ def build_native_runtime(
     )
     if selected_skills and not skill_directories:
         raise ValueError("approved Agent Skill names require a Core skill source")
+
+    protected = (
+        (
+            instructions
+            if protected_instruction_text is None
+            else protected_instruction_text
+        )
+        + "\n"
+        + DISCLOSURE_POLICY
+    )
 
     capabilities: list[Any] = [
         Instrumentation(),
@@ -155,7 +172,9 @@ def build_native_runtime(
         # is the exact tenant/principal/thread/session-scoped StepStore used by
         # StepPersistence; never use the library's store-wide search scope.
         ConversationSearch(
-            SnapshotHistorySource(scoped_store),
+            PublicConversationHistorySource(
+                SnapshotHistorySource(scoped_store), protected_instructions=protected
+            ),
             scope="conversation",
             # Integral supplies task-specific guidance. The generic hint can
             # invite archive searches during unrelated current-state work.
@@ -170,15 +189,16 @@ def build_native_runtime(
             )
         )
 
-    return (
-        Agent(
-            model,
-            instructions=build_integral_run_instructions(instructions),
-            tools=list(tools),
-            # Discovery and workflow loading each have one bounded output retry
-            # for providers that cannot force tool choice, plus one correction.
-            retries={"output": 3},
-            capabilities=capabilities,
+    capabilities.append(InstructionDisclosureGuard(protected_instructions=protected))
+
+    agent = Agent(
+        model,
+        instructions=build_integral_run_instructions(
+            instructions + "\n\n" + DISCLOSURE_POLICY
         ),
-        scoped_store,
+        tools=list(tools),
+        retries={"output": 3},
+        capabilities=capabilities,
     )
+    agent.output_validator(instruction_output_validator(protected))
+    return agent, scoped_store

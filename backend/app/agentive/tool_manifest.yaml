@@ -1898,6 +1898,15 @@ domains:
         policy_action: app.read
         params: {}
         returns: { widget_types: list, registry_version: int }
+      - name: integral_read_app_home
+        status: existing
+        op_class: read
+        priority: P2
+        summary: "Read the App Home tab configuration and current authorized widget values. App Home is distinct from dashboards. Verify after integral_update_app with home."
+        http: "GET /api/apps/{app_id}/home"
+        policy_action: app.read
+        params: { app_id: {type: string, required: true} }
+        returns: { home: object }
       - name: integral_list_dashboards
         status: existing
         op_class: read
@@ -2090,7 +2099,7 @@ domains:
         status: existing
         op_class: propose
         priority: P2
-        summary: "Update app metadata (name, description, visibility, accent color)."
+        summary: "Update App metadata or its distinct Home tab. Use home {title, description, widgets} to create/update the App Home, never create a dashboard named Home. Home uses validated dashboard widget/source contracts and ordinary approval; home {} restores the package Home."
         http: "PUT /api/apps/{app_id}"
         policy_action: app.update
         staging_kind: update_app
@@ -2100,6 +2109,7 @@ domains:
           description: {type: string, optional: true}
           visibility: {type: string, optional: true}
           accent_color: {type: string, optional: true}
+          home: {type: object, optional: true}
         returns: { staged_token: str }
       - name: integral_delete_app
         status: existing
@@ -2588,11 +2598,11 @@ domains:
 # SUMMARY COUNTS (for review convenience; keep in sync)
 # =============================================================================
 summary:
-  total_tools: 126
-  existing_tools: 124    # status: existing
+  total_tools: 127
+  existing_tools: 125    # status: existing
   gap_tools_proposed: 2  # status: gap (workspace_setup, onboard_user deferred)
-  by_op_class: { read: 54, propose: 71, execute: 1 }
-  by_priority: { P0: 16, P1: 41, P2: 69 }
+  by_op_class: { read: 55, propose: 71, execute: 1 }
+  by_priority: { P0: 16, P1: 41, P2: 70 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
   policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)

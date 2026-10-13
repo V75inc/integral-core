@@ -23,7 +23,7 @@ def _chart_line_group_by_error(spec: Dict[str, Any]) -> Optional[str]:
     ds = spec.get("data_source") or {}
     group_by = ds.get("group_by")
     aggregate_date = (
-        ds.get("kind") == "aggregate"
+        ds.get("kind") in {"aggregate", "declared_query"}
         and isinstance(group_by, str)
         and (group_by == "date" or group_by.startswith("date:"))
     )
@@ -115,9 +115,9 @@ def _aggregate_data_source_error(spec: Dict[str, Any]) -> Optional[str]:
             or target <= 0
         ):
             return "progress widget requires a positive numeric config.target"
-        if data_source.get("kind") != "aggregate":
+        if data_source.get("kind") not in {"aggregate", "declared_query"}:
             return "progress widget requires an aggregate data source"
-    if data_source.get("kind") != "aggregate":
+    if data_source.get("kind") not in {"aggregate", "declared_query"}:
         return None
     op = str(data_source.get("op") or "count")
     if op not in {"count", "sum", "avg", "min", "max", "distinct"}:

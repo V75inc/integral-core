@@ -1,7 +1,7 @@
 ---
 name: integral-dashboards
-description: Compose and customize app-scoped analytics dashboards — create, adjust, add/remove widgets, change layout, rename. Use for bar charts, KPI tiles, edits to an existing board, or vague requests like the best dashboard for this App.
-allowed-tools: integral_describe_dashboard_substrate integral_list_dashboards integral_read_dashboard_data integral_suggest_dashboard integral_create_dashboard integral_update_dashboard integral_delete_dashboard integral_list_tracks integral_describe_model integral_activity_digest integral_count_entries integral_list_apps
+description: Create and edit distinct App Home tabs, and compose app-scoped analytics dashboards — create, adjust, add/remove widgets, change layout, rename. Use for bar charts, KPI tiles, edits to an existing board, or vague requests like the best dashboard for this App.
+allowed-tools: integral_describe_dashboard_substrate integral_list_dashboards integral_read_dashboard_data integral_suggest_dashboard integral_create_dashboard integral_update_dashboard integral_delete_dashboard integral_update_app integral_read_app_home integral_list_tracks integral_describe_model integral_activity_digest integral_count_entries integral_list_apps
 ---
 
 # Integral dashboards — SOP
@@ -17,6 +17,15 @@ activity summaries, or a full layout of widgets across the app's tracks.
   `integral-insights` skill for operational surfaces on one track.
 - Schema changes — delegate to the `integral-models` skill.
 
+## App Home is a separate surface
+
+A request to create an App Home or Home tab is not a request for another
+analytics dashboard. Use `integral_update_app(app_id, home={title, description,
+widgets})`. Ground its content with `integral_suggest_dashboard` sources and
+published fields. Home supports up to 12 nonoverlapping widgets, an introduction
+and ordinary approval. Do not create a dashboard named Home or claim a default
+dashboard creates a Home tab. Call `integral_read_app_home` after approval to verify it.
+
 ## Grounding
 
 - Confirm `app_id` from page focus or `integral_list_apps` before staging.
@@ -27,6 +36,14 @@ activity summaries, or a full layout of widgets across the app's tracks.
 - Read the published Track model before binding business status, due dates, costs,
   or categories. Draft fields are unavailable until publication. Use explicit
   `custom_fields.<key>` paths; business Status is not platform status.
+- For installed Apps, call `integral_suggest_dashboard(app_id)` before building
+  or repairing widgets. Its `sources` contain eligible per-Track declared query
+  bindings and published fields. Copy each source's query key, Track identity,
+  rows/total paths and parameters exactly. Use `op`, `field` and `group_by` to
+  compose KPI tiles, sums, categorical/date charts or typed record summaries.
+  Never substitute generic Core counts/scans on package-owned Tracks. Core can
+  qualify portable record query templates and complete their pagination.
+  Treat a missing source or a preview error as unavailable, never as zero.
 - A starter suggestion is optional inspiration, not proof it answers the request.
   Preserve the user's requested scope and explain unsupported details.
 - `recent_entries` shows titles only. `table_widget` shows Record, platform Status,

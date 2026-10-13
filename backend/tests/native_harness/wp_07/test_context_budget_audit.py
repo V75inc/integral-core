@@ -109,7 +109,8 @@ async def test_history_summary_uses_same_host_event_boundary(monkeypatch):
     compacted = await IntegralHistorySummary(max_tokens=1, keep_messages=1).compact(
         history + current, ctx
     )
-    assert seen == history
+    assert len(seen) == len(history)
+    assert seen != history  # Completed tool payloads are removed before summarizing.
     assert compacted[-1] == current[0]
 
 
