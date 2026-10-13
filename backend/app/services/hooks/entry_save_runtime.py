@@ -1,17 +1,23 @@
 """Entry-save hook dispatch — fires entry.create and entry.update bundle hooks.
 
 Called after every entry create or update to let installed bundles run
-post-save side effects (e.g., HR leave-balance recalc). Best-effort:
-hook failures are logged and swallowed — they MUST NOT roll back the
-parent write.
+post-save side effects. Hook failures are logged; an enclosing transaction
+still rolls back failed nested writes. A hook saving its own record cannot
+re-enter itself within the same task.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re as _re
+from contextvars import ContextVar
 
 logger = logging.getLogger(__name__)
+
+_active_save_hooks: ContextVar[frozenset[tuple[object, str, str, str]]] = ContextVar(
+    "integral_active_save_hooks", default=frozenset()
+)
 
 _SLUG_RE = _re.compile(r"[^a-z0-9]+")
 
@@ -88,6 +94,11 @@ async def run_entry_save_hooks(
                 workspace_id,
             )
             continue
+        identity = (asyncio.current_task(), workspace_id, str(entry.id), tool_key)
+        active = _active_save_hooks.get()
+        if identity in active:
+            continue
+        token = _active_save_hooks.set(active | {identity})
         try:
             await run_tool(spec, payload, ctx)
         except Exception:  # noqa: BLE001
@@ -97,6 +108,8 @@ async def run_entry_save_hooks(
                 entry.id,
                 workspace_id,
             )
+        finally:
+            _active_save_hooks.reset(token)
 
 
 async def run_entry_validation_hooks(
