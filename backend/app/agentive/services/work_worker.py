@@ -43,6 +43,7 @@ HANDLED_KINDS = frozenset(
         "event_trigger",
         "migration",
         "app_lifecycle",
+        "app_tool",
         "chat_turn",
     }
 )
@@ -1044,6 +1045,70 @@ async def _handle_app_lifecycle(
     )
 
 
+async def _handle_app_tool(
+    item: WorkItem, *, worker_id: str, lease_seconds: float
+) -> WorkItem:
+    """Run one of an App's own tools as a durable background job.
+
+    The tool is re-resolved from the workspace registry at run time (the
+    registry is per process and rebuilt on boot) and must still belong to
+    the App that queued it. It runs as the queuing principal in the queuing
+    workspace, under the item's lease, and may report progress through
+    ``ToolContext.report_progress``.
+    """
+    await _recheck_principal_workspace(item)
+    payload = dict(item.input_payload or {})
+    tool_key = str(payload.get("tool_key") or "").strip()
+    bundle_slug = str(payload.get("bundle_slug") or "").strip()
+    from app.services.hooks.registry import ToolContext, get_workspace_tools
+    from app.services.hooks.tool_dispatch import run_tool
+
+    spec = get_workspace_tools(item.workspace_id).get(tool_key)
+    if spec is None:
+        # Bundles register after boot; a missing tool is usually temporary.
+        raise WorkError("work.transient_tool_unavailable", f"tool {tool_key!r} is not registered")
+    if str(spec.get("_bundle_slug") or "") != bundle_slug:
+        raise WorkError("work.policy_denied", "the tool no longer belongs to the App that queued it")
+    ctx = ToolContext(
+        user_id=item.principal_id,
+        workspace_id=item.workspace_id,
+        scope=f"job:{item.work_item_id}",
+        bundle_slug=bundle_slug,
+    )
+    ctx.job_id = item.work_item_id
+
+    async def _body() -> Any:
+        return await run_tool(spec, dict(payload.get("input") or {}), ctx)
+
+    result = await _with_supervised_heartbeat(
+        item, worker_id=worker_id, lease_seconds=lease_seconds, body=_body
+    )
+    if isinstance(result, dict) and result.get("ok") is False:
+        reason = str(result.get("reason") or result.get("error") or "the App job failed")
+        if result.get("retry"):
+            raise WorkError("work.transient_app_tool", reason)
+        return await work_items.transition_leased(
+            item.work_item_id,
+            lease_token=item.lease_token,
+            lease_fence=int(item.lease_fence or 0),
+            expected_status="running",
+            target="failed",
+            fields={
+                "failure": work_items.normalize_failure(
+                    class_="permanent", code="app_tool.failed", message=reason, retryable=False
+                )
+            },
+        )
+    return await work_items.transition_leased(
+        item.work_item_id,
+        lease_token=item.lease_token,
+        lease_fence=int(item.lease_fence or 0),
+        expected_status="running",
+        target="succeeded",
+        fields={"result_refs": [f"app_tool:{tool_key}"]},
+    )
+
+
 async def execute_claimed_work(
     item: WorkItem,
     *,
@@ -1114,6 +1179,10 @@ async def _execute_claimed_work(
             )
         if kind == "app_lifecycle":
             return await _handle_app_lifecycle(
+                item, worker_id=worker_id, lease_seconds=lease_seconds
+            )
+        if kind == "app_tool":
+            return await _handle_app_tool(
                 item, worker_id=worker_id, lease_seconds=lease_seconds
             )
     except BadRequestError as exc:

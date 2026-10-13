@@ -208,6 +208,8 @@ class ToolContext:
     actor_kind: str = "human"
     #: Explicit facade enforcement for read-time projections and read operations.
     read_only: bool = False
+    #: Work item id when this tool runs as a background App job (``app_tool``).
+    job_id: str = ""
 
     async def _resource_in_scope(self, kind: str, resource_id: str) -> bool:
         """Check canonical execution containment independently of caller grants."""
@@ -1030,6 +1032,98 @@ class ToolContext:
             },
         )
         return await run_tool(spec, dict(payload or {}), callee_ctx)
+
+    async def enqueue_job(
+        self,
+        tool_key: str,
+        payload: Optional[Dict[str, Any]] = None,
+        *,
+        idempotency_key: str,
+        label: str = "",
+    ) -> Dict[str, Any]:
+        """Queue one of this App's own tools to run as a background job.
+
+        The job is a durable work item (kind ``app_tool``): it survives
+        restarts, is retried on transient failure, and runs as the same
+        person in the same workspace. An App may only queue its own tools.
+        The same ``idempotency_key`` returns the existing job instead of a
+        new one. Returns ``{job_id, status}``.
+        """
+        caller = (self.bundle_slug or "").strip()
+        if not caller:
+            raise PermissionError("enqueue_job: only a running app tool may queue a job")
+        if getattr(self, "read_only", False):
+            raise PermissionError("enqueue_job: read-only context")
+        key = str(tool_key or "").strip()
+        spec = get_workspace_tools(self.workspace_id).get(key)
+        if spec is None or str(spec.get("_bundle_slug") or "") != caller:
+            raise PermissionError(
+                f"enqueue_job: {key!r} is not a tool of this App in this workspace"
+            )
+        idem = str(idempotency_key or "").strip()
+        if not idem:
+            raise ValueError("enqueue_job: idempotency_key is required")
+        from app.agentive.services.work_items import enqueue_work_item
+        from app.services.relation_runtime import resolve_target_app
+
+        app_id = await resolve_target_app(
+            workspace_id=self.workspace_id, target_app_key=caller
+        )
+        item = await enqueue_work_item(
+            kind="app_tool",
+            origin="app_tool",
+            principal_id=self.user_id,
+            workspace_id=self.workspace_id,
+            idempotency_key=f"{caller}:{key}:{idem}",
+            input_payload={
+                "tool_key": key,
+                "bundle_slug": caller,
+                "input": dict(payload or {}),
+                "label": str(label or "")[:200],
+            },
+            app_id=str(app_id or "") or None,
+        )
+        return {"job_id": item.work_item_id, "status": item.status}
+
+    async def report_progress(
+        self,
+        done: Optional[int] = None,
+        total: Optional[int] = None,
+        label: str = "",
+    ) -> bool:
+        """Report progress of the background job this tool is running.
+
+        No-op (False) outside a job or once the job is no longer running.
+        """
+        if not self.job_id:
+            return False
+        from app.agentive.services.work_items import report_work_progress
+
+        progress: Dict[str, Any] = {"label": str(label or "")[:200]}
+        if done is not None:
+            progress["done"] = int(done)
+        if total is not None:
+            progress["total"] = int(total)
+        return await report_work_progress(self.job_id, progress)
+
+    async def job_status(self, job_id: str) -> Optional[Dict[str, Any]]:
+        """Status of a job this App queued in this workspace, or None."""
+        from app.agentive.services.work_items import _object_id
+        from app.agentive.services.work_visibility import _project_work_status
+        from app.agentive.work_models import WorkItem
+
+        jid = str(job_id or "").strip()
+        if not jid:
+            return None
+        item = await WorkItem.get(_object_id(jid))
+        if (
+            item is None
+            or item.kind != "app_tool"
+            or item.workspace_id != self.workspace_id
+            or str((item.input_payload or {}).get("bundle_slug") or "") != (self.bundle_slug or "")
+        ):
+            return None
+        return _project_work_status(item.model_dump()).model_dump(mode="json")
 
     #: Stamped by ``run_tool`` from the running tool's registered spec.
     connector_writes: tuple = ()
