@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { replaceEqualDeep, useQueryClient } from '@tanstack/react-query';
 import {
   DndContext,
   DragOverlay,
@@ -1413,7 +1413,7 @@ function KanbanWidgetInner({
   const [dropError, setDropError] = useState('');
   useEffect(() => {
     if (isColumnId(activeId)) return;
-    setLocalColumns(columns);
+    setLocalColumns(current => replaceEqualDeep(current, columns));
   }, [columns, activeId]);
 
   const [sprintFilter, setSprintFilter] = useState<string>('all');
@@ -1464,7 +1464,15 @@ function KanbanWidgetInner({
   // don't change card placement, so they shouldn't gate this resync.)
   useEffect(() => {
     if (activeId && !isColumnId(activeId)) return;
-    setLocalCols(groupAndSort(visibleEntries, columns, groupBy));
+    const next = groupAndSort(visibleEntries, columns, groupBy);
+    setLocalCols(current => {
+      const keys = Object.keys(next);
+      const unchanged = keys.length === Object.keys(current).length && keys.every(key =>
+        current[key]?.length === next[key].length &&
+        next[key].every((entry, index) => current[key][index] === entry)
+      );
+      return unchanged ? current : next;
+    });
   }, [visibleEntries, columns, groupBy, activeId]);
 
   const activeEntry = useMemo(() => {
