@@ -577,7 +577,7 @@ class ToolContext:
         """
         if getattr(self, "read_only", False):
             return False
-        app = await self._own_bundle_app()
+        app = await self._bundle_app_owning(entry_id) or await self._own_bundle_app()
         if app is None:
             return False
         from app.services.app_operations.context import OperationContext
@@ -633,6 +633,39 @@ class ToolContext:
                 expected_state=expected_state,
                 updates=updates,
             )
+
+    async def _bundle_app_owning(self, entry_id: str) -> Optional[Any]:
+        """This bundle's App when it owns ``entry_id`` in the tool's workspace.
+
+        Lets a tool update its own App's records in the workspace where the
+        App is installed (an organization workspace, say), not only in the
+        caller's personal workspace. The workspace is the dispatcher's, never
+        the tool's choice, and the entry must belong to this bundle's active
+        App there, so a tool still cannot reach another App or tenant.
+        Returns ``None`` on any missing link. Never raises.
+        """
+        from app.models.nodes import App
+        from app.services.resource_location import locate_resource
+
+        slug = (self.bundle_slug or "").strip()
+        if not slug or not (self.workspace_id or "").strip():
+            return None
+        try:
+            location = await locate_resource("entry", entry_id)
+            if location is None or location.workspace_id != self.workspace_id or not location.app_id:
+                return None
+            app = await App.get(location.app_id)
+            if (
+                app is None
+                or getattr(app, "workspace_id", "") != self.workspace_id
+                or getattr(app, "source_operational_model_slug", "") != slug
+                or getattr(app, "lifecycle_state", "") != "active"
+            ):
+                return None
+            return app
+        except Exception:  # noqa: BLE001
+            logger.exception("_bundle_app_owning failed (bundle=%s)", slug)
+            return None
 
     async def _own_bundle_app(self) -> Optional[Any]:
         """The calling bundle's App in the caller's OWN personal workspace.
