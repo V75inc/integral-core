@@ -767,6 +767,26 @@ async def heartbeat_lease(
         raise
 
 
+async def report_work_progress(work_item_id: str, progress: Dict[str, Any]) -> bool:
+    """Record a running App job's progress; False once it is no longer running.
+
+    Updates only ``progress`` and only while ``running``, so it never races the
+    lease heartbeat or a terminal transition.
+    """
+    from app.agentive.services.work_outbox import cas_work_item_update
+
+    try:
+        await cas_work_item_update(
+            work_item_id,
+            expected={"status": "running"},
+            updates={"progress": dict(progress)},
+            error_code="work.not_running",
+        )
+    except WorkError:
+        return False
+    return True
+
+
 async def transition_leased(
     work_item_id: str,
     *,
