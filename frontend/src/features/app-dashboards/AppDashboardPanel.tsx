@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import GridLayout from 'react-grid-layout/legacy';
-import { RefreshCw, GripVertical, LayoutDashboard, Plus, Sparkles, Trash2 } from 'lucide-react';
+import { RefreshCw, GripVertical, LayoutDashboard, Sparkles, Trash2, Pencil, Star } from 'lucide-react';
 import 'react-grid-layout/css/styles.css';
 import {
   dashboardsApi,
@@ -17,11 +17,13 @@ import {
   IconWell,
   LINE_ICON_STROKE,
   Modal,
+  KebabMenu,
   Skeleton
 } from '../../components/ui';
+import { useConfirm } from '../../context/ConfirmContext';
 import { useToast } from '../../context/ToastContext';
 import { useChatPageFocus } from '../../context/ChatPageFocusContext';
-import { Text } from '../../ui';
+import { Text, Select, Input } from '../../ui';
 import { CreateDashboardForm } from './CreateDashboardForm';
 import { WidgetShell } from './WidgetShell';
 import {
@@ -75,9 +77,11 @@ export function AppDashboardPanel({
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const confirm = useConfirm();
   const { setPageContext } = useChatPageFocus();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
+  const [nameDialog, setNameDialog] = useState<{ id?: string; name: string } | null>(null);
   const [localWidgets, setLocalWidgets] = useState<DashboardWidget[]>([]);
   const [drillTarget, setDrillTarget] = useState<{
     widget: DashboardWidget;
@@ -385,64 +389,87 @@ export function AppDashboardPanel({
         </div>
       ) : (
         <>
-          <div className="dashboard-tab-row mb-4 flex items-center gap-3">
-            <div className="dashboard-tab-scroll flex min-w-0 flex-1 items-center gap-2 overflow-x-auto pb-0.5">
-              {dashboards.map(d => (
-                <Button
-                  key={d.id}
-                  variant={d.id === activeDashboard?.id ? 'primary' : 'outline'}
-                  size="sm"
-                  className="shrink-0"
-                  onClick={() => setActiveId(d.id)}
-                >
-                  {d.name}
-                </Button>
-              ))}
-              {canEdit ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0"
-                  icon={<Plus size={14} strokeWidth={LINE_ICON_STROKE} />}
-                  onClick={() => {
-                    const name = `Dashboard ${dashboards.length + 1}`;
-                    createMutation.mutate({ name, widgets: [] });
-                  }}
-                >
-                  New
-                </Button>
-              ) : null}
-            </div>
+          <div className="dashboard-control-bar mb-4">
+            <label className="dashboard-picker">
+              <Text variant="meta" tone="muted" as="span">Dashboard</Text>
+              <Select aria-label="Dashboard" value={activeDashboard?.id ?? ''}
+                disabled={createMutation.isPending}
+                onChange={event => {
+                  if (event.target.value === '__new__') {
+                    setNameDialog({ name: '' });
+                  } else {
+                    setActiveId(event.target.value);
+                    setEditMode(false);
+                  }
+                }}>
+                {dashboards.map(d => <option key={d.id} value={d.id}>
+                  {d.name}{d.is_default ? ' · Default' : ''}
+                </option>)}
+                {canEdit && <option value="__new__">＋ New dashboard…</option>}
+              </Select>
+            </label>
             {activeDashboard && canEdit ? (
-              <div className="flex shrink-0 items-center gap-2 border-l border-[var(--panel-border)] pl-3">
-                {editMode ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    icon={<Sparkles size={14} strokeWidth={LINE_ICON_STROKE} />}
-                    onClick={autoArrange}
-                  >
-                    Auto-arrange
-                  </Button>
-                ) : null}
-                <Button
-                  variant={editMode ? 'primary' : 'outline'}
-                  size="sm"
-                  onClick={() => setEditMode(v => !v)}
-                >
+              <div className="dashboard-control-actions">
+                {editMode ? <Button variant="outline" size="sm"
+                  icon={<Sparkles size={14} strokeWidth={LINE_ICON_STROKE} />}
+                  onClick={autoArrange}>Auto-arrange</Button> : null}
+                <Button variant={editMode ? 'primary' : 'outline'} size="sm"
+                  icon={<Pencil size={14} strokeWidth={LINE_ICON_STROKE} />}
+                  onClick={() => setEditMode(v => !v)}>
                   {editMode ? 'Done editing' : 'Edit layout'}
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  icon={<Trash2 size={14} strokeWidth={LINE_ICON_STROKE} />}
-                  onClick={() => deleteMutation.mutate(activeDashboard.id)}
-                >
-                  Delete
-                </Button>
+                <KebabMenu ariaLabel="Dashboard actions" portal items={[
+                  { key: 'rename', label: 'Rename dashboard',
+                    icon: <Pencil size={14} />,
+                    disabled: updateMutation.isPending,
+                    onClick: () => setNameDialog({ id: activeDashboard.id, name: activeDashboard.name }) },
+                  { key: 'default', label: activeDashboard.is_default ? 'Default dashboard' : 'Set as default',
+                    icon: <Star size={14} />, disabled: activeDashboard.is_default || updateMutation.isPending,
+                    onClick: () => updateMutation.mutate({ dashboardId: activeDashboard.id, body: { is_default: true } }) },
+                  { key: 'delete', label: 'Delete dashboard', danger: true, dividerAbove: true,
+                    icon: <Trash2 size={14} />, disabled: deleteMutation.isPending,
+                    onClick: () => { void (async () => {
+                      const dashboard = activeDashboard;
+                      const approved = await confirm({ title: 'Delete dashboard?',
+                        message: `Delete “${dashboard.name}” and its widget layout? App records and the Home tab will remain. This cannot be undone.`,
+                        confirmLabel: 'Delete dashboard', variant: 'danger' });
+                      if (approved) {
+                        if (saveTimer.current) clearTimeout(saveTimer.current);
+                        deleteMutation.mutate(dashboard.id);
+                      }
+                    })(); } }
+                ]} />
               </div>
             ) : null}
           </div>
+          <Modal open={!!nameDialog} onClose={() => setNameDialog(null)}
+            title={nameDialog?.id ? 'Rename dashboard' : 'New dashboard'}>
+            <Modal.Body>
+              <form onSubmit={event => {
+                event.preventDefault();
+                if (!nameDialog?.name.trim()) return;
+                if (nameDialog.id) {
+                  updateMutation.mutate({ dashboardId: nameDialog.id, body: { name: nameDialog.name.trim() } },
+                    { onSuccess: () => setNameDialog(null) });
+                } else {
+                  createMutation.mutate({ name: nameDialog.name.trim(), widgets: [] },
+                    { onSuccess: () => setNameDialog(null) });
+                }
+              }} className="space-y-4">
+                <label className="block space-y-2">
+                  <Text variant="body" as="span">Dashboard name</Text>
+                  <Input autoFocus maxLength={100} value={nameDialog?.name ?? ''}
+                    onChange={event => setNameDialog(previous => previous ? { ...previous, name: event.target.value } : null)} />
+                </label>
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="outline" onClick={() => setNameDialog(null)}>Cancel</Button>
+                  <Button type="submit" disabled={!nameDialog?.name.trim() || updateMutation.isPending || createMutation.isPending}>
+                    {nameDialog?.id ? 'Save name' : 'Create dashboard'}
+                  </Button>
+                </div>
+              </form>
+            </Modal.Body>
+          </Modal>
 
           {editMode && canEdit ? (
             <div className="dashboard-toolbar mb-4 flex flex-wrap gap-2">

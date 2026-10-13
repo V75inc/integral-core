@@ -167,6 +167,7 @@ export function AppDetailPage() {
   const homeQuery = useQuery({
     queryKey: ['app-home-definition', appId],
     queryFn: () => dashboardsApi.home(appId!, false),
+    refetchInterval: 15_000,
     enabled: Boolean(appId),
   });
   const hasHome = Boolean(homeQuery.data?.home);
@@ -306,7 +307,7 @@ export function AppDetailPage() {
           title: t.title || undefined
         }))
       },
-      metadata: { app_name: app?.name }
+      metadata: { app_name: app?.name, app_section: appSection }
     });
     return () => clearPageContext();
   }, [
@@ -324,7 +325,7 @@ export function AppDetailPage() {
       pageKind: 'app_dashboards',
       focusedAppId: appId,
       visibleData: null,
-      metadata: { app_name: app?.name }
+      metadata: { app_name: app?.name, app_section: appSection }
     });
     return () => clearPageContext();
   }, [appId, app?.name, appSection, setPageContext, clearPageContext]);

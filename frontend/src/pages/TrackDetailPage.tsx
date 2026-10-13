@@ -859,6 +859,7 @@ export function TrackDetailPage() {
       metadata: {
         view_name: activeView?.name,
         view_type: activeView?.type,
+        group_by: typeof activeView?.config?.group_by === 'string' ? activeView.config.group_by : undefined,
         entry_type_filter: filterType || undefined,
         track_title: track?.title
       }
@@ -869,6 +870,7 @@ export function TrackDetailPage() {
     activeView?.id,
     activeView?.name,
     activeView?.type,
+    activeView?.config,
     track?.app?.id,
     filteredEntries,
     filterType,
