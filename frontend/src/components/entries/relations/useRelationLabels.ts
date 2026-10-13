@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
-import { useQueries } from '@tanstack/react-query';
+import { useCallback, useMemo } from 'react';
+import { useQueries, type UseQueryResult } from '@tanstack/react-query';
 import type { RelationFieldTarget } from '../../../types';
 import { loadRelationTarget, type RawRelationTarget } from './relationTargetLoader';
 
@@ -61,7 +61,22 @@ export function useRelationLabels(
   const kind: 'entry' | 'track' =
     String(relation?.target || 'entry') === 'track' ? 'track' : 'entry';
 
-  const queries = useQueries({
+  // useQueries returns a fresh result array on every render. Combine enables
+  // structural sharing so unchanged labels remain safe effect dependencies.
+  const combine = useCallback(
+    (queries: UseQueryResult<RelationFieldTarget, Error>[]): UseRelationLabelsResult => ({
+      targets: queries.map((q, i) => q.data ?? {
+        id: ids[i],
+        label: kind === 'track' ? `Track ${ids[i].slice(-6)}` : `Entry ${ids[i].slice(-6)}`,
+        kind,
+      }),
+      loading: queries.some(q => q.isPending),
+      error: queries.find(q => q.error)?.error ?? null,
+    }),
+    [ids, kind],
+  );
+
+  return useQueries({
     queries: ids.map(id => ({
       queryKey: ['relation-target', kind, id] as const,
       queryFn: async (): Promise<RelationFieldTarget> => {
@@ -89,25 +104,6 @@ export function useRelationLabels(
       gcTime: Infinity,
       retry: 1,
     })),
+    combine,
   });
-
-  const targets: RelationFieldTarget[] = useMemo(
-    () =>
-      queries.map((q, i) =>
-        q.data ?? {
-          id: ids[i],
-          label:
-            kind === 'track'
-              ? `Track ${ids[i].slice(-6)}`
-              : `Entry ${ids[i].slice(-6)}`,
-          kind,
-        }
-      ),
-    [queries, ids, kind]
-  );
-
-  const loading = queries.some(q => q.isPending);
-  const firstError = queries.find(q => q.error)?.error ?? null;
-
-  return { targets, loading, error: firstError as Error | null };
 }

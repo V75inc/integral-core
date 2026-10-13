@@ -10,7 +10,7 @@
  *  - dedupes fetches across two mounted hooks sharing one id
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, cleanup } from '@testing-library/react';
+import { render, renderHook, screen, waitFor, cleanup, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import '@testing-library/jest-dom/vitest';
 
@@ -69,6 +69,38 @@ describe('useRelationLabels', () => {
         },
       })
     );
+  });
+
+  it('keeps empty labels stable across renders, including equivalent inputs', () => {
+    const client = makeClient();
+    const { result, rerender } = renderHook(
+      ({ value }: { value: unknown }) => useRelationLabels(value, undefined),
+      { initialProps: { value: undefined as unknown }, wrapper: ({ children }) =>
+        <QueryClientProvider client={client}>{children}</QueryClientProvider> },
+    );
+    const initial = result.current.targets;
+    rerender({ value: undefined });
+    expect(result.current.targets).toBe(initial);
+    rerender({ value: [] });
+    expect(result.current.targets).toBe(initial);
+  });
+
+  it('keeps resolved labels stable and publishes actual cache changes', async () => {
+    const client = makeClient();
+    const { result, rerender } = renderHook(
+      ({ value }) => useRelationLabels(value, { target: 'entry' }),
+      { initialProps: { value: ['stable-id'] }, wrapper: ({ children }) =>
+        <QueryClientProvider client={client}>{children}</QueryClientProvider> },
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const initial = result.current.targets;
+    rerender({ value: ['stable-id'] });
+    expect(result.current.targets).toBe(initial);
+    act(() => client.setQueryData(['relation-target', 'entry', 'stable-id'], {
+      id: 'stable-id', label: 'Updated title', kind: 'entry', trackId: 'track-xyz',
+    }));
+    await waitFor(() => expect(result.current.targets[0].label).toBe('Updated title'));
+    expect(result.current.targets).not.toBe(initial);
   });
 
   it('resolves a single entry id', async () => {

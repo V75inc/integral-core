@@ -8,6 +8,9 @@ bump does not establish that a release is available on a package index.
 
 ### Fixed
 
+- Keep Kanban relation labels and unchanged board state stable so mounting a
+  board cannot trigger a render loop that stalls route navigation.
+
 - Publish admitted entry fields and revisions before save hooks run, preserving
   nested updates and transaction rollback without false revision conflicts.
 - Prevent same-task save hooks from recursively re-entering themselves on the
