@@ -1,5 +1,9 @@
 # Host entitlement access
 
+For operator configuration, entitlement APIs, quota/metering hooks and recovery,
+see the [commercial host integration guide](../platform/commercial-host-integration.md).
+This reference describes the temporary-access and credential-readiness boundary.
+
 Trusted hosts may register `register_entitlement_access_resolver` at boot. Its
 async callable receives `(workspace_id, entitlement_key, package_slug)` and must
 return a boolean. Only explicit `True` supplies transient operator access. No

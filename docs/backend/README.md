@@ -10,6 +10,7 @@ The backend supplies the graph substrate, resource authority, App lifecycle, and
 | Projections | [App Home](app-home.md), [pagination](pagination.md), [recorded graph context](recorded-graph-context.md) |
 | Resident | [Chat](ai-chat.md), [skills](skill-format-standard.md), [workspace overlay](workspace-agent-profile.md), [scaffold recovery](scaffold-recovery.md) |
 | Review and work | [Prompt queue](prompt-queue.md), [bounded-work contract](work-mandate-contract.md) |
+| Commercial hosts | [Entitlements, quotas and host extensions](../platform/commercial-host-integration.md) |
 | Integrations | [Connectors](connectors.md), [files](attachment-agent-contract.md), [speech](speech-input.md) |
 | Tool evidence | [Source observations](tool-source-observations.md) |
 | Account timing | [Time zones and reminders](user-timezone.md) |
