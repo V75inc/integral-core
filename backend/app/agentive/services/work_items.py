@@ -647,8 +647,14 @@ async def claim_due_candidate(
     lease_seconds: float = DEFAULT_LEASE_SECONDS,
     work_item_id: Optional[str] = None,
     transaction: Any = None,
+    kinds: Optional[frozenset[str]] = None,
+    exclude_kinds: Optional[frozenset[str]] = None,
 ) -> Optional[WorkItem]:
-    """Claim one due queued/retry_wait WorkItem into ``running`` under a lease."""
+    """Claim one due queued/retry_wait WorkItem into ``running`` under a lease.
+
+    ``kinds`` / ``exclude_kinds`` let a worker serve only some kinds (App jobs
+    run on their own worker so they never hold up chat or lifecycle work).
+    """
     from app.agentive.services.work_outbox import (
         TOPIC_TRANSITIONED,
         cas_work_item_update,
@@ -713,6 +719,10 @@ async def claim_due_candidate(
         candidates = list(await WorkItem.find({"context.status": status}))
         for candidate in candidates:
             if not _is_due(candidate, now_dt):
+                continue
+            if kinds is not None and candidate.kind not in kinds:
+                continue
+            if exclude_kinds is not None and candidate.kind in exclude_kinds:
                 continue
             won = await _try_claim(candidate)
             if won is not None:

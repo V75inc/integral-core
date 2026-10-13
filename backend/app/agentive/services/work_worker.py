@@ -35,6 +35,8 @@ async def _pending_write_references(
 
 
 DEFAULT_LEASE_SECONDS = work_items.DEFAULT_LEASE_SECONDS
+#: Work kinds served by the dedicated App job worker, not the main worker.
+APP_JOB_KINDS = frozenset({"app_tool"})
 HANDLED_KINDS = frozenset(
     {
         "capability",
@@ -1240,12 +1242,16 @@ async def process_one_due_item(
     worker_id: str = "work-worker",
     lease_seconds: float = DEFAULT_LEASE_SECONDS,
     work_item_id: Optional[str] = None,
+    kinds: Optional[frozenset[str]] = None,
+    exclude_kinds: Optional[frozenset[str]] = None,
 ) -> Optional[WorkItem]:
-    """Claim one due item (optional id) and execute it."""
+    """Claim one due item (optional id, optionally limited by kind) and execute it."""
     claimed = await work_items.claim_due_candidate(
         worker_id=worker_id,
         lease_seconds=lease_seconds,
         work_item_id=work_item_id,
+        kinds=kinds,
+        exclude_kinds=exclude_kinds,
     )
     if claimed is None:
         return None
@@ -1261,13 +1267,18 @@ async def worker_loop(
     lease_seconds: float = DEFAULT_LEASE_SECONDS,
     idle_sleep: float = 0.5,
     stop_event: Optional[asyncio.Event] = None,
+    kinds: Optional[frozenset[str]] = None,
+    exclude_kinds: Optional[frozenset[str]] = None,
 ) -> None:
     """Background poll loop. Stops when ``stop_event`` is set."""
     stop = stop_event or asyncio.Event()
     while not stop.is_set():
         try:
             result = await process_one_due_item(
-                worker_id=worker_id, lease_seconds=lease_seconds
+                worker_id=worker_id,
+                lease_seconds=lease_seconds,
+                kinds=kinds,
+                exclude_kinds=exclude_kinds,
             )
             if result is None:
                 try:

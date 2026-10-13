@@ -158,8 +158,20 @@ async def start_work_kernel_background(
 
     background_tasks.append(
         asyncio.create_task(
-            work_worker.worker_loop(worker_id="work-worker-0"),
+            work_worker.worker_loop(
+                worker_id="work-worker-0", exclude_kinds=work_worker.APP_JOB_KINDS
+            ),
             name="work-worker",
+        )
+    )
+    # App jobs can run for minutes; their own worker keeps chat turns and
+    # lifecycle work from queueing behind them.
+    background_tasks.append(
+        asyncio.create_task(
+            work_worker.worker_loop(
+                worker_id="work-worker-apps", kinds=work_worker.APP_JOB_KINDS
+            ),
+            name="work-worker-apps",
         )
     )
     background_tasks.append(asyncio.create_task(_recovery_loop(), name="work-recovery"))
