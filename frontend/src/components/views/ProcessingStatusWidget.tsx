@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CheckCircle2, CircleAlert, LoaderCircle } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 
 import { entriesApi } from '../../api';
 import { toolsApi } from '../../api/tools';
@@ -145,8 +145,8 @@ export function ProcessingStatusWidget({ view }: ViewWidgetProps) {
         {config.title && <Text as="h3" weight="medium">{config.title}</Text>}
         {status && (
           <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${pillTone}`}>
-            {isActive && <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
-            {isFailed && <CircleAlert className="h-3.5 w-3.5" aria-hidden="true" />}
+            {isActive && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
+            {isFailed && <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" />}
             {!isActive && !isFailed && at >= 0 && at === stages.length - 1 && <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />}
             {pillLabel}
           </span>
