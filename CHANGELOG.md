@@ -6,6 +6,13 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+### Fixed
+
+- Publish admitted entry fields and revisions before save hooks run, preserving
+  nested updates and transaction rollback without false revision conflicts.
+- Prevent same-task save hooks from recursively re-entering themselves on the
+  same entry, while allowing independent tasks and subsequent saves.
+
 ## 0.1.1rc18 — 2026-10-13
 
 - Pin published jvspatial 0.2.2 and remove the transaction compatibility adapter.

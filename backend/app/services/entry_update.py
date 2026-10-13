@@ -312,12 +312,6 @@ async def update_entry_in_track(
             if validated is not None:
                 entry.custom_fields = validated
                 await sync_relation_edges(source_entry=entry, relation_refs=relations)
-                await run_entry_save_hooks(
-                    entry=entry,
-                    workspace_id=track.workspace_id,
-                    actor_id=admitted_principal_id,
-                    hook_point="entry.update",
-                )
             if new_tags is not None:
                 for tid in set(entry.tags or []) - set(new_tags):
                     for edge in await graph.find_edges_between(
@@ -348,6 +342,22 @@ async def update_entry_in_track(
                     update={"synced_at": datetime.fromisoformat(entry.updated_at)}
                 )
             await entry.save()
+            if validated is not None:
+                # Nested hooks must see the admitted fields and new revision.
+                # Publishing after hooks creates false CAS conflicts and can
+                # overwrite their own updates when the outer save resumes.
+                await run_entry_save_hooks(
+                    entry=entry,
+                    workspace_id=track.workspace_id,
+                    actor_id=admitted_principal_id,
+                    hook_point="entry.update",
+                )
+                refreshed = await Entry.find_one({"id": entry.id})
+                if refreshed is None:
+                    raise ResourceNotFoundError(
+                        message="Entry not found after save hooks"
+                    )
+                entry = refreshed
             event = {
                 "actor_kind": actor_kind,
                 "actor_id": actor_id or user_id,
