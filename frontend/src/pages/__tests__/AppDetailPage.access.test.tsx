@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -57,4 +57,28 @@ it.each(['editor', 'commenter', 'viewer', null])('uses caller role %s when the c
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/apps/app']}><Routes><Route path="/apps/:appId" element={<AppDetailPage />} /></Routes></MemoryRouter></QueryClientProvider>);
   await waitFor(() => expect(screen.getByTestId('dashboard-rights').textContent).toBe(role === 'editor' ? 'editable' : 'read-only'));
+});
+
+
+it('keeps Collaborators focused on people and places access details in its footer', async () => {
+  mocks.get.mockImplementation(async (url: string) => {
+    if (url === '/apps/app') return { data: { app: { id: 'app', name: 'Shared app', owner_user_id: 'n.User.owner', workspace_id: 'ws' } } };
+    if (url === '/apps/app/collaborators') return { data: { collaborators: [], caller_role: 'admin', directory_visible: true } };
+    if (url === '/apps/app/access') return { data: { effective_role: 'admin', links_visible: false } };
+    if (url.includes('home')) return { data: { home: null } };
+    return { data: { tracks: [], dashboards: [] } };
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/apps/app']}><Routes><Route path="/apps/:appId" element={<AppDetailPage />} /></Routes></MemoryRouter></QueryClientProvider>);
+  fireEvent.click(await screen.findByRole('button', { name: /^Collaborators$/ }));
+  expect(screen.getByRole('dialog', { name: 'Collaborators' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Manage App function access' })).not.toBeInTheDocument();
+  const accessButton = screen.getByRole('button', { name: /^Access details$/ });
+  expect(accessButton.parentElement).toHaveClass('sticky', 'bottom-0');
+  fireEvent.click(accessButton);
+  expect(await screen.findByRole('dialog', { name: 'Access details' })).toBeInTheDocument();
+  await waitFor(() => expect(mocks.get).toHaveBeenCalledWith('/apps/app/access'));
+  expect(screen.queryByRole('dialog', { name: 'Collaborators' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Back to collaborators' }));
+  expect(await screen.findByRole('dialog', { name: 'Collaborators' })).toBeInTheDocument();
 });

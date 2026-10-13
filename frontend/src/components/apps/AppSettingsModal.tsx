@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui';
 import { Text } from '../../ui';
+import { AppFunctionAccess } from '../access/AppFunctionAccess';
 import { AppSettingsForm } from './AppSettingsForm';
 import { appsApi } from '../../api/apps';
 import { errorMessageFromAxios } from '../../api/helpers';
@@ -41,6 +42,8 @@ export interface AppSettingsModalProps {
   appName: string;
   onClose(): void;
   onSaved?(): void;
+  /** Only supplied for a workspace owner; server checks remain authoritative. */
+  functionAccessWorkspaceId?: string;
 }
 
 export function AppSettingsModal({
@@ -49,7 +52,10 @@ export function AppSettingsModal({
   appName,
   onClose,
   onSaved,
+  functionAccessWorkspaceId,
 }: AppSettingsModalProps) {
+  const [section, setSection] = useState<'settings' | 'access'>('settings');
+  useEffect(() => { if (open) setSection('settings'); }, [open]);
   const [schema, setSchema] = useState<Record<string, unknown> | null>(null);
   const [value, setValue] = useState<Record<string, unknown>>({});
   const [loading, setLoading] = useState(false);
@@ -102,6 +108,14 @@ export function AppSettingsModal({
   return (
     <Modal open={open} onClose={onClose} title={`${appName} settings`}>
       <Modal.Body>
+        {functionAccessWorkspaceId && <div role="tablist" aria-label="App settings sections" className="mb-5 flex flex-wrap gap-2">
+          <Button size="sm" role="tab" aria-selected={section === 'settings'} variant={section === 'settings' ? 'primary' : 'outline'} onClick={() => setSection('settings')}>Settings</Button>
+          <Button size="sm" role="tab" aria-selected={section === 'access'} variant={section === 'access' ? 'primary' : 'outline'} onClick={() => setSection('access')}>Function access</Button>
+        </div>}
+        {section === 'access' && functionAccessWorkspaceId ? <>
+          <Text variant="body-sm" tone="muted" as="p" className="mb-4">Manage permission to run App-defined operations. These grants do not replace access to App records.</Text>
+          <AppFunctionAccess appId={appId} workspaceId={functionAccessWorkspaceId} />
+        </> : <>
         {loading ? (
           <Text variant="body-sm" tone="subtle" as="p">
             Loading settings…
@@ -125,8 +139,9 @@ export function AppSettingsModal({
             {error}
           </Text>
         ) : null}
+        </>}
       </Modal.Body>
-      <Modal.Footer align="between">
+      {section === 'settings' ? <Modal.Footer align="between">
         <Button variant="ghost" onClick={onClose} disabled={saving}>
           Cancel
         </Button>
@@ -139,7 +154,7 @@ export function AppSettingsModal({
         >
           Save settings
         </Button>
-      </Modal.Footer>
+      </Modal.Footer> : <Modal.Footer><Button variant="outline" onClick={onClose}>Done</Button></Modal.Footer>}
     </Modal>
   );
 }
