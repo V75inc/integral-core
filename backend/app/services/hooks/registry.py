@@ -319,16 +319,26 @@ class ToolContext:
         Track belongs to this workspace — no cross-workspace leak, and the
         query actually matches.
         """
-        from app.models.nodes import Entry
+        from app.middleware.permissions_cache import isolated_permissions_cache
+        from app.services.entry_access_projection import hydrate_records, iter_records
+        from app.services.resource_location import ACTIVE_APP_STATES
+        from app.services.workspace_governance import ordinary_authority_only
 
-        rows = list(await Entry.find(query))
-        if not rows:
-            return []
+        # Reuse the canonical bounded audience selector instead of performing
+        # a complete ancestry/role cascade for every hydrated candidate. The
+        # facts belong to one fresh window, never an operation-wide allow cache.
+        # Bundle reads retain the point facade's active-App and ordinary-role
+        # rules; protected workspace stewardship must not widen their audience.
         scoped: List[Any] = []
-        for entry in rows:
-            current = await self.get_entry(entry.id)
-            if current is not None:
-                scoped.append(current)
+        with ordinary_authority_only(), isolated_permissions_cache():
+            async for records in iter_records(
+                self.user_id,
+                query,
+                workspace_id=self.workspace_id,
+                app_id=str(getattr(self, "app_id", "") or "") or None,
+                allowed_app_states=ACTIVE_APP_STATES,
+            ):
+                scoped.extend(await hydrate_records(records))
         return scoped
 
     async def _tracks_by_title(self, track_type: str) -> List[Any]:
@@ -396,26 +406,13 @@ class ToolContext:
 
         out: List[Any] = []
         for track in await self._tracks_by_title(track_type):
-            try:
-                entries = await track.nodes(
-                    edge=["CONTAINS"], direction="out", node=["Entry"]
-                )
-            except Exception as exc:
-                from app.exceptions import AuthorizationUnavailableError
-
-                raise AuthorizationUnavailableError() from exc
+            entries = await self.find_entries({"context.track_id": track.id})
             for e in entries:
                 if not isinstance(e, Entry):
                     continue
-                current = await self.get_entry(e.id)
-                if current is None:
+                if wanted_type and await _entry_type_slug(e.type_id) != wanted_type:
                     continue
-                if (
-                    wanted_type
-                    and await _entry_type_slug(current.type_id) != wanted_type
-                ):
-                    continue
-                out.append(current)
+                out.append(e)
         return out
 
     async def find_track_id_by_title(self, track_type: str) -> Optional[str]:
