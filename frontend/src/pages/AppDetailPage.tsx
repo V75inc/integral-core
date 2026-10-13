@@ -1,7 +1,6 @@
 import { AppIcon } from '../ui';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { ResourceAccessReview } from '../components/access/ResourceAccessReview';
-import { AppFunctionAccess } from '../components/access/AppFunctionAccess';
 import { usePhantomClickGuard } from '../hooks/usePhantomClickGuard';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
@@ -139,6 +138,7 @@ export function AppDetailPage() {
   const [, setTrackTemplates] = useState<{ id: string; name: string }[]>([]);
   const [trackSearch, setTrackSearch] = useState('');
   const [collaboratorsModalOpen, setCollaboratorsModalOpen] = useState(false);
+  const [accessDetailsOpen, setAccessDetailsOpen] = useState(false);
   const [appSection, setAppSection] = useState<AppDetailSection>(() =>
     appId ? readAppDetailSection(appId) : 'tracks'
   );
@@ -1031,6 +1031,7 @@ export function AppDetailPage() {
           open={showAppSettingsModal}
           appId={appId}
           appName={app.name}
+          functionAccessWorkspaceId={isWorkspaceOwner ? app.workspace_id : undefined}
           onClose={() => setShowAppSettingsModal(false)}
           onSaved={() => {
             showToast('Settings saved', 'success');
@@ -1059,11 +1060,7 @@ export function AppDetailPage() {
         onClose={() => setCollaboratorsModalOpen(false)}
         title="Collaborators"
       >
-        <div className="space-y-5 p-4">
-          {isWorkspaceOwner && app?.workspace_id && appId && (
-            <AppFunctionAccess appId={appId} workspaceId={app.workspace_id} />
-          )}
-          <ResourceAccessReview resourceType="app" resourceId={appId} />
+        <Modal.Body className="space-y-5">
           {canManageCollaborators ? (
             <div className="space-y-2">
               <h3 className="text-[13px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
@@ -1157,7 +1154,30 @@ export function AppDetailPage() {
               )}
             </ul>
           </div>
-        </div>
+        </Modal.Body>
+        <Modal.Footer align="between">
+          <Button variant="ghost" size="sm" onClick={() => {
+            setCollaboratorsModalOpen(false);
+            setAccessDetailsOpen(true);
+          }}>Access details</Button>
+          <Button variant="outline" size="sm" onClick={() => setCollaboratorsModalOpen(false)}>Done</Button>
+        </Modal.Footer>
+      </Modal>
+
+      <Modal open={accessDetailsOpen} onClose={() => setAccessDetailsOpen(false)} title="Access details">
+        <Modal.Body>
+          <Text variant="body-sm" tone="muted" as="p" className="mb-4">
+            See who can use this App and manage their access.
+          </Text>
+          {accessDetailsOpen && <ResourceAccessReview resourceType="app" resourceId={appId} autoLoad people={uniqueCollabs} currentUser={me} />}
+        </Modal.Body>
+        <Modal.Footer align="between">
+          <Button variant="ghost" size="sm" onClick={() => {
+            setAccessDetailsOpen(false);
+            setCollaboratorsModalOpen(true);
+          }}>Back to collaborators</Button>
+          <Button variant="outline" size="sm" onClick={() => setAccessDetailsOpen(false)}>Done</Button>
+        </Modal.Footer>
       </Modal>
 
       <Modal

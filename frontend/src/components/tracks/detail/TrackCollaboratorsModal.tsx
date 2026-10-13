@@ -56,7 +56,7 @@ export function TrackCollaboratorsModal({
   return (
     <Modal open={open} onClose={onClose} title="Collaborators">
       <div className="space-y-5 p-4">
-        {trackId && <ResourceAccessReview resourceType="track" resourceId={trackId} />}
+        {trackId && <ResourceAccessReview resourceType="track" resourceId={trackId} people={collaboratorList} currentUser={currentUser} />}
         {canManageCollaborators ? (
           <div className="space-y-2">
             <h3 className="text-[13px] font-semibold uppercase tracking-[0.12em] text-[color:var(--text-muted)]">
