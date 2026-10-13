@@ -259,6 +259,7 @@ async def admit_records(
     workspace_id: str | None = None,
     track_id: str | None = None,
     app_id: str | None = None,
+    allowed_app_states: frozenset[str] = DATA_APP_STATES,
 ) -> list[dict]:
     """Check raw candidate cardinality, containment and grants before exposure."""
     from app.services.permissions import (
@@ -286,7 +287,7 @@ async def admit_records(
         "entry",
         ids,
         workspace_hints=[workspace_id] if workspace_id else [],
-        allowed_app_states=DATA_APP_STATES,
+        allowed_app_states=allowed_app_states,
         selected_records=records,
         records_out=canonical_records,
     )
@@ -411,6 +412,7 @@ async def iter_records(
     sort: list[tuple[str, int]] | None = None,
     batch_size: int = WINDOW,
     cursor: str | None = None,
+    allowed_app_states: frozenset[str] = DATA_APP_STATES,
 ) -> AsyncIterator[list[dict]]:
     """Advance by raw rows, including rejected/unhydratable candidate windows."""
     context = get_default_context()
@@ -435,6 +437,7 @@ async def iter_records(
                 workspace_id=workspace_id,
                 track_id=track_id,
                 app_id=app_id,
+                allowed_app_states=allowed_app_states,
             )
             if admitted:
                 yield admitted
