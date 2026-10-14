@@ -941,15 +941,7 @@ async def list_app_collaborators(request: Request, app_id: str) -> Dict[str, Any
         raise MissingAuthenticationError(message="Authentication required")
     from app.services.sharing import can_review_resource_access
 
-    if not await can_review_resource_access(user_id, "app", app_id):
-        return {
-            "collaborators": [],
-            "total": 0,
-            "effective_total": 0,
-            "app_id": app_id,
-            "caller_role": await resolve_role(user_id, "app", app_id),
-            "directory_visible": False,
-        }
+    directory_visible = await can_review_resource_access(user_id, "app", app_id)
     _decision = await policy_evaluate(
         subject=Subject(kind="human", id=user_id),
         action="app.read",
@@ -992,16 +984,22 @@ async def list_app_collaborators(request: Request, app_id: str) -> Dict[str, Any
         result.append(owner_data)
 
     for collab in collaborators:
+        if collab.id not in role_by_user or (owner_node and collab.id == owner_node.id):
+            continue
         data = await public_user_view(collab)
         data["role"] = role_by_user.get(collab.id, "viewer")
         result.append(data)
 
+    # Count the same distinct people for readers and managers. Only managers
+    # receive the directory; a hidden directory does not mean an empty one.
+    result = list({row["id"]: row for row in result}.values())
     return {
-        "collaborators": result,
+        "collaborators": result if directory_visible else [],
         "total": len(result),
+        "effective_total": len(result),
         "app_id": app_id,
         "caller_role": await resolve_role(user_id, "app", app_id),
-        "directory_visible": True,
+        "directory_visible": directory_visible,
     }
 
 

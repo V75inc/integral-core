@@ -799,23 +799,7 @@ async def list_collaborators(request: Request, track_id: str) -> Dict[str, Any]:
         raise MissingAuthenticationError(message="Authentication required")
     from app.services.sharing import can_review_resource_access
 
-    if not await can_review_resource_access(user_id, "track", track_id):
-        current_track = await Track.get(track_id)
-        visibility = getattr(current_track, "visibility", None)
-        reduced_visibility_grant = (
-            "public"
-            if visibility == "public"
-            else ("workspace" if visibility in {"workspace", "organization"} else None)
-        )
-        return {
-            "collaborators": [],
-            "total": 0,
-            "effective_total": 0,
-            "track_id": track_id,
-            "caller_role": await resolve_role(user_id, "track", track_id),
-            "directory_visible": False,
-            "visibility_grant": reduced_visibility_grant,
-        }
+    directory_visible = await can_review_resource_access(user_id, "track", track_id)
     _decision = await policy_evaluate(
         subject=Subject(kind="human", id=user_id),
         action="track.read",
@@ -1004,13 +988,14 @@ async def list_collaborators(request: Request, track_id: str) -> Dict[str, Any]:
     caller_role = await resolve_role(user_id, "track", track_id)
 
     return {
-        "collaborators": result,
+        "collaborators": result if directory_visible else [],
         "total": len(result),
         "effective_total": effective_count,
         "inherited_truncated": inherited_truncated,
         "visibility_grant": visibility_grant,
         "caller_role": caller_role,
         "track_id": track_id,
+        "directory_visible": directory_visible,
     }
 
 
