@@ -1091,9 +1091,13 @@ async def _handle_app_tool(
     spec = get_workspace_tools(item.workspace_id).get(tool_key)
     if spec is None:
         # Bundles register after boot; a missing tool is usually temporary.
-        raise WorkError("work.transient_tool_unavailable", f"tool {tool_key!r} is not registered")
+        raise WorkError(
+            "work.transient_tool_unavailable", f"tool {tool_key!r} is not registered"
+        )
     if str(spec.get("_bundle_slug") or "") != bundle_slug:
-        raise WorkError("work.policy_denied", "the tool no longer belongs to the App that queued it")
+        raise WorkError(
+            "work.policy_denied", "the tool no longer belongs to the App that queued it"
+        )
     ctx = ToolContext(
         user_id=item.principal_id,
         workspace_id=item.workspace_id,
@@ -1103,7 +1107,8 @@ async def _handle_app_tool(
     ctx.job_id = item.work_item_id
     ctx.job_lease = (item.lease_token, int(item.lease_fence or 0))
     execution = work_execution.build_work_execution_context(
-        work_item=item, logical_step_key=work_execution.logical_step_key_for(kind="app_tool")
+        work_item=item,
+        logical_step_key=work_execution.logical_step_key_for(kind="app_tool"),
     )
 
     async def _body() -> Any:
@@ -1126,7 +1131,9 @@ async def _handle_app_tool(
             "work.transient_app_tool", f"{type(exc).__name__}: {str(exc)[:300]}"
         ) from exc
     if isinstance(result, dict) and result.get("ok") is False:
-        reason = str(result.get("reason") or result.get("error") or "the App job failed")
+        reason = str(
+            result.get("reason") or result.get("error") or "the App job failed"
+        )
         if result.get("retry"):
             raise WorkError("work.transient_app_tool", reason)
         return await work_items.transition_leased(
@@ -1137,7 +1144,10 @@ async def _handle_app_tool(
             target="failed",
             fields={
                 "failure": work_items.normalize_failure(
-                    class_="permanent", code="app_tool.failed", message=reason, retryable=False
+                    class_="permanent",
+                    code="app_tool.failed",
+                    message=reason,
+                    retryable=False,
                 )
             },
         )

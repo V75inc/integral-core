@@ -187,7 +187,9 @@ async def start_work_kernel_background(
         )
     )
     background_tasks.append(asyncio.create_task(_recovery_loop(), name="work-recovery"))
-    background_tasks.append(asyncio.create_task(_app_schedule_loop(), name="app-schedules"))
+    background_tasks.append(
+        asyncio.create_task(_app_schedule_loop(), name="app-schedules")
+    )
     background_tasks.append(
         asyncio.create_task(
             work_events.event_consumer_loop(), name="work-event-consumer"

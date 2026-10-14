@@ -654,7 +654,11 @@ class ToolContext:
             return None
         try:
             location = await locate_resource("entry", entry_id)
-            if location is None or location.workspace_id != self.workspace_id or not location.app_id:
+            if (
+                location is None
+                or location.workspace_id != self.workspace_id
+                or not location.app_id
+            ):
                 return None
             app = await App.get(location.app_id)
             if (
@@ -1086,7 +1090,9 @@ class ToolContext:
         """
         caller = (self.bundle_slug or "").strip()
         if not caller:
-            raise PermissionError("enqueue_job: only a running app tool may queue a job")
+            raise PermissionError(
+                "enqueue_job: only a running app tool may queue a job"
+            )
         if getattr(self, "read_only", False):
             raise PermissionError("enqueue_job: read-only context")
         key = str(tool_key or "").strip()
@@ -1139,7 +1145,9 @@ class ToolContext:
             progress["done"] = int(done)
         if total is not None:
             progress["total"] = int(total)
-        return await report_work_progress(self.job_id, progress, lease=self.job_lease or None)
+        return await report_work_progress(
+            self.job_id, progress, lease=self.job_lease or None
+        )
 
     async def job_status(self, job_id: str) -> Optional[Dict[str, Any]]:
         """Status of a job this App queued in this workspace, or None."""
@@ -1155,7 +1163,8 @@ class ToolContext:
             item is None
             or item.kind != "app_tool"
             or item.workspace_id != self.workspace_id
-            or str((item.input_payload or {}).get("bundle_slug") or "") != (self.bundle_slug or "")
+            or str((item.input_payload or {}).get("bundle_slug") or "")
+            != (self.bundle_slug or "")
         ):
             return None
         return _project_work_status(item.model_dump()).model_dump(mode="json")
