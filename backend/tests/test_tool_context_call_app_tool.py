@@ -85,6 +85,29 @@ async def test_calls_an_exported_tool_as_the_callee_bundle(monkeypatch, audit):
 
 
 @pytest.mark.asyncio
+async def test_an_app_contained_caller_does_not_contain_the_callee(monkeypatch, audit):
+    from app.services.app_operations.context import OperationContext
+
+    seen = {}
+
+    async def handler(payload, ctx):
+        seen.update(
+            cls=type(ctx), app_id=getattr(ctx, "app_id", ""), bundle=ctx.bundle_slug
+        )
+        return {"ok": True}
+
+    _install_tool(monkeypatch)
+    sys.modules["fake_documents_tools"].generate_document = handler
+    ctx = OperationContext(
+        user_id="u1", workspace_id="w1", scope="operation:a1:render", app_id="a1"
+    )
+    ctx.bundle_slug = "invoicing"
+    assert await ctx.call_app_tool("generate_document", {"title": "x"}) == {"ok": True}
+    assert seen == {"cls": ToolContext, "app_id": "", "bundle": "documents"}
+    assert ctx.app_id == "a1" and ctx.bundle_slug == "invoicing"
+
+
+@pytest.mark.asyncio
 async def test_a_tool_that_is_not_exported_is_unreachable(monkeypatch, audit):
     calls = _install_tool(monkeypatch, exported=False)
     with pytest.raises(PermissionError):

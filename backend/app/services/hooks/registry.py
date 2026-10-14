@@ -1021,7 +1021,18 @@ class ToolContext:
         depth = int(getattr(self, "_app_call_depth", 0) or 0)
         if depth >= self._MAX_APP_CALL_DEPTH:
             raise PermissionError("call_app_tool: nested app calls exceed the limit")
-        callee_ctx = copy.copy(self)
+        if str(getattr(self, "app_id", "") or "").strip():
+            # The caller's context is contained to the caller's App; the callee
+            # is another App's tool and must see its own App's records.
+            callee_ctx = ToolContext(
+                user_id=self.user_id,
+                workspace_id=self.workspace_id,
+                scope=self.scope,
+                actor_kind=self.actor_kind,
+                read_only=self.read_only,
+            )
+        else:
+            callee_ctx = copy.copy(self)
         callee_ctx._app_call_depth = depth + 1  # type: ignore[attr-defined]
         callee_ctx.actor_kind = self.actor_kind
         await self.emit_audit(
