@@ -48,6 +48,11 @@ bump does not establish that a release is available on a package index.
 
 ### Fixed
 
+- Recheck current workspace membership and privileged-tool authority when App
+  jobs are queued and on every execution attempt. Apply canonical work observer
+  authorization to App job status so members cannot inspect another member's
+  progress, failure details or result references.
+
 - A bundle tool that updates its own App's records now resolves the App in the
   workspace where it is installed, not only in the caller's personal workspace.
 - Keep ad-hoc Track relation identity stable through display renames, including

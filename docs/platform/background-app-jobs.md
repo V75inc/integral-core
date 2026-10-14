@@ -71,6 +71,8 @@ async def run_import_job(input, ctx):
 | **Save your place on the record**, not in memory. | That is what lets a job resume, and lets the page show the same progress. |
 | **The job runs as the person who queued it**, in their workspace, with the usual permission checks on every read and write. | Core never lets a tool choose another person or workspace. |
 | **Only your own tools can be queued.** | Another App's tool needs `call_app_tool` and its exported-tool rules. |
+| **Current workspace access is required to enqueue and run.** Privileged tools require owner or admin authority, checked again on every attempt. | Removing membership, disabling the identity, or demoting an admin prevents subsequent execution, including retries and scheduled jobs. |
+| **Job status follows the work observer rules.** The initiator and workspace owners/admins can inspect it while they retain workspace access. | Sharing an App does not expose another member's job progress, failure details or result references. |
 | **One idempotency key returns the same job.** Use a unique key for each user action and a stable key where you want "once only". | Prevents a double click queuing the work twice. |
 | **Mark job entry points `agent_callable: false`.** | They are internal; the assistant should call your start tool. |
 | **Keep the label short** (200 characters) and return at most 20 `object_refs` (`kind: entry`). | These show in Background tasks and the job result. |

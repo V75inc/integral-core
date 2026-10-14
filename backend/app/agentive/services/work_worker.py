@@ -1115,6 +1115,15 @@ async def _handle_app_tool(
         # Same gate every effectful work kind passes: lease, deadline, cancel
         # and "the App is still the version this job was queued against".
         await work_execution.assert_effect_boundary_allowed(execution)
+        from app.api.errors import InsufficientPermissionsError
+        from app.services.workspace_tools import require_workspace_tool_access
+
+        try:
+            await require_workspace_tool_access(
+                user_id=item.principal_id, workspace_id=item.workspace_id, spec=spec
+            )
+        except InsufficientPermissionsError as exc:
+            raise WorkError("work.policy_denied", exc.message) from exc
         return await run_tool(spec, dict(payload.get("input") or {}), ctx)
 
     try:
