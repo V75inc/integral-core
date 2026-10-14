@@ -36,6 +36,7 @@ def _to_response(record) -> ModelCredentialResponse:
     return ModelCredentialResponse(
         provider=cast(ModelProvider, record.provider),
         model=record.model,
+        base_url=(getattr(record, "base_url", "") or "").strip() or None,
         speech_provider=_prov(record.speech_provider),
         speech_model=record.speech_model or None,
         key_fingerprint=record.key_fingerprint,
@@ -97,6 +98,7 @@ async def upsert_my_model_credential(request: Request) -> Dict[str, Any]:
             provider=body.provider,
             model=body.model,
             api_key=body.api_key,
+            base_url=body.base_url,
             speech_model=body.speech_model,
             speech_provider=body.speech_provider,
             speech_api_key=body.speech_api_key,
@@ -165,5 +167,7 @@ async def validate_my_model_credential(request: Request) -> Dict[str, Any]:
         raise BadRequestError(str(exc)) from exc
 
     _ = resolve_principal_id(request)
-    valid, message = await validate_provider_api_key(body.provider, body.api_key)
+    valid, message = await validate_provider_api_key(
+        body.provider, body.api_key, body.base_url
+    )
     return ModelCredentialValidateResponse(valid=valid, message=message).model_dump()

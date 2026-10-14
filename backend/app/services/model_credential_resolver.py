@@ -28,12 +28,14 @@ class ModelKeyRequiredError(Exception):
 
 # Provider slugs Integral stores on a credential. Each is also a LiteLLM
 # route prefix, so composing ``<slug>/<model>`` yields a valid LiteLLM model id.
+# ``custom_openai`` routes as ``openai/`` with a per-credential ``api_base``.
 _LITELLM_PROVIDER_ROUTES = {
     "openai": "openai",
     "anthropic": "anthropic",
     "openrouter": "openrouter",
     "ollama": "ollama",
     "ollama_local": "ollama",
+    "custom_openai": "openai",
 }
 
 
@@ -172,6 +174,12 @@ async def resolve_native_model_override(
     }
     if default_key:
         override["api_key"] = default_key
+    if (default_provider or "").strip().lower() == "custom_openai":
+        custom_base = (getattr(record, "base_url", "") or "").strip().rstrip("/")
+        if not custom_base:
+            logger.warning("custom_openai credential missing base_url")
+            return None
+        override["api_base"] = custom_base
 
     if include_credential_identity:
         # Identify this stored generation, never the plaintext key or its

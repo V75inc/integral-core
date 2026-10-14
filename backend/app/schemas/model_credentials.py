@@ -6,7 +6,9 @@ from typing import FrozenSet, Literal, Optional, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-ModelProvider = Literal["openai", "anthropic", "openrouter", "ollama", "ollama_local"]
+ModelProvider = Literal[
+    "openai", "anthropic", "openrouter", "ollama", "ollama_local", "custom_openai"
+]
 
 # Providers that can back the ``speech`` (voice input) slot. A subset of
 # ``ModelProvider``: only vendors with a streaming speech-to-text API qualify.
@@ -26,11 +28,34 @@ class ModelCredentialUpsertRequest(BaseModel):
     provider: ModelProvider
     model: str = Field(..., min_length=1, max_length=128)
     api_key: Optional[str] = Field(default=None, max_length=512)
+    # Custom OpenAI-compatible endpoint. Required when provider is
+    # ``custom_openai``; must be empty otherwise. Stored as plaintext base URL
+    # (not a secret) and passed as LiteLLM ``api_base``.
+    base_url: Optional[str] = Field(default=None, max_length=512)
 
     # Speech-to-text (voice input) slot. Opt-in: an empty ``speech_model`` means off.
     speech_model: Optional[str] = Field(default=None, max_length=128)
     speech_provider: Optional[ModelProvider] = None
     speech_api_key: Optional[str] = Field(default=None, min_length=8, max_length=512)
+
+    @model_validator(mode="after")
+    def _custom_base_url_rules(self) -> "ModelCredentialUpsertRequest":
+        base = (self.base_url or "").strip()
+        if self.provider == "custom_openai":
+            if not base:
+                raise ValueError("base_url is required for custom_openai")
+            normalized = base.rstrip("/")
+            if len(normalized) > 512:
+                raise ValueError("base_url is too long")
+            lowered = normalized.lower()
+            if not (lowered.startswith("http://") or lowered.startswith("https://")):
+                raise ValueError("base_url must start with http:// or https://")
+            if "@" in normalized.split("://", 1)[-1].split("/", 1)[0]:
+                raise ValueError("base_url must not contain credentials")
+            self.base_url = normalized
+        elif base:
+            raise ValueError("base_url is only supported for custom_openai")
+        return self
 
     @model_validator(mode="after")
     def _speech_provider_is_capable(self) -> "ModelCredentialUpsertRequest":
@@ -62,6 +87,7 @@ class ModelCredentialUpsertRequest(BaseModel):
 class ModelCredentialResponse(BaseModel):
     provider: ModelProvider
     model: str
+    base_url: Optional[str] = None
     speech_provider: Optional[ModelProvider] = None
     speech_model: Optional[str] = None
     key_fingerprint: str
@@ -75,6 +101,7 @@ class ModelCredentialResponse(BaseModel):
 class ModelCredentialValidateRequest(BaseModel):
     provider: ModelProvider
     api_key: Optional[str] = Field(default=None, max_length=512)
+    base_url: Optional[str] = Field(default=None, max_length=512)
 
 
 class ModelCredentialValidateResponse(BaseModel):
