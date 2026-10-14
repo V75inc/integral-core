@@ -200,6 +200,25 @@ async def test_job_result_lists_the_records_it_acted_on(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_job_result_lists_only_entry_references_of_sensible_size(monkeypatch) -> None:
+    _tool(
+        monkeypatch,
+        result={
+            "ok": True,
+            "object_refs": [
+                {"kind": "track", "id": "t1"},
+                {"kind": "entry", "id": "x" * 500},
+                {"kind": "entry"},
+                "not-a-dict",
+                {"kind": "entry", "id": "n.Entry.keep"},
+            ],
+        },
+    )
+    done = await _queue_and_run(monkeypatch)
+    assert done.result_refs == ["app_tool:run_job", "entry:n.Entry.keep"]
+
+
+@pytest.mark.asyncio
 async def test_tool_that_returns_ok_false_fails_the_job_without_retry(monkeypatch) -> None:
     _tool(monkeypatch, result={"ok": False, "reason": "no employees"})
     done = await _queue_and_run(monkeypatch)
