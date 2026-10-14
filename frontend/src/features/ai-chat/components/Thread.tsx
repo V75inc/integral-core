@@ -280,7 +280,7 @@ function ThreadSuggestions() {
  * Sourced from the runtime's activity-text channel, which the
  * backend translator populates from the cockpit's `tool_progress`
  * frames. The activity text updates AS new humanized statuses
- * arrive ("Working" → "Filing your content" → …) so when the
+ * arrive ("Thinking" → "Filing your content" → …) so when the
  * cockpit emits multiple tool_progress events, the user sees the
  * action evolve.
  *
@@ -358,32 +358,29 @@ function clipStatus(text: string): string {
   return `${clean.slice(0, 71).trimEnd()}…`;
 }
 
-function prettyTool(name: string): string {
-  const bare = name.replace(/^integral_/, "").replace(/_/g, " ").trim();
-  if (!bare) return "Working";
-  return bare.charAt(0).toUpperCase() + bare.slice(1);
-}
-
 /** One line for a closed trail while the turn is still running. */
 export function liveWorkSynopsis(
   activity: string | undefined,
   latestTool: string | undefined,
 ): string {
   const activityLine = activity?.replace(/\s+/g, " ").trim();
-  if (activityLine) return clipStatus(activityLine);
-  if (latestTool?.trim()) return clipStatus(prettyTool(latestTool));
-  return "Working";
+  if (activityLine && !/^working[.…]*$/i.test(activityLine)) return clipStatus(activityLine);
+  if (latestTool?.trim()) return "Using tools";
+  return "Thinking";
 }
 
 /**
  * One trail for reasoning and tool steps.
  *
  * Stays collapsed. While the turn runs the label is a one-line status.
- * When the reply lands it becomes "Worked · steps · model". Expanding retraces the
+ * When the reply lands it becomes "Finished · tools · model". Expanding retraces the
  * activity and the steps. A manual expansion survives completion.
  */
 export function WorkTrail({ children }: { children: ReactNode }) {
   const running = useAuiState((s) => s.message.status?.type === "running");
+  const interruptedReason = useAuiState((s) =>
+    s.message.status?.type === "incomplete" ? s.message.status.reason : undefined,
+  );
   const { activityText } = useChatActivity();
   const statusLabel = useAuiState(
     (s) =>
@@ -396,7 +393,8 @@ export function WorkTrail({ children }: { children: ReactNode }) {
   );
   const latestTool = useAuiState((s) => {
     const tools = (s.message.parts ?? []).filter((p) => p.type === "tool-call");
-    const last = tools[tools.length - 1] as { toolName?: string } | undefined;
+    const last = tools[tools.length - 1] as { toolName?: string; result?: unknown; status?: { type?: string } } | undefined;
+    if (last?.result !== undefined || last?.status?.type === "complete" || last?.status?.type === "incomplete") return "";
     return last?.toolName ?? "";
   });
   const toolFailed = useAuiState((s) =>
@@ -413,8 +411,8 @@ export function WorkTrail({ children }: { children: ReactNode }) {
     latestTool,
   );
   const done = [
-    "Worked",
-    toolCount > 0 ? `${toolCount} ${toolCount === 1 ? "step" : "steps"}` : "",
+    interruptedReason === "cancelled" ? "Stopped" : interruptedReason ? "Interrupted" : "Finished",
+    toolCount > 0 ? `${toolCount} ${toolCount === 1 ? "tool call" : "tool calls"}` : "",
     modelLabel,
     toolFailed ? "a step failed" : "",
   ]
@@ -430,6 +428,7 @@ export function WorkTrail({ children }: { children: ReactNode }) {
       className="mt-4 mb-3"
     >
       <CollapsibleTrigger
+        title="Show activity, timing, token usage, and cost when available"
         className="
           flex w-full min-w-0 items-center gap-1.5 py-0.5 text-left text-[12px]
           text-[var(--text-muted)] transition-colors hover:text-[var(--text)]
@@ -446,7 +445,7 @@ export function WorkTrail({ children }: { children: ReactNode }) {
         <span role="status" aria-live="polite" title={label} className="inline-flex min-h-4 min-w-0 items-center leading-4"><span key={label} className="truncate animate-status-reveal motion-reduce:animate-none">{label}</span></span>
       </CollapsibleTrigger>
       <CollapsibleContent className="mt-2 flex max-h-80 flex-col gap-3 overflow-y-auto pl-5 text-xs">
-        <p className="text-xs text-[var(--text-muted)]">Activity and tool results are shown here. Private model reasoning is not displayed.</p>
+        <p className="text-xs text-[var(--text-muted)]">Activity, tool results, and model usage are shown here. Costs appear when available from the provider or a labelled estimate. Private model reasoning is not displayed.</p>
         <MessageObservability />
         {children}
       </CollapsibleContent>
@@ -796,7 +795,7 @@ function AssistantActionBar({ debugOnly = false }: { debugOnly?: boolean }) {
         .join("")
     : "";
   const messageContent = finalContent ?? assembledText;
-  // Panel 2 ("Full JSON Response") = the full final chunk from the server
+  // Panel 2 ("Diagnostic payload") uses the final chunk from the server
   // (`finalPayload`). Fall back to a reconstruction (assembled response +
   // steps/timing + request) for pre-capture turns.
   const fullPayload: Record<string, unknown> | null = finalPayload

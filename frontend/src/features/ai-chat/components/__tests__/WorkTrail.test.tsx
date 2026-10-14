@@ -20,7 +20,7 @@ describe('activity disclosure', () => {
     state.message.metadata = {custom: {steps: [{modelId: 'ollama_chat/deepseek-v4.1-flash:cloud', provider: 'ollama', durationMs: 1700, usage: {inputTokens: 1200, outputTokens: 50}}]}};
     render(<WorkTrail><span>Tool receipt</span></WorkTrail>);
     const trigger = screen.getByRole('button');
-    expect(trigger).toHaveTextContent('Worked · 2 steps · deepseek-v4.1-flash:cloud');
+    expect(trigger).toHaveTextContent('Finished · 2 tool calls · deepseek-v4.1-flash:cloud');
     expect(trigger).not.toHaveTextContent(/tokens|cost|1.7s/);
     expect(screen.queryByText('1,250 tokens')).not.toBeInTheDocument();
     fireEvent.click(trigger);
@@ -37,7 +37,7 @@ describe('activity disclosure', () => {
     state.message.parts = [];
     state.message.metadata = {custom: {steps: [{modelId: 'provider/model', usage: {inputTokens: 3, outputTokens: 2}}]}};
     render(<WorkTrail>{null}</WorkTrail>);
-    expect(screen.getByRole('button')).toHaveTextContent('Worked · model');
+    expect(screen.getByRole('button')).toHaveTextContent('Finished · model');
     fireEvent.click(screen.getByRole('button'));
     expect(screen.getByText('5 tokens')).toBeVisible();
     state.message.metadata = {};

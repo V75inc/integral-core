@@ -49,7 +49,7 @@ it('shows authorized useful metadata in the title card', () => {
   expect(screen.getByRole('tooltip')).toHaveTextContent('Last activity:');
   expect(screen.getByRole('tooltip')).toHaveTextContent('Created:');
   expect(screen.getByRole('tooltip')).toHaveTextContent('4 messages');
-  expect(screen.getByRole('tooltip')).toHaveTextContent('Working…');
+  expect(screen.getByRole('tooltip')).toHaveTextContent('Thinking…');
 });
 
 it('wraps the full title in a wider hover card without inheriting row truncation', () => {
