@@ -107,7 +107,7 @@ async def test_escalation_is_typed_output_without_tool_effect(text):
                 parts=[
                     ToolCallPart(
                         "request_operational_context",
-                        {"reason": "needs current scoped context"},
+                        {},
                         "escalate",
                     )
                 ]
@@ -177,7 +177,9 @@ async def setup_turn(monkeypatch, *, escalation=False, origin="http"):
             ModelResponse(
                 parts=[
                     ToolCallPart(
-                        "request_operational_context", {"reason": "records"}, "e"
+                        "request_operational_context",
+                        {"reason": "needs current scoped context " * 20},
+                        "e",
                     )
                 ]
             )
