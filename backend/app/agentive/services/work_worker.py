@@ -1047,6 +1047,29 @@ async def _handle_app_lifecycle(
     )
 
 
+_MAX_JOB_OBJECT_REFS = 20
+
+
+def _job_object_refs(result: Any) -> list:
+    """``entry:<id>`` references for the records a job tool says it acted on.
+
+    A tool lists them as ``object_refs: [{"kind": "entry", "id": ...}]`` in its
+    result. They are pointers for the job list to link to; anyone following one
+    is checked against that record's own access rules.
+    """
+    refs: list = []
+    listed = result.get("object_refs") if isinstance(result, dict) else None
+    for ref in listed or []:
+        if not isinstance(ref, dict) or str(ref.get("kind") or "") != "entry":
+            continue
+        rid = str(ref.get("id") or "").strip()
+        if rid and len(rid) <= 120 and f"entry:{rid}" not in refs:
+            refs.append(f"entry:{rid}")
+        if len(refs) >= _MAX_JOB_OBJECT_REFS:
+            break
+    return refs
+
+
 async def _handle_app_tool(
     item: WorkItem, *, worker_id: str, lease_seconds: float
 ) -> WorkItem:
@@ -1078,13 +1101,30 @@ async def _handle_app_tool(
         bundle_slug=bundle_slug,
     )
     ctx.job_id = item.work_item_id
+    ctx.job_lease = (item.lease_token, int(item.lease_fence or 0))
+    execution = work_execution.build_work_execution_context(
+        work_item=item, logical_step_key=work_execution.logical_step_key_for(kind="app_tool")
+    )
 
     async def _body() -> Any:
+        # Same gate every effectful work kind passes: lease, deadline, cancel
+        # and "the App is still the version this job was queued against".
+        await work_execution.assert_effect_boundary_allowed(execution)
         return await run_tool(spec, dict(payload.get("input") or {}), ctx)
 
-    result = await _with_supervised_heartbeat(
-        item, worker_id=worker_id, lease_seconds=lease_seconds, body=_body
-    )
+    try:
+        result = await _with_supervised_heartbeat(
+            item, worker_id=worker_id, lease_seconds=lease_seconds, body=_body
+        )
+    except (WorkError, BadRequestError):
+        raise
+    except Exception as exc:  # noqa: BLE001 - an App's bug or a dropped connection
+        # Left alone this would leave the job "running" until its lease ran out.
+        # Retry with backoff; the attempt limit then dead-letters it.
+        log.exception("App job %s (%s) raised", item.work_item_id, tool_key)
+        raise WorkError(
+            "work.transient_app_tool", f"{type(exc).__name__}: {str(exc)[:300]}"
+        ) from exc
     if isinstance(result, dict) and result.get("ok") is False:
         reason = str(result.get("reason") or result.get("error") or "the App job failed")
         if result.get("retry"):
@@ -1107,7 +1147,7 @@ async def _handle_app_tool(
         lease_fence=int(item.lease_fence or 0),
         expected_status="running",
         target="succeeded",
-        fields={"result_refs": [f"app_tool:{tool_key}"]},
+        fields={"result_refs": [f"app_tool:{tool_key}", *_job_object_refs(result)]},
     )
 
 

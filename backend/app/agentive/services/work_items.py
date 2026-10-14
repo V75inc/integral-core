@@ -713,6 +713,11 @@ async def claim_due_candidate(
         item = await WorkItem.get(_object_id(work_item_id))
         if item is None:
             return None
+        # A worker that serves only some kinds never takes another, by id either.
+        if kinds is not None and item.kind not in kinds:
+            return None
+        if exclude_kinds is not None and item.kind in exclude_kinds:
+            return None
         return await _try_claim(item)
 
     for status in ("queued", "retry_wait"):
@@ -777,18 +782,29 @@ async def heartbeat_lease(
         raise
 
 
-async def report_work_progress(work_item_id: str, progress: Dict[str, Any]) -> bool:
+async def report_work_progress(
+    work_item_id: str,
+    progress: Dict[str, Any],
+    *,
+    lease: Optional[tuple] = None,
+) -> bool:
     """Record a running App job's progress; False once it is no longer running.
 
-    Updates only ``progress`` and only while ``running``, so it never races the
-    lease heartbeat or a terminal transition.
+    Updates only ``progress`` and only while ``running``, so it never races a
+    terminal transition. With ``lease=(token, fence)`` the write is accepted
+    only from the worker that still holds that lease, so a worker whose lease
+    was reclaimed cannot overwrite the new worker's progress.
     """
     from app.agentive.services.work_outbox import cas_work_item_update
 
+    expected: Dict[str, Any] = {"status": "running"}
+    if lease:
+        expected["lease_token"] = str(lease[0])
+        expected["lease_fence"] = int(lease[1])
     try:
         await cas_work_item_update(
             work_item_id,
-            expected={"status": "running"},
+            expected=expected,
             updates={"progress": dict(progress)},
             error_code="work.not_running",
         )
