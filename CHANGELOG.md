@@ -6,6 +6,8 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- New Apps and Tracks default to Private, including catalog, anchored and scratch Tracks. App visibility offers Private, Workspace and Public; App Inherit is removed and rejected by the API. Explicit authorized sharing remains available; saved access settings are preserved. Agent creation schemas now use the canonical Workspace spelling.
+
 - Retry recoverable model failures up to three total attempts with inline retry
   progress, distinct attempt accounting and fresh admission; never restart a
   complete agent run or replay already delivered output.

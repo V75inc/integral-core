@@ -219,3 +219,13 @@ The [implementation plan](ACCESS_CONTROL_PLAN.md) and U01–U76 ledger retain
 all required runtime, migration, browser/MCP, independent-worker, artifact and
 operator evidence. A new owner capability does not close its use case before
 those surfaces and allowed/denied outcomes are qualified.
+
+
+### Private creation defaults
+
+New Apps and Tracks default to Private in every Workspace. App visibility is
+Private, Workspace or Public; App creation and updates reject `inherit`.
+Workspace/public viewing requires an explicit authorized choice and does not
+grant editing or access-management capabilities. Track inheritance remains
+an explicit supported choice. Existing saved visibility and collaborator grants
+are preserved. See [resource visibility](RESOURCE_VISIBILITY.md).

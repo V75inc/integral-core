@@ -178,7 +178,7 @@ async def create_track_in_space(
         )
 
     if explicit_vis is None:
-        resolved_vis = "inherit"
+        resolved_vis = "private"
     else:
         resolved_vis = explicit_vis
 

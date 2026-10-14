@@ -409,6 +409,7 @@ async def install_app(
     description_override: Optional[str] = None,
     icon_override: Optional[str] = None,
     include_seed_data: Optional[bool] = None,
+    visibility: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Atomic install transaction — 12 steps per app_bundles_v1.md §9.1.
 
@@ -431,6 +432,10 @@ async def install_app(
         raise BadRequestError(message="install_app: workspace_id is required")
     if not library_cp_id:
         raise BadRequestError(message="install_app: library_cp_id is required")
+
+    from app.api.validators import effective_app_visibility
+
+    resolved_visibility = await effective_app_visibility(workspace_id, visibility)
 
     # ---- Pre-flight (Step 1-3) — no compensations recorded yet ----
     library_cp = await OperationalModel.get(library_cp_id)
@@ -630,7 +635,7 @@ async def install_app(
             owner_user_id=actor_id,
             description=app_description,
             icon=validate_app_icon(icon_override),
-            visibility="private",
+            visibility=resolved_visibility,
             workspace_id=workspace_id,
             lifecycle_state="installing",
             settings_schema=settings_schema,
