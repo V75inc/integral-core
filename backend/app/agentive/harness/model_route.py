@@ -186,8 +186,19 @@ async def _resolve_native_model_route(
     raw_key = override.get("api_key")
     api_key = str(raw_key) if raw_key is not None else None
     local_route = resolved_provider == "ollama" and not api_key
+    raw_base = override.get("api_base")
+    custom_base = str(raw_base).strip().rstrip("/") if raw_base is not None else ""
+    # A keyless custom endpoint (loopback dev server) rides the keyless local
+    # lane like ollama_local: no key on the route, provider's default op set.
+    # The route contract forbids workspace_byok without a key and local with
+    # one, so this branch — not workspace_byok — owns the keyless case.
+    custom_keyless_route = bool(custom_base) and not api_key
     api_base = None
-    if local_route:
+    if custom_keyless_route:
+        api_base = custom_base
+        ollama_num_ctx = ollama_num_predict = None
+        ollama_think = ollama_clear_thinking = None
+    elif local_route:
         # The local `ollama/` LiteLLM adapter is OpenAI-compatible but flattens
         # Gemma's native reasoning/tool envelope into content text. Use
         # LiteLLM's native chat adapter so Pydantic AI receives tool calls and
@@ -230,10 +241,12 @@ async def _resolve_native_model_route(
         ollama_num_predict=ollama_num_predict,
         ollama_think=ollama_think,
         ollama_clear_thinking=ollama_clear_thinking,
-        credential_source="local" if local_route else "workspace_byok",
+        credential_source=(
+            "local" if (local_route or custom_keyless_route) else "workspace_byok"
+        ),
         credential_ref=(
             _local_credential_ref(override.get("credential_ref"), api_base)
-            if local_route
+            if (local_route or custom_keyless_route)
             else override.get("credential_ref")
         ),
     )

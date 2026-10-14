@@ -110,6 +110,13 @@ export const MODEL_SLOT_HINTS = {
     'Turns speech into text in the chat box. Everyone in workspaces you own dictates on this key.',
 } as const;
 
+/** True when a custom base URL may be used without an API key (loopback only). */
+export function customBaseAllowsKeyless(baseUrl: string): boolean {
+  const hostport = baseUrl.split('://').slice(-1)[0].split('/')[0] ?? '';
+  const host = hostport.split('@').slice(-1)[0].split(':')[0].trim().toLowerCase();
+  return host === 'localhost' || host === '127.0.0.1';
+}
+
 /** Plain-language labels for workspace key policy (from agent_key_mode). */
 export const AGENT_KEY_MODE_LABELS: Record<string, string> = {
   hybrid: 'Your keys when set, otherwise shared',
