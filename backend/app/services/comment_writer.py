@@ -75,7 +75,7 @@ async def create_comment_internal(
             raise InsufficientPermissionsError(message="Comment target unavailable")
         now = utc_now_iso()
         comment = await Comment.create(
-            body=payload["body"],
+            text=payload["body"],
             author_id=user.id,
             entry_id=entry.id,
             created_at=now,

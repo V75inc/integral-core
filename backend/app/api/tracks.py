@@ -15,12 +15,8 @@ from app.api.errors import (
 )
 from app.api.utils import export_node, public_user_view, resolve_principal_id
 from app.api.validators import (
-    normalize_track_accent_color,
-    normalize_track_visibility_input,
     validate_id,
-    validate_track_visibility_workspace,
 )
-from app.api.validators_common import compute_fold, non_empty_after_strip
 from app.models.edges import (
     COLLABORATES_ON,
     EXCLUDED_FROM,
@@ -64,7 +60,6 @@ from app.services.sharing import remove_exclusion as sharing_remove_exclusion
 from app.services.sharing import (
     update_collaborator_role as sharing_update_collaborator_role,
 )
-from app.services.uniqueness import assert_unique
 from app.utils.time import utc_now_iso
 
 logger = logging.getLogger(__name__)
@@ -537,78 +532,18 @@ async def update_track(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    _decision = await policy_evaluate(
-        subject=Subject(kind="human", id=user_id),
-        action="track.update",
-        resource=Resource(kind="track", id=track_id, scope=f"track:{track_id}"),
+    from app.services.resource_metadata_update import update_track_metadata
+
+    return await update_track_metadata(
+        user_id=user_id,
+        track_id=track_id,
+        request=request,
+        title=title,
+        purpose=purpose,
+        icon=icon,
+        visibility=visibility,
+        accent_color=accent_color,
     )
-    if not _decision.allowed:
-        raise InsufficientPermissionsError(message="Access denied")
-
-    track = await Track.get(track_id)
-    if not track:
-        raise ResourceNotFoundError(message="Track not found")
-
-    from app.services.request_scope import require_effect_target_scope
-
-    await require_effect_target_scope(request, user_id, track.workspace_id)
-
-    prior_snapshot = await export_node(track)  # D-03 before-snapshot
-
-    if title is not None:
-        safe_title = non_empty_after_strip(title, "title")
-        if len(safe_title) > 200:
-            raise BadRequestError(message="title must be 200 characters or fewer")
-        new_fold = compute_fold(safe_title)
-        if new_fold != (getattr(track, "title_fold", "") or ""):
-            await assert_unique(
-                Track,
-                {
-                    "context.workspace_id": track.workspace_id,
-                    "context.title_fold": new_fold,
-                },
-                entity="track",
-                field_label="title",
-                value=safe_title,
-                scope_label="in this workspace",
-                exclude_id=track.id,
-            )
-        if not track.template_id and not track.relation_type_key:
-            from app.services.track_relation_identity import relation_track_type
-
-            track.relation_type_key = await relation_track_type(track)
-        track.title = safe_title
-        track.title_fold = new_fold
-    if purpose is not None:
-        track.purpose = purpose
-    if icon is not None:
-        track.icon = icon
-    if visibility is not None:
-        explicit_vis = normalize_track_visibility_input(visibility)
-        if explicit_vis is None:
-            track.visibility = "inherit"
-        else:
-            await validate_track_visibility_workspace(explicit_vis, track.workspace_id)
-            track.visibility = explicit_vis
-    if accent_color is not None:
-        track.accent_color = normalize_track_accent_color(accent_color)
-
-    track.updated_at = utc_now_iso()
-    await track.save()
-
-    # D-05 single emission path. Sync inline emit before HTTP response (D-06).
-    await emit_change_event(
-        actor_kind="human",
-        actor_id=user_id,
-        action="track.update",
-        resource_type="Track",
-        resource_id=track.id,
-        before=prior_snapshot,
-        after=await export_node(track),
-        scope=f"track:{track.id}",
-    )
-
-    return {"track": await export_node(track), "message": "Track updated successfully"}
 
 
 @endpoint("/tracks/{track_id}", methods=["DELETE"], auth=True, tags=["Tracks"])
@@ -645,17 +580,26 @@ async def delete_track(request: Request, track_id: str) -> Dict[str, Any]:
 
     await delete_track_and_nested_content(track, actor_user_id=user_id)
 
-    # D-05 single emission path. Sync inline emit before HTTP response (D-06).
-    await emit_change_event(
-        actor_kind="human",
-        actor_id=user_id,
-        action="track.delete",
-        resource_type="Track",
-        resource_id=track_id,
-        before=prior_snapshot,
-        after=None,
-        scope=f"track:{track_id}",
+    from app.agentive.services.staging_execution import (
+        deliver_staging_command_events,
+        staged_command_completed,
     )
+
+    if not staged_command_completed("delete_track"):
+        # D-05 single emission path. Sync inline emit before HTTP response (D-06).
+        await emit_change_event(
+            actor_kind="human",
+            actor_id=user_id,
+            action="track.delete",
+            resource_type="Track",
+            resource_id=track_id,
+            before=prior_snapshot,
+            after=None,
+            scope=f"track:{track_id}",
+        )
+
+    else:
+        await deliver_staging_command_events()
 
     return {"message": "Track deleted successfully", "deleted_track_id": track_id}
 

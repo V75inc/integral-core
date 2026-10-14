@@ -645,10 +645,13 @@ async def stream_chat_turn_events(
         raise ResourceNotFoundError(message="Chat turn not found")
 
     async def assert_scope() -> None:
-        owned = await _resolve_owned_thread(thread_id, user_id)
-        current_workspace = await _resolve_turn_workspace(request, user_id, owned)
-        if current_workspace != workspace_id:
-            raise InsufficientPermissionsError(message="Chat workspace changed")
+        from app.services.release_admission import release_admission
+
+        async with release_admission(user_id, workspace_id):
+            owned = await _resolve_owned_thread(thread_id, user_id)
+            current_workspace = await _resolve_turn_workspace(request, user_id, owned)
+            if current_workspace != workspace_id:
+                raise InsufficientPermissionsError(message="Chat workspace changed")
 
     return StreamingResponse(
         stream_committed_chat_turn(

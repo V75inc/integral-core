@@ -217,10 +217,10 @@ domains:
         op_class: read
         priority: P0
         summary: "Return the acting user id, active workspace (id/name/kind), and role summary — the bound context the agent reasons within. Never reveals other workspaces' contents."
-        http: "GET /api/users/me/scope"
+        http: "(bound execution context)"
         policy_action: null   # self-scoped; no resource gate beyond authn
         params: {}
-        returns: { user_id: str, workspace: {id: str, name: str, kind: "personal|organization"}, can_create_apps: bool, can_create_tracks: bool }
+        returns: { user_id: str, workspace: {id: str, name: str, kind: "personal|organization"}, role: str, can_create_apps: bool, can_create_tracks: bool }
         privacy: "Self + active-scope only. PC-1, PC-2."
       - name: integral_get_page_context
         status: existing
