@@ -85,20 +85,6 @@ def normalize_custom_base_url(base_url: Optional[str]) -> str:
     return normalized
 
 
-def custom_base_allows_keyless(base_url: str) -> bool:
-    """True when a custom endpoint may be used without an API key.
-
-    Keyless access is limited to loopback hosts (local dev servers such as
-    LM Studio or keyless vLLM). Any other host requires a key.
-    """
-    try:
-        hostport = base_url.split("://", 1)[-1].split("/", 1)[0]
-        host = hostport.rsplit("@", 1)[-1].split(":", 1)[0].strip().lower()
-    except Exception:
-        return False
-    return host in ("localhost", "127.0.0.1")
-
-
 def audit_snapshot_credential(record: UserModelCredential) -> Dict[str, Any]:
     """Metadata-only snapshot safe for ChangeEvent logging."""
     return {
@@ -175,14 +161,13 @@ async def validate_provider_api_key(
         except ValueError as exc:
             return False, str(exc)
         key = (api_key or "").strip()
-        if not key and not custom_base_allows_keyless(normalized):
+        if not key:
             return False, "invalid API key"
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
-                headers = {"Authorization": f"Bearer {key}"} if key else {}
                 resp = await client.get(
                     f"{normalized}/models",
-                    headers=headers,
+                    headers={"Authorization": f"Bearer {key}"},
                 )
             if resp.status_code not in (200, 401, 403, 404):
                 logger.warning(
@@ -340,6 +325,14 @@ async def upsert_user_credential(
         raise ValueError(f"Unsupported provider: {provider}")
 
     local_ollama = slug == "ollama_local"
+    if not local_ollama and not encryption_available():
+        # Hosted credentials need a dedicated key at rest. Local Ollama stores
+        # no secret, so that model choice does not require an encryption key.
+        raise RuntimeError(
+            encryption_unavailable_reason()
+            or "INTEGRAL_CREDENTIAL_ENC_KEY is not configured"
+        )
+
     existing = await get_credential_for_user(user_id)
     custom = slug == "custom_openai"
     if custom:
@@ -351,19 +344,10 @@ async def upsert_user_credential(
         if (base_url or "").strip():
             raise ValueError("base_url is only supported for custom_openai")
         base_normalized = ""
-    # Keyless custom endpoints are allowed only on loopback hosts. Like local
-    # Ollama they store no secret, so they don't need an encryption key.
-    keyless_custom = custom and custom_base_allows_keyless(base_normalized)
-    if not local_ollama and not keyless_custom and not encryption_available():
-        # Hosted credentials need a dedicated key at rest.
-        raise RuntimeError(
-            encryption_unavailable_reason()
-            or "INTEGRAL_CREDENTIAL_ENC_KEY is not configured"
-        )
     api_key_plain = (api_key or "").strip()
     if local_ollama and api_key_plain:
         raise ValueError("Local Ollama does not use an API key")
-    if not api_key_plain and not local_ollama and not keyless_custom:
+    if not api_key_plain and not local_ollama:
         if not existing:
             raise ValueError("api_key is required")
         api_key_plain = decrypt_credential_api_key(existing)
