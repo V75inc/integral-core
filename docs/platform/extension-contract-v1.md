@@ -55,6 +55,12 @@ returns the existing job. Inside the job, `ctx.job_id` is set and
 reads a job the App queued. Work item status and the background tasks list
 show the App's label and reported progress.
 
+Enqueue and each execution attempt require current workspace access; privileged
+tools additionally require owner or admin authority. Job status is visible only
+to its initiator or a workspace owner/admin who retains workspace access, and
+only through the owning App's workspace context. Unauthorized status reads
+return `None`.
+
 Jobs keep their steps short and resumable: save progress on the record, make
 every step safe to repeat, and treat a job as one worker's sequential run, not a
 transaction. A tool may update its own App's records in the workspace where the

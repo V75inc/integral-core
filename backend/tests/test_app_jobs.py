@@ -29,7 +29,12 @@ USER = "aj-user-1"
 
 
 @pytest.fixture(autouse=True)
-def _clean_registry():
+async def _clean_registry(monkeypatch):
+    from tests.test_resource_location import graph
+
+    owner, workspace, _, _, _ = await graph()
+    monkeypatch.setattr(sys.modules[__name__], "USER", owner.id)
+    monkeypatch.setattr(sys.modules[__name__], "WS", workspace.id)
     saved = dict(registry._TOOLS)
     registry._TOOLS.clear()
     work_worker.clear_test_handlers()
@@ -396,16 +401,13 @@ async def test_a_job_whose_principal_is_gone_does_not_run(monkeypatch) -> None:
         idempotency_key="aj-gone-principal",
         input_payload={"tool_key": "run_job", "bundle_slug": "demo-app", "input": {}},
     )
-    from app.schemas.agentive.work import WorkError
+    from app.models.nodes import User
 
-    with patch.object(
-        work_worker,
-        "_recheck_principal_workspace",
-        AsyncMock(side_effect=WorkError("work.policy_denied", "no longer a member")),
-    ):
-        done = await work_worker.process_one_due_item(
-            worker_id="aj-worker", work_item_id=item.work_item_id, lease_seconds=30
-        )
+    principal = await User.get(USER)
+    await principal.delete()
+    done = await work_worker.process_one_due_item(
+        worker_id="aj-worker", work_item_id=item.work_item_id, lease_seconds=30
+    )
     assert done.status == "failed"
     assert done.failure["code"] == "work.policy_denied"
     assert seen == []
@@ -612,7 +614,8 @@ class _FakeApp:
     lifecycle_state = "active"
 
 
-def _patch_schedule_env(monkeypatch, *, app=_FakeApp(), principal=USER):
+def _patch_schedule_env(monkeypatch, *, app=_FakeApp(), principal=None):
+    principal = USER if principal is None else principal
     monkeypatch.setattr(app_schedules, "_app_for", AsyncMock(return_value=app))
     # The stored App behind the fake: bind to a definition without needing a real install.
     monkeypatch.setattr(
@@ -700,3 +703,175 @@ async def test_a_tool_without_a_schedule_is_never_queued(monkeypatch) -> None:
         )
         == 0
     )
+
+
+# --- current human authority -------------------------------------------------
+
+
+async def _member(role="member"):
+    from app.models.edges import IS_MEMBER_OF
+    from app.models.nodes import User, Workspace
+    from app.services.app_graph import catalog_user
+
+    user = await User.create(display_name="Job permission QA")
+    await catalog_user(user)
+    workspace = await Workspace.get(WS)
+    edge = await user.connect(workspace, edge=IS_MEMBER_OF, role=role) if role else None
+    ctx = ToolContext(
+        user_id=user.id, workspace_id=WS, scope="test", bundle_slug="demo-app"
+    )
+    return user, edge, ctx
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", ["member", "guest", None])
+async def test_privileged_job_cannot_be_enqueued_without_admin_authority(
+    monkeypatch, role
+):
+    from app.api.errors import InsufficientPermissionsError
+
+    _tool(monkeypatch)
+    registry._TOOLS[WS]["run_job"]["privileged"] = True
+    _, _, ctx = await _member(role)
+    with pytest.raises(InsufficientPermissionsError):
+        await ctx.enqueue_job("run_job", {}, idempotency_key="denied")
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+@pytest.mark.parametrize("new_role", ["member", None])
+async def test_privileged_job_rechecks_role_after_enqueue(monkeypatch, new_role):
+    seen = _tool(monkeypatch)
+    registry._TOOLS[WS]["run_job"]["privileged"] = True
+    await _resolve_app(monkeypatch)
+    _, edge, ctx = await _member("admin")
+    out = await ctx.enqueue_job("run_job", {}, idempotency_key="admin-action")
+    if new_role:
+        edge.role = new_role
+        await edge.save()
+    else:
+        await edge.delete()
+
+    done = await work_worker.process_one_due_item(work_item_id=out["job_id"])
+    assert done.status == "failed"
+    assert done.failure["code"] == "work.policy_denied"
+    assert done.failure["retryable"] is False
+    assert seen == []
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+@pytest.mark.parametrize("origin", ["app_tool", "app_schedule"])
+async def test_worker_refuses_privileged_tool_even_if_enqueue_was_bypassed(
+    monkeypatch, origin
+):
+    from app.api.errors import InsufficientPermissionsError
+    from app.services.workspace_tools import invoke_workspace_tool
+
+    seen = _tool(monkeypatch)
+    registry._TOOLS[WS]["run_job"]["privileged"] = True
+    user, _, _ = await _member()
+    with pytest.raises(InsufficientPermissionsError):
+        await invoke_workspace_tool(
+            user_id=user.id, workspace_id=WS, tool_key="run_job"
+        )
+    item = await work_items.enqueue_work_item(
+        kind="app_tool",
+        origin=origin,
+        principal_id=user.id,
+        workspace_id=WS,
+        idempotency_key="worker-authorization",
+        input_payload={"tool_key": "run_job", "bundle_slug": "demo-app", "input": {}},
+    )
+    done = await work_worker.process_one_due_item(work_item_id=item.work_item_id)
+    assert done.status == "failed"
+    assert done.failure["code"] == "work.policy_denied"
+    assert seen == []
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+async def test_retry_does_not_execute_after_membership_is_revoked(monkeypatch):
+    from app.agentive.work_models import WorkItem
+
+    seen = _tool(monkeypatch, result={"ok": False, "retry": True, "reason": "busy"})
+    await _resolve_app(monkeypatch)
+    _, edge, ctx = await _member()
+    out = await ctx.enqueue_job("run_job", {}, idempotency_key="retry-authority")
+    first = await work_worker.process_one_due_item(work_item_id=out["job_id"])
+    assert first.status == "retry_wait"
+    await edge.delete()
+    row = await WorkItem.get(work_items._object_id(out["job_id"]))
+    row.next_attempt_at = ""
+    await row.save()
+    second = await work_worker.process_one_due_item(work_item_id=out["job_id"])
+    assert second.status == "failed"
+    assert second.failure["code"] == "work.policy_denied"
+    assert len(seen) == 1
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+@pytest.mark.parametrize("identity_state", ["disabled", "deleted"])
+async def test_job_refuses_inactive_auth_identity(monkeypatch, identity_state):
+    from jvspatial.api.auth.models import User as AuthUser
+
+    seen = _tool(monkeypatch)
+    await _resolve_app(monkeypatch)
+    user, _, ctx = await _member()
+    identity = await AuthUser.create(
+        email="jobs-permission@example.com", password_hash="test-fixture"
+    )
+    user.user_id = identity.id
+    await user.save()
+    ctx.user_id = identity.id
+    out = await ctx.enqueue_job("run_job", {}, idempotency_key="identity-state")
+    if identity_state == "disabled":
+        identity.is_active = False
+        await identity.save()
+    else:
+        await identity.delete()
+    done = await work_worker.process_one_due_item(work_item_id=out["job_id"])
+    assert done.status == "failed"
+    assert done.failure["code"] == "work.policy_denied"
+    assert seen == []
+    assert await ctx.job_status(out["job_id"]) is None
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+async def test_member_job_keeps_internal_entry_point_and_execution_context(monkeypatch):
+    seen = _tool(monkeypatch)
+    registry._TOOLS[WS]["run_job"]["agent_callable"] = False
+    await _resolve_app(monkeypatch)
+    user, _, ctx = await _member()
+    out = await ctx.enqueue_job("run_job", {}, idempotency_key="internal-entry")
+    done = await work_worker.process_one_due_item(work_item_id=out["job_id"])
+    assert done.status == "succeeded"
+    assert seen[0]["ctx"].user_id == user.id
+    assert seen[0]["ctx"].job_id == out["job_id"]
+    assert seen[0]["ctx"].job_lease
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+async def test_job_status_respects_initiator_and_current_workspace_roles(monkeypatch):
+    _tool(monkeypatch)
+    await _resolve_app(monkeypatch)
+    _, member_edge, initiator = await _member()
+    _, admin_edge, admin = await _member("admin")
+    _, _, another_member = await _member()
+    _, _, guest = await _member("guest")
+    out = await initiator.enqueue_job("run_job", {}, idempotency_key="private-status")
+
+    assert await initiator.job_status(out["job_id"]) is not None
+    assert await _ctx().job_status(out["job_id"]) is not None  # workspace owner
+    assert await admin.job_status(out["job_id"]) is not None
+    assert await another_member.job_status(out["job_id"]) is None
+    assert await guest.job_status(out["job_id"]) is None
+    admin_edge.role = "member"
+    await admin_edge.save()
+    assert await admin.job_status(out["job_id"]) is None
+    await member_edge.delete()
+    assert await initiator.job_status(out["job_id"]) is None

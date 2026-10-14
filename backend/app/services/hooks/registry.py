@@ -1106,6 +1106,11 @@ class ToolContext:
             raise ValueError("enqueue_job: idempotency_key is required")
         from app.agentive.services.work_items import enqueue_work_item
         from app.services.relation_runtime import resolve_target_app
+        from app.services.workspace_tools import require_workspace_tool_access
+
+        await require_workspace_tool_access(
+            user_id=self.user_id, workspace_id=self.workspace_id, spec=spec
+        )
 
         app_id = await resolve_target_app(
             workspace_id=self.workspace_id, target_app_key=caller
@@ -1150,10 +1155,11 @@ class ToolContext:
         )
 
     async def job_status(self, job_id: str) -> Optional[Dict[str, Any]]:
-        """Status of a job this App queued in this workspace, or None."""
+        """Status of this App's job when the caller may observe it, or None."""
         from app.agentive.services.work_items import _object_id
-        from app.agentive.services.work_visibility import _project_work_status
+        from app.agentive.services.work_visibility import get_visible_work_item
         from app.agentive.work_models import WorkItem
+        from app.api.errors import InsufficientPermissionsError, ResourceNotFoundError
 
         jid = str(job_id or "").strip()
         if not jid:
@@ -1167,7 +1173,13 @@ class ToolContext:
             != (self.bundle_slug or "")
         ):
             return None
-        return _project_work_status(item.model_dump()).model_dump(mode="json")
+        try:
+            visible = await get_visible_work_item(
+                work_item_id=item.work_item_id, principal_id=self.user_id
+            )
+        except (InsufficientPermissionsError, ResourceNotFoundError):
+            return None
+        return visible.model_dump(mode="json")
 
     #: Stamped by ``run_tool`` from the running tool's registered spec.
     connector_writes: tuple = ()
