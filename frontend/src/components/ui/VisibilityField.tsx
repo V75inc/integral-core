@@ -1,4 +1,4 @@
-import { Lock, Users, Link2 } from 'lucide-react';
+import { Lock, Users, Link2, Globe } from 'lucide-react';
 import { LINE_ICON_STROKE } from './IconWell';
 
 export type VisibilityChoice = 'inherit' | 'private' | 'workspace' | 'public';
@@ -62,12 +62,18 @@ export function VisibilityField({
         : 'No workspace active',
       disabled: !workspaceAvailable,
     },
+    {
+      key: 'public',
+      label: 'Public',
+      Icon: Globe,
+      sub: 'Anyone can view; editing still requires permission',
+    },
   ];
 
   return (
     <div className="space-y-2">
       <div
-        className={`grid gap-2 auto-rows-fr ${showInherit ? 'grid-cols-3' : 'grid-cols-2'}`}
+        className={`grid gap-2 auto-rows-fr ${showInherit ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'}`}
       >
         {items.map(({ key, label, Icon, sub, disabled: itemDis }) => {
           const on = value === key;
@@ -76,6 +82,7 @@ export function VisibilityField({
             <button
               key={key}
               type="button"
+              aria-pressed={on}
               disabled={dim}
               onClick={() => !dim && onChange(key)}
               className={`${BTN} ${on ? BTN_ON : BTN_OFF} ${

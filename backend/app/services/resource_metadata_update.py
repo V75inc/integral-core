@@ -22,7 +22,7 @@ from app.api.validators_common import (
     non_empty_after_strip,
     validate_hex_color,
 )
-from app.models.nodes import App, Track, Workspace
+from app.models.nodes import App, Track
 from app.schemas.policy import Resource, Subject
 from app.services.app_operations.transaction_scope import (
     graph_transaction_available,
@@ -150,20 +150,11 @@ async def update_app_metadata(
             sp.accent_color = validate_hex_color(accent_color, allow_empty=True)
         if visibility is not None:
             v = visibility.strip()
-            if v == "inherit":
-                from app.services.workspace_kind import workspace_is_collaborative
-
-                workspace_id = sp.workspace_id
-                ws = await Workspace.get(workspace_id) if workspace_id else None
-                sp.visibility = (
-                    "workspace" if workspace_is_collaborative(ws) else "private"
+            if v not in ("private", "workspace", "public"):
+                raise BadRequestError(
+                    message="visibility must be private, workspace, or public",
                 )
-            else:
-                if v not in ("private", "workspace", "public"):
-                    raise BadRequestError(
-                        message="visibility must be private, workspace, public, or inherit",
-                    )
-                sp.visibility = v
+            sp.visibility = v
         vis = getattr(sp, "visibility", None) or "private"
         await validate_app_visibility_workspace(vis, sp.workspace_id)
         sp.updated_at = utc_now_iso()

@@ -41,23 +41,13 @@ async def effective_app_visibility(
     workspace_id: Optional[str],
     visibility: Optional[str],
 ) -> str:
-    """Resolve app visibility for create.
-
-    ``inherit`` (or empty) → ``workspace`` when the workspace is org-kind,
-    else ``private``. Explicit ``workspace`` requires an org-kind workspace.
-    """
-    raw = _canonicalize_visibility(visibility) or None
-    is_org_ws = await _is_organization_workspace(workspace_id)
-    if raw in (None, "inherit"):
-        return "workspace" if is_org_ws else "private"
+    """Default new Apps to private; broader access must be explicit."""
+    raw = _canonicalize_visibility(visibility) or "private"
     if raw not in VALID_ENTITY_VISIBILITY:
         raise BadRequestError(
-            message="visibility must be private, workspace, public, or inherit",
+            message="visibility must be private, workspace, or public",
         )
-    if raw == "workspace" and not is_org_ws:
-        raise BadRequestError(
-            message="workspace visibility requires a workspace",
-        )
+    await validate_app_visibility_workspace(raw, workspace_id)
     return raw
 
 
@@ -74,13 +64,13 @@ async def validate_app_visibility_workspace(
 
 
 def normalize_track_visibility_input(visibility: Optional[str]) -> Optional[str]:
-    """Return None for inherit/omit; explicit value string otherwise."""
+    """Omission defaults privately; explicit inheritance remains supported."""
     if visibility is None:
         return None
     v = _canonicalize_visibility(visibility)
-    if v in ("", "inherit", None):
+    if v in ("", None):
         return None
-    if v not in VALID_ENTITY_VISIBILITY:
+    if v not in VALID_ENTITY_VISIBILITY and v != "inherit":
         raise BadRequestError(
             message="visibility must be private, workspace, public, or inherit",
         )
