@@ -60,3 +60,29 @@ describe('many relation trigger stability', () => {
     expect(screen.getByLabelText('Next opportunity')).toBeVisible();
   });
 });
+
+describe('select fields are searchable by default', () => {
+  const selectField: OperationalModelFieldSpec = {
+    key: 'pipeline_status',
+    name: 'Pipeline status',
+    type: 'select',
+    enum: ['new', 'contacted'],
+  };
+
+  it('renders one combobox (no separate search field)', () => {
+    render(<SeamlessField field={selectField} value="new" onChange={vi.fn()} />);
+    const combo = screen.getByRole('combobox', { name: 'Pipeline status' });
+    fireEvent.focus(combo);
+    expect(screen.getByRole('option', { name: 'New' })).toBeTruthy();
+    expect(screen.queryByLabelText('Search options')).toBeNull();
+  });
+
+  it('omits the placeholder option from the list', () => {
+    render(<SeamlessField field={selectField} value="new" onChange={vi.fn()} />);
+    fireEvent.focus(screen.getByRole('combobox', { name: 'Pipeline status' }));
+    expect(screen.getByRole('option', { name: 'Contacted' })).toBeTruthy();
+    expect(
+      screen.queryByRole('option', { name: /Enter Pipeline status/i })
+    ).toBeNull();
+  });
+});

@@ -48,13 +48,68 @@ export function resolveFieldValuesForEntryType(
  * ``_type_field_cache``) from baseline so dormant type-specific values
  * survive round-trip type switches.
  */
+export interface BuildCustomFieldsOptions {
+  /** Edit mode: include only fields whose value differs from ``baseline``, so an
+   *  untouched App-protected field is not re-sent (Core's protected-field guard
+   *  rejects on key presence, not change). */
+  changedOnly?: boolean;
+}
+
+/** Normalized value for diffing: `null`/`undefined`/`''` are equivalent (clearing
+ *  an already-empty field is a no-op), arrays compare order-insensitively, objects
+ *  compare by sorted keys, and primitives compare by string so `42`/`"42"` and
+ *  `true`/`"true"` don't produce false diffs. */
+function normalizeForDiff(value: unknown): unknown {
+  if (value === undefined || value === null || value === '') return null;
+  if (Array.isArray(value)) {
+    return value
+      .map(normalizeForDiff)
+      .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  }
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    return Object.keys(obj)
+      .sort()
+      .reduce<Record<string, unknown>>((acc, k) => {
+        acc[k] = normalizeForDiff(obj[k]);
+        return acc;
+      }, {});
+  }
+  return String(value);
+}
+
+export function valuesEqualForDiff(a: unknown, b: unknown): boolean {
+  return (
+    JSON.stringify(normalizeForDiff(a)) === JSON.stringify(normalizeForDiff(b))
+  );
+}
+
+/** Keys present in ``next`` whose value differs from ``baseline``.
+ *
+ * Used by widget-driven persists (kanban drag, calendar drop) so an untouched
+ * App-protected field is not re-sent — Core's protected-field guard rejects on
+ * key presence, not on change. */
+export function diffCustomFields(
+  next: Record<string, unknown>,
+  baseline?: Record<string, unknown> | null
+): Record<string, unknown> {
+  const base = baseline || {};
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(next)) {
+    if (!valuesEqualForDiff(value, base[key])) out[key] = value;
+  }
+  return out;
+}
+
 export function buildCustomFieldsForEntryType(
   dynamicFields: OperationalModelFieldSpec[],
   fieldValues: Record<string, unknown>,
   baseline?: Record<string, unknown> | null,
-  extras?: Record<string, unknown> | null
+  extras?: Record<string, unknown> | null,
+  options?: BuildCustomFieldsOptions
 ): Record<string, unknown> {
   const baselineCf = baseline || {};
+  const changedOnly = Boolean(options?.changedOnly && baseline);
   const out: Record<string, unknown> = {};
 
   for (const [k, v] of Object.entries(baselineCf)) {
@@ -66,7 +121,9 @@ export function buildCustomFieldsForEntryType(
     if (!key || key.startsWith('_')) continue;
     const v =
       fieldValues[key] !== undefined ? fieldValues[key] : baselineCf[key];
-    if (v !== undefined) out[key] = v;
+    if (v === undefined) continue;
+    if (changedOnly && valuesEqualForDiff(v, baselineCf[key])) continue;
+    out[key] = v;
   }
 
   if (extras) {

@@ -137,7 +137,8 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
     resolves the X-Integral-User-Id header to set request.state.user so that
     downstream handlers see an authenticated user context.
 
-    Only applies to /api/agentive/* paths. Other paths are unaffected.
+    Only applies to /api/agentive/* and /api/mcp/* paths. Other paths are
+    unaffected.
 
     Mandatory signature path (D-01): every user-context path requires a valid
     X-Integral-Timestamp + X-Integral-Signature pair. The signature is
@@ -164,10 +165,16 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
         if not service_key:
             return await call_next(request)
 
-        # Docstring contract: service auth only on /api/agentive/* — never mint
-        # a handoff JWT for the rest of the API surface.
+        # Service auth applies to the agentive API surface AND the MCP server
+        # mount (`/api/mcp`), so an external agent can authenticate to either.
+        # It never mints a handoff JWT for the rest of the API surface.
         path = request.url.path
-        if not (path == "/api/agentive" or path.startswith("/api/agentive/")):
+        if not (
+            path == "/api/agentive"
+            or path.startswith("/api/agentive/")
+            or path == "/api/mcp"
+            or path.startswith("/api/mcp/")
+        ):
             return await call_next(request)
 
         if not _get_service_key():

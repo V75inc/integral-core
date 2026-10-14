@@ -37,6 +37,61 @@ export function sortFieldsByOrder(fields: OperationalModelFieldSpec[]): Operatio
     .map(({ field }) => field);
 }
 
+/** Minimal shape of an entry type needed to resolve its field specs. */
+export interface OperationalModelEntryTypeLike {
+  id?: string;
+  name?: string;
+  form_schema?: {
+    _manifest_entry_type_key?: string;
+    fields?: OperationalModelFieldSpec[];
+  };
+}
+
+/**
+ * Resolve an entry type from a slug/key, matching (in order) the manifest key
+ * (`form_schema._manifest_entry_type_key`), the display name, then the node id.
+ *
+ * Matching on the name alone broke any type whose display name differs from its
+ * key (e.g. name "Contact", key `crm_contact`, `entry.type` slugged to
+ * "crm_contact" ≠ "contact"). As a defensive fallback a single-entry-type track
+ * resolves to that type, so a form/detail can never silently render fieldless.
+ */
+export function findEntryTypeBySlug<T extends OperationalModelEntryTypeLike>(
+  entryTypes: T[],
+  entryType: string
+): T | null {
+  const wanted = slugEntryTypeName(String(entryType || ''));
+  if (!wanted) return null;
+  const byKey = entryTypes.find(et => {
+    const key = String(et.form_schema?._manifest_entry_type_key || '');
+    return Boolean(key) && slugEntryTypeName(key) === wanted;
+  });
+  if (byKey) return byKey;
+  const byName = entryTypes.find(
+    et => slugEntryTypeName(String(et.name || '')) === wanted
+  );
+  if (byName) return byName;
+  const byId = entryTypes.find(
+    et => Boolean(et.id) && slugEntryTypeName(String(et.id)) === wanted
+  );
+  if (byId) return byId;
+  return entryTypes.length === 1 ? entryTypes[0] : null;
+}
+
+/**
+ * Resolve the field specs to render for an entry's type (see
+ * {@link findEntryTypeBySlug} for the matching rules).
+ */
+export function resolveEntryProfileFields(
+  entryTypes: OperationalModelEntryTypeLike[],
+  entryType: string
+): OperationalModelFieldSpec[] {
+  const match = findEntryTypeBySlug(entryTypes, entryType);
+  return sortFieldsByOrder(
+    (match?.form_schema?.fields || []) as OperationalModelFieldSpec[]
+  );
+}
+
 export function isEmptyCustomFieldValue(value: unknown): boolean {
   if (value === null || value === undefined) return true;
   if (typeof value === 'string' && !value.trim()) return true;
@@ -164,6 +219,8 @@ export function shouldRenderMetaField(
   _variant: 'detail' | 'card'
 ): boolean {
   if (field.key.startsWith('_')) return false;
+  // Card/list only: a field may be hidden from cards but shown on the detail.
+  if (_variant === 'card' && field.hide_on_card) return false;
   const fieldType = String(field.type || '').toLowerCase();
   // Detail: always show relation / member rows (incl. empty) so fields like
   // Task → Sprint are assignable without hunting Edit. Cards stay compact —
