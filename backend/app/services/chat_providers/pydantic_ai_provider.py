@@ -1070,6 +1070,177 @@ class PydanticAIProvider:
 
         return thread, workspace_role
 
+    async def _build_turn_model(
+        self, ctx, scope, work_execution_context, workspace_role
+    ):
+        """One funding, metering and current-authority contract for both modes."""
+        from app.config import settings
+        from app.services.workspace_permissions import can_access_workspace
+
+        route = await resolve_native_model_route(
+            workspace_id=ctx.workspace_id,
+            default_model=os.getenv("INTEGRAL_NATIVE_MODEL", "").strip(),
+        )
+        model_observer = (
+            partial(
+                persist_model_request_observation,
+                work_execution_context=work_execution_context,
+            )
+            if work_execution_context is not None
+            else persist_model_request_observation
+        )
+        model_admission = None
+        if work_execution_context is not None:
+            from app.agentive.services.work_model_admission import WorkModelAdmission
+
+            async def assert_model_authority() -> None:
+                from app.middleware.permissions_cache import isolated_permissions_cache
+
+                with isolated_permissions_cache():
+                    current_role = await can_access_workspace(
+                        ctx.user_id, ctx.workspace_id
+                    )
+                    if current_role == "none" or current_role != workspace_role:
+                        raise WorkError("work.permission_stale")
+                    current_route = await resolve_native_model_route(
+                        workspace_id=ctx.workspace_id,
+                        default_model=os.getenv("INTEGRAL_NATIVE_MODEL", "").strip(),
+                    )
+                    if current_route != route:
+                        raise WorkError("work.model_route_stale")
+
+            model_admission = WorkModelAdmission(
+                context=work_execution_context,
+                assert_authority=assert_model_authority,
+                observer=model_observer,
+            )
+            model_observer = model_admission.observe
+        return build_litellm_sdk_model(
+            route=route,
+            scope=scope,
+            observer=model_observer,
+            admission=model_admission,
+            timeout_seconds=settings.INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS,
+        )
+
+    async def _try_light_turn(self, ctx, thread, workspace_role, work_context):
+        from app.agentive.harness.adaptive import (
+            EscalatedTurn,
+            LightTurnResult,
+            OperationalContextRequest,
+            build_light_agent,
+            public_dialogue,
+            recent_public_messages,
+            requires_operational_path,
+        )
+        from app.agentive.services.execution_runs import AgentRun
+        from app.config import settings
+
+        if os.getenv("INTEGRAL_NATIVE_ADAPTIVE_CONTEXT", "1") != "1":
+            return None
+        active = (
+            await HarnessSession.get(thread.active_harness_session_id)
+            if thread.active_harness_session_id
+            else None
+        )
+        previous = (
+            await AgentRun.find_one({"run_id": active.last_run_id})
+            if active and active.last_run_id
+            else None
+        )
+        if requires_operational_path(ctx, thread, previous):
+            return None
+        run_id = str((ctx.extra_data or {}).get("run_id") or "").strip()
+        run = await AgentRun.find_one({"run_id": run_id}) if run_id else None
+        if (
+            run is None
+            or run.user_id != ctx.user_id
+            or run.workspace_id != ctx.workspace_id
+            or run.thread_id != ctx.thread_id
+            or run.provider_id != self.id
+            or run.status != "running"
+        ):
+            raise InsufficientPermissionsError(
+                message="Native execution run scope mismatch"
+            )
+        if getattr(run, "origin", "") not in {"http", "chat", "interactive_chat"}:
+            return None
+        if work_context is not None and work_context.run_id != run.run_id:
+            raise WorkError("work.policy_denied", "execution run mismatch")
+        if work_context is not None:
+            from app.agentive.work_models import WorkItem
+
+            await _assert_work_output_authority_current(work_context)
+            item = await WorkItem.find_one({"work_item_id": work_context.work_item_id})
+            if (
+                item is None
+                or item.kind != "chat_turn"
+                or item.origin != "interactive_chat"
+                or item.parent_work_item_id
+            ):
+                # Mandates, scheduled work and child/recovery execution are
+                # host-owned operations even when their utterance is short.
+                return None
+        accepted_id = (run.metadata or {}).get("chat_message_id")
+        if not accepted_id:
+            return None
+        messages = await recent_public_messages(thread)
+        accepted = next((m for m in messages if m.id == accepted_id), None)
+        if accepted is None or any(p.get("type") != "text" for p in accepted.parts):
+            return None
+        scope = HarnessExecutionScope(
+            tenant_id=ctx.workspace_id,
+            principal_id=ctx.user_id,
+            workspace_id=ctx.workspace_id,
+            thread_id=ctx.thread_id,
+            # Ephemeral model accounting namespace. Never advance or replace
+            # the operational HarnessSession/checkpoint pointer for light chat.
+            session_id=f"light-{run.run_id}",
+            run_id=run.run_id,
+            permission_revision=_digest(
+                {"policy": _POLICY_REVISION, "workspace_role": workspace_role}
+            ),
+            capability_version=run.capability_version or "conversation-v1",
+        )
+        model = await self._build_turn_model(ctx, scope, work_context, workspace_role)
+        from app.services.user_timezone import user_time_context
+
+        time_context = await user_time_context(ctx.user_id)
+        started = time.monotonic()
+        result = await build_light_agent(model, time_context=time_context).run(
+            ctx.text,
+            message_history=public_dialogue(messages, exclude_id=accepted_id),
+            cancellation_token=self._active_tokens.get(ctx.thread_id),
+            usage_limits=UsageLimits(
+                request_limit=1,
+                total_tokens_limit=settings.INTEGRAL_NATIVE_TURN_TOKEN_LIMIT,
+            ),
+        )
+        if isinstance(result.output, OperationalContextRequest):
+            logger.info("native adaptive escalation run=%s", run_id)
+            usage = result.usage
+            return EscalatedTurn(
+                input_tokens=usage.input_tokens, output_tokens=usage.output_tokens
+            )
+        from app.agentive.harness.pydantic_ai_compat import AgentRunResultEvent
+
+        public_text = ""
+        for event in PydanticAIEventTranslator().translate(AgentRunResultEvent(result)):
+            if event.get("type") == "error":
+                raise ServiceUnavailableError(message=str(event["message"]))
+            if event.get("type") == "text-delta":
+                public_text += str(event["delta"])
+        if not public_text.strip():
+            raise ServiceUnavailableError(
+                message="The assistant returned no usable answer"
+            )
+        return LightTurnResult(
+            text=public_text,
+            scope=scope,
+            work_context=work_context,
+            elapsed_ms=(time.monotonic() - started) * 1000,
+        )
+
     async def _prepare_current(self, ctx: ChatTurnContext):
         raw_work_context = (ctx.extra_data or {}).get("work_execution_context")
         work_execution_context = (
@@ -1085,13 +1256,20 @@ class PydanticAIProvider:
             raise WorkError("work.policy_denied", "execution scope mismatch")
         thread, workspace_role = await self._validate_chat_scope(ctx)
         from app.services.credential_crypto import encryption_available
-        from app.services.workspace_permissions import can_access_workspace
 
         if not encryption_available():
             raise ServiceUnavailableError(
                 message="Integral storage encryption requires installation setup",
                 details={"reason": "native_storage_encryption_not_configured"},
             )
+
+        light = await self._try_light_turn(
+            ctx, thread, workspace_role, work_execution_context
+        )
+        from app.agentive.harness.adaptive import EscalatedTurn
+
+        if light is not None and not isinstance(light, EscalatedTurn):
+            return light
 
         from app.agentive.tooling.catalogue import build_tool_catalogue
 
@@ -1138,7 +1316,6 @@ class PydanticAIProvider:
         ):
             raise WorkError("work.policy_denied", "execution run mismatch")
         from app.agentive.services.execution_runs import AgentRun
-        from app.config import settings
 
         core_run = await AgentRun.find_one({"run_id": requested_run_id})
         if (
@@ -1203,50 +1380,8 @@ class PydanticAIProvider:
                 work_execution_context=work_execution_context,
             )
 
-        route = await resolve_native_model_route(
-            workspace_id=ctx.workspace_id,
-            default_model=os.getenv("INTEGRAL_NATIVE_MODEL", "").strip(),
-        )
-        model_observer = (
-            partial(
-                persist_model_request_observation,
-                work_execution_context=work_execution_context,
-            )
-            if work_execution_context is not None
-            else persist_model_request_observation
-        )
-        model_admission = None
-        if work_execution_context is not None:
-            from app.agentive.services.work_model_admission import WorkModelAdmission
-
-            async def assert_model_authority() -> None:
-                from app.middleware.permissions_cache import isolated_permissions_cache
-
-                with isolated_permissions_cache():
-                    current_role = await can_access_workspace(
-                        ctx.user_id, ctx.workspace_id
-                    )
-                    if current_role == "none" or current_role != workspace_role:
-                        raise WorkError("work.permission_stale")
-                    current_route = await resolve_native_model_route(
-                        workspace_id=ctx.workspace_id,
-                        default_model=os.getenv("INTEGRAL_NATIVE_MODEL", "").strip(),
-                    )
-                    if current_route != route:
-                        raise WorkError("work.model_route_stale")
-
-            model_admission = WorkModelAdmission(
-                context=work_execution_context,
-                assert_authority=assert_model_authority,
-                observer=model_observer,
-            )
-            model_observer = model_admission.observe
-        model = build_litellm_sdk_model(
-            route=route,
-            scope=scope,
-            observer=model_observer,
-            admission=model_admission,
-            timeout_seconds=settings.INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS,
+        model = await self._build_turn_model(
+            ctx, scope, work_execution_context, workspace_role
         )
         design_marker = getattr(thread, "design_proposed", None) or {}
         active_user_turn = 0
@@ -1437,6 +1572,12 @@ class PydanticAIProvider:
                 },
             )
             run_state: dict[str, Any] = {
+                "adaptive_requests": 1 if isinstance(light, EscalatedTurn) else 0,
+                "adaptive_tokens": (
+                    light.input_tokens + light.output_tokens
+                    if isinstance(light, EscalatedTurn)
+                    else 0
+                ),
                 "proposal_attempted": False,
                 "proposal_succeeded": False,
                 "approved_design_ready": bool(
@@ -1511,6 +1652,31 @@ class PydanticAIProvider:
             history = await _refresh_staged_history(
                 history, scope, conversation_id=ctx.thread_id
             )
+            # Public conversation completed since the last operational
+            # checkpoint must remain visible after light turns. Those turns
+            # never mutate the operational restore pointer or its tool effects.
+            from app.agentive.harness.adaptive import (
+                public_dialogue,
+                recent_public_messages,
+            )
+
+            cutoff = str(getattr(previous_run, "finished_at", "") or "")
+            if history and session.last_run_id and previous_run is None:
+                previous_run = await AgentRun.find_one({"run_id": session.last_run_id})
+                cutoff = str(getattr(previous_run, "finished_at", "") or "")
+            if (cutoff or not history) and (
+                getattr(core_run, "metadata", {}) or {}
+            ).get("chat_message_id"):
+                public = await recent_public_messages(thread)
+                newer = [
+                    m for m in public if not cutoff or (m.created_at or "") > cutoff
+                ]
+                history.extend(
+                    public_dialogue(
+                        newer,
+                        exclude_id=(core_run.metadata or {}).get("chat_message_id"),
+                    )
+                )
         except BaseException:
             skill_temp.cleanup()
             raise
@@ -1530,6 +1696,7 @@ class PydanticAIProvider:
         from app.config import settings
 
         active_task = asyncio.current_task()
+        turn_started = time.monotonic()
         cancellation = self._active_tokens.get(ctx.thread_id) or CancellationToken()
         if cancellation.cancelled:
             if self._active_tokens.get(ctx.thread_id) is cancellation:
@@ -1604,6 +1771,44 @@ class PydanticAIProvider:
             if self._active_tasks.get(ctx.thread_id) is active_task:
                 self._active_tasks.pop(ctx.thread_id, None)
             raise
+        from app.agentive.harness.adaptive import LightTurnResult
+
+        if isinstance(prepared, LightTurnResult):
+            try:
+                from app.middleware.permissions_cache import isolated_permissions_cache
+
+                with isolated_permissions_cache():
+                    await self._validate_chat_scope(ctx)
+                await _assert_work_output_authority_current(prepared.work_context)
+                if cancellation.cancelled or (
+                    ctx.is_disconnected and await ctx.is_disconnected()
+                ):
+                    raise asyncio.CancelledError
+                yield {"type": "text-delta", "delta": prepared.text}
+                from app.agentive.harness.model_observations import (
+                    list_model_request_observations,
+                )
+
+                for event in _model_observability_events(
+                    await list_model_request_observations(scope=prepared.scope)
+                ):
+                    await _assert_work_output_authority_current(prepared.work_context)
+                    yield event
+                await _assert_work_output_authority_current(prepared.work_context)
+                yield {
+                    "type": "message-finish",
+                    "timing": {
+                        "totalMs": (time.monotonic() - turn_started) * 1000,
+                        "modelPassMs": prepared.elapsed_ms,
+                    },
+                    "contextMode": "conversation",
+                }
+            finally:
+                if self._active_tokens.get(ctx.thread_id) is cancellation:
+                    self._active_tokens.pop(ctx.thread_id, None)
+                if self._active_tasks.get(ctx.thread_id) is active_task:
+                    self._active_tasks.pop(ctx.thread_id, None)
+            return
         if len(prepared) == 6:
             # Keep monkeypatched/legacy provider fixtures compatible while
             # the optional durable WorkItem path is being introduced.
@@ -1619,6 +1824,7 @@ class PydanticAIProvider:
                 skill_temp,
                 work_execution_context,
             ) = prepared[:7]
+        run_state = prepared[7] if len(prepared) > 7 else {}
         started = time.monotonic()
         first_token_ms: float | None = None
         emitted_observation_ids: set[str] = set()
@@ -1745,9 +1951,17 @@ class PydanticAIProvider:
                     # that ignore tool results; the limit is host-enforced and
                     # must not depend on brittle user-text intent detection.
                     usage_limits=UsageLimits(
-                        request_limit=settings.INTEGRAL_NATIVE_TURN_REQUEST_LIMIT,
+                        request_limit=max(
+                            0,
+                            settings.INTEGRAL_NATIVE_TURN_REQUEST_LIMIT
+                            - run_state.get("adaptive_requests", 0),
+                        ),
                         tool_calls_limit=32,
-                        total_tokens_limit=settings.INTEGRAL_NATIVE_TURN_TOKEN_LIMIT,
+                        total_tokens_limit=max(
+                            0,
+                            settings.INTEGRAL_NATIVE_TURN_TOKEN_LIMIT
+                            - run_state.get("adaptive_tokens", 0),
+                        ),
                     ),
                     cancellation_token=cancellation,
                 ) as stream:
@@ -1805,7 +2019,19 @@ class PydanticAIProvider:
             from app.agentive.harness.plan_store import JvSpatialPlanStore
             from app.agentive.work_models import WorkApproval
 
-            observations = await list_model_request_observations(scope=scope)
+            if run_state.get("adaptive_requests"):
+                from app.agentive.harness.model_observations import (
+                    list_run_model_request_observations,
+                )
+
+                observations = await list_run_model_request_observations(
+                    run_id=scope.run_id,
+                    principal_id=scope.principal_id,
+                    workspace_id=scope.workspace_id,
+                    thread_id=scope.thread_id,
+                )
+            else:
+                observations = await list_model_request_observations(scope=scope)
             unsettled_requests = unsettled_model_request_ids(observations)
             unresolved_effects = await store.list_unresolved_tool_effects(
                 run_id=scope.run_id
@@ -1887,7 +2113,15 @@ class PydanticAIProvider:
                 work_execution_context=work_execution_context,
             )
 
-            observations = await list_model_request_observations(scope=scope)
+            if run_state.get("adaptive_requests"):
+                observations = await list_run_model_request_observations(
+                    run_id=scope.run_id,
+                    principal_id=scope.principal_id,
+                    workspace_id=scope.workspace_id,
+                    thread_id=scope.thread_id,
+                )
+            else:
+                observations = await list_model_request_observations(scope=scope)
 
             # Expose one safe row per physical request. The source records are
             # persisted before this point and retain unknown token/cost fields

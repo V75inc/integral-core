@@ -60,6 +60,70 @@ pytestmark = pytest.mark.usefixtures("standalone_chat_provider")
 
 
 @pytest.mark.asyncio
+async def test_legacy_applied_host_receipt_forces_operational_context_even_with_thanks(
+    authenticated_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No pending token remains after HTTP apply; the receipt still needs readback."""
+    from app.api import ai_chat
+    from app.models.nodes import ChatThread
+
+    workspace_id, thread_id = await _owned_native_thread(authenticated_client)
+    thread = await ChatThread.get(thread_id)
+    thread.provider_id = "integral_native"
+    await thread.save()
+    monkeypatch.setattr(ai_chat.settings, "INTEGRAL_NATIVE_DURABLE_CHAT_ENABLED", False)
+    seen = {}
+
+    class NativeDouble:
+        id = "integral_native"
+        label = "Integral AI"
+        capabilities = {
+            "reasoning": False,
+            "tools": True,
+            "attachments": True,
+            "vision": False,
+            "voice": False,
+        }
+
+        def is_available(self):
+            return True
+
+        async def stream_turn(self, ctx):
+            seen["context"] = ctx
+            yield {"type": "text-delta", "delta": "Verified host receipt"}
+            yield {"type": "message-finish"}
+
+    provider = NativeDouble()
+    monkeypatch.setattr(
+        ai_chat, "get_registry", lambda: SimpleNamespace(get=lambda _id: provider)
+    )
+    staged = SimpleNamespace(
+        kind="update_entry",
+        state="blessed",
+        token="host-token",
+        summary="Update existing record",
+    )
+    monkeypatch.setattr(
+        ai_chat, "_pending_staged_for_turn", AsyncMock(return_value=[staged])
+    )
+    monkeypatch.setattr(ai_chat, "peek_open_batch", lambda *_args: None)
+    execute = AsyncMock(return_value={"consumed": True})
+    monkeypatch.setattr(
+        "app.agentive.services.staging_apply.execute_blessed_change", execute
+    )
+    response = await authenticated_client.post(
+        f"/api/chat/threads/{thread_id}/messages",
+        headers={"X-Integral-Scope": f"ws:{workspace_id}"},
+        json={"text": "thanks", "host_action": "staging_follow_through"},
+    )
+    assert response.status_code == 200, response.text
+    execute.assert_awaited_once()
+    assert seen["context"].text == "thanks"
+    assert seen["context"].extra_data["staging_outcome_continuation"] is True
+    assert "host_applied_staging" in seen["context"].system_context
+
+
+@pytest.mark.asyncio
 async def test_native_chat_event_replay_is_thread_owned_and_cursor_scoped(
     authenticated_client: AsyncClient, test_user, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -2339,6 +2339,10 @@ async def _start_user_turn(
         await thread.save()
 
     extra_data: Dict[str, Any] = {}
+    if native_turn and host_action == "staging_follow_through":
+        # A host-applied receipt still requires operational readback even if
+        # the accompanying human message is conversational and no token remains.
+        extra_data["staging_outcome_continuation"] = True
     if native_turn and attachment_file_parts and not user_text.strip():
         extra_data["attachment_only_input"] = True
     if native_turn and host_action == "prompt_sheet_resume":
