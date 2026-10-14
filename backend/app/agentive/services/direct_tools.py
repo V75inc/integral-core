@@ -6,7 +6,10 @@ Identity is always the dispatch ``principal_id``; args carry data only.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 
 async def mark_notification_read_for_dispatch(
@@ -41,12 +44,29 @@ async def invoke_app_operation_for_dispatch(
     from app.services.app_operations.dispatch import invoke_app_operation
 
     ws = (workspace_id or current_scope_workspace_id.get() or "").strip()
-    return await invoke_app_operation(
-        user_id=user_id,
-        workspace_id=ws,
-        app_id=app_id,
-        operation_key=operation_key,
-        payload=dict(input or {}),
-        idempotency_key=idempotency_key,
-        correlation_id=correlation_id,
+    logger.warning(
+        "direct_tools: invoke_app_operation user=%s app=%s op=%s ws=%s",
+        user_id,
+        app_id,
+        operation_key,
+        ws,
     )
+    try:
+        return await invoke_app_operation(
+            user_id=user_id,
+            workspace_id=ws,
+            app_id=app_id,
+            operation_key=operation_key,
+            payload=dict(input or {}),
+            idempotency_key=idempotency_key,
+            correlation_id=correlation_id,
+        )
+    except Exception as exc:
+        logger.warning(
+            "direct_tools: invoke_app_operation FAILED app=%s op=%s err=%r",
+            app_id,
+            operation_key,
+            exc,
+            exc_info=True,
+        )
+        raise
