@@ -116,6 +116,12 @@ def _app() -> Starlette:
     app = Starlette(
         routes=[
             Route("/api/auth/login", login, methods=["POST"]),
+            Route("/api/agentive/status", public_get, methods=["GET"]),
+            Route("/api/agentive/staging/token/{token}", public_get, methods=["GET"]),
+            Route("/api/agentive/staging/bless-token", public_post, methods=["POST"]),
+            Route(
+                "/api/agentive/prompt-queue/mark-write", public_post, methods=["POST"]
+            ),
             Route(
                 "/api/public-share/track/tok/entries",
                 public_get,
@@ -146,6 +152,32 @@ def limited_client(monkeypatch):
 
 
 class TestLimiterEndToEnd:
+    def test_polling_cannot_starve_six_approval_actions(self, monkeypatch):
+        """Exhaust passive polling while six preflight/approve/mark triplets succeed."""
+        from app.config import settings
+
+        monkeypatch.setattr(settings, "RATE_LIMIT_DISABLED", False)
+        monkeypatch.setattr(settings, "RATE_LIMIT_AGENTIVE", "18/60")
+        with TestClient(_app()) as client:
+            for _ in range(18):
+                assert client.get("/api/agentive/status").status_code == 200
+            assert client.get("/api/agentive/status").status_code == 429
+            for index in range(6):
+                assert (
+                    client.get(f"/api/agentive/staging/token/{index}").status_code
+                    == 200
+                )
+                assert (
+                    client.post("/api/agentive/staging/bless-token").status_code == 200
+                )
+                assert (
+                    client.post("/api/agentive/prompt-queue/mark-write").status_code
+                    == 200
+                )
+            # Rotating a token cannot mint another action budget.
+            assert client.get("/api/agentive/staging/token/new").status_code == 429
+            assert client.post("/api/agentive/staging/bless-token").status_code == 429
+
     def test_login_limit_trips(self, limited_client):
         codes = [limited_client.post("/api/auth/login").status_code for _ in range(5)]
         assert codes[:3] == [200, 200, 200]

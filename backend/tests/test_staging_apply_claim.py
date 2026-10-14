@@ -97,10 +97,13 @@ async def test_two_concurrent_approves_run_the_executor_once(monkeypatch):
 
 @pytest.mark.smoke
 @pytest.mark.asyncio
-async def test_a_refused_execute_releases_the_claim_for_a_retry(monkeypatch):
+@pytest.mark.parametrize(
+    "failure", [{"error": True}, {"ok": False}, {"filed": False}, {"skipped": True}]
+)
+async def test_a_refused_execute_releases_the_claim_for_a_retry(monkeypatch, failure):
     """A refused write releases its execution claim for a later retry."""
     sc = await _mint()
-    _fake_executor(monkeypatch, result={"error": True, "message": "refused"})
+    _fake_executor(monkeypatch, result={**failure, "message": "refused"})
 
     first = await staging_apply.bless_and_execute(user_id="u1", token=sc.token)
     assert first["consumed"] is False

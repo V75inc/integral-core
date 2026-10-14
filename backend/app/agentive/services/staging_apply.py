@@ -201,7 +201,12 @@ async def execute_blessed_change(
             pass
     response["execute_result"] = result
 
-    if not result.get("error") and result.get("filed") is not False:
+    if (
+        not result.get("error")
+        and result.get("ok") is not False
+        and result.get("filed") is not False
+        and result.get("skipped") is not True
+    ):
         try:
             # A partial design resumed through the inbox must retain its
             # design receipt before the terminal staging row is removed.
