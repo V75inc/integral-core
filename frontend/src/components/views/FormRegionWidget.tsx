@@ -185,7 +185,7 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
             const candidateTracks = allowCrossTrack
               ? allTracks.filter(t => {
                   if (!targetTrackTypes.size) return true;
-                  const typeKey = slug(String(t.template_id || t.title));
+                  const typeKey = slug(String(t.template_id || t.relation_type_key || t.title));
                   return targetTrackTypes.has(typeKey);
                 })
               : allTracks.filter(t => t.id === view.track_id);

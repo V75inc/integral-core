@@ -241,6 +241,7 @@ async def create_track_in_space(
         accent_color=normalize_track_accent_color(accent_color),
         visibility=resolved_vis,
         template_id=effective_template_ref,
+        relation_type_key=safe_title,
         workspace_id=track_workspace_id,
         created_at=now,
         updated_at=now,

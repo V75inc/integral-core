@@ -630,7 +630,7 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
           if (childTrackType) {
             const tracks = await tracksApi.list();
             const match = tracks.find(
-              t => slug(String(t.template_id || t.title)) === slug(childTrackType)
+              t => slug(String(t.template_id || t.relation_type_key || t.title)) === slug(childTrackType)
             );
             childTrackId = match?.id;
           }

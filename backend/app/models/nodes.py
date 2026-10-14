@@ -545,6 +545,9 @@ class Track(Node):
     # EXCLUDED_FROM also blocks inherited paths.
     visibility: str = "inherit"  # inherit | private | workspace | public
     template_id: Optional[str] = None
+    # Stable relation identity for ad-hoc Tracks. Display renames do not change
+    # which Track type a declared relation accepts. Template identity wins.
+    relation_type_key: str = ""
     # Every Track lives in exactly one Workspace. Tracks inside an App
     # always carry the parent App's workspace_id (persisted on write for
     # query speed).
