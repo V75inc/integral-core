@@ -70,10 +70,18 @@ def _credential_funds_byok(record: UserModelCredential) -> bool:
 
     Matches ``resolve_native_model_override``: keyless ``ollama_local`` is a
     valid local BYOK configuration; other providers need a decryptable key.
+    A keyless ``custom_openai`` credential on a loopback host is likewise a
+    valid local (keyless daemon) configuration.
     """
     default_provider = (getattr(record, "provider", None) or "").strip()
     if default_provider == "ollama_local":
         return True
+    if default_provider == "custom_openai":
+        from app.services.model_credentials import custom_base_allows_keyless
+
+        base = (getattr(record, "base_url", "") or "").strip()
+        if base and custom_base_allows_keyless(base):
+            return True
     return bool(decrypt_credential_api_key(record))
 
 

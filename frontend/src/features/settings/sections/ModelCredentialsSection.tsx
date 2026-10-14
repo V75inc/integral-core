@@ -10,6 +10,7 @@ import {
   isSpeechProvider,
   MODEL_SLOT_HINTS,
   MODEL_SLOT_LABELS,
+  customBaseAllowsKeyless,
   modelCredentialsApi,
   PROVIDER_CONSOLE_URLS,
   PROVIDER_LABELS,
@@ -564,8 +565,12 @@ export function ModelCredentialsSection() {
     provider !== 'custom_openai' ||
     !!(baseUrl.trim() || active?.base_url);
 
+  const customKeylessOk =
+    provider === 'custom_openai' &&
+    customBaseAllowsKeyless(baseUrl.trim() || active?.base_url || '');
+
   const canSave =
-    (active || apiKey.trim() || provider === 'ollama_local') &&
+    (active || apiKey.trim() || provider === 'ollama_local' || customKeylessOk) &&
     model.trim() &&
     customBaseValid &&
     speechSlotValid;
@@ -624,7 +629,11 @@ export function ModelCredentialsSection() {
                     {active.provider === 'ollama_local'
                       ? 'Local Ollama · no API key stored'
                       : active.provider === 'custom_openai'
-                        ? `Custom endpoint ${active.base_url ?? ''} · key ${active.key_fingerprint}${
+                        ? `Custom endpoint ${active.base_url ?? ''} · ${
+                            active.key_fingerprint
+                              ? `key ${active.key_fingerprint}`
+                              : 'no API key stored'
+                          }${
                             active.validated_at
                               ? ` · validated ${new Date(active.validated_at).toLocaleString()}`
                               : ''
@@ -700,7 +709,8 @@ export function ModelCredentialsSection() {
                       />
                       <Text variant="body-sm" tone="muted" as="p">
                         OpenAI-compatible base URL up to /v1. Validated live via
-                        GET /models before saving.
+                        GET /models before saving. No API key needed for
+                        localhost or 127.0.0.1.
                         {active?.base_url && !baseUrl.trim()
                           ? ` Leave blank to keep ${active.base_url}.`
                           : ''}
@@ -727,7 +737,14 @@ export function ModelCredentialsSection() {
                       })
                     }
                     testDisabled={
-                      (provider !== 'ollama_local' && !apiKey.trim()) ||
+                      (provider !== 'ollama_local' &&
+                        !apiKey.trim() &&
+                        !(
+                          provider === 'custom_openai' &&
+                          customBaseAllowsKeyless(
+                            baseUrl.trim() || active?.base_url || '',
+                          )
+                        )) ||
                       (provider === 'custom_openai' &&
                         !(baseUrl.trim() || active?.base_url))
                     }
