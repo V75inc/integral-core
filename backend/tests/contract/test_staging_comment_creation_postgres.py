@@ -15,6 +15,12 @@ from tests.contract.test_staging_command_apply_postgres import proposal
 pytestmark = [pytest.mark.contract, pytest.mark.postgres, pytest.mark.asyncio]
 
 
+@pytest.fixture(autouse=True)
+def isolated_receipt_key(monkeypatch):
+    """Supply a test-only key for encrypted durable command receipts."""
+    monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "55" * 32)
+
+
 async def comment_proposal():
     auth, workspace, track, _ = await proposal()
     entry = await Entry.create(title="Comment target", track_id=track.id)
