@@ -47,8 +47,8 @@ describe('PromptSheetResumeNote', () => {
 describe('liveWorkSynopsis', () => {
   it('uses observable activity and tools, with a neutral fallback', () => {
     expect(liveWorkSynopsis('Filing your content', 'integral_list_apps')).toBe('Filing your content');
-    expect(liveWorkSynopsis(undefined, 'integral_describe_substrate')).toBe('Describe substrate');
-    expect(liveWorkSynopsis('', '')).toBe('Working');
+    expect(liveWorkSynopsis(undefined, 'integral_describe_substrate')).toBe('Using tools');
+    expect(liveWorkSynopsis('', '')).toBe('Thinking');
   });
 });
 

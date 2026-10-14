@@ -65,7 +65,7 @@ export function ConversationLabel({ title, lastActivity, createdAt, messageCount
           {lastActivity && <Text as="span" variant="meta" tone="muted">Last activity: {new Date(lastActivity).toLocaleString()}</Text>}
           {createdAt && <Text as="span" variant="meta" tone="muted">Created: {new Date(createdAt).toLocaleString()}</Text>}
           {typeof messageCount === 'number' && Number.isFinite(messageCount) && messageCount >= 0 && <Text as="span" variant="meta" tone="muted">{messageCount} {messageCount === 1 ? 'message' : 'messages'}</Text>}
-          {working && <Text as="span" variant="meta" tone="info">Working…</Text>}
+          {working && <Text as="span" variant="meta" tone="info">Thinking…</Text>}
         </span>
       </Surface>, document.body)}
     </span>
