@@ -18,6 +18,7 @@ from app.services.operational_model_compile import (
     _slug,
     relation_allows_cross_track,
 )
+from app.services.track_relation_identity import relation_track_type
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +145,7 @@ async def _resolve_or_create_labeled_relation(
 
     target_track: Optional[Track] = None
     for t in candidates:
-        tmpl = _slug(str(getattr(t, "template_id", "") or ""))
+        tmpl = _slug(await relation_track_type(t))
         if tmpl and tmpl in target_track_types:
             target_track = t
             break
@@ -722,12 +723,7 @@ async def _validate_relation_values(
                     message=f"Relation field '{field_key}' target entry type is not allowed"
                 )
         if target_track_types:
-            tkey = _slug(
-                str(
-                    getattr(target_track, "template_id", "")
-                    or getattr(target_track, "title", "")
-                )
-            )
+            tkey = _slug(await relation_track_type(target_track))
             if tkey not in {_slug(x) for x in target_track_types}:
                 raise BadRequestError(
                     message=f"Relation field '{field_key}' target track type is not allowed"

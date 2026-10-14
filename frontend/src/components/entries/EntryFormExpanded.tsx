@@ -997,12 +997,8 @@ export function useEntryExpandedForm(
             const candidateTracks = allowCrossTrack
               ? allTracks.filter(t => {
                   if (!targetTrackTypes.size) return true;
-                  const typeKey = slug(String(t.template_id || t.title));
-                  const titleKey = slug(String(t.title || ''));
-                  return (
-                    targetTrackTypes.has(typeKey) ||
-                    targetTrackTypes.has(titleKey)
-                  );
+                  const typeKey = slug(String(t.template_id || t.relation_type_key || t.title));
+                  return targetTrackTypes.has(typeKey);
                 })
               : currentTrack
               ? [currentTrack]

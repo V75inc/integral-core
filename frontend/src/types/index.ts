@@ -489,6 +489,7 @@ export interface Track {
   workspace_id?: string;
   /** When set, matches ``app.tracks[].key`` from the parent app manifest for runtime profile resolution. */
   template_id?: string;
+  relation_type_key?: string;
   /** System-owned grouping discriminator; settings tracks can be surfaced through a settings hub. */
   kind?: string;
   /**

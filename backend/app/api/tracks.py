@@ -573,6 +573,10 @@ async def update_track(
                 scope_label="in this workspace",
                 exclude_id=track.id,
             )
+        if not track.template_id and not track.relation_type_key:
+            from app.services.track_relation_identity import relation_track_type
+
+            track.relation_type_key = await relation_track_type(track)
         track.title = safe_title
         track.title_fold = new_fold
     if purpose is not None:
