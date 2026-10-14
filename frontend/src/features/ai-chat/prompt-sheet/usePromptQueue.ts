@@ -285,6 +285,7 @@ export function usePromptQueue() {
         return;
       setBusy(true);
       setError(null);
+      let applicationConfirmed = false;
       try {
         const staged = await getStagingTokenState(current.token);
         if (!staged) {
@@ -321,7 +322,7 @@ export function usePromptQueue() {
           | undefined;
         const execFailed =
           !!exec &&
-          (!!exec.error || exec.filed === false || exec.skipped === true);
+          (!!exec.error || exec.ok === false || exec.filed === false || exec.skipped === true);
         if (execFailed) {
           const msg =
             typeof exec?.message === 'string' && exec.message.trim()
@@ -355,6 +356,7 @@ export function usePromptQueue() {
           window.dispatchEvent(new Event('staging-state-changed'));
           return;
         }
+        applicationConfirmed = stagedState === 'consumed' || blessRes.consumed === true;
         const res = await markPromptWrite({
           threadId: activeThreadId,
           token: current.token,
@@ -370,11 +372,14 @@ export function usePromptQueue() {
                 .response?.data
             : undefined;
         setError(
-          detail?.message ||
+          applicationConfirmed
+            ? 'The change was applied, but approval status could not refresh. Refresh status; do not approve it again.'
+            : detail?.message ||
             detail?.detail ||
             (err instanceof Error ? err.message : '') ||
-            'Could not approve that write.',
+            'Could not verify approval or application. Refresh status before retrying.',
         );
+        window.dispatchEvent(new Event('staging-state-changed'));
       } finally {
         setBusy(false);
       }

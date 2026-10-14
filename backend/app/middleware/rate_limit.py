@@ -194,6 +194,18 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     def _matched_rule(
         self, path: str, method: str
     ) -> Tuple[str, Tuple[int, int]] | None:
+        # Passive reads across tabs must not spend the budget needed to approve
+        # a change. Token preflight reads share the action budget with writes,
+        # so a saturated polling window cannot block approval verification.
+        agentive = "/api/agentive"
+        if path == agentive or path.startswith(agentive + "/"):
+            passive = method.upper() in _READ_METHODS and not path.startswith(
+                agentive + "/staging/token/"
+            )
+            return (
+                "agentive:read" if passive else "agentive:action",
+                self._rates[agentive],
+            )
         for prefix, rate in self._rates.items():
             if path == prefix or path.startswith(prefix + "/"):
                 return prefix, rate

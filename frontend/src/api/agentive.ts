@@ -130,6 +130,7 @@ export interface StagingResponse {
    */
   execute_result?: Record<string, unknown> & { error?: boolean; message?: string };
   consume_warning?: { error_code: string; message: string };
+  consumed?: boolean;
   error_code?: string;
   message?: string;
 }
