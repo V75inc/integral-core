@@ -51,9 +51,8 @@ export interface OperationalModelEntryTypeLike {
  * Resolve an entry type from a slug/key, matching (in order) the manifest key
  * (`form_schema._manifest_entry_type_key`), the display name, then the node id.
  *
- * Matching on the name alone broke any type whose display name differs from its
- * key (e.g. name "Contact", key `crm_contact`, `entry.type` slugged to
- * "crm_contact" ≠ "contact"). As a defensive fallback a single-entry-type track
+ * Matching on the name alone broke types whose display name differs from their
+ * manifest key. As a defensive fallback a single-entry-type track
  * resolves to that type, so a form/detail can never silently render fieldless.
  */
 export function findEntryTypeBySlug<T extends OperationalModelEntryTypeLike>(

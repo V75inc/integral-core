@@ -647,8 +647,14 @@ async def claim_due_candidate(
     lease_seconds: float = DEFAULT_LEASE_SECONDS,
     work_item_id: Optional[str] = None,
     transaction: Any = None,
+    kinds: Optional[frozenset[str]] = None,
+    exclude_kinds: Optional[frozenset[str]] = None,
 ) -> Optional[WorkItem]:
-    """Claim one due queued/retry_wait WorkItem into ``running`` under a lease."""
+    """Claim one due queued/retry_wait WorkItem into ``running`` under a lease.
+
+    ``kinds`` / ``exclude_kinds`` let a worker serve only some kinds (App jobs
+    run on their own worker so they never hold up chat or lifecycle work).
+    """
     from app.agentive.services.work_outbox import (
         TOPIC_TRANSITIONED,
         cas_work_item_update,
@@ -707,12 +713,21 @@ async def claim_due_candidate(
         item = await WorkItem.get(_object_id(work_item_id))
         if item is None:
             return None
+        # A worker that serves only some kinds never takes another, by id either.
+        if kinds is not None and item.kind not in kinds:
+            return None
+        if exclude_kinds is not None and item.kind in exclude_kinds:
+            return None
         return await _try_claim(item)
 
     for status in ("queued", "retry_wait"):
         candidates = list(await WorkItem.find({"context.status": status}))
         for candidate in candidates:
             if not _is_due(candidate, now_dt):
+                continue
+            if kinds is not None and candidate.kind not in kinds:
+                continue
+            if exclude_kinds is not None and candidate.kind in exclude_kinds:
                 continue
             won = await _try_claim(candidate)
             if won is not None:
@@ -765,6 +780,37 @@ async def heartbeat_lease(
             if current is not None and current.cancel_requested_at:
                 raise WorkError("work.cancelled", "cancel requested") from None
         raise
+
+
+async def report_work_progress(
+    work_item_id: str,
+    progress: Dict[str, Any],
+    *,
+    lease: Optional[tuple] = None,
+) -> bool:
+    """Record a running App job's progress; False once it is no longer running.
+
+    Updates only ``progress`` and only while ``running``, so it never races a
+    terminal transition. With ``lease=(token, fence)`` the write is accepted
+    only from the worker that still holds that lease, so a worker whose lease
+    was reclaimed cannot overwrite the new worker's progress.
+    """
+    from app.agentive.services.work_outbox import cas_work_item_update
+
+    expected: Dict[str, Any] = {"status": "running"}
+    if lease:
+        expected["lease_token"] = str(lease[0])
+        expected["lease_fence"] = int(lease[1])
+    try:
+        await cas_work_item_update(
+            work_item_id,
+            expected=expected,
+            updates={"progress": dict(progress)},
+            error_code="work.not_running",
+        )
+    except WorkError:
+        return False
+    return True
 
 
 async def transition_leased(

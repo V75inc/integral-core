@@ -120,20 +120,22 @@ describe('diffCustomFields', () => {
     expect(diffCustomFields({ fresh: 'x' }, {})).toEqual({ fresh: 'x' });
   });
 
-  it('drops benign representation diffs', () => {
+  it('preserves representation and array order changes without field metadata', () => {
     expect(
       diffCustomFields(
         { amount: 42, related: ['b', 'a'] },
         { amount: '42', related: ['a', 'b'] }
       )
-    ).toEqual({});
+    ).toEqual({ amount: 42, related: ['b', 'a'] });
   });
 });
 
 describe('valuesEqualForDiff', () => {
-  it('treats empty representations as equal', () => {
-    expect(valuesEqualForDiff(null, undefined)).toBe(true);
-    expect(valuesEqualForDiff('', null)).toBe(true);
+  it('normalizes empty representations only for known non-JSON fields', () => {
+    const field: OperationalModelFieldSpec = { key: 'notes', name: 'Notes', type: 'text' };
+    expect(valuesEqualForDiff(null, undefined, field)).toBe(true);
+    expect(valuesEqualForDiff('', null, field)).toBe(true);
+    expect(valuesEqualForDiff('', null)).toBe(false);
   });
 
   it('detects real changes', () => {
@@ -141,9 +143,38 @@ describe('valuesEqualForDiff', () => {
     expect(valuesEqualForDiff(['a'], ['b'])).toBe(false);
   });
 
-  it('ignores numeric string coercion and array order', () => {
-    expect(valuesEqualForDiff(42, '42')).toBe(true);
-    expect(valuesEqualForDiff(['a', 'b'], ['b', 'a'])).toBe(true);
+  it('preserves primitive types and array order by default', () => {
+    expect(valuesEqualForDiff(42, '42')).toBe(false);
+    expect(valuesEqualForDiff(true, 'true')).toBe(false);
+    expect(valuesEqualForDiff(['a', 'b'], ['b', 'a'])).toBe(false);
+  });
+
+  it('ignores object key order without changing nested data', () => {
+    expect(valuesEqualForDiff({ a: 1, b: [2, 3] }, { b: [2, 3], a: 1 })).toBe(true);
+    expect(valuesEqualForDiff({ rows: [1, 2] }, { rows: [2, 1] })).toBe(false);
+    expect(valuesEqualForDiff({ value: null }, { value: '' })).toBe(false);
+    expect(valuesEqualForDiff({ value: 1 }, { value: '1' })).toBe(false);
+  });
+});
+
+describe('JSON edits reach save payloads', () => {
+  const field: OperationalModelFieldSpec = { key: 'data', name: 'Data', type: 'json' };
+  const edits: [unknown, unknown][] = [
+    [[1, 2], [2, 1]],
+    [{ rows: [{ step: 'first' }, { step: 'second' }] }, { rows: [{ step: 'second' }, { step: 'first' }] }],
+    [1, '1'],
+    [true, 'true'],
+    [null, ''],
+    [{ rows: [null] }, { rows: [''] }],
+  ];
+
+  it.each(edits)('keeps JSON change from %j to %j in form and widget updates', (before, after) => {
+    expect(buildCustomFieldsForEntryType([field], { data: after }, { data: before }, null, { changedOnly: true })).toEqual({ data: after });
+    expect(diffCustomFields({ data: after }, { data: before })).toEqual({ data: after });
+  });
+
+  it('still omits unchanged JSON and protected fields', () => {
+    expect(buildCustomFieldsForEntryType([field, { key: 'owner', name: 'Owner', type: 'member' }], { data: { b: 2, a: [1, 2] }, owner: 'user-1' }, { data: { a: [1, 2], b: 2 }, owner: 'user-1' }, null, { changedOnly: true })).toEqual({});
   });
 });
 

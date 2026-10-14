@@ -20,6 +20,7 @@ Current package YAML uses `integral_operational_model_version: 3`; compiled mani
 ## Reading path
 
 - [Composition patterns](COMPOSITION_PATTERNS.md)
+- [Field presentation](FIELD_LAYOUT.md)
 - [Package discovery and indexing](../backend/operational-model-search-index.md)
 - [View palette](VIEW_PALETTE.md), [composites](COMPOSITES.md), and [regions](REGION_SYSTEM.md)
 - [Draft and publish](DRAFT_PUBLISH.md), then [migrations](MIGRATIONS.md)

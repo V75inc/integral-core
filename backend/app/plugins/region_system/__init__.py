@@ -852,6 +852,66 @@ def register(
     if wizard_step_registry is None:
         return
 
+    view_type_registry.register_view_type(
+        view_type_registry.ViewTypeSpec(
+            type="region-system/processing-status",
+            label="Processing Status",
+            description=(
+                "Progress panel for a record that background work is acting "
+                "on — stages, progress, the reason it stopped and a retry — "
+                "driven entirely by config and the bound entry's own fields."
+            ),
+            config_schema={
+                "title": {"type": "string", "description": "Optional heading."},
+                "status_field": {
+                    "type": "string",
+                    "description": "Field holding the record's state (default 'status').",
+                },
+                "stages": {
+                    "type": "array",
+                    "description": "[{label, statuses: [..]}] drawn as a progress track, in order.",
+                },
+                "active_statuses": {
+                    "type": "array",
+                    "description": "States meaning work is in progress (spinner, progress, refresh).",
+                },
+                "failed_statuses": {
+                    "type": "array",
+                    "description": "States meaning work stopped (shows the reason and a retry).",
+                },
+                "status_labels": {
+                    "type": "object",
+                    "description": "Optional {status: label} for the status pill.",
+                },
+                "progress_field": {
+                    "type": "string",
+                    "description": "Optional field with readable progress text.",
+                },
+                "error_field": {
+                    "type": "string",
+                    "description": "Optional field with the reason work stopped.",
+                },
+                "job_field": {
+                    "type": "string",
+                    "description": (
+                        "Optional field holding a Core work item id; its reported "
+                        "progress (done/total/label) is shown and refreshed."
+                    ),
+                },
+                "retry": {
+                    "type": "object",
+                    "description": "Optional {tool, label} offered when the record is stopped.",
+                },
+                "poll_seconds": {
+                    "type": "number",
+                    "description": "Refresh interval while active (default 4, 2-60).",
+                },
+            },
+            source="plugin",
+            scope="entry",
+            palette_group="core",
+        )
+    )
     wizard_step_registry.register_step_kind(
         wizard_step_registry.WizardStepKindSpec(
             kind="form",
