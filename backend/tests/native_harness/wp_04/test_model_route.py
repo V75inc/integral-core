@@ -13,6 +13,7 @@ from app.api.errors import ServiceUnavailableError
 @pytest.fixture(autouse=True)
 def isolated_deployment_identity(monkeypatch):
     monkeypatch.delenv("INTEGRAL_NATIVE_CREDENTIAL_REF", raising=False)
+    monkeypatch.delenv("INTEGRAL_NATIVE_API_BASE", raising=False)
 
 
 @pytest.mark.asyncio
@@ -539,3 +540,75 @@ async def test_workspace_ollama_cloud_uses_cloud_even_with_local_server_env(
     assert route.credential_ref == "user-model-generation:cloud"
     assert route.api_key.get_secret_value() == "synthetic-cloud-key"
     assert route.ollama_num_ctx is None
+
+
+@pytest.mark.asyncio
+async def test_deployment_custom_api_base_routes_openai_model(monkeypatch):
+    """INTEGRAL_NATIVE_API_BASE sets the deployment endpoint for openai routes."""
+    monkeypatch.setattr(
+        "app.services.model_credential_resolver.resolve_native_model_override",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setenv("INTEGRAL_NATIVE_API_BASE", "https://llm.example.com/v1/")
+    route = await resolve_native_model_route(
+        workspace_id="workspace-1", default_model="openai/my-model"
+    )
+    assert route.provider == "openai"
+    assert route.model == "openai/my-model"
+    assert route.api_base == "https://llm.example.com/v1"
+    assert route.credential_source == "platform"
+    assert route.api_key is None
+
+
+@pytest.mark.asyncio
+async def test_deployment_custom_api_base_ignores_ollama_routes(monkeypatch):
+    """Ollama deployment routes stay governed by OLLAMA_API_BASE."""
+    monkeypatch.setattr(
+        "app.services.model_credential_resolver.resolve_native_model_override",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setenv("INTEGRAL_NATIVE_API_BASE", "https://llm.example.com/v1")
+    monkeypatch.setenv("OLLAMA_API_BASE", "http://127.0.0.1:11434")
+    route = await resolve_native_model_route(
+        workspace_id="workspace-1", default_model="ollama/gemma4:26b"
+    )
+    assert route.api_base == "http://127.0.0.1:11434"
+
+
+@pytest.mark.asyncio
+async def test_invalid_deployment_custom_api_base_fails_closed(monkeypatch):
+    """A malformed INTEGRAL_NATIVE_API_BASE is a configuration error, not a route."""
+    monkeypatch.setattr(
+        "app.services.model_credential_resolver.resolve_native_model_override",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setenv("INTEGRAL_NATIVE_API_BASE", "llm.example.com/v1")
+    with pytest.raises(ServiceUnavailableError, match="model configuration is invalid"):
+        await resolve_native_model_route(
+            workspace_id="workspace-1", default_model="openai/my-model"
+        )
+
+
+@pytest.mark.asyncio
+async def test_workspace_keyless_custom_override_reaches_route(monkeypatch):
+    """Keyless custom BYOK (placeholder key + api_base) builds a valid route."""
+    from app.services.model_credential_resolver import KEYLESS_PLACEHOLDER_API_KEY
+
+    monkeypatch.setattr(
+        "app.services.model_credential_resolver.resolve_native_model_override",
+        AsyncMock(
+            return_value={
+                "model": "openai/my-model",
+                "api_key": KEYLESS_PLACEHOLDER_API_KEY,
+                "api_base": "https://llm.example.com/v1",
+                "credential_ref": "user-model-generation:synthetic",
+            }
+        ),
+    )
+    route = await resolve_native_model_route(
+        workspace_id="workspace-1", default_model="openai/gpt-4.1"
+    )
+    assert route.provider == "openai"
+    assert route.api_base == "https://llm.example.com/v1"
+    assert route.api_key.get_secret_value() == KEYLESS_PLACEHOLDER_API_KEY
+    assert route.credential_source == "workspace_byok"

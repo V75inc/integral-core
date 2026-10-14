@@ -35,6 +35,20 @@ def _provider_for_model(model: str) -> str:
     return provider
 
 
+def _normalize_native_api_base(raw: str) -> str:
+    """Canonicalize INTEGRAL_NATIVE_API_BASE or raise ValueError."""
+    normalized = raw.strip().rstrip("/")
+    lowered = normalized.lower()
+    if not (lowered.startswith("http://") or lowered.startswith("https://")):
+        raise ValueError("INTEGRAL_NATIVE_API_BASE must start with http:// or https://")
+    host = normalized.split("://", 1)[-1].split("/", 1)[0]
+    if not host or "@" in host:
+        raise ValueError(
+            "INTEGRAL_NATIVE_API_BASE must include a host without credentials"
+        )
+    return normalized
+
+
 def _local_ollama_num_ctx() -> int:
     """Return a usable per-request local Ollama context window."""
     # A single standards-compliant Integral skill can itself be several
@@ -153,6 +167,15 @@ async def _resolve_native_model_route(
             ollama_num_ctx, ollama_num_predict = _local_ollama_generation_settings()
             ollama_think = _local_ollama_think_setting()
             ollama_clear_thinking = _local_ollama_clear_thinking()
+        elif provider != "ollama":
+            # Deployment-level custom OpenAI-compatible endpoint. Pair with
+            # INTEGRAL_NATIVE_MODEL=openai/<model>; auth (when the endpoint
+            # needs it) comes from the route's standard provider env key, or
+            # any placeholder value for unauthenticated servers. Ollama routes
+            # stay governed by OLLAMA_API_BASE / OLLAMA_CLOUD_API_BASE.
+            raw_base = os.getenv("INTEGRAL_NATIVE_API_BASE", "").strip()
+            if raw_base:
+                api_base = _normalize_native_api_base(raw_base)
         from app.services.host_hooks import assert_platform_quota
 
         # Funding follows the selected credential plane, not the transport.

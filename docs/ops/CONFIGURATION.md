@@ -38,6 +38,7 @@ Core-only mode and an empty App catalog do not disable agentive boot. `AGENTIVE_
 | `INTEGRAL_NATIVE_TURN_REQUEST_LIMIT` | 20 | Model requests per turn |
 | `INTEGRAL_HARNESS_SESSION_RETENTION_DAYS` | 90 | Terminal private execution-record retention |
 | `INTEGRAL_NATIVE_MODEL` | unset | Optional server model; workspace model setup works independently |
+| `INTEGRAL_NATIVE_API_BASE` | unset | Deployment custom OpenAI-compatible endpoint for the `INTEGRAL_NATIVE_MODEL` route (Ollama routes stay on `OLLAMA_API_BASE`) |
 
 Configure the model, route, and credential reference according to the selected binding. A default model identifier in Compose is not a supplied credential or a universal provider guarantee.
 
