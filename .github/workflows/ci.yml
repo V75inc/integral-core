@@ -8,7 +8,7 @@ name: CI
 
 on:
   pull_request:
-    branches: [main, dev, ab/dev2, prod, codex/pr-113-staging]
+    branches: [main, dev, ab/dev2, prod, codex/pr-113-staging, codex/core-rc18-jvspatial-022]
     paths:
       - "backend/**"
       - "sdk/**"
@@ -240,7 +240,7 @@ jobs:
             --format requirements-txt -o /tmp/ci-requirements.txt
           uv pip install --system -r /tmp/ci-requirements.txt
 
-      - name: Postgres spike + contract lane
+      - name: Postgres spike, contract and App job authorization lane
         env:
           TESTING: "1"
           INTEGRAL_TEST_DB: postgres
@@ -249,6 +249,7 @@ jobs:
         run: |
           pytest -q --tb=short tests/spikes/ -m postgres
           pytest -q --tb=short tests/contract/ -m "contract and postgres"
+          pytest -q --tb=short tests/test_app_jobs.py tests/test_tool_context_own_bundle_workspace.py
 
   docker-build-verify:
     runs-on: ubuntu-latest

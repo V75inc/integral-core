@@ -118,6 +118,22 @@ async def invoke_workspace_tool(
                 "on the entry's page."
             )
         )
+    await require_workspace_tool_access(
+        user_id=user_id, workspace_id=workspace_id, spec=spec
+    )
+    ctx = ToolContext(user_id=user_id, workspace_id=workspace_id, scope=f"tool:{key}")
+    return await run_tool(spec, dict(payload or {}), ctx)
+
+
+async def require_workspace_tool_access(
+    *, user_id: str, workspace_id: str, spec: Dict[str, Any]
+) -> None:
+    """Recheck current membership and tool privilege for every dispatch path.
+
+    Jobs retain their own execution context and may use internal tool entry
+    points, but inherit the same human authority checks as a direct call.
+    ``can_access_workspace`` reads fresh identity and membership facts.
+    """
     role = await can_access_workspace(user_id, workspace_id)
     if role == "none":
         raise InsufficientPermissionsError(message="Access denied")
@@ -125,5 +141,3 @@ async def invoke_workspace_tool(
         raise InsufficientPermissionsError(
             message="Privileged tool requires workspace admin"
         )
-    ctx = ToolContext(user_id=user_id, workspace_id=workspace_id, scope=f"tool:{key}")
-    return await run_tool(spec, dict(payload or {}), ctx)

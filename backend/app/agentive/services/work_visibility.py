@@ -75,6 +75,12 @@ def _project_work_status(fields: dict) -> WorkItemStatusResponse:
         updated_at=fields.get("updated_at", ""),
         result_refs=list(fields.get("result_refs") or []),
         failure=failure,
+        label=(
+            str((fields.get("input_payload") or {}).get("label") or "")
+            if fields.get("kind") == "app_tool"
+            else ""
+        ),
+        progress=dict(fields.get("progress") or {}),
     )
 
 

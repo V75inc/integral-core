@@ -469,7 +469,11 @@ function SeamlessSelectInner({
             onValueChange={val => onChange(val)}
             disabled={readonly}
             placeholder={placeholder}
-            options={opts}
+            options={
+              isFieldRequired(field)
+                ? opts
+                : [{ value: '', label: 'None' }, ...opts]
+            }
             aria-label={fieldAriaLabel(field)}
             searchable={searchable}
           />

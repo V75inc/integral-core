@@ -25,6 +25,10 @@ export interface WorkItemStatusResponse {
   updated_at: string;
   result_refs: string[];
   failure?: { code: string; message?: string };
+  /** App jobs (kind ``app_tool``): the App's own label for the job. */
+  label?: string;
+  /** App jobs: progress the running tool reported. */
+  progress?: { done?: number; total?: number; label?: string };
 }
 
 export const workItemsApi = {

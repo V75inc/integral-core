@@ -202,7 +202,9 @@ class ServiceAuthMiddleware(BaseHTTPMiddleware):
                 details=None,
             )
 
-        is_exempt_path = path.endswith(_SIGNATURE_EXEMPT_PATHS)
+        # Only the two actual uplink routes are exempt. The MCP ASGI mount
+        # handles nested paths too; a matching suffix there is not an uplink.
+        is_exempt_path = path in _SIGNATURE_EXEMPT_PATHS
 
         # System uplink: exempt path may proceed with bare service-key.
         if not user_id and is_exempt_path:

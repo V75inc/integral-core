@@ -55,18 +55,13 @@ export interface BuildCustomFieldsOptions {
   changedOnly?: boolean;
 }
 
-/** Normalized value for diffing: `null`/`undefined`/`''` are equivalent (clearing
- *  an already-empty field is a no-op), arrays compare order-insensitively, objects
- *  compare by sorted keys, and primitives compare by string so `42`/`"42"` and
- *  `true`/`"true"` don't produce false diffs. */
+/** Stable JSON comparison: object key order is insignificant, but array order
+ * and primitive types are data and must survive edit/widget persistence. */
 function normalizeForDiff(value: unknown): unknown {
-  if (value === undefined || value === null || value === '') return null;
   if (Array.isArray(value)) {
-    return value
-      .map(normalizeForDiff)
-      .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+    return value.map(normalizeForDiff);
   }
-  if (typeof value === 'object') {
+  if (value !== null && typeof value === 'object') {
     const obj = value as Record<string, unknown>;
     return Object.keys(obj)
       .sort()
@@ -75,12 +70,39 @@ function normalizeForDiff(value: unknown): unknown {
         return acc;
       }, {});
   }
-  return String(value);
+  return value;
 }
 
-export function valuesEqualForDiff(a: unknown, b: unknown): boolean {
+/** Representation normalization is allowed only for a known non-JSON field,
+ * and only at its top level. Never apply set/coercion semantics inside JSON. */
+function normalizeFieldForDiff(
+  value: unknown,
+  field?: OperationalModelFieldSpec
+): unknown {
+  if (!field || field.type === 'json') return normalizeForDiff(value);
+  if (value === undefined || value === null || value === '') return null;
+  if (field.type === 'number' && typeof value === 'string' && value.trim()) {
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  if (
+    (field.type === 'relation' || field.type === 'multi_select') &&
+    Array.isArray(value) &&
+    value.every(item => typeof item === 'string')
+  ) {
+    return [...value].sort();
+  }
+  return normalizeForDiff(value);
+}
+
+export function valuesEqualForDiff(
+  a: unknown,
+  b: unknown,
+  field?: OperationalModelFieldSpec
+): boolean {
   return (
-    JSON.stringify(normalizeForDiff(a)) === JSON.stringify(normalizeForDiff(b))
+    JSON.stringify(normalizeFieldForDiff(a, field)) ===
+    JSON.stringify(normalizeFieldForDiff(b, field))
   );
 }
 
@@ -122,7 +144,7 @@ export function buildCustomFieldsForEntryType(
     const v =
       fieldValues[key] !== undefined ? fieldValues[key] : baselineCf[key];
     if (v === undefined) continue;
-    if (changedOnly && valuesEqualForDiff(v, baselineCf[key])) continue;
+    if (changedOnly && valuesEqualForDiff(v, baselineCf[key], field)) continue;
     out[key] = v;
   }
 
