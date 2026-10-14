@@ -232,6 +232,9 @@ Domain-specific behavior needed at a substrate trigger point?  → Declare in
 Need pythonic execution inside a bundle?                        → Declare a
    tools[] entry. trust_tier=trusted required. Skill OR hook binding routes
    to it. Bundles never import from app.services / app.models.
+Bundle work that can outlast a request (import, month-end run)?   → ctx.enqueue_job(...)
+   from a tools[] entry; the job tool saves its place on the record and calls
+   ctx.report_progress. See docs/platform/background-app-jobs.md.
 ```
 
 Lines marked **ALWAYS** have no efficiency exception. Lines with `↳` branches are where pragmatism applies; deviation always carries `# deviation: <reason> — measured <X ms vs Y ms on <fixture>>`.

@@ -15,6 +15,17 @@ import {
 } from '../extensions/extensionViewLayout';
 import type { ViewWidgetProps } from '../../views/types';
 
+/**
+ * Optional ``config.min_height`` (px) lets a compact App view shrink below the
+ * host's default frame height. Clamped to a sane range; absent means default.
+ */
+function configuredMinHeight(view: ViewWidgetProps['view']): number | undefined {
+  const raw = (view.config || {}) as { min_height?: unknown };
+  const n = Number(raw.min_height);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  return Math.min(Math.max(Math.round(n), 48), 2400);
+}
+
 function resolveExtensionViewKey(view: ViewWidgetProps['view']): string {
   const cfg = (view.config || {}) as { extension_view_key?: string };
   const top = (view as { extension_view_key?: string }).extension_view_key;
@@ -171,7 +182,7 @@ function ExtensionViewSession({
         isTemplateEditor ? EXTENSION_VIEW_TEMPLATE_EDITOR_IFRAME_CLASS : undefined
       }
       minHeight={
-        isTemplateEditor ? EXTENSION_VIEW_TEMPLATE_EDITOR_MIN_HEIGHT : undefined
+        isTemplateEditor ? EXTENSION_VIEW_TEMPLATE_EDITOR_MIN_HEIGHT : configuredMinHeight(view)
       }
     />
   );

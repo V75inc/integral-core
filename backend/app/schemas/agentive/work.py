@@ -28,6 +28,7 @@ WorkKind = Literal[
     "event_trigger",
     "migration",
     "app_lifecycle",
+    "app_tool",
 ]
 
 FailureClass = Literal[
@@ -309,6 +310,9 @@ class WorkItemStatusResponse(BaseModel):
     updated_at: str = ""
     result_refs: list[str] = Field(default_factory=list)
     failure: Optional[WorkFailure] = None
+    # App jobs (kind ``app_tool``): the App's own label and reported progress.
+    label: str = ""
+    progress: Dict[str, Any] = Field(default_factory=dict)
 
     model_config = ConfigDict(extra="forbid")
 
