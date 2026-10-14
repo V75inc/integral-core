@@ -23,7 +23,7 @@ A source feature, green CI, a built wheel, a healthy container, and an accepted 
 
 ## Source gates
 
-Run `make verify` for the broad local gate and `make verify-ci` for CI-faithful smoke testing. CI uses TESTING, no developer `.env`, and xdist. Run `make verify-core-only` to establish the Core/App boundary.
+Run `make verify` for the broad local gate and `make verify-ci` for CI-faithful smoke testing. The latter reproduces only the smoke lane; PR CI also runs Core-only, extension-contract, PostgreSQL, frontend and artifact checks. `make verify-pr` reproduces the backend test lanes and PostgreSQL lane. CI uses TESTING, no developer `.env`, and xdist for smoke. Run `make verify-core-only` to establish the Core/App boundary.
 
 Run relevant PostgreSQL contracts with a disposable database and temporary test encryption keys. Preserve existing development databases. A green test against an in-memory adapter does not establish transaction/CAS behavior on PostgreSQL.
 
@@ -55,6 +55,8 @@ The roadmap's wider ambitions are not substitutes for these checks. See [deploym
 
 These records are historical evidence, not current package or deployment status:
 
+- [Bundle Entry read optimization — 13 October](../reviews/2026-10-13-bundle-read-optimization.md)
+- [Browser navigation and dashboard latency — 13 October](../reviews/2026-10-13-browser-navigation-latency.md)
 - [Core foundation and resident harness — 9 October](qualification/2026-10-09-core-foundation.md)
 - [Native harness — 9 October](qualification/2026-10-09-native-harness.md)
 - [Managed environment isolation — 9 October](qualification/2026-10-09-managed-environment-isolation.md)

@@ -48,9 +48,13 @@ New `test_tool_context_bulk_reads.py` checks:
 - membership revoked between windows is checked in later windows;
 - live facade reads bypass inherited process permission caches.
 
-Focused authorization/containment/projection tests, the new tests, all 14 PostgreSQL receipt/transaction tests, formatting/lint/type hooks and substrate guards passed. The full default backend suite passed with four xdist workers; the configured `not domain_app and not slow` exclusions and infrastructure skips apply. The latest six new tests also passed in a separate final run. All 43 facade/scope tests passed on PostgreSQL. This qualifies the source behavior, not a rebuilt wheel or deployed browser stack.
+Focused authorization/containment/projection tests, the new tests, all 14 PostgreSQL receipt/transaction tests, formatting/lint/type hooks and substrate guards passed. The full default backend suite passed with four xdist workers; the configured `not domain_app and not slow` exclusions and infrastructure skips apply. The latest six new tests also passed in a separate final run. All 43 facade/scope tests passed on PostgreSQL. Those checks qualified source behavior at the time of the benchmark. The subsequent
+[local artifact and browser qualification](2026-10-13-browser-navigation-latency.md)
+records the deployed Core 0.1.1rc18 / jvspatial 0.2.2 stack separately. Neither
+record establishes package-index publication or production capacity.
 
-Evidence is local at `/private/tmp/jvspatial-022-optimization-eval`: `compare.py`, `finance_callsites.py`, `baseline.json`, `optimized.json`, `optimized-repeat.json`, `domain-comparison.json`, `finance-readback.json` and `postgres-contracts.log`. Scripts require an isolated DSN and the specified source snapshots; they restore databases and must never target live data. Only synthetic data was written. Business source and the local Business deployment were not changed.
+Evidence is local at `/private/tmp/jvspatial-022-optimization-eval`: `compare.py`, `finance_callsites.py`, `baseline.json`, `optimized.json`, `optimized-repeat.json`, `domain-comparison.json`, `finance-readback.json` and `postgres-contracts.log`. Scripts require an isolated DSN and the specified source snapshots; they restore databases and must never target live data. Only synthetic data was written. Business source and the local Business deployment were not changed during these
+disposable Finance benchmarks. The later deployment is recorded separately above.
 
 ## Remaining work
 

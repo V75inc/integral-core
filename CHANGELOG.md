@@ -8,6 +8,13 @@ bump does not establish that a release is available on a package index.
 
 ### Fixed
 
+- Resolve dashboard widgets with bounded parallel reads and independent live
+  permission checks, reducing measured local dashboard latency while preserving
+  widget results, ordering and error handling.
+- Batch scoped bundle entry reads through canonical audience admission, avoiding
+  repeated point authorization cascades while retaining current membership,
+  exclusions, direct grants and active-App checks.
+
 - Keep Kanban relation labels and unchanged board state stable so mounting a
   board cannot trigger a render loop that stalls route navigation.
 
