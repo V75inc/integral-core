@@ -27,7 +27,7 @@ from app.utils.time import utc_now_iso
 logger = logging.getLogger(__name__)
 
 SUPPORTED_PROVIDERS = frozenset(
-    {"openai", "anthropic", "openrouter", "ollama", "ollama_local"}
+    {"openai", "anthropic", "openrouter", "ollama", "ollama_local", "custom_openai"}
 )
 
 # Cheap auth probe per provider (must actually exercise credentials).
@@ -68,11 +68,29 @@ def compute_key_fingerprint(api_key: str) -> str:
     return f"{digest}...{last4}"
 
 
+def normalize_custom_base_url(base_url: Optional[str]) -> str:
+    """Canonicalize a custom OpenAI-compatible base URL or raise ValueError."""
+    base = (base_url or "").strip()
+    if not base:
+        raise ValueError("base_url is required for custom_openai")
+    normalized = base.rstrip("/")
+    if len(normalized) > 512:
+        raise ValueError("base_url is too long")
+    lowered = normalized.lower()
+    if not (lowered.startswith("http://") or lowered.startswith("https://")):
+        raise ValueError("base_url must start with http:// or https://")
+    host = normalized.split("://", 1)[-1].split("/", 1)[0]
+    if not host or "@" in host:
+        raise ValueError("base_url must include a host without credentials")
+    return normalized
+
+
 def audit_snapshot_credential(record: UserModelCredential) -> Dict[str, Any]:
     """Metadata-only snapshot safe for ChangeEvent logging."""
     return {
         "provider": record.provider,
         "model": record.model,
+        "base_url": getattr(record, "base_url", "") or None,
         "speech_provider": record.speech_provider or None,
         "speech_model": record.speech_model or None,
         "key_fingerprint": record.key_fingerprint,
@@ -131,12 +149,37 @@ async def _validate_optional_slot_key(
 
 
 async def validate_provider_api_key(
-    provider: str, api_key: Optional[str]
+    provider: str, api_key: Optional[str], base_url: Optional[str] = None
 ) -> tuple[bool, str]:
     """Probe provider access before persisting a key or local model choice."""
     slug = (provider or "").strip().lower()
     if slug not in SUPPORTED_PROVIDERS:
         return False, f"Unsupported provider: {provider}"
+    if slug == "custom_openai":
+        try:
+            normalized = normalize_custom_base_url(base_url)
+        except ValueError as exc:
+            return False, str(exc)
+        key = (api_key or "").strip()
+        if not key:
+            return False, "invalid API key"
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.get(
+                    f"{normalized}/models",
+                    headers={"Authorization": f"Bearer {key}"},
+                )
+            if resp.status_code not in (200, 401, 403, 404):
+                logger.warning(
+                    "validate_provider_api_key %s HTTP %s: %s",
+                    slug,
+                    resp.status_code,
+                    (resp.text or "")[:200],
+                )
+            return _interpret_auth_status(resp.status_code, slug=slug)
+        except httpx.HTTPError as exc:
+            logger.warning("validate_provider_api_key failed: %s", type(exc).__name__)
+            return False, "could not reach provider"
     key = (api_key or "").strip()
     if slug == "ollama_local":
         if key:
@@ -268,6 +311,7 @@ async def upsert_user_credential(
     provider: str,
     model: str,
     api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
     speech_model: Optional[str] = None,
     speech_provider: Optional[str] = None,
     speech_api_key: Optional[str] = None,
@@ -290,6 +334,16 @@ async def upsert_user_credential(
         )
 
     existing = await get_credential_for_user(user_id)
+    custom = slug == "custom_openai"
+    if custom:
+        incoming_base = (base_url or "").strip()
+        if not incoming_base and existing and existing.provider == "custom_openai":
+            incoming_base = (getattr(existing, "base_url", "") or "").strip()
+        base_normalized = normalize_custom_base_url(incoming_base)
+    else:
+        if (base_url or "").strip():
+            raise ValueError("base_url is only supported for custom_openai")
+        base_normalized = ""
     api_key_plain = (api_key or "").strip()
     if local_ollama and api_key_plain:
         raise ValueError("Local Ollama does not use an API key")
@@ -300,7 +354,12 @@ async def upsert_user_credential(
     elif api_key_plain and len(api_key_plain) < 8:
         raise ValueError("api_key must be at least 8 characters")
 
-    valid, message = await validate_provider_api_key(slug, api_key_plain)
+    if custom:
+        valid, message = await validate_provider_api_key(
+            slug, api_key_plain, base_normalized or None
+        )
+    else:
+        valid, message = await validate_provider_api_key(slug, api_key_plain)
     if not valid:
         raise ValueError(message)
 
@@ -365,6 +424,7 @@ async def upsert_user_credential(
     if existing:
         existing.provider = slug
         existing.model = model.strip()
+        existing.base_url = base_normalized
         existing.speech_provider = speech_slug if speech_slug != slug else ""
         existing.speech_model = speech_model_clean
         existing.api_key_enc = encrypted
@@ -381,6 +441,7 @@ async def upsert_user_credential(
         user_id=user_id,
         provider=slug,
         model=model.strip(),
+        base_url=base_normalized,
         speech_provider=speech_slug if speech_slug != slug else "",
         speech_model=speech_model_clean,
         api_key_enc=encrypted,

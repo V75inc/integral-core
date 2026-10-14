@@ -212,6 +212,15 @@ async def _resolve_native_model_route(
             resolved_provider = "ollama_chat"
             model = f"ollama_chat/{model.split('/', 1)[1]}"
             api_base = OLLAMA_CLOUD_API_BASE
+        else:
+            # Custom OpenAI-compatible BYOK carries its endpoint in the
+            # override; LiteLLM uses it as ``api_base`` with the openai route.
+            raw_base = override.get("api_base")
+            if raw_base is not None:
+                custom_base = str(raw_base).strip().rstrip("/")
+                if not custom_base:
+                    raise ValueError("workspace model override has no api base")
+                api_base = custom_base
     return ResolvedModelRoute(
         provider=resolved_provider,
         model=model,

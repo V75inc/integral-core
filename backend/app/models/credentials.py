@@ -23,6 +23,9 @@ class UserModelCredential(Object):
     user_id: str = attribute(default="", indexed=True)
     provider: str = attribute(default="", indexed=True)  # default slot
     model: str = attribute(default="")
+    # Custom OpenAI-compatible base URL (plaintext, not a secret). Only set
+    # when ``provider == "custom_openai"``; passed as LiteLLM ``api_base``.
+    base_url: str = attribute(default="")
     # Speech-to-text (voice input) slot. Opt-in: empty ``speech_model`` = off.
     speech_provider: str = attribute(default="")
     speech_model: str = attribute(default="")

@@ -426,6 +426,7 @@ export function ModelCredentialsSection() {
   const [provider, setProvider] = useState<ModelProvider>('ollama');
   const [model, setModel] = useState(() => defaultModel('ollama'));
   const [apiKey, setApiKey] = useState('');
+  const [baseUrl, setBaseUrl] = useState('');
   const [speech, setSpeech] = useState<SpeechSlotState>(freshSpeechSlot);
 
   const credQuery = useQuery<ModelCredential | null>({
@@ -440,6 +441,7 @@ export function ModelCredentialsSection() {
         active.updated_at,
         active.provider,
         active.model,
+        active.base_url ?? '',
         active.speech_provider,
         active.speech_model,
       ].join('|')
@@ -449,6 +451,7 @@ export function ModelCredentialsSection() {
     if (!active) return;
     setProvider(active.provider);
     setModel(active.model);
+    setBaseUrl(active.base_url ?? '');
     const speechProvider: SpeechProvider = isSpeechProvider(active.speech_provider)
       ? active.speech_provider
       : isSpeechProvider(active.provider)
@@ -471,6 +474,7 @@ export function ModelCredentialsSection() {
     setProvider(next);
     setModel(defaultModel(next));
     if (next === 'ollama_local') setApiKey('');
+    if (next !== 'custom_openai') setBaseUrl('');
   };
 
   const saveMut = useMutation({
@@ -478,10 +482,19 @@ export function ModelCredentialsSection() {
       const speechModel = speech.enabled ? speech.model.trim() : '';
       const speechSeparate = !!speechModel && speech.provider !== provider;
       const trimmedKey = apiKey.trim();
+      const trimmedBase = baseUrl.trim();
       return modelCredentialsApi.upsert({
         provider,
         model: model.trim(),
         ...(trimmedKey ? { api_key: trimmedKey } : {}),
+        ...(provider === 'custom_openai' && trimmedBase
+          ? { base_url: trimmedBase }
+          : {}),
+        // Keep the stored custom endpoint when updating model/key without
+        // retyping the URL: omit means "keep", explicit value replaces.
+        ...(provider === 'custom_openai' && !trimmedBase && active?.base_url
+          ? { base_url: active.base_url }
+          : {}),
         speech_model: speechModel,
         speech_provider: speechSeparate ? speech.provider : undefined,
         speech_api_key:
@@ -501,8 +514,20 @@ export function ModelCredentialsSection() {
   });
 
   const validateKey = useMutation({
-    mutationFn: ({ prov, key }: { prov: ModelProvider; key: string }) =>
-      modelCredentialsApi.validate({ provider: prov, api_key: key }),
+    mutationFn: ({
+      prov,
+      key,
+      base,
+    }: {
+      prov: ModelProvider;
+      key: string;
+      base?: string;
+    }) =>
+      modelCredentialsApi.validate({
+        provider: prov,
+        api_key: key,
+        ...(prov === 'custom_openai' && base ? { base_url: base } : {}),
+      }),
     onSuccess: (result, vars) => {
       toast.showToast(
         result.valid
@@ -535,9 +560,14 @@ export function ModelCredentialsSection() {
     (!!speech.model.trim() &&
       (speech.provider === provider || !!speech.apiKey.trim()));
 
+  const customBaseValid =
+    provider !== 'custom_openai' ||
+    !!(baseUrl.trim() || active?.base_url);
+
   const canSave =
     (active || apiKey.trim() || provider === 'ollama_local') &&
     model.trim() &&
+    customBaseValid &&
     speechSlotValid;
 
   return (
@@ -593,7 +623,13 @@ export function ModelCredentialsSection() {
                   <Text variant="body-sm" tone="muted">
                     {active.provider === 'ollama_local'
                       ? 'Local Ollama · no API key stored'
-                      : `Primary key ${active.key_fingerprint}${
+                      : active.provider === 'custom_openai'
+                        ? `Custom endpoint ${active.base_url ?? ''} · key ${active.key_fingerprint}${
+                            active.validated_at
+                              ? ` · validated ${new Date(active.validated_at).toLocaleString()}`
+                              : ''
+                          }`
+                        : `Primary key ${active.key_fingerprint}${
                           active.validated_at
                             ? ` · validated ${new Date(active.validated_at).toLocaleString()}`
                             : ''
@@ -651,6 +687,26 @@ export function ModelCredentialsSection() {
                       />
                     </div>
                   </div>
+                  {provider === 'custom_openai' ? (
+                    <div className="flex flex-col gap-1">
+                      <FieldLabel>Base URL</FieldLabel>
+                      <Input
+                        aria-label="Custom endpoint base URL"
+                        autoComplete="off"
+                        value={baseUrl}
+                        onChange={e => setBaseUrl(e.target.value)}
+                        placeholder="https://llm.example.com/v1"
+                        className="min-w-[12rem] flex-1"
+                      />
+                      <Text variant="body-sm" tone="muted" as="p">
+                        OpenAI-compatible base URL up to /v1. Validated live via
+                        GET /models before saving.
+                        {active?.base_url && !baseUrl.trim()
+                          ? ` Leave blank to keep ${active.base_url}.`
+                          : ''}
+                      </Text>
+                    </div>
+                  ) : null}
                   <ApiKeyRow
                     provider={provider}
                     label={
@@ -661,10 +717,19 @@ export function ModelCredentialsSection() {
                     value={apiKey}
                     onChange={setApiKey}
                     onTest={() =>
-                      validateKey.mutate({ prov: provider, key: apiKey.trim() })
+                      validateKey.mutate({
+                        prov: provider,
+                        key: apiKey.trim(),
+                        base:
+                          provider === 'custom_openai'
+                            ? baseUrl.trim() || active?.base_url || ''
+                            : undefined,
+                      })
                     }
                     testDisabled={
-                      provider !== 'ollama_local' && !apiKey.trim()
+                      (provider !== 'ollama_local' && !apiKey.trim()) ||
+                      (provider === 'custom_openai' &&
+                        !(baseUrl.trim() || active?.base_url))
                     }
                     testPending={validateKey.isPending}
                     consoleUrl={PROVIDER_CONSOLE_URLS[provider]}
