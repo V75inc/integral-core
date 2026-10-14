@@ -16,7 +16,7 @@ Understand dependencies and decision evidence with [workspace graph context](pro
 
 ## Build on it
 
-Follow the [App quickstart](developer/quickstart.md), then use the [extension contract](platform/extension-contract-v1.md), [Operational Model guide](operational-models/README.md), and [backend reference](backend/README.md). The [generated capability map](generated/capability-map.md) derives from source and must be regenerated rather than edited by hand.
+Follow the [App quickstart](developer/quickstart.md), then use the [extension contract](platform/extension-contract-v1.md), [background jobs for Apps](platform/background-app-jobs.md), [Operational Model guide](operational-models/README.md), and [backend reference](backend/README.md). The [generated capability map](generated/capability-map.md) derives from source and must be regenerated rather than edited by hand.
 
 ## Operate it
 
