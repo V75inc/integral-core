@@ -159,12 +159,12 @@ export function ProcessingStatusWidget({ view }: ViewWidgetProps) {
           {stages.map((stage, i) => {
             const rail = i < at
               ? 'bg-[var(--success-fg)] opacity-60'
-              : i === at
-                ? isFailed ? 'bg-[var(--danger-fg)]' : 'bg-[var(--brand-accent)]'
-                : 'bg-[var(--panel-2)]';
+              : isFailed ? 'bg-[var(--danger-fg)]' : 'bg-[var(--brand-accent)]';
             return (
               <li key={stage.label} className="min-w-0 space-y-1" aria-current={i === at ? 'step' : undefined}>
-                <div className={`h-1 rounded-full ${rail}`} />
+                {i <= at
+                  ? <div className={`h-1 rounded-full ${rail}`} />
+                  : <Surface tone="panel-2" radius="pill" className="h-1">{null}</Surface>}
                 <Text as="p" variant="meta" tone={i > at ? 'subtle' : undefined} className="truncate">{stage.label}</Text>
               </li>
             );
@@ -173,10 +173,10 @@ export function ProcessingStatusWidget({ view }: ViewWidgetProps) {
       )}
 
       {isActive && pct !== null && (
-        <div className="h-1.5 overflow-hidden rounded-full bg-[var(--panel-2)]" role="progressbar"
+        <Surface tone="panel-2" radius="pill" className="h-1.5 overflow-hidden" role="progressbar"
           aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label="Progress">
           <div className="h-full rounded-full bg-[var(--brand-accent)] transition-[width]" style={{ width: `${pct}%` }} />
-        </div>
+        </Surface>
       )}
 
       {isFailed && (
