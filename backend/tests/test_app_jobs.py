@@ -39,7 +39,15 @@ def _clean_registry():
     work_worker.clear_test_handlers()
 
 
-def _tool(monkeypatch, key="run_job", *, bundle="demo-app", result=None, impl=None, schedule=None):
+def _tool(
+    monkeypatch,
+    key="run_job",
+    *,
+    bundle="demo-app",
+    result=None,
+    impl=None,
+    schedule=None,
+):
     """Register one tool for ``WS`` whose handler is ``impl`` (or returns ``result``)."""
     seen: list = []
 
@@ -66,7 +74,9 @@ def _tool(monkeypatch, key="run_job", *, bundle="demo-app", result=None, impl=No
 
 
 def _ctx(bundle="demo-app", **kw) -> ToolContext:
-    return ToolContext(user_id=USER, workspace_id=WS, scope="test", bundle_slug=bundle, **kw)
+    return ToolContext(
+        user_id=USER, workspace_id=WS, scope="test", bundle_slug=bundle, **kw
+    )
 
 
 async def _resolve_app(monkeypatch, app_id=None):
@@ -84,7 +94,9 @@ async def _resolve_app(monkeypatch, app_id=None):
 async def test_enqueue_job_queues_an_app_tool_item(monkeypatch) -> None:
     _tool(monkeypatch)
     await _resolve_app(monkeypatch)
-    out = await _ctx().enqueue_job("run_job", {"entry_id": "e1"}, idempotency_key="k1", label="Do it")
+    out = await _ctx().enqueue_job(
+        "run_job", {"entry_id": "e1"}, idempotency_key="k1", label="Do it"
+    )
     from app.agentive.work_models import WorkItem
 
     item = await WorkItem.get(work_items._object_id(out["job_id"]))
@@ -108,6 +120,7 @@ async def test_enqueue_job_is_idempotent_per_app_tool_and_key(monkeypatch) -> No
     assert other["job_id"] != first["job_id"]
 
 
+@pytest.mark.smoke
 @pytest.mark.asyncio
 async def test_enqueue_job_refuses_another_apps_tool(monkeypatch) -> None:
     _tool(monkeypatch, bundle="someone-elses-app")
@@ -115,12 +128,14 @@ async def test_enqueue_job_refuses_another_apps_tool(monkeypatch) -> None:
         await _ctx(bundle="demo-app").enqueue_job("run_job", {}, idempotency_key="k")
 
 
+@pytest.mark.smoke
 @pytest.mark.asyncio
 async def test_enqueue_job_refuses_an_unknown_tool(monkeypatch) -> None:
     with pytest.raises(PermissionError, match="not a tool of this App"):
         await _ctx().enqueue_job("nope", {}, idempotency_key="k")
 
 
+@pytest.mark.smoke
 @pytest.mark.asyncio
 async def test_enqueue_job_requires_a_running_app_tool(monkeypatch) -> None:
     _tool(monkeypatch)
@@ -128,6 +143,7 @@ async def test_enqueue_job_requires_a_running_app_tool(monkeypatch) -> None:
         await _ctx(bundle="").enqueue_job("run_job", {}, idempotency_key="k")
 
 
+@pytest.mark.smoke
 @pytest.mark.asyncio
 async def test_enqueue_job_refuses_a_read_only_context(monkeypatch) -> None:
     _tool(monkeypatch)
@@ -156,7 +172,9 @@ async def test_enqueue_job_truncates_a_long_label(monkeypatch) -> None:
 # --- running ----------------------------------------------------------------
 
 
-async def _queue_and_run(monkeypatch, *, key="run_job", payload=None, bundle="demo-app"):
+async def _queue_and_run(
+    monkeypatch, *, key="run_job", payload=None, bundle="demo-app"
+):
     await _resolve_app(monkeypatch)
     item = await work_items.enqueue_work_item(
         kind="app_tool",
@@ -164,7 +182,12 @@ async def _queue_and_run(monkeypatch, *, key="run_job", payload=None, bundle="de
         principal_id=USER,
         workspace_id=WS,
         idempotency_key=f"aj-{key}-{datetime.now().timestamp()}",
-        input_payload={"tool_key": key, "bundle_slug": bundle, "input": payload or {"a": 1}, "label": "L"},
+        input_payload={
+            "tool_key": key,
+            "bundle_slug": bundle,
+            "input": payload or {"a": 1},
+            "label": "L",
+        },
     )
     return await work_worker.process_one_due_item(
         worker_id="aj-worker", work_item_id=item.work_item_id, lease_seconds=30
@@ -172,7 +195,9 @@ async def _queue_and_run(monkeypatch, *, key="run_job", payload=None, bundle="de
 
 
 @pytest.mark.asyncio
-async def test_job_runs_the_tool_as_the_queuing_person_in_their_workspace(monkeypatch) -> None:
+async def test_job_runs_the_tool_as_the_queuing_person_in_their_workspace(
+    monkeypatch,
+) -> None:
     seen = _tool(monkeypatch)
     done = await _queue_and_run(monkeypatch)
     assert done.status == "succeeded"
@@ -187,7 +212,11 @@ async def test_job_runs_the_tool_as_the_queuing_person_in_their_workspace(monkey
 @pytest.mark.asyncio
 async def test_job_result_lists_the_records_it_acted_on(monkeypatch) -> None:
     refs = [{"kind": "entry", "id": f"n.Entry.{i}"} for i in range(30)]
-    refs += [{"kind": "entry", "id": "n.Entry.1"}, {"kind": "track", "id": "t1"}, {"kind": "entry", "id": "x" * 500}]
+    refs += [
+        {"kind": "entry", "id": "n.Entry.1"},
+        {"kind": "track", "id": "t1"},
+        {"kind": "entry", "id": "x" * 500},
+    ]
     _tool(monkeypatch, result={"ok": True, "object_refs": refs})
     done = await _queue_and_run(monkeypatch)
     assert done.result_refs[0] == "app_tool:run_job"
@@ -200,7 +229,9 @@ async def test_job_result_lists_the_records_it_acted_on(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_job_result_lists_only_entry_references_of_sensible_size(monkeypatch) -> None:
+async def test_job_result_lists_only_entry_references_of_sensible_size(
+    monkeypatch,
+) -> None:
     _tool(
         monkeypatch,
         result={
@@ -219,7 +250,9 @@ async def test_job_result_lists_only_entry_references_of_sensible_size(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_tool_that_returns_ok_false_fails_the_job_without_retry(monkeypatch) -> None:
+async def test_tool_that_returns_ok_false_fails_the_job_without_retry(
+    monkeypatch,
+) -> None:
     _tool(monkeypatch, result={"ok": False, "reason": "no employees"})
     done = await _queue_and_run(monkeypatch)
     assert done.status == "failed"
@@ -277,8 +310,11 @@ async def test_a_tool_that_keeps_raising_ends_in_dead_letter(monkeypatch) -> Non
     assert last is not None and last.status == "dead_letter"
 
 
+@pytest.mark.smoke
 @pytest.mark.asyncio
-async def test_a_job_queued_against_an_older_app_version_does_not_run(monkeypatch) -> None:
+async def test_a_job_queued_against_an_older_app_version_does_not_run(
+    monkeypatch,
+) -> None:
     seen = _tool(monkeypatch)
     item = await work_items.enqueue_work_item(
         kind="app_tool",
@@ -303,6 +339,7 @@ async def test_a_job_queued_against_an_older_app_version_does_not_run(monkeypatc
     assert seen == []  # the upgraded App's code never ran an old job
 
 
+@pytest.mark.smoke
 @pytest.mark.asyncio
 async def test_a_job_whose_app_was_removed_does_not_run(monkeypatch) -> None:
     seen = _tool(monkeypatch)
@@ -336,6 +373,7 @@ async def test_a_tool_missing_at_run_time_is_retried_not_run(monkeypatch) -> Non
     assert done.failure["code"] == "work.transient_tool_unavailable"
 
 
+@pytest.mark.smoke
 @pytest.mark.asyncio
 async def test_a_tool_that_changed_owner_fails_permanently(monkeypatch) -> None:
     seen = _tool(monkeypatch, bundle="another-app")
@@ -345,6 +383,7 @@ async def test_a_tool_that_changed_owner_fails_permanently(monkeypatch) -> None:
     assert seen == []  # the tool never ran
 
 
+@pytest.mark.smoke
 @pytest.mark.asyncio
 async def test_a_job_whose_principal_is_gone_does_not_run(monkeypatch) -> None:
     seen = _tool(monkeypatch)
@@ -411,8 +450,11 @@ async def test_progress_outside_a_job_is_a_no_op() -> None:
     assert await _ctx().report_progress(1, 2, "x") is False
 
 
+@pytest.mark.smoke
 @pytest.mark.asyncio
-async def test_progress_from_a_worker_that_lost_its_lease_is_refused(monkeypatch) -> None:
+async def test_progress_from_a_worker_that_lost_its_lease_is_refused(
+    monkeypatch,
+) -> None:
     item = await work_items.enqueue_work_item(
         kind="app_tool",
         origin="app_tool",
@@ -426,8 +468,18 @@ async def test_progress_from_a_worker_that_lost_its_lease_is_refused(monkeypatch
     )
     good = (claimed.lease_token, int(claimed.lease_fence or 0))
     stale = ("an-old-token", good[1] - 1)
-    assert await work_items.report_work_progress(claimed.work_item_id, {"label": "stale"}, lease=stale) is False
-    assert await work_items.report_work_progress(claimed.work_item_id, {"label": "fresh"}, lease=good) is True
+    assert (
+        await work_items.report_work_progress(
+            claimed.work_item_id, {"label": "stale"}, lease=stale
+        )
+        is False
+    )
+    assert (
+        await work_items.report_work_progress(
+            claimed.work_item_id, {"label": "fresh"}, lease=good
+        )
+        is True
+    )
     from app.agentive.work_models import WorkItem
 
     after = await WorkItem.get(work_items._object_id(claimed.work_item_id))
@@ -439,21 +491,29 @@ async def test_progress_after_the_job_finished_is_refused(monkeypatch) -> None:
     _tool(monkeypatch)
     done = await _queue_and_run(monkeypatch)
     assert done.status == "succeeded"
-    assert await work_items.report_work_progress(done.work_item_id, {"label": "late"}) is False
+    assert (
+        await work_items.report_work_progress(done.work_item_id, {"label": "late"})
+        is False
+    )
 
 
 # --- status -----------------------------------------------------------------
 
 
+@pytest.mark.smoke
 @pytest.mark.asyncio
-async def test_job_status_shows_label_and_progress_to_the_owning_app_only(monkeypatch) -> None:
+async def test_job_status_shows_label_and_progress_to_the_owning_app_only(
+    monkeypatch,
+) -> None:
     _tool(monkeypatch)
     await _resolve_app(monkeypatch)
     out = await _ctx().enqueue_job("run_job", {}, idempotency_key="st", label="Pay run")
     status = await _ctx().job_status(out["job_id"])
     assert status["status"] == "queued"
     assert await _ctx(bundle="other-app").job_status(out["job_id"]) is None
-    other_ws = ToolContext(user_id=USER, workspace_id="aj-ws-other", scope="test", bundle_slug="demo-app")
+    other_ws = ToolContext(
+        user_id=USER, workspace_id="aj-ws-other", scope="test", bundle_slug="demo-app"
+    )
     assert await other_ws.job_status(out["job_id"]) is None
     assert await _ctx().job_status("") is None
     assert await _ctx().job_status("does-not-exist") is None
@@ -462,6 +522,7 @@ async def test_job_status_shows_label_and_progress_to_the_owning_app_only(monkey
 # --- who serves which work ---------------------------------------------------
 
 
+@pytest.mark.smoke
 @pytest.mark.asyncio
 async def test_app_jobs_are_only_claimed_by_the_app_worker(monkeypatch) -> None:
     item = await work_items.enqueue_work_item(
@@ -475,21 +536,29 @@ async def test_app_jobs_are_only_claimed_by_the_app_worker(monkeypatch) -> None:
     # Targeted claims honour the same filters...
     assert (
         await work_items.claim_due_candidate(
-            worker_id="main", work_item_id=item.work_item_id, exclude_kinds=work_worker.APP_JOB_KINDS
+            worker_id="main",
+            work_item_id=item.work_item_id,
+            exclude_kinds=work_worker.APP_JOB_KINDS,
         )
         is None
     )
     assert (
         await work_items.claim_due_candidate(
-            worker_id="chat", work_item_id=item.work_item_id, kinds=frozenset({"chat_turn"})
+            worker_id="chat",
+            work_item_id=item.work_item_id,
+            kinds=frozenset({"chat_turn"}),
         )
         is None
     )
     # ...and so does the scan a real worker does (no id): the main worker
     # never picks an App job, the App worker does.
-    main = await work_items.claim_due_candidate(worker_id="main", exclude_kinds=work_worker.APP_JOB_KINDS)
+    main = await work_items.claim_due_candidate(
+        worker_id="main", exclude_kinds=work_worker.APP_JOB_KINDS
+    )
     assert main is None or main.kind != "app_tool"
-    apps = await work_items.claim_due_candidate(worker_id="apps", kinds=work_worker.APP_JOB_KINDS)
+    apps = await work_items.claim_due_candidate(
+        worker_id="apps", kinds=work_worker.APP_JOB_KINDS
+    )
     assert apps is not None and apps.kind == "app_tool"
 
 
@@ -502,8 +571,13 @@ def test_app_tool_is_a_handled_kind() -> None:
 
 
 def test_tool_schedule_accepts_a_cron_string_or_object() -> None:
-    assert _tool_schedule("0 2 * * *", where="t") == {"cron": "0 2 * * *", "timezone": "UTC"}
-    assert _tool_schedule({"cron": "*/5 * * * *", "timezone": "America/Guyana"}, where="t") == {
+    assert _tool_schedule("0 2 * * *", where="t") == {
+        "cron": "0 2 * * *",
+        "timezone": "UTC",
+    }
+    assert _tool_schedule(
+        {"cron": "*/5 * * * *", "timezone": "America/Guyana"}, where="t"
+    ) == {
         "cron": "*/5 * * * *",
         "timezone": "America/Guyana",
     }
@@ -512,7 +586,12 @@ def test_tool_schedule_accepts_a_cron_string_or_object() -> None:
 
 @pytest.mark.parametrize(
     "raw",
-    ["not a cron", {"cron": "0 2 * * *", "timezone": "Mars/Base"}, {"timezone": "UTC"}, 42],
+    [
+        "not a cron",
+        {"cron": "0 2 * * *", "timezone": "Mars/Base"},
+        {"timezone": "UTC"},
+        42,
+    ],
 )
 def test_tool_schedule_rejects_bad_input(raw) -> None:
     with pytest.raises(OperationalModelValidationError):
@@ -536,14 +615,21 @@ class _FakeApp:
 def _patch_schedule_env(monkeypatch, *, app=_FakeApp(), principal=USER):
     monkeypatch.setattr(app_schedules, "_app_for", AsyncMock(return_value=app))
     # The stored App behind the fake: bind to a definition without needing a real install.
-    monkeypatch.setattr(work_items, "resolve_active_definition_binding", AsyncMock(return_value="definition-1"))
     monkeypatch.setattr(
-        "app.agentive.services.uplink_registry._resolve_installing_principal", AsyncMock(return_value=principal)
+        work_items,
+        "resolve_active_definition_binding",
+        AsyncMock(return_value="definition-1"),
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.uplink_registry._resolve_installing_principal",
+        AsyncMock(return_value=principal),
     )
 
 
 @pytest.mark.asyncio
-async def test_a_due_scheduled_tool_is_queued_once_however_often_the_pass_runs(monkeypatch) -> None:
+async def test_a_due_scheduled_tool_is_queued_once_however_often_the_pass_runs(
+    monkeypatch,
+) -> None:
     _tool(monkeypatch, schedule={"cron": "0 2 * * *", "timezone": "UTC"})
     _patch_schedule_env(monkeypatch)
     now = datetime(2031, 3, 4, 2, 0, 20, tzinfo=timezone.utc)
@@ -552,7 +638,11 @@ async def test_a_due_scheduled_tool_is_queued_once_however_often_the_pass_runs(m
     await app_schedules.enqueue_due_app_schedules(now + timedelta(seconds=30))
     from app.agentive.work_models import WorkItem
 
-    rows = [w for w in await WorkItem.find({"kind": "app_tool", "workspace_id": WS}) if w.origin == "app_schedule"]
+    rows = [
+        w
+        for w in await WorkItem.find({"kind": "app_tool", "workspace_id": WS})
+        if w.origin == "app_schedule"
+    ]
     assert len({w.work_item_id for w in rows}) == 1
     assert rows[0].principal_id == USER
     assert rows[0].input_payload["bundle_slug"] == "demo-app"
@@ -562,25 +652,51 @@ async def test_a_due_scheduled_tool_is_queued_once_however_often_the_pass_runs(m
 async def test_nothing_is_queued_outside_the_slot(monkeypatch) -> None:
     _tool(monkeypatch, schedule={"cron": "0 2 * * *", "timezone": "UTC"})
     _patch_schedule_env(monkeypatch)
-    assert await app_schedules.enqueue_due_app_schedules(datetime(2031, 3, 4, 9, 0, tzinfo=timezone.utc)) == 0
+    assert (
+        await app_schedules.enqueue_due_app_schedules(
+            datetime(2031, 3, 4, 9, 0, tzinfo=timezone.utc)
+        )
+        == 0
+    )
 
 
+@pytest.mark.smoke
 @pytest.mark.asyncio
-async def test_a_scheduled_tool_is_skipped_when_its_app_is_not_active_here(monkeypatch) -> None:
+async def test_a_scheduled_tool_is_skipped_when_its_app_is_not_active_here(
+    monkeypatch,
+) -> None:
     _tool(monkeypatch, schedule={"cron": "0 2 * * *", "timezone": "UTC"})
     _patch_schedule_env(monkeypatch, app=None)
-    assert await app_schedules.enqueue_due_app_schedules(datetime(2031, 3, 5, 2, 0, 10, tzinfo=timezone.utc)) == 0
+    assert (
+        await app_schedules.enqueue_due_app_schedules(
+            datetime(2031, 3, 5, 2, 0, 10, tzinfo=timezone.utc)
+        )
+        == 0
+    )
 
 
+@pytest.mark.smoke
 @pytest.mark.asyncio
-async def test_a_scheduled_tool_is_skipped_without_an_installing_person(monkeypatch) -> None:
+async def test_a_scheduled_tool_is_skipped_without_an_installing_person(
+    monkeypatch,
+) -> None:
     _tool(monkeypatch, schedule={"cron": "0 2 * * *", "timezone": "UTC"})
     _patch_schedule_env(monkeypatch, principal="")
-    assert await app_schedules.enqueue_due_app_schedules(datetime(2031, 3, 6, 2, 0, 10, tzinfo=timezone.utc)) == 0
+    assert (
+        await app_schedules.enqueue_due_app_schedules(
+            datetime(2031, 3, 6, 2, 0, 10, tzinfo=timezone.utc)
+        )
+        == 0
+    )
 
 
 @pytest.mark.asyncio
 async def test_a_tool_without_a_schedule_is_never_queued(monkeypatch) -> None:
     _tool(monkeypatch)
     _patch_schedule_env(monkeypatch)
-    assert await app_schedules.enqueue_due_app_schedules(datetime(2031, 3, 7, 2, 0, 10, tzinfo=timezone.utc)) == 0
+    assert (
+        await app_schedules.enqueue_due_app_schedules(
+            datetime(2031, 3, 7, 2, 0, 10, tzinfo=timezone.utc)
+        )
+        == 0
+    )
