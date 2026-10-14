@@ -565,7 +565,10 @@ export function ModelCredentialsSection() {
     !!(baseUrl.trim() || active?.base_url);
 
   const canSave =
-    (active || apiKey.trim() || provider === 'ollama_local') &&
+    (active ||
+      apiKey.trim() ||
+      provider === 'ollama_local' ||
+      provider === 'custom_openai') &&
     model.trim() &&
     customBaseValid &&
     speechSlotValid;
@@ -621,19 +624,24 @@ export function ModelCredentialsSection() {
                     </Surface>
                   </div>
                   <Text variant="body-sm" tone="muted">
-                    {active.provider === 'ollama_local'
-                      ? 'Local Ollama · no API key stored'
-                      : active.provider === 'custom_openai'
-                        ? `Custom endpoint ${active.base_url ?? ''} · key ${active.key_fingerprint}${
-                            active.validated_at
-                              ? ` · validated ${new Date(active.validated_at).toLocaleString()}`
-                              : ''
-                          }`
-                        : `Primary key ${active.key_fingerprint}${
+                    {active.provider === 'custom_openai'
+                      ? `Custom endpoint ${active.base_url ?? ''} · ${
+                          active.key_fingerprint
+                            ? `key ${active.key_fingerprint}`
+                            : 'no API key stored'
+                        }${
                           active.validated_at
                             ? ` · validated ${new Date(active.validated_at).toLocaleString()}`
                             : ''
-                        }`}
+                        }`
+                      : active.provider === 'ollama_local' ||
+                          !active.key_fingerprint
+                        ? `${providerLabel(active.provider)} · no API key stored`
+                        : `Primary key ${active.key_fingerprint}${
+                            active.validated_at
+                              ? ` · validated ${new Date(active.validated_at).toLocaleString()}`
+                              : ''
+                          }`}
                   </Text>
                   <Button
                     variant="danger"
@@ -710,9 +718,11 @@ export function ModelCredentialsSection() {
                   <ApiKeyRow
                     provider={provider}
                     label={
-                      active
-                        ? 'API key (leave blank to keep current)'
-                        : 'API key'
+                      provider === 'custom_openai'
+                        ? 'API key (optional — blank for unauthenticated endpoints)'
+                        : active
+                          ? 'API key (leave blank to keep current)'
+                          : 'API key'
                     }
                     value={apiKey}
                     onChange={setApiKey}
@@ -727,9 +737,11 @@ export function ModelCredentialsSection() {
                       })
                     }
                     testDisabled={
-                      (provider !== 'ollama_local' && !apiKey.trim()) ||
-                      (provider === 'custom_openai' &&
-                        !(baseUrl.trim() || active?.base_url))
+                      provider === 'ollama_local'
+                        ? false
+                        : provider === 'custom_openai'
+                          ? !(baseUrl.trim() || active?.base_url)
+                          : !apiKey.trim()
                     }
                     testPending={validateKey.isPending}
                     consoleUrl={PROVIDER_CONSOLE_URLS[provider]}

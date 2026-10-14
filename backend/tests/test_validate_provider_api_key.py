@@ -114,3 +114,60 @@ async def test_local_ollama_rejects_api_keys():
     ok, msg = await validate_provider_api_key("ollama_local", "not-a-local-key")
     assert ok is False
     assert msg == "Local Ollama does not use an API key"
+
+
+@pytest.mark.asyncio
+async def test_custom_openai_validates_with_key():
+    """Custom endpoint probes GET {base}/models with a Bearer key."""
+    client = _mock_client(get_status=200)
+    with patch(
+        "app.services.model_credentials.httpx.AsyncClient",
+        return_value=client,
+    ):
+        ok, msg = await validate_provider_api_key(
+            "custom_openai", "sk-custom-key-1234", "https://llm.example.com/v1/"
+        )
+    assert (ok, msg) == (True, "validated")
+    _, kwargs = client.get.await_args
+    assert kwargs["headers"] == {"Authorization": "Bearer sk-custom-key-1234"}
+    assert client.get.await_args.args[0] == "https://llm.example.com/v1/models"
+
+
+@pytest.mark.asyncio
+async def test_custom_openai_validates_keyless_without_auth_header():
+    """Unauthenticated custom endpoints probe without an Authorization header."""
+    client = _mock_client(get_status=200)
+    with patch(
+        "app.services.model_credentials.httpx.AsyncClient",
+        return_value=client,
+    ):
+        ok, msg = await validate_provider_api_key(
+            "custom_openai", "", "https://llm.example.com/v1"
+        )
+    assert (ok, msg) == (True, "validated (no API key)")
+    _, kwargs = client.get.await_args
+    assert kwargs["headers"] == {}
+
+
+@pytest.mark.asyncio
+async def test_custom_openai_keyless_rejects_unauthorized():
+    """A keyless probe answered 401 means the endpoint needs an API key."""
+    with patch(
+        "app.services.model_credentials.httpx.AsyncClient",
+        return_value=_mock_client(get_status=401),
+    ):
+        ok, msg = await validate_provider_api_key(
+            "custom_openai", "", "https://llm.example.com/v1"
+        )
+    assert ok is False
+    assert msg == "endpoint requires an API key"
+
+
+@pytest.mark.asyncio
+async def test_custom_openai_requires_base_url():
+    """Custom validation without a base URL is rejected before any probe."""
+    ok, msg = await validate_provider_api_key(
+        "custom_openai", "sk-custom-key-1234", None
+    )
+    assert ok is False
+    assert "base_url" in msg

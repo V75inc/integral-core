@@ -65,14 +65,29 @@ def litellm_model_id(provider: str, model: str) -> str:
     return f"{route}/{model_id}"
 
 
+# Placeholder Bearer value for keyless custom endpoints. LiteLLM falls back to
+# provider env keys when no api_key is passed, which would leak the
+# deployment's key to the user's endpoint (or fail when unset). An explicit
+# inert value keeps unauthenticated servers working and authenticated ones
+# failing closed with a 401. Unauthenticated servers ignore the header.
+KEYLESS_PLACEHOLDER_API_KEY = "integral-keyless-endpoint"
+
+
 def _credential_funds_byok(record: UserModelCredential) -> bool:
     """True when the active credential would drive execution as owner BYOK.
 
     Matches ``resolve_native_model_override``: keyless ``ollama_local`` is a
     valid local BYOK configuration; other providers need a decryptable key.
+    A keyless ``custom_openai`` credential funds execution through its stored
+    endpoint -- the dispatch carries the inert placeholder key below.
     """
     default_provider = (getattr(record, "provider", None) or "").strip()
     if default_provider == "ollama_local":
+        return True
+    if (
+        default_provider == "custom_openai"
+        and (getattr(record, "base_url", "") or "").strip()
+    ):
         return True
     return bool(decrypt_credential_api_key(record))
 
@@ -163,6 +178,11 @@ async def resolve_native_model_override(
 
     default_provider = record.provider
     default_key = decrypt_credential_api_key(record)
+    if not default_key and (default_provider or "").strip().lower() == "custom_openai":
+        # Keyless custom endpoint: carry the inert placeholder so LiteLLM
+        # never falls back to an unrelated provider env key. See
+        # KEYLESS_PLACEHOLDER_API_KEY.
+        default_key = KEYLESS_PLACEHOLDER_API_KEY
     if not _credential_funds_byok(record):
         if mode == "byo_strict":
             raise ModelKeyRequiredError("stored credential could not be decrypted")

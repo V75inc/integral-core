@@ -250,3 +250,57 @@ async def test_key_source_byo_strict_reports_byok_without_credential(
     )
     workspace = await ensure_personal_workspace(test_user)
     assert await resolve_agent_key_source(workspace.id) == "byok"
+
+
+@pytest.mark.asyncio
+async def test_resolver_keyless_custom_carries_placeholder_key(enc_key, test_user):
+    """Keyless custom endpoints resolve with api_base plus an inert key.
+
+    The placeholder keeps LiteLLM from falling back to an unrelated provider
+    env key; unauthenticated servers ignore the header.
+    """
+    from app.services.model_credential_resolver import (
+        KEYLESS_PLACEHOLDER_API_KEY,
+        resolve_agent_key_source,
+    )
+
+    workspace = await ensure_personal_workspace(test_user)
+    auth_user_id = getattr(test_user, "user_id", None) or test_user.id
+    record = UserModelCredential(
+        user_id=auth_user_id,
+        provider="custom_openai",
+        model="my-model",
+        base_url="https://llm.example.com/v1",
+        is_active=True,
+    )
+    await record.save()
+
+    assert await resolve_agent_key_source(workspace.id) == "byok"
+    override = await resolve_native_model_override(workspace.id)
+    assert override is not None
+    assert override["model"] == "openai/my-model"
+    assert override["api_base"] == "https://llm.example.com/v1"
+    assert override["api_key"] == KEYLESS_PLACEHOLDER_API_KEY
+
+
+@pytest.mark.asyncio
+async def test_resolver_keyed_custom_keeps_real_key(enc_key, test_user):
+    """Keyed custom endpoints resolve with the stored key, not the placeholder."""
+    workspace = await ensure_personal_workspace(test_user)
+    auth_user_id = getattr(test_user, "user_id", None) or test_user.id
+    record = UserModelCredential(
+        user_id=auth_user_id,
+        provider="custom_openai",
+        model="my-model",
+        base_url="https://llm.example.com/v1",
+        api_key_enc=encrypt_secret_for_storage("sk-custom-key", aad=auth_user_id),
+        key_fingerprint=compute_key_fingerprint("sk-custom-key"),
+        is_active=True,
+    )
+    await record.save()
+
+    override = await resolve_native_model_override(workspace.id)
+    assert override is not None
+    assert override["model"] == "openai/my-model"
+    assert override["api_base"] == "https://llm.example.com/v1"
+    assert override["api_key"] == "sk-custom-key"
