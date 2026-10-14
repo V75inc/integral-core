@@ -1542,8 +1542,8 @@
   border-color: var(--panel-border);
 }
 
-/* Home widgets share one primary accent; titles, logos and surfaces retain
+/* Home widgets inherit the active workspace accent; titles, logos and surfaces retain
    their neutral theme colors in both modes. */
 .home-overview section.home-widget {
-  border-top: 3px solid var(--brand-accent-default);
+  border-top: 3px solid var(--brand-accent);
 }
