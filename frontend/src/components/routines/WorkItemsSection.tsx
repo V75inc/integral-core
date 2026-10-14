@@ -29,10 +29,10 @@ function workProgress(item: WorkItemStatusResponse) {
   if (!label && pct === null) return null;
   return <div className="space-y-1.5">
     {label && <Text as="p" variant="body-sm" tone="muted">{label}</Text>}
-    {pct !== null && <div className="h-1.5 overflow-hidden rounded-full bg-[var(--panel-2)]" role="progressbar"
+    {pct !== null && <Surface tone="panel-2" radius="pill" className="h-1.5 overflow-hidden" role="progressbar"
       aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label="Progress">
       <div className="h-full rounded-full bg-[var(--brand-accent)]" style={{ width: `${pct}%` }} />
-    </div>}
+    </Surface>}
   </div>;
 }
 
