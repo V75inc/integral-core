@@ -91,7 +91,7 @@ async def _library_default_labels(
     )
 
 
-@canonical_creation
+@canonical_creation(kind="create_app")
 async def create_app_for_user(
     user_id: str,
     name: str,
@@ -178,6 +178,7 @@ async def create_app_for_user(
             name_override=effective_name or None,
             description_override=effective_desc or None,
             include_seed_data=include_seed_data,
+            visibility=resolved_visibility,
             icon_override=safe_icon if icon is not None else None,
         )
         installed = await App.get(result["app_id"])

@@ -23,7 +23,9 @@ async def stream_committed_chat_turn(
     """Replay by sequence and wait for terminal commit without provider dispatch.
 
     The caller checks owned-thread authority before opening HTTP headers; it is
-    rechecked before each delivered page. Cancellation of this iterator only
+    rechecked before every frame offered to the transport. Frames already
+    admitted to a stalled transport cannot be recalled; a database transaction
+    is never held across network delivery. Cancellation of this iterator only
     closes the transport. Explicit user cancellation uses WorkItem authority.
     """
     cursor = after_sequence
@@ -39,6 +41,7 @@ async def stream_committed_chat_turn(
             limit=200,
         )
         if page.gap:
+            await assert_scope()
             yield sse_bytes(
                 "error",
                 {
@@ -47,11 +50,13 @@ async def stream_committed_chat_turn(
                     "message": "The saved response needs reconciliation. Reload this conversation.",
                 },
             )
+            await assert_scope()
             yield sse_bytes(
                 "turn-settled", {"status": "failed", "work_item_id": work_item_id}
             )
             return
         for event in page.events:
+            await assert_scope()
             sequence = event["sequence"]
             payload = {key: value for key, value in event.items() if key != "sequence"}
             saw_error = saw_error or payload.get("type") == "error"
@@ -64,6 +69,7 @@ async def stream_committed_chat_turn(
             continue
         if page.work_status in TERMINAL_WORK_STATUSES:
             if page.work_status not in {"succeeded", "cancelled"} and not saw_error:
+                await assert_scope()
                 yield sse_bytes(
                     "error",
                     {
@@ -72,6 +78,7 @@ async def stream_committed_chat_turn(
                         "message": "This turn stopped before completing. Check its saved result before retrying.",
                     },
                 )
+            await assert_scope()
             yield sse_bytes(
                 "turn-settled",
                 {

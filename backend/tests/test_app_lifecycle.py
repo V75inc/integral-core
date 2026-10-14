@@ -1317,3 +1317,29 @@ async def test_install_sets_app_identity_before_completion():
     assert result["status"] == "active"
     installed = await App.get(result["app_id"])
     assert installed.icon == "book"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("visibility", [None, "workspace", "public"])
+async def test_catalog_creation_honors_explicit_visibility(visibility):
+    from app.services.app_service import create_app_for_user
+
+    ws = await _make_workspace()
+    actor_id = await workspace_owner_id(ws)
+    lib = await _make_library_cp(
+        _minimal_app_manifest(package_name="visibility-choice")
+    )
+    app = await create_app_for_user(
+        actor_id,
+        "Visibility choice",
+        workspace_id=ws.id,
+        library_package_id=lib.id,
+        visibility=visibility,
+    )
+    persisted = await App.get(app.id)
+    assert persisted is not None
+    assert persisted.visibility == (visibility or "private")
+
+    tracks = await persisted.nodes(edge=[CONTAINS], node=["Track"])
+    assert tracks
+    assert all(track.visibility == "private" for track in tracks)

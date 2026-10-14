@@ -146,6 +146,7 @@ _ERROR_MESSAGES: Dict[str, str] = {
         "For local Ollama, ensure it is running and the server's OLLAMA_API_BASE "
         "points to a reachable address."
     ),
+    "model_empty_response": "The model did not return a reply after the available attempts. Please try again shortly.",
     "model_request_timeout": "The model provider took too long to respond. Check its availability before trying again.",
     "model_rate_limited": "The model provider's usage limit was reached. Check the provider's quota or try again later.",
     "model_unavailable": "The selected model is unavailable. Choose an available model in Settings → AI Models.",

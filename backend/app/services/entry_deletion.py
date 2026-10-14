@@ -284,9 +284,77 @@ async def delete_entry_fast(
                     "status": current.status,
                 },
             )
-            await _delete_admitted_entry(
-                current, actor_user_id=actor_user_id, actor_kind=actor_kind
-            )
+            from app.agentive.services.staging_execution import staged_command_effect
+
+            async with staged_command_effect(
+                user_id=actor_user_id,
+                workspace_id=track.workspace_id,
+                kind="delete_entry",
+                targets={"entry_id": current.id},
+            ) as complete:
+                if complete is not None:
+                    from app.agentive.services.staging_execution import (
+                        staged_command_preconditions,
+                    )
+                    from app.api.errors import ResourceConflictError
+
+                    expected = staged_command_preconditions().get(
+                        "expected_record_revision"
+                    )
+                    if expected is not None and (
+                        type(expected) is not int or expected != current.record_revision
+                    ):
+                        raise ResourceConflictError(
+                            message="Entry has changed since approval review"
+                        )
+                    schema_expected = staged_command_preconditions().get(
+                        "expected_schema_revision"
+                    )
+                    if schema_expected is not None:
+                        from app.contracts.information import (
+                            schema_revision_from_profile_version,
+                        )
+                        from app.services.operational_model_runtime import (
+                            resolve_track_runtime_profile,
+                        )
+
+                        model, _, _ = await resolve_track_runtime_profile(track)
+                        live_schema = schema_revision_from_profile_version(
+                            getattr(model, "version_number", None)
+                        )
+                        if (
+                            type(schema_expected) is not int
+                            or schema_expected != live_schema
+                        ):
+                            raise ResourceConflictError(
+                                message="Entry schema has changed since approval review"
+                            )
+                before = (
+                    await current.export(flat=True) if complete is not None else None
+                )
+                await _delete_admitted_entry(
+                    current, actor_user_id=actor_user_id, actor_kind=actor_kind
+                )
+                if complete is not None:
+                    from app.agentive.services.staging_execution import (
+                        capture_staging_change_event,
+                    )
+
+                    await capture_staging_change_event(
+                        {
+                            "actor_kind": "human",
+                            "actor_id": actor_user_id,
+                            "action": "entry.delete",
+                            "resource_type": "Entry",
+                            "resource_id": current.id,
+                            "before": before,
+                            "after": None,
+                            "scope": f"track:{track.id}",
+                        }
+                    )
+                    await complete(
+                        {"entry_id": current.id, "track_id": track.id, "deleted": True}
+                    )
 
 
 async def _delete_admitted_entry(

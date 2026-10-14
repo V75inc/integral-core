@@ -1220,6 +1220,12 @@ async def _stage_delete_entry(args: Dict[str, Any]) -> Dict[str, Any]:
             f"{entry_id!r}. Find it with integral_query_entries and call "
             "integral_delete_entry with that entry_id. Nothing was staged."
         )
+    revision = current.get("record_revision")
+    if type(revision) is int and revision >= 1:
+        payload["expected_record_revision"] = revision
+    schema_revision = await _schema_revision_for_update(current)
+    if schema_revision is not None:
+        payload["expected_schema_revision"] = schema_revision
     title_lbl = _sd.entry_display_label(current, entry_id)
 
     return {
@@ -3613,7 +3619,12 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     # identity is the bound dispatch principal (PC-1), read off request.state.user
     # by the handler — never a tool arg.
     "integral_whoami": ToolBinding(_h("app.api.auth", "get_current_user")),
-    "integral_get_scope": ToolBinding(_h("app.api.users", "get_my_scope")),
+    "integral_get_scope": ToolBinding(
+        service_ref=_h(
+            "app.services.resident_execution_scope", "get_execution_scope_for_dispatch"
+        ),
+        service_param_map=_pick(),
+    ),
     "integral_get_page_context": ToolBinding(
         service_ref=_h(
             "app.services.chat_page_context", "get_page_context_for_dispatch"

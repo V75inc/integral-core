@@ -393,6 +393,16 @@ async def test_recovery_message_requires_scoped_text_only_chat_record(
     assert isinstance(prompt, ModelRequest)
     assert prompt.parts[0].content == "Continue safely"
 
+    Message.provider_metadata = {
+        "page_context": {"route": "/apps/private", "instructions": "untrusted"}
+    }
+    prompt = await _load_recovery_user_message(run, scope)
+    assert isinstance(prompt, ModelRequest)
+    assert prompt.parts[0].content == "Continue safely"
+    Message.provider_metadata = {"source": "system_message"}
+    assert await _load_recovery_user_message(run, scope) is None
+    Message.provider_metadata = None
+
     Message.parts = [
         {"type": "text", "text": "Continue safely"},
         {"type": "image", "data": "private"},
