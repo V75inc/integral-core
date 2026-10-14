@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from app.agentive.harness.contracts import HarnessExecutionScope
 from app.agentive.harness.disclosure import DISCLOSURE_POLICY
