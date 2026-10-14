@@ -210,6 +210,8 @@ class ToolContext:
     read_only: bool = False
     #: Work item id when this tool runs as a background App job (``app_tool``).
     job_id: str = ""
+    #: Lease the running job holds; progress is accepted only under it.
+    job_lease: tuple = ()
 
     async def _resource_in_scope(self, kind: str, resource_id: str) -> bool:
         """Check canonical execution containment independently of caller grants."""
@@ -1137,7 +1139,7 @@ class ToolContext:
             progress["done"] = int(done)
         if total is not None:
             progress["total"] = int(total)
-        return await report_work_progress(self.job_id, progress)
+        return await report_work_progress(self.job_id, progress, lease=self.job_lease or None)
 
     async def job_status(self, job_id: str) -> Optional[Dict[str, Any]]:
         """Status of a job this App queued in this workspace, or None."""
