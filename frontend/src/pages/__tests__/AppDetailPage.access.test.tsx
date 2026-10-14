@@ -48,7 +48,7 @@ beforeEach(() => {
 it.each(['editor', 'commenter', 'viewer', null])('uses caller role %s when the collaborator directory is hidden', async role => {
   mocks.get.mockImplementation(async (url: string) => {
     if (url === '/apps/app') return { data: { app: { id: 'app', name: 'Shared app', owner_user_id: 'n.User.owner', workspace_id: 'ws' } } };
-    if (url === '/apps/app/collaborators') return { data: { collaborators: [], caller_role: role, directory_visible: false } };
+    if (url === '/apps/app/collaborators') return { data: { collaborators: [], total: 2, effective_total: 2, caller_role: role, directory_visible: false } };
     if (url === '/apps/app/tracks' || url === '/tracks') return { data: { tracks: [] } };
     if (url.includes('home')) return { data: { home: null } };
     if (url.includes('dashboards')) return { data: { dashboards: [] } };
@@ -57,6 +57,11 @@ it.each(['editor', 'commenter', 'viewer', null])('uses caller role %s when the c
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/apps/app']}><Routes><Route path="/apps/:appId" element={<AppDetailPage />} /></Routes></MemoryRouter></QueryClientProvider>);
   await waitFor(() => expect(screen.getByTestId('dashboard-rights').textContent).toBe(role === 'editor' ? 'editable' : 'read-only'));
+  const collaborators = screen.getByRole('button', { name: 'Collaborators, 2 people' });
+  expect(collaborators).toHaveTextContent('2 collaborators');
+  fireEvent.click(collaborators);
+  expect(screen.getByText('Collaborator details are visible to the owner and admins.')).toBeInTheDocument();
+  expect(screen.queryByText('No one else has been added yet.')).not.toBeInTheDocument();
 });
 
 

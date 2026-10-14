@@ -68,6 +68,20 @@ and edit its own Entry only under the explicit author condition. Moderation
 does not permit rewriting another person's comment. App-protected transitions
 and separation-of-duty conditions still constrain canonical mutations.
 
+### Collaborator counts and directory visibility
+
+An authenticated caller with current resource-read authority may see the App or
+Track's aggregate collaborator count. The count uses the same deduplicated roster
+as the manager view; Track counts distinguish excluded inherited rows from
+effective rows. Broad workspace/public visibility pools are summarized separately.
+Counts are display metadata and do not confer authority.
+
+Directory visibility remains a separate manager/governance capability. A reader
+may receive `collaborators: []` with `directory_visible: false` and a nonzero
+count. The UI must use the server aggregate and explain that details are restricted;
+it must not treat a hidden directory as an empty one. Unauthorized callers receive
+neither the count nor identities. Existing roster truncation indicators still apply.
+
 ## Canonical facts and admission
 
 Resource scope comes from the unique rooted structural graph. Scalar workspace

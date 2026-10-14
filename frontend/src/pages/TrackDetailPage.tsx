@@ -1954,6 +1954,7 @@ export function TrackDetailPage() {
         isOwner={isOwner}
         currentUser={user}
         collaboratorList={collaboratorList}
+        collaboratorCount={track.collaborator_effective_total}
         collabExcludeIds={collabExcludeIds}
         onAdd={addTrackCollaborator}
         onChangeDirectRole={setTrackCollaboratorRole}

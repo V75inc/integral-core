@@ -137,6 +137,8 @@ export const appsApi = {
   },
   getCollaboratorsDetailed: async (appId: string): Promise<{
     collaborators: unknown[];
+    total?: number;
+    effective_total?: number;
     caller_role?: string | null;
     directory_visible?: boolean;
   }> => {
