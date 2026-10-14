@@ -18,6 +18,13 @@ New deterministic cases cover the supplied screenshot patterns, raw/inventory/st
 
 Final counts and diagnostics: `tasks/implementation-qualification.md`; JUnit evidence in `tasks/evidence/implementation-postgres-final.xml`. Earlier baseline live-model outcomes remain in `tasks/live-results.json`; they are evidence of the original gaps, not of a deployed fix.
 
+## Historical status
+
+The deployment statement below records the original qualification checkpoint.
+Later local deployment and adaptive routing evidence is recorded in
+`2026-10-13-adaptive-harness-latency.md`; the current state review is
+`2026-10-14-core-state-access-stability-review.md`.
+
 ## Explicit limits
 
 The deterministic recognizer is intentionally narrow and English-oriented. Contextual and multilingual extraction that does not match it relies on the model following the disclosure policy. The fixed-response exemption permits a safe refusal but cannot force a provider that insists on tool choice to recognize every such request before discovery. A sixteen-word literal-overlap guard does not recognize arbitrary semantic paraphrases, encodings or short secret fragments. It is defense in depth, not a semantic confidentiality proof.

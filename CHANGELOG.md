@@ -6,7 +6,31 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Compact message debug request context by omitting empty optional session/focus
+  fields and identical page-context focus duplicates; retain diagnostic evidence.
+
+- Clarify the chat activity line with Thinking, observable tool activity, and
+  distinct finished/stopped/interrupted states; explain expandable usage details.
+
+- Ordinary chat starts with compact public dialogue and no workspace functions;
+  the configured model can request operational context within the same turn.
+  Approvals, builds and recovery retain the operational harness. Conversation
+  replies preserve operational checkpoints and omit automatic title inference.
+
+- Home card accent borders follow the selected Workspace identity color and
+  retain the theme fallback when no Workspace color is configured.
+
 ### Fixed
+
+- Keep ad-hoc Track relation identity stable through display renames, including
+  bounded recovery from retained creation snapshots for legacy Tracks.
+- Give passive agent polling and approval actions independent bounded rate
+  budgets; retain token preflight in the action budget and retry-after responses.
+- Retain failed/skipped approvals as unapplied, label explicit application
+  retries, and distinguish an applied write from a failed review refresh.
+
+- Show the actual App and Track collaborator count to invited readers while
+  keeping collaborator names and access details restricted to managers.
 
 - Resolve dashboard widgets with bounded parallel reads and independent live
   permission checks, reducing measured local dashboard latency while preserving
