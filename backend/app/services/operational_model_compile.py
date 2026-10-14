@@ -214,17 +214,23 @@ def _tool_schedule(raw: Any, *, where: str) -> Optional[Dict[str, str]]:
         cron = str(raw.get("cron") or "").strip()
         tz = str(raw.get("timezone") or "UTC").strip() or "UTC"
     else:
-        raise OperationalModelValidationError(message=f"{where} must be a cron string or {{cron, timezone}}")
+        raise OperationalModelValidationError(
+            message=f"{where} must be a cron string or {{cron, timezone}}"
+        )
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
     from croniter import croniter  # type: ignore[import-untyped]
 
     if not cron or not croniter.is_valid(cron):
-        raise OperationalModelValidationError(message=f"{where} has an invalid cron expression {cron!r}")
+        raise OperationalModelValidationError(
+            message=f"{where} has an invalid cron expression {cron!r}"
+        )
     try:
         ZoneInfo(tz)
     except (ZoneInfoNotFoundError, ValueError):
-        raise OperationalModelValidationError(message=f"{where} has an unknown timezone {tz!r}") from None
+        raise OperationalModelValidationError(
+            message=f"{where} has an unknown timezone {tz!r}"
+        ) from None
     return {"cron": cron, "timezone": tz}
 
 
@@ -3108,7 +3114,9 @@ def _parse_manifest_tools(
                 if str(x).strip()
             ],
         }
-        schedule = _tool_schedule(ed.get("schedule"), where=f"{where}[{key!r}].schedule")
+        schedule = _tool_schedule(
+            ed.get("schedule"), where=f"{where}[{key!r}].schedule"
+        )
         if schedule:
             # Core queues this tool as a background App job on each cron slot.
             spec["schedule"] = schedule

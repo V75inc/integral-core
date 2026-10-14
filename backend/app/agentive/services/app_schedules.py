@@ -29,7 +29,9 @@ def _due_slot(schedule: Dict[str, str], now: datetime) -> Optional[str]:
 
     base = (now - timedelta(seconds=WINDOW_SECONDS)).isoformat()
     try:
-        slot = compute_next_run_at(schedule["cron"], schedule.get("timezone") or "UTC", base_iso=base)
+        slot = compute_next_run_at(
+            schedule["cron"], schedule.get("timezone") or "UTC", base_iso=base
+        )
     except Exception:  # noqa: BLE001 - a bad schedule must not stop the others
         log.warning("invalid App tool schedule %r", schedule, exc_info=True)
         return None
@@ -43,8 +45,13 @@ def _due_slot(schedule: Dict[str, str], now: datetime) -> Optional[str]:
 async def _app_for(workspace_id: str, bundle_slug: str) -> Optional[Any]:
     from app.models.nodes import App
 
-    for app in await App.find({"context.source_operational_model_slug": bundle_slug}) or []:
-        if getattr(app, "workspace_id", "") == workspace_id and getattr(app, "lifecycle_state", "") == "active":
+    for app in (
+        await App.find({"context.source_operational_model_slug": bundle_slug}) or []
+    ):
+        if (
+            getattr(app, "workspace_id", "") == workspace_id
+            and getattr(app, "lifecycle_state", "") == "active"
+        ):
             return app
     return None
 
@@ -71,7 +78,11 @@ async def enqueue_due_app_schedules(now: Optional[datetime] = None) -> int:
                 continue
             principal = await _resolve_installing_principal(app)
             if not principal:
-                log.info("scheduled tool %s skipped: no installing principal for %s", key, app.id)
+                log.info(
+                    "scheduled tool %s skipped: no installing principal for %s",
+                    key,
+                    app.id,
+                )
                 continue
             try:
                 await enqueue_work_item(
@@ -90,5 +101,7 @@ async def enqueue_due_app_schedules(now: Optional[datetime] = None) -> int:
                 )
                 queued += 1
             except Exception:  # noqa: BLE001 - one failure must not stop the pass
-                log.exception("could not queue scheduled tool %s in %s", key, workspace_id)
+                log.exception(
+                    "could not queue scheduled tool %s in %s", key, workspace_id
+                )
     return queued
