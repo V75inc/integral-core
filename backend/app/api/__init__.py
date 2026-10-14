@@ -43,6 +43,7 @@ for _mod in (
     "policies",  # Plan 06-05 — migrated from include_router to @endpoint
     "query_spec",
     "graph_context",
+    "workspace_ontology",
     "retrieve",  # Phase 4 — POST /api/retrieve (RET-03)
     "retrieval_config",  # Phase 8 Plan 08-04 — GET /api/retrieval/config (SET-06)
     "shared_with_me",  # Phase 5 — /me/shared and /me/invitations

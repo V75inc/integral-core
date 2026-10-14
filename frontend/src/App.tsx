@@ -47,6 +47,9 @@ const MissionControlPage = lazy(() =>
 const TracksPage = lazy(() =>
   import('./pages/TracksPage').then((m) => ({ default: m.TracksPage })),
 );
+const OntologyPage = lazy(() =>
+  import('./pages/OntologyPage').then((m) => ({ default: m.OntologyPage })),
+);
 const TrackDetailPage = lazy(() =>
   import('./pages/TrackDetailPage').then((m) => ({
     default: m.TrackDetailPage,
@@ -337,6 +340,7 @@ export default function App() {
       <Route path="/" element={
         <RequireAuth><Layout /></RequireAuth>
       }>
+        <Route path="ontology" element={<OntologyPage />} />
         <Route
           path="admin"
           element={

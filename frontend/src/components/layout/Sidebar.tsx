@@ -32,6 +32,7 @@ import {
   ListTodo,
   LogOut,
   MessageSquare,
+  Network,
   User as UserIcon,
   Pin,
   Rss,
@@ -1080,6 +1081,13 @@ export function Sidebar({
                 onClick={closeMobile}
                 collapsed={railCollapsed}
                 leading={<ListIcon size={15} strokeWidth={LINE_ICON_STROKE} className="shrink-0" aria-hidden />}
+              />
+              <NavItem
+                to="/ontology"
+                label="Ontology"
+                onClick={closeMobile}
+                collapsed={railCollapsed}
+                leading={<Network size={15} strokeWidth={LINE_ICON_STROKE} className="shrink-0" aria-hidden />}
               />
             </div>
           </div>
