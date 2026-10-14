@@ -46,12 +46,14 @@ init` with no `--slug` writes a blank distro (`integral-apps/` empty).
 
 ### Testing
 
-**The gate is `make verify`.** CI runs only the `smoke` marker on PRs; the full
-suite is a local responsibility. One command covers it:
+**The gate is `make verify`.** PR CI runs smoke, Core-only, extension-contract,
+PostgreSQL, frontend and artifact lanes; the full default suite remains a local
+responsibility. One command covers the broad local gate:
 
 ```bash
 make verify      # guards, pinned formatters, tsc, CI-faithful run, both suites
-make verify-ci   # just the CI reproduction — the fast pre-push check
+make verify-ci   # reproduce the CI smoke lane; not the whole workflow
+make verify-pr   # reproduce backend test lanes and the PostgreSQL lane
 make help        # all targets
 ```
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import uuid
@@ -10,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Literal, Optional, cast
 from zoneinfo import ZoneInfo
 
+from app.middleware.permissions_cache import isolated_permissions_cache
 from app.models.edges import CATALOGS, CONTAINS
 from app.models.nodes import App, Dashboard, Track
 from app.schemas.entry_aggregate import AggregateSpec
@@ -1641,21 +1643,28 @@ async def resolve_dashboard_data(
     workspace_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Resolve live data for every widget on a dashboard."""
-    out: Dict[str, Any] = {}
-    for widget in dashboard.widgets or []:
-        wid = widget.get("id")
-        if not wid:
-            continue
-        try:
-            out[wid] = await resolve_widget_data(
-                user_id=user_id,
-                app_id=app_id,
-                widget=widget,
-                workspace_id=workspace_id,
-            )
-        except Exception as exc:  # noqa: BLE001
-            out[wid] = {"error": str(exc)}
-    return out
+    # Limit fan-out against the database pool. Each widget still performs its
+    # own scoped read and live authorization; no query or allow result is reused.
+    semaphore = asyncio.Semaphore(3)
+
+    async def resolve(widget: Dict[str, Any]) -> Any:
+        async with semaphore:
+            with isolated_permissions_cache():
+                try:
+                    return await resolve_widget_data(
+                        user_id=user_id,
+                        app_id=app_id,
+                        widget=widget,
+                        workspace_id=workspace_id,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    return {"error": str(exc)}
+
+    widgets = [widget for widget in dashboard.widgets or [] if widget.get("id")]
+    results = await asyncio.gather(*(resolve(widget) for widget in widgets))
+    # Preserve declaration order, including the existing last-value behavior
+    # for duplicate IDs, regardless of which query finishes first.
+    return {widget["id"]: result for widget, result in zip(widgets, results)}
 
 
 async def suggest_dashboard_template(
