@@ -4,5 +4,5 @@ import logging
 
 
 def configure_db_operation_logging(level: str) -> None:
-    """Keep slow-query warnings while normal query timings are opt-in."""
+    """Set the jvspatial database logger threshold; it logs failures only."""
     logging.getLogger("jvspatial.db.observable").setLevel(level)

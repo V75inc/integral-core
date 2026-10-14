@@ -46,7 +46,7 @@ RUN /opt/venv/bin/python -c 'import importlib.metadata as m; \
 assert m.version("integral-core") == "0.1.1rc17"; \
 assert m.version("integral-sdk") == "0.2.0"; \
 from integral_sdk import OperationContext; \
-assert m.version("jvspatial") == "0.2.1", "Expected jvspatial 0.2.1, installed " + m.version("jvspatial"); \
+assert m.version("jvspatial") == "0.2.2", "Expected jvspatial 0.2.2, installed " + m.version("jvspatial"); \
 assert m.version("pydantic-ai-harness") == "0.36.0"; \
 assert m.distribution("jvspatial").read_text("direct_url.json") is None'
 

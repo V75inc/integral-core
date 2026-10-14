@@ -28,8 +28,8 @@ async def database_with_data(tmp_path, **kwargs):
 
 
 def test_published_jvspatial_version():
-    assert version("jvspatial") == "0.2.1"
-    assert "jvspatial==0.2.1" in distribution("integral-core").requires
+    assert version("jvspatial") == "0.2.2"
+    assert "jvspatial==0.2.2" in distribution("integral-core").requires
 
 
 @pytest.mark.asyncio
@@ -55,24 +55,28 @@ async def test_default_hides_routine_queries_without_disabling_metrics(
 
 
 @pytest.mark.asyncio
-async def test_slow_query_warnings_and_errors_remain_visible(tmp_path, caplog):
+async def test_slow_queries_are_counted_without_log_records(
+    tmp_path, caplog, monkeypatch
+):
+    monkeypatch.setenv("JVSPATIAL_SLOW_QUERY_MS", "0")
     configure_db_operation_logging("INFO")
-    database = await database_with_data(tmp_path, slow_query_ms=0)
-    with caplog.at_level(logging.INFO):
-        await database.find("object", {})
-        logging.getLogger("jvspatial.db.observable").error("Database failure")
-    assert any(
-        record.levelno == logging.WARNING and "SLOW db.find" in record.message
-        for record in caplog.records
+    holder = _RequestDBOps()
+    database = await database_with_data(
+        tmp_path, metrics=RequestDBOpRecorder(), slow_query_ms=0
     )
-    assert any(
-        record.levelno == logging.ERROR and record.message == "Database failure"
-        for record in caplog.records
-    )
+    token = request_db_ops.set(holder)
+    try:
+        with caplog.at_level(logging.DEBUG):
+            await database.find("object", {})
+        assert not any("db.find" in record.message for record in caplog.records)
+        assert holder.ops == 1
+        assert holder.slow_ops >= 1
+    finally:
+        request_db_ops.reset(token)
 
 
 @pytest.mark.asyncio
-async def test_fast_failed_query_warns_and_preserves_exception(
+async def test_failed_query_logs_error_and_preserves_exception(
     tmp_path, caplog, monkeypatch
 ):
     configure_db_operation_logging("INFO")
@@ -88,26 +92,21 @@ async def test_fast_failed_query_warns_and_preserves_exception(
     ):
         await database.find("object", {})
     assert any(
-        record.levelno == logging.WARNING
+        record.levelno == logging.ERROR
         and "FAILED db.find" in record.message
+        and record.collection == "object"
         and record.success is False
         for record in caplog.records
     )
 
 
 @pytest.mark.asyncio
-async def test_explicit_debug_level_restores_query_tracing(tmp_path, caplog):
+async def test_debug_level_does_not_log_successful_queries(tmp_path, caplog):
     configure_db_operation_logging("DEBUG")
     database = await database_with_data(tmp_path, slow_query_ms=10_000)
     with caplog.at_level(logging.DEBUG):
         await database.find("object", {})
-    assert any(
-        record.levelno == logging.DEBUG
-        and "db.find" in record.message
-        and record.collection == "object"
-        and record.success is True
-        for record in caplog.records
-    )
+    assert not any("db.find" in record.message for record in caplog.records)
 
 
 @pytest.mark.asyncio

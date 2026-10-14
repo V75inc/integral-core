@@ -25,10 +25,12 @@ Use the [backend reference](../docs/backend/README.md), [architecture](../docs/p
 
 ## jvspatial security compatibility
 
-Metadata pins jvspatial 0.2.1 and pydantic-ai-harness 0.36.0. Runtime dependencies resolve from PyPI. Production OAuth requires its encryption key, and production auth rate limits stay active. Repair duplicate model credentials before creating their unique index and test actual PostgreSQL duplicates.
+Metadata pins jvspatial 0.2.2 and pydantic-ai-harness 0.36.0. Runtime dependencies resolve from PyPI. Production OAuth requires its encryption key, and production auth rate limits stay active. Repair duplicate model credentials before creating their unique index and test actual PostgreSQL duplicates.
 
 `make verify` from the repository root is the broad local gate. PR smoke CI is narrower and runs without a developer .env. Database contracts and packaged-wheel checks provide separate evidence.
 
-Routine database timings use DEBUG in jvspatial 0.2.1. Core defaults
-`DB_OPERATION_LOG_LEVEL=INFO`: slow queries and failed operations remain visible,
-and metrics remain enabled. Set `DB_OPERATION_LOG_LEVEL=DEBUG` for query tracing.
+jvspatial 0.2.2 logs failed database operations at ERROR and does not log
+successful ones, including slow queries, at any level. Slow queries are counted
+through the metrics recorder (`JVSPATIAL_SLOW_QUERY_MS`, default 100) and
+reported per request by the performance header middleware. Core defaults
+`DB_OPERATION_LOG_LEVEL=INFO`.

@@ -22,8 +22,10 @@ bump does not establish that a release is available on a package index.
   and expose an editable Profile setting. New reminders and relative-date query
   plans inherit the account zone while existing and approved schedules retain
   their saved zone; ambiguous local one-shots require an explicit offset.
-- Pin jvspatial 0.2.1. Routine database timings use DEBUG, keeping INFO logs quiet
-  while slow-query/failure warnings and operation metrics remain available.
+- Pin jvspatial 0.2.2. Successful database operations, including slow queries,
+  are no longer logged; failures log at ERROR. Slow queries remain counted in
+  per-request operation metrics. Graph transactions keep their identity map
+  isolated from the process cache.
 
 ## 0.1.1rc17 — 2026-10-12
 
