@@ -89,6 +89,16 @@ def graph_transaction_available(database: Any | None = None) -> bool:
     )
 
 
+def current_graph_transaction_database() -> Any:
+    """Require this task's open transaction for an atomic effect receipt."""
+    active = _active_transaction.get()
+    if active is None or active.owner is not asyncio.current_task() or active.failed:
+        raise OperationTransactionUnavailable(
+            "A current task-owned transaction is required"
+        )
+    return active.handle
+
+
 @asynccontextmanager
 async def postgres_graph_transaction(
     database: Any | None = None,
@@ -149,5 +159,6 @@ async def postgres_graph_transaction(
 __all__ = [
     "OperationTransactionUnavailable",
     "graph_transaction_available",
+    "current_graph_transaction_database",
     "postgres_graph_transaction",
 ]

@@ -19,7 +19,7 @@ import { countManifestSeedEntries } from '../../utils/manifestSeeds';
 function normalizeAppVisibility(v: string | undefined): VisibilityChoice {
   if (!v) return 'private';
   if (v === 'team' || v === 'organization') return 'workspace';
-  if (v === 'inherit') return 'inherit';
+  if (v === 'inherit') return 'private';
   if (v === 'private' || v === 'workspace' || v === 'public') return v;
   return 'private';
 }
@@ -45,7 +45,7 @@ export function AppModal({ open, onClose, onSaved, editApp, mode }: AppModalProp
   const [icon, setIcon] = useState(editApp?.icon || '');
   const [description, setDescription] = useState(editApp?.description || '');
   const [visibilityChoice, setVisibilityChoice] = useState<VisibilityChoice>(() =>
-    isEdit ? normalizeAppVisibility(editApp?.visibility) : 'inherit'
+    isEdit ? normalizeAppVisibility(editApp?.visibility) : 'private'
   );
   const [libraryPackageId, setLibraryPackageId] = useState('');
   const [libraryPackages, setLibraryPackages] = useState<OperationalModelNode[]>([]);
@@ -113,7 +113,7 @@ export function AppModal({ open, onClose, onSaved, editApp, mode }: AppModalProp
       setName('');
       setIcon('');
       setDescription('');
-      setVisibilityChoice('inherit');
+      setVisibilityChoice('private');
       setLibraryPackageId('');
       setIncludeSeedData(true);
     }
@@ -149,7 +149,7 @@ export function AppModal({ open, onClose, onSaved, editApp, mode }: AppModalProp
           description: description.trim() || undefined,
           icon,
           ...(scope?.workspaceId ? { workspace_id: scope.workspaceId } : {}),
-          ...(visibilityChoice === 'inherit' ? {} : { visibility: visibilityChoice }),
+          visibility: visibilityChoice,
           ...(libraryPackageId
             ? {
                 library_operational_model_id: libraryPackageId,
@@ -211,8 +211,8 @@ export function AppModal({ open, onClose, onSaved, editApp, mode }: AppModalProp
           value={visibilityChoice}
           onChange={setVisibilityChoice}
           workspaceAvailable={!!scope?.workspaceId}
-          showInherit={true}
-          inheritHint="Applies the active workspace's visibility."
+          showInherit={false}
+          inheritHint=""
         />
       </div>
       {!isEdit && libraryPackageId ? (

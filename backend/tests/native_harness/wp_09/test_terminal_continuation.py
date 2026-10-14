@@ -7,6 +7,7 @@ import pytest
 from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
+    TextPart,
     ToolCallPart,
     ToolReturnPart,
     UserPromptPart,
@@ -79,8 +80,9 @@ def _receipt(tool, status):
         ("write_tool", "waiting_for_human", False),
     ],
 )
+@pytest.mark.parametrize("run_status", ["succeeded", "failed", "cancelled"])
 async def test_terminal_continuation_uses_scoped_original_receipts(
-    monkeypatch, tool, status, allowed
+    monkeypatch, tool, status, allowed, run_status
 ):
     history = [
         ModelResponse(parts=[ToolCallPart(tool, {}, "call-1")]),
@@ -100,7 +102,7 @@ async def test_terminal_continuation_uses_scoped_original_receipts(
     monkeypatch.setattr(RunStep, "find", steps)
     restored = await _settled_terminal_history(
         _scope("next-run"),
-        _run(),
+        _run(status=run_status),
         Store(),
         SimpleNamespace(state="complete"),
         [SimpleNamespace(tool_name=tool, tool_call_id="call-1", status="completed")],
@@ -364,3 +366,64 @@ async def test_terminal_request_unknown_billing_does_not_replay_settled_effects(
     assert model_observations.unsettled_model_request_ids(transitions) == [
         "unfinished-model-request"
     ]
+
+
+@pytest.mark.asyncio
+async def test_completed_retry_run_continues_with_unknown_billing_without_replay(
+    monkeypatch,
+):
+    """A successful run may contain uncertain failed attempts before its reply."""
+    from app.agentive.harness import model_observations
+    from app.agentive.work_models import WorkApproval
+
+    now = datetime.now(timezone.utc)
+    history = [
+        ModelResponse(parts=[ToolCallPart("read_tool", {}, "call-1")]),
+        ModelRequest(parts=[ToolReturnPart("read_tool", {"count": 3}, "call-1")]),
+        ModelResponse(parts=[TextPart("Read completed")]),
+    ]
+
+    async def observations(**_kwargs):
+        return [
+            SimpleNamespace(
+                request_id="timed-out-attempt",
+                outcome="outcome_unknown",
+                observed_at=now,
+                dispatched_at=now,
+            )
+        ]
+
+    async def approvals(_query):
+        return []
+
+    async def steps(_query):
+        return [_receipt("read_tool", "succeeded")]
+
+    class Store:
+        async def list_unresolved_tool_effects(self, **_kwargs):
+            return []
+
+        async def list_tool_effects(self, **_kwargs):
+            return [
+                SimpleNamespace(
+                    tool_name="read_tool", tool_call_id="call-1", status="completed"
+                )
+            ]
+
+        async def latest_snapshot(self, **_kwargs):
+            return SimpleNamespace(messages=history)
+
+    monkeypatch.setattr(
+        model_observations, "list_model_request_observations", observations
+    )
+    monkeypatch.setattr(WorkApproval, "find", approvals)
+    monkeypatch.setattr(RunStep, "find", steps)
+    restored = await _resume_history(
+        _scope("next-run"),
+        SimpleNamespace(last_run_id="failed-run"),
+        Store(),
+        previous_run=_run(status="succeeded"),
+    )
+    assert restored[:3] == history
+    assert "previous turn completed" in restored[-1].parts[0].content.lower()
+    assert "must not be repeated" in restored[-1].parts[0].content

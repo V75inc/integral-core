@@ -111,7 +111,7 @@ _FRAMEWORK_READ_TOOLS = frozenset(
 def _terminal_run_matches(scope, run) -> bool:
     return bool(
         run is not None
-        and run.status in {"failed", "cancelled"}
+        and run.status in {"succeeded", "failed", "cancelled"}
         and run.user_id == scope.principal_id
         and run.workspace_id == scope.workspace_id
         and run.thread_id == scope.thread_id
@@ -516,7 +516,7 @@ async def _settled_terminal_history(
     recovery_message,
     checkpoint_run_id,
 ):
-    """Admit a failed turn's library history using original Core receipts.
+    """Admit a terminal turn's library history using original Core receipts.
 
     No transcript guesses, model judgment, or new authority are involved.
     Failed mutations without a successful/denied receipt remain ambiguous.
@@ -617,8 +617,12 @@ async def _settled_terminal_history(
         ModelResponse(
             parts=[
                 TextPart(
-                    "The previous turn stopped without a final answer. Its "
-                    "settled tool results are preserved in this conversation; "
+                    (
+                        "The previous turn completed. Its "
+                        if run.status == "succeeded"
+                        else "The previous turn stopped without a final answer. Its "
+                    )
+                    + "settled tool results are preserved in this conversation; "
                     "applied actions must not be repeated. No interrupted "
                     "operation was replayed. Continue with the latest request."
                 )
@@ -951,7 +955,7 @@ async def _load_recovery_user_message(previous_run, scope):
         or message.id != message_id
         or message.thread_id != scope.thread_id
         or message.role != "user"
-        or (message.provider_metadata or {})
+        or set(message.provider_metadata or {}) - {"page_context"}
     ):
         return None
     parts = list(message.parts or [])
@@ -1115,12 +1119,16 @@ class PydanticAIProvider:
                 observer=model_observer,
             )
             model_observer = model_admission.observe
+        from app.services.model_retry_status import emit_model_retry_status
+
         return build_litellm_sdk_model(
             route=route,
             scope=scope,
             observer=model_observer,
             admission=model_admission,
             timeout_seconds=settings.INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS,
+            max_attempts=settings.INTEGRAL_NATIVE_MODEL_MAX_ATTEMPTS,
+            retry_status=emit_model_retry_status,
         )
 
     async def _try_light_turn(self, ctx, thread, workspace_role, work_context):
@@ -1692,6 +1700,16 @@ class PydanticAIProvider:
         )
 
     async def stream_turn(self, ctx: ChatTurnContext) -> AsyncIterator[dict[str, Any]]:
+        from app.services.model_retry_status import stream_with_retry_status
+
+        stream = stream_with_retry_status(self._stream_turn(ctx))
+        try:
+            async for event in stream:
+                yield event
+        finally:
+            await stream.aclose()
+
+    async def _stream_turn(self, ctx: ChatTurnContext) -> AsyncIterator[dict[str, Any]]:
         """Stream normalized chat events with Core-owned session identity."""
         from app.config import settings
 

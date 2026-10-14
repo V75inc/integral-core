@@ -265,9 +265,10 @@ async def test_stored_event_surfaces_filter_excluded_entry(surface, monkeypatch)
     from starlette.requests import Request
 
     from app.api import audit_log, events_polling
+    from app.services import event_history
     from app.services.change_event_logger import ChangeEventEnvelope
 
-    _, reader, _, _, track, entry = await rooted_graph()
+    _, reader, workspace, _, track, entry = await rooted_graph()
     event = ChangeEventEnvelope(
         id="event-1",
         ts="2026-10-10T00:00:00+00:00",
@@ -280,14 +281,22 @@ async def test_stored_event_surfaces_filter_excluded_entry(surface, monkeypatch)
         after={"title": entry.title},
     )
     module = audit_log if surface == "audit" else events_polling
+
+    async def find_page(**kwargs):
+        return [event] if kwargs.get("cursor") is None else []
+
     monkeypatch.setattr(
         module,
         "get_change_event_logger",
-        lambda: SimpleNamespace(find_all=AsyncMock(return_value=[event])),
+        lambda: SimpleNamespace(find_page=find_page),
     )
-    monkeypatch.setattr(module, "envelope_from_dblog", lambda row: row)
+    monkeypatch.setattr(event_history, "envelope_from_dblog", lambda row: row)
     request = Request(
-        {"type": "http", "headers": [], "state": {"user": {"id": reader.id}}}
+        {
+            "type": "http",
+            "headers": [(b"x-integral-scope", f"ws:{workspace.id}".encode())],
+            "state": {"user": {"id": reader.id}},
+        }
     )
     handler = (
         module.list_audit_log if surface == "audit" else module.list_events_polling

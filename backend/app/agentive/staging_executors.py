@@ -70,18 +70,27 @@ async def _resolve_auth_user(user_id: str) -> Optional[Any]:
     """
     if not user_id:
         return None
-    try:
-        from jvspatial.api.auth.models import User as AuthUser
-    except ImportError:
-        from app.services.permissions import get_user_node
+    from jvspatial.api.auth.models import User as AuthUser
 
-        return await get_user_node(user_id)
-    return await AuthUser.get(user_id)
+    from app.api.errors import InsufficientPermissionsError
+    from app.services.identity_admission import resolve_current_profile
+
+    try:
+        profile = await resolve_current_profile(user_id)
+    except InsufficientPermissionsError:
+        return None
+    # Both admitted principal aliases name one unique current profile. A
+    # graph-profile id must not be handed to the AuthUser object collection.
+    return await AuthUser.get(profile.user_id) if profile.user_id else None
 
 
 def _envelope_error(exc: BaseException) -> Dict[str, Any]:
     status_code = getattr(exc, "status_code", 500)
-    code = getattr(exc, "error_code", None) or type(exc).__name__
+    code = (
+        getattr(exc, "error_code", None)
+        or getattr(exc, "code", None)
+        or type(exc).__name__
+    )
     message = getattr(exc, "detail", None) or str(exc) or "Unknown error"
     envelope = {
         "error": True,
@@ -382,6 +391,11 @@ async def _x_create_track(user_id: str, payload: Dict[str, Any]) -> Dict[str, An
         or created.get("id")
         or ""
     )
+    from app.agentive.services.staging_execution import staged_creation_setup_result
+
+    staged_setup = staged_creation_setup_result("create_track")
+    if staged_setup is not None:
+        return {**created, **staged_setup}
     entry_types = payload.get("entry_types")
     if isinstance(entry_types, list) and entry_types and new_track_id:
         from app.services.operational_model_authoring import (

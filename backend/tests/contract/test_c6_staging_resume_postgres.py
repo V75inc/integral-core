@@ -23,6 +23,12 @@ from app.services.app_operations.execution_receipts import (
 )
 
 
+@pytest.fixture(autouse=True)
+def isolated_receipt_key(monkeypatch):
+    """Supply a test-only key for encrypted durable command receipts."""
+    monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "55" * 32)
+
+
 @pytest.fixture
 def postgres_graph_context(postgres_raw_db):
     """Bind jvspatial Object helpers to the isolated Postgres test database."""
@@ -97,21 +103,32 @@ async def test_a08_batch_progress_survives_restart_without_duplicate_effects(
     assert first["consumed"] is False
     assert first["execute_result"]["error"] is True
     assert first["execute_result"]["completed"] == 2
-    assert calls == ["batch", "create_app", "create_track", "create_entry"]
+    # The durable batch coordinator dispatches each canonical command directly.
+    assert calls == ["create_app", "create_track", "create_entry"]
     persisted = await staging_store.load(staged.token)
     assert persisted is not None
-    assert persisted.progress is not None
-    assert persisted.progress["completed"] == 2
+    from jvspatial.core.context import get_default_context
+
+    from app.agentive.services.staging_execution import execution_record_id
+
+    for index in range(2):
+        receipt = await get_default_context().database.get(
+            "object", execution_record_id(f"{staged.token}:step:{index}")
+        )
+        assert receipt is not None
+        assert receipt["context"]["state"] == "applied"
+        assert receipt["context"]["result_ciphertext"]
 
     # A fresh interpreter has no access to this process's token cache or
-    # ContextVars. It must reload the blessed change, saved cursor, and prior
-    # result ids from Postgres, then execute the real staging approval path.
+    # ContextVars. It must reload the blessed change and durable step receipts
+    # from Postgres, then execute the real staging approval path.
     worker = """
 import asyncio, json, os
 from jvspatial.core.context import GraphContext, set_default_context
 from jvspatial.db.factory import create_database
 from app.agentive.services.staging_apply import bless_and_execute
 from app.agentive.staging import get_token
+from app.agentive.services.staging_execution import execution_record_id
 
 async def main():
     database = create_database(db_type="postgres")
@@ -119,7 +136,10 @@ async def main():
     token = os.environ["C6_A08_TOKEN"]
     user_id = os.environ["C6_A08_USER"]
     staged = await get_token(token)
-    assert staged is not None and staged.progress["completed"] == 2
+    assert staged is not None
+    for index in range(2):
+        receipt = await database.get("object", execution_record_id(f"{token}:step:{index}"))
+        assert receipt is not None and receipt["context"]["state"] == "applied"
     result = await bless_and_execute(user_id=user_id, token=token)
     print(json.dumps({"pid": os.getpid(), "result": result}))
     await database.close()
@@ -153,7 +173,7 @@ asyncio.run(main())
     assert [item.id for item in linked_tracks] == [tracks[0].id]
     assert [item.id for item in linked_entries] == [entries[0].id]
     # Successful consume is terminal and the durable staging row is removed;
-    # exactly one of each rooted graph object proves the prior cursor/results
+    # exactly one of each rooted graph object proves the prior step receipts
     # were sufficient for the separate process to finish.
     assert await staging_store.load(staged.token) is None
 
@@ -164,7 +184,11 @@ asyncio.run(main())
 async def test_a07_corrected_approved_revision_executes_once_and_closes_states(
     postgres_raw_db, postgres_graph_context, monkeypatch
 ) -> None:
-    """Approval retries preserve revision identity and terminal outcomes."""
+    """Typed App-operation retries preserve revision identity and receipts.
+
+    Canonical Entry commands have their own atomic staging receipt contract;
+    this probe exercises the typed operation ledger through real approvals.
+    """
     calls: list[str] = []
 
     async def apply_revision(
@@ -202,7 +226,8 @@ async def test_a07_corrected_approved_revision_executes_once_and_closes_states(
     first_revision = await staging.create_staged_change(
         user_id="u-c6-a07",
         session_id="s-c6-a07",
-        kind="create_entry",
+        workspace_id="ws-c6-a07",
+        kind="invoke_app_operation",
         summary="Apply draft revision 1",
         diff_human="Create corrected record",
         diff_machine={"revision": 1},
@@ -220,7 +245,8 @@ async def test_a07_corrected_approved_revision_executes_once_and_closes_states(
     corrected = await staging.create_staged_change(
         user_id="u-c6-a07",
         session_id="s-c6-a07",
-        kind="create_entry",
+        workspace_id="ws-c6-a07",
+        kind="invoke_app_operation",
         summary="Apply corrected revision 2",
         diff_human="Create corrected record",
         diff_machine={"revision": 2},
@@ -253,7 +279,7 @@ async def test_a07_corrected_approved_revision_executes_once_and_closes_states(
     expired = await staging.create_staged_change(
         user_id="u-c6-a07",
         session_id="s-c6-a07-expired",
-        kind="create_entry",
+        kind="invoke_app_operation",
         summary="Expired approval",
         diff_human="No effect",
         diff_machine={},
@@ -262,12 +288,12 @@ async def test_a07_corrected_approved_revision_executes_once_and_closes_states(
     )
     with pytest.raises(StagingError) as expiry:
         await staging_apply.bless_and_execute(user_id="u-c6-a07", token=expired.token)
-    assert expiry.value.code == "already_expired"
+    assert expiry.value.code == "expired"
 
     cancelled = await staging.create_staged_change(
         user_id="u-c6-a07",
         session_id="s-c6-a07-cancelled",
-        kind="create_entry",
+        kind="invoke_app_operation",
         summary="Cancelled approval",
         diff_human="No effect",
         diff_machine={},

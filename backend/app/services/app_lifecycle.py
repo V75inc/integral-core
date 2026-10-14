@@ -409,6 +409,7 @@ async def install_app(
     description_override: Optional[str] = None,
     icon_override: Optional[str] = None,
     include_seed_data: Optional[bool] = None,
+    visibility: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Atomic install transaction — 12 steps per app_bundles_v1.md §9.1.
 
@@ -431,6 +432,10 @@ async def install_app(
         raise BadRequestError(message="install_app: workspace_id is required")
     if not library_cp_id:
         raise BadRequestError(message="install_app: library_cp_id is required")
+
+    from app.api.validators import effective_app_visibility
+
+    resolved_visibility = await effective_app_visibility(workspace_id, visibility)
 
     # ---- Pre-flight (Step 1-3) — no compensations recorded yet ----
     library_cp = await OperationalModel.get(library_cp_id)
@@ -630,7 +635,7 @@ async def install_app(
             owner_user_id=actor_id,
             description=app_description,
             icon=validate_app_icon(icon_override),
-            visibility="private",
+            visibility=resolved_visibility,
             workspace_id=workspace_id,
             lifecycle_state="installing",
             settings_schema=settings_schema,
@@ -1908,6 +1913,82 @@ async def uninstall_app(
     reason: Optional[str] = None,
     _change_event_sink=None,
 ) -> Dict[str, Any]:
+    """Apply staged uninstall in its canonical graph/receipt transaction."""
+    from app.agentive.services.staging_execution import (
+        capture_staging_change_event,
+        deliver_staging_command_events,
+        staged_command_bound,
+        staged_command_effect,
+    )
+
+    if not staged_command_bound("delete_app"):
+        return await _uninstall_app_impl(
+            app_id=app_id,
+            actor_id=actor_id,
+            archive=archive,
+            reason=reason,
+            _change_event_sink=_change_event_sink,
+        )
+    from app.agentive.nodes import AgentConfig
+    from app.services.bundle_cleanup_outbox import (
+        deliver_bundle_cleanup,
+        retain_bundle_cleanup,
+    )
+    from app.services.resource_cascade import resource_cascade_scope
+
+    app = await App.get(app_id)
+    if app is None:
+        raise BadRequestError(message="App not found")
+    async with resource_cascade_scope(
+        actor_id=actor_id,
+        resource_type="app",
+        resource_id=app_id,
+        workspace_id=app.workspace_id,
+    ):
+        async with staged_command_effect(
+            user_id=actor_id,
+            workspace_id=app.workspace_id,
+            kind="delete_app",
+            targets={"app_id": app_id},
+        ) as complete:
+            if complete is None:
+                raise RuntimeError("Uninstall command receipt binding unavailable")
+            slug = await _resolve_bundle_slug(app)
+            configs = await AgentConfig.find({"app_id": app_id})
+            await retain_bundle_cleanup(
+                app_id=app_id,
+                workspace_id=app.workspace_id,
+                bundle_slug=slug,
+                agent_config_ids=[cfg.id for cfg in configs],
+            )
+            before = await app.export(flat=True)
+            events: list[Dict[str, Any]] = []
+            result = await _uninstall_app_impl(
+                app_id=app_id,
+                actor_id=actor_id,
+                archive=archive,
+                reason=reason,
+                _change_event_sink=events.append,
+                _defer_registration_cleanup=True,
+            )
+            for event in events:
+                event["before"] = {**before, **(event.get("before") or {})}
+                await capture_staging_change_event(event)
+            await complete({"app_id": app_id, "uninstalled": True, "archived": archive})
+    await deliver_staging_command_events()
+    await deliver_bundle_cleanup()
+    return result
+
+
+async def _uninstall_app_impl(
+    *,
+    app_id: str,
+    actor_id: str,
+    archive: bool = True,
+    reason: Optional[str] = None,
+    _change_event_sink=None,
+    _defer_registration_cleanup: bool = False,
+) -> Dict[str, Any]:
     """Uninstall an App. Archive-by-default; dependents always hard-block.
 
     Single-emission per D-05: emits ``app.uninstalled`` on success.
@@ -1937,15 +2018,27 @@ async def uninstall_app(
     _ = await _check_uninstall_blockers(app_node)
     cascade_null_refs, cascade_archive_refs = await _collect_cascade_refs(app_node)
 
-    await _cascade_null_inbound_refs(cascade_null_refs, actor_id)
-    await _cascade_archive_inbound_entries(cascade_archive_refs, actor_id)
+    await _cascade_null_inbound_refs(
+        cascade_null_refs, actor_id, strict=_defer_registration_cleanup
+    )
+    await _cascade_archive_inbound_entries(
+        cascade_archive_refs, actor_id, strict=_defer_registration_cleanup
+    )
 
-    await _safe_unregister_agents(app_id)
-    await _safe_unregister_skills(app_id)
+    if _defer_registration_cleanup:
+        from app.agentive.services.skill_registry import unregister_skills_for_app
+        from app.agentive.services.uplink_registry import unregister_app_agents_for_app
+
+        await unregister_app_agents_for_app(app_id, strict=True, defer_local=True)
+        await unregister_skills_for_app(app_id, strict=True)
+    else:
+        await _safe_unregister_agents(app_id)
+        await _safe_unregister_skills(app_id)
 
     from app.agentive.workspace_agent_profile import invalidate_workspace_profile
 
-    invalidate_workspace_profile(getattr(app_node, "workspace_id", "") or "")
+    if not _defer_registration_cleanup:
+        invalidate_workspace_profile(getattr(app_node, "workspace_id", "") or "")
 
     if not archive:
         try:
@@ -1996,10 +2089,11 @@ async def uninstall_app(
         len(cascade_null_refs),
         len(cascade_archive_refs),
     )
-    await unregister_app_bundle(
-        workspace_id=workspace_id_for_invalidation,
-        bundle_slug=bundle_slug_for_unregister,
-    )
+    if not _defer_registration_cleanup:
+        await unregister_app_bundle(
+            workspace_id=workspace_id_for_invalidation,
+            bundle_slug=bundle_slug_for_unregister,
+        )
 
     return {
         "app_id": app_id,
@@ -2101,7 +2195,19 @@ async def purge_app_with_bundle_teardown(
         bundle_slug if bundle_slug is not None else await _resolve_bundle_slug(app_node)
     )
     result = await delete_app_cascade(app_node, actor_user_id=actor_user_id)
-    await unregister_app_bundle(workspace_id=workspace_id, bundle_slug=slug)
+    from app.agentive.services.staging_execution import (
+        staged_command_bound,
+        staged_command_completed,
+    )
+
+    if staged_command_completed("delete_app"):
+        from app.services.bundle_cleanup_outbox import deliver_bundle_cleanup
+
+        await deliver_bundle_cleanup()
+    elif not staged_command_bound("delete_app"):
+        await unregister_app_bundle(workspace_id=workspace_id, bundle_slug=slug)
+    # An enclosing staged uninstall still owns its graph transaction. Its
+    # wrapper delivers the retained cleanup after committing the result.
     return result
 
 
@@ -2169,7 +2275,9 @@ async def _count_bypassed_blockers(app_node: App) -> Tuple[int, int]:
         return 0, 0
 
 
-async def _cascade_null_inbound_refs(refs: List[Dict[str, Any]], actor_id: str) -> None:
+async def _cascade_null_inbound_refs(
+    refs: List[Dict[str, Any]], actor_id: str, *, strict: bool = False
+) -> None:
     """For each null-policy inbound ref, clear the source field + emit entry.update.
 
     D-05 single-emission per affected source entry. Multiple ref slots on the
@@ -2214,6 +2322,8 @@ async def _cascade_null_inbound_refs(refs: List[Dict[str, Any]], actor_id: str) 
                 },
             )
         except Exception as e:
+            if strict:
+                raise
             logger.warning(
                 "_cascade_null_inbound_refs: entry %s field %s raised: %s",
                 entry_id,
@@ -2223,7 +2333,7 @@ async def _cascade_null_inbound_refs(refs: List[Dict[str, Any]], actor_id: str) 
 
 
 async def _cascade_archive_inbound_entries(
-    refs: List[Dict[str, Any]], actor_id: str
+    refs: List[Dict[str, Any]], actor_id: str, *, strict: bool = False
 ) -> None:
     """For each archive_self-policy inbound ref, archive the source entry.
 
@@ -2259,6 +2369,8 @@ async def _cascade_archive_inbound_entries(
                 },
             )
         except Exception as e:
+            if strict:
+                raise
             logger.warning(
                 "_cascade_archive_inbound_entries: entry %s raised: %s",
                 entry_id,

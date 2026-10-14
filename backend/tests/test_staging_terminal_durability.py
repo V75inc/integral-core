@@ -138,7 +138,13 @@ async def test_grace_is_measured_from_the_bless_after_a_restart(ledger_spy):
     sc.created_at = sc.created_at - timedelta(
         seconds=staging._BLESSED_GRACE_SECONDS + 60
     )
-    await staging_store.persist(sc)
+    record = await staging_store._find_record(sc.token)
+    context = await record.get_context()
+    await context.database.find_one_and_update(
+        "object",
+        {"id": record.id},
+        {"$set": {"context.created_at": sc.created_at.isoformat()}},
+    )
     await bless_token(user_id="u1", token=sc.token)
 
     _simulate_restart()
@@ -185,7 +191,16 @@ async def test_expiry_sweep_stamps_resolved_at():
     sc = await _mint()
     sc.expires_at = sc.created_at - timedelta(seconds=1)
 
+    record = await staging_store._find_record(sc.token)
+    context = await record.get_context()
+    await context.database.find_one_and_update(
+        "object",
+        {"id": record.id},
+        {"$set": {"context.expires_at": sc.expires_at.isoformat()}},
+    )
     staging._sweep_expired_locked()
+    await staging._flush_decision_ledger()
+    await staging._flush_expiry_closures()
 
     assert sc.state == "expired"
     assert sc.resolved_at is not None

@@ -186,9 +186,11 @@ async def test_org_admin_without_a_direct_grant_can_comment():
     ``test_org_admin_cannot_mint_share_without_direct_grant`` in
     tests/test_wave1_access.py.
     """
-    ws, app, _track, entry = await _org_fixture("orgadmin")
+    ws, app, track, entry = await _org_fixture("orgadmin")
     app.visibility = "workspace"
     await app.save()
+    track.visibility = "inherit"  # Explicitly share through the App.
+    await track.save()
     admin = await _member(ws, "orgadmin", "admin")
 
     assert await resolve_role(admin.id, "entry", entry.id) == "commenter"
@@ -207,6 +209,8 @@ async def test_org_admin_still_cannot_edit_or_administer():
     ws, app, track, _entry = await _org_fixture("orgadminlimits")
     app.visibility = "workspace"
     await app.save()
+    track.visibility = "inherit"  # Explicitly share through the App.
+    await track.save()
     admin = await _member(ws, "orgadminlimits", "admin")
 
     assert await can_edit_track(admin.id, track.id) is False
@@ -505,3 +509,15 @@ async def test_whoever_can_open_public_commenting_can_moderate_it():
         assert may_open is expected
         assert may_moderate is expected
         assert may_open == may_moderate
+
+
+@pytest.mark.asyncio
+async def test_workspace_admin_cannot_comment_on_new_private_track():
+    """Sharing an App does not implicitly share new private Tracks."""
+    ws, app, track, entry = await _org_fixture("private-default")
+    app.visibility = "workspace"
+    await app.save()
+    assert track.visibility == "private"
+    admin = await _member(ws, "private-default", "admin")
+    assert await resolve_role(admin.id, "entry", entry.id) is None
+    assert await _may_comment(admin, entry) is False
