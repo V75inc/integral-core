@@ -161,14 +161,15 @@ async def validate_provider_api_key(
         except ValueError as exc:
             return False, str(exc)
         key = (api_key or "").strip()
-        if not key:
-            return False, "invalid API key"
+        headers: Dict[str, str] = {"Authorization": f"Bearer {key}"} if key else {}
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 resp = await client.get(
                     f"{normalized}/models",
-                    headers={"Authorization": f"Bearer {key}"},
+                    headers=headers,
                 )
+            if resp.status_code == 401 and not key:
+                return False, "endpoint requires an API key"
             if resp.status_code not in (200, 401, 403, 404):
                 logger.warning(
                     "validate_provider_api_key %s HTTP %s: %s",
@@ -176,7 +177,10 @@ async def validate_provider_api_key(
                     resp.status_code,
                     (resp.text or "")[:200],
                 )
-            return _interpret_auth_status(resp.status_code, slug=slug)
+            valid, message = _interpret_auth_status(resp.status_code, slug=slug)
+            if valid and not key:
+                return True, "validated (no API key)"
+            return valid, message
         except httpx.HTTPError as exc:
             logger.warning("validate_provider_api_key failed: %s", type(exc).__name__)
             return False, "could not reach provider"
@@ -325,7 +329,17 @@ async def upsert_user_credential(
         raise ValueError(f"Unsupported provider: {provider}")
 
     local_ollama = slug == "ollama_local"
-    if not local_ollama and not encryption_available():
+    existing = await get_credential_for_user(user_id)
+    # Encryption is required only when a secret is stored or retained. Keyless
+    # custom endpoints persist no secret, so they work without vault config
+    # (same exemption local Ollama enjoys).
+    stores_secret = bool((api_key or "").strip() or (speech_api_key or "").strip())
+    retains_secret = bool(existing and existing.api_key_enc)
+    if (
+        not local_ollama
+        and not encryption_available()
+        and (stores_secret or retains_secret)
+    ):
         # Hosted credentials need a dedicated key at rest. Local Ollama stores
         # no secret, so that model choice does not require an encryption key.
         raise RuntimeError(
@@ -333,7 +347,6 @@ async def upsert_user_credential(
             or "INTEGRAL_CREDENTIAL_ENC_KEY is not configured"
         )
 
-    existing = await get_credential_for_user(user_id)
     custom = slug == "custom_openai"
     if custom:
         incoming_base = (base_url or "").strip()
@@ -349,8 +362,11 @@ async def upsert_user_credential(
         raise ValueError("Local Ollama does not use an API key")
     if not api_key_plain and not local_ollama:
         if not existing:
-            raise ValueError("api_key is required")
-        api_key_plain = decrypt_credential_api_key(existing)
+            if slug != "custom_openai":
+                raise ValueError("api_key is required")
+            # Keyless custom endpoint: no secret to validate or store.
+        else:
+            api_key_plain = decrypt_credential_api_key(existing)
     elif api_key_plain and len(api_key_plain) < 8:
         raise ValueError("api_key must be at least 8 characters")
 
