@@ -27,7 +27,11 @@ from app.services.entry_write_scope import (
     entry_write_scope,
     is_postgres_entry_transaction,
 )
-from app.services.hooks.entry_save_runtime import run_entry_save_hooks
+from app.services.hooks.entry_save_runtime import (
+    entry_type_hook_slug,
+    run_entry_before_write_hooks,
+    run_entry_save_hooks,
+)
 from app.services.migration_write_guard import assert_track_schema_writable
 from app.services.operational_model_compile import slug_manifest_key
 from app.services.operational_model_runtime import (
@@ -268,6 +272,22 @@ async def update_entry_in_track(
                         source_entry_title=title if title is not None else entry.title,
                     )
                 )
+                try:
+                    validated = await run_entry_before_write_hooks(
+                        workspace_id=track.workspace_id,
+                        actor_id=admitted_principal_id,
+                        hook_point="entry.update",
+                        entry_type_slug=entry_type_hook_slug(entry_type),
+                        entry_type_id=str(entry_type.id),
+                        operation="update",
+                        custom_fields=validated,
+                        entry_id=str(entry.id),
+                        write_actor=admitted_principal_id,
+                    )
+                except ValueError as exc:
+                    from app.api.errors import BadRequestError
+
+                    raise BadRequestError(message=str(exc)) from exc
             new_tags = list(dict.fromkeys(tags)) if tags is not None else None
             if new_tags is not None:
                 await validate_taxonomy_constraints(

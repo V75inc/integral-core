@@ -30,6 +30,12 @@ DOCUMENT_TEMPLATES_SLUG = "document_templates"
 TRACK_TEMPLATES = "templates"
 
 
+def _is_document_templates_package_slug(slug: str) -> bool:
+    """Match ``document-templates`` (package dir) and ``document_templates`` (legacy)."""
+    normalized = str(slug or "").strip().casefold().replace("-", "_")
+    return normalized == DOCUMENT_TEMPLATES_SLUG.casefold()
+
+
 def _installed_package_slug(app: App) -> str:
     """Content-profile slug (monolith) or operational-model package slug (Core)."""
     for attr in (
@@ -170,11 +176,10 @@ async def find_document_templates_app(workspace_id: str) -> Optional[App]:
                 rows.append(app)
     if not rows:
         return None
-    slug_fold = DOCUMENT_TEMPLATES_SLUG.casefold()
     for app in rows:
         if str(getattr(app, "lifecycle_state", "") or "active") == "uninstalled":
             continue
-        if _installed_package_slug(app).casefold() == slug_fold:
+        if _is_document_templates_package_slug(_installed_package_slug(app)):
             return app
     return None
 
@@ -433,6 +438,25 @@ async def list_template_views(
     return [_template_view_from_node(r) for r in rows]
 
 
+def _pick_default_active_template(rows: List[TemplateView]) -> Optional[TemplateView]:
+    if not rows:
+        return None
+    return next((r for r in rows if r.is_default), None) or rows[0]
+
+
+async def installed_package_slug_for_track(track: Track) -> str:
+    """Package slug of the App that owns ``track`` (for template consumer_module)."""
+    from app.services.resource_location import locate_resource
+
+    loc = await locate_resource("track", str(track.id))
+    if loc is None or not str(loc.app_id or "").strip():
+        return ""
+    app = await App.get(str(loc.app_id))
+    if app is None:
+        return ""
+    return _installed_package_slug(app)
+
+
 async def resolve_for_generate(
     *,
     workspace_id: str,
@@ -464,9 +488,14 @@ async def resolve_for_generate(
             document_type=document_type,
             status="active",
         )
-        tmpl = next((r for r in rows if r.is_default), None) or (
-            rows[0] if rows else None
+        tmpl = _pick_default_active_template(rows)
+    elif document_type:
+        rows = await list_template_views(
+            workspace_id=workspace_id,
+            document_type=document_type,
+            status="active",
         )
+        tmpl = _pick_default_active_template(rows)
 
     if not tmpl:
         raise ValueError("Template not found")

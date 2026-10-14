@@ -159,10 +159,8 @@ async def provision_workspace_member(
     name = body.display_name.strip()
     if not name:
         raise BadRequestError(message="Display name is required")
-    if body.credentials_email and str(body.credentials_email).lower() != email_norm:
-        raise BadRequestError(
-            message="Credentials must be delivered to the account email"
-        )
+    # credentials_email may differ from account email (recruitment hire: work login,
+    # credentials delivered to the candidate personal address).
     if (
         is_postgres_entry_transaction(get_default_context().database)
         and send_credentials

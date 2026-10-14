@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, FileText, Loader2 } from 'lucide-react';
+import { AlertTriangle, FileText, Loader2, RefreshCw } from 'lucide-react';
 
 import { publicSharingApi } from '../../api/sharing';
 import { memberAssignedFormApi } from '../../features/memberAssignedForm/memberAssignedFormApi';
@@ -15,6 +15,30 @@ import { LINE_ICON_STROKE } from '../../components/ui/IconWell';
 import { useAuth } from '../../context/AuthContext';
 import apiClient from '../../api/client';
 import { errorMessageFromAxios } from '../../api/helpers';
+
+const CONTRACT_MISSING_HINTS = [
+  'contract has not been generated',
+  'not been generated',
+  'contract pdf not found',
+];
+
+function isRequestTimeout(err: unknown): boolean {
+  const ax = err as { code?: string; message?: string };
+  if (ax?.code === 'ECONNABORTED') return true;
+  const msg = String(ax?.message || '').toLowerCase();
+  return msg.includes('timeout') || msg.includes('timed out');
+}
+
+function isMissingContractError(err: unknown): boolean {
+  const ax = err as { response?: { status?: number; data?: { message?: string; detail?: unknown } } };
+  if (ax?.response?.status === 404) return true;
+  const message = String(
+    ax?.response?.data?.message
+      || (typeof ax?.response?.data?.detail === 'string' ? ax.response.data.detail : '')
+      || (err instanceof Error ? err.message : ''),
+  ).toLowerCase();
+  return CONTRACT_MISSING_HINTS.some(h => message.includes(h));
+}
 
 interface ContractReviewStepProps {
   token: string;
@@ -133,6 +157,8 @@ export function ContractReviewStep({
   const [showReject, setShowReject] = useState(false);
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
   const [saveToProfile, setSaveToProfile] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [updatingDocument, setUpdatingDocument] = useState(false);
 
   const status = String(contractStatus || 'pending').toLowerCase();
   const savedSigQ = useQuery({
@@ -141,6 +167,17 @@ export function ContractReviewStep({
     enabled: Boolean(user),
   });
   const savedSig = savedSigQ.data?.[0];
+
+  const loadContractMeta = useCallback(async () => {
+    try {
+      const meta = memberFormMode
+        ? await memberAssignedFormApi.fetchContractMeta(entryId)
+        : await publicSharingApi.fetchOnboardingContractMeta(token, entryId);
+      setUpdateAvailable(Boolean(meta.update_available));
+    } catch {
+      setUpdateAvailable(false);
+    }
+  }, [entryId, token, memberFormMode]);
 
   const loadContractPdf = useCallback(async (cacheBust?: string | number) => {
     const raw = memberFormMode
@@ -155,7 +192,8 @@ export function ContractReviewStep({
         );
     const blob = await assertPdfBlob(raw);
     setPdfBlob(blob);
-  }, [entryId, token, memberFormMode]);
+    await loadContractMeta();
+  }, [entryId, token, memberFormMode, loadContractMeta]);
 
   const ensureGenerated = useCallback(async () => {
     setGenerating(true);
@@ -163,27 +201,59 @@ export function ContractReviewStep({
     try {
       try {
         await loadContractPdf();
-      } catch {
-        if (memberFormMode) {
-          await memberAssignedFormApi.generateContract({
-            force: true,
-            entryId,
-          });
-        } else {
-          await publicSharingApi.generateOnboardingContract(token, entryId, {
-            force: true,
-          });
+        return;
+      } catch (loadErr: unknown) {
+        if (!isMissingContractError(loadErr)) {
+          throw loadErr;
         }
-        await loadContractPdf(Date.now());
       }
+      if (memberFormMode) {
+        await memberAssignedFormApi.generateContract({
+          force: false,
+          entryId,
+        });
+      } else {
+        await publicSharingApi.generateOnboardingContract(token, entryId, {
+          force: false,
+        });
+      }
+      await loadContractPdf(Date.now());
     } catch (err: unknown) {
-      setError(errorMessageFromAxios(err, 'Could not load document'));
+      if (isRequestTimeout(err)) {
+        setError(
+          'Generating your contract is taking longer than usual. Wait a moment, then use Regenerate document, or go back and click Next again.',
+        );
+      } else {
+        setError(errorMessageFromAxios(err, 'Could not load document'));
+      }
       setPdfBlob(null);
     } finally {
       setGenerating(false);
       setLoading(false);
     }
   }, [entryId, loadContractPdf, token, memberFormMode]);
+
+  const handleUpdateDocument = useCallback(async () => {
+    setUpdatingDocument(true);
+    setError(null);
+    try {
+      if (memberFormMode) {
+        await memberAssignedFormApi.generateContract({
+          force: true,
+          entryId,
+        });
+      } else {
+        await publicSharingApi.generateOnboardingContract(token, entryId, {
+          force: true,
+        });
+      }
+      await loadContractPdf(Date.now());
+    } catch (err: unknown) {
+      setError(errorMessageFromAxios(err, 'Could not update document'));
+    } finally {
+      setUpdatingDocument(false);
+    }
+  }, [entryId, loadContractPdf, memberFormMode, token]);
 
   useEffect(() => {
     void ensureGenerated();
@@ -316,7 +386,41 @@ export function ContractReviewStep({
           </Button>
         </div>
       ) : pdfBlob ? (
-        <ContractPdfViewer blob={pdfBlob} documentTitle={documentTitle} />
+        <div className="space-y-3">
+          <div
+            className={`flex flex-wrap items-center gap-2 rounded-[var(--radius-card)] border px-3 py-2 ${
+              updateAvailable
+                ? 'border-[var(--brand-accent-fg)]/35 bg-[var(--brand-accent-fg)]/8'
+                : 'border-[var(--panel-border)] bg-[var(--panel-2)]/40'
+            }`}
+          >
+            <Text variant="body-sm" tone="muted" className="flex-1 min-w-[12rem]">
+              {updateAvailable
+                ? 'A newer published version of this template is available. Regenerate to review the latest document before you sign.'
+                : 'If HR published an updated contract template, regenerate here to load the latest version.'}
+            </Text>
+            <Button
+              type="button"
+              variant={updateAvailable ? 'primary' : 'outline'}
+              size="sm"
+              disabled={deciding || updatingDocument}
+              onClick={() => void handleUpdateDocument()}
+            >
+              {updatingDocument ? (
+                <>
+                  <Loader2 size={14} className="animate-spin mr-1.5" strokeWidth={LINE_ICON_STROKE} />
+                  Regenerating…
+                </>
+              ) : (
+                <>
+                  <RefreshCw size={14} className="mr-1.5" strokeWidth={LINE_ICON_STROKE} />
+                  Regenerate document
+                </>
+              )}
+            </Button>
+          </div>
+          <ContractPdfViewer blob={pdfBlob} documentTitle={documentTitle} />
+        </div>
       ) : (
         <ViewerStatus state="error" message="Document PDF is not available yet." />
       )}

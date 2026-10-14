@@ -22,7 +22,11 @@ from app.services.app_graph import ensure_track_attached_operational_model
 from app.services.change_event import emit_change_event
 from app.services.content_moderation import validate_no_profanity
 from app.services.entry_type_service import materialize_entry_types_from_tier
-from app.services.hooks.entry_save_runtime import run_entry_save_hooks
+from app.services.hooks.entry_save_runtime import (
+    entry_type_hook_slug,
+    run_entry_before_write_hooks,
+    run_entry_save_hooks,
+)
 from app.services.operational_model_compile import slug_manifest_key
 from app.services.operational_model_runtime import (
     resolve_entry_type_spec,
@@ -226,6 +230,22 @@ async def _create_entry_in_track(
         authorization_subject=authorization_subject,
         source_entry_title=title,
     )
+    ws_id = str(getattr(track, "workspace_id", "") or workspace_id)
+    try:
+        validated_custom_fields = await run_entry_before_write_hooks(
+            workspace_id=ws_id,
+            actor_id=user_id,
+            hook_point="entry.create",
+            entry_type_slug=entry_type_hook_slug(resolved_type),
+            entry_type_id=str(resolved_type.id),
+            operation="create",
+            custom_fields=validated_custom_fields,
+            write_actor=user_id,
+        )
+    except ValueError as exc:
+        from app.api.errors import BadRequestError
+
+        raise BadRequestError(message=str(exc)) from exc
     entry_type_spec = resolve_entry_type_spec(resolved_type, runtime_tier)
     tag_ids = list(tags or [])
     await validate_taxonomy_constraints(

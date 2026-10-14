@@ -135,6 +135,7 @@ def build_document_css(
         + (
             ".doc-signature{margin:24px 0;min-width:220px;min-height:48px;"
             "padding:8pt;border:1px solid #ccc;}"
+            ".doc-signature-marker{font-size:1pt;line-height:1pt;color:transparent;}"
             ".doc-signature-line{font-size:11pt;letter-spacing:1px;margin-bottom:4pt;color:#111;}"
             ".doc-signature-label{font-size:9pt;color:#555;margin-top:2pt;}"
         )

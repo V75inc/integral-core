@@ -363,11 +363,43 @@ export const publicSharingApi = {
     return resp.blob();
   },
 
+  async fetchOnboardingContractMeta(
+    token: string,
+    entryId: string,
+  ): Promise<{
+    update_available: boolean;
+    generated_template_version_id?: string | null;
+    published_template_version_id?: string | null;
+    template_id?: string | null;
+  }> {
+    const resp = await fetch(
+      `${getApiBase()}/api/public-share/track/${encodeURIComponent(token)}/entries/${encodeURIComponent(entryId)}/contract/meta`,
+      { cache: 'no-store' },
+    );
+    if (resp.status !== 200) {
+      const errData = await resp.json().catch(() => ({}));
+      const detail = (errData as { detail?: unknown }).detail;
+      const message = (errData as { message?: unknown }).message;
+      const detailText =
+        typeof detail === 'string'
+          ? detail
+          : typeof message === 'string'
+            ? message
+            : '';
+      throw new Error(detailText || 'Failed to load contract status');
+    }
+    return resp.json();
+  },
+
   async generateOnboardingContract(
     token: string,
     entryId: string,
     options?: { force?: boolean },
-  ): Promise<{ contract_status?: string; reused?: boolean }> {
+  ): Promise<{
+    contract_status?: string;
+    reused?: boolean;
+    update_available?: boolean;
+  }> {
     const forceQs = options?.force === true ? '?force=1' : '';
     const resp = await fetch(
       `${getApiBase()}/api/public-share/track/${encodeURIComponent(token)}/entries/${encodeURIComponent(entryId)}/contract/generate${forceQs}`,

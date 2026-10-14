@@ -32,8 +32,10 @@ from app.schemas.api.me_onboarding import (
 )
 from app.services.change_event import emit_change_event
 from app.services.content_moderation import validate_no_profanity
+from app.schemas.shares import OnboardingContractMetaResponse
 from app.services.documents.onboarding_contract import (
     contract_review_enabled,
+    contract_template_update_status,
     decide_contract,
     generate_contract_for_form,
     get_contract_pdf_bytes,
@@ -491,6 +493,26 @@ async def upload_me_onboarding_attachment(request: Request) -> Dict[str, Any]:
         payload["field_key"] = field_key
         payload["field_value"] = attachment_id
     return payload
+
+
+@endpoint(
+    "/me/onboarding-form/contract/meta",
+    methods=["GET"],
+    auth=True,
+    tags=[_LEGACY_TAG],
+)
+async def me_onboarding_contract_meta(request: Request) -> OnboardingContractMetaResponse:
+    workspace_id, _user_id, form, track, _employee = await _resolve_member_form(
+        request, form_entry_id=_form_entry_id_from_request(request)
+    )
+    if not await contract_review_enabled(track, form):
+        raise ResourceNotFoundError(message="Contract review is not configured")
+    meta = await contract_template_update_status(
+        workspace_id=workspace_id,
+        track=track,
+        form_entry=form,
+    )
+    return OnboardingContractMetaResponse.model_validate(meta).model_dump()
 
 
 @endpoint(

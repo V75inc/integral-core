@@ -86,4 +86,12 @@ def _matches(
                 return False
         elif actual != expected:
             return False
+    # Entry-save hooks stamp ``phase`` (before_write / after_write). Bindings that
+    # omit ``phase`` are post-save side effects — they must not run during
+    # before_write validation or a tool that updates the same entry (e.g. public
+    # apply finalize) re-enters itself and blows the stack.
+    payload_phase = payload.get("phase")
+    if payload_phase is not None and "phase" not in match_block:
+        if payload_phase != "after_write":
+            return False
     return True

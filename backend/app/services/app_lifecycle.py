@@ -780,13 +780,20 @@ async def install_app(
         try:
             from app.services.hooks.install_hook import register_bundle_on_install
 
-            bundle_dir = (
+            from app.services.package_paths import normalize_bundle_dir
+
+            lib_slug = str(
+                source_operational_model_slug
+                or (package_meta.get("slug") or package_meta.get("name") or "")
+            ).strip()
+            lib_path = (
                 str(
                     (getattr(library_cp, "metadata", None) or {}).get("bundle_dir_path")
                     or ""
                 )
                 or None
             )
+            bundle_dir = normalize_bundle_dir(lib_path, slug=lib_slug)
             await register_bundle_on_install(
                 workspace_id=app_node.workspace_id,
                 canonical=canonical,
@@ -999,25 +1006,39 @@ async def _resolve_app_bundle_dir(app_node: App) -> str | None:
     ``integral_bundle_<slug>.*`` for external package paths — omitting
     it falls back to ``app.packages.<slug>`` and breaks Business distros.
     """
+    from app.services.package_paths import normalize_bundle_dir, resolve_bundle_dir_for_slug
+
+    slug = str(
+        getattr(app_node, "source_operational_model_slug", "")
+        or getattr(app_node, "installed_package_slug", "")
+        or ""
+    ).strip()
     attached = await get_app_attached_operational_model(app_node)
     bundle_dir = (
         str((getattr(attached, "metadata", None) or {}).get("bundle_dir_path") or "")
         or None
     )
-    if bundle_dir:
-        return bundle_dir
+    if not slug and attached is not None:
+        pkg = (attached.manifest or {}).get("package") or {}
+        slug = str(pkg.get("slug") or pkg.get("name") or "").strip()
+    resolved = normalize_bundle_dir(bundle_dir, slug=slug)
+    if resolved:
+        return resolved
     library_id = getattr(app_node, "installed_from_library_id", None) or getattr(
         app_node, "library_merge_source_id", None
     )
     if not library_id:
-        return None
+        return resolve_bundle_dir_for_slug(slug) if slug else None
     library_cp = await OperationalModel.get(library_id)
     if library_cp is None:
-        return None
-    return (
+        return resolve_bundle_dir_for_slug(slug) if slug else None
+    lib_path = (
         str((getattr(library_cp, "metadata", None) or {}).get("bundle_dir_path") or "")
         or None
     )
+    if not slug:
+        slug = str((getattr(library_cp, "metadata", None) or {}).get("slug") or "").strip()
+    return normalize_bundle_dir(lib_path, slug=slug)
 
 
 async def sync_operational_layer_from_manifest(

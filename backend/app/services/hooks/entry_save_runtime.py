@@ -12,6 +12,7 @@ import asyncio
 import logging
 import re as _re
 from contextvars import ContextVar
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,81 @@ _SLUG_RE = _re.compile(r"[^a-z0-9]+")
 
 def _entry_type_slug(name: str) -> str:
     return _SLUG_RE.sub("_", str(name or "").strip().lower()).strip("_")
+
+
+def entry_type_hook_slug(entry_type: Any) -> str:
+    """Manifest entry type key for hook ``match.entry_type`` (falls back to slugified name)."""
+    manifest_key = str(
+        (getattr(entry_type, "form_schema", None) or {}).get("_manifest_entry_type_key")
+        or ""
+    ).strip()
+    return manifest_key or _entry_type_slug(str(getattr(entry_type, "name", "") or ""))
+
+
+async def run_entry_before_write_hooks(
+    *,
+    workspace_id: str,
+    actor_id: str,
+    hook_point: str,
+    entry_type_slug: str,
+    entry_type_id: str,
+    operation: str,
+    custom_fields: Dict[str, Any],
+    entry_id: str = "",
+    write_actor: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Dispatch bundle hooks that validate or adjust fields before persistence.
+
+    Bindings match on ``phase: before_write`` in their ``match`` block.
+    Returns merged ``custom_fields`` (tools may return an updated dict).
+    """
+    from app.services.hooks.registry import ToolContext, get_workspace_tools
+    from app.services.hooks.resolver import find_matching_bindings
+    from app.services.hooks.tool_dispatch import run_tool
+
+    merged_fields = dict(custom_fields or {})
+    if not workspace_id or not entry_type_slug:
+        return merged_fields
+
+    payload = {
+        "entry_type": entry_type_slug,
+        "entry_type_id": entry_type_id,
+        "entry_id": entry_id,
+        "operation": operation,
+        "actor_id": actor_id,
+        "write_actor": write_actor or actor_id,
+        "custom_fields": merged_fields,
+        "phase": "before_write",
+        "hook_point": hook_point,
+    }
+
+    tools = get_workspace_tools(workspace_id)
+    ctx = ToolContext(
+        user_id=actor_id,
+        workspace_id=workspace_id,
+        scope=f"entry:{entry_id}" if entry_id else f"entry_type:{entry_type_id}",
+    )
+
+    for binding in find_matching_bindings(workspace_id, hook_point, payload):
+        if str(binding.get("mode") or "") != "tool":
+            continue
+        tool_key = str(binding.get("tool") or "")
+        spec = tools.get(tool_key)
+        if not spec:
+            logger.warning(
+                "entry_before_write: binding %r references missing tool %r (ws=%s)",
+                binding.get("key"),
+                tool_key,
+                workspace_id,
+            )
+            continue
+        result = await run_tool(spec, payload, ctx)
+        if isinstance(result, dict):
+            patch = result.get("custom_fields")
+            if isinstance(patch, dict):
+                merged_fields.update(patch)
+                payload["custom_fields"] = merged_fields
+    return merged_fields
 
 
 async def run_entry_save_hooks(
@@ -60,10 +136,7 @@ async def run_entry_save_hooks(
     # "worked" by coincidence for entry types whose display name happens to
     # slugify identically to their key. It silently never matches for entry
     # types named differently from their manifest key.
-    manifest_key = str(
-        (et.form_schema or {}).get("_manifest_entry_type_key") or ""
-    ).strip()
-    slug = manifest_key or _entry_type_slug(et.name)
+    slug = entry_type_hook_slug(et)
     payload = {
         "entry_type": slug,
         "entry_id": str(entry.id),
@@ -72,6 +145,9 @@ async def run_entry_save_hooks(
         # update otherwise cannot tell them apart, and several want to —
         # "made this" and "came back to this" are different facts.
         "hook_point": hook_point,
+        # OM hooks declare match.phase: after_write; omitting this silently
+        # skips every post-save bundle side effect (HR employee hydration, etc.).
+        "phase": "after_write",
     }
 
     tools = get_workspace_tools(workspace_id)

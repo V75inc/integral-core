@@ -103,8 +103,13 @@ def _paragraph_alignment(tag_html: str) -> int:
     return TA_LEFT
 
 
-def _signature_fragments_from_html(fragment: str) -> Tuple[str, str]:
-    """Extract underline line + label from a ``doc-signature`` HTML fragment."""
+def _signature_fragments_from_html(fragment: str) -> Tuple[str, str, str]:
+    """Extract SIGMARK marker, underline line, and label from ``doc-signature`` HTML."""
+    marker_m = re.search(
+        r'class="doc-signature-marker"[^>]*>([^<]*)',
+        fragment or "",
+        flags=re.I,
+    )
     line_m = re.search(
         r'class="doc-signature-line"[^>]*>([^<]*)',
         fragment or "",
@@ -115,9 +120,10 @@ def _signature_fragments_from_html(fragment: str) -> Tuple[str, str]:
         fragment or "",
         flags=re.I,
     )
+    marker = _html_entities_to_text((marker_m.group(1) if marker_m else "").strip())
     line = _html_entities_to_text((line_m.group(1) if line_m else "").strip())
     label = _html_entities_to_text((label_m.group(1) if label_m else "").strip())
-    return line, label
+    return marker, line, label
 
 
 def _reportlab_signature_flowables(fragment: str, styles, *, index: int) -> list:
@@ -126,11 +132,21 @@ def _reportlab_signature_flowables(fragment: str, styles, *, index: int) -> list
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.platypus import Paragraph, Spacer
 
-    line, label = _signature_fragments_from_html(fragment)
-    if not line and not label:
+    marker, line, label = _signature_fragments_from_html(fragment)
+    if not marker and not line and not label:
         return []
 
     out = []
+    if marker:
+        marker_style = ParagraphStyle(
+            name=f"DocSigMarker{index}",
+            parent=styles["BodyText"],
+            fontSize=1,
+            leading=2,
+            textColor=colors.white,
+        )
+        safe_marker = marker.replace("&", "&amp;")
+        out.append(Paragraph(safe_marker, marker_style))
     if line:
         out.append(Paragraph(line.replace("&", "&amp;"), styles["BodyText"]))
         out.append(Spacer(1, 4))

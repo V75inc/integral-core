@@ -22,7 +22,7 @@ from app.services.documents.field_registry import (
     rebuild_workspace_field_index,
 )
 from app.services.documents.formatters import format_value
-from app.services.documents.output import checksum_bytes, render_output
+from app.services.documents.output import checksum_bytes
 from app.services.documents.render import merge_document_to_html
 from app.services.documents.signature_places import resolve_signature_places
 from app.services.esign.contract_decision import (
@@ -101,6 +101,171 @@ async def _document_type(track: Track, form_entry: Optional[Entry] = None) -> st
     if _form_contract_template_id(form_entry):
         return "employment_contract"
     return ""
+
+
+def _published_template_is_newer(
+    generated_template_version_id: str, published_template_version_id: str
+) -> bool:
+    return bool(
+        generated_template_version_id
+        and published_template_version_id
+        and generated_template_version_id != published_template_version_id
+    )
+
+
+def _contract_template_update_needed(
+    *,
+    generated_template_version_id: str,
+    published_template_version_id: str,
+    generated_template_checksum: str,
+    published_template_checksum: str,
+) -> bool:
+    """True when the live published template differs from what generated the PDF."""
+    if _published_template_is_newer(
+        generated_template_version_id, published_template_version_id
+    ):
+        return True
+    return bool(
+        generated_template_checksum
+        and published_template_checksum
+        and generated_template_checksum != published_template_checksum
+    )
+
+
+async def resolve_published_contract_template(
+    *,
+    workspace_id: str,
+    track: Track,
+    form_entry: Entry,
+) -> Tuple[Any, Any, str]:
+    """Active template + published version used for onboarding contract generate."""
+    from app.services.documents.entry_template_store import (
+        extract_contract_template_id,
+        resolve_for_generate,
+    )
+
+    workspace_id = await _resolve_contract_workspace_id(
+        workspace_id, track=track, form_entry=form_entry
+    )
+    document_type = await _document_type(track, form_entry)
+    if not document_type:
+        raise ValueError("Contract review is not configured for this track")
+
+    cf = _cf(form_entry)
+    template_id = extract_contract_template_id(cf)
+    tmpl, ver = None, None  # type: ignore[assignment]
+
+    async def _resolve_by_document_type() -> None:
+        nonlocal tmpl, ver
+        from app.services.documents.entry_template_store import (
+            installed_package_slug_for_track,
+        )
+
+        ext = await _contract_extensions(track)
+        consumer_module = str(
+            ext.get("contract_review_consumer_module")
+            or cf.get("contract_consumer_module")
+            or cf.get("consumer_module")
+            or ""
+        ).strip()
+        if not consumer_module:
+            consumer_module = await installed_package_slug_for_track(track)
+        if consumer_module:
+            try:
+                tmpl, ver = await resolve_for_generate(
+                    workspace_id=workspace_id,
+                    document_type=document_type,
+                    module=consumer_module,
+                )
+                return
+            except ValueError:
+                tmpl, ver = None, None  # type: ignore[assignment]
+        tmpl, ver = await resolve_for_generate(
+            workspace_id=workspace_id,
+            document_type=document_type,
+        )
+
+    if template_id:
+        try:
+            tmpl, ver = await resolve_for_generate(
+                workspace_id=workspace_id,
+                template_id=template_id,
+            )
+        except ValueError:
+            tmpl, ver = None, None  # type: ignore[assignment]
+    if tmpl is None or ver is None:
+        await _resolve_by_document_type()
+    if tmpl is None or ver is None:
+        hint = (
+            "No active employment contract template found. "
+            "Publish a template in Document Templates and link it on hire."
+        )
+        if template_id:
+            hint = (
+                f"Contract template {template_id} was not found in this workspace "
+                f"and no default {document_type} template is available. "
+                "Re-link the template on hire or publish one in Document Templates."
+            )
+        raise ValueError(hint)
+    return tmpl, ver, template_id
+
+
+async def contract_template_update_status(
+    *,
+    workspace_id: str,
+    track: Track,
+    form_entry: Entry,
+) -> Dict[str, Any]:
+    """True when the generated PDF used an older published template version."""
+    cf = _cf(form_entry)
+    gd_id = str(cf.get("contract_generated_document_id") or "")
+    if not gd_id:
+        return {
+            "update_available": False,
+            "generated_template_version_id": None,
+            "published_template_version_id": None,
+            "template_id": _form_contract_template_id(form_entry) or None,
+        }
+
+    gd = await GeneratedDocument.get(gd_id)
+    generated_version_id = str(getattr(gd, "template_version_id", "") or "") if gd else ""
+    generated_template_checksum = ""
+    if gd:
+        snap = dict(getattr(gd, "resolved_snapshot", None) or {})
+        generated_template_checksum = str(
+            snap.get("template_content_checksum") or ""
+        ).strip()
+
+    try:
+        tmpl, ver, template_id = await resolve_published_contract_template(
+            workspace_id=workspace_id,
+            track=track,
+            form_entry=form_entry,
+        )
+    except ValueError:
+        return {
+            "update_available": False,
+            "generated_template_version_id": generated_version_id or None,
+            "published_template_version_id": None,
+            "template_id": _form_contract_template_id(form_entry) or None,
+        }
+
+    from app.services.documents.entry_template_store import version_content_checksum
+
+    published_version_id = str(getattr(ver, "id", "") or "")
+    published_template_checksum = version_content_checksum(ver)
+    update_available = _contract_template_update_needed(
+        generated_template_version_id=generated_version_id,
+        published_template_version_id=published_version_id,
+        generated_template_checksum=generated_template_checksum,
+        published_template_checksum=published_template_checksum,
+    )
+    return {
+        "update_available": update_available,
+        "generated_template_version_id": generated_version_id or None,
+        "published_template_version_id": published_version_id or None,
+        "template_id": str(getattr(tmpl, "id", "") or "") or template_id or None,
+    }
 
 
 def _contract_source_fingerprint(
@@ -364,64 +529,22 @@ async def generate_contract_for_form(
     workspace_id = await _resolve_contract_workspace_id(
         workspace_id, track=track, form_entry=form_entry
     )
-    document_type = await _document_type(track, form_entry)
-    if not document_type:
-        raise ValueError("Contract review is not configured for this track")
 
     cf = _cf(form_entry)
     stored_fp = str(cf.get("contract_generate_fingerprint") or "")
     existing_gd_id = str(cf.get("contract_generated_document_id") or "")
     contract_status = str(cf.get("contract_status") or "pending").strip().lower()
 
-    from app.services.documents.entry_template_store import (
-        extract_contract_template_id,
-        resolve_for_generate,
-        resolve_layout_parts,
-    )
+    from app.services.documents.entry_template_store import resolve_layout_parts
 
-    template_id = extract_contract_template_id(cf)
-    tmpl, ver = None, None  # type: ignore[assignment]
-
-    async def _resolve_by_document_type() -> None:
-        nonlocal tmpl, ver
-        for mod in ("hr_app", "recruitment-app", "recruitment_app"):
-            try:
-                tmpl, ver = await resolve_for_generate(
-                    workspace_id=workspace_id,
-                    document_type=document_type,
-                    module=mod,
-                )
-                return
-            except ValueError:
-                continue
-        tmpl, ver = await resolve_for_generate(
+    try:
+        tmpl, ver, template_id = await resolve_published_contract_template(
             workspace_id=workspace_id,
-            document_type=document_type,
+            track=track,
+            form_entry=form_entry,
         )
-
-    if template_id:
-        try:
-            tmpl, ver = await resolve_for_generate(
-                workspace_id=workspace_id,
-                template_id=template_id,
-            )
-        except ValueError:
-            tmpl, ver = None, None  # type: ignore[assignment]
-    if tmpl is None or ver is None:
-        try:
-            await _resolve_by_document_type()
-        except ValueError as exc:
-            hint = (
-                "No active employment contract template found. "
-                "Publish a template in Document Templates and link it on hire."
-            )
-            if template_id:
-                hint = (
-                    f"Contract template {template_id} was not found in this workspace "
-                    f"and no default {document_type} template is available. "
-                    "Re-link the template on hire or publish one in Document Templates."
-                )
-            raise ValueError(hint) from exc
+    except ValueError as exc:
+        raise ValueError(str(exc)) from exc
 
     doc = ver.editor_document or {}
     keys = collect_field_keys_from_document(doc, ver.token_metadata or {})
@@ -493,11 +616,17 @@ async def generate_contract_for_form(
     ):
         blob, gd = await _load_generated_pdf(existing_gd_id)
         if blob and gd:
+            meta = await contract_template_update_status(
+                workspace_id=workspace_id,
+                track=track,
+                form_entry=form_entry,
+            )
             return {
                 "generated_document_id": gd.id,
                 "attachment_id": gd.attachment_id,
                 "reused": True,
                 "contract_status": contract_status,
+                **meta,
             }
     if any(w.startswith("block:") for w in resolved["warnings"]):
         raise ValueError(
@@ -506,6 +635,7 @@ async def generate_contract_for_form(
         )
 
     layout = await resolve_layout_parts(ver.layout_id or "", ver.header_footer or {})
+    token_meta = ver.token_metadata or {}
     html = merge_document_to_html(
         doc,
         resolved["formatted"],
@@ -517,22 +647,24 @@ async def generate_contract_for_form(
         title=tmpl.name or "Employment Contract",
         embed_pre_signatures=False,
         highlight_field_tokens=False,
+        token_metadata=token_meta,
     )
-    data, mime, ext = render_output(html, "pdf", title=tmpl.name or "Document")
-    token_meta = ver.token_metadata or {}
+    from app.services.documents.signature_embed import (
+        render_pdf_with_pre_embedded_signatures,
+    )
+    from app.services.documents.signature_places import runtime_signature_places
+
+    data = await render_pdf_with_pre_embedded_signatures(
+        html,
+        title=tmpl.name or "Document",
+        editor_document=doc,
+        token_metadata=token_meta,
+    )
+    mime, ext = "application/pdf", "pdf"
     all_places = resolve_signature_places(
         html=html,
         editor_document=doc,
         pdf_bytes=data,
-        token_metadata=token_meta,
-    )
-    from app.services.documents.signature_embed import apply_pre_embedded_signatures
-    from app.services.documents.signature_places import runtime_signature_places
-
-    data = await apply_pre_embedded_signatures(
-        data,
-        html=html,
-        editor_document=doc,
         token_metadata=token_meta,
     )
     places = runtime_signature_places(all_places)
@@ -554,6 +686,7 @@ async def generate_contract_for_form(
         resolved_snapshot={
             **dict(resolved["formatted"]),
             "signature_places": all_places,
+            "template_content_checksum": template_checksum,
         },
         checksum=digest,
         status="generated",
@@ -608,25 +741,43 @@ async def generate_contract_for_form(
         is_entry_mode,
     )
 
-    if getattr(tmpl, "entry_backed", False) and await is_entry_mode(workspace_id):
-        await create_generated_document_entry(
-            workspace_id=workspace_id,
-            template_id=tmpl.id,
-            template_version_id=ver.id,
-            module=tmpl.module,
-            context_type=tmpl.context_type or "onboarding_form",
-            context_entry_id=form_entry.id,
-            generated_by=PUBLIC_ACTOR,
-            output_format="pdf",
-            attachment_id=attachment.id,
-            input_values={},
-            resolved_snapshot={
-                **dict(resolved["formatted"]),
-                "signature_places": all_places,
-            },
-            checksum=digest,
-            title=tmpl.name or "Employment Contract",
-        )
+    if getattr(tmpl, "entry_backed", False):
+        logged_on_templates_track = False
+        if await is_entry_mode(workspace_id):
+            try:
+                await create_generated_document_entry(
+                    workspace_id=workspace_id,
+                    template_id=tmpl.id,
+                    template_version_id=ver.id,
+                    module=tmpl.module,
+                    context_type=tmpl.context_type or "onboarding_form",
+                    context_entry_id=form_entry.id,
+                    generated_by=PUBLIC_ACTOR,
+                    output_format="pdf",
+                    attachment_id=attachment.id,
+                    input_values={},
+                    resolved_snapshot={
+                        **dict(resolved["formatted"]),
+                        "signature_places": all_places,
+                        "template_content_checksum": template_checksum,
+                    },
+                    checksum=digest,
+                    title=tmpl.name or "Employment Contract",
+                )
+                logged_on_templates_track = True
+            except ValueError as exc:
+                # Older Document Templates installs may omit generated_documents.
+                logger.warning(
+                    "contract generate: templates track log skipped entry=%s: %s",
+                    form_entry.id,
+                    exc,
+                )
+        if not logged_on_templates_track:
+            tmpl_entry = await Entry.get(tmpl.id)
+            if tmpl_entry is not None:
+                await tmpl_entry.connect(
+                    gd, edge=HAS_GENERATED_DOCUMENT, generated_at=now
+                )
     else:
         await tmpl.connect(gd, edge=HAS_GENERATED_DOCUMENT, generated_at=now)
     try:
@@ -657,12 +808,18 @@ async def generate_contract_for_form(
         scope=f"track:{track.id}",
     )
 
+    meta = await contract_template_update_status(
+        workspace_id=workspace_id,
+        track=track,
+        form_entry=form_entry,
+    )
     return {
         "generated_document_id": gd.id,
         "attachment_id": attachment.id,
         "reused": False,
         "contract_status": CONTRACT_GENERATED,
         "signature_places": places,
+        **meta,
     }
 
 

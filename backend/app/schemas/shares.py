@@ -59,3 +59,10 @@ class PublicContractDecisionRequest(BaseModel):
     signature_png: Optional[str] = None
     reason: Optional[str] = None
     return_url: Optional[str] = None
+
+
+class OnboardingContractMetaResponse(BaseModel):
+    update_available: bool = False
+    generated_template_version_id: Optional[str] = None
+    published_template_version_id: Optional[str] = None
+    template_id: Optional[str] = None

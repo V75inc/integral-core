@@ -91,9 +91,23 @@ export const memberAssignedFormApi = {
     return resp.data as Blob;
   },
 
+  async fetchContractMeta(entryId?: string): Promise<{
+    update_available: boolean;
+    generated_template_version_id?: string | null;
+    published_template_version_id?: string | null;
+    template_id?: string | null;
+  }> {
+    const res = await apiClient.get(`/me/assigned-form/contract/meta${qs(entryId)}`);
+    return res.data;
+  },
+
   async generateContract(
     options?: { force?: boolean; entryId?: string },
-  ): Promise<unknown> {
+  ): Promise<{
+    contract_status?: string;
+    reused?: boolean;
+    update_available?: boolean;
+  }> {
     const params = new URLSearchParams();
     if (options?.force === true) {
       params.set('force', '1');

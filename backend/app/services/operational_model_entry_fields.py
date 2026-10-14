@@ -367,7 +367,96 @@ def build_entry_index_document(
 
 
 def _entry_type_match_key(entry_type: EntryType) -> str:
+    form_schema = _as_dict(
+        getattr(entry_type, "form_schema", None), where="entry_type.form_schema"
+    )
+    manifest_key = str(form_schema.get("_manifest_entry_type_key") or "").strip()
+    if manifest_key:
+        return _slug(manifest_key)
     return _slug(str(getattr(entry_type, "name", "") or ""))
+
+
+def _canonical_relation_field_value(value: Any) -> str:
+    if isinstance(value, dict):
+        return str(value.get("id") or value.get("entry_id") or "").strip()
+    if isinstance(value, list):
+        if not value:
+            return ""
+        return _canonical_relation_field_value(value[0])
+    return str(value or "").strip()
+
+
+def _relation_with_form_schema_flags(
+    relation: Dict[str, Any],
+    entry_type: EntryType,
+    field_key: str,
+) -> Dict[str, Any]:
+    """Merge relation security flags stored on EntryType.form_schema (raw or compiled)."""
+    rel = dict(relation)
+    if rel.get("skip_target_read"):
+        return rel
+    form_schema = _as_dict(
+        getattr(entry_type, "form_schema", None), where="entry_type.form_schema"
+    )
+    for raw in _as_list(
+        form_schema.get("fields"), where="entry_type.form_schema.fields"
+    ):
+        raw_field = _as_dict(raw, where="entry_type.form_schema field")
+        if str(raw_field.get("key") or "") != field_key:
+            continue
+        raw_rel = _as_dict(
+            raw_field.get("relation"), where="entry_type.form_schema relation"
+        )
+        if raw_rel.get("skip_target_read"):
+            rel["skip_target_read"] = True
+        else:
+            normalized = _normalize_field_spec(raw_field)
+            norm_rel = _as_dict(
+                normalized.get("relation"), where="entry_type.form_schema relation"
+            )
+            if norm_rel.get("skip_target_read"):
+                rel["skip_target_read"] = True
+        break
+    return rel
+
+
+def _overlay_form_schema_relation_flags(
+    fields: List[Dict[str, Any]], form_schema: Dict[str, Any]
+) -> List[Dict[str, Any]]:
+    """When the runtime tier lags EntryType.form_schema, honor relation security flags.
+
+    Attached track tiers are compiled snapshots; EntryType nodes can carry newer
+    relation metadata (e.g. ``skip_target_read`` for assignee-facing forms).
+    """
+    by_key: Dict[str, Dict[str, Any]] = {}
+    for raw in _as_list(
+        form_schema.get("fields"), where="entry_type.form_schema.fields"
+    ):
+        normalized = _normalize_field_spec(
+            _as_dict(raw, where="entry_type.form_schema field")
+        )
+        field_key = str(normalized.get("key") or "")
+        if field_key:
+            by_key[field_key] = normalized
+    if not by_key:
+        return fields
+    out: List[Dict[str, Any]] = []
+    for raw_field in fields:
+        fd = dict(_as_dict(raw_field, where="entry_type_spec field"))
+        field_key = str(fd.get("key") or "")
+        overlay = by_key.get(field_key)
+        if overlay and str(fd.get("type") or "") == "relation":
+            overlay_rel = _as_dict(
+                overlay.get("relation"), where="entry_type.form_schema relation"
+            )
+            rel = dict(
+                _as_dict(fd.get("relation"), where="entry_type_spec relation")
+            )
+            if overlay_rel.get("skip_target_read"):
+                rel["skip_target_read"] = True
+                fd["relation"] = rel
+        out.append(fd)
+    return out
 
 
 def resolve_entry_type_spec(
@@ -417,6 +506,10 @@ def resolve_entry_type_spec(
                 known.add(field_key)
         if extras:
             merged["fields"] = [*spec_fields, *extras]
+        merged["fields"] = _overlay_form_schema_relation_flags(
+            _as_list(merged.get("fields"), where="entry_type_spec.fields"),
+            form_schema,
+        )
         return merged
 
     fields = [
@@ -582,7 +675,13 @@ async def _validate_relation_values(
     Cross-Track/App declarations do not authorize cross-workspace linkage.
     Writer callers pass their authorization subject. Actorless schema previews
     perform structural validation only; they cannot materialize a relation.
+
+    When ``relation.skip_target_read`` is true (declared in the App OM), structural
+    checks still run but the writer is not required to hold ``entry.read`` /
+    ``track.read`` on the target — for assignee-facing forms that carry a link
+    to a record they must not browse (HR employee stub, cross-app candidate, …).
     """
+    skip_target_read = bool(relation.get("skip_target_read"))
     target_kind = str(relation.get("target") or "entry").strip().lower()
     many = bool(relation.get("many", False))
     if many:
@@ -615,7 +714,7 @@ async def _validate_relation_values(
                         f"'{target_ws}' != source workspace '{source_ws}')"
                     )
                 )
-            if viewer_subject is not None:
+            if viewer_subject is not None and not skip_target_read:
                 from app.services.policy_engine import evaluate
 
                 decision = await evaluate(
@@ -685,7 +784,7 @@ async def _validate_relation_values(
                 raise BadRequestError(
                     message=f"Relation field '{field_key}' requires a declared target App"
                 )
-            if viewer_subject is not None:
+            if viewer_subject is not None and not skip_target_read:
                 from app.services.policy_engine import evaluate
 
                 decision = await evaluate(
@@ -980,7 +1079,21 @@ async def validate_and_materialize_entry_custom_fields(
             out[key] = values
             continue
         if ftype == "relation":
-            relation = _as_dict(fd.get("relation"), where=f"field '{key}' relation")
+            relation = _relation_with_form_schema_flags(
+                _as_dict(fd.get("relation"), where=f"field '{key}' relation"),
+                entry_type,
+                key,
+            )
+            # Readonly server-linked relations on update: re-validate structure
+            # but do not require target read when the caller is not changing the id
+            # (I-APP-05 materialize path; OM may also declare skip_target_read).
+            if entry is not None and bool(fd.get("readonly")):
+                prior = _canonical_relation_field_value(
+                    (entry.custom_fields or {}).get(key)
+                )
+                incoming_id = _canonical_relation_field_value(value)
+                if prior and incoming_id and prior == incoming_id:
+                    relation = {**relation, "skip_target_read": True}
             subject = authorization_subject
             if subject is None and actor_user_id:
                 subject = Subject(kind="human", id=actor_user_id)

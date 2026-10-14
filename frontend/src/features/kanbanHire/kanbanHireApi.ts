@@ -223,13 +223,15 @@ function trackMatches(track: Track, key: string, title: string): boolean {
 
 export async function listEmploymentContractTemplates(
   workspaceId: string,
+  opts?: { consumerModule?: string },
 ): Promise<ContractTemplateOption[]> {
+  const consumerModule = String(opts?.consumerModule || '').trim();
   try {
     const { data } = await apiClient.post('/tools/document_templates_list_active_templates', {
       input: {
         document_type: 'employment_contract',
         status: 'active',
-        consumer_module: 'hr_app',
+        ...(consumerModule ? { consumer_module: consumerModule } : {}),
         require_published_version: true,
       },
     });
@@ -258,7 +260,7 @@ export async function listEmploymentContractTemplates(
   const documentsApp = apps.find(app => {
     if (app.workspace_id !== workspaceId) return false;
     const pkg = appPackageSlug(app);
-    return pkg === 'document_templates';
+    return slugify(pkg) === 'document_templates';
   });
   if (!documentsApp) return [];
 
