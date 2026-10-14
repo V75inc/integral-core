@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.agentive.harness.contracts import HarnessExecutionScope
 from app.agentive.harness.disclosure import DISCLOSURE_POLICY
@@ -20,9 +20,15 @@ from app.agentive.harness.pydantic_ai_compat import (
 
 
 class OperationalContextRequest(BaseModel):
-    """Request current governed capabilities; this is never approval."""
+    """Request current governed capabilities; this is never approval.
 
-    reason: str = Field(min_length=1, max_length=240)
+    This is a routing signal only. The host does not use model-authored prose
+    from this output, so keep the schema empty and ignore any extra provider
+    fields. Escalation must not depend on an arbitrary explanation fitting a
+    length limit, including payloads produced against an older schema.
+    """
+
+    model_config = ConfigDict(extra="ignore")
 
 
 LIGHT_INSTRUCTIONS = (
