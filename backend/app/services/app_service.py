@@ -91,7 +91,7 @@ async def _library_default_labels(
     )
 
 
-@canonical_creation
+@canonical_creation(kind="create_app")
 async def create_app_for_user(
     user_id: str,
     name: str,

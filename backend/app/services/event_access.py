@@ -20,6 +20,101 @@ async def can_release_event(
     action: str,
     evaluate: Evaluator,
 ) -> bool:
+    """Check the current primary-resource audience without releasing snapshots."""
+    return (
+        await prepare_event_payload(
+            user_id, event, action=action, evaluate=evaluate, include_snapshots=False
+        )
+        is not None
+    )
+
+
+async def _current_connector(resource_id: str) -> Any:
+    from jvspatial.core.context import get_default_context
+
+    from app.agentive.nodes import Connector
+    from app.services.authority_facts import primary_node_record
+
+    context = get_default_context()
+    row = await primary_node_record(context.database, Connector, resource_id)
+    return None if row is None else await context._deserialize_entity(Connector, row)
+
+
+async def event_release_workspace(event: ChangeEventEnvelope) -> str | None:
+    """Own-account connectors may carry a current workspace-bound target list."""
+    from app.services.event_history import event_workspace_id
+
+    workspace_id = await event_workspace_id(event.scope)
+    if (
+        workspace_id is None
+        and event.scope.startswith("user:")
+        and str(event.resource_type).casefold() == "connector"
+    ):
+        from app.exceptions import AuthorizationUnavailableError
+        from app.models.edges import HAS_CONNECTOR
+
+        connector = await _current_connector(event.resource_id)
+        if connector is not None:
+            parents = await connector.nodes(
+                edge=[HAS_CONNECTOR], direction="in", node=["Workspace"], limit=2
+            )
+            if not connector.workspace_id and not parents:
+                return None
+            if len(parents) != 1 or parents[0].id != connector.workspace_id:
+                raise AuthorizationUnavailableError()
+            return await event_workspace_id(f"ws:{parents[0].id}")
+    return workspace_id
+
+
+async def prepare_event_payload(
+    user_id: str,
+    event: ChangeEventEnvelope,
+    *,
+    action: str,
+    evaluate: Evaluator,
+    flat: bool = False,
+    include_snapshots: bool = True,
+) -> dict[str, Any] | None:
+    """Authorize and project one recipient's payload in the same admission."""
+    from app.services.app_operations.transaction_scope import (
+        graph_transaction_available,
+    )
+    from app.services.event_snapshot_projection import project_event_snapshots
+    from app.services.release_admission import release_admission
+
+    native = graph_transaction_available()
+    workspace_id = await event_release_workspace(event)
+    if native and workspace_id is None and not event.scope.startswith("user:"):
+        return None
+    async with release_admission(user_id, workspace_id):
+        if (
+            native
+            and workspace_id is not None
+            and (await event_release_workspace(event) != workspace_id)
+        ):
+            return None
+        if not await _can_release_event_current(
+            user_id, event, action=action, evaluate=evaluate
+        ):
+            return None
+        payload = event.to_wire_flat() if flat else event.to_wire()
+        if include_snapshots:
+            payload = await project_event_snapshots(
+                user_id, event, payload, evaluate=evaluate, workspace_id=workspace_id
+            )
+        else:
+            for key in ("before", "after", "details"):
+                payload[key] = None
+        return scrub_event_credentials(payload)
+
+
+async def _can_release_event_current(
+    user_id: str,
+    event: ChangeEventEnvelope,
+    *,
+    action: str,
+    evaluate: Evaluator,
+) -> bool:
     """Subscription access alone cannot authorize a record's event snapshots.
 
     Missing/deleted records withhold snapshots until a separately governed
@@ -120,6 +215,28 @@ async def can_release_event(
             node = await (Comment if kind == "comment" else Attachment).get(resource_id)
             if node is None:
                 return False
+            if kind == "attachment" and scope.startswith("user:"):
+                from app.services.permissions import get_user_node
+
+                caller = await get_user_node(user_id)
+                own_ids = {user_id}
+                if caller is not None:
+                    own_ids.update({caller.id, caller.user_id})
+                owners = await node.nodes(
+                    edge=[{HAS_ATTACHMENT.__name__: {"context.role": "avatar"}}],
+                    direction="in",
+                    node=["User"],
+                    limit=2,
+                )
+                if (
+                    caller is not None
+                    and len(owners) == 1
+                    and owners[0].id == caller.id
+                    and node.uploaded_by in own_ids
+                    and scope
+                    in {f"user:{identity}" for identity in own_ids if identity}
+                ):
+                    return True
             parents = await node.nodes(
                 edge=[HAS_COMMENT if kind == "comment" else HAS_ATTACHMENT],
                 direction="in",
@@ -144,10 +261,9 @@ async def can_release_event(
                 own_ids.update({caller.id, caller.user_id})
             return resource_id in own_ids and scope.startswith("user:")
         if kind == "connector":
-            from app.agentive.nodes import Connector
             from app.services.permissions import get_user_node
 
-            connector = await Connector.get(resource_id)
+            connector = await _current_connector(resource_id)
             caller = await get_user_node(user_id)
             own_ids = {user_id}
             if caller is not None:

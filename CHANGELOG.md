@@ -6,6 +6,17 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Retry recoverable model failures up to three total attempts with inline retry
+  progress, distinct attempt accounting and fresh admission; never restart a
+  complete agent run or replay already delivered output.
+- Continue completed conversations safely after uncertain earlier model attempts
+  by checking original tool receipts while preserving unknown billing evidence.
+- Add native approval claims, atomic effect receipts and recovery for App/Track/
+  Entry mutations and identified comments; retain reconciliation for unresolved
+  effects and explicit single-process limits for local adapters.
+- Bind audit/event history to current workspace authority with bounded keyset
+  windows and per-recipient snapshot filtering, and recheck stream release access.
+
 - Compact message debug request context by omitting empty optional session/focus
   fields and identical page-context focus duplicates; retain diagnostic evidence.
 

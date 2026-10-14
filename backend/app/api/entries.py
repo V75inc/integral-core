@@ -756,17 +756,26 @@ async def delete_entry(request: Request, entry_id: str) -> Dict[str, Any]:
         actor_kind=getattr(request.state, "actor_kind", "human"),
     )
 
-    # D-05 single emission path. Sync inline emit before HTTP response (D-06).
-    await emit_change_event(
-        actor_kind="human",
-        actor_id=user_id,
-        action="entry.delete",
-        resource_type="Entry",
-        resource_id=entry_id,
-        before=prior_snapshot,
-        after=None,
-        scope=f"track:{track_id_for_scope}",
+    from app.agentive.services.staging_execution import (
+        deliver_staging_command_events,
+        staged_command_completed,
     )
+
+    if not staged_command_completed("delete_entry"):
+        # D-05 single emission path. Sync inline emit before HTTP response (D-06).
+        await emit_change_event(
+            actor_kind="human",
+            actor_id=user_id,
+            action="entry.delete",
+            resource_type="Entry",
+            resource_id=entry_id,
+            before=prior_snapshot,
+            after=None,
+            scope=f"track:{track_id_for_scope}",
+        )
+
+    else:
+        await deliver_staging_command_events()
 
     # RET-02 hook — soft-delete the embedding row (I-RET-03: NEVER hard-delete).
     await _soft_delete_embedding(entry_id)

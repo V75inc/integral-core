@@ -28,7 +28,12 @@ from app.services.agent_scope import current_scope_workspace_id
 
 
 @pytest.fixture(autouse=True)
-def _clean():
+def _clean(monkeypatch):
+    # These are logical apply-path unit tests with stub executors. Real
+    # PostgreSQL command/receipt integration has its own rooted contract tests.
+    monkeypatch.setattr(
+        staging_apply, "_durable_command_dispatch_enabled", lambda sc: False
+    )
     staging._reset_for_tests()
     yield
     staging._reset_for_tests()
@@ -363,3 +368,64 @@ async def test_resumed_design_receipt_is_saved_before_consumption(monkeypatch):
     result = await staging_apply.bless_and_execute(user_id="u1", token=sc.token)
     assert result["consumed"] is True
     assert saved == [sc.token]
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_point", ["consume", "design_receipt"])
+async def test_completion_failure_blocks_retry_and_survives_reload(
+    monkeypatch, failure_point
+):
+    from unittest.mock import AsyncMock
+
+    from app.services import chat_threads
+
+    sc = await _mint(
+        kind="batch" if failure_point == "design_receipt" else "create_entry"
+    )
+    calls = _fake_executor(monkeypatch)
+    if failure_point == "consume":
+
+        async def failed_consume(**_kwargs):
+            raise StagingError("receipt_storage_failed", "Completion storage failed")
+
+        monkeypatch.setattr(staging_apply, "consume_token", failed_consume)
+    else:
+
+        async def thread(_session):
+            return SimpleNamespace(
+                design_proposed={"partial_build": {"batch_token": sc.token}}
+            )
+
+        monkeypatch.setattr(chat_threads, "get_thread_by_session", thread)
+        monkeypatch.setattr(
+            chat_threads, "record_design_build_receipt", AsyncMock(return_value=None)
+        )
+
+    result = await staging_apply.bless_and_execute(user_id="u1", token=sc.token)
+    assert result["ok"] is False
+    assert result["consumed"] is False
+    assert result["application_state"] == "reconciliation_required"
+    assert (
+        result["staged_change"]["last_error"]["application_state"]
+        == "reconciliation_required"
+    )
+    assert len(calls) == 1
+    assert (await get_token(sc.token)).executing is False
+    with pytest.raises(StagingError) as exc:
+        await staging_apply.bless_and_execute(user_id="u1", token=sc.token)
+    assert exc.value.code == "application_reconciliation_required"
+    assert len(calls) == 1
+
+    # Round-trip through the durable outstanding proposal record.
+    restored = await staging.staging_store.load(sc.token)
+    assert restored is not None
+    assert restored.last_error["application_state"] == "reconciliation_required"
+    staging._tokens.clear()
+    with pytest.raises(StagingError) as exc:
+        await staging_apply.execute_blessed_change(user_id="u1", token=sc.token)
+    assert exc.value.code == "application_reconciliation_required"
+    assert len(calls) == 1
+    with pytest.raises(StagingError) as exc:
+        await staging_apply.execute_blessed_change(user_id="other", token=sc.token)
+    assert exc.value.code == "wrong_user"

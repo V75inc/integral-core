@@ -383,7 +383,16 @@ async def create_entry_in_track(
 
     if await approved_capture_active():
         change_event_sink = approved_event_sink
-    async with entry_write_scope(f"track:{track.id}") as graph:
+    from app.agentive.services.staging_execution import staged_entry_effect
+
+    async with (
+        entry_write_scope(f"track:{track.id}") as graph,
+        staged_entry_effect(
+            user_id=user_id,
+            workspace_id=workspace_id or track.workspace_id,
+            track_id=track.id,
+        ) as complete_staged_effect,
+    ):
         fresh_track = await Track.get(track.id)
         if fresh_track is None:
             raise ResourceNotFoundError(message="Track not found")
@@ -460,6 +469,10 @@ async def create_entry_in_track(
                 transaction=graph.database,
                 workspace_id=fresh_track.workspace_id,
                 event=events[0],
+            )
+        if complete_staged_effect is not None:
+            await complete_staged_effect(
+                {"entry_id": entry.id, "track_id": fresh_track.id}
             )
     # Callers may save provenance or connect a transformed record after this
     # command returns. Its owned transaction has released the connection; a

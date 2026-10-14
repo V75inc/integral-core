@@ -292,7 +292,33 @@ async def delete_track_and_nested_content(
         current = await Track.find_one({"id": track.id})
         if current is None:
             raise AuthorizationUnavailableError()
-        await _delete_track_admitted(current, actor_user_id=actor_user_id)
+        from app.agentive.services.staging_execution import (
+            capture_staging_change_event,
+            staged_command_effect,
+        )
+
+        async with staged_command_effect(
+            user_id=actor_user_id,
+            workspace_id=current.workspace_id,
+            kind="delete_track",
+            targets={"track_id": current.id},
+        ) as complete:
+            before = await current.export(flat=True) if complete is not None else None
+            await _delete_track_admitted(current, actor_user_id=actor_user_id)
+            if complete is not None:
+                await capture_staging_change_event(
+                    {
+                        "actor_kind": "human",
+                        "actor_id": actor_user_id,
+                        "action": "track.delete",
+                        "resource_type": "Track",
+                        "resource_id": current.id,
+                        "before": before,
+                        "after": None,
+                        "scope": f"track:{current.id}",
+                    }
+                )
+                await complete({"track_id": current.id, "deleted": True})
 
 
 async def _delete_track_admitted(track: Track, *, actor_user_id: str) -> None:
@@ -365,7 +391,47 @@ async def delete_app_cascade(
         current = await App.find_one({"id": app_node.id})
         if current is None:
             raise AuthorizationUnavailableError()
-        return await _delete_app_admitted(current, actor_user_id=actor_user_id)
+        from app.agentive.services.staging_execution import (
+            capture_staging_change_event,
+            staged_command_effect,
+        )
+        from app.services.app_lifecycle import _resolve_bundle_slug
+        from app.services.bundle_cleanup_outbox import retain_bundle_cleanup
+
+        async with staged_command_effect(
+            user_id=actor_user_id,
+            workspace_id=current.workspace_id,
+            kind="delete_app",
+            targets={"app_id": current.id},
+        ) as complete:
+            before = await current.export(flat=True) if complete is not None else None
+            slug = await _resolve_bundle_slug(current)
+            await retain_bundle_cleanup(
+                app_id=current.id, workspace_id=current.workspace_id, bundle_slug=slug
+            )
+            result = await _delete_app_admitted(current, actor_user_id=actor_user_id)
+            if complete is not None:
+                await capture_staging_change_event(
+                    {
+                        "actor_kind": "human",
+                        "actor_id": actor_user_id,
+                        "action": "app.delete",
+                        "resource_type": "App",
+                        "resource_id": current.id,
+                        "before": before,
+                        "after": None,
+                        "scope": f"app:{current.id}",
+                    }
+                )
+                await complete(
+                    {
+                        "app_id": current.id,
+                        "deleted": True,
+                        "deleted_tracks": result[0],
+                        "unlinked_tracks": result[1],
+                    }
+                )
+            return result
 
 
 async def _delete_app_admitted(app_node: App, *, actor_user_id: str) -> Tuple[int, int]:
@@ -385,7 +451,7 @@ async def _delete_app_admitted(app_node: App, *, actor_user_id: str) -> Tuple[in
 
     if not track_list:
         await _delete_app_models(app_node)
-        await unregister_skills_for_app(app_node.id)
+        await unregister_skills_for_app(app_node.id, strict=True)
         await _delete_app_side_cars(app_node)
         await _safe_delete_node(app_node, "app")
         return 0, 0
@@ -420,7 +486,7 @@ async def _delete_app_admitted(app_node: App, *, actor_user_id: str) -> Tuple[in
 
     await _delete_app_models(app_node)
 
-    await unregister_skills_for_app(app_node.id)
+    await unregister_skills_for_app(app_node.id, strict=True)
     await _delete_app_side_cars(app_node)
     await _safe_delete_node(app_node, "app")
     return len(to_delete), len(to_unlink)

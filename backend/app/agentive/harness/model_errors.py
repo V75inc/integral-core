@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 
 import httpx
@@ -19,6 +20,10 @@ def model_request_error(exc: BaseException) -> NativeModelRequestError | None:
     """Classify typed SDK failures without reading private exception text."""
     # The actual LiteLLM dispatch already imports the SDK. Do not import it
     # merely to report a host error: its development import can load .env.
+    if isinstance(exc, NativeModelRequestError):
+        return exc
+    if isinstance(exc, asyncio.TimeoutError):
+        return NativeModelRequestError("model_request_timeout")
     sdk = sys.modules.get("litellm")
     categories = (
         ("ContextWindowExceededError", "model_context_limit"),

@@ -33,7 +33,7 @@ The JSON beside it carries every field.
 | Tool | Op class | Dispatch | REST route | Min MCP scope | Skills |
 | --- | --- | --- | --- | --- | --- |
 | `integral_whoami` | read | handler: `app.api.auth.get_current_user` | GET /api/auth/me | `integral:read` | integral-identity, integral-onboard, integral-scaffold, integral-workspace |
-| `integral_get_scope` | read | handler: `app.api.users.get_my_scope` | GET /api/users/me/scope | `integral:read` | integral-workspace |
+| `integral_get_scope` | read | service: `app.services.resident_execution_scope.get_execution_scope_for_dispatch` | — | `integral:read` | integral-workspace |
 | `integral_get_page_context` | read | service: `app.services.chat_page_context.get_page_context_for_dispatch` | — | `integral:read` | integral-entries |
 | `integral_list_workspaces` | read | handler: `app.api.workspaces.list_workspaces` | GET /api/workspaces | `integral:read` | integral-workspace |
 | `integral_list_apps` | read | handler: `app.api.apps.list_apps` | GET /api/apps | `integral:read` | integral-attachments, integral-dashboards, integral-insights, integral-model, integral-onboard, integral-review, integral-scaffold, integral-workspace |
