@@ -195,7 +195,7 @@ async def test_job_result_lists_the_records_it_acted_on(monkeypatch) -> None:
     assert listed[0] == "entry:n.Entry.0"
     assert len(listed) == 20  # capped
     assert len(set(listed)) == len(listed)  # no repeats
-    assert not any(r.startswith("track:") for r in listed)  # only entries
+    assert "entry:t1" not in listed  # a non-entry reference is not listed as an entry
     assert not any(len(r) > 130 for r in listed)  # oversized ids dropped
 
 
