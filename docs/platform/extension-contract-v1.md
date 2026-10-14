@@ -42,6 +42,8 @@ Core release carrying the contract.
 
 ### Background App jobs
 
+The [how-to guide](background-app-jobs.md) walks through an example; this section is the reference.
+
 A tool can hand long work to Core with `ctx.enqueue_job(tool_key, payload,
 idempotency_key=..., label=...)`. Core records a durable work item (kind
 `app_tool`) and runs that tool later on a dedicated App job worker, as the same

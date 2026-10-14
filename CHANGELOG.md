@@ -17,6 +17,19 @@ bump does not establish that a release is available on a package index.
 - Bind audit/event history to current workspace authority with bounded keyset
   windows and per-recipient snapshot filtering, and recheck stream release access.
 
+- Background jobs for Apps: `ToolContext.enqueue_job`, `report_progress` and
+  `job_status` run an App's own tool as a durable, resumable work item (kind
+  `app_tool`) as the person who queued it, with progress and results shown in
+  background tasks. App jobs run on their own in-process loop; the supported
+  `WORKERS` baseline is unchanged. See `docs/platform/background-app-jobs.md`
+  and ADR 014.
+
+- Scheduled tools: a tool may declare `schedule` (cron, optional timezone) and
+  Core queues it once per due slot as the App's installing person.
+
+- A generic `region-system/processing-status` region and an optional
+  `min_height` for App extension views.
+
 - Compact message debug request context by omitting empty optional session/focus
   fields and identical page-context focus duplicates; retain diagnostic evidence.
 
@@ -33,6 +46,8 @@ bump does not establish that a release is available on a package index.
 
 ### Fixed
 
+- A bundle tool that updates its own App's records now resolves the App in the
+  workspace where it is installed, not only in the caller's personal workspace.
 - Keep ad-hoc Track relation identity stable through display renames, including
   bounded recovery from retained creation snapshots for legacy Tracks.
 - Give passive agent polling and approval actions independent bounded rate
