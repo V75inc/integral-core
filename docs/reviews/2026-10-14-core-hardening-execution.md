@@ -5,6 +5,11 @@ The active goal is completion of implementation and qualification. A partial
 change or a passing targeted suite does not close the goal. No new runtime
 deployment or PR merge is part of this work.
 
+Current follow-through inventories:
+[approved executor recovery](2026-10-15-approved-executor-recovery-inventory.md)
+and [dependency advisory reconciliation](2026-10-15-dependency-advisory-reconciliation.md).
+They record measured gaps and required qualification; neither closes the goal.
+
 ## Work and acceptance criteria
 
 | Item | Current state | Evidence required for closure |
@@ -1189,3 +1194,277 @@ that these changes were uncommitted describe intermediate checkpoints. This is
 local qualification only: remote CI must be checked at the resulting pushed
 head, and no merge, redeployment, browser acceptance or full-goal completion is
 claimed. The remaining work listed above remains open.
+
+### Model-child removal authority prerequisite — 2026-10-15
+
+Preparing the remaining `modify_operational_model.*` migration exposed a real
+cross-model deletion defect. The authoring service authorized the selected
+attached model, then loaded an arbitrary EntryType or Tag by ID for removal.
+A PostgreSQL reproduction deleted a child in another principal's workspace.
+Eight negative cases failed before correction, while two legitimate removals
+passed (`/tmp/core-model-child-red-all.xml`). An earlier attempt did not find
+the test file and is not a behavioral reproduction.
+
+`model_child_scope.read_model_child` now reads fresh primary facts and requires
+exactly one bounded `CONTAINS` parent equal to the already authorized model.
+Present Track/App attribution must agree with the requested owner. Scalar
+metadata cannot establish membership; ambiguous, missing, foreign or stale
+parent facts refuse removal without returning the child's identity/content.
+The caller still owns current model authorization. The helper is a structural
+check, not an independent permission grant or a concurrency fence.
+
+Both EntryType and Tag removal use this shared check. The expanded native
+selection passed 30 cases with zero skips/errors/failures
+(`/tmp/core-model-child-qualified.xml`), covering Track and App models, foreign
+children, forged/conflicting caches, ambiguous/orphan parents, stale hydrated
+membership, valid removals, and bounded parent-read outages. Denied removals
+retain the exact child, model, edge and event-outbox records. Parent-read errors
+surface as `AuthorizationUnavailableError`, not a completed denial.
+The related model-authority, authoring, staging View and scope-table regressions
+passed 75 cases (`/tmp/core-model-child-json.xml`). This increment is not yet
+committed or deployed; the full backend and final formatting/structural gates
+must pass before commit. It does not migrate the seven model-edit actions or
+standalone View deletion into durable command ownership, nor close their
+remaining transaction/revocation qualification.
+
+### User-authorized local preview — 2026-10-15
+
+The model-child full default backend gate completed: 6,335 passed, 560 skipped,
+zero failures/errors (6,895 JUnit cases, 1,168.176 seconds;
+`/tmp/core-model-child-full-backend.xml`). Configured hooks and structural guards
+also passed. CI-faithful smoke is now running separately as exec session `52727`
+with log `/tmp/core-model-child-ci.log`; inspect this handle before restarting it
+or claiming a passing result. The pushed `cafacbf2` PR CI is separate evidence.
+
+The user explicitly requested a local redeployment for browser testing, providing
+new deployment authorization. An immutable Git-tree snapshot
+`5b8e3faf3eb91694f5e259b47877f89077201356` at
+`/private/tmp/integral-core-preview-5b8e3faf3eb9` contains `cafacbf2` plus the staged
+model-child correction and then-current review documents. The API binds this
+snapshot rather than the editable feature checkout. The refreshed UI was built
+from Core `cafacbf247a51b42b4dbe30f816bfe502f3fa8c1` and Business
+`ce49544cdbb25d337d9840d030f3bbdc3b4e023e`; the containment increment changes no
+frontend source. Source hashes of the running containment and staging command
+modules match the immutable snapshot. Core metadata remains `0.1.1rc18` with
+jvspatial `0.2.2`; the API uses the mounted source, not the older installed-wheel
+code. Deployment identity is recorded in `/tmp/core-hardening-local-deployment.json`.
+
+Only API/web services of `integral-business-rc17` were recreated. The resolved
+configuration retained the existing database DSN, JWT and credential keys,
+attachment data volume, Business extension and port 9114. Health returned 200.
+The existing authenticated browser session survived reload; Home → Apps → Home
+rendered successfully with the retained records and chat history. This is basic
+local readiness evidence, not full browser/provider/fault-matrix acceptance.
+The source correction remains staged; no merge was performed. Further goal work
+cannot alter the immutable preview source by editing the worktree.
+
+### Containment commit and JWT dependency retirement — 2026-10-15
+
+CI-faithful smoke session `52727` completed with exit 0. The model-child
+containment correction was committed as `5b6b6d16` after the 6,335-pass default
+backend suite, 30 native containment cases, related regressions, hooks and
+guards passed. It is a descendant of `cafacbf2`. The latter's complete remote
+CI passed; any pushed successor requires its own CI result.
+
+The next dependency increment removes the obsolete `python-jose` requirement.
+Regenerating the frozen lock removed only python-jose, ecdsa, rsa and pyasn1;
+PyJWT `2.15.1` and cryptography `50.0.1` remain. Both fallback JWT fixtures now
+use the production PyJWT library. Two new regression cases failed
+before the fixture change when jose imports were blocked; the other six fixture
+cases passed. The focused fixture/audit selection then passed 14 cases. A
+backend audit regression also failed before removal of unconditional advisory
+ignore flags. The backend gate now audits every reported advisory without
+those suppressions.
+
+A separate environment synchronized the actual current lock, including dev/test
+extras and editable Core metadata. All four retired modules are absent, Core's
+metadata no longer requires jose, and `uv pip check` passes. That environment
+passed 27 fixture/authentication/session regressions and three native
+PostgreSQL independent-identity tests (`/tmp/core-jwt-retirement-clean-tests.xml`,
+`/tmp/core-jwt-retirement-native.xml`), zero skips/errors/failures. The real
+backend audit exited 0 and reported no known vulnerabilities
+(`/tmp/core-jwt-retirement-real-audit.log`). Hooks pass. These retirement changes
+remain uncommitted pending the broader source/artifact gates. Frontend exception
+conditions and the remaining executor recovery families are still open. The
+immutable local browser preview retains its previously qualified dependency
+set; this retirement increment has not been redeployed.
+
+### Frontend audit policy conditions — 2026-10-15
+
+Two added shell regressions reproduced implicit acceptance of an unknown high
+advisory with no fix and of a known ID with a hypothetical direct patch
+(`/tmp/core-frontend-policy-red.xml`). `.ci/frontend_dependency_policy.py` now
+owns frontend classification. High/critical findings must match reviewed
+package versions from the actual lock, build-only flags, advisory package/ID,
+severity/range and remediation conditions, and the review expiry. Every
+transitive branch must qualify; unknown findings, missing/cyclic branches,
+changed versions, runtime dependencies and direct patch suggestions refuse the
+exception. The obsolete React Router exception is gone. The reviewed Tailwind
+4 major migration can receive patch updates within that major; it does not
+cover a direct braces patch or a Tailwind 3 patch suggestion.
+
+The review expires on 2026-11-15 (exclusive); boundary tests enforce expiry.
+A boolean npm remediation flag has no target version identity. Its explicit
+current-package exception still requires review at expiry; this is not a claim
+that unchanged boolean metadata can reveal every new upstream release. Build
+reachability remains a reviewed source/input assumption, not a general proof
+for arbitrary host build modifications.
+
+Moderate findings are printed in the complete inventory, outside the existing
+blocking severity threshold. The gate reports a policy pass rather than
+calling accepted vulnerable dependencies clean. CI comments now match both
+actual policies. Forty-one policy/shell cases passed, then the actual clean
+retirement environment passed 49 combined policy/JWT-fixture cases with zero
+skips/failures/errors (`/tmp/core-audit-policy-clean.xml`). Both real audits
+exited 0 (`/tmp/core-audit-policy-real-all.log`): backend reports no known
+vulnerabilities, while frontend visibly lists five reviewed high and five
+moderate package entries. These package entries are transitive inventory, not
+ten independent root advisories. Pinned formatting and configured hooks pass.
+
+This dependency/policy increment is staged, not committed or deployed. Full
+source/artifact gates remain required before its handoff. The next implementation
+priority is the seven model-edit commands and standalone View deletion listed
+in the recovery inventory; other executor families, external-I/O contracts,
+privacy/recovery/system qualification and maintainability work remain open.
+
+### Approved model-edit recovery — 2026-10-15
+
+All seven `modify_operational_model.*` kinds now participate in the shared
+native staging contract. The wrapper compares the complete approved payload,
+rechecks the named owner inside membership/identity admission, and commits
+model/child/manifest changes, event outboxes and minimal encrypted child/owner
+receipt evidence together. Recovery projects the current attached model through
+current policy; it neither replays a completed edit nor returns a historical
+configuration after membership loss. Private batch references rebuild from
+receipts, including EntryTypes, Tags and Views that later approved steps delete.
+
+Native fault injection first reproduced a missing durable receipt after a
+completed model mutation (`/tmp/core-model-command-red.xml`). Separate native
+selection tests reproduced both App and Track edits redirected through a forged
+scalar attachment cache (`/tmp/core-model-selection-red.xml`). The new attached
+model selector requires the canonical owner path, exactly one named attachment,
+and agreement with that scalar cache. Existing full model authority still
+checks the affected owner set; selection itself grants no permissions.
+
+The first integrated run then refused legitimate model-scoped events because
+the command outbox admitted only record scopes. Model event admission now
+requires this command's selected current owner and exact attached model.
+Unselected model events still fail and roll back. App-level View edits now emit
+the model scope instead of an empty Track scope; Track View scopes are retained.
+
+Forty-two native PostgreSQL tests passed with zero skips/errors/failures
+(`/tmp/core-model-commands-qualified.xml`), covering completion loss, graph and
+event rollback on receipt failure, redirected selection, membership-loss
+redaction, unselected event refusal, six batch interruption points, committed
+outbox delivery and attachment-read outage propagation. Two additional native
+concurrency tests passed (`/tmp/core-model-revocation-qualified.xml`): revocation
+on a second database connection waits for an admitted App/Track model write to
+commit. Eighty-five neighboring JSON tests passed; configured source hooks pass.
+
+The clean-lock independent Core/SDK/external-App artifact gates passed, including
+clean install, isolated imports and a reproducible Core wheel with SHA256
+`77853f71fdc96d3e24a21ada92ad9ee857b63b6c87966c716e1091ced099c099`
+(`/tmp/core-model-retirement-artifacts.log`). All 16 staged substrate guards pass.
+Sixty-one neighboring PostgreSQL regressions also passed with zero skips,
+failures or errors (`/tmp/core-model-neighbor-regressions.xml`).
+
+The full default backend suite is running in the clean-lock environment using
+four xdist workers and loadfile scheduling. Its initial serial invocation was
+explicitly interrupted to switch scheduling, not because it reported a failed
+assertion; that interrupted log is not a completed qualification receipt.
+The dispatcher inventory was checked against the remaining family table:
+69 registered kinds = 23 native + one conditional batch + 45 classified
+non-native kinds. Classification does not establish their recovery guarantees.
+
+These changes remain uncommitted and undeployed pending broader qualification.
+Standalone View deletion and the other inventory families still require their
+own explicit recovery contracts; this increment does not close R1/R2 or the
+full hardening goal. PostgreSQL supplies these atomic guarantees; other adapters
+have not acquired equivalent cross-process transaction/fencing guarantees.
+
+### Standalone View deletion: next reproduced recovery boundary
+
+Three native PostgreSQL probes against the frozen model-edit candidate reproduce
+remaining standalone `delete_view` defects. Losing token completion after the
+actual deletion leaves no `StagingExecutionRecord`
+(`/tmp/core-view-delete-red.xml`). Injecting failure into durable receipt writing
+does not prevent deletion/completion because this executor never enters that
+receipt boundary (`/tmp/core-view-delete-rollback-red.xml`). A separate-connection
+membership revocation finishes while the View deletion is paused immediately
+before its write (`/tmp/core-view-delete-revocation-red.xml`); the expected
+admission ordering assertion fails.
+
+The probes are prepared at
+`/tmp/test_core_standalone_view_deletion_postgres.py` and explicitly load the
+repository's existing `tests.conftest` PostgreSQL fixtures. They are outside the
+frozen checkout while its full suite runs. They are genuine red evidence, not
+completed integration or a passing source gate. Next: bind standalone deletion
+to its fresh canonical View/Track location inside membership admission, compare
+its full approved payload, commit deletion/manifest/event/receipt atomically,
+and recover only a minimal deletion fact without re-reading a reused identifier
+or replaying the delete. Retain the existing policy gate and Track scope.
+
+PR #136 CI at committed `5b6b6d16` completed successfully (run `38723675076`);
+Docker verification was skipped. This does not qualify the staged model-edit
+and dependency increment, whose full local suite is still running.
+
+
+### Model-edit and dependency full backend gate
+
+The final source candidate passed the full default-selected backend suite in
+the clean current-lock environment: 6,378 passed, 604 skipped, zero failures
+or errors (6,982 total, 1,136.769 seconds;
+`/tmp/core-model-retirement-full-x4.xml`). PostgreSQL-only and explicitly
+optional tests remain skipped in this JSON/default run; the 44 new model native
+cases and 61 neighboring PostgreSQL cases have separate zero-skip receipts
+above. The two-worker CI-faithful smoke selection is now running on that same
+unchanged product source (`/tmp/core-model-retirement-ci.log`).
+
+Standalone View deletion development is isolated in
+`/private/tmp/core-view-delete-recovery` on `codex/standalone-view-recovery`;
+its changes have not been imported into this qualification source. The separate
+review records its source boundary and focused evidence. No new deployment or
+merge has occurred.
+
+### Operation-result nested dependency admission: reproduced remaining gap
+
+Two native PostgreSQL probes against the current result-release seam reproduce
+an unchecked nested dependency (`/tmp/core-operation-nested-result-red.xml`). A
+real ordinary workspace member has access to the owning App and one visible
+Entry, while a separate Entry is explicitly excluded. Current role checks in
+the probe prove the visible Entry is readable and the excluded Entry is not.
+`authorize_replayed_result` nevertheless accepts an output containing the
+excluded Entry's typed `kind`/`id` reference and neighboring private label under
+`output.summary.source`. This occurs both without top-level `object_refs` and
+with a valid visible top-level reference.
+
+The probe calls the actual result-admission service with primary database facts;
+it is not an end-to-end exploit or proof of a particular App handler's output.
+It confirms that current top-level dependency admission does not independently
+cover nested output dependencies. The prepared probes are retained outside the
+frozen source at `/tmp/test_core_operation_nested_result_postgres.py`. Their
+assertions are expected to fail until the remaining declared-output projection
+work is implemented.
+
+Required follow-through: bound inspection of declared/nested resource
+references, canonical current workspace/resource authorization at initial and
+replayed output release, complete neighboring-label withholding on denial or
+unavailable facts, and preservation of the committed operation receipt without
+blind effect replay. Preserve the App's existing durable operation identity and
+idempotency service rather than introducing a second competing execution journal.
+
+
+### Model-edit/dependency commit qualification
+
+The CI-faithful smoke selection completed with exit 0 on the same product
+source (`/tmp/core-model-retirement-ci.log`, TESTING=1, DEBUG=false, no local
+.env, loadfile scheduling with two workers). This follows the complete
+6,378-pass default backend gate, 44 native model-edit tests, 61 neighboring
+native regressions, real dependency audits, clean artifact/install proofs,
+configured hooks and all 16 structural guards. Domain/slow and PostgreSQL-only
+exclusions remain distinct; this is not the complete GitHub workflow or full
+hardening-goal closure.
+
+The dependency retirement/advisory policy and approved model-edit recovery are
+being committed separately onto `5b6b6d16`. The standalone View deletion
+changes remain isolated and are not part of these commits or this CI receipt.

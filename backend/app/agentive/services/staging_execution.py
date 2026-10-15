@@ -696,6 +696,21 @@ async def capture_staging_change_event(event: dict[str, Any]) -> bool:
         if len(scope) == 2
         else None
     )
+    if len(scope) == 2 and scope[0] == "operational_model":
+        # A model event must belong to this command's canonical selected owner.
+        # An arbitrary model id is never evidence of workspace containment.
+        from app.agentive.services.staging_model_commands import MODEL_COMMAND_KINDS
+        from app.services.attached_model_scope import read_attached_model
+
+        if bound.claim.kind in MODEL_COMMAND_KINDS:
+            payload = bound.approved_payload
+            owner_kind = "track" if payload.get("track_id") else "app"
+            owner_id = str(payload.get(f"{owner_kind}_id") or "")
+            attached = await read_attached_model(owner_kind, owner_id)
+            if attached is not None and attached[1].id == scope[1]:
+                location = await locate_resource(
+                    owner_kind, owner_id, allowed_app_states=KNOWN_APP_STATES
+                )
     before = event.get("before")
     deleted_witness = (
         location is None

@@ -76,56 +76,44 @@ async def test_save_view_records_result_inside_staged_effect(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_operational_model_view_mutation_records_staged_result(monkeypatch):
+async def test_operational_model_executor_forwards_full_approved_payload(monkeypatch):
     from app.agentive import staging_executors
-    from app.agentive.services import staging_execution
-    from app.models.nodes import Track
+    from app.agentive.services import staging_model_commands
     from app.services import operational_model_authoring
 
     result = {"action": "update_view", "view_id": "view-1"}
-    complete_calls = []
-    effect_calls = []
+    payload = {
+        "action": "update_view",
+        "track_id": "track-1",
+        "view_id": "view-1",
+        "name": "Board",
+        "config": {"group_by": "stage"},
+        "is_default": False,
+    }
+    calls = []
 
-    async def get_track(track_id):
-        assert track_id == "track-1"
-        return SimpleNamespace(workspace_id="workspace-1")
+    async def apply(**kwargs):
+        execute = kwargs.pop("execute")
+        calls.append(kwargs)
+        return await execute()
 
-    @asynccontextmanager
-    async def staged_effect(**kwargs):
-        effect_calls.append(kwargs)
-
-        async def complete(value):
-            complete_calls.append(value)
-
-        yield complete
-
-    monkeypatch.setattr(Track, "get", get_track)
+    implementation = AsyncMock(return_value=result)
+    monkeypatch.setattr(staging_model_commands, "apply_model_command", apply)
     monkeypatch.setattr(
-        operational_model_authoring,
-        "modify_operational_model",
-        AsyncMock(return_value=result),
+        operational_model_authoring, "modify_operational_model", implementation
     )
-    monkeypatch.setattr(staging_execution, "staged_command_effect", staged_effect)
 
-    actual = await staging_executors._x_modify_operational_model(
-        "user-1",
-        {"action": "update_view", "track_id": "track-1", "view_id": "view-1"},
-    )
+    actual = await staging_executors._x_modify_operational_model("user-1", payload)
 
     assert actual is result
-    assert effect_calls == [
+    assert calls == [
         {
             "user_id": "user-1",
-            "workspace_id": "workspace-1",
+            "payload": payload,
             "kind": "modify_operational_model.update_view",
-            "targets": {
-                "action": "update_view",
-                "track_id": "track-1",
-                "view_id": "view-1",
-            },
         }
     ]
-    assert complete_calls == [result]
+    implementation.assert_awaited_once_with(user_id="user-1", app_id=None, **payload)
 
 
 @pytest.mark.asyncio
