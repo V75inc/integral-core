@@ -1,7 +1,7 @@
 """Reviewed, expiring exceptions for Core's build-time dependency audit.
 
 A matching advisory ID alone never grants an exception. Remediation is checked
-against the reviewed dependency graph; npm's True flag has no version identity,
+against the reviewed dependency graph; boolean flags have no version identity,
 so an unchanged flag still needs review at expiry. This is not a reachability
 proof for arbitrary changes to the application's source or build inputs.
 """
@@ -75,6 +75,12 @@ def analyze(document: dict, lock: dict, *, today: date | None = None) -> list[st
         fix = item["fixAvailable"]
         if remediation == "boolean":
             return fix is True
+        # CI npm can report no automatic fix for this exact reviewed graph,
+        # while local npm proposes the reviewed Tailwind 4
+        # migration. Neither flag changes its vulnerability or build-only scope.
+        # Advisory/lock/dev/expiry checks still apply to every dependency branch.
+        if fix is False:
+            return True
         return bool(
             isinstance(fix, dict)
             and fix.get("name") == "tailwindcss"

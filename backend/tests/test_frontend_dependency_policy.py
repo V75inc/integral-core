@@ -52,7 +52,6 @@ def test_exact_reviewed_build_graph_is_accepted_until_expiry():
         "unknown_package",
         "direct_patch",
         "true_fix",
-        "false_fix",
         "new_major",
         "new_minor",
         "malformed_version",
@@ -82,8 +81,8 @@ def test_exception_does_not_expand_beyond_reviewed_conditions(change):
             "version": "3.0.4",
             "isSemVerMajor": False,
         }
-    elif change in {"true_fix", "false_fix"}:
-        item["fixAvailable"] = change == "true_fix"
+    elif change == "true_fix":
+        item["fixAvailable"] = True
     elif change in {"new_major", "new_minor", "malformed_version"}:
         item["fixAvailable"]["version"] = {
             "new_major": "5.0.0",
@@ -222,3 +221,55 @@ def test_actionable_cli_prints_exact_non_secret_review_inputs(
         {"path": "node_modules/braces", "version": "3.0.3", "dev": False}
     ]
     assert "token:secret" not in output
+
+
+def test_observed_ci_no_automatic_fix_keeps_exact_reviewed_graph_exception():
+    import json
+
+    fixture = json.loads(
+        (Path(__file__).parent / "fixtures/frontend-audit-ci-20261015.json").read_text()
+    )
+    lines = policy.analyze(fixture["audit"], fixture["lock"], today=TODAY)
+    assert sum(line.startswith("ACCEPTED high") for line in lines) == 5
+    assert not any(line.startswith("ACTIONABLE") for line in lines)
+
+
+def test_no_automatic_fix_never_accepts_an_unknown_advisory():
+    data, lock = snapshot()
+    data["vulnerabilities"]["braces"]["fixAvailable"] = False
+    data["vulnerabilities"]["braces"]["via"][0][
+        "url"
+    ] = "https://github.com/advisories/GHSA-unknown"
+    assert policy.analyze(data, lock, today=TODAY)[0].startswith("ACTIONABLE")
+
+
+@pytest.mark.parametrize(
+    "change", ["non_dev", "new_version", "new_advisory", "expired", "direct_patch"]
+)
+def test_ci_no_automatic_fix_variant_retains_all_other_review_limits(change):
+    import json
+
+    fixture = json.loads(
+        (Path(__file__).parent / "fixtures/frontend-audit-ci-20261015.json").read_text()
+    )
+    today = TODAY
+    if change == "non_dev":
+        fixture["lock"]["packages"]["node_modules/braces"]["dev"] = False
+    elif change == "new_version":
+        fixture["lock"]["packages"]["node_modules/braces"]["version"] = "3.0.4"
+    elif change == "new_advisory":
+        fixture["audit"]["vulnerabilities"]["braces"]["via"][0][
+            "url"
+        ] = "https://github.com/advisories/GHSA-unknown"
+    elif change == "expired":
+        today = policy.REVIEW_EXPIRES
+    else:
+        fixture["audit"]["vulnerabilities"]["braces"]["fixAvailable"] = {
+            "name": "braces",
+            "version": "3.0.4",
+            "isSemVerMajor": False,
+        }
+    assert any(
+        line.startswith("ACTIONABLE")
+        for line in policy.analyze(fixture["audit"], fixture["lock"], today=today)
+    )
