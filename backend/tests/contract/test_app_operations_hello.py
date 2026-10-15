@@ -10,7 +10,6 @@ from app.services.app_operations.dispatch import (
     invoke_app_operation,
 )
 from app.services.hooks.install_hook import register_bundle_on_install
-from app.services.hooks.registry import clear_workspace_registrations
 from app.services.operational_model_runtime import compile_canonical_manifest
 
 REPO = Path(__file__).resolve().parents[3]
@@ -30,12 +29,13 @@ def reference_root(monkeypatch):
     reset_library_operational_models_cache_for_testing()
     yield REF_APP
     reset_library_operational_models_cache_for_testing()
-    clear_workspace_registrations("ws-op-hello")
 
 
 @pytest.mark.contract
 @pytest.mark.asyncio
-async def test_invoke_echo_operation_via_tool_binding(reference_root):
+async def test_invoke_echo_operation_via_tool_binding(
+    reference_root, test_user, request
+):
     """A declared operation returns its result and authorization provenance."""
     from app.services.operational_model_loader import (
         load_library_operational_models_with_issues,
@@ -48,8 +48,10 @@ async def test_invoke_echo_operation_via_tool_binding(reference_root):
     )
     spec = next(s for s in specs if s.slug == "reference-hello-app")
     canonical = compile_canonical_manifest(manifest=spec.manifest)
-    ws = "ws-op-hello"
-    app_id = "n.App.contract-hello"
+    from tests.contract.operation_fixtures import owned_operation_app
+
+    workspace, app = await owned_operation_app(test_user, request)
+    ws, app_id = workspace.id, app.id
     await register_bundle_on_install(
         workspace_id=ws,
         canonical=canonical,
@@ -57,50 +59,13 @@ async def test_invoke_echo_operation_via_tool_binding(reference_root):
         app_id=app_id,
     )
 
-    # Policy gate uses resolve_role — stub by using a workspace owner path is heavy;
-    # register + invoke with monkeypatched policy for contract slice.
-    async def _allow(*_args: object, **_kwargs: object):
-        from app.schemas.policy import Decision
-
-        return Decision(allowed=True, reason="contract-test")
-
-    from unittest.mock import AsyncMock, patch
-
-    with (
-        patch(
-            "app.services.app_operations.dispatch.policy_evaluate",
-            new=AsyncMock(side_effect=_allow),
-        ),
-        patch(
-            "app.services.app_operations.dispatch.App.get",
-            new=AsyncMock(
-                return_value=type(
-                    "AppStub",
-                    (),
-                    {
-                        "id": app_id,
-                        "workspace_id": ws,
-                        "lifecycle_state": "active",
-                    },
-                )()
-            ),
-        ),
-        patch(
-            "app.services.app_operations.dispatch.resolve_role",
-            new=AsyncMock(return_value="owner"),
-        ),
-        patch(
-            "app.services.app_operations.dispatch.can_access_workspace",
-            new=AsyncMock(return_value="owner"),
-        ),
-    ):
-        result = await invoke_app_operation(
-            user_id="u1",
-            workspace_id=ws,
-            app_id=app_id,
-            operation_key="echo",
-            payload={"message": "hello-ops"},
-        )
+    result = await invoke_app_operation(
+        user_id=test_user.id,
+        workspace_id=ws,
+        app_id=app_id,
+        operation_key="echo",
+        payload={"message": "hello-ops"},
+    )
     assert result["output"]["ok"] is True
     assert result["output"]["message"] == "hello-ops"
     assert result["evidence"]["policy_revision"].startswith("policy-sha256:")

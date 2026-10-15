@@ -21,6 +21,7 @@ from app.services.app_operations.execution_receipts import (
 from app.services.app_operations.transaction_scope import (
     OperationTransactionUnavailable,
 )
+from tests.contract.operation_fixtures import owned_operation_app
 
 
 @pytest.mark.asyncio
@@ -45,18 +46,10 @@ from app.services.app_operations.transaction_scope import (
     ],
 )
 async def test_durable_receipt_failures_have_stable_boundary_errors(
-    failure, error_type, error_code
+    failure, error_type, error_code, test_user, request
 ) -> None:
     """Broker adapters can preserve a deterministic public error code."""
-    app = type(
-        "AppStub",
-        (),
-        {
-            "id": "n.App.receipt-errors",
-            "workspace_id": "ws-receipt",
-            "lifecycle_state": "active",
-        },
-    )()
+    workspace, app = await owned_operation_app(test_user, request)
     spec = {
         "key": "write",
         "kind": "execute",
@@ -66,10 +59,6 @@ async def test_durable_receipt_failures_have_stable_boundary_errors(
     }
 
     with (
-        patch(
-            "app.services.app_operations.dispatch.App.get",
-            new=AsyncMock(return_value=app),
-        ),
         patch(
             "app.services.app_operations.dispatch.can_access_workspace",
             new=AsyncMock(return_value="owner"),
@@ -93,8 +82,8 @@ async def test_durable_receipt_failures_have_stable_boundary_errors(
     ):
         with pytest.raises(error_type) as raised:
             await invoke_app_operation(
-                user_id="u-receipt",
-                workspace_id="ws-receipt",
+                user_id=test_user.id,
+                workspace_id=workspace.id,
                 app_id=app.id,
                 operation_key="write",
                 payload={"value": "x"},
@@ -105,19 +94,11 @@ async def test_durable_receipt_failures_have_stable_boundary_errors(
 
 
 @pytest.mark.asyncio
-async def test_execute_kind_requires_a_durable_identity_even_with_default_policy() -> (
-    None
-):
+async def test_execute_kind_requires_a_durable_identity_even_with_default_policy(
+    test_user, request
+) -> None:
     """A command cannot become an in-memory write through ``app.read`` defaulting."""
-    app = type(
-        "AppStub",
-        (),
-        {
-            "id": "n.App.defaulted-command",
-            "workspace_id": "ws-receipt",
-            "lifecycle_state": "active",
-        },
-    )()
+    workspace, app = await owned_operation_app(test_user, request)
     spec = {
         "key": "write",
         "kind": "execute",
@@ -126,10 +107,6 @@ async def test_execute_kind_requires_a_durable_identity_even_with_default_policy
     }
 
     with (
-        patch(
-            "app.services.app_operations.dispatch.App.get",
-            new=AsyncMock(return_value=app),
-        ),
         patch(
             "app.services.app_operations.dispatch.can_access_workspace",
             new=AsyncMock(return_value="owner"),
@@ -149,8 +126,8 @@ async def test_execute_kind_requires_a_durable_identity_even_with_default_policy
     ):
         with pytest.raises(BadRequestError) as raised:
             await invoke_app_operation(
-                user_id="u-receipt",
-                workspace_id="ws-receipt",
+                user_id=test_user.id,
+                workspace_id=workspace.id,
                 app_id=app.id,
                 operation_key="write",
                 payload={"value": "x"},

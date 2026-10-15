@@ -143,10 +143,10 @@ async def test_policy_event_requires_creator_and_personal_actor_scope():
     )
 
 
-async def rooted_graph():
+async def rooted_graph(reader_user=None):
     owner = await User.create(user_id="perimeter-owner")
     await catalog_user(owner)
-    reader = await User.create(user_id="perimeter-reader")
+    reader = reader_user or await User.create(user_id="perimeter-reader")
     await catalog_user(reader)
     workspace = await Workspace.create(name="Perimeter", kind="organization")
     await catalog_workspace(workspace)
@@ -309,6 +309,7 @@ async def test_stored_event_surfaces_filter_excluded_entry(surface, monkeypatch)
 @pytest.mark.asyncio
 async def test_read_replay_withholds_revoked_record_without_rerunning_handler(
     monkeypatch,
+    test_user,
 ):
     from app.api.errors import InsufficientPermissionsError
     from app.services.app_operations import dispatch, registry
@@ -316,7 +317,10 @@ async def test_read_replay_withholds_revoked_record_without_rerunning_handler(
         clear_idempotency_memory_for_tests,
     )
 
-    _, reader, workspace, app, _, entry = await rooted_graph()
+    profile = await perms.get_user_node(test_user.id)
+    if profile is None:
+        profile = await User.create(user_id=test_user.id)
+    _, reader, workspace, app, _, entry = await rooted_graph(reader_user=profile)
     monkeypatch.setattr(registry, "_OPERATIONS", {})
     registry.register_app_operations(
         workspace.id,

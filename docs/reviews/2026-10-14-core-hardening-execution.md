@@ -1468,3 +1468,79 @@ hardening-goal closure.
 The dependency retirement/advisory policy and approved model-edit recovery are
 being committed separately onto `5b6b6d16`. The standalone View deletion
 changes remain isolated and are not part of these commits or this CI receipt.
+
+### Operation function release and saved-contract follow-through
+
+The current uncommitted output-admission candidate reproduced two further
+release gaps with native identities: changing the registered handler while a
+read waits, and revoking a function role between the old post-handler check and
+final result admission. Both leaked their returned summary while the human
+still retained App viewer access. A separate native read-cache test reproduced
+old output being returned under a replacement handler's declaration.
+
+The candidate now carries an independent result context into initial output,
+read-cache and command-receipt admission. It checks current function authority,
+original registered declaration and primary App state inside the same short
+workspace/identity admission as dependency disclosure. It never grants an
+execution permit; mutation release retains consumed-before-state semantics.
+Saved results also carry a private declaration fingerprint, removed from public
+responses. Missing or changed saved contracts withhold output without invoking
+the handler or modifying the operation's successful receipt.
+
+The 17-case new PostgreSQL suite and all 21 existing delegation/receipt cases
+passed (six existing agent/connector function scenarios included). The broader
+124-case neighboring selection initially had one failing fixture: the immediate
+read staging test mocked App/workspace authorization for fabricated IDs. That
+single test now uses the actual authenticated owner and rooted App; its 23-case
+file passes. Final combined source runs and the added saved command-contract
+case remain pending. Evidence and open requirements are in
+`2026-10-15-operation-result-admission-plan.md`.
+
+This does not close R1/R2, parent-owned or identity/schema metadata compatibility,
+opaque applied-result recovery, all service revocation races, or full system
+qualification. No commit/push/deployment of this working candidate is claimed.
+The latest authorized local redeployment was the separately qualified committed
+`f508d7ad` Core checkpoint on Business `ce49544c`; both services were source-checked,
+healthy, and authenticated Home/Apps navigation passed. That runtime is not this
+uncommitted output-admission candidate.
+
+Final focused follow-through on this candidate: all 18 new native PostgreSQL
+cases passed, including saved command declaration changes and private contract
+metadata preservation; all 124 neighboring tests passed after the rooted fixture
+correction. The pinned format/lint/type hook rerun is clean. Evidence:
+`/tmp/core-operation-function-final-native.xml`,
+`/tmp/core-operation-function-final-neighbors.xml`, and
+`/tmp/core-operation-function-final-hooks-rerun.log`. These results supersede the
+pending focused runs above, not the outstanding whole-system acceptance work.
+
+
+### Parent-owned result references and Core object namespace
+
+The function-result baseline staged tree
+`0fd57f931eeaa5a530034d0ffaf53394c2a03e10` completed its full default backend run:
+6,414 passed, 637 skipped, zero failures/errors, 1,224.772 seconds. Evidence:
+`/tmp/core-operation-function-full.xml` and
+`/tmp/core-operation-function-full-evidence.json`. This is dated baseline
+qualification, not coverage for subsequent parent/object changes.
+
+An isolated follow-through adds reusable primary containment for Entry-owned
+Comments and filed Attachments, including retained chat-filing provenance with
+no permission to read that original chat. Whole output admission still requires
+current Entry read rights in the selected workspace. Independent connections
+qualify ordering with parent reparenting and Entry revocation. Native effects
+and receipts roll back together on initial result denial; a committed child
+remains unchanged and is never recreated when a later replay is withheld.
+
+The output inspector also recognizes the Core `o.*` namespace. It previously
+treated Auth/credential-object IDs as no dependencies. Known identity references
+now require explicit supported projection; unknown object families fail closed.
+This does not change event snapshot rules or authorize raw identity exports.
+
+The combined native candidate passed 48 cases and the bounded inspector passed
+31 unit cases. Pinned format/lint/type hooks passed. See
+`2026-10-15-operation-parent-reference-admission.md` for exact evidence, the two
+expected behavior red probes and the corrected query-observation test fixture.
+The main candidate is being reconciled for combined source/CI/artifact gates.
+Model/type/author metadata compatibility, opaque applied-result recovery and
+the broader hardening goal remain incomplete. No new deployment is authorized
+or performed by this continuation.
