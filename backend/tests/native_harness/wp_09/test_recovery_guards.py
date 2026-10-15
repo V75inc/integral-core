@@ -12,6 +12,7 @@ from app.agentive.harness.contracts import HarnessExecutionScope
 from app.api.errors import ResourceConflictError
 from app.services.chat_providers.pydantic_ai_provider import (
     _load_recovery_user_message,
+    _reconcile_fenced_harness_run,
     _resume_history,
 )
 
@@ -408,3 +409,181 @@ async def test_recovery_message_requires_scoped_text_only_chat_record(
         {"type": "image", "data": "private"},
     ]
     assert await _load_recovery_user_message(run, scope) is None
+
+
+@pytest.mark.asyncio
+async def test_new_leased_work_attempt_terminalizes_only_its_fenced_predecessor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A reclaimed worker lease makes the previous deterministic run terminal."""
+    from app.agentive.services.work_execution import deterministic_run_id
+    from app.agentive.work_models import WorkItem
+
+    work_item_id = "work-item-a"
+    previous = SimpleNamespace(
+        run_id=deterministic_run_id(work_item_id=work_item_id, attempt=1),
+        work_item_id=work_item_id,
+        status="running",
+        provider_id="integral_native",
+        user_id="user-a",
+        workspace_id="workspace-a",
+        thread_id="thread-a",
+    )
+    item = SimpleNamespace(
+        work_item_id=work_item_id,
+        principal_id="user-a",
+        workspace_id="workspace-a",
+        thread_id="thread-a",
+        status="running",
+        attempt=2,
+        lease_token="current-lease",
+        lease_fence=2,
+        lease_expires_at="2099-01-01T00:00:00+00:00",
+    )
+    finished = []
+
+    async def find(_query):
+        return [item]
+
+    async def finish(run_id, *, status, error=None):
+        finished.append((run_id, status, error))
+        previous.status = status
+        return previous
+
+    monkeypatch.setattr(WorkItem, "find", find)
+    monkeypatch.setattr("app.agentive.services.execution_runs.finish_run", finish)
+    scope = _scope(deterministic_run_id(work_item_id=work_item_id, attempt=2))
+
+    result = await _reconcile_fenced_harness_run(scope, previous)
+
+    assert result is previous
+    assert previous.status == "failed"
+    assert len(finished) == 1
+    assert finished[0][0] == previous.run_id
+    assert finished[0][1] == "failed"
+    assert finished[0][2]["code"] == "work.attempt_superseded"
+
+
+@pytest.mark.asyncio
+async def test_fenced_run_reconciliation_refuses_unrelated_or_unleased_work(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.agentive.services.work_execution import deterministic_run_id
+    from app.agentive.work_models import WorkItem
+
+    work_item_id = "work-item-a"
+    previous = SimpleNamespace(
+        run_id=deterministic_run_id(work_item_id=work_item_id, attempt=1),
+        work_item_id=work_item_id,
+        status="running",
+        provider_id="integral_native",
+        user_id="user-a",
+        workspace_id="workspace-a",
+        thread_id="thread-a",
+    )
+    item = SimpleNamespace(
+        work_item_id=work_item_id,
+        principal_id="user-a",
+        workspace_id="workspace-a",
+        thread_id="thread-a",
+        status="running",
+        attempt=2,
+        lease_token="",
+        lease_fence=2,
+        lease_expires_at="2099-01-01T00:00:00+00:00",
+    )
+    finished = []
+
+    async def find(_query):
+        return [item]
+
+    monkeypatch.setattr(WorkItem, "find", find)
+    monkeypatch.setattr(
+        "app.agentive.services.execution_runs.finish_run",
+        lambda *_args, **_kwargs: finished.append(True),
+    )
+
+    result = await _reconcile_fenced_harness_run(
+        _scope(deterministic_run_id(work_item_id=work_item_id, attempt=2)), previous
+    )
+
+    assert result is previous
+    assert previous.status == "running"
+    assert finished == []
+
+
+@pytest.mark.asyncio
+async def test_reclaimed_attempt_can_rebuild_a_pre_dispatch_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pydantic_ai.messages import ModelRequest, UserPromptPart
+
+    from app.agentive.harness import model_observations
+    from app.agentive.services.work_execution import deterministic_run_id
+    from app.agentive.work_models import WorkApproval, WorkItem
+
+    work_item_id = "work-item-reclaimed"
+    previous = SimpleNamespace(
+        run_id=deterministic_run_id(work_item_id=work_item_id, attempt=1),
+        work_item_id=work_item_id,
+        status="running",
+        provider_id="integral_native",
+        user_id="user-a",
+        workspace_id="workspace-a",
+        thread_id="thread-a",
+        capability_snapshot={"capabilities": []},
+    )
+    item = SimpleNamespace(
+        work_item_id=work_item_id,
+        principal_id="user-a",
+        workspace_id="workspace-a",
+        thread_id="thread-a",
+        status="running",
+        attempt=2,
+        lease_token="current-lease",
+        lease_fence=2,
+        lease_expires_at="2099-01-01T00:00:00+00:00",
+    )
+
+    async def work_item_find(_query):
+        return [item]
+
+    async def no_observations(**_kwargs):
+        return []
+
+    async def no_approvals(_query):
+        return []
+
+    async def finish(run_id, *, status, error=None):
+        assert run_id == previous.run_id
+        previous.status = status
+        return previous
+
+    class Store:
+        async def list_unresolved_tool_effects(self, *, run_id):
+            return []
+
+        async def list_tool_effects(self, *, run_id):
+            return []
+
+        async def latest_snapshot(self, *, run_id):
+            return None
+
+    monkeypatch.setattr(WorkItem, "find", work_item_find)
+    monkeypatch.setattr(WorkApproval, "find", no_approvals)
+    monkeypatch.setattr(
+        model_observations, "list_model_request_observations", no_observations
+    )
+    monkeypatch.setattr("app.agentive.services.execution_runs.finish_run", finish)
+    prompt = ModelRequest(parts=[UserPromptPart(content="Continue the request")])
+
+    history = await _resume_history(
+        _scope(deterministic_run_id(work_item_id=work_item_id, attempt=2)),
+        SimpleNamespace(last_run_id=previous.run_id),
+        Store(),
+        recovery_message=prompt,
+        previous_run=previous,
+    )
+
+    assert previous.status == "failed"
+    assert history == [prompt]

@@ -1380,6 +1380,7 @@ name = "integral-core"
 version = "0.1.1rc18"
 source = { editable = "." }
 dependencies = [
+    { name = "anyio" },
     { name = "asyncpg" },
     { name = "authlib" },
     { name = "beautifulsoup4" },
@@ -1453,6 +1454,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anyio", specifier = ">=4,<5" },
     { name = "asgi-lifespan", marker = "extra == 'test'", specifier = ">=1.0.0" },
     { name = "asyncpg", specifier = ">=0.29.0" },
     { name = "authlib", specifier = ">=1.3" },

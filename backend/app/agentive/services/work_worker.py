@@ -402,10 +402,12 @@ def _native_chat_transcript(
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Fold normalized provider events into the single durable chat result.
 
-    Raw provider payloads and reasoning are deliberately not accepted here;
-    the event store and transcript writer each apply their own public-field
-    allowlists before persistence.
+    Raw provider payloads and reasoning are deliberately not accepted here.
+    Reuse the event store's projection so new public usage fields survive
+    both live replay and a subsequent transcript reload.
     """
+    from app.services.chat_turn_events import normalize_public_event
+
     text = ""
     parts: list[dict[str, Any]] = []
     tool_positions: dict[str, int] = {}
@@ -447,23 +449,13 @@ def _native_chat_transcript(
         elif kind == "step":
             steps.append(
                 {
-                    key: event[key]
-                    for key in (
-                        "usage",
-                        "modelId",
-                        "provider",
-                        "providerCostUsd",
-                        "costSource",
-                        "durationMs",
-                        "outcome",
-                        "attempt",
-                        "requestId",
-                    )
-                    if key in event
+                    key: value
+                    for key, value in normalize_public_event(event).items()
+                    if key not in {"type", "name", "status"}
                 }
             )
         elif kind == "message-finish" and isinstance(event.get("timing"), dict):
-            timing = dict(event["timing"])
+            timing = dict(normalize_public_event(event)["timing"])
         elif kind == "error":
             error = {
                 "code": str(event.get("code") or "internal_error"),
@@ -809,6 +801,7 @@ async def _handle_chat_turn(
         code, message = classify_turn_exception(exc, provider=provider)
         status = "failed"
         failure = {"code": code, "message": message}
+        log.exception("Native chat worker stream failed work_item=%s", ctx.work_item_id)
 
     events = await _committed_events()
     if status == "succeeded" and any(event.get("type") == "error" for event in events):

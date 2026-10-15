@@ -73,7 +73,7 @@ Authenticated identity, tenancy, provider route, and credential authority are se
 
 ChatThread and ChatMessage are product conversation records. HarnessSession is rooted beneath the thread and bound to principal, workspace, binding, and generation. Encrypted Object records hold detailed execution history and checkpoints in the same namespace. Provider handles are opaque continuation hints, not identity.
 
-Native durable chat is off by default. When enabled, accepted request fingerprints, worker input, event replay, stable transcript writes, and lease-fenced execution must agree. Content verification includes message parts, metadata, parent, and typed host context; matching tenant and message ID alone is insufficient.
+Native chat uses durable WorkItems by default on PostgreSQL. Accepted request fingerprints, worker input, event replay, stable transcript writes, and lease-fenced execution must agree. Content verification includes message parts, metadata, parent, and typed host context; matching tenant and message ID alone is insufficient. Legacy request-bound turns are an explicit opt-out.
 
 WorkItems use current lease token and fence for authority. Brokered effects use deterministic run/effect/logical-step identity. PostgreSQL commits work transitions with outbox and approval state atomically where specified. Routine and event adapters enqueue idempotently. Uncertain effects require reconciliation.
 

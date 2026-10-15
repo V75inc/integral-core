@@ -115,6 +115,9 @@ def test_public_call_metadata_has_canonical_provider_model_id() -> None:
     assert event["usage"] == {"inputTokens": 10, "outputTokens": 2}
     assert event["inputTokensReported"] is True
     assert event["outputTokensReported"] is True
+    from app.services.chat_turn_events import normalize_public_event
+
+    assert normalize_public_event(event) == event
 
 
 @pytest.mark.asyncio
@@ -311,7 +314,9 @@ def test_public_call_metadata_retains_known_usage_on_later_empty_close() -> None
     assert event["costComplete"] is False
 
 
-def test_public_call_metadata_preserves_partial_token_fields_without_zero_fill() -> None:
+def test_public_call_metadata_preserves_partial_token_fields_without_zero_fill() -> (
+    None
+):
     partial = _observation("responded").model_copy(
         update={
             "usage": ModelUsageObservation(

@@ -214,7 +214,7 @@ The possibility is cumulative coherence. Generation can extend an environment th
 
 The codebase includes workspace and resource access, typed records, Operational Models, package lifecycle services, views, attachments, resident chat, staging, approvals, capability discovery, declared operations, extension views, App Home, dashboards, connectors, and durable work mechanisms.
 
-Presence in source does not qualify every configuration or journey. Features depend on storage adapter, provider, trust tier, package, and settings. Native durable chat needs explicit enablement. Semantic retrieval depends on the indexing and vector backend. Attachment malware screening needs a real scanner; the default no-op adapter provides no screening assurance.
+Presence in source does not qualify every configuration or journey. Features depend on storage adapter, provider, trust tier, package, and settings. Native chat uses durable WorkItems by default on PostgreSQL; other storage adapters have different recovery limits. Semantic retrieval depends on the indexing and vector backend. Attachment malware screening needs a real scanner; the default no-op adapter provides no screening assurance.
 
 Production qualification requires evidence from the actual deployment: artifact checks, CI, database contracts, browser journeys, provider and connector flows, isolation, interruption, revocation, and recovery. The [qualification guide](../ops/QUALIFICATION.md) explains these separate gates.
 
