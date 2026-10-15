@@ -494,26 +494,6 @@ async def upload_me_onboarding_attachment(request: Request) -> Dict[str, Any]:
 
 
 @endpoint(
-    "/me/onboarding-form/contract/meta",
-    methods=["GET"],
-    auth=True,
-    tags=[_LEGACY_TAG],
-)
-async def me_onboarding_contract_meta(request: Request) -> OnboardingContractMetaResponse:
-    workspace_id, _user_id, form, track, _employee = await _resolve_member_form(
-        request, form_entry_id=_form_entry_id_from_request(request)
-    )
-    if not await contract_review_enabled(track, form):
-        raise ResourceNotFoundError(message="Contract review is not configured")
-    meta = await contract_template_update_status(
-        workspace_id=workspace_id,
-        track=track,
-        form_entry=form,
-    )
-    return OnboardingContractMetaResponse.model_validate(meta).model_dump()
-
-
-@endpoint(
     "/me/onboarding-form/contract/generate",
     methods=["POST"],
     auth=True,
