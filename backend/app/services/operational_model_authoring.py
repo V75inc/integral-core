@@ -714,6 +714,7 @@ async def modify_operational_model(
         get_track_attached_operational_model,
     )
     from app.services.change_event import emit_change_event
+    from app.services.model_child_scope import read_model_child
     from app.services.operational_model_runtime import (
         normalize_entry_type_form_schema,
         normalize_view_config,
@@ -827,7 +828,13 @@ async def modify_operational_model(
     if action == "remove_entry_type":
         if not entry_type_id:
             return {"error": "missing_argument", "detail": "entry_type_id is required"}
-        et = await EntryType.get(entry_type_id)
+        et = await read_model_child(
+            cp.id,
+            entry_type_id,
+            "entry_type",
+            track_id=track_id or "",
+            app_id=app_id or "",
+        )
         if not et:
             return {"error": "not_found", "detail": "Entry type not found"}
         before = await export_node(et)
@@ -1017,7 +1024,9 @@ async def modify_operational_model(
     if action == "remove_tag":
         if not tag_id:
             return {"error": "missing_argument", "detail": "tag_id is required"}
-        tag = await Tag.get(tag_id)
+        tag = await read_model_child(
+            cp.id, tag_id, "tag", track_id=track_id or "", app_id=app_id or ""
+        )
         if not tag:
             return {"error": "not_found", "detail": "Tag not found"}
         before = await export_node(tag)
