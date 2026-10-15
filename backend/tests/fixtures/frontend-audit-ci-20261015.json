@@ -1,0 +1,226 @@
+{
+  "audit": {
+    "vulnerabilities": {
+      "argparse": {
+        "severity": "moderate",
+        "via": [
+          "sprintf-js"
+        ],
+        "fixAvailable": {
+          "isSemVerMajor": true,
+          "name": "mammoth",
+          "version": "0.3.29"
+        },
+        "nodes": [
+          "node_modules/argparse"
+        ]
+      },
+      "braces": {
+        "severity": "high",
+        "via": [
+          {
+            "cvss": {
+              "score": 7.5,
+              "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+            },
+            "cwe": [
+              "CWE-674"
+            ],
+            "dependency": "braces",
+            "name": "braces",
+            "range": "<=3.0.3",
+            "severity": "high",
+            "source": 1240992,
+            "title": "braces vulnerable to stack-exhaustion denial of service through deeply nested patterns",
+            "url": "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm"
+          }
+        ],
+        "fixAvailable": false,
+        "nodes": [
+          "node_modules/braces"
+        ]
+      },
+      "chokidar": {
+        "severity": "high",
+        "via": [
+          "braces"
+        ],
+        "fixAvailable": false,
+        "nodes": [
+          "node_modules/chokidar"
+        ]
+      },
+      "fast-glob": {
+        "severity": "high",
+        "via": [
+          "micromatch"
+        ],
+        "fixAvailable": true,
+        "nodes": [
+          "node_modules/fast-glob"
+        ]
+      },
+      "mammoth": {
+        "severity": "moderate",
+        "via": [
+          "argparse"
+        ],
+        "fixAvailable": {
+          "isSemVerMajor": true,
+          "name": "mammoth",
+          "version": "0.3.29"
+        },
+        "nodes": [
+          "node_modules/mammoth"
+        ]
+      },
+      "micromatch": {
+        "severity": "high",
+        "via": [
+          "braces"
+        ],
+        "fixAvailable": false,
+        "nodes": [
+          "node_modules/micromatch"
+        ]
+      },
+      "postcss-nested": {
+        "severity": "moderate",
+        "via": [
+          "postcss-selector-parser"
+        ],
+        "fixAvailable": true,
+        "nodes": [
+          "node_modules/postcss-nested"
+        ]
+      },
+      "postcss-selector-parser": {
+        "severity": "moderate",
+        "via": [
+          {
+            "cvss": {
+              "score": 5.9,
+              "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:H"
+            },
+            "cwe": [
+              "CWE-400",
+              "CWE-407"
+            ],
+            "dependency": "postcss-selector-parser",
+            "name": "postcss-selector-parser",
+            "range": "<7.1.6",
+            "severity": "moderate",
+            "source": 1241232,
+            "title": "PostCSS: Quadratic complexity in flat selector parsing allows CPU exhaustion",
+            "url": "https://github.com/advisories/GHSA-rj75-hqrm-r3gf"
+          }
+        ],
+        "fixAvailable": false,
+        "nodes": [
+          "node_modules/postcss-selector-parser"
+        ]
+      },
+      "sprintf-js": {
+        "severity": "moderate",
+        "via": [
+          {
+            "cvss": {
+              "score": 5.3,
+              "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L"
+            },
+            "cwe": [
+              "CWE-1284"
+            ],
+            "dependency": "sprintf-js",
+            "name": "sprintf-js",
+            "range": "<=1.1.3",
+            "severity": "moderate",
+            "source": 1241202,
+            "title": "sprintf-js vulnerable to denial of service through unbounded precision specifiers",
+            "url": "https://github.com/advisories/GHSA-hp3w-g68c-fv3c"
+          }
+        ],
+        "fixAvailable": {
+          "isSemVerMajor": true,
+          "name": "mammoth",
+          "version": "0.3.29"
+        },
+        "nodes": [
+          "node_modules/sprintf-js"
+        ]
+      },
+      "tailwindcss": {
+        "severity": "high",
+        "via": [
+          "chokidar",
+          "fast-glob",
+          "micromatch",
+          "postcss-nested",
+          "postcss-selector-parser"
+        ],
+        "fixAvailable": false,
+        "nodes": [
+          "node_modules/tailwindcss"
+        ]
+      },
+      "tailwindcss-animate": {
+        "severity": "moderate",
+        "via": [
+          "tailwindcss"
+        ],
+        "fixAvailable": false,
+        "nodes": [
+          "node_modules/tailwindcss-animate"
+        ]
+      }
+    }
+  },
+  "lock": {
+    "packages": {
+      "node_modules/argparse": {
+        "version": "1.0.10",
+        "dev": null
+      },
+      "node_modules/braces": {
+        "version": "3.0.3",
+        "dev": true
+      },
+      "node_modules/chokidar": {
+        "version": "3.6.0",
+        "dev": true
+      },
+      "node_modules/fast-glob": {
+        "version": "3.3.3",
+        "dev": true
+      },
+      "node_modules/mammoth": {
+        "version": "1.13.0",
+        "dev": null
+      },
+      "node_modules/micromatch": {
+        "version": "4.0.8",
+        "dev": true
+      },
+      "node_modules/postcss-nested": {
+        "version": "6.2.0",
+        "dev": true
+      },
+      "node_modules/postcss-selector-parser": {
+        "version": "6.1.4",
+        "dev": true
+      },
+      "node_modules/sprintf-js": {
+        "version": "1.0.3",
+        "dev": null
+      },
+      "node_modules/tailwindcss": {
+        "version": "3.4.19",
+        "dev": true
+      },
+      "node_modules/tailwindcss-animate": {
+        "version": "1.0.7",
+        "dev": true
+      }
+    }
+  }
+}

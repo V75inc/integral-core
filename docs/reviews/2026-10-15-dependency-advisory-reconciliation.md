@@ -173,3 +173,32 @@ these are transitive inventory entries, not eleven independent root advisories.
 A new CI run with this observability increment must establish the remote
 outcome. Do not call the previous red job green or widen the reviewed exception
 without inspecting its actual conditions.
+
+## Observed CI remediation variant qualified
+
+The diagnostic run `38734771030` establishes the exact difference: npm on CI
+reports `fixAvailable: false` for braces, chokidar, micromatch,
+postcss-selector-parser and tailwindcss. The UTC date and expiry, locked versions,
+dev-only flags, advisory IDs/ranges/severity and dependency chains match the
+reviewed graph. Local npm currently proposes the already reviewed Tailwind 4
+migration. The policy failure was the remediation metadata variant; its deeper
+npm/registry/cache origin is not established by this evidence.
+
+`frontend-audit-ci-20261015.json` retains those public observed audit and lock
+facts. The policy now accepts the no-automatic-fix flag only for the same
+explicitly reviewed Tailwind-major package set after the same version/dev/
+severity/expiry checks; every advisory branch still must qualify. This does not
+assert the affected packages are fixed or that False means safe. The existing
+build-input/reachability review is the risk basis, and the Tailwind migration
+remains separate work. Boolean-only fast-glob/postcss-nested conditions are
+unchanged. Unknown advisories, runtime placement, changed versions, expiry,
+direct patch suggestions and unreviewed migration targets still fail.
+
+The captured CI input first failed its regression test, then passed after the
+narrow variant amendment. Forty-eight policy/shell cases now pass with zero
+skips/failures/errors (`/tmp/core-audit-ci-variant-green.xml`), including explicit
+no-automatic-fix boundary tests for runtime placement, version/advisory changes,
+expiry and direct patches. The real frontend audit also passes locally
+(`/tmp/core-audit-ci-variant-real.log`); configured type/lint/convention checks
+pass and pinned formatting has been applied. Fresh GitHub checks on the next
+pushed head remain required before reporting remote CI green.
