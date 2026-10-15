@@ -269,10 +269,20 @@ def _model_observability_events(
         )
         if known_usage:
             call_event["usage"] = {
-                "inputTokens": summary.reported_input_tokens,
-                "outputTokens": summary.reported_output_tokens,
+                **(
+                    {"inputTokens": summary.reported_input_tokens}
+                    if summary.input_token_request_count
+                    else {}
+                ),
+                **(
+                    {"outputTokens": summary.reported_output_tokens}
+                    if summary.output_token_request_count
+                    else {}
+                ),
             }
             call_event["usageComplete"] = summary.token_usage_complete
+            call_event["inputTokensReported"] = summary.input_token_request_count > 0
+            call_event["outputTokensReported"] = summary.output_token_request_count > 0
             call_event["costComplete"] = summary.provider_cost_complete
             if summary.provider_cost_usd is not None:
                 call_event["providerCostUsd"] = float(summary.provider_cost_usd)

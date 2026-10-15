@@ -261,6 +261,8 @@ class QualificationObservedUsage(BaseModel):
     unresolved_request_count: int = Field(ge=0)
     reported_input_tokens: int = Field(ge=0)
     reported_output_tokens: int = Field(ge=0)
+    input_token_request_count: int = Field(default=0, ge=0)
+    output_token_request_count: int = Field(default=0, ge=0)
     provider_cost_usd: Optional[Decimal] = Field(default=None, ge=Decimal("0"))
     token_usage_complete: bool
     provider_cost_complete: bool
