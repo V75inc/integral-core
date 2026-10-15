@@ -20,13 +20,9 @@ from app.api.tracks_public_share import (
 from app.api.utils import export_node
 from app.models.edges import CONTAINS
 from app.models.nodes import App, Attachment, Entry, Track
-from app.schemas.shares import (
-    OnboardingContractMetaResponse,
-    PublicContractDecisionRequest,
-)
+from app.schemas.shares import PublicContractDecisionRequest
 from app.services.documents.onboarding_contract import (
     contract_review_enabled,
-    contract_template_update_status,
     decide_contract,
     generate_contract_for_form,
     get_contract_pdf_bytes,
@@ -281,32 +277,6 @@ async def _public_share_contract_context(
     if not entry or entry.track_id != track.id:
         raise ResourceNotFoundError(message="Entry not found on this track")
     return link, track, entry, perms
-
-
-@endpoint(
-    "/public-share/track/{token}/entries/{entry_id}/contract/meta",
-    methods=["GET"],
-    auth=False,
-    tags=["Shares"],
-)
-async def public_onboarding_contract_meta(
-    request: Request, token: str, entry_id: str
-) -> OnboardingContractMetaResponse:
-    """Whether a newer published template version exists vs the generated PDF."""
-    _link, track, entry, _perms = await _public_share_contract_context(
-        token, entry_id, require_update=False
-    )
-    if not await contract_review_enabled(track, entry):
-        raise ResourceNotFoundError(message="Contract review is not configured")
-    ws_id = str(getattr(track, "workspace_id", "") or "")
-    if not ws_id:
-        raise BadRequestError(message="Track workspace missing")
-    meta = await contract_template_update_status(
-        workspace_id=ws_id,
-        track=track,
-        form_entry=entry,
-    )
-    return OnboardingContractMetaResponse.model_validate(meta).model_dump()
 
 
 @endpoint(

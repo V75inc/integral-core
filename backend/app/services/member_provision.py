@@ -139,6 +139,7 @@ async def provision_workspace_member(
     send_credentials: bool = True,
     welcome_message: Optional[str] = None,
     credentials_email: Optional[str] = None,
+    alternate_credentials_delivery: bool = False,
     actor_id: str,
 ) -> Dict[str, Any]:
     """Provision through current canonical membership admission and audit."""
@@ -151,6 +152,7 @@ async def provision_workspace_member(
                 "send_credentials": send_credentials,
                 "welcome_message": welcome_message,
                 "credentials_email": credentials_email,
+                "alternate_credentials_delivery": alternate_credentials_delivery,
             }
         )
     except ValidationError as exc:
@@ -159,8 +161,23 @@ async def provision_workspace_member(
     name = body.display_name.strip()
     if not name:
         raise BadRequestError(message="Display name is required")
-    # credentials_email may differ from account email (recruitment hire: work login,
-    # credentials delivered to the candidate personal address).
+    deliver_norm = (
+        str(body.credentials_email).strip().lower()
+        if body.credentials_email
+        else email_norm
+    )
+    alternate_delivery = deliver_norm != email_norm
+    if alternate_delivery:
+        if not body.alternate_credentials_delivery:
+            raise BadRequestError(
+                message="Credentials must be delivered to the account email"
+            )
+        if not body.send_credentials:
+            raise BadRequestError(
+                message=(
+                    "Alternate credentials recipient requires send_credentials"
+                )
+            )
     if (
         is_postgres_entry_transaction(get_default_context().database)
         and send_credentials
@@ -281,15 +298,29 @@ async def provision_workspace_member(
                 )
                 outcome = "created"
             if created:
+                provision_after: Dict[str, Any] = {
+                    **actual,
+                    "account_created": True,
+                }
+                if alternate_delivery:
+                    provision_after["credentials_delivered_to"] = deliver_norm
+                    provision_after["account_email"] = email_norm
                 outbox_id = await membership._record_change(
                     actor,
                     workspace,
                     "workspace.member_provision",
                     None,
-                    {**actual, "account_created": True},
+                    provision_after,
                 )
     await membership._deliver(outbox_id)
-    deliver_to = str(credentials_email or "").strip().lower() or email_norm
+    deliver_to = deliver_norm
+    if alternate_delivery and send_credentials and not created:
+        raise BadRequestError(
+            message=(
+                "Alternate credential delivery is only allowed for newly "
+                "created accounts"
+            )
+        )
     if send_credentials and deliver_to:
         login_url = f"{settings.APP_BASE_URL.rstrip('/')}/login"
         ws_name = str(getattr(workspace, "name", "") or "your organization").strip()

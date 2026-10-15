@@ -246,6 +246,30 @@ async def _create_entry_in_track(
         from app.api.errors import BadRequestError
 
         raise BadRequestError(message=str(exc)) from exc
+    await enforce_protected_field_write(
+        principal_id=(
+            actor_id if actor_id and actor_kind in {"agent", "connector"} else user_id
+        ),
+        workspace_id=str(track.workspace_id or workspace_id),
+        entry_type_key=entry_type_key,
+        proposed_custom_fields=validated_custom_fields,
+        track_id=track.id,
+        mutation_kind="create",
+        proposed_fields={"title": title, "body": body},
+    )
+    (
+        validated_custom_fields,
+        relation_refs,
+    ) = await validate_and_materialize_entry_custom_fields(
+        track=track,
+        entry_type=resolved_type,
+        custom_fields=validated_custom_fields,
+        runtime_tier=runtime_tier,
+        actor_user_id=user_id,
+        actor_kind=actor_kind,
+        authorization_subject=authorization_subject,
+        source_entry_title=title,
+    )
     entry_type_spec = resolve_entry_type_spec(resolved_type, runtime_tier)
     tag_ids = list(tags or [])
     await validate_taxonomy_constraints(

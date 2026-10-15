@@ -40,8 +40,7 @@ def partition_server_managed_custom_fields(
     Workspaces that have not republished the HR profile after contract fields
     were added may still carry ``contract_generate_fingerprint`` (etc.) on
     entries. Preserve those values across public PATCH without failing field
-    validation. Relation fields such as ``employee`` should use OM
-    ``relation.skip_target_read`` instead of relying on this partition.
+    validation.
     """
     if entry_type_slug != "onboarding_form":
         return dict(merged_custom_fields or {}), {}

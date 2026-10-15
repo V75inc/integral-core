@@ -71,16 +71,6 @@ async def generate_me_assigned_form_contract(request: Request) -> Dict[str, Any]
 
 
 @endpoint(
-    "/me/assigned-form/contract/meta",
-    methods=["GET"],
-    auth=True,
-    tags=[_ASSIGNED_FORM_TAG],
-)
-async def me_assigned_form_contract_meta(request: Request) -> Dict[str, Any]:
-    return await _legacy.me_onboarding_contract_meta(request)
-
-
-@endpoint(
     "/me/assigned-form/contract",
     methods=["GET"],
     auth=True,

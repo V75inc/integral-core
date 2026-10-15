@@ -494,7 +494,6 @@ def _normalize_field_spec(field: Dict[str, Any]) -> Dict[str, Any]:
             "label_field": label_field_str,
             "on_target_uninstall": on_target_uninstall,
             "resolution": resolution_raw,
-            "skip_target_read": bool(relation.get("skip_target_read", False)),
         }
     elif relation:
         out["relation"] = relation

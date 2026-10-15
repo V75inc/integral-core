@@ -732,22 +732,3 @@ def test_standalone_track_extension_reference_defers_app_catalogue_check():
     canonical = compile_canonical_manifest(manifest=manifest)
     assert canonical["track"]["views"][0]["extension_view_key"] == "external_panel"
 
-
-def test_relation_skip_target_read_carried_through_compile():
-    """Relation.skip_target_read must survive field normalization at compile time."""
-    from app.services.operational_model_compile import _normalize_field_spec
-
-    normalized = _normalize_field_spec(
-        {
-            "key": "employee",
-            "type": "relation",
-            "relation": {
-                "target": "entry",
-                "target_entry_types": ["employee"],
-                "allow_cross_track": True,
-                "target_track_types": ["employees"],
-                "skip_target_read": True,
-            },
-        }
-    )
-    assert normalized["relation"]["skip_target_read"] is True

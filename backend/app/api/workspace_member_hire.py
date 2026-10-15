@@ -67,6 +67,7 @@ async def provision_workspace_member_route(
         credentials_email=(
             str(body.credentials_email) if body.credentials_email else None
         ),
+        alternate_credentials_delivery=body.alternate_credentials_delivery,
         actor_id=user_id,
     )
     return {

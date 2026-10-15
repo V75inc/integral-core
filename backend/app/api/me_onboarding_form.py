@@ -32,10 +32,8 @@ from app.schemas.api.me_onboarding import (
 )
 from app.services.change_event import emit_change_event
 from app.services.content_moderation import validate_no_profanity
-from app.schemas.shares import OnboardingContractMetaResponse
 from app.services.documents.onboarding_contract import (
     contract_review_enabled,
-    contract_template_update_status,
     decide_contract,
     generate_contract_for_form,
     get_contract_pdf_bytes,

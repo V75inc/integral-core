@@ -8,7 +8,13 @@ name: CI
 
 on:
   pull_request:
-    branches: [main, dev, ab/dev2, prod, codex/pr-113-staging]
+    branches:
+      - main
+      - dev
+      - ab/dev2
+      - prod
+      - codex/pr-113-staging
+      - codex/core-rc18-jvspatial-022
     paths:
       - "backend/**"
       - "sdk/**"

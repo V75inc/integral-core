@@ -394,6 +394,7 @@ async function provisionMember(
       role: 'member',
       send_credentials: true,
       credentials_email: personalEmail,
+      alternate_credentials_delivery: personalEmail.trim().toLowerCase() !== workEmail.trim().toLowerCase(),
     },
     ));
   } catch (err) {

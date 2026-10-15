@@ -18,6 +18,7 @@ class ProvisionWorkspaceMemberRequest(BaseModel):
     send_credentials: StrictBool = True
     welcome_message: Optional[StrictStr] = None
     credentials_email: Optional[EmailStr] = None
+    alternate_credentials_delivery: StrictBool = False
 
 
 class SetMemberAssignedFormPromptRequest(BaseModel):

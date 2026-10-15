@@ -288,6 +288,36 @@ async def update_entry_in_track(
                     from app.api.errors import BadRequestError
 
                     raise BadRequestError(message=str(exc)) from exc
+                await enforce_protected_field_write(
+                    principal_id=admitted_principal_id,
+                    workspace_id=track.workspace_id,
+                    entry_type_key=slug_manifest_key(
+                        str(
+                            (entry_type.form_schema or {}).get(
+                                "_manifest_entry_type_key"
+                            )
+                            or entry_type.name
+                        )
+                    ),
+                    proposed_custom_fields=validated,
+                    entry_id=entry.id,
+                    track_id=track.id,
+                    mutation_kind="type_change" if type_changed else "update",
+                    proposed_fields=proposed_top_level,
+                )
+                validated, relations = (
+                    await validate_and_materialize_entry_custom_fields(
+                        track=track,
+                        entry_type=entry_type,
+                        custom_fields=validated,
+                        runtime_tier=tier,
+                        entry=entry,
+                        actor_user_id=admitted_principal_id,
+                        actor_kind=actor_kind,
+                        authorization_subject=authorization_subject,
+                        source_entry_title=title if title is not None else entry.title,
+                    )
+                )
             new_tags = list(dict.fromkeys(tags)) if tags is not None else None
             if new_tags is not None:
                 await validate_taxonomy_constraints(
