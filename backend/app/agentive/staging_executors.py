@@ -1363,6 +1363,8 @@ async def _x_routine_task_create(
         thread_id=payload["thread_id"],
         agent_id=payload.get("agent_id") or "",
         instruction=payload["instruction"],
+        delivery_mode=payload.get("delivery_mode", "agent"),
+        source_staging_token=_active_staging_token(),
         cron=payload.get("cron") or "",
         timezone=payload.get("timezone"),
         write_scope=payload.get("write_scope") or [],
@@ -1384,6 +1386,7 @@ async def _x_routine_task_create(
     return {
         "id": routine.id,
         "instruction": routine.instruction,
+        "delivery_mode": routine.delivery_mode,
         "cron": routine.cron,
         "timezone": routine.timezone,
         "next_run_at": routine.next_run_at,

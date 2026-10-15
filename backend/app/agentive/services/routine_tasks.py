@@ -143,6 +143,8 @@ async def create_routine_task(
     run_at: Optional[str] = None,
     source_app_id: str = "",
     source_schedule_key: str = "",
+    delivery_mode: str = "agent",
+    source_staging_token: str = "",
 ) -> RoutineTask:
     """Create + graph-wire a new ``RoutineTask`` (I-GRAPH-01).
 
@@ -165,6 +167,7 @@ async def create_routine_task(
 
     if not instruction or not instruction.strip():
         raise BadRequestError(message="instruction is required")
+    validate_delivery_mode(delivery_mode, instruction, write_scope)
     if not thread_id:
         raise BadRequestError(message="thread_id is required")
 
@@ -208,6 +211,8 @@ async def create_routine_task(
         thread_id=thread_id,
         agent_id=agent_id,
         instruction=instruction.strip(),
+        delivery_mode=delivery_mode,
+        source_staging_token=source_staging_token,
         cron=cron_s,
         timezone=timezone or "UTC",
         status="active",
@@ -249,6 +254,7 @@ def serialize_routine(r: RoutineTask) -> Dict[str, Any]:
     return {
         "id": r.id,
         "instruction": r.instruction,
+        "delivery_mode": r.delivery_mode,
         "cron": r.cron,
         "timezone": r.timezone,
         "status": r.status,
@@ -315,6 +321,7 @@ async def update_routine_task(
     write_scope: Optional[List[Dict[str, str]]] = None,
     max_runs: Optional[int] = None,
     clear_max_runs: bool = False,
+    delivery_mode: Optional[str] = None,
 ) -> RoutineTask:
     """Apply an edit to an owned routine. Recomputes ``next_run_at`` if cadence changed.
 
@@ -327,6 +334,13 @@ async def update_routine_task(
     """
     routine = await _get_owned_routine(user_id, routine_id)
 
+    validate_delivery_mode(
+        delivery_mode or routine.delivery_mode,
+        instruction if instruction is not None else routine.instruction,
+        write_scope if write_scope is not None else routine.write_scope,
+    )
+    if delivery_mode is not None:
+        routine.delivery_mode = delivery_mode
     cadence_changed = False
     if status is not None:
         if status not in ("active", "paused"):
@@ -491,6 +505,9 @@ async def execute_routine_turn_under_lease(item: Any, ctx: Any) -> None:
     # Permission reads may await I/O while the work lease is cancelled or
     # expires. Recheck the existing effect fence after those reads as well.
     await assert_effect_boundary_allowed(ctx)
+    if task.delivery_mode == "reminder":
+        await _deliver_reminder(task, ctx)
+        return
     try:
         success, error_reason = await _run_agent_turn(task)
     except _TurnBusy:
@@ -499,4 +516,85 @@ async def execute_routine_turn_under_lease(item: Any, ctx: Any) -> None:
         raise WorkError(
             "work.permanent",
             error_reason or "routine agent turn failed",
+        )
+
+
+def validate_delivery_mode(mode: str, instruction: str, write_scope: Any) -> None:
+    """Reminder mode posts reviewed literal text; it cannot run tools or writes."""
+    if mode not in {"agent", "reminder"}:
+        raise BadRequestError(message="delivery_mode must be agent or reminder")
+    if mode == "reminder" and (
+        write_scope or not instruction.strip() or len(instruction) > 2000
+    ):
+        raise BadRequestError(
+            message="A reminder requires 1–2000 characters of literal text and no write scope"
+        )
+
+
+async def _deliver_reminder(task: RoutineTask, context: Any) -> None:
+    """Exactly one graph-wired message per durable fire, inside its lease fence."""
+    import hashlib
+
+    from app.agentive.services.work_items import authorized_work_item_effect
+    from app.models.edges import CONTAINS
+    from app.models.nodes import ChatMessage, ChatThread
+    from app.schemas.agentive.work import WorkError
+    from app.services.chat_threads import append_message
+    from app.services.routine_task_scheduler import _permission_gate
+
+    validate_delivery_mode(task.delivery_mode, task.instruction, task.write_scope)
+    async with authorized_work_item_effect(context):
+        # Repeat live admission inside the transaction; a paused/deleted routine
+        # or an archived/wrong-owner thread must not receive a queued reminder.
+        fresh = await RoutineTask.get(task.id)
+        thread = await ChatThread.get(task.thread_id)
+        if (
+            fresh is None
+            or fresh.status != "active"
+            or fresh.delivery_mode != "reminder"
+            or fresh.instruction != task.instruction
+            or fresh.write_scope
+            or fresh.user_id != context.principal_id
+            or fresh.workspace_id != context.workspace_id
+            or fresh.thread_id != context.thread_id
+            or thread is None
+            or thread.user_id != context.principal_id
+            or thread.workspace_id != context.workspace_id
+            or await _permission_gate(fresh) is not None
+        ):
+            raise WorkError("work.policy_denied", "reminder delivery scope changed")
+        message_id = (
+            "n.ChatMessage."
+            + hashlib.sha256(f"{context.work_item_id}:reminder".encode()).hexdigest()
+        )
+        parts = [{"type": "text", "text": fresh.instruction}]
+        metadata = {
+            "origin": "routine_task",
+            "routine_id": fresh.id,
+            "delivery_mode": "reminder",
+            "steps": [],
+        }
+        existing = await ChatMessage.get(message_id)
+        if existing is not None:
+            graph = await thread.get_context()
+            edges = await graph.find_edges_between(
+                thread.id, message_id, edge_class=CONTAINS
+            )
+            if (
+                not edges
+                or existing.thread_id != thread.id
+                or existing.role != "assistant"
+                or existing.parts != parts
+                or existing.provider_metadata != metadata
+            ):
+                raise WorkError(
+                    "work.idempotency_conflict", "reminder delivery differs"
+                )
+            return
+        await append_message(
+            thread=thread,
+            role="assistant",
+            parts=parts,
+            provider_metadata=metadata,
+            message_id=message_id,
         )
