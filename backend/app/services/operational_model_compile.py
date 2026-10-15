@@ -334,6 +334,20 @@ def _normalize_field_spec(field: Dict[str, Any]) -> Dict[str, Any]:
         # field is also `required: true` elsewhere, can block creation
         # entirely before the hook ever gets a chance to run.
         "hide_on_create": bool(field.get("hide_on_create", False)),
+        # Shared entry-card metadata only; explicitly configured table/view
+        # columns remain independent. Detail and edit forms still show it.
+        "hide_on_card": bool(field.get("hide_on_card", False)),
+        # Entry-detail layout: span the whole field grid (full-width row).
+        "full_width": bool(field.get("full_width", False)),
+        # Entry-detail layout: clamp a long value to this many lines and offer a
+        # Read more toggle (e.g. a conversation log). 0 = no clamp.
+        "max_lines": int(field.get("max_lines") or 0),
+        # Render/edit this text field as multi-line (a textarea) even when the
+        # current value has no newline.
+        "multiline": bool(field.get("multiline", False)),
+        # Entry-detail only: omit the row when the field has no value (keeps the
+        # panel tidy); fields left unset keep showing their "—" placeholder.
+        "hide_when_empty": bool(field.get("hide_when_empty", False)),
         # Never shown in forms or on the entry's field list. For bookkeeping an
         # App's tools and agent write (external ids, hashes, versions) that a
         # person has no reason to see or edit. The value is still stored and

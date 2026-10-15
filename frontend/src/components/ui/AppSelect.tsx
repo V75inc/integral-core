@@ -3,8 +3,10 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
@@ -33,6 +35,8 @@ export type AppSelectProps = {
   className?: string;
   /** When `value` is missing from `options`, trigger shows this (or raw `value`) */
   placeholder?: string;
+  /** Opt-in type-ahead: a search box inside the open list filters the options. */
+  searchable?: boolean;
 };
 
 export function AppSelect({
@@ -45,16 +49,21 @@ export function AppSelect({
   variant = 'field',
   className = '',
   placeholder,
+  searchable = false,
 }: AppSelectProps) {
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState<{
-    top: number;
+    triggerTop: number;
+    triggerBottom: number;
     left: number;
     minWidth: number;
     maxWidth: number;
     maxH: number;
+    placement: 'up' | 'down';
   } | null>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [query, setQuery] = useState('');
+  const [activeIndex, setActiveIndex] = useState(0);
+  const triggerRef = useRef<HTMLButtonElement | HTMLInputElement | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const listboxId = useId();
 
@@ -72,14 +81,23 @@ export function AppSelect({
     if (!el || typeof window === 'undefined') return;
     const r = el.getBoundingClientRect();
     const pad = 8;
-    const maxH = Math.max(160, Math.min(320, window.innerHeight - r.bottom - pad));
+    const below = window.innerHeight - r.bottom - pad;
+    const above = r.top - pad;
+    // Open upward when there isn't room below (and more room above) so the list
+    // never runs off the bottom of the viewport.
+    const placement: 'up' | 'down' =
+      below < 180 && above > below ? 'up' : 'down';
+    // Size to the available space — no floor, so it can't overflow the viewport.
+    const maxH = Math.min(320, Math.max(0, placement === 'up' ? above : below));
     const maxWidth = Math.max(0, window.innerWidth - 2 * pad);
     setCoords({
-      top: r.bottom + 4,
+      triggerTop: r.top,
+      triggerBottom: r.bottom,
       left: r.left,
       minWidth: r.width,
       maxWidth,
       maxH,
+      placement,
     });
   }, []);
 
@@ -146,6 +164,47 @@ export function AppSelect({
   const pillTrigger =
     'flex min-w-0 max-w-full items-center justify-between gap-2 rounded-md border border-[var(--panel-border)] bg-[var(--panel-2)] px-3 py-1.5 pr-2 text-left text-sm text-[var(--text)] cursor-pointer outline-none transition focus:ring-2 focus:ring-[var(--focus-ring-color)] disabled:opacity-50 disabled:cursor-not-allowed';
 
+  const filteredOptions = useMemo(() => {
+    if (!searchable || !query.trim()) return options;
+    const q = query.trim().toLowerCase();
+    return options.filter(opt => {
+      const label = typeof opt.label === 'string' ? opt.label : opt.value;
+      return (
+        String(opt.value).toLowerCase().includes(q) ||
+        label.toLowerCase().includes(q)
+      );
+    });
+  }, [options, query, searchable]);
+
+  function handleSearchKeyDown(e: ReactKeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Escape') {
+      if (open) {
+        e.preventDefault();
+        setOpen(false);
+      }
+      return;
+    }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!open) setOpen(true);
+      setActiveIndex(i =>
+        e.key === 'ArrowDown'
+          ? Math.min(i + 1, Math.max(0, filteredOptions.length - 1))
+          : Math.max(i - 1, 0)
+      );
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const opt = filteredOptions[activeIndex];
+      if (opt && !opt.disabled) {
+        onValueChange(opt.value);
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+    }
+  }
+
   const list = open && coords && (
     <ul
       ref={listRef}
@@ -153,7 +212,9 @@ export function AppSelect({
       role="listbox"
       className="fixed z-popover box-border overflow-y-auto overflow-x-hidden rounded-[var(--radius-input)] border border-[var(--panel-border)] bg-[var(--panel)] py-1 shadow-lg outline-none"
       style={{
-        top: coords.top,
+        ...(coords.placement === 'up'
+          ? { bottom: window.innerHeight - coords.triggerTop + 4 }
+          : { top: coords.triggerBottom + 4 }),
         left: coords.left,
         minWidth: coords.minWidth,
         maxWidth: coords.maxWidth,
@@ -161,8 +222,9 @@ export function AppSelect({
         maxHeight: coords.maxH,
       }}
     >
-      {options.map(opt => {
+      {filteredOptions.map((opt, idx) => {
         const isSelected = opt.value === value;
+        const isActive = searchable && idx === activeIndex;
         const primary =
           opt.triggerLabel !== undefined ? opt.triggerLabel : opt.label;
         return (
@@ -171,11 +233,14 @@ export function AppSelect({
               type="button"
               role="option"
               aria-selected={isSelected}
+              data-active={isActive || undefined}
               disabled={opt.disabled}
               className={`flex w-full min-w-0 max-w-full items-start gap-2 px-3 py-2.5 text-left transition-colors disabled:opacity-40 ${
                 isSelected
                   ? 'bg-[var(--nav-active-bg)] text-[var(--nav-active-fg)]'
-                  : 'hover:bg-[var(--panel-2)]'
+                  : isActive
+                    ? 'bg-[var(--panel-2)]'
+                    : 'hover:bg-[var(--panel-2)]'
               }`}
               onClick={() => {
                 if (opt.disabled) return;
@@ -203,34 +268,99 @@ export function AppSelect({
     </ul>
   );
 
+  const selectedLabel = selected
+    ? typeof (selected.triggerLabel ?? selected.label) === 'string'
+      ? String(selected.triggerLabel ?? selected.label)
+      : String(selected.value)
+    : '';
+
   return (
     <div className="min-w-0">
-      <button
-        ref={triggerRef}
-        type="button"
-        id={id}
-        aria-label={ariaLabel}
-        aria-expanded={open}
-        aria-haspopup="listbox"
-        aria-controls={listboxId}
-        disabled={disabled}
-        className={`${variant === 'field' ? fieldTrigger : pillTrigger} ${className}`}
-        onClick={() => !disabled && setOpen(o => !o)}
-      >
-        <span
-          className={`min-w-0 flex-1 truncate ${
-            emptySelection ? 'text-[var(--text-muted)]' : 'text-[var(--text)]'
-          }`}
+      {searchable ? (
+        <div className="relative">
+          <input
+            ref={el => {
+              triggerRef.current = el;
+            }}
+            id={id}
+            type="text"
+            role="combobox"
+            aria-label={ariaLabel}
+            aria-expanded={open}
+            aria-haspopup="listbox"
+            aria-controls={listboxId}
+            aria-autocomplete="list"
+            autoComplete="off"
+            disabled={disabled}
+            value={open ? query : selectedLabel}
+            placeholder={open ? selectedLabel || placeholder : placeholder}
+            onFocus={() => {
+              if (disabled || open) return;
+              setQuery('');
+              setActiveIndex(0);
+              setOpen(true);
+            }}
+            onClick={() => {
+              if (disabled) return;
+              if (!open) {
+                setQuery('');
+                setActiveIndex(0);
+              }
+              setOpen(true);
+            }}
+            onChange={e => {
+              setQuery(e.target.value);
+              setActiveIndex(0);
+              if (!open) setOpen(true);
+            }}
+            onKeyDown={handleSearchKeyDown}
+            className={`${variant === 'field' ? fieldTrigger : pillTrigger} ${className} pr-7`}
+          />
+          <ChevronDown
+            size={variant === 'pill' ? 14 : 16}
+            strokeWidth={LINE_ICON_STROKE}
+            className={`pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 shrink-0 text-[var(--text-muted)] transition-transform ${open ? 'rotate-180' : ''}`}
+            aria-hidden
+          />
+        </div>
+      ) : (
+        <button
+          ref={el => {
+            triggerRef.current = el;
+          }}
+          type="button"
+          id={id}
+          aria-label={ariaLabel}
+          aria-expanded={open}
+          aria-haspopup="listbox"
+          aria-controls={listboxId}
+          disabled={disabled}
+          className={`${variant === 'field' ? fieldTrigger : pillTrigger} ${className}`}
+          onClick={() => {
+            if (disabled) return;
+            // Reset the type-ahead filter each time the list opens.
+            if (!open) {
+              setQuery('');
+              setActiveIndex(0);
+            }
+            setOpen(o => !o);
+          }}
         >
-          {display}
-        </span>
-        <ChevronDown
-          size={variant === 'pill' ? 14 : 16}
-          strokeWidth={LINE_ICON_STROKE}
-          className={`shrink-0 text-[var(--text-muted)] transition-transform ${open ? 'rotate-180' : ''}`}
-          aria-hidden
-        />
-      </button>
+          <span
+            className={`min-w-0 flex-1 truncate ${
+              emptySelection ? 'text-[var(--text-muted)]' : 'text-[var(--text)]'
+            }`}
+          >
+            {display}
+          </span>
+          <ChevronDown
+            size={variant === 'pill' ? 14 : 16}
+            strokeWidth={LINE_ICON_STROKE}
+            className={`shrink-0 text-[var(--text-muted)] transition-transform ${open ? 'rotate-180' : ''}`}
+            aria-hidden
+          />
+        </button>
+      )}
       {list ? createPortal(list, document.body) : null}
     </div>
   );

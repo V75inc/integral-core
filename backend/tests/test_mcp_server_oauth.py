@@ -437,9 +437,13 @@ async def test_mcp_tools_list_authenticated(
     assert len(tools) == 125, len(tools)
 
 
+@pytest.mark.parametrize("auth_mode", ["session", "service"])
 @pytest.mark.asyncio
 async def test_mcp_tools_call_read_authenticated(
     bind_fresh_graph_context_for_async_tests,
+    signed_service_headers,
+    monkeypatch,
+    auth_mode,
 ):
     """Under a running lifespan, an AUTHENTICATED ``tools/call`` genuinely dispatches.
 
@@ -458,7 +462,7 @@ async def test_mcp_tools_call_read_authenticated(
     from app import main as app_main
     from tests.conftest import get_app
 
-    token, _auth_user_id, workspace_id, _track_id = (
+    token, auth_user_id, workspace_id, _track_id = (
         await _bootstrap_user_track_and_token(email="mcp-call@example.com")
     )
     assert token, "bootstrap must yield a JWT for the auth gate"
@@ -474,6 +478,16 @@ async def test_mcp_tools_call_read_authenticated(
         # but the explicit header removes any ambiguity).
         "X-Integral-Scope": f"ws:{workspace_id}",
     }
+    if auth_mode == "service":
+        from app.agentive.middleware.service_auth import _reset_service_key_cache
+
+        monkeypatch.setenv(
+            "INTEGRAL_SERVICE_KEY",
+            "integral-test-service-key-for-agentive-only__________",
+        )
+        _reset_service_key_cache()
+        headers.pop("Authorization")
+        headers.update(signed_service_headers(auth_user_id))
     call_frame = _jsonrpc(
         "tools/call",
         {"name": "integral_list_tracks", "arguments": {}},
@@ -504,6 +518,63 @@ async def test_mcp_tools_call_read_authenticated(
     assert isinstance(structured, dict), result
     titles = [t.get("title") for t in structured.get("tracks", [])]
     assert "Seeded Track" in titles, structured
+
+
+@pytest.mark.parametrize("denial", ["inactive", "foreign_workspace"])
+@pytest.mark.asyncio
+async def test_mcp_service_read_rechecks_principal_and_workspace(
+    bind_fresh_graph_context_for_async_tests,
+    signed_service_headers,
+    monkeypatch,
+    denial,
+):
+    """Signed service identity never grants inactive or foreign workspace access."""
+    from asgi_lifespan import LifespanManager
+    from httpx import ASGITransport, AsyncClient
+    from jvspatial.api.auth.models import User as AuthUser
+
+    from app.agentive.middleware.service_auth import _reset_service_key_cache
+    from tests.conftest import get_app
+
+    _, principal_id, workspace_id, _ = await _bootstrap_user_track_and_token(
+        email="service-scope@example.com"
+    )
+    if denial == "inactive":
+        user = await AuthUser.get(principal_id)
+        user.is_active = False
+        await user.save()
+    else:
+        _, _, workspace_id, _ = await _bootstrap_user_track_and_token(
+            email="other-service-scope@example.com"
+        )
+    monkeypatch.setenv(
+        "INTEGRAL_SERVICE_KEY", "integral-test-service-key-for-agentive-only__________"
+    )
+    _reset_service_key_cache()
+    headers = {
+        **signed_service_headers(principal_id),
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+        "X-Integral-Scope": f"ws:{workspace_id}",
+    }
+    app = get_app()
+    async with LifespanManager(app):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test", timeout=15
+        ) as client:
+            response = await client.post(
+                "/api/mcp/",
+                headers=headers,
+                content=_jsonrpc(
+                    "tools/call", {"name": "integral_list_tracks", "arguments": {}}
+                ),
+            )
+    if response.status_code in (401, 403):
+        return
+    assert response.status_code == 200, response.text
+    result = response.json()["result"]
+    assert result.get("isError") is True, result
+    assert not result.get("structuredContent", {}).get("tracks"), result
 
 
 @pytest.mark.asyncio
