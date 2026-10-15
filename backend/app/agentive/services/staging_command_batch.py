@@ -183,6 +183,13 @@ async def apply_command_batch_once(*, sc: StagedChange, request: Any) -> dict[st
                 "create_dashboard": "dashboard",
                 "update_dashboard": "dashboard",
             }.get(child.kind)
+            if child.kind.startswith("modify_operational_model."):
+                reference_kind = {
+                    "add_entry_type": "entry_type",
+                    "add_tag": "tag",
+                    "add_view": "view",
+                    "update_view": "view",
+                }.get(child.payload.get("action"))
             if reference_kind is not None:
                 # Keep command references private and independent of a current
                 # UI projection. A later approved deletion or ACL change must
@@ -194,13 +201,19 @@ async def apply_command_batch_once(*, sc: StagedChange, request: Any) -> dict[st
                 if resource_id:
                     name_key = (
                         "name"
-                        if reference_kind in {"app", "view", "dashboard"}
+                        if reference_kind
+                        in {"app", "view", "dashboard", "tag", "entry_type"}
                         else "title"
                     )
                     reference_result = {
                         reference_kind: {
                             "id": resource_id,
-                            name_key: child.payload.get(name_key, ""),
+                            name_key: child.payload.get(name_key)
+                            or (
+                                "Feed"
+                                if child.kind == "modify_operational_model.add_view"
+                                else ""
+                            ),
                         }
                     }
             _capture_batch_refs(references, index, reference_result)

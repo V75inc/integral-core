@@ -641,49 +641,31 @@ async def _x_author_operational_model(
 async def _x_modify_operational_model(
     user_id: str, payload: Dict[str, Any]
 ) -> Dict[str, Any]:
-    from app.agentive.services.staging_execution import staged_command_effect
-    from app.models.nodes import App, Track
-    from app.services.operational_model_authoring import (
-        modify_operational_model as _impl,
-    )
+    from app.agentive.services.staging_model_commands import apply_model_command
+    from app.services.operational_model_authoring import modify_operational_model
 
     action = str(payload["action"])
-    track_id = payload.get("track_id")
-    app_id = payload.get("app_id")
-    target = await (Track.get(str(track_id)) if track_id else App.get(str(app_id)))
-    if target is None:
-        return {"error": "not_found", "detail": "Target not found"}
-
     forwarded = {
-        k: v
-        for k, v in payload.items()
-        if k not in ("action", "track_id", "app_id") and v is not None
+        key: value
+        for key, value in payload.items()
+        if key not in ("action", "track_id", "app_id") and value is not None
     }
-    targets = {"action": action}
-    if track_id:
-        targets["track_id"] = str(track_id)
-    if app_id:
-        targets["app_id"] = str(app_id)
-    for key in ("view_id", "entry_type_id", "tag_id"):
-        if payload.get(key):
-            targets[key] = payload[key]
 
-    async with staged_command_effect(
-        user_id=user_id,
-        workspace_id=str(target.workspace_id or ""),
-        kind=f"modify_operational_model.{action}",
-        targets=targets,
-    ) as complete:
-        result = await _impl(
+    async def execute() -> Dict[str, Any]:
+        return await modify_operational_model(
             user_id=user_id,
             action=action,
-            track_id=track_id,
-            app_id=app_id,
+            track_id=payload.get("track_id"),
+            app_id=payload.get("app_id"),
             **forwarded,
         )
-        if complete is not None and not result.get("error"):
-            await complete(result)
-        return result
+
+    return await apply_model_command(
+        user_id=user_id,
+        payload=payload,
+        kind=f"modify_operational_model.{action}",
+        execute=execute,
+    )
 
 
 async def _x_apply_library_operational_model(
@@ -1930,7 +1912,16 @@ _BATCH_POSITIONAL_REF_RE = _re.compile(r"\$batch\.(\d+)\.id\b")
 
 # Entity wrapper keys a create-handler may return its new node under. Order is
 # irrelevant (a result wraps exactly one). Keep in sync with the create_* handlers.
-_CREATED_ENTITY_KEYS = ("app", "track", "entry", "tag", "view", "comment", "dashboard")
+_CREATED_ENTITY_KEYS = (
+    "app",
+    "track",
+    "entry",
+    "tag",
+    "view",
+    "comment",
+    "dashboard",
+    "entry_type",
+)
 # Keys a created node may carry its display name/title under.
 _NAME_KEYS = ("title", "name")
 
