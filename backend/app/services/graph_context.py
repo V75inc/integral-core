@@ -228,6 +228,22 @@ async def _project_current_graph(context, request, **kwargs):
     )
 
 
+def _require_projection_root(payload: Dict[str, Any], *, recorded: bool) -> None:
+    meta = payload["meta"]
+    if meta["root_available"]:
+        return
+    # A deadline can expire during the root's live authorization reads. That
+    # provides no permission decision; keep withholding data but report service
+    # availability accurately rather than claiming the caller lost access.
+    if "timeout" in meta["stop_reasons"]:
+        raise ServiceUnavailableError(message="Graph context capture timed out")
+    if recorded and "max_bytes" in meta["stop_reasons"]:
+        raise BadRequestError(
+            message="Increase max_bytes to represent the recorded graph root"
+        )
+    raise InsufficientPermissionsError(message="Workspace graph unavailable")
+
+
 async def capture_workspace_graph(
     *, principal_id: str, workspace_id: str, spec: GraphContextRequest
 ) -> Dict[str, Any]:
@@ -322,8 +338,7 @@ async def _capture_workspace_graph(
             access=first_access,
             semantics=semantics,
         )
-        if not first.to_dict()["meta"]["root_available"]:
-            raise InsufficientPermissionsError(message="Workspace graph unavailable")
+        _require_projection_root(first.to_dict(), recorded=True)
         remaining = spec.max_candidates - first.statistics["candidate_records"]
         timeout = 3 - (monotonic() - started)
         if remaining < 1 or timeout <= 0:
@@ -386,11 +401,6 @@ async def _capture_workspace_graph(
             context_config=config,
         )
     payload = projection.to_dict()
-    if not payload["meta"]["root_available"]:
-        if spec.detail == "recorded" and "max_bytes" in payload["meta"]["stop_reasons"]:
-            raise BadRequestError(
-                message="Increase max_bytes to represent the recorded graph root"
-            )
-        raise InsufficientPermissionsError(message="Workspace graph unavailable")
+    _require_projection_root(payload, recorded=spec.detail == "recorded")
     # Host-only work statistics can reveal inaccessible cardinalities.
     return payload

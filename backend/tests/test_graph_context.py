@@ -162,7 +162,8 @@ async def test_denied_intermediate_never_becomes_a_bridge(graph):
     assert second.id not in json.dumps(data) and third.id not in json.dumps(data)
 
 
-async def test_cross_workspace_target_is_not_exposed(graph):
+async def test_cross_workspace_target_is_not_exposed(recorded_graph):
+    graph = recorded_graph
     first, owner = graph[3], graph[-2]
     other_ws = await ensure_personal_workspace(graph[-1])
     assert other_ws.id != graph[0].id
@@ -724,6 +725,41 @@ async def test_recorded_root_byte_limit_is_not_reported_as_permission_denial(
     await _declare_recorded(graph)
     with pytest.raises(BadRequestError, match="Increase max_bytes"):
         await _capture(graph, root_id=graph[3].id, detail="recorded", max_bytes=4096)
+
+
+@pytest.mark.parametrize("detail", ["summary", "recorded"])
+async def test_root_capture_deadline_is_not_reported_as_permission_denial(
+    recorded_graph, monkeypatch, detail
+):
+    import asyncio
+
+    from app.api.errors import ServiceUnavailableError
+    from app.services import graph_context as service
+
+    original_project = service._project_current_graph
+    original_allowed = service.WorkspaceProjectionAccess._node_allowed
+    observed = []
+
+    async def delayed_allowed(self, row):
+        await asyncio.sleep(0.05)
+        return await original_allowed(self, row)
+
+    async def short_capture(context, request, **kwargs):
+        request = request.model_copy(update={"timeout_seconds": 0.001})
+        result = await original_project(context, request, **kwargs)
+        observed.append(result.to_dict()["meta"])
+        return result
+
+    monkeypatch.setattr(
+        service.WorkspaceProjectionAccess, "_node_allowed", delayed_allowed
+    )
+    monkeypatch.setattr(service, "_project_current_graph", short_capture)
+    with pytest.raises(
+        ServiceUnavailableError, match="Graph context capture timed out"
+    ):
+        await _capture(recorded_graph, root_id=recorded_graph[3].id, detail=detail)
+    assert observed[0]["root_available"] is False
+    assert "timeout" in observed[0]["stop_reasons"]
 
 
 @pytest.mark.postgres
