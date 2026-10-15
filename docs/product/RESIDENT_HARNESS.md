@@ -20,7 +20,7 @@ Principal facets express personal, organization-facing, and system contexts with
 
 HarnessSession attaches to ChatThread and shares its authorized namespace. Product messages, encrypted execution records, checkpoints, effects, traces, and usage facts have separate duties. Provider handles remain opaque.
 
-Native durable chat is off by default. Enabled worker paths require fingerprint validation, lease fencing, replay, cancellation, and transcript convergence proof. Current access applies to resumed tools and approval execution.
+Native chat uses durable WorkItems by default on PostgreSQL. Accepted request fingerprints, worker input, event replay, stable transcript writes, lease fencing, cancellation, and transcript convergence are required for every turn. Current access applies to resumed tools and approval execution. Legacy request-bound turns remain an explicit opt-out only.
 
 ## External participants
 

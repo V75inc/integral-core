@@ -58,7 +58,7 @@ Provision a qualified PostgreSQL deployment and persistent file storage. Keep `D
 
 Provide JWT, OAuth, and model-credential encryption keys through a secret manager. Configure public URL, allowed origins, reverse proxy, TLS, CSP, email delivery, provider policy, retention, and a real attachment scanner as required. Core-only boot does not disable the resident or agentive layer.
 
-The durable work runtime fails closed when required transaction/CAS APIs or indexes are unavailable. Mongo is not a qualified production work store; JSON/SQLite are development stores with single-worker limitations. Native durable chat is a separate feature flag and is disabled by default.
+The durable work runtime fails closed when required transaction/CAS APIs or indexes are unavailable. Mongo is not a qualified production work store; JSON/SQLite are development stores with single-worker limitations. Native chat uses durable WorkItems by default and requires PostgreSQL transaction/CAS support. `INTEGRAL_NATIVE_DURABLE_CHAT_ENABLED=false` opts out to legacy request-bound turns, which do not survive browser disconnects or process restarts.
 
 Review App trust tiers and signature policy before loading packages with Python. Configure host extensions deliberately; do not import commercial App logic into Core.
 

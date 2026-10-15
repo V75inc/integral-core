@@ -641,22 +641,49 @@ async def _x_author_operational_model(
 async def _x_modify_operational_model(
     user_id: str, payload: Dict[str, Any]
 ) -> Dict[str, Any]:
+    from app.agentive.services.staging_execution import staged_command_effect
+    from app.models.nodes import App, Track
     from app.services.operational_model_authoring import (
         modify_operational_model as _impl,
     )
+
+    action = str(payload["action"])
+    track_id = payload.get("track_id")
+    app_id = payload.get("app_id")
+    target = await (Track.get(str(track_id)) if track_id else App.get(str(app_id)))
+    if target is None:
+        return {"error": "not_found", "detail": "Target not found"}
 
     forwarded = {
         k: v
         for k, v in payload.items()
         if k not in ("action", "track_id", "app_id") and v is not None
     }
-    return await _impl(
+    targets = {"action": action}
+    if track_id:
+        targets["track_id"] = str(track_id)
+    if app_id:
+        targets["app_id"] = str(app_id)
+    for key in ("view_id", "entry_type_id", "tag_id"):
+        if payload.get(key):
+            targets[key] = payload[key]
+
+    async with staged_command_effect(
         user_id=user_id,
-        action=payload["action"],
-        track_id=payload.get("track_id"),
-        app_id=payload.get("app_id"),
-        **forwarded,
-    )
+        workspace_id=str(target.workspace_id or ""),
+        kind=f"modify_operational_model.{action}",
+        targets=targets,
+    ) as complete:
+        result = await _impl(
+            user_id=user_id,
+            action=action,
+            track_id=track_id,
+            app_id=app_id,
+            **forwarded,
+        )
+        if complete is not None and not result.get("error"):
+            await complete(result)
+        return result
 
 
 async def _x_apply_library_operational_model(
@@ -1208,17 +1235,38 @@ async def _x_invoke_app_operation(
 
 
 async def _x_save_view(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    from app.agentive.services.staging_execution import staged_command_effect
+    from app.models.nodes import Track
     from app.services.agent_insights import save_view as _impl
 
-    return await _impl(
+    track_id = str(payload["track_id"])
+    track = await Track.get(track_id)
+    if track is None:
+        return {"error": "not_found", "detail": "Track not found"}
+
+    # Saved views mutate the graph and can also synchronize the attached
+    # Operational Model. Keep that complete operation and its replay receipt
+    # in the same transaction, just like the canonical Entry and metadata
+    # commands. A disconnect can then leave either the old view or the fully
+    # committed new view, and recovery can identify which outcome occurred.
+    async with staged_command_effect(
         user_id=user_id,
-        track_id=payload["track_id"],
-        name=payload["name"],
-        view_type=payload.get("view_type") or "feed",
-        config=payload.get("config") or {},
-        is_default=payload.get("is_default"),
-        view_id=payload.get("view_id"),
-    )
+        workspace_id=str(track.workspace_id or ""),
+        kind="save_view",
+        targets={"track_id": track_id},
+    ) as complete:
+        result = await _impl(
+            user_id=user_id,
+            track_id=track_id,
+            name=payload["name"],
+            view_type=payload.get("view_type") or "feed",
+            config=payload.get("config") or {},
+            is_default=payload.get("is_default"),
+            view_id=payload.get("view_id"),
+        )
+        if complete is not None and not result.get("error"):
+            await complete(result)
+        return result
 
 
 async def _x_create_dashboard(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:

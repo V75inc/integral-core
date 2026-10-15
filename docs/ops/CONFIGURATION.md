@@ -31,7 +31,7 @@ Core-only mode and an empty App catalog do not disable agentive boot. `AGENTIVE_
 
 | Setting | Default | Purpose |
 |---|---|---|
-| `INTEGRAL_NATIVE_DURABLE_CHAT_ENABLED` | false | Durable native dispatch/replay/recovery rollout |
+| `INTEGRAL_NATIVE_DURABLE_CHAT_ENABLED` | true | Durable native dispatch/replay/recovery; requires PostgreSQL transaction support. Set false only to opt into legacy request-bound turns. |
 | `INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS` | 900 | Accepted turn deadline |
 | `INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS` | 180 | Individual provider request ceiling, including initial stream output |
 | `INTEGRAL_NATIVE_MODEL_MAX_ATTEMPTS` | 3 | Total model attempts including the initial request (1–3); transient failures before output only |

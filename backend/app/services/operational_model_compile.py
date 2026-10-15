@@ -4476,6 +4476,33 @@ def normalize_view_config(
             )
         )
     cfg = _as_dict(config or {}, where="view.config")
+    kanban_columns = _as_list(
+        cfg.get("kanban_columns"), where="view.config.kanban_columns"
+    )
+    if vt == "kanban":
+        kanban_columns = [
+            dict(column) if isinstance(column, dict) else column
+            for column in kanban_columns
+        ]
+        seen_column_keys: set[str] = set()
+        for index, column in enumerate(kanban_columns):
+            where = f"view.config.kanban_columns[{index}]"
+            if not isinstance(column, dict):
+                raise BadRequestError(message=f"{where} must be an object")
+            key = column.get("key")
+            if not isinstance(key, str) or not key.strip():
+                raise BadRequestError(message=f"{where}.key must be a non-empty string")
+            label = column.get("label")
+            if label is not None and not isinstance(label, str):
+                raise BadRequestError(message=f"{where}.label must be a string")
+            normalized_key = key.strip()
+            if normalized_key in seen_column_keys:
+                raise BadRequestError(
+                    message=f"view.config.kanban_columns contains duplicate key {normalized_key!r}"
+                )
+            seen_column_keys.add(normalized_key)
+            column["key"] = normalized_key
+
     normalized = {
         "view_type": vt,
         "filters": _normalize_view_filters(
@@ -4487,9 +4514,7 @@ def normalize_view_config(
         "field_visibility": _as_list(
             cfg.get("field_visibility"), where="view.config.field_visibility"
         ),
-        "kanban_columns": _as_list(
-            cfg.get("kanban_columns"), where="view.config.kanban_columns"
-        ),
+        "kanban_columns": kanban_columns,
         "calendar_mapping": _as_dict(
             cfg.get("calendar_mapping"), where="view.config.calendar_mapping"
         ),
