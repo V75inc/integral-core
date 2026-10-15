@@ -1,5 +1,10 @@
 # Integral Core hardening execution
 
+Current completion criteria are maintained in the
+[hardening closure ledger](2026-10-15-hardening-closure-ledger.md). The dated
+execution records below preserve their original checkpoints; their historical
+"current" and "pending" wording does not override later sealed-source evidence.
+
 This continues the recommendations in `2026-10-14-core-state-access-stability-review.md`.
 The active goal is completion of implementation and qualification. A partial
 change or a passing targeted suite does not close the goal. No new runtime
@@ -12,7 +17,7 @@ They record measured gaps and required qualification; neither closes the goal.
 
 ## Work and acceptance criteria
 
-| Item | Current state | Evidence required for closure |
+| Item | Initial implementation state | Evidence required for closure |
 | --- | --- | --- |
 | R1 shared approval ownership | PostgreSQL claim/fence primitive and named App/Track/Entry creation, metadata updates, deletion, App uninstall, identified comments, saved Views and Dashboard create/update/delete integrated; other executor families outstanding | Independent workers, stale worker, restart, current proposal authority, all executor families |
 | R2 atomic effects and recovery | Named resource mutation receipts, hook intent/outcome handling and supported mixed batch journals implemented; remaining command families and recovery qualification outstanding | Real effect/result rollback, post-commit reconciliation without replay, cancellation, mixed/partial batch, external unknown outcome |
