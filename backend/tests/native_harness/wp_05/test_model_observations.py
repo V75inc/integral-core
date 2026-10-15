@@ -112,6 +112,9 @@ def test_public_call_metadata_has_canonical_provider_model_id() -> None:
     assert event["provider"] == "ollama_chat"
     assert event["outcome"] == "responded"
     assert event["costSource"] == "unavailable"
+    assert event["usage"] == {"inputTokens": 10, "outputTokens": 2}
+    assert event["inputTokensReported"] is True
+    assert event["outputTokensReported"] is True
 
 
 @pytest.mark.asyncio
@@ -179,6 +182,8 @@ def test_usage_summary_deduplicates_request_and_retains_unknown_outcome() -> Non
     assert summary.unresolved_request_count == 1
     assert summary.reported_input_tokens == 10
     assert summary.reported_output_tokens == 2
+    assert summary.input_token_request_count == 1
+    assert summary.output_token_request_count == 1
     assert summary.provider_cost_usd == Decimal("0.0045")
     assert summary.token_usage_complete is False
     assert summary.provider_cost_complete is False
@@ -304,6 +309,24 @@ def test_public_call_metadata_retains_known_usage_on_later_empty_close() -> None
     assert event["costSource"] == "litellm_response"
     assert event["usageComplete"] is False
     assert event["costComplete"] is False
+
+
+def test_public_call_metadata_preserves_partial_token_fields_without_zero_fill() -> None:
+    partial = _observation("responded").model_copy(
+        update={
+            "usage": ModelUsageObservation(
+                input_tokens=27,
+                cost_source="unavailable",
+                complete=False,
+            )
+        }
+    )
+    [event] = _model_observability_events([partial])
+
+    assert event["usage"] == {"inputTokens": 27}
+    assert event["inputTokensReported"] is True
+    assert event["outputTokensReported"] is False
+    assert event["usageComplete"] is False
 
 
 @pytest.mark.asyncio

@@ -29,6 +29,13 @@ function formatExactTokens(n: number | undefined): string {
   return n == null ? "—" : n.toLocaleString();
 }
 
+function costSourceLabel(source: ObservabilityStep["costSource"]): string {
+  if (source === "litellm_calculated") return "Estimated cost";
+  if (source === "provider_response") return "Provider-reported cost";
+  if (source === "litellm_response") return "LiteLLM-reported cost";
+  return "Cost unavailable";
+}
+
 function formatTime(ms: number | undefined): string | null {
   if (ms == null || ms <= 0) return null;
   return ms >= 1_000 ? `${(ms / 1_000).toFixed(1)}s` : `${Math.round(ms)}ms`;
@@ -112,24 +119,6 @@ export function MessageObservability() {
       : durationFromFinal;
   const hasTiming = (totalStreamMs ?? 0) > 0;
 
-  // Prefer the final payload's authoritative total; fall back to summing the
-  // per-step usage (older turns / non-native provider providers).
-  const allInputReported = steps.length > 0 && steps.every((st) => st.usage?.inputTokens != null);
-  const allOutputReported = steps.length > 0 && steps.every((st) => st.usage?.outputTokens != null);
-  const totalIn =
-    finalUsage?.prompt_tokens ??
-    (allInputReported
-      ? steps.reduce((sum, st) => sum + (st.usage?.inputTokens ?? 0), 0)
-      : undefined);
-  const totalOut =
-    finalUsage?.completion_tokens ??
-    (allOutputReported
-      ? steps.reduce((sum, st) => sum + (st.usage?.outputTokens ?? 0), 0)
-      : undefined);
-  const totalTokens =
-    finalUsage?.total_tokens ??
-    (totalIn != null && totalOut != null ? totalIn + totalOut : 0);
-
   // Per-model_call rows for the breakdown table — driven by the final
   // payload's observability_metrics (the per-step extractor's `steps` is often
   // empty), mirroring jvchat's stats readout. embedding_call rolls into totals
@@ -141,10 +130,44 @@ export function MessageObservability() {
     .map((m) => m.data?.model)
     .filter((m): m is string => !!m);
   const hasModel = !!(steps[0]?.modelId ?? metricModels[0]);
-  const providerCostComplete =
-    steps.length > 0 && steps.every((step) => step.providerCostUsd != null);
-  const providerCostTotal = providerCostComplete
-    ? steps.reduce((sum, step) => sum + (step.providerCostUsd ?? 0), 0)
+  const usageSteps = steps.length > 0
+    ? steps
+    : metricSteps.map((metric) => ({
+        usage: {
+          inputTokens: metric.data?.usage?.prompt_tokens,
+          outputTokens: metric.data?.usage?.completion_tokens,
+        },
+      }));
+  const inputReportedCount = usageSteps.filter((step) => step.usage?.inputTokens != null).length;
+  const outputReportedCount = usageSteps.filter((step) => step.usage?.outputTokens != null).length;
+  const hasStepUsage = inputReportedCount > 0 || outputReportedCount > 0;
+  const totalIn = hasStepUsage
+    ? usageSteps.reduce((sum, step) => sum + (step.usage?.inputTokens ?? 0), 0)
+    : finalUsage?.prompt_tokens;
+  const totalOut = hasStepUsage
+    ? usageSteps.reduce((sum, step) => sum + (step.usage?.outputTokens ?? 0), 0)
+    : finalUsage?.completion_tokens;
+  const inputCoverageCount = hasStepUsage ? inputReportedCount : (totalIn != null ? 1 : 0);
+  const outputCoverageCount = hasStepUsage ? outputReportedCount : (totalOut != null ? 1 : 0);
+  const inputCoverageTotal = hasStepUsage ? usageSteps.length : (totalIn != null ? 1 : 0);
+  const outputCoverageTotal = hasStepUsage ? usageSteps.length : (totalOut != null ? 1 : 0);
+  const inputComplete = inputCoverageTotal > 0 && inputCoverageCount === inputCoverageTotal;
+  const outputComplete = outputCoverageTotal > 0 && outputCoverageCount === outputCoverageTotal;
+  const totalTokens = inputComplete && outputComplete && totalIn != null && totalOut != null
+    ? (finalUsage?.total_tokens ?? totalIn + totalOut)
+    : 0;
+  const costableSteps = steps.filter((step) => step.providerCostUsd != null);
+  const providerCostSteps = costableSteps.filter((step) => step.costSource === "provider_response");
+  const litellmCostSteps = costableSteps.filter((step) => step.costSource === "litellm_response");
+  const estimatedCostSteps = costableSteps.filter((step) => step.costSource === "litellm_calculated");
+  const providerCostTotal = providerCostSteps.reduce((sum, step) => sum + (step.providerCostUsd ?? 0), 0);
+  const litellmCostTotal = litellmCostSteps.reduce((sum, step) => sum + (step.providerCostUsd ?? 0), 0);
+  const estimatedCostTotal = estimatedCostSteps.reduce((sum, step) => sum + (step.providerCostUsd ?? 0), 0);
+  const unavailableCostCount = Math.max(0, steps.length - providerCostSteps.length - litellmCostSteps.length - estimatedCostSteps.length);
+  const incompleteUsageCount = steps.filter((step) => step.usageComplete === false).length;
+  const incompleteCostCount = steps.filter((step) => step.costComplete === false && step.providerCostUsd != null).length;
+  const legacyEstimatedCost = steps.length === 0 && finalUsage?.estimated_cost_usd != null && finalUsage.estimated_cost_usd > 0
+    ? finalUsage.estimated_cost_usd
     : undefined;
   const hasNativeCallDetails = steps.some(
     (step) => step.durationMs != null || step.provider != null || step.outcome != null,
@@ -154,7 +177,8 @@ export function MessageObservability() {
     steps.length === 0 &&
     metricSteps.length === 0 &&
     !hasTiming &&
-    totalTokens === 0 &&
+    totalTokens === 0 && totalIn == null && totalOut == null &&
+    legacyEstimatedCost == null &&
     !hasModel
   ) {
     return null;
@@ -196,11 +220,11 @@ export function MessageObservability() {
                 </td>
                 <td
                   className="pr-3 py-0.5 text-right"
-                  title={step.costSource ? `Source: ${step.costSource}` : undefined}
+                  title={step.costSource ? costSourceLabel(step.costSource) : undefined}
                 >
                   {step.providerCostUsd == null
                     ? "—"
-                    : `$${step.providerCostUsd.toFixed(4)}`}
+                    : `${step.costSource === "litellm_calculated" ? "~" : ""}$${step.providerCostUsd.toFixed(4)}`}
                 </td>
                 <td className="pr-3 py-0.5 text-right">
                   {formatTime(step.durationMs) ?? "—"}
@@ -214,9 +238,9 @@ export function MessageObservability() {
                 <td className="pr-3 pt-1 text-right">{formatExactTokens(totalIn)}</td>
                 <td className="pr-3 pt-1 text-right">{formatExactTokens(totalOut)}</td>
                 <td className="pr-3 pt-1 text-right">
-                  {providerCostTotal == null
+                  {costableSteps.length === 0 || [providerCostSteps, litellmCostSteps, estimatedCostSteps].filter((group) => group.length > 0).length > 1
                     ? "—"
-                    : `$${providerCostTotal.toFixed(4)}`}
+                    : `${estimatedCostSteps.length > 0 ? "~" : ""}$${costableSteps.reduce((sum, step) => sum + (step.providerCostUsd ?? 0), 0).toFixed(4)}`}
                 </td>
                 <td className="pt-1" colSpan={2} />
               </tr>
@@ -272,26 +296,23 @@ export function MessageObservability() {
         </table>
       )}
 
-      {(hasTiming || totalTokens > 0 || steps.length > 0) && (
+      {(hasTiming || totalTokens > 0 || totalIn != null || totalOut != null || steps.length > 0 || legacyEstimatedCost != null) && (
         <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-[10px] text-[var(--text-subtle)]">
           {timing?.firstTokenTime != null && timing.firstTokenTime > 0 && (
             <span>TTFT: {formatTime(timing.firstTokenTime)}</span>
           )}
           {timeStr && <span>Total: {timeStr}</span>}
           {tpsStr && <span>{tpsStr}</span>}
-          {totalTokens > 0 && (
-            <span>{totalTokens.toLocaleString()} tokens</span>
-          )}
-          {providerCostTotal != null && (
-            <span>{steps.some(step => step.costSource === "litellm_calculated") ? "Estimated cost" : "Provider cost"} ${providerCostTotal.toFixed(4)}</span>
-          )}
-          {hasNativeCallDetails && providerCostTotal == null && (
-            <span>Provider cost unavailable for some calls</span>
-          )}
-          {typeof finalUsage?.estimated_cost_usd === "number" &&
-            finalUsage.estimated_cost_usd > 0 && (
-              <span>${finalUsage.estimated_cost_usd.toFixed(4)}</span>
-            )}
+          {totalIn != null && <span>Input {formatExactTokens(totalIn)} tokens{hasStepUsage ? ` (${inputCoverageCount}/${inputCoverageTotal} calls reported)` : ""}</span>}
+          {totalOut != null && <span>Output {formatExactTokens(totalOut)} tokens{hasStepUsage ? ` (${outputCoverageCount}/${outputCoverageTotal} calls reported)` : ""}</span>}
+          {totalTokens > 0 && !hasStepUsage && totalIn == null && totalOut == null && <span>{totalTokens.toLocaleString()} tokens total</span>}
+          {providerCostSteps.length > 0 && <span>Provider-reported cost ${providerCostTotal.toFixed(4)} ({providerCostSteps.length}/{steps.length} calls)</span>}
+          {litellmCostSteps.length > 0 && <span>LiteLLM-reported cost ${litellmCostTotal.toFixed(4)} ({litellmCostSteps.length}/{steps.length} calls)</span>}
+          {estimatedCostSteps.length > 0 && <span>Estimated cost ${estimatedCostTotal.toFixed(4)} ({estimatedCostSteps.length}/{steps.length} calls)</span>}
+          {legacyEstimatedCost != null && <span>Estimated cost ${legacyEstimatedCost.toFixed(4)}</span>}
+          {steps.length > 0 && unavailableCostCount > 0 && <span>Cost unavailable for {unavailableCostCount}/{steps.length} calls</span>}
+          {incompleteUsageCount > 0 && <span>Token usage incomplete for {incompleteUsageCount}/{steps.length} calls</span>}
+          {incompleteCostCount > 0 && <span>Reported cost incomplete for {incompleteCostCount}/{steps.length} calls</span>}
         </div>
       )}
     </div>

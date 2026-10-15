@@ -29,6 +29,10 @@ export type NormalizedEvent =
   | {
       type: "step";
       usage?: { inputTokens?: number; outputTokens?: number };
+      usageComplete?: boolean;
+      inputTokensReported?: boolean;
+      outputTokensReported?: boolean;
+      costComplete?: boolean;
       modelId?: string;
       provider?: string;
       providerCostUsd?: number;
