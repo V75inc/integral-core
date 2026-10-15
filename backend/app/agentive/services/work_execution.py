@@ -74,7 +74,10 @@ def _parse_iso(value: Optional[str]) -> Optional[datetime]:
 
 async def assert_effect_boundary_allowed(ctx: WorkExecutionContext) -> WorkItem:
     """Fail closed before an adapter runs when lease/deadline/cancel say stop."""
-    item = await WorkItem.get(f"o.WorkItem.{ctx.work_item_id}")
+    from app.agentive.services import work_items
+
+    await work_items.refresh_owned_effect_lease(ctx)
+    item = await work_items._current_work_item(ctx.work_item_id)
     if item is None:
         raise WorkError("work.not_found", f"work item {ctx.work_item_id} not found")
     if item.status != "running":
