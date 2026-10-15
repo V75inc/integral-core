@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -10,6 +11,18 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 AUDIT_SCRIPT = REPO_ROOT / ".ci" / "dependency_audit.sh"
+pytestmark = pytest.mark.unit
+
+
+@pytest.fixture
+def frontend_audit(tmp_path):
+    """Run the real gate in an isolated repository with a fixture install tree."""
+    root = tmp_path / "audit-repository"
+    (root / ".ci").mkdir(parents=True)
+    (root / "frontend" / "node_modules").mkdir(parents=True)
+    script = root / ".ci" / "dependency_audit.sh"
+    shutil.copy2(AUDIT_SCRIPT, script)
+    return script, root, tmp_path / "npm-calls.log"
 
 
 @pytest.mark.parametrize(
@@ -20,12 +33,18 @@ AUDIT_SCRIPT = REPO_ROOT / ".ci" / "dependency_audit.sh"
         "",
     ],
 )
-def test_frontend_audit_error_or_malformed_output_fails_closed(tmp_path, document):
+def test_frontend_audit_error_or_malformed_output_fails_closed(
+    tmp_path, document, frontend_audit
+):
+    script, root, calls = frontend_audit
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     npm = fake_bin / "npm"
     npm.write_text(
-        "#!/bin/sh\n" "printf '%s' \"$AUDIT_FIXTURE\"\n" 'exit "${AUDIT_EXIT:-1}"\n'
+        "#!/bin/sh\n"
+        'printf "%s\\n" called >> "$AUDIT_CALL_LOG"\n'
+        "printf '%s' \"$AUDIT_FIXTURE\"\n"
+        'exit "${AUDIT_EXIT:-1}"\n'
     )
     npm.chmod(0o755)
     env = {
@@ -33,10 +52,11 @@ def test_frontend_audit_error_or_malformed_output_fails_closed(tmp_path, documen
         "PATH": f"{fake_bin}:{os.environ['PATH']}",
         "AUDIT_FIXTURE": document,
         "AUDIT_EXIT": "1",
+        "AUDIT_CALL_LOG": str(calls),
     }
     result = subprocess.run(
-        ["bash", str(AUDIT_SCRIPT), "frontend"],
-        cwd=REPO_ROOT,
+        ["bash", str(script), "frontend"],
+        cwd=root,
         env=env,
         text=True,
         capture_output=True,
@@ -44,22 +64,29 @@ def test_frontend_audit_error_or_malformed_output_fails_closed(tmp_path, documen
     )
     assert result.returncode != 0
     assert "FAILED" in result.stderr
+    assert calls.read_text() == "called\n"
 
 
-def test_successful_frontend_audit_document_is_accepted(tmp_path):
+def test_successful_frontend_audit_document_is_accepted(tmp_path, frontend_audit):
+    script, root, calls = frontend_audit
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     npm = fake_bin / "npm"
     npm.write_text(
         "#!/bin/sh\n"
+        'printf "%s\\n" called >> "$AUDIT_CALL_LOG"\n'
         "printf '%s' '{\"metadata\":{},\"vulnerabilities\":{}}'\n"
         "exit 0\n"
     )
     npm.chmod(0o755)
-    env = {**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}"}
+    env = {
+        **os.environ,
+        "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        "AUDIT_CALL_LOG": str(calls),
+    }
     result = subprocess.run(
-        ["bash", str(AUDIT_SCRIPT), "frontend"],
-        cwd=REPO_ROOT,
+        ["bash", str(script), "frontend"],
+        cwd=root,
         env=env,
         text=True,
         capture_output=True,
@@ -67,6 +94,7 @@ def test_successful_frontend_audit_document_is_accepted(tmp_path):
     )
     assert result.returncode == 0, result.stderr
     assert "clean (no fixable" in result.stdout
+    assert calls.read_text() == "called\n"
 
 
 @pytest.mark.parametrize("audit_exit", [0, 7])
