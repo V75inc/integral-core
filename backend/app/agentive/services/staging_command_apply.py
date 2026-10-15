@@ -34,6 +34,7 @@ CANONICAL_COMMAND_KINDS = (
             "edit_comment",
             "delete_comment",
             "save_view",
+            "delete_view",
         }
     )
     | DASHBOARD_COMMAND_KINDS
@@ -160,8 +161,14 @@ async def _readback_view(
     from app.services.resource_location import MANAGEMENT_APP_STATES, locate_resource
 
     view_id = evidence.get("view_id", "")
-    location = await locate_resource(
-        "view", view_id, allowed_app_states=MANAGEMENT_APP_STATES
+    # A deletion receipt is an immutable outcome, not a grant to a new View
+    # that later reuses the identifier. Never project content for that receipt.
+    location = (
+        None
+        if evidence.get("deleted")
+        else await locate_resource(
+            "view", view_id, allowed_app_states=MANAGEMENT_APP_STATES
+        )
     )
     result: dict[str, Any] = {
         "ok": True,
@@ -169,6 +176,10 @@ async def _readback_view(
         "result_access": "withheld",
         "message": "This approved view change already applied. Current content is unavailable.",
     }
+    if evidence.get("deleted"):
+        result.update(
+            deleted=True, message="This approved View deletion already applied."
+        )
     if (
         location is not None
         and location.workspace_id == workspace_id
@@ -215,7 +226,7 @@ async def _readback(
         return await readback(sc, workspace_id, evidence)
     if sc.kind in {"add_comment", "edit_comment", "delete_comment"}:
         return await _readback_comment(sc, workspace_id, evidence)
-    if sc.kind == "save_view":
+    if sc.kind in {"save_view", "delete_view"}:
         return await _readback_view(sc, workspace_id, evidence)
 
     from app.api.apps import get_app
