@@ -136,8 +136,43 @@ def main() -> int:
         if status == 1 and not findings:
             raise ValueError("nonzero audit status without findings")
         lock = json.loads(Path(sys.argv[3]).read_text()) if findings else {}
-        for line in analyze(document, lock):
+        today = datetime.now(timezone.utc).date()
+        lines = analyze(document, lock, today=today)
+        for line in lines:
             print(line)
+        if any(line.startswith("ACTIONABLE") for line in lines):
+            # Public audit facts only. Never copy registry URLs or the rest of
+            # a lock record, which may contain authenticated source locations.
+            packages = {}
+            for name, item in findings.items():
+                nodes = item.get("nodes")
+                packages[name] = {
+                    "severity": item["severity"],
+                    "via": item["via"],
+                    "fixAvailable": item["fixAvailable"],
+                    "nodes": [
+                        {
+                            "path": node,
+                            "version": lock.get("packages", {})
+                            .get(node, {})
+                            .get("version"),
+                            "dev": lock.get("packages", {}).get(node, {}).get("dev"),
+                        }
+                        for node in (nodes if isinstance(nodes, list) else [])
+                        if isinstance(node, str)
+                    ],
+                }
+            print(
+                "REVIEW_CONTEXT "
+                + json.dumps(
+                    {
+                        "policy_date": str(today),
+                        "review_expires": str(REVIEW_EXPIRES),
+                        "packages": packages,
+                    },
+                    sort_keys=True,
+                )
+            )
         return 0
     except (ValueError, TypeError, AttributeError, KeyError, OSError) as exc:
         print(f"INVALID_AUDIT_DOCUMENT: {exc}")

@@ -77,11 +77,10 @@ fi
 fi
 
 # ---------------------------------------------------------------------------
-# Frontend — npm audit, filtered to advisories that HAVE a fix
+# Frontend — complete inventory and reviewed high/critical conditions
 # ---------------------------------------------------------------------------
-# npm audit has no "only fixable" flag, so filter its JSON. `fixAvailable` is
-# false when nothing is published, true / an object when there is something to
-# take.
+# Unknown high/critical findings fail even without a published fix. Reviewed
+# exceptions bind the installed lock graph, remediation metadata and expiry.
 if [ "$TARGET" = "frontend" ] || [ "$TARGET" = "all" ]; then
 echo "dependency-audit: frontend (npm audit)..."
 if [ -d "$REPO_ROOT/frontend/node_modules" ]; then
@@ -104,6 +103,7 @@ if [ -d "$REPO_ROOT/frontend/node_modules" ]; then
       echo "  FAILED: npm audit returned an error document or invalid output: $RESULT" >&2
       FAILED=1
     else
+      printf '%s\n' "$RESULT" | grep '^REVIEW_CONTEXT ' || true
       printf '%s\n' "$RESULT" | grep '^NOTICE' || true
       printf '%s\n' "$RESULT" | grep '^ACCEPTED' | sed 's/^ACCEPTED /  accepted: /' || true
       if printf '%s\n' "$RESULT" | grep -q '^ACTIONABLE'; then
