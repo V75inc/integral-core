@@ -68,6 +68,32 @@ Back up the graph database and attachment bytes as one recoverable deployment. P
 
 Restore into an isolated environment first. Verify user access, records, relations, files, App definitions, and any enabled durable work. A volume existing on disk is not evidence that a restore can recover the application.
 
+`scripts/pg_backup.sh` produces a verified logical archive. Use
+`scripts/pg_restore.sh ARCHIVE --drill` for an isolated count/identity rehearsal,
+or `--into DATABASE` for a separately created copy. Any nonzero `pg_restore`
+exit fails the restore immediately, even if counts could match. An explicit
+target can contain partial data after an error; successful diagnostics do not
+override the failed restore. Drill scratch databases are removed on exit.
+
+The encrypted-state restore contract is an explicit integration gate. Set
+`INTEGRAL_TEST_POSTGRES_DSN` to a **disposable PostgreSQL server**: the test
+fixtures create/reset their `integral_test` database. With Docker available,
+run from `backend/`:
+
+```bash
+INTEGRAL_TEST_DB=postgres INTEGRAL_TEST_RESTORE=1 \
+  .venv/bin/python -m pytest tests/contract/test_checkpoint_restore_postgres.py
+```
+
+The client container must reach that server. Set `INTEGRAL_RESTORE_CLIENT_HOST`
+when its host name differs inside Docker, and `PGDUMP_DOCKER_IMAGE` when a
+different PostgreSQL client major version is required. This gate backs up
+test-only encrypted snapshots, recovery manifests and a synthetic credential,
+reads a separate restored copy in a fresh process, rejects foreign scope and
+wrong keys, then runs the scratch drill. It does not qualify attachment bytes,
+session invalidation, live provider credentials, or automatic continuation of
+an interrupted production run.
+
 ## Upgrade
 
 Build and identify the candidate, run source and artifact gates, back up, and review migrations and dependency changes. Deploy the exact candidate to a test environment. Check schema transition status and supported recovery before promotion.
