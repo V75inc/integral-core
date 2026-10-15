@@ -839,6 +839,33 @@ it cannot impersonate a delegate or expose its general operation history.
 and admission. Authenticated HTTP/SDK/broker/MCP, approval, worker and transcript
 release/readback qualification remains required before exposing the new path.
 
+### I-WORK-09 — A reviewed local operation has one effect owner
+
+Staged local App operations use the canonical operation receipt, not another
+staging effect journal. The exact original declaration and complete reviewed
+proposal have separate private immutable fingerprints. Current identity,
+workspace, proposal state/expiry and normal operation authority are admitted
+before dispatch; graph effect, result/event receipt and decision consumption
+commit in one native transaction. A different or legacy unproven proposal cannot
+claim an older operation merely by reusing its key/input/declaration.
+
+The producer binding belongs to one task and one root invocation. It grants no
+function/resource permission and is cleared before nested or post-commit work.
+Recovery occurs outside caller effect transactions, requires exact original
+proof and fresh own-history admission, and never enters the handler. Current
+output disclosure remains independent. Notification failure cannot replay an
+effect or change a committed consumed decision into a pending one.
+
+This local contract is not proof of arbitrary external effects; external intent,
+readback and unknown-outcome reconciliation retain their own required contract.
+Existing policy Approval retains its original Subject and transaction owner.
+
+**Verification:** `test_operation_decision_binding.py`,
+`test_operation_contract_proof.py`, `test_staging_decision_intent.py`,
+`contract/test_staged_app_operation_postgres.py` (including fresh interpreters),
+and native operation/decision/approved-effect regressions. Full combined-source
+and release qualification is recorded separately.
+
 ### I-HARNESS-02 — Restored chat input matches accepted content
 
 **Scope:** `chat_turn_submissions.py`, `chat_turn_worker_input.py`.
