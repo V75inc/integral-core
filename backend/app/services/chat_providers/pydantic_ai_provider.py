@@ -1262,6 +1262,7 @@ class PydanticAIProvider:
             EscalatedTurn,
             LightTurnResult,
             OperationalContextRequest,
+            SimpleReminderRequest,
             build_light_agent,
             public_dialogue,
             recent_public_messages,
@@ -1356,6 +1357,30 @@ class PydanticAIProvider:
             return EscalatedTurn(
                 input_tokens=usage.input_tokens, output_tokens=usage.output_tokens
             )
+        if isinstance(result.output, SimpleReminderRequest):
+            from app.services.simple_reminders import stage_simple_reminder
+
+            if (
+                self._active_tokens.get(ctx.thread_id)
+                and self._active_tokens[ctx.thread_id].cancelled
+            ):
+                raise asyncio.CancelledError
+            await _assert_work_output_authority_current(work_context)
+            text, events = await stage_simple_reminder(
+                proposal=result.output,
+                scope=scope,
+                work_context=work_context,
+                no_workspace_writes=bool(
+                    (ctx.extra_data or {}).get("no_workspace_writes")
+                ),
+            )
+            return LightTurnResult(
+                text=text,
+                scope=scope,
+                work_context=work_context,
+                elapsed_ms=(time.monotonic() - started) * 1000,
+                tool_events=events,
+            )
         from app.agentive.harness.pydantic_ai_compat import AgentRunResultEvent
 
         public_text = ""
@@ -1396,6 +1421,55 @@ class PydanticAIProvider:
                 message="Integral storage encryption requires installation setup",
                 details={"reason": "native_storage_encryption_not_configured"},
             )
+
+        if not ctx.text and (ctx.extra_data or {}).get("staging_outcome_continuation"):
+            from app.agentive.harness.adaptive import LightTurnResult
+            from app.agentive.services.execution_runs import AgentRun
+            from app.services.simple_reminders import current_reminder_confirmation
+
+            run_id = str((ctx.extra_data or {}).get("run_id") or "")
+            current_run = (
+                await AgentRun.find_one({"run_id": run_id}) if run_id else None
+            )
+            if (
+                current_run is None
+                or current_run.user_id != ctx.user_id
+                or current_run.workspace_id != ctx.workspace_id
+                or current_run.thread_id != ctx.thread_id
+                or current_run.provider_id != self.id
+                or current_run.status != "running"
+                or (
+                    work_execution_context is not None
+                    and work_execution_context.run_id != run_id
+                )
+            ):
+                raise InsufficientPermissionsError(
+                    message="Native execution run scope mismatch"
+                )
+            await _assert_work_output_authority_current(work_execution_context)
+            confirmation = await current_reminder_confirmation(thread)
+            if confirmation:
+                return LightTurnResult(
+                    text=confirmation,
+                    scope=HarnessExecutionScope(
+                        tenant_id=ctx.workspace_id,
+                        principal_id=ctx.user_id,
+                        workspace_id=ctx.workspace_id,
+                        thread_id=ctx.thread_id,
+                        session_id=f"reminder-{run_id}",
+                        run_id=run_id,
+                        permission_revision=_digest(
+                            {
+                                "policy": _POLICY_REVISION,
+                                "workspace_role": workspace_role,
+                            }
+                        ),
+                        capability_version=current_run.capability_version
+                        or "reminder-v1",
+                    ),
+                    work_context=work_execution_context,
+                    elapsed_ms=0,
+                )
 
         light = await self._try_light_turn(
             ctx, thread, workspace_role, work_execution_context
@@ -1928,6 +2002,10 @@ class PydanticAIProvider:
                     ctx.is_disconnected and await ctx.is_disconnected()
                 ):
                     raise asyncio.CancelledError
+                for event in prepared.tool_events:
+                    await _assert_work_output_authority_current(prepared.work_context)
+                    yield event
+                await _assert_work_output_authority_current(prepared.work_context)
                 yield {"type": "text-delta", "delta": prepared.text}
                 from app.agentive.harness.model_observations import (
                     list_model_request_observations,
@@ -2049,6 +2127,19 @@ class PydanticAIProvider:
                     and (ctx.extra_data or {}).get("staging_outcome_continuation")
                     else ""
                 )
+                if (
+                    not ctx.text
+                    and not host_outcome
+                    and (ctx.extra_data or {}).get("staging_outcome_continuation")
+                ):
+                    host_outcome = (
+                        "This is a NEW approval-outcome event, not a request to continue "
+                        "an older conversation topic. Report only the current host outcome "
+                        "below. Read back only its affected resource before claiming success. "
+                        "Do not resume an earlier analysis, offer, or task. If the outcome "
+                        "cannot be verified, say so concisely. No new write is authorized.\n\n"
+                        + (ctx.system_context or "")
+                    )
                 if (
                     not ctx.text
                     and (ctx.extra_data or {}).get("origin") == "routine_task"

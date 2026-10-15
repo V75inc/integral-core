@@ -22,6 +22,27 @@ function view(config: Record<string, unknown>): SavedView {
 
 const noop = () => {};
 
+describe('TableWidget column labels', () => {
+  it('uses field labels when saved columns omit labels, preserving explicit labels', () => {
+    render(<TableWidget entries={[]} onEntryOpen={noop} isLoading={false}
+      fields={[{ key: 'payment_date', name: 'Payment Date', type: 'date' }, { key: 'amount', name: 'Amount', type: 'number' }]}
+      view={view({ columns: [{ field: 'custom_fields.payment_date' }, { field: 'amount', label: 'Paid total' }, { field: 'created_at' }, { field: 'custom_fields.reference_code' }] })} />);
+    for (const label of ['Payment Date', 'Paid total', 'Date', 'Reference code']) {
+      expect(screen.getByRole('columnheader', { name: label })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: label, pressed: true })).toBeInTheDocument();
+    }
+  });
+
+  it('treats blank and non-string labels as absent without changing field values', () => {
+    render(<TableWidget entries={[{ id: 'e1', custom_fields: { amount: 42 } } as unknown as Entry]} onEntryOpen={noop} isLoading={false}
+      fields={[{ key: 'amount', name: 'Amount', type: 'number' }]}
+      view={view({ columns: [{ field: 'custom_fields.amount', label: '  ' }, { field: 'updated_at', label: null }] })} />);
+    expect(screen.getByRole('columnheader', { name: 'Amount' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Updated at' })).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: '42' })).toBeInTheDocument();
+  });
+});
+
 describe('TableWidget select-field rendering', () => {
   it("humanizes a select field's raw stored value, matching every other select control in the app", () => {
     // payroll-app's employee `status` is exactly this shape: a select field

@@ -68,7 +68,10 @@ async def test_one_model_pass_can_answer_without_workspace_tools():
     def answer(messages, info):
         calls.append(info)
         assert info.function_tools == []
-        assert [t.name for t in info.output_tools] == ["request_operational_context"]
+        assert [t.name for t in info.output_tools] == [
+            "request_operational_context",
+            "propose_simple_reminder",
+        ]
         return ModelResponse(parts=[TextPart("Hello! What can I help with?")])
 
     result = await build_light_agent(FunctionModel(answer)).run("hello there")

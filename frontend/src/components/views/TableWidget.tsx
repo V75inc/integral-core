@@ -7,7 +7,7 @@ import type { ViewWidgetProps } from './types';
 import type { Entry, OperationalModelFieldSpec } from '../../types';
 import { formatRelativeTime } from '../../utils';
 import { PLATFORM_ENTRY_FIELD_KEYS, resolveEntryFieldValue } from '../../utils/entryFieldValue';
-import { humanizeEnumValue } from '../../utils/humanizeFieldKey';
+import { humanizeEnumValue, humanizeFieldKey } from '../../utils/humanizeFieldKey';
 
 interface TableColumn {
   field: string;
@@ -246,10 +246,23 @@ function TableWidgetInner({
     return out;
   }, [fields]);
 
-  // Never reassigned — the setter was unused, so this is a derived constant
-  // rather than state.
-  const columns: TableColumn[] =
-    rawColumns && rawColumns.length > 0 ? rawColumns : DEFAULT_COLUMNS;
+  // A saved column only needs a field path. Resolve its display label from
+  // current schema metadata rather than persisting a second copy of that name.
+  const columns = useMemo<TableColumn[]>(() => {
+    const configured = Array.isArray(rawColumns) && rawColumns.length > 0
+      ? rawColumns : DEFAULT_COLUMNS;
+    return configured.map(column => {
+      const key = column.field.replace(/^custom_fields\./u, '');
+      const explicit = typeof column.label === 'string' ? column.label.trim() : '';
+      const schemaLabel = fields?.find(field => field.key === key)?.name;
+      const label = explicit
+        || (typeof schemaLabel === 'string' ? schemaLabel.trim() : '')
+        || DEFAULT_COLUMNS.find(defaultColumn => defaultColumn.field === column.field)?.label
+        || humanizeFieldKey(key.replace(/\./gu, ' '))
+        || 'Column';
+      return { ...column, label };
+    });
+  }, [rawColumns, fields]);
 
   // Each saved view/schema owns its column choices. A sibling view may
   // share some fields while prescribing additional columns of its own.

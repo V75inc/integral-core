@@ -4,7 +4,7 @@ Part of the always-on agentive ops layer. Nodes extend the core graph with
 agent/harness entities (AgentConfig facets, ChannelIdentity, RoutineTask, …).
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from jvspatial.core import Node
 from pydantic import Field
@@ -209,7 +209,9 @@ class RoutineTask(Node):
     workspace_id: str = ""
     thread_id: str = ""  # ChatThread this routine posts into
     agent_id: str = ""  # sticky agent binding, mirrors ChatThread.agent_id
-    instruction: str = ""  # canonical natural-language prompt replayed each run
+    instruction: str = ""  # agent instruction, or literal text for reminder mode
+    delivery_mode: Literal["agent", "reminder"] = "agent"
+    source_staging_token: str = ""  # server-only creation provenance
     cron: str = ""  # 5-field cron, computed by the agent from conversational phrasing
     timezone: str = "UTC"  # IANA tz
     status: str = "active"  # active | paused | completed | cancelled
