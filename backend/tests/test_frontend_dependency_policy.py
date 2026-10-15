@@ -190,3 +190,35 @@ def test_reviewed_major_migration_can_receive_patch_updates():
 def test_invalid_audit_record_is_not_silently_skipped(document):
     with pytest.raises(ValueError):
         policy.analyze(document, {}, today=TODAY)
+
+
+def test_actionable_cli_prints_exact_non_secret_review_inputs(
+    tmp_path, monkeypatch, capsys
+):
+    import json
+
+    data, lock = snapshot()
+    lock["packages"]["node_modules/braces"]["dev"] = False
+    lock["packages"]["node_modules/braces"][
+        "resolved"
+    ] = "https://token:secret@example.invalid/archive"
+    audit = tmp_path / "audit.json"
+    lockfile = tmp_path / "package-lock.json"
+    audit.write_text(json.dumps(data))
+    lockfile.write_text(json.dumps(lock))
+    monkeypatch.setattr(policy.sys, "argv", ["policy", str(audit), "1", str(lockfile)])
+    assert policy.main() == 0
+    output = capsys.readouterr().out
+    line = next(
+        line for line in output.splitlines() if line.startswith("REVIEW_CONTEXT ")
+    )
+    context = json.loads(line.removeprefix("REVIEW_CONTEXT "))
+    assert context["review_expires"] == "2026-11-15"
+    assert context["policy_date"]
+    observed = context["packages"]["braces"]
+    assert observed["fixAvailable"] == data["vulnerabilities"]["braces"]["fixAvailable"]
+    assert observed["via"] == data["vulnerabilities"]["braces"]["via"]
+    assert observed["nodes"] == [
+        {"path": "node_modules/braces", "version": "3.0.3", "dev": False}
+    ]
+    assert "token:secret" not in output

@@ -149,3 +149,27 @@ that an unversioned npm boolean flag can expose every future release, or that
 static dependency metadata proves arbitrary build-input reachability. The
 review expiry and source review remain necessary. This increment awaits broad
 source/artifact qualification and commit; it has not replaced the local preview.
+
+## CI observation follow-through at `07dc7750`
+
+GitHub run `38731937581` passed the frontend test suite and production build,
+but its advisory step classified all five reviewed high package entries as
+outside reviewed conditions. The original log did not retain the policy input
+that differed. The merge checkout has the same frontend lock and policy source
+as the branch; Node 20.20.2/npm 10.8.2 audit reproduction, including a clean
+`npm ci` dependency tree, currently satisfies the unchanged policy locally.
+This is counterevidence to assuming a Node/npm version mismatch, not proof that
+the remote failure is resolved. Its exact failing input remains unconfirmed.
+
+The gate now prints `REVIEW_CONTEXT` when findings require action: UTC policy
+date, review expiry, advisory/remediation input, node paths and locked version/
+dev facts. It deliberately omits lock source URLs and other lock fields; a
+regression checks that a credential-bearing synthetic `resolved` URL is absent.
+No exception condition, severity threshold, expiry or failure behavior changes.
+Forty-two policy/shell cases and the real frontend gate pass locally. Fresh
+registry inventory contains five reviewed high and six moderate package entries;
+these are transitive inventory entries, not eleven independent root advisories.
+
+A new CI run with this observability increment must establish the remote
+outcome. Do not call the previous red job green or widen the reviewed exception
+without inspecting its actual conditions.
