@@ -6,6 +6,7 @@ import { workItemsApi, type WorkItemStatusResponse } from '../../api/workItems';
 import { formatRelativeTime } from '../../utils';
 
 const terminal = new Set(['succeeded', 'failed', 'cancelled', 'expired', 'dead_letter']);
+const completedWorkStatuses = new Set(['succeeded', 'cancelled', 'expired']);
 const operationLabels: Record<string, string> = { install: 'App install', upgrade: 'App update', uninstall: 'App uninstall', resume: 'App resume' };
 const statusLabels: Record<string, string> = {
   queued: 'Queued', running: 'Running', waiting_for_human: 'Awaiting your input',
@@ -65,17 +66,28 @@ export function WorkItemsSection({ workspaceId }: { workspaceId: string }) {
     return () => { generation.current += 1; };
   }, [load]);
   useEffect(() => {
-    if (!items.some(item => !terminal.has(item.status))) return;
+    if (!items.some(item => item.kind !== 'routine_turn' && item.kind !== 'chat_turn' && !terminal.has(item.status))) return;
     const timer = window.setInterval(() => { void load(); }, 5000);
     return () => window.clearInterval(timer);
   }, [items, load]);
 
-  return <Surface as="section" aria-label="Workspace work" tone="panel" border="subtle" radius="card" padding="lg">
+  // This panel is an operational monitor, not a history feed. Routine runs
+  // and chat turns have dedicated activity views; successful/cancelled work
+  // is complete and does not need a permanent row here.
+  const visibleItems = items.filter(item =>
+    item.kind !== 'routine_turn'
+      && item.kind !== 'chat_turn'
+      && !completedWorkStatuses.has(item.status),
+  );
+
+  if (!error && visibleItems.length === 0 && !cursor) return null;
+
+  return <Surface as="section" aria-label="Active workspace tasks" tone="panel" border="subtle" radius="card" padding="lg">
     <header className="flex flex-wrap items-start justify-between gap-4">
       <div className="min-w-0 flex-1 basis-64">
-        <Text as="h2" variant="heading-md">Workspace work</Text>
+        <Text as="h2" variant="heading-md">Active workspace tasks</Text>
         <Text as="p" tone="muted" variant="subtitle" className="mt-1">
-          App installs, updates, and other workspace tasks. Queued tasks haven’t started yet.
+          Installs, updates, and other background tasks that are running or need attention.
         </Text>
       </div>
       <Button
@@ -95,18 +107,21 @@ export function WorkItemsSection({ workspaceId }: { workspaceId: string }) {
     <div className="mt-5">
       {error && <div role="alert"><Text tone="danger">{error}</Text></div>}
       {loading && <div role="status"><Text variant="meta">Loading work status…</Text></div>}
-      {!loading && !error && items.length === 0 && <Text as="p" tone="muted" variant="body-sm">No workspace work yet.</Text>}
-      <div className="space-y-3">
-        {items.map(item => <Surface key={item.work_item_id} tone="panel" border="subtle" radius="card" className="min-w-0 space-y-3 p-4">
-          <Text as="h3" weight="medium">{workTitle(item)} · {statusLabels[item.status] ?? item.status}</Text>
-          <Text as="p" variant="meta" tone="subtle">Updated {formatRelativeTime(item.updated_at)} · Attempt {item.attempt}</Text>
-          {workProgress(item)}
-
-          {item.failure && <Text as="p" tone="danger">{item.failure.message || item.failure.code}</Text>}
-          {item.next_attempt_at && item.status === 'retry_wait' && <Text as="p" variant="meta">Next attempt: {item.next_attempt_at}</Text>}
-        </Surface>)}
-      </div>
-      {cursor && <Button className="mt-3" disabled={loading} onClick={() => void load(cursor)}>Load older work</Button>}
+      {visibleItems.length > 0 && <ul className="mt-2 divide-y divide-[var(--panel-border)]">
+        {visibleItems.map(item => <li key={item.work_item_id} className="flex min-w-0 flex-wrap items-start justify-between gap-x-4 gap-y-1 py-3 first:pt-1">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <Text as="span" weight="medium">{workTitle(item)}</Text>
+              <Text as="span" variant="meta" tone="muted">{statusLabels[item.status] ?? item.status}</Text>
+            </div>
+            <Text as="p" variant="meta" tone="subtle" className="mt-0.5">Updated {formatRelativeTime(item.updated_at)} · Attempt {item.attempt}</Text>
+            {workProgress(item)}
+            {item.failure && <Text as="p" variant="body-sm" tone="danger" className="mt-1">{item.failure.message || item.failure.code}</Text>}
+            {item.next_attempt_at && item.status === 'retry_wait' && <Text as="p" variant="meta" className="mt-1">Next attempt: {formatRelativeTime(item.next_attempt_at)}</Text>}
+          </div>
+        </li>)}
+      </ul>}
+      {cursor && <Button className="mt-2" disabled={loading} onClick={() => void load(cursor)}>Load more tasks</Button>}
     </div>
   </Surface>;
 }
