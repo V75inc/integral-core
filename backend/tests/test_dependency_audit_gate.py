@@ -22,6 +22,10 @@ def frontend_audit(tmp_path):
     (root / "frontend" / "node_modules").mkdir(parents=True)
     script = root / ".ci" / "dependency_audit.sh"
     shutil.copy2(AUDIT_SCRIPT, script)
+    shutil.copy2(
+        REPO_ROOT / ".ci/frontend_dependency_policy.py",
+        root / ".ci/frontend_dependency_policy.py",
+    )
     return script, root, tmp_path / "npm-calls.log"
 
 
@@ -93,7 +97,7 @@ def test_successful_frontend_audit_document_is_accepted(tmp_path, frontend_audit
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    assert "clean (no fixable" in result.stdout
+    assert "passed (no unreviewed" in result.stdout
     assert calls.read_text() == "called\n"
 
 
@@ -109,6 +113,7 @@ def test_backend_audit_uses_pinned_lock_without_bootstrapping_pip(tmp_path, audi
         "#!/bin/sh\n"
         "case \" $* \" in *' --no-deps '* ) ;; *) exit 20 ;; esac\n"
         "case \" $* \" in *' --disable-pip '* ) ;; *) exit 21 ;; esac\n"
+        "case \" $* \" in *' --ignore-vuln '* ) exit 22 ;; esac\n"
         'exit "${AUDIT_EXIT:-0}"\n'
     )
     pip_audit.chmod(0o755)
@@ -131,3 +136,62 @@ def test_backend_audit_uses_pinned_lock_without_bootstrapping_pip(tmp_path, audi
     else:
         assert result.returncode != 0
         assert "FAILED" in result.stderr
+
+
+@pytest.mark.parametrize("known_direct_patch", [False, True])
+def test_unreviewed_high_or_new_direct_patch_is_not_implicitly_accepted(
+    tmp_path, frontend_audit, known_direct_patch
+):
+    import json
+
+    script, root, _ = frontend_audit
+    package = "braces" if known_direct_patch else "unreviewed"
+    advisory = (
+        "GHSA-vfj7-8cjw-p6xm" if known_direct_patch else "GHSA-synthetic-unreviewed"
+    )
+    fix = (
+        {"name": "braces", "version": "3.0.4", "isSemVerMajor": False}
+        if known_direct_patch
+        else False
+    )
+    document = {
+        "vulnerabilities": {
+            package: {
+                "severity": "high",
+                "fixAvailable": fix,
+                "nodes": [f"node_modules/{package}"],
+                "via": [
+                    {
+                        "name": package,
+                        "url": f"https://github.com/advisories/{advisory}",
+                        "severity": "high",
+                        "range": "<=3.0.3",
+                    }
+                ],
+            }
+        }
+    }
+    (root / "frontend/package-lock.json").write_text(
+        json.dumps(
+            {"packages": {f"node_modules/{package}": {"version": "3.0.3", "dev": True}}}
+        )
+    )
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    npm = fake_bin / "npm"
+    npm.write_text('#!/bin/sh\nprintf "%s" "$AUDIT_FIXTURE"\nexit 1\n')
+    npm.chmod(0o755)
+    result = subprocess.run(
+        ["bash", str(script), "frontend"],
+        cwd=root,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+            "AUDIT_FIXTURE": json.dumps(document),
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode != 0, result.stdout
+    assert "ACTIONABLE" in result.stderr
