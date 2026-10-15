@@ -4,7 +4,12 @@ Source snapshot after Core `07dc7750`, including the qualified standalone View d
 The dispatcher and `CANONICAL_COMMAND_KINDS` are authoritative after this date.
 This is command-integration coverage, not a test pass percentage or goal completion score.
 
-69 registered kinds: 24 in the native command inventory; one conditional batch dispatcher; 44 other kinds need explicit effect/recovery classification. Their local source/artifact gates passed; final GitHub and wider system qualification remain distinct.
+69 registered kinds: 24 in the native command inventory, one separate canonical
+App-operation integration, one conditional batch dispatcher, and 43 other kinds
+requiring effect/recovery integration. The App-operation path reuses its existing
+canonical receipt rather than joining `CANONICAL_COMMAND_KINDS`; its local graph
+qualification does not cover arbitrary external handler effects. Final artifact,
+GitHub and wider system qualification remain distinct.
 
 | Kind | Executor | Native staging receipt integration |
 | --- | --- | --- |
@@ -40,7 +45,7 @@ This is command-integration coverage, not a test pass percentage or goal complet
 | `edit_comment` | `_x_edit_comment` | Integrated on transactional graph stores |
 | `file_content` | `_x_file_content` | Not in native staging inventory; qualify underlying effects |
 | `invite` | `_x_invite` | Not in native staging inventory; qualify underlying effects |
-| `invoke_app_operation` | `_x_invoke_app_operation` | Not in native staging inventory; qualify underlying effects |
+| `invoke_app_operation` | `_x_invoke_app_operation` | Separate canonical receipt integration on transactional graph stores; local graph contract only |
 | `link_entries` | `_x_link_entries` | Not in native staging inventory; qualify underlying effects |
 | `mcp_tool_call` | `_x_mcp_tool_call` | Not in native staging inventory; qualify underlying effects |
 | `merge_tags` | `_x_merge_tags` | Not in native staging inventory; qualify underlying effects |
@@ -93,7 +98,10 @@ R1/R2 remain incomplete until each row has a justified and qualified recovery co
 
 ## Remaining family classification
 
-Source triage of the 44 non-native kinds below is **not qualification**. The
+The original source triage of 44 non-native kinds below is **not qualification**.
+The separate App-operation local integration now has combined native evidence;
+43 other kinds remain, and arbitrary external App handlers still need explicit
+dispatch/readback contracts. The
 classification identifies the effect owner to integrate and prevents a second
 journal being added around a service that already owns durable execution.
 References are relative to `backend/app/`; the dispatcher remains
@@ -114,7 +122,7 @@ References are relative to `backend/app/`; the dispatcher remains
 | `attach_file`, `attach_uploaded_image` | `services/attachment_agent.py` writes bytes plus graph/storage state | Durable byte intent, immutable content identity, storage accounting and orphan reconciliation are required; graph rollback alone cannot undo an unknown object-store outcome. |
 | `attach_uploaded_file` | `services/attachment_agent.py` reparents existing validated attachment graph state; no new bytes | Join relationship/owner/cache changes and event/receipt atomically; retain source ownership and current target authorization. This needs a different effect contract from byte uploads. |
 | `call_workspace_tool`, `mcp_tool_call`, `trigger_sync`, `transform_entry` | Workspace tool dispatcher, connector proxy/sync, or extension handoff hook | Inspect existing service idempotency; persist dispatch intent before network/tool execution, retain provider operation identity/readback, and reconcile unknown outcomes without blind replay. A returned error may follow partial external success. |
-| `invoke_app_operation` | `services/app_operations/dispatch.py` already enforces declaration fingerprint and mutating-operation idempotency | Reuse the operation's canonical receipt and exact key/input. Qualify staging completion loss against that receipt; do not introduce a competing command journal or infer success from HTTP status alone. |
+| `invoke_app_operation` | `services/app_operations/dispatch.py` owns the canonical transaction and receipt | Local decision/effect integration qualified by 224 combined native cases plus three separate expiry/revocation cases; see [atomicity report](2026-10-15-staged-app-operation-atomicity.md). Original complete review and declaration have independent private fingerprints. External effects and final system gates remain open. |
 | `resolve_conflict` | `api/conflicts.py` resolves recorded conflict state | Inventory selected resolution's local/connector effects and immutable conflict revision before choosing graph receipt or external intent recovery. |
 | `routine_task_create`, `routine_task_update`, `routine_task_cancel`, `routine_task_purge` | `agentive/services/routine_tasks.py`, with executor ChangeEvents | Command recovery must cover schedule record plus emitted event and exact routine identity. The existing scheduled-run WorkItem idempotency key protects a different boundary; it does not deduplicate routine creation. |
 | `design_proposal` | Executor updates the chat thread's proposal marker | Atomically bind thread ownership, proposal identity/revision and approval marker. Recover the approval result with `needs_agent_build`; it must never claim the later App build completed. |

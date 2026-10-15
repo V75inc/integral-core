@@ -175,6 +175,8 @@ async def recover_recorded_operation_response(
     operation_key: str,
     payload: dict,
     idempotency_key: str,
+    expected_effect_contract_fingerprint: str | None = None,
+    expected_decision_intent_fingerprint: str | None = None,
 ) -> AppOperationResponse | None:
     """Resolve an exact prior command; None means no qualifying journal row.
 
@@ -199,6 +201,8 @@ async def recover_recorded_operation_response(
             ),
             principal_aliases=principal.aliases,
             request_hash=request_hash,
+            expected_effect_contract_fingerprint=expected_effect_contract_fingerprint,
+            expected_decision_intent_fingerprint=expected_decision_intent_fingerprint,
         )
 
     async with operation_history_admission(

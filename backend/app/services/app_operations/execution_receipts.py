@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from contextlib import nullcontext
 from dataclasses import dataclass, replace
 from itertools import islice
@@ -24,14 +25,52 @@ from app.utils.time import utc_now_iso
 
 _OBJECT_COLLECTION = "object"
 _RECEIPT_ENTITY = "OperationExecutionReceipt"
+_CONTRACT_FINGERPRINT = re.compile(r"[0-9a-f]{64}\Z")
 
 
 class OperationReceiptConflict(ValueError):
-    """A logical operation id was reused with a different request body."""
+    """An intent key was reused with different input or known effect contract."""
 
 
 class OperationReceiptIncomplete(RuntimeError):
     """A legacy/incomplete receipt cannot safely be replayed."""
+
+
+def _validate_contract_fingerprint(value: str | None) -> None:
+    if value is not None and (
+        type(value) is not str or _CONTRACT_FINGERPRINT.fullmatch(value) is None
+    ):
+        raise ValueError("An exact effect contract fingerprint is required")
+
+
+def _record_contract_fingerprint(record: dict) -> str | None:
+    body = record["context"]
+    if "effect_contract_fingerprint" not in body:
+        return None
+    value = body["effect_contract_fingerprint"]
+    try:
+        if value is None:
+            raise ValueError("Missing effect contract fingerprint")
+        _validate_contract_fingerprint(value)
+    except ValueError as exc:
+        raise OperationReceiptIncomplete(
+            "Operation effect contract is invalid"
+        ) from exc
+    return value
+
+
+def _record_decision_fingerprint(record: dict) -> str | None:
+    body = record["context"]
+    if "decision_intent_fingerprint" not in body:
+        return None
+    value = body["decision_intent_fingerprint"]
+    if value is None:
+        raise OperationReceiptIncomplete("Original decision proof is invalid")
+    try:
+        _validate_contract_fingerprint(value)
+    except ValueError as exc:
+        raise OperationReceiptIncomplete("Original decision proof is invalid") from exc
+    return value
 
 
 @dataclass(frozen=True)
@@ -85,8 +124,12 @@ def _receipt_document(
     request_hash: str,
     status: str,
     result_json: str = "",
+    effect_contract_fingerprint: str | None = None,
+    decision_intent_fingerprint: str | None = None,
 ) -> Dict[str, Any]:
-    return {
+    _validate_contract_fingerprint(effect_contract_fingerprint)
+    _validate_contract_fingerprint(decision_intent_fingerprint)
+    record: Dict[str, Any] = {
         "id": receipt_object_id(identity),
         "entity": _RECEIPT_ENTITY,
         "context": {
@@ -101,6 +144,11 @@ def _receipt_document(
             "updated_at": utc_now_iso(),
         },
     }
+    if effect_contract_fingerprint is not None:
+        record["context"]["effect_contract_fingerprint"] = effect_contract_fingerprint
+    if decision_intent_fingerprint is not None:
+        record["context"]["decision_intent_fingerprint"] = decision_intent_fingerprint
+    return record
 
 
 def _replay_or_raise(record: Dict[str, Any], *, request_hash: str) -> Dict[str, Any]:
@@ -126,6 +174,8 @@ async def lookup_operation_outcome(
     request_hash: str,
     principal_aliases: Iterable[str] = (),
     database: Any | None = None,
+    expected_effect_contract_fingerprint: str | None = None,
+    expected_decision_intent_fingerprint: str | None = None,
 ) -> OperationOutcomeObservation | None:
     """Observe one original success without claiming, repairing or replaying it.
 
@@ -138,7 +188,11 @@ async def lookup_operation_outcome(
     bypassing identity caches. Missing history returns None, never permission to
     execute. Incomplete/conflicting/corrupt rows and outages remain explicit.
     Saved output is deliberately not decoded, including legacy malformed output.
+    Requiring an expected effect contract also requires original independent
+    metadata: legacy absence is incomplete proof, never inferred from output.
     """
+    _validate_contract_fingerprint(expected_effect_contract_fingerprint)
+    _validate_contract_fingerprint(expected_decision_intent_fingerprint)
     if not isinstance(identity, OperationIdentity):
         raise TypeError("an OperationIdentity is required")
     if any(
@@ -171,6 +225,8 @@ async def lookup_operation_outcome(
                     "Operation receipt identity is invalid"
                 )
             _validate_receipt_identity(record, identities[receipt_id])
+            _record_contract_fingerprint(record)
+            _record_decision_fingerprint(record)
             if record["context"].get("request_hash") != request_hash:
                 raise OperationReceiptConflict(
                     "Idempotency key reused with different payload"
@@ -187,6 +243,26 @@ async def lookup_operation_outcome(
                 "Operation outcome requires reconciliation"
             )
         original_id = completed[0]
+        original_contract = _record_contract_fingerprint(records[original_id])
+        if expected_effect_contract_fingerprint is not None:
+            if original_contract is None:
+                raise OperationReceiptIncomplete(
+                    "Original effect contract requires reconciliation"
+                )
+            if original_contract != expected_effect_contract_fingerprint:
+                raise OperationReceiptConflict(
+                    "Idempotency key reused with a different effect contract"
+                )
+        original_decision = _record_decision_fingerprint(records[original_id])
+        if expected_decision_intent_fingerprint is not None:
+            if original_decision is None:
+                raise OperationReceiptIncomplete(
+                    "Original decision proof requires reconciliation"
+                )
+            if original_decision != expected_decision_intent_fingerprint:
+                raise OperationReceiptConflict(
+                    "Operation belongs to a different reviewed proposal"
+                )
         for receipt_id, row in records.items():
             if receipt_id == original_id:
                 continue
@@ -195,6 +271,14 @@ async def lookup_operation_outcome(
                 context.get("status") != "alias"
                 or context.get("canonical_receipt_id") != original_id
                 or context.get("result_json") != ""
+                or (
+                    _record_contract_fingerprint(row) is not None
+                    and _record_contract_fingerprint(row) != original_contract
+                )
+                or (
+                    _record_decision_fingerprint(row) is not None
+                    and _record_decision_fingerprint(row) != original_decision
+                )
             ):
                 raise OperationReceiptIncomplete(
                     "Operation alias receipt requires reconciliation"
@@ -211,13 +295,22 @@ async def execute_operation_once(
     database: Any | None = None,
     principal_aliases: Iterable[str] = (),
     admit_identity: Callable[[], AsyncContextManager[None]] | None = None,
+    effect_contract_fingerprint: str | None = None,
+    decision_intent_fingerprint: str | None = None,
 ) -> OperationExecutionResult:
     """Execute a local command once and commit its receipt with graph effects.
+
+    The optional server-supplied effect contract is persisted on new receipts;
+    known mismatches conflict. Legacy replay never guesses or backfills it. Use
+    lookup with an expected contract when strict original-declaration proof is
+    required; replay compatibility alone does not establish such evidence.
 
     ``execute`` runs only after this invocation wins the deterministic receipt
     claim.  It inherits the transaction-bound default graph context, so normal
     jvspatial node and edge writes participate in the same commit.
     """
+    _validate_contract_fingerprint(effect_contract_fingerprint)
+    _validate_contract_fingerprint(decision_intent_fingerprint)
     if not request_hash:
         raise ValueError("request_hash is required")
 
@@ -239,7 +332,11 @@ async def execute_operation_once(
         # serializes with an older worker which knows only one of those IDs.
         for receipt_id, candidate in sorted(identities.items()):
             claim = _receipt_document(
-                identity=candidate, request_hash=request_hash, status="claimed"
+                identity=candidate,
+                request_hash=request_hash,
+                status="claimed",
+                effect_contract_fingerprint=effect_contract_fingerprint,
+                decision_intent_fingerprint=decision_intent_fingerprint,
             )
             inserted = await transaction.insert_if_absent(_OBJECT_COLLECTION, claim)
             if inserted.created:
@@ -253,6 +350,8 @@ async def execute_operation_once(
                         "Operation receipt claim disappeared"
                     )
                 _validate_receipt_identity(record, candidate)
+                _record_contract_fingerprint(record)
+                _record_decision_fingerprint(record)
                 if record["context"].get("request_hash") != request_hash:
                     raise OperationReceiptConflict(
                         "Idempotency key reused with different payload"
@@ -275,6 +374,33 @@ async def execute_operation_once(
                 )
             source_id = completed[0] if completed else receipt_object_id(identity)
             source_identity = identities[source_id]
+            source_contract = (
+                _record_contract_fingerprint(existing[source_id])
+                if completed
+                else effect_contract_fingerprint
+            )
+            if (
+                source_contract is not None
+                and effect_contract_fingerprint is not None
+                and source_contract != effect_contract_fingerprint
+            ):
+                raise OperationReceiptConflict(
+                    "Idempotency key reused with a different effect contract"
+                )
+            source_decision = (
+                _record_decision_fingerprint(existing[source_id])
+                if completed
+                else decision_intent_fingerprint
+            )
+            if decision_intent_fingerprint is not None and completed:
+                if source_decision is None:
+                    raise OperationReceiptIncomplete(
+                        "Original decision proof requires reconciliation"
+                    )
+                if source_decision != decision_intent_fingerprint:
+                    raise OperationReceiptConflict(
+                        "Operation belongs to a different reviewed proposal"
+                    )
             for receipt_id, row in existing.items():
                 if receipt_id == source_id:
                     continue
@@ -283,6 +409,14 @@ async def execute_operation_once(
                     context.get("status") != "alias"
                     or context.get("canonical_receipt_id") != source_id
                     or context.get("result_json") != ""
+                    or (
+                        _record_contract_fingerprint(row) is not None
+                        and _record_contract_fingerprint(row) != source_contract
+                    )
+                    or (
+                        _record_decision_fingerprint(row) is not None
+                        and _record_decision_fingerprint(row) != source_decision
+                    )
                 ):
                     raise OperationReceiptIncomplete(
                         "Operation alias receipt requires reconciliation"
@@ -314,6 +448,8 @@ async def execute_operation_once(
                         request_hash=request_hash,
                         status="succeeded",
                         result_json=serialized,
+                        effect_contract_fingerprint=source_contract,
+                        decision_intent_fingerprint=source_decision,
                     ),
                 )
             for receipt_id in sorted(created - {source_id}):
@@ -321,6 +457,8 @@ async def execute_operation_once(
                     identity=identities[receipt_id],
                     request_hash=request_hash,
                     status="alias",
+                    effect_contract_fingerprint=source_contract,
+                    decision_intent_fingerprint=source_decision,
                 )
                 marker["context"]["canonical_receipt_id"] = source_id
                 await transaction.save(_OBJECT_COLLECTION, marker)

@@ -69,10 +69,44 @@ class StagingDecisionRecord(Object):
     expires_at: str = ""
     resolved_at: str = ""
     retained_until: str = ""
+    # Private immutable-intent proof; never included in public decision readback.
+    intent_fingerprint: str = ""
 
 
 def _decision_record_id(token: str) -> str:
     return "o.StagingDecisionRecord." + hashlib.sha256(token.encode()).hexdigest()
+
+
+def decision_intent_fingerprint(fields: Dict[str, Any]) -> str:
+    """Bind terminal reconciliation to the exact original reviewed proposal.
+
+    Mutable decision/progress fields are excluded. This digest is evidence for
+    comparing a private snapshot, never executable approval authority. Legacy
+    state-only markers cannot supply this proof or be silently backfilled.
+    """
+    names = (
+        "token",
+        "user_id",
+        "workspace_id",
+        "session_id",
+        "kind",
+        "payload",
+        "created_at",
+        "expires_at",
+        "summary",
+        "diff_human",
+        "diff_machine",
+        "interaction_id",
+        "idempotency_key",
+    )
+    intent = {name: fields.get(name) for name in names}
+    value = ["staged-decision-intent-v1", intent]
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    # json.dumps silently coerces integer object keys and tuples. Such Python
+    # shapes are not the same reviewed JSON intent as their normalized output.
+    if json.loads(encoded) != value:
+        raise ValueError("Proposal intent must contain canonical JSON values")
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 async def persist_decision(sc: "StagedChange") -> None:
@@ -104,6 +138,7 @@ async def persist_decision(sc: "StagedChange") -> None:
             user_id=sc.user_id,
             state=sc.state,
             kind=sc.kind,
+            intent_fingerprint=decision_intent_fingerprint(_sc_to_fields(sc)),
             created_at=sc.created_at.isoformat(),
             expires_at=sc.expires_at.isoformat(),
             resolved_at=(sc.resolved_at or now).isoformat(),

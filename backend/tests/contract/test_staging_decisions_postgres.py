@@ -37,7 +37,20 @@ async def test_terminal_closure_does_not_poison_enclosing_effect_transaction(
         ] == "consumed"
 
 
-@pytest.mark.parametrize("mismatch", ["user", "kind", "state", "target"])
+@pytest.mark.parametrize(
+    "mismatch",
+    [
+        "user",
+        "kind",
+        "state",
+        "target",
+        "workspace",
+        "payload",
+        "review",
+        "session",
+        "key",
+    ],
+)
 async def test_terminal_acknowledgment_cannot_change_decision(
     postgres_raw_db, monkeypatch, mismatch
 ):
@@ -57,6 +70,16 @@ async def test_terminal_acknowledgment_cannot_change_decision(
             snapshot.kind = "another-kind"
         elif mismatch == "state":
             snapshot.state = "revoked"
+        elif mismatch == "workspace":
+            snapshot.workspace_id = "another-workspace"
+        elif mismatch == "payload":
+            snapshot.payload = {**snapshot.payload, "title": "Unreviewed replacement"}
+        elif mismatch == "review":
+            snapshot.diff_machine = {"unreviewed": True}
+        elif mismatch == "session":
+            snapshot.session_id = "another-conversation"
+        elif mismatch == "key":
+            snapshot.idempotency_key = "another-intent"
         else:
             target = "blessed"
         with pytest.raises(StagingError):

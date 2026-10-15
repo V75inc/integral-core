@@ -10,8 +10,8 @@ be read as the present checkout state.
 
 | Requirement | Implementation present | Remaining proof or implementation |
 | --- | --- | --- |
-| R1: shared approval ownership | Native task/fence claims, current proposal checks and integrated canonical resource commands | Complete all 69 registered kinds, including the 44 classified non-native kinds and conditional batch. Preserve immutable original identity/workspace/review and current approval state. Independent workers, stale owners, cancellation, expiry, revocation and restart must not create a second effect. |
-| R2: atomic effects and recoverable completion | Canonical graph/result/event receipts, recorded-result observation and current disclosure controls | Integrate staged App-operation consumption with its existing canonical receipt; preserve policy Approval's existing transaction owner. Finish remaining local families, per-child mixed batches, external dispatch intent/readback and unknown-outcome reconciliation. Move external I/O out of held authority transactions. |
+| R1: shared approval ownership | Native task/fence claims, current proposal checks and integrated canonical resource commands | Complete all 69 registered kinds, including the 43 remaining classified kinds, the separately integrated App-operation path and conditional batch. Preserve immutable original identity/workspace/review and current approval state. Independent workers, stale owners, cancellation, expiry, revocation and restart must not create a second effect. |
+| R2: atomic effects and recoverable completion | Canonical graph/result/event receipts, recorded-result observation and current disclosure controls | The local staged App-operation path now shares its canonical receipt and exact original review proof; preserve policy Approval's existing transaction owner and complete external handler contracts. Finish remaining local families, per-child mixed batches, external dispatch intent/readback and unknown-outcome reconciliation. Move external I/O out of held authority transactions. |
 | R3: stream release authorization | Fresh per-connection/frame and identity/workspace admission | Complete the multi-connection/revocation-ordering matrix on final source. Document the exact transport boundary; bytes already handed to transport cannot be recalled. Include sandboxed extension reply scope/frame replacement. |
 | R4: request-bound history | Validated selected workspace, canonical containment and live per-resource gates | Final same-principal/two-workspace, revoked/invalid scope and HTTP/native consumer qualification. Personal/account events require their explicit Personal-workspace boundary. |
 | R5: bounded history | Database timestamp/id keysets, candidate budget, opaque denied-row cursors and unavailable errors | Final populated PostgreSQL query/index plan and latency probe, both directions/ties/deleted boundaries, withheld windows and honest continuation. This is not a production latency SLA. |
@@ -59,3 +59,25 @@ external effects and complete restore/session journeys remain explicit rows abov
 
 Remote CI must be read at the pushed head. No merge, deployment, live-provider
 acceptance or publication is part of this checkpoint.
+
+
+## Qualified local staged App-operation increment
+
+On the `c7381289` baseline, staged App operations now bind their exact original
+review and declaration to the existing canonical receipt. Local graph effect,
+receipt/event intent and consumed decision commit together. Recovery observes
+that same completion under current authorization without resolving a handler.
+See the [atomicity report](2026-10-15-staged-app-operation-atomicity.md) for scope,
+faults, immutable proof and source identity.
+
+Full backend: 6,588 passed / 819 skipped; CI-faithful smoke: 1,797 passed / 22
+skipped; combined native PostgreSQL: 224 passed / zero skipped; supplementary
+expiry/revocation: three passed / zero skipped. All have zero failures/errors.
+The supplementary file was added after full-suite collection; its result is
+separate. Pinned hooks, staged guards and all four independent artifacts passed.
+Remote CI must still be inspected at the new pushed head.
+
+This qualifies one local integration. The other 43 executor kinds, conditional
+batches, arbitrary external App effects, history query plans, replica admission
+limits, privacy and restore/session journeys remain within the original goal.
+There has been no merge, deployment or live-provider acceptance for this increment.
