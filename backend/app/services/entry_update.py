@@ -302,8 +302,13 @@ async def update_entry_in_track(
                     from app.api.errors import BadRequestError
 
                     raise BadRequestError(message=str(exc)) from exc
+                mutation_principal_id = (
+                    actor_id
+                    if actor_id and actor_kind in {"agent", "connector"}
+                    else user_id
+                )
                 await enforce_protected_field_write(
-                    principal_id=admitted_principal_id,
+                    principal_id=mutation_principal_id,
                     workspace_id=track.workspace_id,
                     entry_type_key=slug_manifest_key(
                         str(
