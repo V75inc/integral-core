@@ -41,7 +41,7 @@ import { MarkdownContent } from '../ui';
 import type { ViewWidgetProps } from './types';
 import type { Entry, SavedView, OperationalModelFieldSpec } from '../../types';
 import { entriesApi } from '../../api/entries';
-import { extensionsApi } from '../../api/extensions';
+import { extensionsApi, RECORDED_OUTPUT_WITHHELD_MESSAGE } from '../../api/extensions';
 import { toToastMessage } from '../../api/helpers';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useToast } from '../../context/ToastContext';
@@ -1650,9 +1650,13 @@ function KanbanWidgetInner({
           action.operation,
           payload
         );
-        const failed = dropOperationError(result.output);
-        if (failed) throw new Error(failed);
-        resolveToast(pendingId, action.successMessage, 'success');
+        if (result.output_disposition === 'withheld') {
+          resolveToast(pendingId, RECORDED_OUTPUT_WITHHELD_MESSAGE, 'info');
+        } else {
+          const failed = dropOperationError(result.output);
+          if (failed) throw new Error(failed);
+          resolveToast(pendingId, action.successMessage, 'success');
+        }
         setDropPrompt(null);
         if (track?.id) {
           await queryClient.invalidateQueries({

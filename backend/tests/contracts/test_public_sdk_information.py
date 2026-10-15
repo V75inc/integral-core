@@ -33,3 +33,20 @@ def test_sdk_optimistic_update_signature_matches_runtime() -> None:
         public.parameters["expected_record_revision"].kind
         is inspect.Parameter.KEYWORD_ONLY
     )
+
+
+def test_sdk_http_operation_response_has_distinct_withheld_shape() -> None:
+    from integral_sdk import AvailableOperationResponse, WithheldOperationResponse
+
+    assert {
+        "app_id",
+        "operation_key",
+        "output",
+    } <= AvailableOperationResponse.__required_keys__
+    assert WithheldOperationResponse.__required_keys__ == {
+        "operation_receipt",
+        "output_disposition",
+        "current_state_verified",
+    }
+    assert "output" not in WithheldOperationResponse.__annotations__
+    assert "principal_id" not in WithheldOperationResponse.__annotations__
