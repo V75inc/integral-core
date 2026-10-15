@@ -87,7 +87,9 @@ dependencies = [
     # and every test erroring with
     # "AttributeError: 'Server' object has no attribute 'list_tools'".
     # Lift the cap only together with a port of build_mcp_server to the 2.x API.
-    "mcp[cli]>=1.27.0,<2",
+    # 1.30 fixes retained Streamable-HTTP session state (CVE-2026-59951).
+    # Keep the 1.x API boundary above; do not suppress the dependency audit.
+    "mcp[cli]>=1.30.0,<2",
     # Phase 4 — Hybrid Retrieval substrate (RET-01..04).
     # fastembed: ONNX-Runtime backend for sentence-transformers/all-MiniLM-L6-v2
     #            (same model, no torch). embedding_model.py defers the import.
