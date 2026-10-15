@@ -9,18 +9,18 @@ deployment or PR merge is part of this work.
 
 | Item | Current state | Evidence required for closure |
 | --- | --- | --- |
-| R1 shared approval ownership | PostgreSQL claim/fence primitive and named App/Track/Entry creation, metadata updates, deletion, App uninstall and identified comment create/edit/delete integration implemented; other executor families outstanding | Independent workers, stale worker, restart, current proposal authority, all executor families |
+| R1 shared approval ownership | PostgreSQL claim/fence primitive and named App/Track/Entry creation, metadata updates, deletion, App uninstall, identified comments, saved Views and Dashboard create/update/delete integrated; other executor families outstanding | Independent workers, stale worker, restart, current proposal authority, all executor families |
 | R2 atomic effects and recovery | Named resource mutation receipts, hook intent/outcome handling and supported mixed batch journals implemented; remaining command families and recovery qualification outstanding | Real effect/result rollback, post-commit reconciliation without replay, cancellation, mixed/partial batch, external unknown outcome |
 | R3 stream release | Per-connection/frame checks plus short native identity/workspace revision admission implemented | Multi-connection and within-page revocation tests pass; qualify admission/revocation ordering and remaining transport limitation |
 | R4 history workspace scope | Bound request scope plus current canonical resource containment implemented | Same principal authorized in two workspaces; other workspace excluded despite resource permission; invalid/revoked scope refused |
 | R5 bounded history | Timestamp/id database keyset windows, 1000-candidate request budget, honest continuation/outage implemented | Both directions, ties, deleted cursor row, denied windows, backend index/query behavior and realistic latency probe |
 | R6 scope tool | Dedicated execution-scope service implemented | Bound versus saved preference, selective creation flags, missing/revoked binding, manifest and capability map |
 | Privacy projection | Bounded per-recipient event snapshot projection implemented; declared-reference and deleted-history work outstanding | Nested references projected under current authority; explicit governed audience for deleted history |
-| Durable chat stability | Outstanding; deployment flag unchanged | PostgreSQL checkpoints/restore, session invalidation, migration, owner/member recovery journeys |
+| Durable chat stability | Durable native turns now default on; refresh/restart and terminal-run recovery qualified at `b832e592`; broader restore/session qualification remains open | PostgreSQL checkpoints/restore, session invalidation, migration, owner/member recovery journeys |
 | Deployment architecture | Outstanding | Rate limits across replicas, directory privacy contract, dependency exceptions reconciled with actual current advisories |
 | Legacy relation migration | Outstanding | Missing/ambiguous creation-audit identity migration; preserve existing records and stable relationship types |
 | Maintainability | Outstanding | Consolidate command paths; targeted harness/module extraction; classified exception contracts; current docs and closure ledger reconciliation |
-| Restore and session recovery | Outstanding | Disposable PostgreSQL backup/restore, independent encrypted checkpoint readback, credentials and session invalidation; no live runtime migration |
+| Restore and session recovery | Disposable PostgreSQL checkpoint/manifest/synthetic-credential restore and independent-process readback qualified; attachment, session and complete user recovery journeys remain open | Disposable PostgreSQL backup/restore, independent encrypted checkpoint readback, credentials and session invalidation; no live runtime migration |
 | Artifact/system qualification | Outstanding | Clean artifact, full source/CI suites, fault/concurrency/multi-principal/load matrix; preserve source-versus-deployment distinction |
 
 ## Implemented boundaries
@@ -58,11 +58,14 @@ The current hook runner still permits extension I/O while the canonical graph
 transaction is open. Moving external I/O out of held authority transactions, with
 explicit graph/validation/external hook contracts, remains required.
 
-Entry-only batches now derive a stable command identity for every operation,
+Supported canonical batches now derive a stable command identity for every operation,
 validate each step against the current approved parent plan, and recover through
 immutable step receipts. They do not rely on a potentially missing progress
 cursor. Named references retain the creation label even after later renames.
-App/Track and other batch command families remain to be migrated.
+App/Track creation, metadata updates and deletion, Entry mutations, saved Views,
+and identified comment creation/edit/deletion use this journal. Other batch command families
+remain to be migrated; the current `supports_canonical_batch` implementation is
+the authoritative command inventory.
 
 New proposals retain a private execution-contract discriminator. An older blessed
 proposal without qualifying result evidence is not replayed automatically. A new
@@ -861,3 +864,328 @@ Earlier failed or interrupted logs remain diagnostic evidence, not passing
 gates. The source snapshot does not include the later private-default visibility
 amendment, which is being qualified separately. The broader goal remains paused
 and the open-boundary ledger above remains authoritative.
+
+## Resumed qualification — 15 October 2026
+
+The goal is active again. The previous goal turn made authoritative progress:
+recovery commit `b832e592ed01091bd2ddd8c0092869a6dadd7228` was pushed to PR #136.
+GitHub CI run `38682149836` completed successfully for that exact commit:
+backend, frontend, PostgreSQL and independent artifact jobs passed. Docker
+verification was skipped. The earlier full default-selected local backend suite
+also exited 0; frontend qualification passed 1,815 tests, and the separate
+transaction/recovery PostgreSQL selection passed 86 cases. These results belong
+to that committed source, not to every requirement in this ledger.
+
+Further work uses `/private/tmp/core-hardening-continuation` on
+`codex/hardening-continuation`, based on that commit. This separates source
+qualification from the recovery checkout mounted by the running Business API.
+No runtime data, container, deployment or PR merge was changed by this increment.
+
+Mixed Entry/comment batch qualification now covers loss immediately after each
+of six committed steps: Entry creation, comment creation, comment editing,
+Entry update, comment deletion and a final comment creation. Clearing the local
+proposal cache before recovery exercises durable reload. Assertions check stable
+Entry identity/revision, exactly one final comment, and completion without
+resurrecting the removed comment. A separate parent-completion outage case
+reconciles a completed batch through saved child receipts even after an earlier
+comment has been deleted. A workspace-membership revocation between steps keeps
+the committed Entry/comment intact but refuses unfinished edits and leaves the
+approval unconsumed. Recovery restores the request scope.
+
+The final combined PostgreSQL run passed all 24 batch/comment cases with zero
+skips, failures or errors (exit 0; `/tmp/core-hardening-mixed-comments-revocation.xml`
+and `.log`). The new tests and ledger corrections are uncommitted. Configured
+flake8, isort and whitespace checks pass for the changed test file; no new
+production-code changes or new full-suite qualification are claimed.
+
+This closes the named mixed comment-batch qualification gap only. Remaining
+work includes other executor families, external hook I/O transaction boundaries,
+durable downstream notification delivery, declared App-output/deleted-history
+privacy, backup/restore and independent checkpoint/session recovery, legacy
+relation migration, replica-wide rate limits/directory privacy/dependency review,
+maintainability work and the final whole-goal acceptance matrix. The historical
+pause and earlier checkpoint sections above remain dated evidence, not current
+completion claims.
+
+### Saved View receipt integration and readback classification
+
+The next executor inventory audit found that `save_view` already entered
+`staged_command_effect` but was absent from the durable dispatcher. Its effect
+binding was therefore empty: both creation and update wrote graph data without
+an execution receipt. Four native reproductions failed before the correction
+(`/tmp/core-hardening-saved-view-red.log`). The command now joins the shared
+claim/receipt path, including supported canonical batches. Single-command and
+batch eligibility use one `CANONICAL_COMMAND_KINDS` inventory. Other Operational
+Model actions, View deletion and dashboard commands are not qualified by this
+addition.
+
+The effect compares the complete submitted View payload with the immutable
+approved inputs. Its encrypted receipt stores only Track/View identity, rather
+than a historical content snapshot. Recovery reads the current View through
+canonical containment, current policy and release admission; a moved, deleted or
+currently denied View is withheld. Named batch references are rebuilt from
+private receipt identity and the original approved View name, so a later rename
+does not prevent continuation. The first mixed-view test exposed the prior
+title-versus-name reference mismatch; that failing log is retained separately
+(`/tmp/core-hardening-saved-view-extended.log`).
+
+The new outage test also reproduced an error-classification gap: an endpoint
+authorization outage was converted into an applied-but-withheld response
+(`/tmp/core-hardening-saved-view-outage-red.log`). The shared current-record
+readback helper now accepts only 401/403/404 as classified denial/absence.
+Unavailable, rate-limited, malformed or other failed reads raise the classified
+authorization-unavailable error. Comment and ordinary resource receipt recovery
+use the same helper. This does not retry or replay any mutation.
+
+Native qualification passed 57 cases, zero skips/errors/failures, covering the
+new View family plus existing Entry, metadata, batch and comment recovery
+(`/tmp/core-hardening-saved-view-final.xml`). View cases include create/update
+completion loss, graph/manifest rollback on receipt failure, current revocation,
+endpoint authorization outage, changed approved inputs, named mixed-batch
+references, and an independent connection holding identity disable before the
+write. The latter passes with existing admission behavior; no new identity
+locking policy was added. Strengthened primary-storage graph-edge rollback
+assertions passed separately in both create/update cases
+(`/tmp/core-hardening-saved-view-edge-rollback.xml`).
+
+The JSON/view regression selection passed 73 cases with zero skips/errors/failures
+(`/tmp/core-hardening-view-json.xml`). The configured pre-commit framework passed
+formatting, import order, lint, the convention guard and whole-backend mypy
+(`/tmp/core-hardening-view-precommit-qualified.log`). Earlier tool-only attempts
+could not locate mypy; running the configured hooks with the qualified backend
+environment resolved that environment issue. This increment remains uncommitted
+and undeployed. A final default-selected backend gate is still required; the
+older green PR CI does not qualify this source delta.
+
+The final default-selected backend gate is running as unified exec session
+`91203`, with `TESTING=1`, `DEBUG=false`, four xdist workers and the repository's
+`make test-backend` selection. Output is in
+`/tmp/core-hardening-continuation-full.log`; JUnit will be written to
+`/tmp/core-hardening-continuation-full.xml` at completion. The session was polled
+and confirmed live after start; no terminal result is claimed here. Staged
+structural guards passed separately (`/tmp/core-hardening-continuation-guards.log`).
+Resume by polling that handle or inspecting its owning process; do not restart
+the suite merely because an observation interval expires.
+
+### Restore failure classification and independent encrypted-state recovery
+
+The restore audit reproduced a tooling defect in all three modes: a nonzero
+`pg_restore` exit could still yield script exit 0, and a drill with matching
+fixture counts even reported completion. The red client-fixture run retained
+three failures (`/tmp/core-hardening-restore-status-red.xml`). The script now
+uses `--exit-on-error` and rejects any nonzero client exit before diagnostics or
+success reporting. Drill cleanup still runs through its EXIT trap. It does not
+promise rollback of an explicit target after a failed restore.
+
+All six success/failure client-fixture cases pass after correction
+(`/tmp/core-hardening-restore-status-green.xml`, zero skips/errors/failures).
+The separate real PostgreSQL gate also passed with `INTEGRAL_TEST_RESTORE=1`
+(`/tmp/core-hardening-checkpoint-restore-final.xml`, one case, zero skips/errors/
+failures). It seeds a disposable graph, encrypted Harness message snapshot,
+encrypted Core recovery manifest and synthetic provider credential; uses the
+actual backup/restore scripts; then reads the separately restored database from
+a fresh interpreter and GraphContext. Foreign checkpoint scope returns no data,
+and a wrong key rejects both manifest and message snapshot authentication.
+The actual `--drill` mode then verifies counts and identity and removes its
+scratch database. The separately created readback copy is removed in test
+cleanup. No live runtime database or real provider credential is used.
+
+The gate is explicitly opt-in because it requires a disposable PostgreSQL
+server, Docker clients and permission to create/drop test databases. Its
+configuration and exact limits are documented in `docs/ops/DEPLOY.md`.
+Configured pre-commit formatting/import checks and backend mypy passed, and
+`bash -n scripts/pg_restore.sh` passed. These are component recovery results,
+not attachment-byte, session-invalidation, live-provider, production RPO/RTO or
+complete owner/member recovery acceptance.
+
+The existing full backend run (session `91203`) remains live. Its collection
+predates these new restore tests; the enabled restore and client-fixture runs
+above qualify those additions separately. No terminal whole-tree/backend or
+new CI result, commit, push, deployment or goal completion is claimed here.
+
+The final strengthened restore rerun passed (one case, zero skips/errors/
+failures; `/tmp/core-hardening-checkpoint-restore-cleanup.xml`). It additionally
+checks `pg_database` directly after cleanup: neither the exact generated drill
+database nor the independent readback copy remains. This replaces reliance on
+a cleanup log message as proof of removal. The staged structural guards and
+configured pre-commit checks passed on the restore increment; the final added
+assertions also pass the pinned Black hook. The full backend session `91203`
+was polled again and remains live, without a terminal result yet.
+
+### Dashboard containment perimeter and broad-gate correction
+
+The first full backend run (session `91203`) is now terminal with exit 2 from
+Make: JUnit records one failure, zero errors, 512 skips and 6,827 executed cases
+(`/tmp/core-hardening-continuation-full.xml`). The failure was the successful
+frontend-audit fixture: the isolated checkout had no `frontend/node_modules`,
+so the real gate correctly refused to run. The locked frontend dependencies
+were installed with `npm ci`, without changing tracked dependency files.
+
+The audit test itself also needed isolation. Its negative fixtures previously
+could pass on that missing-directory precondition, without exercising their
+mocked audit error documents. Frontend audit cases now copy the unchanged real
+script into a temporary repository with a fixture install directory; an
+invocation log proves the mocked `npm audit` command actually ran. The tests
+are marked pure unit cases. The real gate still requires installed dependencies.
+All six corrected audit cases pass (`/tmp/core-hardening-audit-fixture.xml`).
+
+While preparing the next command-family migration, six Dashboard scope tests
+reproduced an authorization gap (`/tmp/core-hardening-dashboard-scope-red.xml`):
+single-dashboard reads trusted scalar App attribution, and listing trusted a
+registry's hydrated children. A forged Dashboard App/workspace cache could make
+a foreign dashboard readable to the owner of the forged App; missing or extra
+catalog/registry parents also failed to deny reads.
+
+Dashboard location now uses the existing primary-record ResourceLocationWalker:
+one CATALOGS parent of type Dashboards, one matching App parent via CONTAINS,
+consistent App identity caches, and the canonical App/workspace/root path.
+Present workspace caches must agree; a legacy empty or absent denormalized
+workspace cache does not replace the named path. The projection hydrates the
+same admitted raw Dashboard record rather than a cached `Dashboard.get` result.
+Single reads, lists and default-dashboard maintenance use that projection.
+
+Listing uses 128-row storage keysets selected by scalar App attribution only
+as candidate hints, with fresh named-path validation for every result. A
+withheld last candidate still advances the internal window; storage outages
+surface unavailable rather than an empty list. Listing no longer creates or
+repairs registry/catalog nodes. Ambiguous legacy catalog links are denied;
+this change neither deletes nor automatically repairs them. This is not a
+dashboard latency benchmark or qualification of concurrent dashboard mutations.
+
+The initial Dashboard/API/service regression selection passed 50 cases. The
+final scope/audit selection passed 17 cases with zero skips/errors/failures
+(`/tmp/core-hardening-dashboard-final-targeted.xml`); nine actual graph cases
+also pass on PostgreSQL (`/tmp/core-hardening-dashboard-scope-postgres.xml`).
+Configured pre-commit lint/format/import checks, whole-backend mypy and staged
+structural guards pass (`/tmp/core-hardening-dashboard-final-precommit.log`,
+`/tmp/core-hardening-dashboard-final-guards.log`). Dashboard durable mutation
+claims/receipts are still the next command-family integration, not completed
+by this read-perimeter fix.
+
+A new sequential broad gate is live as unified exec session `64666`:
+`make test-backend` with four isolated workers and explicit TESTING/DEBUG
+settings, then `make verify-ci` only if the first command succeeds. Logs are
+`/tmp/core-hardening-continuation-corrected-full.log` and
+`/tmp/core-hardening-continuation-corrected-ci.log`; the full run writes
+`/tmp/core-hardening-continuation-corrected-full.xml`. This run includes the
+new restore and dashboard tests in collection; opt-in PostgreSQL/restore cases
+still require their separately recorded enabled gates. No terminal broad result
+or CI smoke result is claimed yet. Preserve this live run when continuing.
+
+### Dashboard command integration, event capture and effect-time View authority
+
+The earlier sequential gate (`64666`) completed successfully. Its full backend
+checkpoint has 6,845 cases, zero failures/errors and 513 skips, followed by a
+successful CI-faithful smoke command. These results are checkpoint evidence:
+the following dashboard receipt and stronger View authority changes require
+their own final broad gate.
+
+Dashboard create/update/delete now use the shared command inventory, claims and
+batch journal. A separate generic Core dashboard-command module wraps the
+existing API execution in current identity/workspace admission, canonical App
+containment recheck and the exact approved payload fence. It commits graph
+changes, encrypted minimal identity/deletion evidence and event outboxes
+together, then offers event delivery after commit. Readback returns current
+authorized content or an applied-but-withheld/deleted fact; it never reruns a
+mutation. Invalid graph-only API results travel through a shared classified
+rollback exception, preserving their error envelope rather than converting
+them into a missing-receipt failure. This is not a contract for external I/O.
+
+Eight initial native cases reproduced missing dashboard receipts and missing
+saved-View outboxes (`/tmp/core-hardening-dashboard-receipts-red.xml`). Event
+capture had its own stale command allowlist, which omitted `save_view`. It now
+uses the same canonical inventory as native dispatch and batches. Saved View
+and dashboard outboxes are offered after their graph/receipt transaction
+exits. The actual allowed Entry hook points are expressed directly for the
+four command kinds that invoke them; configuring widgets does not execute
+their queries or extension tools.
+
+The first native correction passed 21 cases. A broader 39-case diagnostic run
+found one invalid-input fixture had staged a duplicate still-pending dashboard
+proposal; the other 38 passed. The fixture now rejects its first proposal using
+the actual revoke API before staging the invalid variant. Its corrected 400
+classification/rollback case passes. These failed fixture logs remain evidence,
+not passing runs. The complete staged-command PostgreSQL selection then passed
+114 cases with zero skips/errors/failures
+(`/tmp/core-hardening-staging-all-native.xml`). This includes Entry, metadata,
+creation, deletion, uninstall, comments, saved Views and dashboards.
+
+Named dashboard references are rebuilt from private child receipts even after
+approved deletion. Three additional unit cases exposed inconsistent whitespace
+normalization in reference capture (`/tmp/core-hardening-batch-name-red.xml`).
+Capture now trims original approved name/title padding just as lookup does.
+The padded-name dashboard batch and saved-View event rollback additions passed
+their 21-case native rerun (`/tmp/core-hardening-dashboard-final-native.xml`),
+and 67 JSON dispatch regressions passed
+(`/tmp/core-hardening-dashboard-dispatch-json-final.xml`).
+
+A stronger native authority test found an additional saved-View race: workspace
+revocation could commit after the model-edit permission check but before the
+View write. The previous held-identity test covered admission before execution,
+not this interval. The new test pauses the admitted View writer and competes
+with revocation on another connection, with authorization state/indexes
+prewarmed to exclude incidental DDL blocking. It failed before the correction
+(`/tmp/core-hardening-saved-view-mid-effect-revocation-red.xml`) and passes after
+placing the entire saved-View command under the existing membership/identity
+fence with a fresh canonical Track scope recheck
+(`/tmp/core-hardening-saved-view-mid-effect-revocation-fixed.xml`). The admitted
+write now commits before that participating revocation can finish. This does
+not claim that arbitrary unguarded database edits participate in the protocol.
+Both invalid create/update View configuration cases also pass, retaining 400
+errors with graph and event rollback
+(`/tmp/core-hardening-saved-view-invalid-config.xml`).
+
+Final configured format/lint/import/mypy and staged structural guards pass
+(`/tmp/core-hardening-dashboard-receipts-qualified-hooks.log`,
+`/tmp/core-hardening-dashboard-receipts-qualified-guards.log`). The current
+whole-source qualification sequence is live as unified exec session `97511`.
+It runs artifact verification, the full native staging selection, the full
+default backend suite, CI smoke, then frontend tests sequentially, stopping
+on the first failure. Artifact verification already exited 0: both wheel builds
+are identical, SHA256
+`881530aa8af5a1388067a8d4040fc3a29704bc80e84ac4ae4d632ac59c3dbb6c`,
+and the wheel imports outside the checkout. Logs use the prefix
+`/tmp/core-hardening-final-` (`artifact`, `native`, `native-driver`, `backend`,
+`ci`, `frontend`); JUnit is recorded for native and backend. Poll this live
+handle before making new product-code edits or claiming the final gate passed.
+
+The changes remain staged and uncommitted. No push, merge or deployment is
+included in this continuation. Operational Model sub-actions, standalone View
+deletion, other executor families, extension I/O boundaries, downstream delivery
+recovery, output/deleted-history privacy and the remaining system/maintainability
+matrix are still open. In particular, integrating `save_view` does not by itself
+migrate `modify_operational_model.*` to durable command ownership.
+
+At the latest poll, session `97511` reported artifact exit 0 and native exit 0.
+The final native JUnit has 117 cases, zero skips/errors/failures
+(`/tmp/core-hardening-final-native.xml`). The same live sequence has advanced
+to the full backend stage; CI smoke and frontend follow only on success. Their
+not-yet-created logs do not establish a missing or stopped process.
+
+### Commit handoff qualification — 2026-10-15
+
+The frozen-source sequence above completed successfully before this handoff:
+
+- Reproducible artifact build and outside-source wheel import: exit 0; wheel
+  SHA256 `881530aa8af5a1388067a8d4040fc3a29704bc80e84ac4ae4d632ac59c3dbb6c`.
+- Native PostgreSQL staged-command selection: 117 passed, zero skips/failures/errors.
+- Full default backend suite: 6,335 passed, 530 skipped, zero failures/errors
+  (6,865 total JUnit cases, 1,099.359 seconds).
+- CI-faithful smoke (`TESTING=1`, `DEBUG=false`, xdist): exit 0.
+- Frontend: 319 files and 1,815 tests passed, exit 0.
+- Configured pre-commit formatting, imports, lint and mypy: passed.
+- All staged structural guards: passed.
+
+The raw local evidence uses `/tmp/core-hardening-final-` as described above;
+these temporary logs are qualification evidence, not durable deployment files.
+The separate opt-in encrypted checkpoint/credential restore rehearsal passed
+previously against the same unchanged restore implementation; the default
+backend suite intentionally skips that explicit disposable-server gate.
+
+The user authorized committing and pushing this increment to existing PR #136.
+The handoff consists of the restore correction, isolated audit-test fixtures,
+and durable View/Dashboard command and containment fixes. The earlier statements
+that these changes were uncommitted describe intermediate checkpoints. This is
+local qualification only: remote CI must be checked at the resulting pushed
+head, and no merge, redeployment, browser acceptance or full-goal completion is
+claimed. The remaining work listed above remains open.

@@ -29,6 +29,14 @@ from app.services.app_operations.transaction_scope import (
 )
 
 
+class UnappliedStagedCommand(Exception):
+    """Carry a local API refusal through rollback, never an external outcome."""
+
+    def __init__(self, result: dict[str, Any]) -> None:
+        super().__init__("Approved graph command was refused")
+        self.result = result
+
+
 class StagingExecutionRecord(Object):
     """Command-shaped receipt, never a resource grant or graph traversal node."""
 
@@ -669,23 +677,11 @@ async def apply_bound_creation_setup(
 async def capture_staging_change_event(event: dict[str, Any]) -> bool:
     """Commit staged command events on the graph store before network delivery."""
     bound = _command_execution.get()
-    if (
-        bound is None
-        or bound.claim.kind
-        not in {
-            "create_app",
-            "create_track",
-            "update_app",
-            "update_track",
-            "delete_entry",
-            "delete_track",
-            "delete_app",
-            "add_comment",
-            "edit_comment",
-            "delete_comment",
-        }
-        or not bound.effect_depth
-    ):
+    if bound is None or not bound.effect_depth:
+        return False
+    from app.agentive.services.staging_command_apply import CANONICAL_COMMAND_KINDS
+
+    if bound.claim.kind not in CANONICAL_COMMAND_KINDS:
         return False
     if bound.task is not asyncio.current_task():
         raise StagingError(
@@ -730,7 +726,7 @@ async def capture_staging_change_event(event: dict[str, Any]) -> bool:
 
 
 async def deliver_staging_command_events() -> None:
-    """Offer committed outboxes after the canonical creation transaction exits."""
+    """Offer committed outboxes after the canonical command transaction exits."""
     bound = _command_execution.get()
     if bound is None or not bound.completed:
         return
