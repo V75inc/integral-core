@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Literal, Optional, cast
 from zoneinfo import ZoneInfo
 
 from app.middleware.permissions_cache import isolated_permissions_cache
-from app.models.edges import CATALOGS, CONTAINS
+from app.models.edges import CONTAINS
 from app.models.nodes import App, Dashboard, Track
 from app.schemas.entry_aggregate import AggregateSpec
 from app.schemas.query_spec import QuerySpec
@@ -133,9 +133,9 @@ async def _get_app_or_none(app_id: str) -> Optional[App]:
 
 
 async def _list_dashboard_nodes(app: App) -> List[Dashboard]:
-    dreg = await get_or_create_dashboards_registry(app)
-    children = await dreg.nodes(edge=[CATALOGS], node=["Dashboard"])
-    return [cast(Dashboard, c) for c in children]
+    from app.services.dashboard_scope import list_scoped_app_dashboards
+
+    return await list_scoped_app_dashboards(app.id)
 
 
 async def list_dashboards(*, user_id: str, app_id: str) -> List[Dashboard]:
@@ -156,10 +156,9 @@ async def get_dashboard(
     """Return one dashboard when the caller may view it."""
     if not await can_view_app(user_id, app_id):
         return None
-    dash = await Dashboard.get(dashboard_id)
-    if not dash or dash.app_id != app_id:
-        return None
-    return dash
+    from app.services.dashboard_scope import read_scoped_dashboard
+
+    return await read_scoped_dashboard(app_id, dashboard_id)
 
 
 def _has_overlapping_widgets(widgets: List[Dict[str, Any]]) -> bool:

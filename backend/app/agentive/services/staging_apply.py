@@ -1,7 +1,7 @@
 """Shared approval dispatch and result reconciliation.
 
 Human approvals, routine reconciliation and host follow-through use this path.
-Native Entry commands recover through their durable effect receipts; the older
+Integrated resource commands recover through their durable effect receipts; the older
 executor families still run before consumption and require migration to the
 same contract. A terminal proposal decision and an applied effect are separate
 facts, and post-commit failures must retain reconciliation state.
@@ -28,29 +28,15 @@ from app.agentive.staging_executors import supports as _kind_supported
 
 
 def _durable_command_dispatch_enabled(sc: Any) -> bool:
-    """Canonical Entry receipt integration on transactional shared stores."""
+    """Canonical command receipt integration on transactional shared stores."""
+    from app.agentive.services.staging_command_apply import CANONICAL_COMMAND_KINDS
     from app.agentive.services.staging_command_batch import supports_canonical_batch
     from app.services.app_operations.transaction_scope import (
         graph_transaction_available,
     )
 
     return (
-        sc.kind
-        in {
-            "create_entry",
-            "update_entry",
-            "delete_entry",
-            "delete_track",
-            "delete_app",
-            "create_app",
-            "create_track",
-            "update_app",
-            "update_track",
-            "add_comment",
-            "edit_comment",
-            "delete_comment",
-        }
-        or supports_canonical_batch(sc)
+        sc.kind in CANONICAL_COMMAND_KINDS or supports_canonical_batch(sc)
     ) and graph_transaction_available()
 
 
