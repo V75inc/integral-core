@@ -113,4 +113,55 @@ describe('<InlineFieldEditor />', () => {
     fireEvent.click(btn);
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
   });
+
+  it('renders a multi-line value with whitespace-pre-wrap', () => {
+    const { container } = render(
+      <InlineFieldEditor
+        field={textField}
+        value={'User: hi\nAgent: hello'}
+        onCommit={vi.fn()}
+      />
+    );
+    expect(container.querySelector('.whitespace-pre-wrap')).not.toBeNull();
+  });
+
+  it('uses a textarea for a multi-line value; Enter does not commit, Cmd+Enter does', async () => {
+    const onCommit = vi.fn().mockResolvedValue(undefined);
+    render(
+      <InlineFieldEditor
+        field={textField}
+        value={'User: hi\nAgent: hello'}
+        onCommit={onCommit}
+      />
+    );
+    fireEvent.click(screen.getByRole('button'));
+    const box = screen.getByRole('textbox');
+    expect(box.tagName).toBe('TEXTAREA');
+
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(onCommit).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(box, { key: 'Enter', metaKey: true });
+    await waitFor(() => expect(onCommit).toHaveBeenCalled());
+  });
+
+  it('uses a textarea when the field is flagged multiline (even without newlines)', () => {
+    const multilineField: OperationalModelFieldSpec = {
+      key: 'history',
+      name: 'History',
+      type: 'text',
+      multiline: true,
+    };
+    render(
+      <InlineFieldEditor field={multilineField} value="one line" onCommit={vi.fn()} />
+    );
+    fireEvent.click(screen.getByRole('button'));
+    expect(screen.getByRole('textbox').tagName).toBe('TEXTAREA');
+  });
+
+  it('still uses a single-line input for ordinary text fields', () => {
+    render(<InlineFieldEditor field={textField} value="Acme Corp" onCommit={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button'));
+    expect(screen.getByRole('textbox').tagName).toBe('INPUT');
+  });
 });

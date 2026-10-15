@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Awaitable, Callable, Dict, List
+from typing import Awaitable, Callable, Dict, List
 
 from fastapi import WebSocket
 
@@ -35,7 +35,7 @@ from app.services.change_event_logger import (
     ChangeEventEnvelope,
     is_change_event_enabled,
 )
-from app.services.event_access import can_release_event, scrub_event_credentials
+from app.services.event_access import prepare_event_payload
 from app.services.policy_engine import evaluate as policy_evaluate
 from app.utils.time import utc_now_iso
 
@@ -120,36 +120,35 @@ async def broadcast_change_event(event: ChangeEventEnvelope) -> None:
         return
 
     if _subscriptions:
-        payload: Dict[str, Any] = scrub_event_credentials(event.to_wire())
-        message = json.dumps(
-            {
-                "type": "change_event",
-                "payload": payload,
-                "timestamp": utc_now_iso(),
-            }
-        )
-
         for user_id, websockets in list(_subscriptions.items()):
-            try:
-                permitted = await can_release_event(
-                    user_id,
-                    event,
-                    action="event_feed.subscribe",
-                    evaluate=policy_evaluate,
-                )
-            except Exception:
-                logger.exception(
-                    "event authorization unavailable user=%s event=%s",
-                    user_id,
-                    event.id,
-                )
-                continue
-            if not permitted:
-                continue
-
             dead: List[WebSocket] = []
-            for ws in websockets:
+            # A stalled first connection must not authorize a later connection
+            # from the same user after their grant has been revoked.
+            for ws in list(websockets):
                 try:
+                    payload = await prepare_event_payload(
+                        user_id,
+                        event,
+                        action="event_feed.subscribe",
+                        evaluate=policy_evaluate,
+                    )
+                except Exception:
+                    logger.exception(
+                        "event authorization unavailable user=%s event=%s",
+                        user_id,
+                        event.id,
+                    )
+                    continue
+                if payload is None:
+                    continue
+                try:
+                    message = json.dumps(
+                        {
+                            "type": "change_event",
+                            "payload": payload,
+                            "timestamp": utc_now_iso(),
+                        }
+                    )
                     await ws.send_text(message)
                 except Exception as e:
                     logger.warning(

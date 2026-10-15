@@ -35,6 +35,8 @@ async def _pending_write_references(
 
 
 DEFAULT_LEASE_SECONDS = work_items.DEFAULT_LEASE_SECONDS
+#: Work kinds served by the dedicated App job worker, not the main worker.
+APP_JOB_KINDS = frozenset({"app_tool"})
 HANDLED_KINDS = frozenset(
     {
         "capability",
@@ -43,6 +45,7 @@ HANDLED_KINDS = frozenset(
         "event_trigger",
         "migration",
         "app_lifecycle",
+        "app_tool",
         "chat_turn",
     }
 )
@@ -399,10 +402,12 @@ def _native_chat_transcript(
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Fold normalized provider events into the single durable chat result.
 
-    Raw provider payloads and reasoning are deliberately not accepted here;
-    the event store and transcript writer each apply their own public-field
-    allowlists before persistence.
+    Raw provider payloads and reasoning are deliberately not accepted here.
+    Reuse the event store's projection so new public usage fields survive
+    both live replay and a subsequent transcript reload.
     """
+    from app.services.chat_turn_events import normalize_public_event
+
     text = ""
     parts: list[dict[str, Any]] = []
     tool_positions: dict[str, int] = {}
@@ -444,23 +449,13 @@ def _native_chat_transcript(
         elif kind == "step":
             steps.append(
                 {
-                    key: event[key]
-                    for key in (
-                        "usage",
-                        "modelId",
-                        "provider",
-                        "providerCostUsd",
-                        "costSource",
-                        "durationMs",
-                        "outcome",
-                        "attempt",
-                        "requestId",
-                    )
-                    if key in event
+                    key: value
+                    for key, value in normalize_public_event(event).items()
+                    if key not in {"type", "name", "status"}
                 }
             )
         elif kind == "message-finish" and isinstance(event.get("timing"), dict):
-            timing = dict(event["timing"])
+            timing = dict(normalize_public_event(event)["timing"])
         elif kind == "error":
             error = {
                 "code": str(event.get("code") or "internal_error"),
@@ -806,6 +801,7 @@ async def _handle_chat_turn(
         code, message = classify_turn_exception(exc, provider=provider)
         status = "failed"
         failure = {"code": code, "message": message}
+        log.exception("Native chat worker stream failed work_item=%s", ctx.work_item_id)
 
     events = await _committed_events()
     if status == "succeeded" and any(event.get("type") == "error" for event in events):
@@ -1044,6 +1040,129 @@ async def _handle_app_lifecycle(
     )
 
 
+_MAX_JOB_OBJECT_REFS = 20
+
+
+def _job_object_refs(result: Any) -> list:
+    """``entry:<id>`` references for the records a job tool says it acted on.
+
+    A tool lists them as ``object_refs: [{"kind": "entry", "id": ...}]`` in its
+    result. They are pointers for the job list to link to; anyone following one
+    is checked against that record's own access rules.
+    """
+    refs: list = []
+    listed = result.get("object_refs") if isinstance(result, dict) else None
+    for ref in listed or []:
+        if not isinstance(ref, dict) or str(ref.get("kind") or "") != "entry":
+            continue
+        rid = str(ref.get("id") or "").strip()
+        if rid and len(rid) <= 120 and f"entry:{rid}" not in refs:
+            refs.append(f"entry:{rid}")
+        if len(refs) >= _MAX_JOB_OBJECT_REFS:
+            break
+    return refs
+
+
+async def _handle_app_tool(
+    item: WorkItem, *, worker_id: str, lease_seconds: float
+) -> WorkItem:
+    """Run one of an App's own tools as a durable background job.
+
+    The tool is re-resolved from the workspace registry at run time (the
+    registry is per process and rebuilt on boot) and must still belong to
+    the App that queued it. It runs as the queuing principal in the queuing
+    workspace, under the item's lease, and may report progress through
+    ``ToolContext.report_progress``.
+    """
+    await _recheck_principal_workspace(item)
+    payload = dict(item.input_payload or {})
+    tool_key = str(payload.get("tool_key") or "").strip()
+    bundle_slug = str(payload.get("bundle_slug") or "").strip()
+    from app.services.hooks.registry import ToolContext, get_workspace_tools
+    from app.services.hooks.tool_dispatch import run_tool
+
+    spec = get_workspace_tools(item.workspace_id).get(tool_key)
+    if spec is None:
+        # Bundles register after boot; a missing tool is usually temporary.
+        raise WorkError(
+            "work.transient_tool_unavailable", f"tool {tool_key!r} is not registered"
+        )
+    if str(spec.get("_bundle_slug") or "") != bundle_slug:
+        raise WorkError(
+            "work.policy_denied", "the tool no longer belongs to the App that queued it"
+        )
+    ctx = ToolContext(
+        user_id=item.principal_id,
+        workspace_id=item.workspace_id,
+        scope=f"job:{item.work_item_id}",
+        bundle_slug=bundle_slug,
+    )
+    ctx.job_id = item.work_item_id
+    ctx.job_lease = (item.lease_token, int(item.lease_fence or 0))
+    execution = work_execution.build_work_execution_context(
+        work_item=item,
+        logical_step_key=work_execution.logical_step_key_for(kind="app_tool"),
+    )
+
+    async def _body() -> Any:
+        # Same gate every effectful work kind passes: lease, deadline, cancel
+        # and "the App is still the version this job was queued against".
+        await work_execution.assert_effect_boundary_allowed(execution)
+        from app.api.errors import InsufficientPermissionsError
+        from app.services.workspace_tools import require_workspace_tool_access
+
+        try:
+            await require_workspace_tool_access(
+                user_id=item.principal_id, workspace_id=item.workspace_id, spec=spec
+            )
+        except InsufficientPermissionsError as exc:
+            raise WorkError("work.policy_denied", exc.message) from exc
+        return await run_tool(spec, dict(payload.get("input") or {}), ctx)
+
+    try:
+        result = await _with_supervised_heartbeat(
+            item, worker_id=worker_id, lease_seconds=lease_seconds, body=_body
+        )
+    except (WorkError, BadRequestError):
+        raise
+    except Exception as exc:  # noqa: BLE001 - an App's bug or a dropped connection
+        # Left alone this would leave the job "running" until its lease ran out.
+        # Retry with backoff; the attempt limit then dead-letters it.
+        log.exception("App job %s (%s) raised", item.work_item_id, tool_key)
+        raise WorkError(
+            "work.transient_app_tool", f"{type(exc).__name__}: {str(exc)[:300]}"
+        ) from exc
+    if isinstance(result, dict) and result.get("ok") is False:
+        reason = str(
+            result.get("reason") or result.get("error") or "the App job failed"
+        )
+        if result.get("retry"):
+            raise WorkError("work.transient_app_tool", reason)
+        return await work_items.transition_leased(
+            item.work_item_id,
+            lease_token=item.lease_token,
+            lease_fence=int(item.lease_fence or 0),
+            expected_status="running",
+            target="failed",
+            fields={
+                "failure": work_items.normalize_failure(
+                    class_="permanent",
+                    code="app_tool.failed",
+                    message=reason,
+                    retryable=False,
+                )
+            },
+        )
+    return await work_items.transition_leased(
+        item.work_item_id,
+        lease_token=item.lease_token,
+        lease_fence=int(item.lease_fence or 0),
+        expected_status="running",
+        target="succeeded",
+        fields={"result_refs": [f"app_tool:{tool_key}", *_job_object_refs(result)]},
+    )
+
+
 async def execute_claimed_work(
     item: WorkItem,
     *,
@@ -1116,6 +1235,10 @@ async def _execute_claimed_work(
             return await _handle_app_lifecycle(
                 item, worker_id=worker_id, lease_seconds=lease_seconds
             )
+        if kind == "app_tool":
+            return await _handle_app_tool(
+                item, worker_id=worker_id, lease_seconds=lease_seconds
+            )
     except BadRequestError as exc:
         # Known permanent input/lifecycle failures must terminalize. Leaving
         # status=running would let recovery reclaim the same invalid input.
@@ -1171,12 +1294,16 @@ async def process_one_due_item(
     worker_id: str = "work-worker",
     lease_seconds: float = DEFAULT_LEASE_SECONDS,
     work_item_id: Optional[str] = None,
+    kinds: Optional[frozenset[str]] = None,
+    exclude_kinds: Optional[frozenset[str]] = None,
 ) -> Optional[WorkItem]:
-    """Claim one due item (optional id) and execute it."""
+    """Claim one due item (optional id, optionally limited by kind) and execute it."""
     claimed = await work_items.claim_due_candidate(
         worker_id=worker_id,
         lease_seconds=lease_seconds,
         work_item_id=work_item_id,
+        kinds=kinds,
+        exclude_kinds=exclude_kinds,
     )
     if claimed is None:
         return None
@@ -1192,13 +1319,18 @@ async def worker_loop(
     lease_seconds: float = DEFAULT_LEASE_SECONDS,
     idle_sleep: float = 0.5,
     stop_event: Optional[asyncio.Event] = None,
+    kinds: Optional[frozenset[str]] = None,
+    exclude_kinds: Optional[frozenset[str]] = None,
 ) -> None:
     """Background poll loop. Stops when ``stop_event`` is set."""
     stop = stop_event or asyncio.Event()
     while not stop.is_set():
         try:
             result = await process_one_due_item(
-                worker_id=worker_id, lease_seconds=lease_seconds
+                worker_id=worker_id,
+                lease_seconds=lease_seconds,
+                kinds=kinds,
+                exclude_kinds=exclude_kinds,
             )
             if result is None:
                 try:

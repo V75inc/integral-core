@@ -13,6 +13,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, AsyncIterator
 
+from anyio import CancelScope
 from jvspatial.core.context import TransactionUnavailable as _JvTxnUnavailable
 from jvspatial.core.context import graph_transaction as _jv_graph_transaction
 from jvspatial.db import get_prime_database
@@ -89,6 +90,38 @@ def graph_transaction_available(database: Any | None = None) -> bool:
     )
 
 
+def current_graph_transaction_database() -> Any:
+    """Require this task's open transaction for an atomic effect receipt."""
+    active = _active_transaction.get()
+    if active is None or active.owner is not asyncio.current_task() or active.failed:
+        raise OperationTransactionUnavailable(
+            "A current task-owned transaction is required"
+        )
+    return active.handle
+
+
+@asynccontextmanager
+async def _transaction_with_shielded_lifecycle(database: Any) -> AsyncIterator[Any]:
+    """Keep ASGI disconnect cancellation out of connection acquisition/cleanup.
+
+    The caller's transaction body remains cancellable. Enter and exit run in
+    the same task so framework ContextVar tokens retain their owner; shielding
+    only these boundaries lets rollback finish before pool release.
+    """
+    manager = _jv_graph_transaction(database)
+    with CancelScope(shield=True):
+        context = await manager.__aenter__()
+    try:
+        yield context
+    except BaseException as exc:
+        with CancelScope(shield=True):
+            if not await manager.__aexit__(type(exc), exc, exc.__traceback__):
+                raise
+    else:
+        with CancelScope(shield=True):
+            await manager.__aexit__(None, None, None)
+
+
 @asynccontextmanager
 async def postgres_graph_transaction(
     database: Any | None = None,
@@ -124,7 +157,7 @@ async def postgres_graph_transaction(
     concrete = _transaction_database(bound)
     adapter = concrete
     try:
-        async with _jv_graph_transaction(adapter) as ctx:
+        async with _transaction_with_shielded_lifecycle(adapter) as ctx:
             # Discard authorization memo entries so reads inside this scope
             # observe grants written on the transaction's connection.
             reset_permissions_cache()
@@ -149,5 +182,6 @@ async def postgres_graph_transaction(
 __all__ = [
     "OperationTransactionUnavailable",
     "graph_transaction_available",
+    "current_graph_transaction_database",
     "postgres_graph_transaction",
 ]

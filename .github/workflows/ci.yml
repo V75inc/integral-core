@@ -8,13 +8,7 @@ name: CI
 
 on:
   pull_request:
-    branches:
-      - main
-      - dev
-      - ab/dev2
-      - prod
-      - codex/pr-113-staging
-      - codex/core-rc18-jvspatial-022
+    branches: [main, dev, ab/dev2, prod, codex/pr-113-staging, codex/core-rc18-jvspatial-022]
     paths:
       - "backend/**"
       - "sdk/**"
@@ -118,10 +112,8 @@ jobs:
           pytest -q --tb=short tests/contract/ -m "contract"
 
       - name: Dependency advisories (backend)
-        # uv is already installed by the step above, so this costs one
-        # pip-audit resolve. Fails only on advisories that HAVE a fix; the
-        # unfixable ecdsa/PYSEC-2026-1325 is listed with a reason in the
-        # script rather than suppressed by lowering the severity threshold.
+        # Audit the frozen production lock without vulnerability suppressions.
+        # The unused python-jose/ecdsa dependency chain has been removed.
         run: bash ../.ci/dependency_audit.sh backend
 
       - name: Run tests
@@ -185,13 +177,9 @@ jobs:
       - run: npm run build
 
       - name: Dependency advisories (frontend)
-        # Runs here because node_modules is already installed, so the marginal
-        # cost is one npm audit call. Fails only on advisories that HAVE a fix
-        # — see .ci/dependency_audit.sh for why a plain `--audit-level=high`
-        # would be permanently red (xlsx / ecdsa have no published fixes).
-        #
-        # Nothing was watching before this: 11 advisories, one of them
-        # critical, had accumulated unnoticed.
+        # Unknown high/critical findings fail even without a published fix.
+        # Reviewed build-only exceptions bind advisory, lock and remediation
+        # conditions and expire; moderate findings remain visible in the log.
         run: bash ../.ci/dependency_audit.sh frontend
         working-directory: frontend
 
@@ -246,7 +234,7 @@ jobs:
             --format requirements-txt -o /tmp/ci-requirements.txt
           uv pip install --system -r /tmp/ci-requirements.txt
 
-      - name: Postgres spike + contract lane
+      - name: Postgres spike, contract and App job authorization lane
         env:
           TESTING: "1"
           INTEGRAL_TEST_DB: postgres
@@ -255,6 +243,7 @@ jobs:
         run: |
           pytest -q --tb=short tests/spikes/ -m postgres
           pytest -q --tb=short tests/contract/ -m "contract and postgres"
+          pytest -q --tb=short tests/test_app_jobs.py tests/test_tool_context_own_bundle_workspace.py
 
   docker-build-verify:
     runs-on: ubuntu-latest

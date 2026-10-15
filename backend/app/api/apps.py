@@ -14,14 +14,6 @@ from app.api.errors import (
     ResourceNotFoundError,
 )
 from app.api.utils import export_node, public_user_view, resolve_principal_id
-from app.api.validators import (
-    validate_app_visibility_workspace,
-)
-from app.api.validators_common import (
-    compute_fold,
-    non_empty_after_strip,
-    validate_hex_color,
-)
 from app.models.edges import (
     COLLABORATES_ON,
     CONTAINS,
@@ -35,7 +27,6 @@ from app.models.nodes import (
     Tag,
     Track,
     View,
-    Workspace,
 )
 from app.schemas.policy import Resource, Subject
 from app.services.app_graph import (
@@ -77,7 +68,6 @@ from app.services.sharing import remove_collaborator as sharing_remove_collabora
 from app.services.sharing import (
     update_collaborator_role as sharing_update_collaborator_role,
 )
-from app.services.uniqueness import assert_unique
 from app.utils.time import utc_now_iso
 from app.views import operational_model_view_types as _view_type_registry
 
@@ -469,97 +459,19 @@ async def update_app(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    _decision = await policy_evaluate(
-        subject=Subject(kind="human", id=user_id),
-        action="app.update",
-        resource=Resource(kind="app", id=app_id, scope=f"app:{app_id}"),
+    from app.services.resource_metadata_update import update_app_metadata
+
+    return await update_app_metadata(
+        user_id=user_id,
+        app_id=app_id,
+        request=request,
+        name=name,
+        description=description,
+        visibility=visibility,
+        accent_color=accent_color,
+        icon=icon,
+        home=home,
     )
-    if not _decision.allowed:
-        raise InsufficientPermissionsError(message="Access denied")
-
-    sp = await App.get(app_id)
-    if not sp:
-        raise ResourceNotFoundError(message="App not found")
-
-    await require_effect_target_scope(request, user_id, sp.workspace_id)
-
-    normalized_home = None
-    if home is not None:
-        from app.services.app_home_override import validate_home_composition
-
-        try:
-            normalized_home = await validate_home_composition(
-                user_id=user_id, app_id=app_id, home=home
-            )
-        except ValueError as exc:
-            raise BadRequestError(message=str(exc)) from exc
-    prior_snapshot = await export_node(sp)  # D-03 before-snapshot
-
-    if normalized_home is not None:
-        sp.home_composition = normalized_home or None
-    if name is not None:
-        safe_name = non_empty_after_strip(name, "name")
-        if len(safe_name) > 200:
-            raise BadRequestError(message="name must be 200 characters or fewer")
-        new_fold = compute_fold(safe_name)
-        if new_fold != (getattr(sp, "name_fold", "") or ""):
-            await assert_unique(
-                App,
-                {
-                    "context.workspace_id": sp.workspace_id,
-                    "context.name_fold": new_fold,
-                },
-                entity="app",
-                field_label="name",
-                value=safe_name,
-                scope_label="in this workspace",
-                exclude_id=sp.id,
-            )
-        sp.name = safe_name
-        sp.name_fold = new_fold
-    if description is not None:
-        sp.description = description
-    if icon is not None:
-        from app.services.app_identity import validate_app_icon
-
-        sp.icon = validate_app_icon(icon)
-    if accent_color is not None:
-        sp.accent_color = validate_hex_color(accent_color, allow_empty=True)
-    if visibility is not None:
-        v = visibility.strip()
-        if v == "inherit":
-            from app.services.workspace_kind import workspace_is_collaborative
-
-            workspace_id = sp.workspace_id
-            ws = await Workspace.get(workspace_id) if workspace_id else None
-            sp.visibility = "workspace" if workspace_is_collaborative(ws) else "private"
-        else:
-            if v not in ("private", "workspace", "public"):
-                raise BadRequestError(
-                    message="visibility must be private, workspace, public, or inherit",
-                )
-            sp.visibility = v
-    vis = getattr(sp, "visibility", None) or "private"
-    await validate_app_visibility_workspace(vis, sp.workspace_id)
-    sp.updated_at = utc_now_iso()
-    await sp.save()
-
-    # D-05 single emission path. Sync inline emit before HTTP response (D-06).
-    await emit_change_event(
-        actor_kind="human",
-        actor_id=user_id,
-        action="app.update",
-        resource_type="App",
-        resource_id=sp.id,
-        before=prior_snapshot,
-        after=await export_node(sp),
-        scope=f"app:{sp.id}",
-    )
-
-    return {
-        "app": await export_node(sp),
-        "message": "App updated successfully",
-    }
 
 
 @endpoint("/apps/{app_id}", methods=["DELETE"], auth=True, tags=["Apps"])
@@ -606,17 +518,26 @@ async def delete_app(request: Request, app_id: str) -> Dict[str, Any]:
         sp, actor_user_id=user_id
     )
 
-    # D-05 single emission path. Sync inline emit before HTTP response (D-06).
-    await emit_change_event(
-        actor_kind="human",
-        actor_id=user_id,
-        action="app.delete",
-        resource_type="App",
-        resource_id=app_id,
-        before=prior_snapshot,
-        after=None,
-        scope=f"app:{app_id}",
+    from app.agentive.services.staging_execution import (
+        deliver_staging_command_events,
+        staged_command_completed,
     )
+
+    if not staged_command_completed("delete_app"):
+        # D-05 single emission path. Sync inline emit before HTTP response (D-06).
+        await emit_change_event(
+            actor_kind="human",
+            actor_id=user_id,
+            action="app.delete",
+            resource_type="App",
+            resource_id=app_id,
+            before=prior_snapshot,
+            after=None,
+            scope=f"app:{app_id}",
+        )
+
+    else:
+        await deliver_staging_command_events()
 
     return {
         "message": "App deleted successfully",

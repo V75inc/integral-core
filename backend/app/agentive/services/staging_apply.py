@@ -1,11 +1,10 @@
-"""Bless → dispatch → consume: the shared "approve and apply now" sequence.
+"""Shared approval dispatch and result reconciliation.
 
-Extracted from ``bless_token_endpoint`` (``app/agentive/api/staging.py``) so
-the FE "Approve" button and the ``routine_task_scheduler`` background loop's
-write-scope reconciliation (auto-applying a pre-approved staged change on a
-routine run) share ONE apply path instead of two copies drifting apart. Pure
-extract-function — no behavior change versus the original inline endpoint
-logic.
+Human approvals, routine reconciliation and host follow-through use this path.
+Integrated resource commands recover through their durable effect receipts; the older
+executor families still run before consumption and require migration to the
+same contract. A terminal proposal decision and an applied effect are separate
+facts, and post-commit failures must retain reconciliation state.
 """
 
 from __future__ import annotations
@@ -26,6 +25,19 @@ from app.agentive.staging_executors import (
     dispatch_under_request_scope as _dispatch_kind,
 )
 from app.agentive.staging_executors import supports as _kind_supported
+
+
+def _durable_command_dispatch_enabled(sc: Any) -> bool:
+    """Canonical command receipt integration on transactional shared stores."""
+    from app.agentive.services.staging_command_apply import CANONICAL_COMMAND_KINDS
+    from app.agentive.services.staging_command_batch import supports_canonical_batch
+    from app.services.app_operations.transaction_scope import (
+        graph_transaction_available,
+    )
+
+    return (
+        sc.kind in CANONICAL_COMMAND_KINDS or supports_canonical_batch(sc)
+    ) and graph_transaction_available()
 
 
 async def _maybe_decide_linked_work_approval(
@@ -145,6 +157,22 @@ async def execute_blessed_change(
             f"Token is not blessed (state={sc.state!r})",
         )
 
+    if (sc.last_error or {}).get("application_state") == "reconciliation_required":
+        from app.agentive.services.staging_command_apply import (
+            has_applied_command_receipt,
+        )
+
+        if not (
+            _durable_command_dispatch_enabled(sc)
+            and await has_applied_command_receipt(sc, request)
+        ):
+            raise StagingError(
+                "application_reconciliation_required",
+                "Execution already returned successfully, but completion could not be "
+                "recorded. Reconcile the saved result before retrying; do not execute "
+                "this approved change again.",
+            )
+
     response: Dict[str, Any] = {
         "ok": True,
         "staged_change": sc.to_dict(),
@@ -175,8 +203,9 @@ async def execute_blessed_change(
         thread_id=thread_id,
         message_id=message_id,
     )
-    try:
-        result = await _dispatch_kind(
+
+    async def execute() -> Dict[str, Any]:
+        return await _dispatch_kind(
             request=request,
             user_id=user_id,
             kind=sc.kind,
@@ -185,6 +214,40 @@ async def execute_blessed_change(
             # the caller's context resolves to — see bless_token_endpoint.
             preferred_workspace_id=sc.workspace_id,
         )
+
+    try:
+        if _durable_command_dispatch_enabled(sc):
+            if sc.kind == "batch":
+                from app.agentive.services.staging_command_batch import (
+                    apply_command_batch_once,
+                )
+
+                result = await apply_command_batch_once(sc=sc, request=request)
+            else:
+                from app.agentive.services.staging_command_apply import (
+                    apply_staged_command_once,
+                )
+
+                result = await apply_staged_command_once(
+                    sc=sc, request=request, execute=execute
+                )
+        else:
+            result = await execute()
+    except StagingError as exc:
+        if exc.code in {
+            "external_outcome_reconciliation_required",
+            "application_reconciliation_required",
+        }:
+            await record_execute_outcome(
+                token=token,
+                error={
+                    "error_code": exc.code,
+                    "message": str(exc),
+                    "application_state": "reconciliation_required",
+                },
+            )
+        await release_execution_claim(token)
+        raise
     except BaseException:
         await release_execution_claim(token)
         raise
@@ -230,6 +293,9 @@ async def execute_blessed_change(
             # Consume clears the execution claim.
             await consume_token(user_id=user_id, token=token, expected_kind=sc.kind)
             response["consumed"] = True
+            # A rehydrated cache may hold another instance of this proposal.
+            # Serialize the instance actually transitioned by consume_token.
+            sc = await get_token(token) or sc
             # The initial envelope was made while the decision was merely
             # blessed. Refresh it after consumption so callers receive one
             # authoritative state instead of "approved" alongside a separate
@@ -256,8 +322,49 @@ async def execute_blessed_change(
                     result["preserve_filed"] = follow
                     response["execute_result"] = result
         except StagingError as exc:
+            if exc.code == "already_consumed" and _durable_command_dispatch_enabled(sc):
+                from app.agentive import staging_store
+                from app.agentive.services.staging_command_apply import (
+                    has_applied_command_receipt,
+                )
+
+                marker = await staging_store.load_decision_state(token, user_id)
+                if (
+                    marker is not None
+                    and marker["state"] == "consumed"
+                    and marker["kind"] == sc.kind
+                    and await has_applied_command_receipt(sc, request)
+                ):
+                    # Another admitted worker already reconciled this exact
+                    # effect. Terminal readback is success, not an unknown write.
+                    response["consumed"] = True
+                    response["staged_change"] = marker
+                    await release_execution_claim(token)
+                    return response
+            # The executor succeeded. A completion/receipt failure is not a
+            # refused write and must never invite another executor invocation.
+            message = (
+                "Execution returned successfully, but completion could not be "
+                "recorded. Reconcile its saved result before retrying; do not "
+                "approve or execute this change again."
+            )
+            response["ok"] = False
+            response["error_code"] = "application_reconciliation_required"
+            response["message"] = message
+            response["application_state"] = "reconciliation_required"
             response["consume_warning"] = {"error_code": exc.code, "message": str(exc)}
+            await record_execute_outcome(
+                token=token,
+                error={
+                    "error_code": "application_reconciliation_required",
+                    "message": message,
+                    "application_state": "reconciliation_required",
+                    "completion_error_code": exc.code,
+                },
+            )
+            response["staged_change"] = sc.to_dict()
             await release_execution_claim(token)
+            return response
         # A retry that lands clears any earlier explanation.
         await record_execute_outcome(token=token, error=None)
     else:
@@ -272,6 +379,11 @@ async def execute_blessed_change(
                 "message": _failure_message(result),
                 "error_code": result.get("error_code"),
                 "status_code": result.get("status_code"),
+                **(
+                    {"application_state": result["application_state"]}
+                    if result.get("application_state")
+                    else {}
+                ),
             },
         )
 

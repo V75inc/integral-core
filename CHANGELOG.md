@@ -6,6 +6,39 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Preserve JSON array order and primitive types when saving entry edits, while
+  normalizing representations only for fields with a known non-JSON type.
+  Optional select fields can be cleared with None; required and read-only
+  fields retain their restrictions.
+- Require signed service authentication on MCP paths, including nested URLs;
+  only the exact system uplink routes retain their signature exemptions.
+
+- New Apps and Tracks default to Private, including catalog, anchored and scratch Tracks. App visibility offers Private, Workspace and Public; App Inherit is removed and rejected by the API. Explicit authorized sharing remains available; saved access settings are preserved. Agent creation schemas now use the canonical Workspace spelling.
+
+- Retry recoverable model failures up to three total attempts with inline retry
+  progress, distinct attempt accounting and fresh admission; never restart a
+  complete agent run or replay already delivered output.
+- Continue completed conversations safely after uncertain earlier model attempts
+  by checking original tool receipts while preserving unknown billing evidence.
+- Add native approval claims, atomic effect receipts and recovery for App/Track/
+  Entry mutations and identified comments; retain reconciliation for unresolved
+  effects and explicit single-process limits for local adapters.
+- Bind audit/event history to current workspace authority with bounded keyset
+  windows and per-recipient snapshot filtering, and recheck stream release access.
+
+- Background jobs for Apps: `ToolContext.enqueue_job`, `report_progress` and
+  `job_status` run an App's own tool as a durable, resumable work item (kind
+  `app_tool`) as the person who queued it, with progress and results shown in
+  background tasks. App jobs run on their own in-process loop; the supported
+  `WORKERS` baseline is unchanged. See `docs/platform/background-app-jobs.md`
+  and ADR 014.
+
+- Scheduled tools: a tool may declare `schedule` (cron, optional timezone) and
+  Core queues it once per due slot as the App's installing person.
+
+- A generic `region-system/processing-status` region and an optional
+  `min_height` for App extension views.
+
 - Compact message debug request context by omitting empty optional session/focus
   fields and identical page-context focus duplicates; retain diagnostic evidence.
 
@@ -22,6 +55,13 @@ bump does not establish that a release is available on a package index.
 
 ### Fixed
 
+- Recheck current workspace membership and privileged-tool authority when App
+  jobs are queued and on every execution attempt. Apply canonical work observer
+  authorization to App job status so members cannot inspect another member's
+  progress, failure details or result references.
+
+- A bundle tool that updates its own App's records now resolves the App in the
+  workspace where it is installed, not only in the caller's personal workspace.
 - Keep ad-hoc Track relation identity stable through display renames, including
   bounded recovery from retained creation snapshots for legacy Tracks.
 - Give passive agent polling and approval actions independent bounded rate

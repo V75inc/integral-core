@@ -1788,7 +1788,7 @@ async def jwt_for_test_user(test_user, auth_token):
 
     # Direct-encode fallback — mirrors jvspatial auth JWT shape (user_id claim).
     try:
-        from jose import jwt as jose_jwt
+        import jwt as fixture_jwt
 
         from app.config import settings
 
@@ -1797,7 +1797,7 @@ async def jwt_for_test_user(test_user, auth_token):
         )
         if not auth_user_id:
             return None
-        return jose_jwt.encode(
+        return fixture_jwt.encode(
             {"user_id": auth_user_id, "email": "test@example.com"},
             settings.SECRET_KEY,
             algorithm=settings.ALGORITHM,
@@ -1817,7 +1817,7 @@ async def jwt_for_second_user(second_user, auth_token2):
         return auth_token2
 
     try:
-        from jose import jwt as jose_jwt
+        import jwt as fixture_jwt
 
         from app.config import settings
 
@@ -1828,7 +1828,7 @@ async def jwt_for_second_user(second_user, auth_token2):
         )
         if not auth_user_id:
             return None
-        return jose_jwt.encode(
+        return fixture_jwt.encode(
             {"user_id": auth_user_id, "email": "test2@example.com"},
             settings.SECRET_KEY,
             algorithm=settings.ALGORITHM,

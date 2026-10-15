@@ -31,9 +31,10 @@ Core-only mode and an empty App catalog do not disable agentive boot. `AGENTIVE_
 
 | Setting | Default | Purpose |
 |---|---|---|
-| `INTEGRAL_NATIVE_DURABLE_CHAT_ENABLED` | false | Durable native dispatch/replay/recovery rollout |
+| `INTEGRAL_NATIVE_DURABLE_CHAT_ENABLED` | true | Durable native dispatch/replay/recovery; requires PostgreSQL transaction support. Set false only to opt into legacy request-bound turns. |
 | `INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS` | 900 | Accepted turn deadline |
-| `INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS` | 180 | Individual provider request ceiling |
+| `INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS` | 180 | Individual provider request ceiling, including initial stream output |
+| `INTEGRAL_NATIVE_MODEL_MAX_ATTEMPTS` | 3 | Total model attempts including the initial request (1–3); transient failures before output only |
 | `INTEGRAL_NATIVE_TURN_TOKEN_LIMIT` | 1200000 | Aggregate turn token ceiling |
 | `INTEGRAL_NATIVE_TURN_REQUEST_LIMIT` | 20 | Model requests per turn |
 | `INTEGRAL_HARNESS_SESSION_RETENTION_DAYS` | 90 | Terminal private execution-record retention |
@@ -99,3 +100,21 @@ message. Known outbound SDK authentication, connection, timeout, quota and model
 errors produce specific safe messages. Core persistence and authority errors
 remain distinct. These diagnostics neither expose provider secrets nor replay
 uncertain model requests; existing reconciliation and accounting apply.
+
+
+### Native model retries
+
+The default allows three total physical attempts for a transient provider failure
+or an empty reply before output is released. Backoff is 0.5 and 1 second. The chat
+shows `Retrying · 2 of 3` / `Retrying · 3 of 3`, then resumes its normal activity.
+A retry stays within the same run and repeats only that model request; it does
+not restart the agent or replay completed tools. Each attempt has a distinct
+request identity, durable dispatch/outcome observations and fresh model admission
+where the run uses Work admission. Unknown provider billing outcomes remain
+unknown and may retain funding holds; retries are not guaranteed to be free.
+
+Authentication, permission, context limits, admission/storage failures and user
+cancellation are not retried. Once text, reasoning or tool output has started,
+a later stream failure is surfaced rather than replayed. The existing overall
+turn budget still applies. Set the attempt limit to `1` to disable automatic
+model retries. This mechanism does not resubmit an entire failed chat HTTP turn.

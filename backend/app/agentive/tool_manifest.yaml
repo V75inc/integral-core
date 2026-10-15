@@ -217,10 +217,10 @@ domains:
         op_class: read
         priority: P0
         summary: "Return the acting user id, active workspace (id/name/kind), and role summary — the bound context the agent reasons within. Never reveals other workspaces' contents."
-        http: "GET /api/users/me/scope"
+        http: "(bound execution context)"
         policy_action: null   # self-scoped; no resource gate beyond authn
         params: {}
-        returns: { user_id: str, workspace: {id: str, name: str, kind: "personal|organization"}, can_create_apps: bool, can_create_tracks: bool }
+        returns: { user_id: str, workspace: {id: str, name: str, kind: "personal|organization"}, role: str, can_create_apps: bool, can_create_tracks: bool }
         privacy: "Self + active-scope only. PC-1, PC-2."
       - name: integral_get_page_context
         status: existing
@@ -1992,7 +1992,7 @@ domains:
           Create a new track (a table for records) in the active workspace, optionally
           inside a specific app. Use when the user wants a new place to hold a kind of
           content ("make a Contacts track", "create a Bugs track in the Eng app").
-          Default visibility is 'private' — only request 'org' or 'public' when the
+          Default visibility is 'private' — only request 'workspace' or 'public' when the
           user explicitly asks. To create a track INSIDE a specific app, you may use
           this with app_id or the dedicated integral_create_app_track. This STAGES the
           create the user approves in Integral — there is no separate execute step.
@@ -2002,7 +2002,7 @@ domains:
         params:
           name: {type: string, required: true, desc: "Title of the new track."}
           app_id: {type: string, optional: true, desc: "Attach the track to this app (from integral_list_apps). Omit to create it at workspace level."}
-          visibility: {type: string, optional: true, enum: [private, org, public], desc: "Access scope (default 'private'). Only set 'org'/'public' when the user explicitly asks."}
+          visibility: {type: string, optional: true, enum: [private, workspace, public], desc: "Access scope (default 'private'). Only set 'workspace'/'public' when the user explicitly asks."}
           description: {type: string, optional: true, desc: "Optional descriptive blurb / purpose for the track."}
           entry_types: {type: array, optional: true, items: {type: object}, desc: "PREFERRED for a custom track — its structured entry types, materialized onto the track so its '+New' form shows the fields (NOT the generic title/detail). SAME shape as integral_author_model: [{name: 'Training Record', icon?: 'document', fields: [{key: 'employee_name', name: 'Employee name', type: 'text'}, {key: 'status', name: 'Status', type: 'select', enum: ['not_started','completed']}, {key: 'due', name: 'Due', type: 'date'}]}]. Pass this instead of authoring a separate library Operational Model when building a custom track from field specs. Omit only when applying a library package via integral_apply_model_to_track."}
         returns: { staged_token: str, preview: object }
@@ -2033,7 +2033,7 @@ domains:
         params:
           name: {type: string, required: true, desc: "Name of the new app."}
           description: {type: string, optional: true, desc: "Optional short description of what the app is for."}
-          visibility: {type: string, optional: true, enum: [private, org, public], desc: "Access scope (default 'private'). Only set 'org'/'public' when the user explicitly asks."}
+          visibility: {type: string, optional: true, enum: [private, workspace, public], desc: "Access scope (default 'private'). Only set 'workspace'/'public' when the user explicitly asks."}
         returns: { staged_token: str, preview: object }
       - name: integral_create_app_track
         status: existing
@@ -2044,7 +2044,7 @@ domains:
           the user wants a track that belongs to a known app ("add a Leads track to
           the CRM app"). It is integral_create_track with the parent app fixed up
           front — prefer it when the destination app is known. Default visibility is
-          'private'; only set 'org'/'public' when the user explicitly asks. This
+          'private'; only set 'workspace'/'public' when the user explicitly asks. This
           STAGES the create the user approves in Integral — there is no separate
           execute step.
         http: "POST /api/tracks (app-scoped)"
@@ -2053,7 +2053,7 @@ domains:
         params:
           app_id: {type: string, required: true, desc: "Identifier of the app to create the track inside (from integral_list_apps)."}
           name: {type: string, required: true, desc: "Title of the new track."}
-          visibility: {type: string, optional: true, enum: [private, org, public], desc: "Access scope (default 'private'). Only set 'org'/'public' when the user explicitly asks."}
+          visibility: {type: string, optional: true, enum: [private, workspace, public], desc: "Access scope (default 'private'). Only set 'workspace'/'public' when the user explicitly asks."}
           description: {type: string, optional: true, desc: "Optional descriptive blurb / purpose for the track."}
           entry_types: {type: array, optional: true, items: {type: object}, desc: "PREFERRED for a custom track — its structured entry types, materialized onto the track so its '+New' form shows the fields (NOT the generic title/detail). SAME shape as integral_author_model: [{name: 'Training Record', icon?: 'document', fields: [{key: 'employee_name', name: 'Employee name', type: 'text'}, {key: 'status', name: 'Status', type: 'select', enum: ['not_started','completed']}, {key: 'due', name: 'Due', type: 'date'}]}]. Pass this instead of authoring a separate library Operational Model when building a custom track from field specs. Omit only when applying a library package via integral_apply_model_to_track."}
           taxonomy: {type: object, optional: true, desc: "Optional tag vocabulary created with the track: {tag_groups: [{name: 'Priority', tags: ['Urgent', 'Routine']}]}. A tag may be {name, color?, parent?} where parent names an earlier tag of the same group. Tag names are unique per track. Use tags for cross-cutting classification and a select field for workflow state."}

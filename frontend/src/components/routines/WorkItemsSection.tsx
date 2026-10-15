@@ -14,6 +14,28 @@ const statusLabels: Record<string, string> = {
   dead_letter: 'Needs attention',
 };
 
+function workTitle(item: WorkItemStatusResponse): string {
+  if (item.kind === 'app_lifecycle') return operationLabels[item.operation ?? ''] ?? 'App lifecycle';
+  if (item.kind === 'app_tool') return item.label || 'App job';
+  return item.kind.replace(/_/g, ' ');
+}
+
+function workProgress(item: WorkItemStatusResponse) {
+  const progress = item.progress;
+  if (!progress || terminal.has(item.status)) return null;
+  const { done, total, label } = progress;
+  const pct = typeof done === 'number' && typeof total === 'number' && total > 0
+    ? Math.min(100, Math.max(0, Math.round((done / total) * 100))) : null;
+  if (!label && pct === null) return null;
+  return <div className="space-y-1.5">
+    {label && <Text as="p" variant="body-sm" tone="muted">{label}</Text>}
+    {pct !== null && <Surface tone="panel-2" radius="pill" className="h-1.5 overflow-hidden" role="progressbar"
+      aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label="Progress">
+      <div className="h-full rounded-full bg-[var(--brand-accent)]" style={{ width: `${pct}%` }} />
+    </Surface>}
+  </div>;
+}
+
 /** Workspace-keyed by the parent; superseded requests never publish old state. */
 export function WorkItemsSection({ workspaceId }: { workspaceId: string }) {
   const [items, setItems] = useState<WorkItemStatusResponse[]>([]);
@@ -76,8 +98,9 @@ export function WorkItemsSection({ workspaceId }: { workspaceId: string }) {
       {!loading && !error && items.length === 0 && <Text as="p" tone="muted" variant="body-sm">No workspace work yet.</Text>}
       <div className="space-y-3">
         {items.map(item => <Surface key={item.work_item_id} tone="panel" border="subtle" radius="card" className="min-w-0 space-y-3 p-4">
-          <Text as="h3" weight="medium">{item.kind === 'app_lifecycle' ? (operationLabels[item.operation ?? ''] ?? 'App lifecycle') : item.kind.replace(/_/g, ' ')} · {statusLabels[item.status] ?? item.status}</Text>
+          <Text as="h3" weight="medium">{workTitle(item)} · {statusLabels[item.status] ?? item.status}</Text>
           <Text as="p" variant="meta" tone="subtle">Updated {formatRelativeTime(item.updated_at)} · Attempt {item.attempt}</Text>
+          {workProgress(item)}
 
           {item.failure && <Text as="p" tone="danger">{item.failure.message || item.failure.code}</Text>}
           {item.next_attempt_at && item.status === 'retry_wait' && <Text as="p" variant="meta">Next attempt: {item.next_attempt_at}</Text>}

@@ -317,7 +317,7 @@ async def register_skill(
     return skill
 
 
-async def unregister_skills_for_app(app_id: str) -> int:
+async def unregister_skills_for_app(app_id: str, *, strict: bool = False) -> int:
     """Delete every Skill owned by an App. Returns count.
 
     Plan 10-05's uninstall lifecycle calls this as the inverse of install
@@ -338,6 +338,8 @@ async def unregister_skills_for_app(app_id: str) -> int:
         try:
             await sk.delete(cascade=False)
         except Exception as e:  # pragma: no cover — defensive
+            if strict:
+                raise
             logger.warning(
                 "skill_registry: failed to delete Skill %s: %s",
                 getattr(sk, "id", "<unknown>"),

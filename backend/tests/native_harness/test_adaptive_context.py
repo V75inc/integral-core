@@ -107,7 +107,7 @@ async def test_escalation_is_typed_output_without_tool_effect(text):
                 parts=[
                     ToolCallPart(
                         "request_operational_context",
-                        {"reason": "needs current scoped context"},
+                        {},
                         "escalate",
                     )
                 ]
@@ -177,7 +177,9 @@ async def setup_turn(monkeypatch, *, escalation=False, origin="http"):
             ModelResponse(
                 parts=[
                     ToolCallPart(
-                        "request_operational_context", {"reason": "records"}, "e"
+                        "request_operational_context",
+                        {"reason": "needs current scoped context " * 20},
+                        "e",
                     )
                 ]
             )
@@ -324,6 +326,18 @@ async def test_full_light_stream_finishes_without_session_update_or_title_model(
     assert [e["type"] for e in events] == ["text-delta", "message-finish"]
     assert events[-1]["contextMode"] == "conversation"
     assert len(calls) == 1
+    # Exercise the actual producer through the durable boundary. The light
+    # completion timing previously caused every successful answer to fail here.
+    from app.agentive.services.work_worker import _native_chat_transcript
+    from app.services.chat_turn_events import normalize_public_event
+    from app.services.chat_turn_transcript import _public_metadata
+
+    replay = [normalize_public_event(event) for event in events]
+    assert replay == events
+    parts, metadata = _native_chat_transcript(replay)
+    assert parts == [{"type": "text", "text": "Hello!"}]
+    assert metadata["timing"]["modelPassMs"] >= 0
+    assert _public_metadata(metadata)["timing"] == metadata["timing"]
 
 
 @pytest.mark.asyncio

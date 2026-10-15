@@ -33,8 +33,8 @@ import { entryTypesForTrackQueryKey, invalidateFeedCaches } from '../../queryKey
 import {
   FEED_CARD_BODY_PREVIEW_CHARS,
   FEED_CARD_TITLE_CLAMP_CHARS,
-  slugEntryTypeName,
-  sortFieldsByOrder
+  resolveEntryProfileFields,
+  slugEntryTypeName
 } from '../../utils/entryMetaFields';
 import { appPath } from '../../utils/resourcePaths';
 import { useAuth } from '../../context/AuthContext';
@@ -239,14 +239,7 @@ function EntryCardInner({
   });
 
   const profileFields = useMemo((): OperationalModelFieldSpec[] => {
-    if (!entryTypes.length) return [];
-    const match = entryTypes.find(
-      et =>
-        slugEntryTypeName(String(et.name || '')) === slugEntryTypeName(String(entry.type || ''))
-    );
-    return sortFieldsByOrder(
-      (match?.form_schema?.fields || []) as OperationalModelFieldSpec[]
-    );
+    return resolveEntryProfileFields(entryTypes, entry.type);
   }, [entryTypes, entry.type]);
 
   const mayNeedClamp =

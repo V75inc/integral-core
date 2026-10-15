@@ -23,7 +23,7 @@ from app.services.workspace_permissions import collect_org_workspace_staff_inven
 
 
 async def _org_workspace_with_inventory(
-    *, owner: User, visibility: str = "private"
+    *, owner: User, visibility: str = "private", nested_visibility: str = "private"
 ) -> tuple[Workspace, App, Track, Track]:
     """Org workspace with one app, one app-nested track, one standalone track."""
     now = datetime.now().isoformat()
@@ -60,6 +60,7 @@ async def _org_workspace_with_inventory(
     nested = await Track.create(
         title="Nested Track",
         title_fold="nested track",
+        visibility=nested_visibility,
         owner_id=owner.id,
         workspace_id=ws.id,
         created_at=now,
@@ -98,7 +99,7 @@ async def test_workspace_admin_sees_full_inventory_without_collaborator_edges():
     await ensure_integral_app_graph(include_library=False)
     owner = await User.create(user_id="staff_owner2", display_name="Owner")
     ws, app, nested, standalone = await _org_workspace_with_inventory(
-        owner=owner, visibility="workspace"
+        owner=owner, visibility="workspace", nested_visibility="workspace"
     )
 
     admin = await User.create(user_id="staff_admin", display_name="Admin")
@@ -221,7 +222,7 @@ async def test_workspace_admin_implicit_role_is_commenter_on_inventory_resources
     await ensure_integral_app_graph(include_library=False)
     owner = await User.create(user_id="staff_owner5", display_name="Owner")
     ws, app, nested, standalone = await _org_workspace_with_inventory(
-        owner=owner, visibility="workspace"
+        owner=owner, visibility="workspace", nested_visibility="workspace"
     )
 
     admin = await User.create(user_id="staff_admin5", display_name="Admin")
@@ -273,3 +274,21 @@ async def test_invited_admin_cannot_open_private_app_without_a_direct_grant():
 
     await admin.connect(private_app, edge=COLLABORATES_ON, role="editor")
     assert await resolve_role(admin.id, "app", private_app.id) == "editor"
+
+
+@pytest.mark.asyncio
+async def test_shared_app_does_not_expose_new_private_track_to_admin():
+    """Workspace-wide App access does not change a child Track's default."""
+    await ensure_integral_app_graph(include_library=False)
+    owner = await User.create(user_id="private_track_owner", display_name="Owner")
+    ws, app, nested, standalone = await _org_workspace_with_inventory(
+        owner=owner, visibility="workspace"
+    )
+    assert nested.visibility == "private"
+    admin = await User.create(user_id="private_track_admin", display_name="Admin")
+    await admin.connect(ws, edge=IS_MEMBER_OF, role="admin")
+    assert await resolve_role(admin.id, "app", app.id) == "commenter"
+    assert await resolve_role(admin.id, "track", nested.id) is None
+    assert {track.id for track in await get_user_accessible_tracks(admin.id)} == {
+        standalone.id
+    }

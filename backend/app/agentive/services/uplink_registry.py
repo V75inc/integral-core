@@ -447,7 +447,7 @@ async def _materialize_default_schedule(
     return routine.id
 
 
-async def _remove_materialized_schedules(app_id: str) -> int:
+async def _remove_materialized_schedules(app_id: str, *, strict: bool = False) -> int:
     """Drop every RoutineTask materialized from ``app_id``'s bundle schedules."""
     from app.agentive.nodes import RoutineTask
 
@@ -456,6 +456,8 @@ async def _remove_materialized_schedules(app_id: str) -> int:
     try:
         routines = await RoutineTask.find({"source_app_id": app_id})
     except Exception:  # noqa: BLE001
+        if strict:
+            raise
         return 0
     count = 0
     for r in routines:
@@ -463,6 +465,8 @@ async def _remove_materialized_schedules(app_id: str) -> int:
             await r.delete(cascade=False)
             count += 1
         except Exception as e:  # noqa: BLE001
+            if strict:
+                raise
             logger.warning(
                 "unregister_app_agents_for_app: failed to delete RoutineTask %s: %s",
                 getattr(r, "id", "<unknown>"),
@@ -697,7 +701,9 @@ async def register_app_agent(
     return cfg
 
 
-async def unregister_app_agents_for_app(app_id: str) -> int:
+async def unregister_app_agents_for_app(
+    app_id: str, *, strict: bool = False, defer_local: bool = False
+) -> int:
     """Delete every AgentConfig with ``app_id == <App.id>``. Returns count.
 
     Plan 10-05's uninstall lifecycle calls this as the inverse of install
@@ -712,20 +718,23 @@ async def unregister_app_agents_for_app(app_id: str) -> int:
     count = 0
     for cfg in matches:
         cfg_id = getattr(cfg, "id", "")
-        try:
-            await uplink_registry.unregister(cfg_id)
-        except Exception as e:  # pragma: no cover — defensive
-            logger.warning(
-                "unregister_app_agents_for_app: in-memory unregister failed "
-                "for %s: %s",
-                cfg_id,
-                e,
-            )
+        if not defer_local:
+            try:
+                await uplink_registry.unregister(cfg_id)
+            except Exception as e:  # pragma: no cover — defensive
+                logger.warning(
+                    "unregister_app_agents_for_app: in-memory unregister failed "
+                    "for %s: %s",
+                    cfg_id,
+                    e,
+                )
         # jvspatial 0.0.17 has no ``Node.destroy``; cascade=False drops only
         # the AgentConfig and its incoming attachment edge.
         try:
             await cfg.delete(cascade=False)
         except Exception as e:  # pragma: no cover — defensive
+            if strict:
+                raise
             logger.warning(
                 "unregister_app_agents_for_app: failed to delete " "AgentConfig %s: %s",
                 cfg_id,
@@ -733,7 +742,7 @@ async def unregister_app_agents_for_app(app_id: str) -> int:
             )
             continue
         count += 1
-    removed_routines = await _remove_materialized_schedules(app_id)
+    removed_routines = await _remove_materialized_schedules(app_id, strict=strict)
     if removed_routines:
         logger.info(
             "unregister_app_agents_for_app: removed %d materialized schedule "

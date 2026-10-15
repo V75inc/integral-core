@@ -49,12 +49,12 @@ async def test_stream_emits_committed_ids_and_settles_only_after_terminal_commit
     assert b"turn-settled" in frames[2]
     assert b'"status": "succeeded"' in frames[2]
     assert replay.await_args_list[1].kwargs["after_sequence"] == 3
-    assert scope.await_count == 2
+    assert scope.await_count == 5
 
 
 @pytest.mark.asyncio
 async def test_scope_revocation_prevents_next_committed_page(monkeypatch):
-    scope = AsyncMock(side_effect=[None, PermissionError("revoked")])
+    scope = AsyncMock(side_effect=[None, None, PermissionError("revoked")])
     replay = AsyncMock(
         return_value=ChatEventReplayPage(
             events=[{"sequence": 1, "type": "text-delta", "delta": "Allowed"}],
@@ -116,3 +116,44 @@ async def test_terminal_without_provider_output_is_not_success(monkeypatch, stat
     frames = b"".join([part async for part in stream()])
     assert b"event: error" in frames
     assert f'"status": "{status}"'.encode() in frames
+
+
+@pytest.mark.asyncio
+async def test_revocation_between_frames_within_one_page(monkeypatch):
+    scope = AsyncMock(side_effect=[None, None, PermissionError("revoked")])
+    replay = AsyncMock(
+        return_value=ChatEventReplayPage(
+            events=[
+                {"sequence": 1, "type": "text-delta", "delta": "First"},
+                {"sequence": 2, "type": "text-delta", "delta": "Withheld"},
+            ],
+            committed_through=2,
+            work_status="succeeded",
+        )
+    )
+    monkeypatch.setattr(chat_turn_streaming, "replay_work_item_chat_events", replay)
+    response = stream(scope)
+    assert b"First" in await anext(response)
+    with pytest.raises(PermissionError):
+        await anext(response)
+    assert replay.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_revocation_withholds_terminal_frame(monkeypatch):
+    scope = AsyncMock(side_effect=[None, None, PermissionError("revoked")])
+    monkeypatch.setattr(
+        chat_turn_streaming,
+        "replay_work_item_chat_events",
+        AsyncMock(
+            return_value=ChatEventReplayPage(
+                events=[{"sequence": 1, "type": "message-finish"}],
+                committed_through=1,
+                work_status="succeeded",
+            ),
+        ),
+    )
+    response = stream(scope)
+    assert b"message-finish" in await anext(response)
+    with pytest.raises(PermissionError):
+        await anext(response)

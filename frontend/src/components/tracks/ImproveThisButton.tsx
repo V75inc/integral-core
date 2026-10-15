@@ -11,12 +11,14 @@ export function ImproveThisButton({
   target,
   subjectName,
   disabled = false,
+  compact = false,
 }: {
   target: ImprovementTarget;
   subjectName?: string | null;
   subjectId?: string | null;
   trackId?: string | null;
   disabled?: boolean;
+  compact?: boolean;
 }) {
   const scope = useScopeOptional();
   const auth = useAuthOptional();
@@ -33,6 +35,7 @@ export function ImproveThisButton({
       variant="outline"
       aria-label={`Enhance this ${label}`}
       title={`Enhance this ${label}`}
+      className={compact ? 'h-8 w-8 !p-0' : undefined}
       onClick={() =>
         requestOpenCompanionChat({
           submit: true,
@@ -48,7 +51,7 @@ export function ImproveThisButton({
       disabled={disabled || !scope?.scope?.workspaceId || !auth?.user?.id}
     >
       <Sparkles size={16} aria-hidden />
-      <span className="hidden sm:inline">Enhance</span>
+      <span className={compact ? 'sr-only' : 'hidden sm:inline'}>Enhance</span>
     </Button>
   );
 }

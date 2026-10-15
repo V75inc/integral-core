@@ -109,12 +109,14 @@ log "restore: loading into $TARGET_DB"
 run_pg pg_restore \
   --host "$POSTGRES_HOST" --port "$POSTGRES_PORT" \
   --username "$POSTGRES_USER" --dbname "$TARGET_DB" \
-  --clean --if-exists --no-owner --no-privileges \
+  --clean --if-exists --no-owner --no-privileges --exit-on-error \
   "$BACKUP_FILE"
 STATUS=$?
 
-# pg_restore exits non-zero on non-fatal notices too, so report counts and let
-# the operator judge rather than declaring success or failure on exit code alone.
+# Matching counts cannot establish a successful restore after any client error.
+# Stop before reporting integrity or completion; the EXIT trap still removes
+# a drill database. A partially restored explicit target requires investigation.
+[ "$STATUS" -eq 0 ] || die "pg_restore failed (exit=$STATUS); restore is incomplete"
 log "restore: pg_restore exit=$STATUS; row counts follow"
 run_pg psql --host "$POSTGRES_HOST" --port "$POSTGRES_PORT" \
   --username "$POSTGRES_USER" --dbname "$TARGET_DB" -c "

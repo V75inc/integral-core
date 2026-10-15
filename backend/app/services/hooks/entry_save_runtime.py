@@ -174,6 +174,11 @@ async def run_entry_save_hooks(
         active = _active_save_hooks.get()
         if identity in active:
             continue
+        from app.agentive.services.staging_execution import (
+            assert_staging_hook_dispatch_allowed,
+        )
+
+        assert_staging_hook_dispatch_allowed()
         token = _active_save_hooks.set(active | {identity})
         try:
             await run_tool(spec, payload, ctx)
@@ -211,6 +216,11 @@ async def run_entry_validation_hooks(
             raise ToolValidationFailedError(
                 message=f"validation tool {binding.get('tool')!r} is not registered"
             )
+        from app.agentive.services.staging_execution import (
+            assert_staging_hook_dispatch_allowed,
+        )
+
+        assert_staging_hook_dispatch_allowed()
         result = await run_tool(spec, payload, ctx)
         if isinstance(result, dict) and result.get("ok") is False:
             raise ToolValidationFailedError(

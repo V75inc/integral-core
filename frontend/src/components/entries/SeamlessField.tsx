@@ -65,6 +65,8 @@ export interface SeamlessFieldProps {
   siblingValues?: Record<string, unknown>;
   /** Optional display labels for select / multi_select enum keys (e.g. kanban column labels). */
   enumLabels?: Record<string, string>;
+  /** Opt-in type-ahead for select fields: a search box filters the options. */
+  searchable?: boolean;
   /**
    * Required for ``file`` / ``files`` field types — the inline file
    * picker uploads against this entry id before binding the
@@ -420,6 +422,7 @@ function SeamlessSelectInner({
   placeholder,
   readonly,
   enumLabels,
+  searchable = false,
 }: {
   field: OperationalModelFieldSpec;
   value: unknown;
@@ -427,6 +430,7 @@ function SeamlessSelectInner({
   placeholder: string;
   readonly: boolean;
   enumLabels?: Record<string, string>;
+  searchable?: boolean;
 }) {
   const enumStrings = (field.enum ?? []) as string[];
   const opts = enumStrings.map(opt => ({
@@ -465,8 +469,13 @@ function SeamlessSelectInner({
             onValueChange={val => onChange(val)}
             disabled={readonly}
             placeholder={placeholder}
-            options={[{ value: '', label: placeholder }, ...opts]}
+            options={
+              isFieldRequired(field)
+                ? opts
+                : [{ value: '', label: 'None' }, ...opts]
+            }
             aria-label={fieldAriaLabel(field)}
+            searchable={searchable}
           />
         </div>
       </SeamlessShell>
@@ -961,6 +970,7 @@ export function SeamlessField(props: SeamlessFieldProps) {
     navContext,
     siblingFields,
     siblingValues,
+    searchable,
   } = props;
 
   // 1. Plugin / composite override: if the field-type registry has an
@@ -1000,6 +1010,9 @@ export function SeamlessField(props: SeamlessFieldProps) {
   // 3. Built-in primitive dispatch (unchanged).
   const placeholder = buildFieldPlaceholder(field);
   const readonly = Boolean(field.readonly);
+  // Selects are searchable by default (one search+select control); pass
+  // ``searchable={false}`` on a specific field to opt out.
+  const searchableSelect = searchable ?? true;
 
   // Surface a clear "type not installed" affordance when the field uses an
   // unknown primitive and no composite/plugin handler matched. This
@@ -1067,6 +1080,7 @@ export function SeamlessField(props: SeamlessFieldProps) {
         placeholder={placeholder}
         readonly={readonly}
         enumLabels={enumLabels}
+        searchable={searchableSelect}
       />
     );
   }

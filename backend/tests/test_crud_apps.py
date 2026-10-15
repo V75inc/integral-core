@@ -37,7 +37,7 @@ class TestAppsCRUD:
         assert "id" in data["app"]
         assert data["app"].get("visibility") == "private"
 
-    async def test_create_space_inherit_organization_visibility(
+    async def test_create_space_defaults_private_in_organization(
         self, authenticated_client: AsyncClient, test_user
     ):
         org_resp = await authenticated_client.post(
@@ -50,11 +50,10 @@ class TestAppsCRUD:
             json={
                 "name": "Org App",
                 "workspace_id": org_id,
-                "visibility": "inherit",
             },
         )
         assert response.status_code == 200
-        assert response.json()["app"]["visibility"] == "workspace"
+        assert response.json()["app"]["visibility"] == "private"
 
     async def test_create_space_explicit_public(
         self, authenticated_client: AsyncClient
@@ -88,7 +87,7 @@ class TestAppsCRUD:
             json={
                 "name": "Parent",
                 "workspace_id": org_id,
-                "visibility": "inherit",
+                "visibility": "workspace",
             },
         )
         assert sp_resp.status_code == 200
@@ -99,11 +98,8 @@ class TestAppsCRUD:
         )
         assert tr_resp.status_code == 200
         track = tr_resp.json()["track"]
-        # Track.visibility under the new access model is "inherit" | "private";
-        # "inherit" tells resolve_role to walk to the parent App for cascade
-        # resolution, instead of stamping the App's literal value onto
-        # the Track (which broke space-collaborator cascade).
-        assert track["visibility"] == "inherit"
+        # Creating under a shared App must not implicitly widen visibility.
+        assert track["visibility"] == "private"
         assert track.get("workspace_id") == org_id
         listed = await authenticated_client.get(f"/api/apps/{sp_id}/tracks")
         assert listed.status_code == 200
@@ -835,3 +831,70 @@ class TestAppsCRUD:
         assert types.status_code == 200
         names = [x["name"] for x in types.json().get("entry_types", [])]
         assert "Story" in names
+
+
+@pytest.mark.asyncio
+async def test_app_inherit_is_rejected_on_create_and_update(authenticated_client):
+    created = await authenticated_client.post(
+        "/api/apps", json={"name": "Private by default"}
+    )
+    assert created.status_code == 200
+    app_id = created.json()["app"]["id"]
+    assert created.json()["app"]["visibility"] == "private"
+    rejected = await authenticated_client.post(
+        "/api/apps", json={"name": "No inherited visibility", "visibility": "inherit"}
+    )
+    assert rejected.status_code == 400
+    rejected_update = await authenticated_client.put(
+        f"/api/apps/{app_id}", json={"visibility": "inherit"}
+    )
+    assert rejected_update.status_code == 400
+    readback = await authenticated_client.get(f"/api/apps/{app_id}")
+    assert readback.json()["app"]["visibility"] == "private"
+
+
+@pytest.mark.asyncio
+async def test_app_visibility_can_be_explicitly_widened(authenticated_client):
+    workspace = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Explicit access"}
+    )
+    assert workspace.status_code == 200
+    created = await authenticated_client.post(
+        "/api/apps",
+        json={
+            "name": "Explicit sharing",
+            "workspace_id": workspace.json()["workspace"]["id"],
+        },
+    )
+    assert created.status_code == 200
+    app_id = created.json()["app"]["id"]
+    assert created.json()["app"]["visibility"] == "private"
+    for visibility in ("workspace", "public", "private"):
+        updated = await authenticated_client.put(
+            f"/api/apps/{app_id}", json={"visibility": visibility}
+        )
+        assert updated.status_code == 200, updated.text
+        readback = await authenticated_client.get(f"/api/apps/{app_id}")
+        assert readback.json()["app"]["visibility"] == visibility
+
+
+@pytest.mark.asyncio
+async def test_editor_cannot_publish_private_app(
+    authenticated_client, second_user_client, test_user2
+):
+    created = await authenticated_client.post(
+        "/api/apps", json={"name": "Owner-controlled audience"}
+    )
+    assert created.status_code == 200
+    app_id = created.json()["app"]["id"]
+    grant = await authenticated_client.post(
+        f"/api/apps/{app_id}/collaborators",
+        json={"collaborator_user_id": test_user2.id, "role": "editor"},
+    )
+    assert grant.status_code == 200, grant.text
+    published = await second_user_client.put(
+        f"/api/apps/{app_id}", json={"visibility": "public"}
+    )
+    assert published.status_code == 403, published.text
+    readback = await authenticated_client.get(f"/api/apps/{app_id}")
+    assert readback.json()["app"]["visibility"] == "private"

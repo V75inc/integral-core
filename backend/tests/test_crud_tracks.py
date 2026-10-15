@@ -353,8 +353,8 @@ class TestTracksCRUD:
         )
         assert sp_resp.status_code == 200, sp_resp.text
         app_id = sp_resp.json()["app"]["id"]
-        # Default visibility ("inherit") so the App cascade reaches the
-        # track; the test then asserts EXCLUDED_FROM blocks that cascade.
+        # Direct App collaborators retain capped access to a private Track;
+        # EXCLUDED_FROM blocks that inherited collaborator grant.
         tr_resp = await authenticated_client.post(
             "/api/tracks",
             json={

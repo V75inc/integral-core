@@ -23,13 +23,10 @@ from app.api.errors import MissingAuthenticationError
 from app.api.utils import resolve_principal_id
 from app.services.change_event_logger import (
     ChangeEventEnvelope,
-    envelope_from_dblog,
     get_change_event_logger,
     is_change_event_enabled,
 )
-from app.services.event_access import can_release_event, scrub_event_credentials
 from app.services.pagination import build_paginated_response
-from app.services.policy_engine import evaluate as policy_evaluate
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +68,13 @@ async def list_audit_log(
     if limit < 1:
         limit = 1
 
+    from app.services.event_history import read_event_history
+    from app.services.request_scope import resolve_execution_scope_from_request
+
+    execution = await resolve_execution_scope_from_request(
+        request, user_id, origin="event_history"
+    )
+
     # Kill switch: when ChangeEvents are disabled, the audit log is empty.
     if not is_change_event_enabled():
         empty: List[ChangeEventEnvelope] = []
@@ -80,38 +84,17 @@ async def list_audit_log(
         empty_response["events"] = []
         return empty_response
 
-    ce_logger = get_change_event_logger()
-    rows = await ce_logger.find_all(scope=scope, actor_kind=actor_kind)
-    candidates = [envelope_from_dblog(r) for r in rows]
-
-    action_f = (action or "").strip()
-    resource_id_f = (resource_id or "").strip()
-    resource_type_f = (resource_type or "").strip()
-    if action_f or resource_id_f or resource_type_f:
-        filtered: List[ChangeEventEnvelope] = []
-        for ev in candidates:
-            if action_f and (ev.action or "") != action_f:
-                continue
-            if resource_id_f and (ev.resource_id or "") != resource_id_f:
-                continue
-            if resource_type_f and (ev.resource_type or "") != resource_type_f:
-                continue
-            filtered.append(ev)
-        candidates = filtered
-
-    # Permission filter — D-07 routes per-event through policy_engine.evaluate.
-    # The engine's default-human branch dispatches on resource.scope prefix
-    # (track:/space:/user:) — verbatim replacement of the legacy decision tree.
-    permitted: List[ChangeEventEnvelope] = []
-    for ev in candidates:
-        if await can_release_event(
-            user_id, ev, action="audit_log.read", evaluate=policy_evaluate
-        ):
-            permitted.append(ev)
-
-    # Sort by (ts, id) DESC for audit-log convention (most recent first).
-    permitted.sort(key=lambda e: (e.ts or "", e.id or ""), reverse=True)
-
-    page, response = build_paginated_response(permitted, cursor, limit, _envelope_key)
-    response["events"] = [scrub_event_credentials(ev.to_wire_flat()) for ev in page]
-    return response
+    return await read_event_history(
+        logger=get_change_event_logger(),
+        user_id=user_id,
+        workspace_id=execution.workspace_id,
+        action="audit_log.read",
+        cursor=cursor,
+        limit=limit,
+        descending=True,
+        scope=scope,
+        actor_kind=actor_kind,
+        event_action=action,
+        resource_id=resource_id,
+        resource_type=resource_type,
+    )

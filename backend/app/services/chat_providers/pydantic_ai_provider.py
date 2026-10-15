@@ -111,7 +111,7 @@ _FRAMEWORK_READ_TOOLS = frozenset(
 def _terminal_run_matches(scope, run) -> bool:
     return bool(
         run is not None
-        and run.status in {"failed", "cancelled"}
+        and run.status in {"succeeded", "failed", "cancelled"}
         and run.user_id == scope.principal_id
         and run.workspace_id == scope.workspace_id
         and run.thread_id == scope.thread_id
@@ -269,10 +269,20 @@ def _model_observability_events(
         )
         if known_usage:
             call_event["usage"] = {
-                "inputTokens": summary.reported_input_tokens,
-                "outputTokens": summary.reported_output_tokens,
+                **(
+                    {"inputTokens": summary.reported_input_tokens}
+                    if summary.input_token_request_count
+                    else {}
+                ),
+                **(
+                    {"outputTokens": summary.reported_output_tokens}
+                    if summary.output_token_request_count
+                    else {}
+                ),
             }
             call_event["usageComplete"] = summary.token_usage_complete
+            call_event["inputTokensReported"] = summary.input_token_request_count > 0
+            call_event["outputTokensReported"] = summary.output_token_request_count > 0
             call_event["costComplete"] = summary.provider_cost_complete
             if summary.provider_cost_usd is not None:
                 call_event["providerCostUsd"] = float(summary.provider_cost_usd)
@@ -330,6 +340,13 @@ async def _resume_history(
     """
     if not session.last_run_id:
         return []
+
+    # A worker can lose its lease after the provider has started but before
+    # finish_run persists the Harness outcome (for example, process death or
+    # a reclaimed WorkItem). The durable WorkItem is the execution authority:
+    # once a newer attempt owns its lease, the old attempt can no longer make
+    # effects. Reconcile that stale run before the normal receipt checks below.
+    previous_run = await _reconcile_fenced_harness_run(scope, previous_run)
 
     from app.agentive.harness.model_observations import (
         list_model_request_observations,
@@ -506,6 +523,115 @@ async def _resume_history(
     return history
 
 
+async def _reconcile_fenced_harness_run(scope, run):
+    """Terminalize a stale run only when its WorkItem proves it was fenced.
+
+    The model-run status alone is insufficient after a worker crash. A newer
+    attempt number and deterministic run id, paired with the currently-held
+    WorkItem lease, prove that the old worker has lost effect authority. A
+    terminal WorkItem is also authoritative for the outcome. This changes no
+    tool receipt; checkpoint, request, and effect checks still decide whether
+    any history can safely continue.
+    """
+    if (
+        run is None
+        or getattr(run, "status", None) != "running"
+        or getattr(run, "provider_id", None) != "integral_native"
+        or not getattr(run, "work_item_id", None)
+        or getattr(run, "user_id", None) != scope.principal_id
+        or getattr(run, "workspace_id", None) != scope.workspace_id
+        or getattr(run, "thread_id", None) != scope.thread_id
+    ):
+        return run
+
+    from app.agentive.services.execution_runs import finish_run
+    from app.agentive.services.work_execution import deterministic_run_id
+    from app.agentive.work_models import WorkItem
+
+    matches = await WorkItem.find({"context.work_item_id": run.work_item_id})
+    if len(matches) != 1:
+        return run
+    item = matches[0]
+    if (
+        item.principal_id != scope.principal_id
+        or item.workspace_id != scope.workspace_id
+        or item.thread_id != scope.thread_id
+    ):
+        return run
+
+    terminal_status = {
+        "succeeded": "succeeded",
+        "failed": "failed",
+        "cancelled": "cancelled",
+        "expired": "failed",
+        "dead_letter": "failed",
+    }.get(item.status)
+    if (
+        terminal_status
+        and deterministic_run_id(
+            work_item_id=item.work_item_id, attempt=int(item.attempt or 0)
+        )
+        == run.run_id
+    ):
+        return await finish_run(
+            run.run_id,
+            status=terminal_status,
+            error=(
+                (
+                    dict(item.failure)
+                    if isinstance(item.failure, dict)
+                    else {
+                        "code": "work.item_terminal",
+                        "message": "WorkItem is terminal.",
+                    }
+                )
+                if terminal_status != "succeeded"
+                else None
+            ),
+        )
+
+    # A retry is safe to classify as an interrupted prior attempt only when
+    # the present Harness run is the deterministic run for the currently
+    # claimed WorkItem attempt and the lease is live. The worker created this
+    # run after claiming; the old deterministic run is therefore fenced out.
+    current_attempt = int(item.attempt or 0)
+    lease_expiry = None
+    try:
+        lease_expiry = datetime.fromisoformat(
+            str(item.lease_expires_at or "").replace("Z", "+00:00")
+        )
+    except ValueError:
+        pass
+    if lease_expiry is not None and lease_expiry.tzinfo is None:
+        lease_expiry = lease_expiry.replace(tzinfo=timezone.utc)
+    if (
+        item.status == "running"
+        and item.lease_token
+        and int(item.lease_fence or 0) > 0
+        and lease_expiry is not None
+        and lease_expiry > datetime.now(timezone.utc)
+        and current_attempt > 1
+        and deterministic_run_id(
+            work_item_id=item.work_item_id, attempt=current_attempt
+        )
+        == scope.run_id
+        and any(
+            deterministic_run_id(work_item_id=item.work_item_id, attempt=attempt)
+            == run.run_id
+            for attempt in range(1, current_attempt)
+        )
+    ):
+        return await finish_run(
+            run.run_id,
+            status="failed",
+            error={
+                "code": "work.attempt_superseded",
+                "message": "A newer leased WorkItem attempt superseded this run.",
+            },
+        )
+    return run
+
+
 async def _settled_terminal_history(
     scope,
     run,
@@ -516,7 +642,7 @@ async def _settled_terminal_history(
     recovery_message,
     checkpoint_run_id,
 ):
-    """Admit a failed turn's library history using original Core receipts.
+    """Admit a terminal turn's library history using original Core receipts.
 
     No transcript guesses, model judgment, or new authority are involved.
     Failed mutations without a successful/denied receipt remain ambiguous.
@@ -617,8 +743,12 @@ async def _settled_terminal_history(
         ModelResponse(
             parts=[
                 TextPart(
-                    "The previous turn stopped without a final answer. Its "
-                    "settled tool results are preserved in this conversation; "
+                    (
+                        "The previous turn completed. Its "
+                        if run.status == "succeeded"
+                        else "The previous turn stopped without a final answer. Its "
+                    )
+                    + "settled tool results are preserved in this conversation; "
                     "applied actions must not be repeated. No interrupted "
                     "operation was replayed. Continue with the latest request."
                 )
@@ -951,7 +1081,7 @@ async def _load_recovery_user_message(previous_run, scope):
         or message.id != message_id
         or message.thread_id != scope.thread_id
         or message.role != "user"
-        or (message.provider_metadata or {})
+        or set(message.provider_metadata or {}) - {"page_context"}
     ):
         return None
     parts = list(message.parts or [])
@@ -1115,12 +1245,16 @@ class PydanticAIProvider:
                 observer=model_observer,
             )
             model_observer = model_admission.observe
+        from app.services.model_retry_status import emit_model_retry_status
+
         return build_litellm_sdk_model(
             route=route,
             scope=scope,
             observer=model_observer,
             admission=model_admission,
             timeout_seconds=settings.INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS,
+            max_attempts=settings.INTEGRAL_NATIVE_MODEL_MAX_ATTEMPTS,
+            retry_status=emit_model_retry_status,
         )
 
     async def _try_light_turn(self, ctx, thread, workspace_role, work_context):
@@ -1692,6 +1826,16 @@ class PydanticAIProvider:
         )
 
     async def stream_turn(self, ctx: ChatTurnContext) -> AsyncIterator[dict[str, Any]]:
+        from app.services.model_retry_status import stream_with_retry_status
+
+        stream = stream_with_retry_status(self._stream_turn(ctx))
+        try:
+            async for event in stream:
+                yield event
+        finally:
+            await stream.aclose()
+
+    async def _stream_turn(self, ctx: ChatTurnContext) -> AsyncIterator[dict[str, Any]]:
         """Stream normalized chat events with Core-owned session identity."""
         from app.config import settings
 

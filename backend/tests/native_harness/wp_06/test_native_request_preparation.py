@@ -22,6 +22,9 @@ from app.services.chat_providers.pydantic_ai_provider import PydanticAIProvider
 async def test_native_turn_does_not_invoke_legacy_judges_or_lexical_routing(
     authenticated_client, monkeypatch, utterance
 ):
+    # This fixture exercises request-bound preparation. Durable admission and
+    # claimed-worker preparation have separate PostgreSQL acceptance tests.
+    monkeypatch.setattr(ai_chat.settings, "INTEGRAL_NATIVE_DURABLE_CHAT_ENABLED", False)
     provider = PydanticAIProvider()
     monkeypatch.setattr(provider, "is_available", lambda: True)
     monkeypatch.setitem(get_registry()._providers, provider.id, provider)

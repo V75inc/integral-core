@@ -978,13 +978,13 @@
     {
       "advertised": true,
       "dispatch": {
-        "seam": "handler",
+        "seam": "service",
         "targets": [
-          "app.api.users.get_my_scope"
+          "app.services.resident_execution_scope.get_execution_scope_for_dispatch"
         ]
       },
       "domain": "A_discovery",
-      "http": "GET /api/users/me/scope",
+      "http": null,
       "mcp_min_scope": "integral:read",
       "name": "integral_get_scope",
       "op_class": "read",

@@ -1,4 +1,10 @@
-import { useState, useRef, useEffect, type KeyboardEvent } from 'react';
+import {
+  useState,
+  useRef,
+  useEffect,
+  type CSSProperties,
+  type KeyboardEvent,
+} from 'react';
 import { Pencil } from 'lucide-react';
 import { LINE_ICON_STROKE } from '../ui';
 import type { OperationalModelFieldSpec } from '../../types';
@@ -8,6 +14,10 @@ interface InlineFieldEditorProps {
   value: unknown;
   readOnly?: boolean;
   onCommit: (newValue: unknown) => Promise<void>;
+  /** Entry-detail: clamp the multi-line preview to this many lines (0 = none). */
+  maxLines?: number;
+  /** Whether the caller's Read more toggle has expanded the clamped preview. */
+  expanded?: boolean;
 }
 
 export function InlineFieldEditor({
@@ -15,16 +25,31 @@ export function InlineFieldEditor({
   value,
   readOnly,
   onCommit,
+  maxLines = 0,
+  expanded = false,
 }: InlineFieldEditorProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
   const [commitError, setCommitError] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   const committingRef = useRef(false);
   const mountedRef = useRef(true);
 
-  useEffect(() => () => { mountedRef.current = false; }, []);
+  const valueText = value != null ? String(value) : '';
+  // A textarea when the field is flagged multi-line, or the value already spans
+  // lines (e.g. a conversation history) — otherwise a single-line input.
+  const multiline =
+    Boolean(field.multiline) ||
+    (field.type !== 'number' && valueText.includes('\n'));
+  const clamped = maxLines > 0 && !expanded;
+
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    []
+  );
 
   function startEdit() {
     if (readOnly) return;
@@ -65,40 +90,80 @@ export function InlineFieldEditor({
     setCommitError(false);
   }
 
-  function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+  function handleKeyDown(
+    e: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) {
     if (e.key === 'Enter') {
+      // In a textarea, Enter inserts a newline; commit with Cmd/Ctrl+Enter.
+      if (multiline && !(e.metaKey || e.ctrlKey)) return;
       e.preventDefault();
       void commit();
     }
     if (e.key === 'Escape') cancel();
   }
 
+  const editClasses = [
+    'w-full rounded px-1.5 py-0.5 text-sm border',
+    'bg-[var(--panel)] text-[var(--text)]',
+    'focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring-color)]',
+    commitError
+      ? 'border-[var(--danger-fg)]'
+      : 'border-[var(--brand-accent-line)]',
+  ].join(' ');
+
   if (editing) {
+    if (multiline) {
+      return (
+        <textarea
+          ref={el => {
+            inputRef.current = el;
+          }}
+          rows={6}
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onBlur={() => {
+            if (!commitError) void commit();
+          }}
+          disabled={saving}
+          aria-label={`Edit ${field.name}`}
+          className={`${editClasses} whitespace-pre-wrap`}
+        />
+      );
+    }
     return (
       <input
-        ref={inputRef}
+        ref={el => {
+          inputRef.current = el;
+        }}
         type={field.type === 'number' ? 'number' : 'text'}
         value={draft}
         onChange={e => setDraft(e.target.value)}
         onKeyDown={handleKeyDown}
-        onBlur={() => { if (!commitError) void commit(); }}
+        onBlur={() => {
+          if (!commitError) void commit();
+        }}
         disabled={saving}
         aria-label={`Edit ${field.name}`}
-        className={[
-          'w-full rounded px-1.5 py-0.5 text-sm border',
-          'bg-[var(--panel)] text-[var(--text)]',
-          'focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring-color)]',
-          commitError
-            ? 'border-[var(--danger-fg)]'
-            : 'border-[var(--brand-accent-line)]',
-        ].join(' ')}
+        className={editClasses}
       />
     );
   }
 
+  const clampStyle = clamped
+    ? ({
+        display: '-webkit-box',
+        WebkitBoxOrient: 'vertical',
+        WebkitLineClamp: maxLines,
+        overflow: 'hidden',
+      } as CSSProperties)
+    : undefined;
+
   const displayValue =
     value != null && value !== '' ? (
-      <span>{String(value)}</span>
+      <span className="whitespace-pre-wrap break-words" style={clampStyle}>
+        {String(value)}
+      </span>
     ) : (
       <span className="text-[var(--text-subtle)] italic">—</span>
     );
@@ -110,7 +175,8 @@ export function InlineFieldEditor({
       disabled={readOnly}
       aria-label={readOnly ? field.name : `Edit ${field.name}`}
       className={[
-        'group flex items-center gap-1.5 w-full text-left rounded px-0.5 -mx-0.5',
+        'group flex gap-1.5 w-full text-left rounded px-0.5 -mx-0.5',
+        multiline ? 'items-start' : 'items-center',
         'text-sm text-[var(--text)]',
         readOnly ? 'cursor-default' : 'hover:bg-[var(--panel-2)] cursor-text',
         'transition-colors duration-fast',
