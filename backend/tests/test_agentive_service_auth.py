@@ -36,7 +36,36 @@ def _reset_key_cache() -> None:
 
 
 @pytest.mark.asyncio
-async def test_user_context_path_requires_signature(monkeypatch):
+async def test_mcp_service_auth_enforces_principal_allowlist(
+    signed_service_headers, monkeypatch
+):
+    """Expanding the path gate must not bypass impersonation restrictions."""
+    monkeypatch.setenv("INTEGRAL_SERVICE_KEY", _TEST_SERVICE_KEY)
+    monkeypatch.setenv("INTEGRAL_SERVICE_ALLOWED_USER_IDS", "allowed-principal")
+    _reset_key_cache()
+    from app.main import app
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/api/mcp/", headers=signed_service_headers("other-principal"), json={}
+        )
+    assert response.status_code == 403, response.text
+    assert response.json()["error_code"] == "agentive.auth.user_not_allowed"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/agentive/chat/message",
+        "/api/mcp/",
+        "/api/mcp/api/agentive/uplink/register-system",
+        "/api/mcp/api/agentive/uplink/heartbeat-system",
+    ],
+)
+@pytest.mark.asyncio
+async def test_user_context_path_requires_signature(monkeypatch, path):
     """D-01: missing X-Integral-Signature on user-context path → 401 + signature_required envelope."""
     monkeypatch.setenv("AGENTIVE_ENABLED", "1")
     monkeypatch.setenv("INTEGRAL_SERVICE_KEY", _TEST_SERVICE_KEY)
@@ -46,7 +75,7 @@ async def test_user_context_path_requires_signature(monkeypatch):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         r = await client.post(
-            "/api/agentive/chat/message",
+            path,
             json={"message": "hello"},
             headers={
                 "X-Integral-Service-Key": _TEST_SERVICE_KEY,
@@ -69,8 +98,9 @@ async def test_user_context_path_requires_signature(monkeypatch):
     assert "X-Integral-Timestamp" in body["details"]["missing_headers"]
 
 
+@pytest.mark.parametrize("path", ["/api/agentive/chat/message", "/api/mcp/"])
 @pytest.mark.asyncio
-async def test_stale_timestamp_rejected(signed_service_headers, monkeypatch):
+async def test_stale_timestamp_rejected(signed_service_headers, monkeypatch, path):
     """D-01: timestamp >5 min in the past → 401 + signature_stale envelope."""
     monkeypatch.setenv("AGENTIVE_ENABLED", "1")
     monkeypatch.setenv("INTEGRAL_SERVICE_KEY", _TEST_SERVICE_KEY)
@@ -83,7 +113,7 @@ async def test_stale_timestamp_rejected(signed_service_headers, monkeypatch):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         r = await client.post(
-            "/api/agentive/chat/message",
+            path,
             json={"message": "hello"},
             headers=headers,
         )
@@ -93,8 +123,9 @@ async def test_stale_timestamp_rejected(signed_service_headers, monkeypatch):
     assert body["details"]["max_skew_seconds"] == 300
 
 
+@pytest.mark.parametrize("path", ["/api/agentive/chat/message", "/api/mcp/"])
 @pytest.mark.asyncio
-async def test_tampered_signature_rejected(signed_service_headers, monkeypatch):
+async def test_tampered_signature_rejected(signed_service_headers, monkeypatch, path):
     """D-01: signature mismatch → 401 + signature_invalid envelope."""
     monkeypatch.setenv("AGENTIVE_ENABLED", "1")
     monkeypatch.setenv("INTEGRAL_SERVICE_KEY", _TEST_SERVICE_KEY)
@@ -107,7 +138,7 @@ async def test_tampered_signature_rejected(signed_service_headers, monkeypatch):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         r = await client.post(
-            "/api/agentive/chat/message",
+            path,
             json={"message": "hello"},
             headers=headers,
         )
