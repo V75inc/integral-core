@@ -561,7 +561,6 @@ async def verify_credentials_delivery(request: Request) -> Dict[str, Any]:
         ERR_ATTEMPTS_EXCEEDED,
         ERR_EXPIRED_CODE,
         ERR_INTENT_MISMATCH,
-        ERR_INVALID_CODE,
         ERR_NOT_PENDING,
         consume_credentials_delivery_code,
     )

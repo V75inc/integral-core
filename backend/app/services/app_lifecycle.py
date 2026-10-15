@@ -784,7 +784,6 @@ async def install_app(
         # block install (logged + swallowed).
         try:
             from app.services.hooks.install_hook import register_bundle_on_install
-
             from app.services.package_paths import normalize_bundle_dir
 
             lib_slug = str(
@@ -1011,7 +1010,10 @@ async def _resolve_app_bundle_dir(app_node: App) -> str | None:
     ``integral_bundle_<slug>.*`` for external package paths — omitting
     it falls back to ``app.packages.<slug>`` and breaks Business distros.
     """
-    from app.services.package_paths import normalize_bundle_dir, resolve_bundle_dir_for_slug
+    from app.services.package_paths import (
+        normalize_bundle_dir,
+        resolve_bundle_dir_for_slug,
+    )
 
     slug = str(
         getattr(app_node, "source_operational_model_slug", "")
@@ -1042,7 +1044,9 @@ async def _resolve_app_bundle_dir(app_node: App) -> str | None:
         or None
     )
     if not slug:
-        slug = str((getattr(library_cp, "metadata", None) or {}).get("slug") or "").strip()
+        slug = str(
+            (getattr(library_cp, "metadata", None) or {}).get("slug") or ""
+        ).strip()
     return normalize_bundle_dir(lib_path, slug=slug)
 
 

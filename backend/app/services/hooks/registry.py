@@ -1012,7 +1012,6 @@ class ToolContext:
         Returns ``None`` (never raises) on any missing link or refusal.
         """
         from app.models.edges import CONTAINS
-        from app.models.nodes import App
         from app.schemas.policy import Resource, Subject
         from app.services.entry_create import create_entry_in_track
         from app.services.entry_type_resolver import (
@@ -1575,10 +1574,11 @@ class ToolContext:
             return False
         cleared = await clear_pending_onboarding_form(user)
         if cleared:
+            from app.services.credential_delivery import _save_user_node
             from app.utils.time import utc_now_iso
 
             user.updated_at = utc_now_iso()
-            await user.save()
+            await _save_user_node(user)
         return cleared
 
     async def clear_pending_onboarding_form_for_user(self, member_user_id: str) -> bool:

@@ -435,7 +435,9 @@ def extract_places_from_pdfplumber(
                 if not role:
                     continue
                 marker = signature_marker_text(role)
-                label = str(block.get("label") or role.replace("_", " ").title()).strip()
+                label = str(
+                    block.get("label") or role.replace("_", " ").title()
+                ).strip()
                 placed = False
                 for page_index, page in enumerate(pdf.pages):
                     words = page.extract_words() or []
@@ -446,9 +448,7 @@ def extract_places_from_pdfplumber(
                             marker_top = float(word["top"])
                             break
                     underlines = [
-                        w
-                        for w in words
-                        if str(w.get("text") or "").startswith("___")
+                        w for w in words if str(w.get("text") or "").startswith("___")
                     ]
                     if not underlines:
                         continue

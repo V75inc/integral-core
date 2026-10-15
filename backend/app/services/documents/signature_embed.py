@@ -106,7 +106,9 @@ def png_bytes_from_block(block: Dict[str, Any]) -> Optional[bytes]:
         return None
 
 
-def _meta_by_role(token_metadata: Optional[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+def _meta_by_role(
+    token_metadata: Optional[Dict[str, Any]],
+) -> Dict[str, Dict[str, Any]]:
     meta_by_role: Dict[str, Dict[str, Any]] = {}
     for spec in (token_metadata or {}).get("signatures") or []:
         if isinstance(spec, dict):
@@ -116,9 +118,7 @@ def _meta_by_role(token_metadata: Optional[Dict[str, Any]]) -> Dict[str, Dict[st
     return meta_by_role
 
 
-def _attachment_id_from_document(
-    editor_document: Dict[str, Any], role: str
-) -> str:
+def _attachment_id_from_document(editor_document: Dict[str, Any], role: str) -> str:
     found = ""
 
     def walk(node: Any) -> None:

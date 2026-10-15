@@ -11,8 +11,8 @@ import hashlib
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone
-from urllib.parse import quote
 from typing import Any, Dict, Optional, Tuple
+from urllib.parse import quote
 
 from app.bootstrap_admin import _hash_password
 from app.config import settings
@@ -22,7 +22,10 @@ from app.services.email_service import (
     render_member_provision_email,
     send_email,
 )
-from app.services.member_provision import generate_temp_password, set_must_change_password
+from app.services.member_provision import (
+    generate_temp_password,
+    set_must_change_password,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,9 +65,51 @@ def _generate_otp() -> Tuple[str, str]:
 
 
 def credentials_verify_page_url(*, member_user_id: str, intent_id: str) -> str:
+    """Build the public URL where a member confirms alternate-mailbox OTP delivery."""
     base = settings.APP_BASE_URL.rstrip("/")
     qs = f"member={quote(member_user_id, safe='')}&intent={quote(intent_id, safe='')}"
     return f"{base}/credentials-delivery-verify.html?{qs}"
+
+
+async def _save_user_node(user_node: User) -> None:
+    """Persist User profile fields on a fresh graph transaction.
+
+    Member provision commits the provisioning graph transaction before alternate
+    mailbox OTP is written. Callers may still hold a User instance bound to the
+    closed connection — reload and save on the prime store, not the request-scoped
+    transaction handle left on ``get_default_context().database``.
+    """
+    from jvspatial.db import get_prime_database
+
+    from app.services.app_operations.transaction_scope import (
+        graph_transaction_available,
+        postgres_graph_transaction,
+    )
+
+    user_id = user_node.id
+    preferences = user_node.preferences
+    updated_at = user_node.updated_at
+
+    async def _persist(fresh: User) -> None:
+        fresh.preferences = preferences
+        fresh.updated_at = updated_at
+        await fresh.save()
+
+    prime = get_prime_database()
+    if graph_transaction_available(prime):
+        async with postgres_graph_transaction(prime):
+            fresh = await User.get(user_id)
+            if fresh is None:
+                raise ValueError(f"User {user_id} not found")
+            await _persist(fresh)
+    else:
+        fresh = await User.get(user_id)
+        if fresh is None:
+            raise ValueError(f"User {user_id} not found")
+        await _persist(fresh)
+
+    user_node.preferences = preferences
+    user_node.updated_at = updated_at
 
 
 def delivery_status(user_node: User) -> Dict[str, Any]:
@@ -135,7 +180,7 @@ async def begin_alternate_credentials_delivery(
     }
     user_node.preferences = prefs
     user_node.updated_at = _now_utc().isoformat()
-    await user_node.save()
+    await _save_user_node(user_node)
 
     message = render_credentials_delivery_confirm_email(
         recipient_email=recipient_norm,

@@ -731,4 +731,3 @@ def test_standalone_track_extension_reference_defers_app_catalogue_check():
     ]
     canonical = compile_canonical_manifest(manifest=manifest)
     assert canonical["track"]["views"][0]["extension_view_key"] == "external_panel"
-

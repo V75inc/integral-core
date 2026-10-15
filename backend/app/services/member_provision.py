@@ -314,15 +314,16 @@ async def provision_workspace_member(
                 "created accounts"
             )
         )
-    if (
-        alternate_delivery
-        and send_credentials
-        and created
-        and user_node is not None
-    ):
-        from app.services.credential_delivery import begin_alternate_credentials_delivery
+    if alternate_delivery and send_credentials and created and user_node is not None:
+        from app.services.credential_delivery import (
+            begin_alternate_credentials_delivery,
+        )
 
         ws_name = str(getattr(workspace, "name", "") or "your organization").strip()
+        # OTP slot persists after the provisioning transaction commits (fresh TX in delivery).
+        user_node = await get_user_node(user_node.id)
+        if user_node is None:
+            raise AuthorizationUnavailableError()
         delivery_meta = await begin_alternate_credentials_delivery(
             user_node=user_node,
             recipient_email=deliver_norm,

@@ -307,6 +307,12 @@ async def update_entry_in_track(
                     if actor_id and actor_kind in {"agent", "connector"}
                     else user_id
                 )
+                baseline_custom = entry.custom_fields or {}
+                post_hook_custom = {
+                    key: value
+                    for key, value in (validated or {}).items()
+                    if baseline_custom.get(key) != value
+                }
                 await enforce_protected_field_write(
                     principal_id=mutation_principal_id,
                     workspace_id=track.workspace_id,
@@ -318,7 +324,7 @@ async def update_entry_in_track(
                             or entry_type.name
                         )
                     ),
-                    proposed_custom_fields=validated,
+                    proposed_custom_fields=post_hook_custom,
                     entry_id=entry.id,
                     track_id=track.id,
                     mutation_kind="type_change" if type_changed else "update",
