@@ -473,7 +473,28 @@ async def invoke_app_operation(
         lookup_idempotent_result,
         store_idempotent_result,
     )
+    from app.services.app_operations.principal import resolve_operation_principal
     from app.services.app_operations.result_access import authorize_replayed_result
+    from app.services.app_operations.result_context import (
+        OperationResultContext,
+        public_operation_result,
+    )
+
+    operation_principal = await resolve_operation_principal(actor_subject)
+
+    result_context = OperationResultContext(
+        subject=actor_subject.model_copy(deep=True),
+        issuer_id=user_id,
+        workspace_id=workspace_id,
+        app_id=app_id,
+        operation_key=key,
+        declaration_fingerprint=prepared["declaration_fingerprint"],
+        payload=copy.deepcopy(body),
+    )
+
+    async def admit_result_context(result: Dict[str, Any]) -> None:
+        async with operation_principal.admit():
+            await result_context.admit(result)
 
     request_hash = hash_request_payload(original_body)
     idem_key = str(idempotency_key or "").strip()
@@ -503,15 +524,20 @@ async def invoke_app_operation(
             workspace_id=workspace_id,
             app_id=app_id,
             operation_key=key,
-            principal_id=actor_subject.id,
+            principal_id=operation_principal.principal_id,
             idempotency_key=idem_key,
             request_hash=request_hash,
+            principal_aliases=operation_principal.aliases,
         )
         if cached is not None:
             await authorize_replayed_result(
-                cached, user_id=user_id, workspace_id=workspace_id, app_id=app_id
+                cached,
+                user_id=user_id,
+                workspace_id=workspace_id,
+                app_id=app_id,
+                admit_context=admit_result_context,
             )
-            return cached
+            return public_operation_result(cached)
 
     ctx = OperationContext(
         user_id=user_id,
@@ -608,47 +634,52 @@ async def invoke_app_operation(
         return await build_result(output)
 
     async def build_result(output: Dict[str, Any]) -> Dict[str, Any]:
-        from app.models.edges import CONTAINS
-        from app.models.nodes import App as AppNode
-        from app.models.nodes import Entry, Track
+        from jvspatial.core.context import get_default_context
+
+        from app.models.nodes import Entry
         from app.schemas.capabilities import Evidence, ObjectRef
+        from app.services.app_operations.output_references import (
+            MAX_MUTATION_REFERENCES,
+        )
         from app.services.permissions import resolve_role
+        from app.services.resource_location import DATA_APP_STATES, locate_resource
         from app.utils.time import utc_now_iso
 
-        raw_refs = (output or {}).get("object_refs") or []
-        if not isinstance(raw_refs, list):
-            raise BadRequestError(message="operation object_refs must be a list")
+        raw_refs = output.get("object_refs", [])
+        if not isinstance(raw_refs, list) or len(raw_refs) > MAX_MUTATION_REFERENCES:
+            raise BadRequestError(
+                message="operation object_refs must be a list of at most 100 references"
+            )
         object_refs = []
         seen_refs = set()
-        app_track_ids = set()
-        if raw_refs:
-            owning_app = await AppNode.get(app_id)
-            app_tracks = (
-                await owning_app.nodes(edge=[CONTAINS], node=["Track"], direction="out")
-                if owning_app
-                else []
-            )
-            app_track_ids = {str(item.id) for item in app_tracks}
+        context = get_default_context()
         for raw_ref in raw_refs:
             ref = ObjectRef.model_validate(raw_ref)
             if ref.kind != "entry" or not ref.id or ref.id in seen_refs:
                 raise BadRequestError(
                     message="operation object_refs must identify unique Entry nodes"
                 )
-            entry = await Entry.get(ref.id)
-            track = (
-                await Track.get(entry.track_id) if entry and entry.track_id else None
+            records: dict[str, dict] = {}
+            location = await locate_resource(
+                "entry",
+                ref.id,
+                allowed_app_states=DATA_APP_STATES,
+                records_out=records,
             )
             if (
-                entry is None
-                or track is None
-                or str(track.id) not in app_track_ids
-                or str(getattr(track, "workspace_id", "")) != workspace_id
-                or await resolve_role(user_id, "entry", entry.id) is None
+                location is None
+                or location.app_id != app_id
+                or location.workspace_id != workspace_id
+                or await resolve_role(user_id, "entry", ref.id) is None
             ):
                 raise BadRequestError(
                     message="operation object_ref is outside the active App scope"
                 )
+            entry = await context._deserialize_entity(Entry, records[ref.id])
+            if entry is None:
+                from app.exceptions import AuthorizationUnavailableError
+
+                raise AuthorizationUnavailableError()
             seen_refs.add(ref.id)
             object_refs.append(
                 ObjectRef(
@@ -674,13 +705,23 @@ async def invoke_app_operation(
             package_slug=str(getattr(app, "installed_package_slug", "") or "") or None,
         ).model_dump()
 
-        return {
-            "app_id": app_id,
-            "operation_key": key,
-            "output": output,
-            "object_refs": object_refs,
-            "evidence": evidence,
-        }
+        result = result_context.bind(
+            {
+                "app_id": app_id,
+                "operation_key": key,
+                "output": output,
+                "object_refs": object_refs,
+                "evidence": evidence,
+            }
+        )
+        await authorize_replayed_result(
+            result,
+            user_id=user_id,
+            workspace_id=workspace_id,
+            app_id=app_id,
+            admit_context=admit_result_context,
+        )
+        return result
 
     if is_durable_command:
         if not idem_key:
@@ -707,7 +748,7 @@ async def invoke_app_operation(
             workspace_id=workspace_id,
             app_id=app_id,
             operation_key=key,
-            principal_id=actor_subject.id,
+            principal_id=operation_principal.principal_id,
             idempotency_key=idem_key,
         )
         try:
@@ -716,6 +757,8 @@ async def invoke_app_operation(
                 request_hash=request_hash,
                 execute=run_handler,
                 event_outbox=ctx.deferred_change_events,
+                principal_aliases=operation_principal.aliases,
+                admit_identity=operation_principal.admit,
             )
         except OperationReceiptConflict as exc:
             raise OperationIdempotencyConflictError(message=str(exc)) from exc
@@ -738,11 +781,12 @@ async def invoke_app_operation(
                 user_id=user_id,
                 workspace_id=workspace_id,
                 app_id=app_id,
+                admit_context=admit_result_context,
             )
         return {
-            **execution.result,
+            **public_operation_result(execution.result),
             "operation_receipt": receipt_reference(
-                identity, replayed=execution.replayed
+                execution.identity or identity, replayed=execution.replayed
             ),
         }
 
@@ -752,12 +796,12 @@ async def invoke_app_operation(
             workspace_id=workspace_id,
             app_id=app_id,
             operation_key=key,
-            principal_id=actor_subject.id,
+            principal_id=operation_principal.principal_id,
             idempotency_key=idem_key,
             request_hash=request_hash,
             result=result,
         )
-    return result
+    return public_operation_result(result)
 
 
 def operations_from_canonical(

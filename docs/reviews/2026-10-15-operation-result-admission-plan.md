@@ -1,6 +1,6 @@
 # Operation output admission follow-through
 
-Date: 2026-10-15. Status: native defect reproduced; implementation pending.
+Date: 2026-10-15. Status: implementation in progress; not release-qualified.
 This is the remaining declared-output/privacy boundary from the Core hardening
 review, not a new operation execution journal or an App-specific feature.
 
@@ -51,6 +51,72 @@ receipt already own command execution and must remain authoritative.
 7. Keep the contract generic. Opaque domain identifiers and unstructured prose
    are not a natural-language privacy classifier; resource claims must use
    supported canonical/typed contracts. Do not add domain field-name heuristics.
+
+## Current candidate and measured progress
+
+The working candidate now shares bounded initial/read-cache/command-receipt
+result admission. Nested canonical and typed references are inspected, with
+current canonical workspace/owning-App and ordinary read checks. The complete
+envelope has structural budgets; keys and values count toward inspection, as
+do repeated references. Limits are 10,000 visited values, depth 20, 65,536
+characters per string, 1,048,576 aggregate text characters, 128 distinct resource
+dependencies and 100 mutation references. These are character/value budgets,
+not byte or model-token accounting. Schema validation remains authoritative.
+Canonical mutation-reference hydration no longer enumerates all App Tracks.
+
+`OperationResultContext` additionally rechecks the original registered contract,
+fresh primary App identity/lifecycle, current declaration and human or delegated
+function authority inside the final release admission. Read functions recheck
+their full current decision. Mutation result release checks the current
+role/delegation without treating a consumed before-state condition as a new
+execution decision. No result-admission helper enters an effect permit or runs
+a handler. Prepared inputs are copied before handlers can modify their argument.
+
+A private server-generated declaration fingerprint is saved with each result,
+and stripped from public responses. A replacement handler/schema/installed
+identity cannot relabel a saved result under a reused key. Missing legacy
+fingerprints withhold disclosure; they never trigger command execution. Saved
+receipts and original request/key identity remain unchanged.
+
+Native red evidence:
+
+- `/tmp/core-operation-function-release-red.xml`: replacing a registered handler
+  during a read and revoking a function binding after the existing post-handler
+  check both leaked output (two expected failures).
+- `/tmp/core-operation-read-cache-contract-red.xml`: replacing a declaration
+  between requests returned the earlier cached output (one expected failure).
+
+The final 18-case native candidate suite passed at
+`/tmp/core-operation-function-final-native.xml`. It includes current App and
+Entry revocation, nested/foreign dependencies, bounded canonical hydration,
+initial/read-cache/command-receipt function revocation and saved read/command-contract
+replacement. Existing delegation/receipt regressions passed all 21 cases at
+`/tmp/core-operation-function-native-regressions.xml`, including six bounded
+agent/connector direct/deferred/revoked/changed-definition scenarios. All 124
+neighboring tests also passed at `/tmp/core-operation-function-final-neighbors.xml`;
+the pinned format/lint/type hooks passed at
+`/tmp/core-operation-function-final-hooks-rerun.log`. These focused runs do not
+replace the whole-source, artifact or remaining acceptance gates below.
+
+Remaining before closing this item:
+
+- Entry-owned comments and filed attachments now have explicit bounded parent
+  proofs and native allow/deny/revocation/recovery coverage; see
+  `2026-10-15-operation-parent-reference-admission.md`. Avatar/chat-only files,
+  intrinsic Entry author/type metadata and public directory metadata still need
+  explicit contracts. Unsupported references withhold the entire output; this
+  conservative behavior is not compatibility acceptance for ordinary SDK Entry
+  exports or directory records.
+- Function authority at release is implemented, but the native revocation
+  matrix still needs service-specific races and independent-connection ordering.
+- A denied result currently raises a permission error while retaining a
+  successful command receipt. Provide an honest opaque applied-outcome contract,
+  including preflight revocation, without disclosing data or replaying effects.
+- Complete the output/receipt/transport, missing/deleted/forged-parent and
+  fault/load matrix plus whole-source, CI-faithful and clean-artifact gates.
+
+The currently deployed local preview remains committed `f508d7ad`; this working
+candidate has not been committed, pushed or redeployed.
 
 ## Acceptance evidence to retain
 

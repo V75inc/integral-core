@@ -4,16 +4,18 @@ The receipt claim, local graph effects, and completed result share one
 PostgreSQL transaction.  A failed handler rolls all of them back; a concurrent
 retry waits for the winning transaction and replays its completed receipt.
 
-This is a persistence primitive.  The dispatcher is not wired to it until its
-change-event delivery path uses a committed outbox as well.
+The dispatcher uses this primitive with a committed change-event outbox.
+Result disclosure still requires current authorization; a completed receipt
+proves the earlier effect and never grants permission to execute it again.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, Iterable
+from contextlib import nullcontext
+from dataclasses import dataclass, replace
+from typing import Any, AsyncContextManager, Awaitable, Callable, Dict, Iterable
 
 from app.contracts.operations import OperationIdentity
 from app.services.app_operations.transaction_scope import postgres_graph_transaction
@@ -37,6 +39,7 @@ class OperationExecutionResult:
 
     result: Dict[str, Any]
     replayed: bool
+    identity: OperationIdentity | None = None
 
 
 def receipt_object_id(identity: OperationIdentity) -> str:
@@ -109,6 +112,8 @@ async def execute_operation_once(
     execute: Callable[[], Awaitable[Dict[str, Any]]],
     event_outbox: Iterable[Dict[str, Any]] | None = None,
     database: Any | None = None,
+    principal_aliases: Iterable[str] = (),
+    admit_identity: Callable[[], AsyncContextManager[None]] | None = None,
 ) -> OperationExecutionResult:
     """Execute a local command once and commit its receipt with graph effects.
 
@@ -119,42 +124,135 @@ async def execute_operation_once(
     if not request_hash:
         raise ValueError("request_hash is required")
 
+    aliases = tuple(principal_aliases)
+    if len(aliases) > 1 or any(
+        type(alias) is not str or not alias or alias != alias.strip()
+        for alias in aliases
+    ):
+        raise ValueError("operation aliases require at most one verified principal")
+    identities = {receipt_object_id(identity): identity}
+    for alias in aliases:
+        other = replace(identity, principal_id=alias)
+        identities[receipt_object_id(other)] = other
+
     async with postgres_graph_transaction(database) as transaction:
-        claim = _receipt_document(
-            identity=identity,
-            request_hash=request_hash,
-            status="claimed",
-        )
-        inserted = await transaction.insert_if_absent(_OBJECT_COLLECTION, claim)
-        if not inserted.created:
-            existing = inserted.record or await transaction.get(
-                _OBJECT_COLLECTION, claim["id"]
+        created: set[str] = set()
+        existing: dict[str, dict[str, Any]] = {}
+        # Every current alias uses the original receipt namespace. This also
+        # serializes with an older worker which knows only one of those IDs.
+        for receipt_id, candidate in sorted(identities.items()):
+            claim = _receipt_document(
+                identity=candidate, request_hash=request_hash, status="claimed"
             )
-            if existing is None:
-                raise OperationReceiptIncomplete("Operation receipt claim disappeared")
+            inserted = await transaction.insert_if_absent(_OBJECT_COLLECTION, claim)
+            if inserted.created:
+                created.add(receipt_id)
+            else:
+                record = inserted.record or await transaction.get(
+                    _OBJECT_COLLECTION, receipt_id
+                )
+                if record is None:
+                    raise OperationReceiptIncomplete(
+                        "Operation receipt claim disappeared"
+                    )
+                _validate_receipt_identity(record, candidate)
+                if record["context"].get("request_hash") != request_hash:
+                    raise OperationReceiptConflict(
+                        "Idempotency key reused with different payload"
+                    )
+                existing[receipt_id] = record
+
+        async with admit_identity() if admit_identity is not None else nullcontext():
+            completed = [
+                key
+                for key, row in existing.items()
+                if row["context"].get("status") == "succeeded"
+            ]
+            if len(completed) > 1:
+                raise OperationReceiptIncomplete(
+                    "Multiple committed principal-alias receipts require reconciliation"
+                )
+            if existing and not completed:
+                raise OperationReceiptIncomplete(
+                    "Operation alias receipt is incomplete"
+                )
+            source_id = completed[0] if completed else receipt_object_id(identity)
+            source_identity = identities[source_id]
+            for receipt_id, row in existing.items():
+                if receipt_id == source_id:
+                    continue
+                context = row["context"]
+                if (
+                    context.get("status") != "alias"
+                    or context.get("canonical_receipt_id") != source_id
+                    or context.get("result_json") != ""
+                ):
+                    raise OperationReceiptIncomplete(
+                        "Operation alias receipt requires reconciliation"
+                    )
+
+            if completed:
+                result = _replay_or_raise(
+                    existing[source_id], request_hash=request_hash
+                )
+            else:
+                result = await execute()
+                if not isinstance(result, dict):
+                    raise TypeError("operation execute callback must return a dict")
+                if event_outbox:
+                    from app.services.app_operations.event_outbox import (
+                        insert_operation_events,
+                    )
+
+                    await insert_operation_events(
+                        transaction=transaction,
+                        identity=source_identity,
+                        events=event_outbox,
+                    )
+                serialized = json.dumps(result, sort_keys=True, separators=(",", ":"))
+                await transaction.save(
+                    _OBJECT_COLLECTION,
+                    _receipt_document(
+                        identity=source_identity,
+                        request_hash=request_hash,
+                        status="succeeded",
+                        result_json=serialized,
+                    ),
+                )
+            for receipt_id in sorted(created - {source_id}):
+                marker = _receipt_document(
+                    identity=identities[receipt_id],
+                    request_hash=request_hash,
+                    status="alias",
+                )
+                marker["context"]["canonical_receipt_id"] = source_id
+                await transaction.save(_OBJECT_COLLECTION, marker)
             return OperationExecutionResult(
-                result=_replay_or_raise(existing, request_hash=request_hash),
-                replayed=True,
+                result=dict(result),
+                replayed=bool(completed),
+                identity=source_identity,
             )
 
-        result = await execute()
-        if not isinstance(result, dict):
-            raise TypeError("operation execute callback must return a dict")
-        if event_outbox:
-            from app.services.app_operations.event_outbox import insert_operation_events
 
-            await insert_operation_events(
-                transaction=transaction, identity=identity, events=event_outbox
+def _validate_receipt_identity(record: dict, identity: OperationIdentity) -> None:
+    expected = _receipt_document(identity=identity, request_hash="", status="")
+    context = record.get("context")
+    if (
+        record.get("id") != expected["id"]
+        or record.get("entity") != _RECEIPT_ENTITY
+        or not isinstance(context, dict)
+        or any(
+            context.get(key) != expected["context"][key]
+            for key in (
+                "workspace_id",
+                "app_id",
+                "operation_key",
+                "principal_id",
+                "idempotency_key",
             )
-        serialized = json.dumps(result, sort_keys=True, separators=(",", ":"))
-        completed = _receipt_document(
-            identity=identity,
-            request_hash=request_hash,
-            status="succeeded",
-            result_json=serialized,
         )
-        await transaction.save(_OBJECT_COLLECTION, completed)
-        return OperationExecutionResult(result=dict(result), replayed=False)
+    ):
+        raise OperationReceiptIncomplete("Operation receipt identity is invalid")
 
 
 __all__ = [
