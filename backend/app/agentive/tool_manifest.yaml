@@ -2484,7 +2484,8 @@ domains:
         policy_action: routine_task.create
         staging_kind: routine_task_create
         params:
-          instruction: {type: string, required: true, desc: "Canonical natural-language prompt replayed verbatim on every run."}
+          instruction: {type: string, required: true, desc: "For agent mode, the task to execute each run. For reminder mode, the exact user-reviewed message to deliver, without model interpretation."}
+          delivery_mode: {type: string, enum: [agent, reminder], optional: true, desc: "Use reminder for unconditional saved-text nudges (no model call per fire). Use agent for tasks requiring records, analysis, conditions or tools. Defaults agent for compatibility. Reminder mode forbids write_scope."}
           cron: {type: string, optional: true, desc: "5-field cron for recurring routines. Omit when using run_at."}
           run_at: {type: string, optional: true, desc: "ISO-8601 fire time for a one-shot. Include an offset for an absolute time; otherwise uses the chosen timezone. Omit when using cron. Defaults max_runs=1."}
           timezone: {type: string, optional: true, desc: "IANA timezone; defaults to the account time zone. Used for cron and run_at without an offset. Absolute run_at offsets take precedence."}

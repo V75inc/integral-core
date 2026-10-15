@@ -19,6 +19,7 @@ class RoutineResponse(BaseModel):
 
     id: str
     instruction: str
+    delivery_mode: Literal["agent", "reminder"] = "agent"
     cron: str
     timezone: str
     status: str
