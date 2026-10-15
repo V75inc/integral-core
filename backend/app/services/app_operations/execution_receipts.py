@@ -15,6 +15,7 @@ import hashlib
 import json
 from contextlib import nullcontext
 from dataclasses import dataclass, replace
+from itertools import islice
 from typing import Any, AsyncContextManager, Awaitable, Callable, Dict, Iterable
 
 from app.contracts.operations import OperationIdentity
@@ -40,6 +41,20 @@ class OperationExecutionResult:
     result: Dict[str, Any]
     replayed: bool
     identity: OperationIdentity | None = None
+
+
+@dataclass(frozen=True, repr=False)
+class OperationOutcomeObservation:
+    """Private journal proof, with no saved output or current-state assertion.
+
+    Export only ``reference()`` after current own-history admission. The identity
+    carries private idempotency material and is not a public response model.
+    """
+
+    identity: OperationIdentity
+
+    def reference(self) -> Dict[str, Any]:
+        return receipt_reference(self.identity, replayed=True)
 
 
 def receipt_object_id(identity: OperationIdentity) -> str:
@@ -103,6 +118,88 @@ def _replay_or_raise(record: Dict[str, Any], *, request_hash: str) -> Dict[str, 
     if not isinstance(result, dict):
         raise OperationReceiptIncomplete("Operation receipt result is not an object")
     return result
+
+
+async def lookup_operation_outcome(
+    *,
+    identity: OperationIdentity,
+    request_hash: str,
+    principal_aliases: Iterable[str] = (),
+    database: Any | None = None,
+) -> OperationOutcomeObservation | None:
+    """Observe one original success without claiming, repairing or replaying it.
+
+    This is a storage primitive, not authorization. Its caller must supply a
+    currently admitted identity/workspace and at most one verified human alias;
+    re-admit own-history access before releasing even the opaque reference.
+    Never pass client-selected aliases or serialize this private return object.
+
+    One native transaction batch read observes both deterministic IDs together,
+    bypassing identity caches. Missing history returns None, never permission to
+    execute. Incomplete/conflicting/corrupt rows and outages remain explicit.
+    Saved output is deliberately not decoded, including legacy malformed output.
+    """
+    if not isinstance(identity, OperationIdentity):
+        raise TypeError("an OperationIdentity is required")
+    if any(
+        type(value) is not str or not value or value != value.strip()
+        for value in identity.cache_key()
+    ):
+        raise ValueError("operation identity requires exact nonempty values")
+    if type(request_hash) is not str or not request_hash:
+        raise ValueError("request_hash is required")
+    if isinstance(principal_aliases, (str, bytes)):
+        raise ValueError("operation aliases require at most one verified principal")
+    aliases = tuple(islice(principal_aliases, 2))
+    if len(aliases) > 1 or any(
+        type(alias) is not str or not alias or alias != alias.strip()
+        for alias in aliases
+    ):
+        raise ValueError("operation aliases require at most one verified principal")
+    identities = {receipt_object_id(identity): identity}
+    for alias in aliases:
+        candidate = replace(identity, principal_id=alias)
+        identities[receipt_object_id(candidate)] = candidate
+
+    async with postgres_graph_transaction(database) as transaction:
+        records = await transaction.find_many(_OBJECT_COLLECTION, sorted(identities))
+        if not isinstance(records, dict) or not set(records) <= identities.keys():
+            raise OperationReceiptIncomplete("Operation receipt lookup is invalid")
+        for receipt_id, record in records.items():
+            if not isinstance(record, dict):
+                raise OperationReceiptIncomplete(
+                    "Operation receipt identity is invalid"
+                )
+            _validate_receipt_identity(record, identities[receipt_id])
+            if record["context"].get("request_hash") != request_hash:
+                raise OperationReceiptConflict(
+                    "Idempotency key reused with different payload"
+                )
+        if not records:
+            return None
+        completed = [
+            key
+            for key, row in records.items()
+            if row["context"].get("status") == "succeeded"
+        ]
+        if len(completed) != 1:
+            raise OperationReceiptIncomplete(
+                "Operation outcome requires reconciliation"
+            )
+        original_id = completed[0]
+        for receipt_id, row in records.items():
+            if receipt_id == original_id:
+                continue
+            context = row["context"]
+            if (
+                context.get("status") != "alias"
+                or context.get("canonical_receipt_id") != original_id
+                or context.get("result_json") != ""
+            ):
+                raise OperationReceiptIncomplete(
+                    "Operation alias receipt requires reconciliation"
+                )
+        return OperationOutcomeObservation(identities[original_id])
 
 
 async def execute_operation_once(
@@ -257,9 +354,11 @@ def _validate_receipt_identity(record: dict, identity: OperationIdentity) -> Non
 
 __all__ = [
     "OperationExecutionResult",
+    "OperationOutcomeObservation",
     "OperationReceiptConflict",
     "OperationReceiptIncomplete",
     "execute_operation_once",
+    "lookup_operation_outcome",
     "receipt_reference",
     "receipt_object_id",
 ]
