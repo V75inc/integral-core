@@ -318,6 +318,12 @@ def _structured_seed(
         return entry
     text = str(entry.get("text") or "").strip()
     if not text:
+        if str(entry.get("title") or "").strip():
+            # A named record with no supplied optional values is the same
+            # seed as an unlabelled title below. Do not force the planner to
+            # invent field values. Required-field validation still belongs to
+            # the normal typed entry operation and blueprint fidelity checks.
+            return entry
         raise ValueError("A typed seed entry needs structured fields.")
     labels = {
         str(field.get("name") or field.get("key") or "").strip().casefold(): field
