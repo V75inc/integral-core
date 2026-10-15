@@ -31,6 +31,7 @@ class _TransactionScope:
     handle: Any
     owner: Any
     failed: bool = False
+    failure: BaseException | None = None
 
 
 _active_transaction: ContextVar[_TransactionScope | None] = ContextVar(
@@ -146,9 +147,11 @@ async def postgres_graph_transaction(
                 )
         try:
             yield active.handle
-        except BaseException:
+        except BaseException as exc:
             # Catching a nested failure must not commit its partial mutations.
             active.failed = True
+            if active.failure is None:
+                active.failure = exc
             raise
         return
 
@@ -169,7 +172,7 @@ async def postgres_graph_transaction(
                 if frame.failed:
                     raise OperationTransactionUnavailable(
                         "Nested transaction failure requires rollback"
-                    )
+                    ) from frame.failure
             finally:
                 _active_transaction.reset(token)
     except _JvTxnUnavailable as exc:

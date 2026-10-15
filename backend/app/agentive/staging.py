@@ -1291,6 +1291,7 @@ async def _push_state_and_record_closure(sc: StagedChange) -> None:
                 user_id=sc.user_id,
                 target=sc.state,
                 expected_kind=sc.kind,
+                terminal_snapshot=sc,
             )
         except StagingError as exc:
             if exc.code != f"already_{sc.state}":

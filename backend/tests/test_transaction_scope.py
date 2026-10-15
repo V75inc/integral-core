@@ -167,7 +167,9 @@ async def test_nested_transaction_joins_handle_and_caught_failure_requires_rollb
             assert explicit is outer
     assert calls == ["begin", "commit"]
     calls.clear()
-    with pytest.raises(seam.OperationTransactionUnavailable, match="requires rollback"):
+    with pytest.raises(
+        seam.OperationTransactionUnavailable, match="requires rollback"
+    ) as failed:
         async with seam.postgres_graph_transaction(database):
             try:
                 async with seam.postgres_graph_transaction():
@@ -175,6 +177,8 @@ async def test_nested_transaction_joins_handle_and_caught_failure_requires_rollb
             except ValueError:
                 pass
     assert calls == ["begin", "rollback"]
+    assert isinstance(failed.value.__cause__, ValueError)
+    assert str(failed.value.__cause__) == "partial write"
 
 
 @pytest.mark.asyncio
