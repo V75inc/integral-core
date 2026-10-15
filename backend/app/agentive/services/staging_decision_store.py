@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -14,6 +15,32 @@ from app.agentive.staging import StagedChange, StagingError
 from app.services.app_operations.transaction_scope import postgres_graph_transaction
 
 
+def _acknowledged_terminal(snapshot, data, *, token, user_id, target, expected_kind):
+    """Acknowledge only an exact terminal fact; never hydrate approval authority."""
+    if (
+        snapshot is None
+        or target not in {"consumed", "revoked", "expired"}
+        or snapshot.token != token
+        or snapshot.user_id != user_id
+        or snapshot.state != target
+        or data.get("user_id") != user_id
+        or data.get("state") != target
+        or snapshot.kind != data.get("kind")
+        or (expected_kind is not None and data.get("kind") != expected_kind)
+    ):
+        return None
+    try:
+        resolved = datetime.fromisoformat(data.get("resolved_at") or "")
+        retained = data.get("retained_until")
+        if resolved.tzinfo is None or (
+            retained and datetime.fromisoformat(retained) <= datetime.now(timezone.utc)
+        ):
+            return None
+    except (TypeError, ValueError):
+        return None
+    return replace(snapshot, resolved_at=resolved)
+
+
 async def transition_staged_decision(
     *,
     token: str,
@@ -21,8 +48,14 @@ async def transition_staged_decision(
     target: str,
     expected_kind: str | None = None,
     decision_source: str | None = None,
+    terminal_snapshot: StagedChange | None = None,
 ) -> StagedChange:
-    """Use fresh locked facts; stale caches never bless, revoke or consume."""
+    """Use fresh locked facts; stale caches never bless, revoke or consume.
+
+    A closure notifier may acknowledge its matching terminal snapshot without
+    raising an expected refusal inside a caller's transaction. Normal decision
+    callers retain strict one-time transition semantics, including consumption.
+    """
     from app.agentive.services.staging_execution import (
         StagingExecutionRecord,
         execution_record_id,
@@ -45,6 +78,22 @@ async def transition_staged_decision(
                 "object", staging_store._decision_record_id(token)
             )
             terminal_data = (terminal or {}).get("context") or {}
+            acknowledged = _acknowledged_terminal(
+                (
+                    terminal_snapshot
+                    if terminal is not None
+                    and terminal.get("entity")
+                    == staging_store.StagingDecisionRecord._entity_name()
+                    else None
+                ),
+                terminal_data,
+                token=token,
+                user_id=user_id,
+                target=target,
+                expected_kind=expected_kind,
+            )
+            if acknowledged is not None:
+                return acknowledged
             if terminal_data.get("user_id") == user_id and terminal_data.get(
                 "state"
             ) in {
@@ -79,6 +128,16 @@ async def transition_staged_decision(
             raise StagingError("wrong_kind", "Token is for another operation kind")
         state = data.get("state")
         if state not in {"pending", "blessed"}:
+            acknowledged = _acknowledged_terminal(
+                terminal_snapshot,
+                data,
+                token=token,
+                user_id=user_id,
+                target=target,
+                expected_kind=expected_kind,
+            )
+            if acknowledged is not None:
+                return acknowledged
             raise StagingError(f"already_{state}", "Proposal is already resolved")
         now = datetime.now(timezone.utc)
         try:
