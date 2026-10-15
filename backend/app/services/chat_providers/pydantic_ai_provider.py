@@ -31,6 +31,12 @@ from app.agentive.harness.contracts import (
     PhysicalModelRequest,
 )
 from app.agentive.harness.disclosure import public_disclosure_response
+from app.agentive.harness.effect_reconciliation import (
+    is_pre_effect_rejection,
+    is_settled_core_receipt,
+    receipt_recovery_result,
+    settled_core_guard_calls,
+)
 from app.agentive.harness.events import PydanticAIEventTranslator, SettledTextBuffer
 from app.agentive.harness.litellm_model import build_litellm_sdk_model
 from app.agentive.harness.model_observations import persist_model_request_observation
@@ -131,6 +137,13 @@ def _scaffold_completion_validator(run_state: dict[str, Any]):
     """Validate scaffold receipts without imposing discovery on plain chat."""
 
     async def validate(ctx: Any, output: str) -> str:
+        build_validation_failure = run_state.get("build_validation_failure")
+        if isinstance(build_validation_failure, str):
+            return (
+                "The approved setup could not be built because the generated "
+                "plan did not match it. No build changes were applied. "
+                + build_validation_failure
+            )
         workflow_attempted = run_state.get(
             "scaffold_coverage_attempted"
         ) or run_state.get("proposal_attempted")
@@ -370,6 +383,11 @@ async def _resume_history(
         )
 
     unresolved = await store.list_unresolved_tool_effects(run_id=session.last_run_id)
+    if unresolved and not terminal_run:
+        raise ResourceConflictError(
+            message="The prior Harness run has an unresolved tool effect",
+            details={"reason": "harness_tool_effect_unresolved"},
+        )
     can_abandon_reads = (
         _terminal_run_matches(scope, previous_run)
         and previous_run.run_id == session.last_run_id
@@ -378,12 +396,6 @@ async def _resume_history(
             for effect in unresolved
         )
     )
-    if unresolved and not can_abandon_reads:
-        raise ResourceConflictError(
-            message="The prior Harness run has an unresolved tool effect",
-            details={"reason": "harness_tool_effect_unresolved"},
-        )
-
     effects_method = getattr(store, "list_tool_effects", None)
     effect_records = (
         await effects_method(run_id=session.last_run_id)
@@ -432,6 +444,7 @@ async def _resume_history(
                 checkpoint_run_id == session.last_run_id
                 and not unsettled_requests
                 and not effect_records
+                and not unresolved
                 and not pending_approvals
             ):
                 return await _continue_from_checkpoint(store, checkpoint_run_id)
@@ -446,6 +459,26 @@ async def _resume_history(
     # A safe completed snapshot may have been persisted immediately before a
     # process died, while the following session-pointer CAS did not run.
     latest = await store.latest_snapshot(run_id=session.last_run_id)
+    if unresolved and not can_abandon_reads:
+        history = (
+            await _settled_terminal_history(
+                scope,
+                previous_run,
+                store,
+                latest,
+                effect_records,
+                recovery_message=recovery_message,
+                checkpoint_run_id=checkpoint_run_id,
+            )
+            if terminal_run and not pending_approvals
+            else None
+        )
+        if history is not None:
+            return history
+        raise ResourceConflictError(
+            message="The prior Harness run has an unresolved tool effect",
+            details={"reason": "harness_tool_effect_unresolved"},
+        )
     if unsettled_requests:
         # Terminal failure or cancellation ends the old run's authority. A model
         # response cannot independently mutate Integral. Reuse only history
@@ -645,7 +678,8 @@ async def _settled_terminal_history(
     """Admit a terminal turn's library history using original Core receipts.
 
     No transcript guesses, model judgment, or new authority are involved.
-    Failed mutations without a successful/denied receipt remain ambiguous.
+    Failed mutations remain ambiguous unless an original, audited Core
+    validation receipt proves rejection before mutation.
     Framework discovery tools only change run-local capability visibility.
     """
     if not _terminal_run_matches(scope, run):
@@ -676,10 +710,21 @@ async def _settled_terminal_history(
             or (
                 step.status == "failed"
                 and operation_classes.get(step.capability_key) != "read"
+                and not is_pre_effect_rejection(step)
             )
         ):
             return None
     read_tools = _read_tools_for_run(run)
+    history = (
+        await _continue_from_checkpoint(store, run.run_id)
+        if snapshot is not None
+        else []
+    )
+    guard_calls = {
+        pair
+        for pair in settled_core_guard_calls(history, effects)
+        if pair[1] in operation_classes
+    }
     for effect in effects:
         if effect.status not in {"started", "completed", "failed"}:
             return None
@@ -688,10 +733,14 @@ async def _settled_terminal_history(
         receipt = receipts.get(
             _idempotency_key(run.run_id, effect.tool_call_id, effect.tool_name)
         )
-        if receipt is None or receipt.status not in {"succeeded", "denied"}:
+        if receipt is None and (effect.tool_call_id, effect.tool_name) in guard_calls:
+            continue
+        if receipt is None or (
+            receipt.status not in {"succeeded", "denied"}
+            and not is_pre_effect_rejection(receipt)
+        ):
             return None
     if snapshot is not None:
-        history = await _continue_from_checkpoint(store, run.run_id)
         resolved_ids = {
             part.tool_call_id
             for message in history
@@ -703,12 +752,51 @@ async def _settled_terminal_history(
         if any(
             effect.tool_call_id not in resolved_ids
             and effect.tool_name not in read_tools
+            and not is_settled_core_receipt(
+                receipts.get(
+                    _idempotency_key(run.run_id, effect.tool_call_id, effect.tool_name)
+                )
+            )
             for effect in effects
         ):
             return None
+        missing_returns = []
+        for message in history:
+            if not isinstance(message, ModelResponse):
+                continue
+            for part in message.parts:
+                if getattr(part, "part_kind", None) != "tool-call":
+                    continue
+                receipt = receipts.get(
+                    _idempotency_key(run.run_id, part.tool_call_id, part.tool_name)
+                )
+                if part.tool_call_id not in resolved_ids and is_settled_core_receipt(
+                    receipt
+                ):
+                    missing_returns.append(
+                        ToolReturnPart(
+                            tool_name=part.tool_name,
+                            tool_call_id=part.tool_call_id,
+                            content=receipt_recovery_result(receipt),
+                        )
+                    )
+                    resolved_ids.add(part.tool_call_id)
+        if missing_returns:
+            history.append(ModelRequest(parts=missing_returns))
     elif (
-        any(effect.tool_name not in read_tools for effect in effects)
-        or any(step.capability_key not in read_tools for step in steps)
+        any(
+            effect.tool_name not in read_tools
+            and not is_pre_effect_rejection(
+                receipts.get(
+                    _idempotency_key(run.run_id, effect.tool_call_id, effect.tool_name)
+                )
+            )
+            for effect in effects
+        )
+        or any(
+            step.capability_key not in read_tools and not is_pre_effect_rejection(step)
+            for step in steps
+        )
         or recovery_message is None
     ):
         return None
@@ -723,22 +811,47 @@ async def _settled_terminal_history(
     for effect in effects:
         latest_effects[effect.tool_call_id] = effect
     for effect in latest_effects.values():
+        receipt = receipts.get(
+            _idempotency_key(run.run_id, effect.tool_call_id, effect.tool_name)
+        )
         if effect.status == "started":
-            # This is an audit transition, not a replay or synthetic result.
-            # Only declared reads can reach this branch. Any unknown mutation
-            # was rejected above; no completed write receipt is changed.
+            # Audit a declared read or an original pre-effect rejection.
+            # Unknown mutations were rejected above. No completed receipt or
+            # execution outcome is changed, and no capability is dispatched.
             await store.record_tool_effect(
                 ToolEffectRecord(
                     run_id=run.run_id,
                     tool_call_id=effect.tool_call_id,
                     tool_name=effect.tool_name,
-                    status="failed",
+                    status=(
+                        "completed"
+                        if is_settled_core_receipt(receipt)
+                        and not is_pre_effect_rejection(receipt)
+                        else "failed"
+                    ),
                     started_at=effect.started_at,
                     ended_at=datetime.now(timezone.utc),
                     idempotency_key=effect.idempotency_key,
-                    effect_summary="Read abandoned after terminal run; result unavailable; no replay.",
+                    effect_summary=(
+                        "Core validation rejected before mutation; not applied; no replay."
+                        if is_pre_effect_rejection(
+                            receipts.get(
+                                _idempotency_key(
+                                    run.run_id, effect.tool_call_id, effect.tool_name
+                                )
+                            )
+                        )
+                        else (
+                            "Original Core receipt confirms a settled outcome; observe current state; no replay."
+                            if is_settled_core_receipt(receipt)
+                            else "Read abandoned after terminal run; result unavailable; no replay."
+                        )
+                    ),
                 )
             )
+    rejected = sorted(
+        {step.adapter_error_code for step in steps if is_pre_effect_rejection(step)}
+    )
     history.append(
         ModelResponse(
             parts=[
@@ -747,6 +860,13 @@ async def _settled_terminal_history(
                         "The previous turn completed. Its "
                         if run.status == "succeeded"
                         else "The previous turn stopped without a final answer. Its "
+                    )
+                    + (
+                        "Build validation was rejected before mutation and changes were not applied ("
+                        + ", ".join(rejected)
+                        + "). "
+                        if rejected
+                        else ""
                     )
                     + "settled tool results are preserved in this conversation; "
                     "applied actions must not be repeated. No interrupted "
