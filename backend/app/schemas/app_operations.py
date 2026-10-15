@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -43,6 +43,8 @@ class AppOperationsListResponse(BaseModel):
 class AppOperationInvokeRequest(BaseModel):
     input: Dict[str, Any] = Field(default_factory=dict)
 
+    model_config = {"extra": "forbid"}
+
 
 class AppOperationInvokeResponse(BaseModel):
     app_id: str
@@ -52,3 +54,28 @@ class AppOperationInvokeResponse(BaseModel):
     object_refs: List[Dict[str, Any]] = Field(default_factory=list)
     evidence: Optional[Dict[str, Any]] = None
     operation_receipt: Optional[Dict[str, Any]] = None
+    output_disposition: Literal["available"] = "available"
+    current_state_verified: Literal[False] = False
+
+
+class RecordedOperationReceipt(BaseModel):
+    """An original journal reference, with no private execution identity."""
+
+    id: str = Field(pattern=r"^o\.OperationExecutionReceipt\.[0-9a-f]{64}$")
+    status: Literal["succeeded"] = "succeeded"
+    replayed: Literal[True] = True
+
+    model_config = {"extra": "forbid"}
+
+
+class AppOperationOutputWithheld(BaseModel):
+    """Past completion is known; neither output nor current state is disclosed."""
+
+    operation_receipt: RecordedOperationReceipt
+    output_disposition: Literal["withheld"] = "withheld"
+    current_state_verified: Literal[False] = False
+
+    model_config = {"extra": "forbid"}
+
+
+AppOperationResponse = Union[AppOperationInvokeResponse, AppOperationOutputWithheld]
