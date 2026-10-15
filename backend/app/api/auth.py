@@ -548,6 +548,65 @@ async def verify_email(request: Request) -> Dict[str, Any]:
     return {"ok": True, "message": "Email verified successfully"}
 
 
+@endpoint(
+    "/auth/credentials-delivery/verify",
+    methods=["POST"],
+    auth=False,
+    tags=["Auth"],
+)
+async def verify_credentials_delivery(request: Request) -> Dict[str, Any]:
+    """Confirm alternate-mailbox delivery and release login credentials."""
+    from app.schemas.api.auth import VerifyCredentialsDeliveryRequest
+    from app.services.credential_delivery import (
+        ERR_ATTEMPTS_EXCEEDED,
+        ERR_EXPIRED_CODE,
+        ERR_INTENT_MISMATCH,
+        ERR_INVALID_CODE,
+        ERR_NOT_PENDING,
+        consume_credentials_delivery_code,
+    )
+
+    try:
+        body = VerifyCredentialsDeliveryRequest.model_validate(await request.json())
+    except ValidationError as e:
+        raise BadRequestError(
+            message="Validation failed",
+            details={"errors": e.errors()},
+        )
+
+    ok, error_code, emailed = await consume_credentials_delivery_code(
+        member_user_id=body.member_user_id.strip(),
+        intent_id=body.intent_id.strip(),
+        code=body.code.strip(),
+    )
+    if not ok:
+        if error_code == ERR_EXPIRED_CODE:
+            raise BadRequestError(
+                message="Confirmation code has expired.",
+                details={"error_code": error_code},
+            )
+        if error_code == ERR_ATTEMPTS_EXCEEDED:
+            raise BadRequestError(
+                message="Too many incorrect attempts. Ask your admin to re-provision.",
+                details={"error_code": error_code},
+            )
+        if error_code in (ERR_INTENT_MISMATCH, ERR_NOT_PENDING):
+            raise BadRequestError(
+                message="This confirmation link is no longer valid.",
+                details={"error_code": error_code},
+            )
+        raise BadRequestError(
+            message="Invalid confirmation code.",
+            details={"error_code": error_code},
+        )
+
+    return {
+        "ok": True,
+        "credentials_emailed": emailed,
+        "message": "Login details have been sent to your email.",
+    }
+
+
 @endpoint("/auth/resend-verification", methods=["POST"], auth=True, tags=["Auth"])
 async def resend_verification(request: Request) -> Dict[str, Any]:
     """Generate and send a fresh verification OTP to the authenticated user's email."""

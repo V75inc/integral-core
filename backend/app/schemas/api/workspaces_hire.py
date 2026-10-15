@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, StrictBool, StrictStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, StrictStr
 
 
 class ProvisionWorkspaceMemberRequest(BaseModel):
@@ -15,10 +15,9 @@ class ProvisionWorkspaceMemberRequest(BaseModel):
     email: EmailStr
     display_name: StrictStr = Field(min_length=1)
     role: Literal["admin", "member", "guest"] = "member"
-    send_credentials: StrictBool = True
+    send_credentials: bool = True
     welcome_message: Optional[StrictStr] = None
     credentials_email: Optional[EmailStr] = None
-    alternate_credentials_delivery: StrictBool = False
 
 
 class SetMemberAssignedFormPromptRequest(BaseModel):

@@ -26,7 +26,10 @@ from app.utils.time import utc_now_iso
 
 logger = logging.getLogger(__name__)
 
+# Default entry-template provider App slug; callers may pass an explicit
+# ``template_provider_slug`` to resolve another installed template library App.
 DOCUMENT_TEMPLATES_SLUG = "document_templates"
+DEFAULT_TEMPLATE_PROVIDER_SLUG = DOCUMENT_TEMPLATES_SLUG
 TRACK_TEMPLATES = "templates"
 
 
@@ -151,7 +154,12 @@ def _checksum_version_payload(
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-async def find_document_templates_app(workspace_id: str) -> Optional[App]:
+async def find_entry_template_provider_app(
+    workspace_id: str,
+    *,
+    template_provider_slug: str = DEFAULT_TEMPLATE_PROVIDER_SLUG,
+) -> Optional[App]:
+    want = str(template_provider_slug or DEFAULT_TEMPLATE_PROVIDER_SLUG).casefold()
     rows: List[Any] = []
     seen: set[str] = set()
     for query in (
@@ -173,9 +181,13 @@ async def find_document_templates_app(workspace_id: str) -> Optional[App]:
     for app in rows:
         if str(getattr(app, "lifecycle_state", "") or "active") == "uninstalled":
             continue
-        if _installed_package_slug(app).casefold() == DOCUMENT_TEMPLATES_SLUG.casefold():
+        if _installed_package_slug(app).casefold() == want:
             return app
     return None
+
+
+async def find_document_templates_app(workspace_id: str) -> Optional[App]:
+    return await find_entry_template_provider_app(workspace_id)
 
 
 async def require_document_templates_app(workspace_id: str) -> App:

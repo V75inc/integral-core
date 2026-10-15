@@ -300,6 +300,10 @@ class Settings(BaseSettings):
     EMAIL_VERIFICATION_CODE_EXPIRE_MINUTES: int = 15
     EMAIL_VERIFICATION_MAX_ATTEMPTS: int = 5
 
+    # ===== Alternate mailbox credential delivery (member provision) =====
+    CREDENTIALS_DELIVERY_CODE_EXPIRE_MINUTES: int = 60
+    CREDENTIALS_DELIVERY_MAX_ATTEMPTS: int = 5
+
     # ===== Transactional email =====
     # Provider: "console" | "resend" | "sendgrid"
     EMAIL_PROVIDER: str = "console"

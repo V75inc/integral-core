@@ -139,7 +139,6 @@ async def provision_workspace_member(
     send_credentials: bool = True,
     welcome_message: Optional[str] = None,
     credentials_email: Optional[str] = None,
-    alternate_credentials_delivery: bool = False,
     actor_id: str,
 ) -> Dict[str, Any]:
     """Provision through current canonical membership admission and audit."""
@@ -152,7 +151,6 @@ async def provision_workspace_member(
                 "send_credentials": send_credentials,
                 "welcome_message": welcome_message,
                 "credentials_email": credentials_email,
-                "alternate_credentials_delivery": alternate_credentials_delivery,
             }
         )
     except ValidationError as exc:
@@ -167,17 +165,10 @@ async def provision_workspace_member(
         else email_norm
     )
     alternate_delivery = deliver_norm != email_norm
-    if alternate_delivery:
-        if not body.alternate_credentials_delivery:
-            raise BadRequestError(
-                message="Credentials must be delivered to the account email"
-            )
-        if not body.send_credentials:
-            raise BadRequestError(
-                message=(
-                    "Alternate credentials recipient requires send_credentials"
-                )
-            )
+    if alternate_delivery and not body.send_credentials:
+        raise BadRequestError(
+            message="Alternate credentials recipient requires send_credentials"
+        )
     if (
         is_postgres_entry_transaction(get_default_context().database)
         and send_credentials
@@ -194,6 +185,8 @@ async def provision_workspace_member(
     created = False
     temp_password: Optional[str] = None
     credentials_emailed = False
+    credentials_pending_verification = False
+    delivery_meta: Dict[str, Any] = {}
     outbox_id = None
     database = get_default_context().database
     transaction = (
@@ -321,7 +314,27 @@ async def provision_workspace_member(
                 "created accounts"
             )
         )
-    if send_credentials and deliver_to:
+    if (
+        alternate_delivery
+        and send_credentials
+        and created
+        and user_node is not None
+    ):
+        from app.services.credential_delivery import begin_alternate_credentials_delivery
+
+        ws_name = str(getattr(workspace, "name", "") or "your organization").strip()
+        delivery_meta = await begin_alternate_credentials_delivery(
+            user_node=user_node,
+            recipient_email=deliver_norm,
+            account_email=email_norm,
+            workspace_id=str(workspace.id),
+            workspace_name=ws_name,
+            display_name=name,
+            welcome_message=(welcome_message or "").strip() or None,
+            actor_user_id=str(actor_id or ""),
+        )
+        credentials_pending_verification = True
+    elif send_credentials and deliver_to and user_node is not None:
         login_url = f"{settings.APP_BASE_URL.rstrip('/')}/login"
         ws_name = str(getattr(workspace, "name", "") or "your organization").strip()
         message = render_member_provision_email(
@@ -347,6 +360,11 @@ async def provision_workspace_member(
         "created": created,
         "already_member": already_member,
         "credentials_emailed": credentials_emailed,
+        "credentials_pending_verification": credentials_pending_verification,
+        "credentials_delivery_intent_id": delivery_meta.get("intent_id"),
+        "credentials_delivery_expires_at": delivery_meta.get("expires_at"),
+        "credentials_verify_url": delivery_meta.get("verify_url"),
+        "credentials_challenge_emailed": delivery_meta.get("challenge_emailed"),
         "must_change_password": must_change_password(user_node),
         "grant_outcome": outcome,
         "granted_role": actual["role"],

@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 # Never routed through workspace Email Log delivery (platform credentials only).
 PLATFORM_ONLY_SOURCE_KINDS = frozenset(
-    {"password_reset", "email_verification"},
+    {"password_reset", "email_verification", "credentials_delivery_verification"},
 )
 
 
@@ -482,6 +482,76 @@ def render_verification_email(
       </p>
       <p style="margin:0;color:#8a8a93;font-size:12px;">
         If you didn't create an Integral account, you can safely ignore this email.
+      </p>
+    </div>
+  </body>
+</html>"""
+
+    return EmailMessage(to=recipient_email, subject=subject, html=html, text=text)
+
+
+def render_credentials_delivery_confirm_email(
+    *,
+    recipient_email: str,
+    recipient_name: Optional[str],
+    account_email: str,
+    code: str,
+    verify_url: str,
+    expires_minutes: int,
+) -> EmailMessage:
+    """Ask the delivery mailbox to confirm before login credentials are sent."""
+    safe_name = html_lib.escape(recipient_name) if recipient_name else None
+    safe_email = html_lib.escape(recipient_email)
+    safe_account = html_lib.escape(account_email)
+    safe_code = html_lib.escape(code)
+    safe_url_attr = html_lib.escape(verify_url, quote=True)
+    safe_url_text = html_lib.escape(verify_url)
+    greeting_text = f"Hi {recipient_name}," if recipient_name else "Hi,"
+    greeting_html = f"Hi {safe_name}," if safe_name else "Hi,"
+    subject = "Confirm delivery of your Integral login details"
+
+    text = (
+        f"{greeting_text}\n\n"
+        f"An Integral account was created for {account_email}. "
+        f"Before we send sign-in details to this address ({recipient_email}), "
+        f"confirm that you want to receive them here.\n\n"
+        f"Your confirmation code:\n\n  {code}\n\n"
+        f"Or open this link and enter the code:\n{verify_url}\n\n"
+        f"The code expires in {expires_minutes} minutes.\n\n"
+        f"If you were not expecting this, ignore this email — no credentials "
+        f"will be sent.\n\n"
+        f"— Integral\n"
+    )
+
+    html = f"""<!doctype html>
+<html>
+  <body style="margin:0;padding:24px;font-family:-apple-system,Segoe UI,Inter,sans-serif;background:#fafafa;color:#0b0b0c;line-height:1.55;">
+    <div style="max-width:480px;margin:0 auto;background:#ffffff;border:1px solid #ececef;border-radius:14px;padding:32px;">
+      <h1 style="font-size:20px;font-weight:600;letter-spacing:-0.018em;margin:0 0 16px 0;">Confirm login details</h1>
+      <p style="margin:0 0 16px 0;color:#4a4a52;font-size:14px;">
+        {greeting_html} an Integral account was created for
+        <strong>{safe_account}</strong>. Before we email sign-in details to
+        <strong>{safe_email}</strong>, confirm that you want to receive them here.
+      </p>
+      <div style="margin:0 0 24px 0;text-align:center;">
+        <span style="display:inline-block;font-size:32px;font-weight:700;letter-spacing:0.2em;background:#f3f4f6;border-radius:10px;padding:14px 32px;color:#0b0b0c;font-family:monospace;">
+          {safe_code}
+        </span>
+      </div>
+      <p style="margin:0 0 24px 0;">
+        <a href="{safe_url_attr}" style="display:inline-block;background:#ff5a1f;color:#ffffff;padding:10px 18px;border-radius:8px;font-weight:600;text-decoration:none;font-size:14px;">
+          Enter confirmation code
+        </a>
+      </p>
+      <p style="margin:0 0 8px 0;color:#8a8a93;font-size:12px;">Or copy this URL:</p>
+      <p style="margin:0 0 24px 0;color:#4a4a52;font-size:12px;word-break:break-all;">
+        <a href="{safe_url_attr}" style="color:#4a4a52;">{safe_url_text}</a>
+      </p>
+      <p style="margin:0 0 8px 0;color:#8a8a93;font-size:12px;">
+        This code expires in {expires_minutes} minutes. Your password is not included in this message.
+      </p>
+      <p style="margin:0;color:#8a8a93;font-size:12px;">
+        If you were not expecting this, ignore this email — no credentials will be sent.
       </p>
     </div>
   </body>
