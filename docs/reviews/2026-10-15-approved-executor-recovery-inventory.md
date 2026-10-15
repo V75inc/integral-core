@@ -1,10 +1,10 @@
 # Approved executor recovery inventory — 2026-10-15
 
-Worktree snapshot after Core `5b6b6d16`, including the uncommitted seven-command model-edit recovery increment.
+Source snapshot after Core `07dc7750`, including the qualified standalone View deletion recovery increment.
 The dispatcher and `CANONICAL_COMMAND_KINDS` are authoritative after this date.
 This is command-integration coverage, not a test pass percentage or goal completion score.
 
-69 registered kinds: 23 in the native command inventory; one conditional batch dispatcher; 45 other kinds need explicit effect/recovery classification. New model-edit integration remains subject to the broad source/artifact gates.
+69 registered kinds: 24 in the native command inventory; one conditional batch dispatcher; 44 other kinds need explicit effect/recovery classification. Their local source/artifact gates passed; final GitHub and wider system qualification remain distinct.
 
 | Kind | Executor | Native staging receipt integration |
 | --- | --- | --- |
@@ -33,7 +33,7 @@ This is command-integration coverage, not a test pass percentage or goal complet
 | `delete_entry` | `_x_delete_entry` | Integrated on transactional graph stores |
 | `delete_skill` | `_x_delete_skill` | Not in native staging inventory; qualify underlying effects |
 | `delete_track` | `_x_delete_track` | Integrated on transactional graph stores |
-| `delete_view` | `_x_delete_view` | Not in native staging inventory; qualify underlying effects |
+| `delete_view` | `_x_delete_view` | Integrated on PostgreSQL; local source gates passed |
 | `design_proposal` | `_x_design_proposal` | Not in native staging inventory; qualify underlying effects |
 | `discard_profile_draft` | `_x_discard_profile_draft` | Not in native staging inventory; qualify underlying effects |
 | `draft_new_profile` | `_x_draft_new_profile` | Not in native staging inventory; qualify underlying effects |
@@ -46,13 +46,13 @@ This is command-integration coverage, not a test pass percentage or goal complet
 | `merge_tags` | `_x_merge_tags` | Not in native staging inventory; qualify underlying effects |
 | `merge_tracks` | `_x_merge_tracks` | Not in native staging inventory; qualify underlying effects |
 | `mint_share_link` | `_x_mint_share_link` | Not in native staging inventory; qualify underlying effects |
-| `modify_operational_model.add_entry_type` | `_x_modify_operational_model` | Integrated in current worktree; broad qualification pending |
-| `modify_operational_model.add_tag` | `_x_modify_operational_model` | Integrated in current worktree; broad qualification pending |
-| `modify_operational_model.add_view` | `_x_modify_operational_model` | Integrated in current worktree; broad qualification pending |
-| `modify_operational_model.remove_entry_type` | `_x_modify_operational_model` | Integrated in current worktree; broad qualification pending |
-| `modify_operational_model.remove_tag` | `_x_modify_operational_model` | Integrated in current worktree; broad qualification pending |
-| `modify_operational_model.remove_view` | `_x_modify_operational_model` | Integrated in current worktree; broad qualification pending |
-| `modify_operational_model.update_view` | `_x_modify_operational_model` | Integrated in current worktree; broad qualification pending |
+| `modify_operational_model.add_entry_type` | `_x_modify_operational_model` | Integrated on PostgreSQL; local source gates passed |
+| `modify_operational_model.add_tag` | `_x_modify_operational_model` | Integrated on PostgreSQL; local source gates passed |
+| `modify_operational_model.add_view` | `_x_modify_operational_model` | Integrated on PostgreSQL; local source gates passed |
+| `modify_operational_model.remove_entry_type` | `_x_modify_operational_model` | Integrated on PostgreSQL; local source gates passed |
+| `modify_operational_model.remove_tag` | `_x_modify_operational_model` | Integrated on PostgreSQL; local source gates passed |
+| `modify_operational_model.remove_view` | `_x_modify_operational_model` | Integrated on PostgreSQL; local source gates passed |
+| `modify_operational_model.update_view` | `_x_modify_operational_model` | Integrated on PostgreSQL; local source gates passed |
 | `propose_profile_revision` | `_x_propose_profile_revision` | Not in native staging inventory; qualify underlying effects |
 | `publish_profile_draft` | `_x_publish_profile_draft` | Not in native staging inventory; qualify underlying effects |
 | `register_track_template` | `_x_register_track_template` | Not in native staging inventory; qualify underlying effects |
@@ -80,7 +80,7 @@ This is command-integration coverage, not a test pass percentage or goal complet
 
 ## Required next boundaries
 
-- Qualify the current seven-command `modify_operational_model.*` integration through broad source/artifact gates. Migrate standalone `delete_view` using the same whole-payload, current-owner, atomic-effect/event/receipt and current-authority recovery contract.
+- Retain the current seven-command `modify_operational_model.*` and standalone `delete_view` source/artifact evidence while qualifying the remaining system and principal matrix. Standalone deletion now shares admission and transactional event handling across HTTP and staging; other View mutations still need their own API/native acceptance audit.
 - Current model-created EntryType, View and Tag batch references rebuild from private receipts after later deletion. Preserve this contract when extending other families and finish the broader recovery matrix.
 - Classify graph-only commands separately from file/object bytes, connector/MCP/tool I/O, invitations/notifications, operations and routines. A command absent from this inventory may already use another durable service; inspect it before adding a duplicate journal.
 - External outcomes require durable intent, identity, idempotency/readback and reconciliation. An unknown network outcome must never become permission for blind replay.
@@ -93,7 +93,7 @@ R1/R2 remain incomplete until each row has a justified and qualified recovery co
 
 ## Remaining family classification
 
-Source triage of the 45 non-native kinds below is **not qualification**. The
+Source triage of the 44 non-native kinds below is **not qualification**. The
 classification identifies the effect owner to integrate and prevents a second
 journal being added around a service that already owns durable execution.
 References are relative to `backend/app/`; the dispatcher remains
@@ -101,7 +101,6 @@ References are relative to `backend/app/`; the dispatcher remains
 
 | Kinds | Current effect boundary | Required recovery work |
 | --- | --- | --- |
-| `delete_view` | `api/views.py` delegates the scoped View deletion | Add native receipt/effect integration; retain Track/model authorization and minimal deletion evidence. |
 | `add_entry_tag`, `remove_entry_tag` | `api/entries.py` handles entry/tag relationships | Bind both canonical endpoints, idempotent edge identity, atomic event/receipt, and current-result readback; an existing edge alone is not an exact approved-command receipt. |
 | `create_tag`, `update_tag` | `api/tags.py` handles model/Track taxonomy | Resolve actual model/owner authority, join one graph/event/receipt commit, recover current authorized taxonomy. |
 | `link_entries` | Executor computes relation cardinality then calls Entry update | Freeze approved source/target/field semantics under admission; preserve unrelated concurrent relation values and exact command identity. Do not relabel it as a generic Entry update approval. |
@@ -120,7 +119,7 @@ References are relative to `backend/app/`; the dispatcher remains
 | `routine_task_create`, `routine_task_update`, `routine_task_cancel`, `routine_task_purge` | `agentive/services/routine_tasks.py`, with executor ChangeEvents | Command recovery must cover schedule record plus emitted event and exact routine identity. The existing scheduled-run WorkItem idempotency key protects a different boundary; it does not deduplicate routine creation. |
 | `design_proposal` | Executor updates the chat thread's proposal marker | Atomically bind thread ownership, proposal identity/revision and approval marker. Recover the approval result with `needs_agent_build`; it must never claim the later App build completed. |
 
-These groups contain all 45 currently non-native kinds; aliases count as
+These groups contain all 44 currently non-native kinds; aliases count as
 registered kinds. After an integration, update the table and native inventory
 from the actual dispatcher and qualify its denied, unavailable, interrupted,
 post-commit, and cross-worker paths. No family is closed by this classification.
