@@ -112,6 +112,48 @@ async def invoke_operation(
     idempotency_key = request.headers.get("Idempotency-Key") or request.headers.get(
         "idempotency-key"
     )
+    if idempotency_key:
+        # Recover a known command before building a current capability snapshot:
+        # its declaration may have been removed since the effect committed.
+        # Absence grants nothing; the ordinary broker still admits fresh work.
+        from app.api.errors import (
+            OperationIdempotencyConflictError,
+            OperationReceiptRecoveryError,
+            OperationTransactionUnavailableError,
+        )
+        from app.schemas.policy import Subject
+        from app.services.app_operations.execution_receipts import (
+            OperationReceiptConflict,
+            OperationReceiptIncomplete,
+        )
+        from app.services.app_operations.recorded_results import (
+            recover_recorded_operation_response,
+        )
+        from app.services.app_operations.transaction_scope import (
+            OperationTransactionUnavailable,
+            graph_transaction_available,
+        )
+
+        try:
+            # Development stores without native journals retain their existing
+            # read path. An error from a native store must never become absence.
+            if graph_transaction_available():
+                recovered = await recover_recorded_operation_response(
+                    scope=execution_scope,
+                    subject=Subject(kind="human", id=execution_scope.principal_id),
+                    app_id=app_id,
+                    operation_key=operation_key,
+                    payload=body.input,
+                    idempotency_key=idempotency_key,
+                )
+                if recovered is not None:
+                    return recovered.model_dump()
+        except OperationReceiptConflict as exc:
+            raise OperationIdempotencyConflictError() from exc
+        except OperationReceiptIncomplete as exc:
+            raise OperationReceiptRecoveryError() from exc
+        except OperationTransactionUnavailable as exc:
+            raise OperationTransactionUnavailableError() from exc
     from app.agentive.services.capability_broker import invoke_declared_capability
     from app.agentive.services.execution_runs import build_capability_snapshot
 

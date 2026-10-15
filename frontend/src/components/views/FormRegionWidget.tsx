@@ -4,7 +4,7 @@ import { SeamlessField } from '../entries/SeamlessField';
 import type { RelationChoice } from '../entries/EntryFormExpanded';
 import { slug } from '../entries/entryFormCustomFields';
 import { appsApi, entriesApi, entryTypesApi, tracksApi } from '../../api';
-import { extensionsApi } from '../../api/extensions';
+import { extensionsApi, requireOperationOutput } from '../../api/extensions';
 import { toolsApi } from '../../api/tools';
 import { useToast } from '../../context/ToastContext';
 import { Surface } from '../../ui/Surface';
@@ -362,7 +362,7 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
         try {
           const appId = lifecycle?.appId;
           const output = appId
-            ? (await extensionsApi.invokeOperation(appId, tool, input)).output
+            ? requireOperationOutput(await extensionsApi.invokeOperation(appId, tool, input)).output
             : (await toolsApi.call(tool, input)).output;
           if (cancelled) return;
           if (output?.auto_generate !== true) continue;

@@ -32,7 +32,7 @@ import {
   tagsApi,
   tracksApi
 } from '../../api';
-import { extensionsApi } from '../../api/extensions';
+import { extensionsApi, requireOperationOutput } from '../../api/extensions';
 import { toolsApi } from '../../api/tools';
 import { patchFromAppSettings } from '../../utils/fieldSettingDefaults';
 import {
@@ -161,7 +161,7 @@ export interface UseEntryExpandedFormOptions {
   workflowEnumLabels?: Record<string, Record<string, string>>;
   showToast: (
     message: string,
-    variant: 'success' | 'error',
+    variant: 'success' | 'error' | 'info',
     action?: ToastAction,
   ) => void;
   onCreated?: (entry: Entry) => void;
@@ -701,7 +701,7 @@ export function useEntryExpandedForm(
             : {};
         try {
           const output = appId
-            ? (await extensionsApi.invokeOperation(appId, tool, input)).output
+            ? requireOperationOutput(await extensionsApi.invokeOperation(appId, tool, input)).output
             : (await toolsApi.call(tool, input)).output;
           if (cancelled) return;
           if (output?.auto_generate !== true) continue;
@@ -1401,7 +1401,7 @@ export function useEntryExpandedForm(
             showToast(
               submitResult.error ||
                 'Entry created but related data could not be saved. Open it to finish the missing rows.',
-              'error',
+              submitResult.outcomeRecorded ? 'info' : 'error',
               {
                 label: 'View entry',
                 href: entryPath(created.id, tid),
@@ -1616,7 +1616,7 @@ export function useEntryExpandedForm(
             showToast(
               submitResult.error ||
                 'Entry updated but contribution data could not be saved',
-              'error',
+              submitResult.outcomeRecorded ? 'info' : 'error',
             );
           }
         } catch {

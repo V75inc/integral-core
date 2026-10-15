@@ -16,6 +16,51 @@ The [commercial host integration guide](commercial-host-integration.md) defines 
 
 The preferred facade supplies `get(object_ref)`, `query(query_spec)`, and `invoke(operation_key, payload)`. Query modes are `declared_capability` and `core_open`; mode selects a contract, never a permission bypass. Field and revision contracts distinguish base values, custom fields, relation definitions, and record/schema revisions.
 
+### Recorded HTTP operation completion
+
+For `POST /extensions/{app_id}/operations/{operation_key}`, retain one
+`Idempotency-Key` and the exact input across retries of the same intent. A new
+intent needs a different key. Never generate a fresh key merely because a
+response was interrupted.
+
+On a native journal store, Core checks for original completion before current
+capability execution admission. A known completion never invokes the handler
+again. Missing journal evidence is not execution authority: ordinary current
+authorization still governs fresh work. Incomplete or conflicting receipts and
+storage outages remain typed failures, not an absent operation.
+
+An available response has `output_disposition: available` and the ordinary
+`output`, references and evidence, subject to current function and result access.
+Older servers may omit that discriminator. A withheld response instead contains
+only `output_disposition: withheld`, `current_state_verified: false`, and the
+original `operation_receipt` (`id`, `status: succeeded`, `replayed: true`). It
+proves past completion, not current domain state, current execution permission,
+or a verified business outcome. Do not substitute empty output, display a fresh
+success claim, request another approval, or retry the effect with a new key.
+Show a neutral recorded-completion message and use ordinary authorized reads to
+refresh current state. Withheld completion never discloses the original
+principal, private key, saved titles, output or current denial reason.
+
+For extension bridge v1, withheld output uses `operation.result` with
+`ok: false`, `error_code: operation_output_withheld`, `retryable: false`, a
+neutral explanation, and the opaque completion DTO in `value`. This prevents
+older clients from treating the `ok` flag as a fresh business success. It does
+not mean that the original operation failed. Do not retry the effect with a new
+key. New clients may inspect the typed status value; HTTP retains the explicit
+available/withheld response union. The Core host also presents a neutral status.
+
+Asynchronous bridge replies stay bound to the receiving sandbox, App, workspace,
+view and handshake token. A scope switch cannot redirect a delayed reply to a
+replacement frame. Reusing an old token while changing its owning scope does
+not reauthorize the old frame. Pending host form requests are refused when the
+frame closes or changes; an interrupted waiter is not a successful submission.
+This does not cancel or replay a server operation that was already admitted.
+
+The Python SDK exports `OperationResponse`, `AvailableOperationResponse` and
+`WithheldOperationResponse` for the response value. These types do not alter
+the handler-injected `ToolContextV2.invoke` contract or grant access. Other
+transport and approved-worker recovery integration is qualified separately.
+
 ### Retained tool source observations
 
 On distributions supporting this contract, a successful native connector read
