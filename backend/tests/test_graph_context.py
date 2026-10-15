@@ -724,3 +724,35 @@ async def test_recorded_root_byte_limit_is_not_reported_as_permission_denial(
     await _declare_recorded(graph)
     with pytest.raises(BadRequestError, match="Increase max_bytes"):
         await _capture(graph, root_id=graph[3].id, detail="recorded", max_bytes=4096)
+
+
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_graph_context_inside_work_item_transaction(graph):
+    from app.services.app_operations.transaction_scope import postgres_graph_transaction
+
+    async with postgres_graph_transaction():
+        result = await _capture(graph, max_depth=1)
+    assert result["meta"]["root_available"] is True
+
+
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_transaction_projection_reads_uncommitted_rows_and_rolls_back(graph):
+    from jvspatial.core.context import get_default_context
+
+    from app.services.app_operations.transaction_scope import postgres_graph_transaction
+
+    track = graph[2]
+    created_id = None
+    with pytest.raises(ValueError, match="rollback probe"):
+        async with postgres_graph_transaction():
+            entry = await Entry.create(
+                title="Transaction projection probe", track_id=track.id
+            )
+            created_id = entry.id
+            await track.connect(entry, edge=CONTAINS)
+            result = await _capture(graph, max_depth=3)
+            assert created_id in {node["id"] for node in result["nodes"]}
+            raise ValueError("rollback probe")
+    assert await get_default_context().database.get("node", created_id) is None

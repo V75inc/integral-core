@@ -188,6 +188,46 @@ class WorkspaceProjectionAccess:
         return grants
 
 
+class _TransactionProjectionReads:
+    """Projection's compatibility protocol over the held transaction only."""
+
+    supports_native_graph_paging = False
+
+    def __init__(self, transaction: Any) -> None:
+        self.transaction = transaction
+
+    async def graph_node_batch(self, ids):
+        return await self.transaction.find_many("node", ids)
+
+    async def graph_edge_page(self, node_id, *, after=None, limit=50):
+        from jvspatial.db.database import Database
+
+        return await Database.graph_edge_page(
+            self.transaction, node_id, after=after, limit=limit
+        )
+
+
+async def _project_current_graph(context, request, **kwargs):
+    """Bridge older JV transaction handles without escaping their snapshot."""
+    database = context.database
+    if callable(getattr(database, "graph_node_batch", None)) and callable(
+        getattr(database, "graph_edge_page", None)
+    ):
+        return await context.project_graph(request, **kwargs)
+    from types import SimpleNamespace
+
+    from jvspatial.core.graph_projection import project_graph
+    from jvspatial.db.transaction import Transaction
+
+    if not isinstance(database, Transaction):
+        raise ServiceUnavailableError(message="Graph projection storage is unavailable")
+    return await project_graph(
+        SimpleNamespace(database=_TransactionProjectionReads(database)),
+        request,
+        **kwargs,
+    )
+
+
 async def capture_workspace_graph(
     *, principal_id: str, workspace_id: str, spec: GraphContextRequest
 ) -> Dict[str, Any]:
@@ -275,8 +315,12 @@ async def _capture_workspace_graph(
                 "max_candidates": max(1, spec.max_candidates // 2),
             }
         )
-        first = await context.project_graph(
-            first_request, scope=first_scope, access=first_access, semantics=semantics
+        first = await _project_current_graph(
+            context,
+            first_request,
+            scope=first_scope,
+            access=first_access,
+            semantics=semantics,
         )
         if not first.to_dict()["meta"]["root_available"]:
             raise InsufficientPermissionsError(message="Workspace graph unavailable")
@@ -333,7 +377,8 @@ async def _capture_workspace_graph(
             }
         )
     with isolated_permissions_cache():
-        projection = await context.project_graph(
+        projection = await _project_current_graph(
+            context,
             request,
             scope=scope,
             access=access,
