@@ -240,6 +240,8 @@ PolicyAction = Literal[
     "app.update",
     "app.delete",
     "app.read",
+    # Authorization only: a subject's own journal status, never domain output.
+    "operation.history.read_own",
     # Sharing primitives — app resource (mirrors space.* above; new emissions use app.*).
     "app.collaborator_add",
     "app.collaborator_remove",

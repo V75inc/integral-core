@@ -810,6 +810,35 @@ use lease/permission/route fencing without acquiring mandate authority.
 and model-receipt contract tests. Public executable approval and tool admission
 remain separately gated under I-WORK-05.
 
+### I-WORK-08 — Own execution history is separate from output authority
+
+A successful operation receipt proves a past outcome, not current domain state
+or permission to disclose saved output. Observe only the authenticated subject's
+exact original namespace in the validated request/turn workspace. The original
+receipt and idempotency identity remain immutable; observation cannot create a
+claim, repair aliases, rerun a handler or manufacture domain references.
+
+Current active human identity and workspace membership remain mandatory.
+Agent/connector observation requires an exact current, directly usable
+`operation.history.read_own` policy bound to that workspace or the subject's
+canonical App. Legacy wildcards, generic reads and function execution grants do
+not imply this new permission. Fence current subject and issuer identities;
+an issuer never becomes its delegate's receipt alias. Repeat current admission
+before release; transport authentication/credential validation is still required.
+
+Opaque status exposes only the qualified receipt reference, with explicit
+withheld-output and unverified-current-state semantics. Incomplete/conflicting
+history or unavailable authority never becomes success or permission to retry.
+An original approval's own reconciliation contract must be qualified separately;
+it cannot impersonate a delegate or expose its general operation history.
+
+**Verification:** `test_operation_outcome_observation.py`,
+`contract/test_operation_outcome_observation_postgres.py`,
+`test_operation_history_policy.py` and
+`contract/test_operation_history_admission_postgres.py` cover internal storage
+and admission. Authenticated HTTP/SDK/broker/MCP, approval, worker and transcript
+release/readback qualification remains required before exposing the new path.
+
 ### I-HARNESS-02 — Restored chat input matches accepted content
 
 **Scope:** `chat_turn_submissions.py`, `chat_turn_worker_input.py`.

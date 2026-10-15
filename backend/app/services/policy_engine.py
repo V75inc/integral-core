@@ -82,6 +82,10 @@ def _action_matches(policy_actions: List[str], requested_action: str) -> bool:
         _action_matches(["entry.*"], "track.read")     # False
         _action_matches(["track.read"], "track.read")  # True
     """
+    # This new observation grant cannot be inherited from a legacy wildcard.
+    # It exposes only the acting subject's journal status, with exact scope.
+    if requested_action == "operation.history.read_own":
+        return requested_action in policy_actions
     for pa in policy_actions:
         if pa == "*" or pa == requested_action:
             return True
@@ -292,6 +296,29 @@ async def _evaluate_human_default(
     # functions. Non-Core actions require an explicit declaration/grant path.
     if action not in get_args(PolicyAction):
         return False
+
+    if action == "operation.history.read_own":
+        # Only the history service binds the journal principal. This prices
+        # own-status observation/delegation, never App data or another actor's
+        # journal. App-scoped service subjects retain their canonical App root.
+        from app.services.resource_location import (
+            MANAGEMENT_APP_STATES,
+            locate_resource,
+        )
+        from app.services.workspace_permissions import can_access_workspace
+
+        scopes = {f"{rk}:{rid}"}
+        if rk == "workspace":
+            scopes.add(f"ws:{rid}")
+        if rk not in {"workspace", "app"} or not rid or scope_str not in scopes:
+            return False
+        location = await locate_resource(
+            rk, rid, allowed_app_states=MANAGEMENT_APP_STATES
+        )
+        return (
+            location is not None
+            and await can_access_workspace(user_id, location.workspace_id) != "none"
+        )
 
     if rk == "operational_model" and action != "operational_model.author":
         from app.services.model_authority import model_action_authorized
@@ -715,7 +742,7 @@ def _is_write_action(action: str) -> bool:
             return False
     # Gate-only read-class actions (no mutation) — exempt from the write
     # intercept.
-    READ_FULL = ("audit_log.read",)
+    READ_FULL = ("audit_log.read", "operation.history.read_own")
     if action in READ_FULL:
         return False
     return True
@@ -914,6 +941,11 @@ async def evaluate(
             mismatch_reason: str = ""
             for p in policies:
                 policy_chain.append(p.id)
+                if action == "operation.history.read_own" and (
+                    p.scope != resource.scope or p.requires_human_approval
+                ):
+                    mismatch_reason = mismatch_reason or "direct_history_grant_required"
+                    continue
                 if not _scope_matches(p.scope, resource.scope):
                     mismatch_reason = mismatch_reason or "scope_mismatch"
                     continue
