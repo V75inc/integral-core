@@ -169,6 +169,15 @@ async def provision_workspace_member(
         raise BadRequestError(
             message="Alternate credentials recipient requires send_credentials"
         )
+    if alternate_delivery and body.send_credentials:
+        existing_auth = await _find_auth_user_by_email(email_norm)
+        if existing_auth is not None:
+            raise BadRequestError(
+                message=(
+                    "Alternate credential delivery is only allowed for newly "
+                    "created accounts"
+                )
+            )
     if (
         is_postgres_entry_transaction(get_default_context().database)
         and send_credentials
@@ -307,13 +316,6 @@ async def provision_workspace_member(
                 )
     await membership._deliver(outbox_id)
     deliver_to = deliver_norm
-    if alternate_delivery and send_credentials and not created:
-        raise BadRequestError(
-            message=(
-                "Alternate credential delivery is only allowed for newly "
-                "created accounts"
-            )
-        )
     if alternate_delivery and send_credentials and created and user_node is not None:
         from app.services.credential_delivery import (
             begin_alternate_credentials_delivery,

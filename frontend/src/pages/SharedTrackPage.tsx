@@ -46,10 +46,8 @@ import {
   PolicyAcknowledgmentStep,
   firstMissingRequiredPolicy,
 } from '../components/intakeForm/PolicyAcknowledgmentStep';
-import {
-  ContractReviewStep,
-  ContractReviewRejectedTerminal,
-} from '../components/intakeForm/ContractReviewStep';
+import { ContractReviewRejectedTerminal } from '../components/intakeForm/ContractReviewRejectedTerminal';
+import { ContractReviewHost as ContractReviewStep } from '../host/ContractReviewHost';
 import { memberAssignedFormApi } from '../features/memberAssignedForm/memberAssignedFormApi';
 
 function isEmptyFileFieldValue(val: unknown): boolean {
@@ -370,18 +368,12 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
     const enteringContract = Boolean(
       nextStep?.fields?.some((f: { type?: string }) => f.type === 'contract_review'),
     );
-    if (enteringContract && assignedEntryId) {
+    if (enteringContract && assignedEntryId && memberFormMode) {
       try {
-        if (memberFormMode) {
-          await memberAssignedFormApi.generateContract({
-            force: false,
-            entryId: assignedEntryId,
-          });
-        } else if (token) {
-          await publicSharingApi.generateOnboardingContract(token, assignedEntryId, {
-            force: false,
-          });
-        }
+        await memberAssignedFormApi.generateContract({
+          force: false,
+          entryId: assignedEntryId,
+        });
       } catch {
         /* Contract step will generate or surface errors */
       }

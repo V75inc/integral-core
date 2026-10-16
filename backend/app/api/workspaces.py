@@ -698,6 +698,53 @@ async def list_workspace_members(request: Request, workspace_id: str) -> Dict[st
 
 
 @endpoint(
+    "/workspaces/{workspace_id}/members/provision",
+    methods=["POST"],
+    auth=True,
+    tags=["Workspaces"],
+)
+async def provision_workspace_member_route(
+    request: Request, workspace_id: str
+) -> Dict[str, Any]:
+    """Create or reuse a login account and add them as a workspace member."""
+    from app.schemas.api.workspaces_hire import ProvisionWorkspaceMemberRequest
+    from app.services.member_provision import provision_workspace_member
+    from app.services.workspace_kind import is_collaborative_kind
+
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    ws, _ = await _require_workspace_role(workspace_id, user_id, "admin")
+    if not is_collaborative_kind(ws.kind):
+        raise BadRequestError(message="Personal workspaces have no members to manage")
+
+    if request.query_params:
+        raise BadRequestError(message="Provisioning accepts JSON fields only")
+    if request.headers.get("X-Integral-Scope") is not None:
+        from app.services.request_scope import resolve_workspace_id_from_request
+
+        if await resolve_workspace_id_from_request(request, user_id) != workspace_id:
+            raise BadRequestError(message="Workspace scope does not match target")
+    try:
+        body = ProvisionWorkspaceMemberRequest.model_validate(await request.json())
+    except (ValidationError, ValueError) as exc:
+        raise BadRequestError(message="Invalid provisioning request") from exc
+
+    return await provision_workspace_member(
+        workspace=ws,
+        email=str(body.email),
+        display_name=body.display_name,
+        role=body.role,
+        send_credentials=body.send_credentials,
+        welcome_message=body.welcome_message,
+        credentials_email=(
+            str(body.credentials_email) if body.credentials_email else None
+        ),
+        actor_id=user_id,
+    )
+
+
+@endpoint(
     "/workspaces/{workspace_id}/members",
     methods=["POST"],
     auth=True,

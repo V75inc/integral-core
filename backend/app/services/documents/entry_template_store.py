@@ -26,10 +26,10 @@ from app.utils.time import utc_now_iso
 
 logger = logging.getLogger(__name__)
 
-# Default entry-template provider App slug; callers may pass an explicit
-# ``template_provider_slug`` to resolve another installed template library App.
+# Legacy slug constant for migrations/docs only — Core never defaults resolution
+# to a particular App; callers must pass ``template_provider_slug`` explicitly
+# or read it from a neutral track/workspace extension declaration.
 DOCUMENT_TEMPLATES_SLUG = "document_templates"
-DEFAULT_TEMPLATE_PROVIDER_SLUG = DOCUMENT_TEMPLATES_SLUG
 TRACK_TEMPLATES = "templates"
 
 
@@ -154,12 +154,22 @@ def _checksum_version_payload(
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def normalize_template_provider_slug(raw: Optional[str]) -> Optional[str]:
+    """Map manifest slugs (kebab) to installed package slug (underscore)."""
+    s = str(raw or "").strip()
+    if not s:
+        return None
+    return s.replace("-", "_").casefold()
+
+
 async def find_entry_template_provider_app(
     workspace_id: str,
     *,
-    template_provider_slug: str = DEFAULT_TEMPLATE_PROVIDER_SLUG,
+    template_provider_slug: Optional[str] = None,
 ) -> Optional[App]:
-    want = str(template_provider_slug or DEFAULT_TEMPLATE_PROVIDER_SLUG).casefold()
+    want = normalize_template_provider_slug(template_provider_slug)
+    if not want:
+        return None
     rows: List[Any] = []
     seen: set[str] = set()
     for query in (
@@ -186,27 +196,49 @@ async def find_entry_template_provider_app(
     return None
 
 
-async def find_document_templates_app(workspace_id: str) -> Optional[App]:
-    return await find_entry_template_provider_app(workspace_id)
+async def find_document_templates_app(
+    workspace_id: str,
+    *,
+    template_provider_slug: Optional[str] = None,
+) -> Optional[App]:
+    slug = normalize_template_provider_slug(template_provider_slug)
+    return await find_entry_template_provider_app(
+        workspace_id, template_provider_slug=slug
+    )
 
 
-async def require_document_templates_app(workspace_id: str) -> App:
+async def require_document_templates_app(
+    workspace_id: str,
+    *,
+    template_provider_slug: Optional[str] = None,
+) -> App:
     from app.exceptions import AppDependencyError
 
-    app = await find_document_templates_app(workspace_id)
+    app = await find_document_templates_app(
+        workspace_id, template_provider_slug=template_provider_slug
+    )
     if not app:
         raise AppDependencyError(
             message=(
-                "Document Templates app is not installed in this workspace. "
-                "Install it from Manage Apps before using document templates."
+                "No entry-template provider App is installed for this workspace. "
+                "Install a template library App and declare template_provider_slug."
             ),
-            details={"missing_deps": [DOCUMENT_TEMPLATES_SLUG]},
+            details={
+                "template_provider_slug": template_provider_slug or "",
+            },
         )
     return app
 
 
-async def is_entry_mode(workspace_id: str) -> bool:
-    return await find_document_templates_app(workspace_id) is not None
+async def is_entry_mode(
+    workspace_id: str, *, template_provider_slug: Optional[str] = None
+) -> bool:
+    return (
+        await find_document_templates_app(
+            workspace_id, template_provider_slug=template_provider_slug
+        )
+        is not None
+    )
 
 
 async def _tracks_by_key(app: App) -> Dict[str, Track]:
