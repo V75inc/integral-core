@@ -4,9 +4,9 @@ Source snapshot after Core `07dc7750`, including the qualified standalone View d
 The dispatcher and `CANONICAL_COMMAND_KINDS` are authoritative after this date.
 This is command-integration coverage, not a test pass percentage or goal completion score.
 
-69 registered kinds: 24 in the native command inventory, one separate canonical
+69 registered kinds: 26 in the native command inventory, one separate canonical
 App-operation integration, one conditional batch dispatcher, one retired
-design-card tombstone that refuses effects, and 42 other effectful kinds
+design-card tombstone that refuses effects, and 40 other effectful kinds
 requiring effect/recovery integration. The 2026-10-16 design follow-through below
 supersedes the historical design-executor classification. The App-operation path reuses its existing
 canonical receipt rather than joining `CANONICAL_COMMAND_KINDS`; its local graph
@@ -16,7 +16,7 @@ GitHub and wider system qualification remain distinct.
 | Kind | Executor | Native staging receipt integration |
 | --- | --- | --- |
 | `add_comment` | `_x_add_comment` | Integrated on transactional graph stores |
-| `add_entry_tag` | `_x_add_entry_tag` | Not in native staging inventory; qualify underlying effects |
+| `add_entry_tag` | `_x_add_entry_tag` | Canonical delta/receipt integration; native, full backend, CI-faithful and artifact gates passed |
 | `apply_library_operational_model` | `_x_apply_library_operational_model` | Not in native staging inventory; qualify underlying effects |
 | `apply_to_draft` | `_x_propose_profile_revision` | Not in native staging inventory; qualify underlying effects |
 | `attach_file` | `_x_attach_file` | Not in native staging inventory; qualify underlying effects |
@@ -64,7 +64,7 @@ GitHub and wider system qualification remain distinct.
 | `publish_profile_draft` | `_x_publish_profile_draft` | Not in native staging inventory; qualify underlying effects |
 | `register_track_template` | `_x_register_track_template` | Not in native staging inventory; qualify underlying effects |
 | `remove_collaborator` | `_x_remove_collaborator` | Not in native staging inventory; qualify underlying effects |
-| `remove_entry_tag` | `_x_remove_entry_tag` | Not in native staging inventory; qualify underlying effects |
+| `remove_entry_tag` | `_x_remove_entry_tag` | Canonical delta/receipt integration; native, full backend, CI-faithful and artifact gates passed |
 | `remove_exclusion` | `_x_remove_exclusion` | Not in native staging inventory; qualify underlying effects |
 | `resolve_conflict` | `_x_resolve_conflict` | Not in native staging inventory; qualify underlying effects |
 | `revoke_share_link` | `_x_revoke_share_link` | Not in native staging inventory; qualify underlying effects |
@@ -102,7 +102,7 @@ R1/R2 remain incomplete until each row has a justified and qualified recovery co
 
 The original source triage of 44 non-native kinds below is **not qualification**.
 The separate App-operation local integration now has combined native evidence;
-42 other effectful kinds remain, the retired design card refuses effects,
+40 other effectful kinds remain, the retired design card refuses effects,
 and arbitrary external App handlers still need explicit
 dispatch/readback contracts. The
 classification identifies the effect owner to integrate and prevents a second
@@ -155,3 +155,15 @@ active session/run and uses its existing revision CAS. Same-run repeated
 selection preserves the approval timestamp. Native design approval is still
 separate from staged build effects and their receipts; no native historical
 approval-journal or whole-goal completion is claimed by this increment.
+
+## 2026-10-16 Entry-tag delta integration
+
+Both tag delta kinds now compose the canonical Entry revision/validation boundary
+and their own exact command receipts, rather than relabeling their approval as
+`update_entry`. Their native component tests cover effect/receipt rollback, lost
+completion, current readback after a later edit, canonical taxonomy containment,
+revoked authority, two-pool different-delta concurrency and separate-interpreter
+same-approval attempts. The combined source passed its full backend,
+CI-faithful, native and independent artifact gates. See [the qualification report](2026-10-16-entry-tag-command-recovery.md).
+The historical classification table above identifies the original boundaries;
+it is not a statement that these two integrations are absent on this source.
