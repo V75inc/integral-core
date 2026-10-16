@@ -23,6 +23,69 @@ be read as the present checkout state.
 | Maintainability | Shared canonical paths and isolated result/status contracts | Finish remaining command consolidation, targeted module extraction, classified error contracts and current documentation reconciliation. All runtime components remain reusable and domain-neutral. |
 | System qualification | Focused source, native fault/concurrency and clean artifact gates for individual increments | Reconcile final source, run full default backend, CI-faithful selections, frontend, native concurrency/fault/multi-principal/load/restore matrix and independent Core/SDK/external-App artifacts. Inspect actual remote CI at the pushed head. Skips and unqualified journeys stay explicit. |
 
+## 2026-10-16 stream-release ordering follow-through
+
+The transport contract is admission ordering, not recall: for PostgreSQL-backed
+requests, current identity and workspace authorization are read while holding
+the shared admission fences. The protected interval ends before `yield` or
+`send_text`, so no graph transaction waits on a slow client. A frame admitted
+before a revocation commits may still be delivered afterward; once bytes are
+handed to the transport they cannot be recalled. Every later SSE frame and each
+later WebSocket connection obtains fresh admission, and a frame whose admission
+starts after the revocation commit is denied. Local JSON mode cannot claim this
+cross-worker ordering guarantee.
+
+Added an integrated committed-chat SSE contract that uses the native PostgreSQL
+admission path, yields one frame, commits workspace membership revocation, and
+proves the next frame is withheld without replaying the page. The complete
+release-admission PostgreSQL contract file passed **3/3**. The sandboxed iframe
+host's stale operation/query/capabilities reply checks were also rerun: its
+scope-switch/frame-replacement suite passed **10/10**. These focused checks
+close the previously missing integrated SSE revocation-ordering and extension
+reply/frame replacement probes. They do not qualify all ASGI disconnect and
+replay paths, every provider stream, or the full multi-principal/load matrix;
+the overall R3 and system qualification rows remain open until the final source
+and aggregate gates are reconciled.
+
+## 2026-10-16 execution-scope tool qualification
+
+The dispatcher-bound `integral_get_scope` projection is independently tested
+against a different saved workspace preference, owner/admin/guest creation
+rights, absent and revoked bindings, and attempts to pass model-controlled
+identity arguments. Its declared result and generated capability map are
+checked in the same selection. The focused run passed **38/38** across the scope
+service, resident-skill alignment, and generated capability-map suites. R6 is
+qualified on this source; this does not close the distinct workspace-policy,
+authorization-revocation, or overall system qualification rows.
+
+## 2026-10-16 request-bound history follow-through
+
+Added an authenticated HTTP regression that gives one principal live owner
+membership in two organization workspaces, creates track and entry events in
+both, and reads both `/api/audit-log` and `/api/events` under each selected
+workspace. Each response contains its own workspace's track event and excludes
+the other workspace's track. An authenticated continuation from the first
+workspace is rejected when presented under the second workspace. The new
+regression plus the existing audit-log and polling suites passed **18 tests**
+on the JSON-backed HTTP harness. This closes same-principal/two-workspace
+route binding and cursor cross-scope coverage for those two consumers; it does
+not cover Personal account-event boundaries, the native event-history consumer, or every
+invalid/revoked scope variant. R4 and system qualification remain open.
+
+The 20,000-row native PostgreSQL probe also ran successfully after explicitly
+overriding the repository's default `not slow` marker filter. It confirms the
+attributed and legacy paths use index scans and no sort/sequence scan for the
+sample plans. However, the attributed plan removed 3,592 rows by residual filter
+to return 100 rows, and three timed two-page runs reported 732-841 ms ascending
+versus 17-20 ms descending. Index catalog inspection confirms a workspace
+composite exists, but the planner selected the generic DBLog timestamp index.
+An experiment with an entity-partial composite selected the workspace index,
+but reintroduced a top-N sort and failed the current plan contract; that
+unqualified index change was reverted. The timings and plan are from one
+disposable fixture shape, not a stable latency claim. Query/index expression
+alignment, bounded work under a much larger workspace history and the direction
+asymmetry need investigation before R5 can close.
+
 ## Rules for recording closure
 
 For each row, record the exact source commit or file manifest and the terminal
