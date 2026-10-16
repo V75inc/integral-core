@@ -35,6 +35,7 @@ CANONICAL_COMMAND_KINDS = (
             "delete_comment",
             "save_view",
             "delete_view",
+            "attach_uploaded_file",
             "add_entry_tag",
             "remove_entry_tag",
         }

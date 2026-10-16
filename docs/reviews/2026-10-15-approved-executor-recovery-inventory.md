@@ -4,9 +4,9 @@ Source snapshot after Core `07dc7750`, including the qualified standalone View d
 The dispatcher and `CANONICAL_COMMAND_KINDS` are authoritative after this date.
 This is command-integration coverage, not a test pass percentage or goal completion score.
 
-69 registered kinds: 26 in the native command inventory, one separate canonical
+69 registered kinds: 27 in the native command inventory, one separate canonical
 App-operation integration, one conditional batch dispatcher, one retired
-design-card tombstone that refuses effects, and 40 other effectful kinds
+design-card tombstone that refuses effects, and 39 other effectful kinds
 requiring effect/recovery integration. The 2026-10-16 design follow-through below
 supersedes the historical design-executor classification. The App-operation path reuses its existing
 canonical receipt rather than joining `CANONICAL_COMMAND_KINDS`; its local graph
@@ -20,7 +20,7 @@ GitHub and wider system qualification remain distinct.
 | `apply_library_operational_model` | `_x_apply_library_operational_model` | Not in native staging inventory; qualify underlying effects |
 | `apply_to_draft` | `_x_propose_profile_revision` | Not in native staging inventory; qualify underlying effects |
 | `attach_file` | `_x_attach_file` | Not in native staging inventory; qualify underlying effects |
-| `attach_uploaded_file` | `_x_attach_uploaded_file` | Not in native staging inventory; qualify underlying effects |
+| `attach_uploaded_file` | `_x_attach_uploaded_file` | Existing-byte graph filing and exact receipt; native, full backend, CI-faithful and artifact gates passed |
 | `attach_uploaded_image` | `_x_attach_uploaded_image` | Not in native staging inventory; qualify underlying effects |
 | `author_operational_model` | `_x_author_operational_model` | Not in native staging inventory; qualify underlying effects |
 | `author_skill` | `_x_author_skill` | Not in native staging inventory; qualify underlying effects |
@@ -102,7 +102,7 @@ R1/R2 remain incomplete until each row has a justified and qualified recovery co
 
 The original source triage of 44 non-native kinds below is **not qualification**.
 The separate App-operation local integration now has combined native evidence;
-40 other effectful kinds remain, the retired design card refuses effects,
+39 other effectful kinds remain, the retired design card refuses effects,
 and arbitrary external App handlers still need explicit
 dispatch/readback contracts. The
 classification identifies the effect owner to integrate and prevents a second
@@ -167,3 +167,15 @@ same-approval attempts. The combined source passed its full backend,
 CI-faithful, native and independent artifact gates. See [the qualification report](2026-10-16-entry-tag-command-recovery.md).
 The historical classification table above identifies the original boundaries;
 it is not a statement that these two integrations are absent on this source.
+
+
+## 2026-10-16 existing-byte chat attachment filing
+
+`attach_uploaded_file` uses canonical Entry serialization and a receipt/event
+boundary for its exact approved Entry/file identities. It changes graph state
+only; it does not upload bytes or change storage accounting. The native source
+and race/cancellation/access matrix, full backend, CI-faithful and independent
+artifact gates passed. See the [filing qualification report](2026-10-16-chat-attachment-filing-recovery.md).
+Arbitrary byte uploads, external effects and mixed batches remain separate
+unqualified families. The index-direction experiment report records a reverted
+performance attempt and makes no production index or latency claim.
