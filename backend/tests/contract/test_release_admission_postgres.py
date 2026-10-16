@@ -114,3 +114,55 @@ async def test_socket_admission_rechecks_each_connection(postgres_raw_db):
         await sending
         assert len(delivered) == 1
         _subscriptions.clear()
+
+
+async def test_committed_chat_stream_rechecks_admission_after_workspace_revocation(
+    postgres_raw_db, monkeypatch
+):
+    """A previously authorized SSE page cannot release its next frame after revoke.
+
+    Admission linearizes before transport handoff. Revocation may commit while
+    the client is processing a frame, but every subsequent frame must be
+    admitted again. No database transaction is held while the client consumes
+    the yielded bytes.
+    """
+    from unittest.mock import AsyncMock
+
+    from app.schemas.agentive.chat_events import ChatEventReplayPage
+    from app.services import chat_turn_streaming
+
+    async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+        auth, workspace, _, _ = await proposal()
+        replay = AsyncMock(
+            return_value=ChatEventReplayPage(
+                events=[
+                    {"sequence": 1, "type": "text-delta", "delta": "Admitted"},
+                    {"sequence": 2, "type": "text-delta", "delta": "Must withhold"},
+                ],
+                committed_through=2,
+                work_status="succeeded",
+            )
+        )
+        monkeypatch.setattr(chat_turn_streaming, "replay_work_item_chat_events", replay)
+
+        async def assert_current_scope():
+            async with release_admission(auth.id, workspace.id):
+                pass
+
+        response = chat_turn_streaming.stream_committed_chat_turn(
+            principal_id=auth.id,
+            workspace_id=workspace.id,
+            thread_id="thread-release-probe",
+            work_item_id="work-release-probe",
+            assert_scope=assert_current_scope,
+            poll_seconds=0,
+        )
+        first_frame = await anext(response)
+        assert b"Admitted" in first_frame
+
+        await remove_membership(auth, workspace)
+
+        with pytest.raises(InsufficientPermissionsError):
+            await anext(response)
+        assert replay.await_count == 1
+        await response.aclose()
