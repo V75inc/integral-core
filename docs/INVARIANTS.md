@@ -784,6 +784,19 @@ shared-store compare-and-set/fencing; process-local locks are insufficient.
 **Verification:** `backend/tests/native_harness/wp_02/` and WP-03 PostgreSQL
 concurrency tests.
 
+Native design acceptance preserves I-HARNESS-01 at the write boundary: the
+selected design revision and latest user turn must still match, the owning
+session edge and active run must be current, and identity/workspace admission
+must remain valid through the approval commit. A prior `approved` marker cannot
+skip these checks. Repeating the same selection in the same run preserves its
+approval timestamp. Design acceptance is not a receipt for the subsequent App
+build. Obsolete staged design cards refuse effects instead of approving a
+replacement design from an old payload.
+
+**Additional verification:**
+`backend/tests/native_harness/wp_06/test_native_design_approval_postgres.py` and
+`backend/tests/test_legacy_design_approval.py`.
+
 ### I-WORK-07 — Approved work prices every physical model dispatch
 
 **Scope:** Native SDK transport, `work_model_admission.py`, host bounds/price hooks,
@@ -847,7 +860,13 @@ proposal have separate private immutable fingerprints. Current identity,
 workspace, proposal state/expiry and normal operation authority are admitted
 before dispatch; graph effect, result/event receipt and decision consumption
 commit in one native transaction. A different or legacy unproven proposal cannot
-claim an older operation merely by reusing its key/input/declaration.
+claim to have authorized an older operation merely by reusing its
+key/input/declaration. A fresh current approval can instead acknowledge a
+known exact earlier completion under own-history admission. This no-effect
+path requires independent matching declaration/input proof, preserves the
+original receipt/approval fingerprint, consumes only the current reviewed
+decision and explicitly returns `already_completed`. An expired live approval
+cannot create a new acknowledgment. It never dispatches a handler.
 
 The producer binding belongs to one task and one root invocation. It grants no
 function/resource permission and is cleared before nested or post-commit work.
@@ -863,7 +882,8 @@ Existing policy Approval retains its original Subject and transaction owner.
 **Verification:** `test_operation_decision_binding.py`,
 `test_operation_contract_proof.py`, `test_staging_decision_intent.py`,
 `contract/test_staged_app_operation_postgres.py` (including fresh interpreters),
-and native operation/decision/approved-effect regressions. Full combined-source
+`contract/test_staged_operation_acknowledgment_postgres.py`, and native
+operation/decision/approved-effect regressions. Full combined-source
 and release qualification is recorded separately.
 
 ### I-HARNESS-02 — Restored chat input matches accepted content
