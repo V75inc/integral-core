@@ -35,6 +35,8 @@ CANONICAL_COMMAND_KINDS = (
             "delete_comment",
             "save_view",
             "delete_view",
+            "add_entry_tag",
+            "remove_entry_tag",
         }
     )
     | DASHBOARD_COMMAND_KINDS

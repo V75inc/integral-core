@@ -10,7 +10,7 @@ be read as the present checkout state.
 
 | Requirement | Implementation present | Remaining proof or implementation |
 | --- | --- | --- |
-| R1: shared approval ownership | Native task/fence claims, current proposal checks and integrated canonical resource commands | Complete all 69 registered contracts, including the 42 remaining effectful kinds and the explicitly refused retired design-card kind, the separately integrated App-operation path and conditional batch. Preserve immutable original identity/workspace/review and current approval state. Independent workers, stale owners, cancellation, expiry, revocation and restart must not create a second effect. |
+| R1: shared approval ownership | Native task/fence claims, current proposal checks and integrated canonical resource commands | Complete all 69 registered contracts, including the 40 remaining effectful kinds and the explicitly refused retired design-card kind, the separately integrated App-operation path and conditional batch. Preserve immutable original identity/workspace/review and current approval state. Independent workers, stale owners, cancellation, expiry, revocation and restart must not create a second effect. |
 | R2: atomic effects and recoverable completion | Canonical graph/result/event receipts, recorded-result observation and current disclosure controls | The local staged App-operation path now shares its canonical receipt and exact original review proof; preserve policy Approval's existing transaction owner and complete external handler contracts. Finish remaining local families, per-child mixed batches, external dispatch intent/readback and unknown-outcome reconciliation. Move external I/O out of held authority transactions. |
 | R3: stream release authorization | Fresh per-connection/frame and identity/workspace admission | Complete the multi-connection/revocation-ordering matrix on final source. Document the exact transport boundary; bytes already handed to transport cannot be recalled. Include sandboxed extension reply scope/frame replacement. |
 | R4: request-bound history | Validated selected workspace, canonical containment and live per-resource gates; HTTP and native dispatcher workspace/Personal boundaries qualified | Reconcile these consumer checks with the final source and aggregate authorization/system gates. This is not a general instantaneous-revocation guarantee. |
@@ -202,7 +202,7 @@ separate qualification above. Default-suite skips do not qualify native storage
 contracts; the independent PostgreSQL selections supply the stated component
 proof. This qualifies the design increment, not the full hardening goal.
 
-R1/R2 remain open: the 42 other effectful kinds, complete native design approval
+R1/R2 remain open: the 40 other effectful kinds, complete native design approval
 history and recovery contracts, external effects, mixed batches and final system
 qualification remain within the goal. Refusing an obsolete path is not proof of
 those contracts or of a completed App build. See the executor inventory for the
@@ -266,3 +266,22 @@ This qualifies one local integration. The other 43 executor kinds, conditional
 batches, arbitrary external App effects, history query plans, replica admission
 limits, privacy and restore/session journeys remain within the original goal.
 There has been no merge, deployment or live-provider acceptance for this increment.
+
+
+## 2026-10-16 qualified Entry-tag delta integration
+
+The exact add/remove tag commands share canonical Entry serialization, live
+identity/workspace authority, schema/taxonomy validation, atomic revision/event
+intent and encrypted receipt, and current-state recovery. Full backend:
+**6,593 passed / 866 skipped**, zero failures/errors (7,459 collected; 4,485.163
+seconds). CI-faithful: **1,797 passed / 22 skipped**. The combined native
+selection passed **34/34**, covering 16 tag, 15 design and three release cases;
+counts from overlapping reruns are not additive. All four independent artifact
+gates passed; reproducible wheel SHA256:
+`db14df11a3d357169c6b129deef962bf5438b3e23ad11548c065ea9a7a8d1408`.
+The changed runtime/test source still matches the sealed qualification manifest.
+The tag-only increment is now based on merged PR #142 (`22d381a3`); this is the
+same tested runtime tree after removing already-merged design changes from the
+commit diff. The report records independent-interpreter race proof and external
+delivery limitations. R1/R2 remain open for the 40 other effectful kinds and the
+remaining contracts above. No deployment is included.
