@@ -784,6 +784,19 @@ shared-store compare-and-set/fencing; process-local locks are insufficient.
 **Verification:** `backend/tests/native_harness/wp_02/` and WP-03 PostgreSQL
 concurrency tests.
 
+Native design acceptance preserves I-HARNESS-01 at the write boundary: the
+selected design revision and latest user turn must still match, the owning
+session edge and active run must be current, and identity/workspace admission
+must remain valid through the approval commit. A prior `approved` marker cannot
+skip these checks. Repeating the same selection in the same run preserves its
+approval timestamp. Design acceptance is not a receipt for the subsequent App
+build. Obsolete staged design cards refuse effects instead of approving a
+replacement design from an old payload.
+
+**Additional verification:**
+`backend/tests/native_harness/wp_06/test_native_design_approval_postgres.py` and
+`backend/tests/test_legacy_design_approval.py`.
+
 ### I-WORK-07 — Approved work prices every physical model dispatch
 
 **Scope:** Native SDK transport, `work_model_admission.py`, host bounds/price hooks,

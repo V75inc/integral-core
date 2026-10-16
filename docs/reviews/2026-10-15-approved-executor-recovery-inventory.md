@@ -5,8 +5,10 @@ The dispatcher and `CANONICAL_COMMAND_KINDS` are authoritative after this date.
 This is command-integration coverage, not a test pass percentage or goal completion score.
 
 69 registered kinds: 24 in the native command inventory, one separate canonical
-App-operation integration, one conditional batch dispatcher, and 43 other kinds
-requiring effect/recovery integration. The App-operation path reuses its existing
+App-operation integration, one conditional batch dispatcher, one retired
+design-card tombstone that refuses effects, and 42 other effectful kinds
+requiring effect/recovery integration. The 2026-10-16 design follow-through below
+supersedes the historical design-executor classification. The App-operation path reuses its existing
 canonical receipt rather than joining `CANONICAL_COMMAND_KINDS`; its local graph
 qualification does not cover arbitrary external handler effects. Final artifact,
 GitHub and wider system qualification remain distinct.
@@ -39,7 +41,7 @@ GitHub and wider system qualification remain distinct.
 | `delete_skill` | `_x_delete_skill` | Not in native staging inventory; qualify underlying effects |
 | `delete_track` | `_x_delete_track` | Integrated on transactional graph stores |
 | `delete_view` | `_x_delete_view` | Integrated on PostgreSQL; local source gates passed |
-| `design_proposal` | `_x_design_proposal` | Not in native staging inventory; qualify underlying effects |
+| `design_proposal` | `_x_design_proposal` | Retired: refuses all effects; current native design selection retains its separate authority contract |
 | `discard_profile_draft` | `_x_discard_profile_draft` | Not in native staging inventory; qualify underlying effects |
 | `draft_new_profile` | `_x_draft_new_profile` | Not in native staging inventory; qualify underlying effects |
 | `edit_comment` | `_x_edit_comment` | Integrated on transactional graph stores |
@@ -100,7 +102,8 @@ R1/R2 remain incomplete until each row has a justified and qualified recovery co
 
 The original source triage of 44 non-native kinds below is **not qualification**.
 The separate App-operation local integration now has combined native evidence;
-43 other kinds remain, and arbitrary external App handlers still need explicit
+42 other effectful kinds remain, the retired design card refuses effects,
+and arbitrary external App handlers still need explicit
 dispatch/readback contracts. The
 classification identifies the effect owner to integrate and prevents a second
 journal being added around a service that already owns durable execution.
@@ -125,9 +128,30 @@ References are relative to `backend/app/`; the dispatcher remains
 | `invoke_app_operation` | `services/app_operations/dispatch.py` owns the canonical transaction and receipt | Local decision/effect integration qualified by 224 combined native cases plus three separate expiry/revocation cases; see [atomicity report](2026-10-15-staged-app-operation-atomicity.md). Original complete review and declaration have independent private fingerprints. External effects and final system gates remain open. |
 | `resolve_conflict` | `api/conflicts.py` resolves recorded conflict state | Inventory selected resolution's local/connector effects and immutable conflict revision before choosing graph receipt or external intent recovery. |
 | `routine_task_create`, `routine_task_update`, `routine_task_cancel`, `routine_task_purge` | `agentive/services/routine_tasks.py`, with executor ChangeEvents | Command recovery must cover schedule record plus emitted event and exact routine identity. The existing scheduled-run WorkItem idempotency key protects a different boundary; it does not deduplicate routine creation. |
-| `design_proposal` | Executor updates the chat thread's proposal marker | Atomically bind thread ownership, proposal identity/revision and approval marker. Recover the approval result with `needs_agent_build`; it must never claim the later App build completed. |
+| `design_proposal` | Retired compatibility tombstone, with no graph write or thread lookup | Old cards return `design_approval_reconciliation_required`. Current native design approval validates exact revision, latest user turn, session edge/run and current identity/workspace admission. It does not claim the later App build completed. Native historical evidence and the broader recovery matrix remain separate requirements. |
 
-These groups contain all 44 currently non-native kinds; aliases count as
+These groups enumerate the original 44 non-native kind names; aliases count as
 registered kinds. After an integration, update the table and native inventory
 from the actual dispatcher and qualify its denied, unavailable, interrupted,
 post-commit, and cross-worker paths. No family is closed by this classification.
+
+
+## 2026-10-16 design approval follow-through
+
+The current `integral_propose_design` dispatcher records an outline and artifact;
+it does not create a staged design card. The obsolete executor previously stamped
+the current marker from an old payload and could replace its summary/proposal.
+It now refuses effects with an explicit reconciliation error. Persisted cards
+are retained; none is consumed, migrated or interpreted as fresh approval.
+The native design capability remains available through its existing primary
+model selection, exact revision and current-run CAS service.
+
+The native service's early return for an already-approved marker also bypassed
+its run fence. The PostgreSQL regression reproduced two failures for prior
+approvals: stale runs returned success, and current runs failed to bind the new
+approval to themselves. That shortcut is removed. The write now joins current
+identity/workspace admission, requires one owning session edge, validates the
+active session/run and uses its existing revision CAS. Same-run repeated
+selection preserves the approval timestamp. Native design approval is still
+separate from staged build effects and their receipts; no native historical
+approval-journal or whole-goal completion is claimed by this increment.

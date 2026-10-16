@@ -10,7 +10,7 @@ be read as the present checkout state.
 
 | Requirement | Implementation present | Remaining proof or implementation |
 | --- | --- | --- |
-| R1: shared approval ownership | Native task/fence claims, current proposal checks and integrated canonical resource commands | Complete all 69 registered kinds, including the 43 remaining classified kinds, the separately integrated App-operation path and conditional batch. Preserve immutable original identity/workspace/review and current approval state. Independent workers, stale owners, cancellation, expiry, revocation and restart must not create a second effect. |
+| R1: shared approval ownership | Native task/fence claims, current proposal checks and integrated canonical resource commands | Complete all 69 registered contracts, including the 42 remaining effectful kinds and the explicitly refused retired design-card kind, the separately integrated App-operation path and conditional batch. Preserve immutable original identity/workspace/review and current approval state. Independent workers, stale owners, cancellation, expiry, revocation and restart must not create a second effect. |
 | R2: atomic effects and recoverable completion | Canonical graph/result/event receipts, recorded-result observation and current disclosure controls | The local staged App-operation path now shares its canonical receipt and exact original review proof; preserve policy Approval's existing transaction owner and complete external handler contracts. Finish remaining local families, per-child mixed batches, external dispatch intent/readback and unknown-outcome reconciliation. Move external I/O out of held authority transactions. |
 | R3: stream release authorization | Fresh per-connection/frame and identity/workspace admission | Complete the multi-connection/revocation-ordering matrix on final source. Document the exact transport boundary; bytes already handed to transport cannot be recalled. Include sandboxed extension reply scope/frame replacement. |
 | R4: request-bound history | Validated selected workspace, canonical containment and live per-resource gates; HTTP and native dispatcher workspace/Personal boundaries qualified | Reconcile these consumer checks with the final source and aggregate authorization/system gates. This is not a general instantaneous-revocation guarantee. |
@@ -163,6 +163,50 @@ parameter as the adapter. Configured changed-file formatting, typing and drift
 checks passed. These are test/documentation changes; no runtime behavior changed.
 The probe requires both `INTEGRAL_RUN_SLOW_TESTS=1` and an explicit marker
 selection overriding the default slow exclusion; a skipped run is not evidence.
+
+## 2026-10-16 exact native design approval and legacy refusal
+
+The unadvertised legacy `design_proposal` executor now refuses all effects
+instead of stamping the current thread marker from an older payload. It retains
+an explicit reconciliation tombstone for persisted cards. The current propose-
+design and native build-selection tools remain available; no second design
+approval journal or automatic build is introduced.
+
+An independent native regression reproduced the active service returning early
+for an already-approved marker before checking the current run. The native
+service now performs its existing revision/turn/run CAS on every selection,
+joins current identity/workspace admission through that write, validates the
+owning session edge and preserves the timestamp on an exact same-run retry.
+The focused native selection passed **16/16**: current versus stale run under
+both new and earlier approval, revoked membership, inactive identity, detached
+session edge, concurrent design replacement, deterministic repeat, and an
+integrated approval/revocation ordering probe, plus the three existing release-
+admission contracts. No skips, failures or errors. Two supplementary native
+cases then exercised actual persisted legacy cards through bless/dispatch/error
+recording: both remained unapplied, retained an error and left the current design
+unchanged (**2/2**, separate from the 16-case selection). The focused default-store
+selection passed **80/80**, covering primary broker selection, design dispatch,
+legacy refusal and executor scope inventory. Its two resident-skill metadata
+warnings are retained; no test skipped or errored. The Core wheel rebuilt byte
+for byte with SHA256
+`0e4889fe84ac625550e3fc71d3b4946b7805179ef0b3dde97b26287b16d6c251`
+and passed the isolated import gate. Clean public install, SDK wheel and
+external reference-App artifact gates also passed against a frozen snapshot
+whose two changed runtime files match this checkout. Configured staged hooks
+and all substrate guards passed. The CI-faithful suite passed **1,797 tests /
+22 skipped**, with zero failures or errors. The full backend suite then passed
+**6,593 tests / 845 skipped**, with zero failures or errors
+(`/tmp/core-design-hardening-full.xml`, 4,003.5 seconds). The two supplementary
+native persisted-card cases were added after that run collected and retain their
+separate qualification above. Default-suite skips do not qualify native storage
+contracts; the independent PostgreSQL selections supply the stated component
+proof. This qualifies the design increment, not the full hardening goal.
+
+R1/R2 remain open: the 42 other effectful kinds, complete native design approval
+history and recovery contracts, external effects, mixed batches and final system
+qualification remain within the goal. Refusing an obsolete path is not proof of
+those contracts or of a completed App build. See the executor inventory for the
+current-versus-historical distinction.
 
 ## Rules for recording closure
 
