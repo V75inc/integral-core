@@ -48,3 +48,10 @@ class ChangePasswordRequest(BaseModel):
 
     current_password: str
     new_password: str
+
+
+class ResendCredentialsDeliveryRequest(BaseModel):
+    """Identify a fixed mailbox challenge without supplying a recipient."""
+
+    member_user_id: str
+    intent_id: str

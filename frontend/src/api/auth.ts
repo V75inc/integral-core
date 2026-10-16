@@ -55,6 +55,17 @@ export const authApi = {
 
   /** Consume a reset token and set a new password. Throws an axios error on
    *  4xx with `error.response.data.detail = { error_code, message }`. */
+  resendCredentialsDelivery: (memberUserId: string, intentId: string) =>
+    apiClient.post<{ ok: boolean; challenge_emailed: boolean }>(
+      '/auth/credentials-delivery/resend', { member_user_id: memberUserId, intent_id: intentId },
+    ),
+
+  verifyCredentialsDelivery: (memberUserId: string, intentId: string, code: string) =>
+    apiClient.post<{ ok: boolean; credentials_emailed: boolean; message: string }>(
+      '/auth/credentials-delivery/verify',
+      { member_user_id: memberUserId, intent_id: intentId, code },
+    ),
+
   resetPassword: (
     token: string,
     password: string,

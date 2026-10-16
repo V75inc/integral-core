@@ -190,6 +190,10 @@ async def _dispatch_workspace_email_hooks(
     *,
     reply_to: Optional[str],
 ) -> None:
+    # Authentication material must never enter workspace/App hook payloads,
+    # even when a request carries an ambient workspace scope.
+    if message.source_kind in PLATFORM_ONLY_SOURCE_KINDS:
+        return
     try:
         from app.middleware.agentive_scope import get_actor_id, get_scope_key
         from app.services.hooks.email_sent_runtime import run_email_sent_hooks

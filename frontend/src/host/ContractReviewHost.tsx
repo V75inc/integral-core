@@ -15,7 +15,7 @@ export type ContractReviewHostProps = {
 export function ContractReviewHost(_props: ContractReviewHostProps) {
   return (
     <Text variant="body" tone="muted">
-      Document review for this step is supplied by your workspace app package.
+      Document review is unavailable in this installation. Your workspace administrator must enable a compatible App extension before this form can continue.
     </Text>
   );
 }

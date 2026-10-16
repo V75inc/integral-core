@@ -23,6 +23,7 @@ async def template_provider_slug_from_track(track: Track) -> Optional[str]:
 
 
 async def public_share_extensions(track: Track) -> Dict[str, str]:
+    """Return the published extension declarations for this track."""
     declared = await declared_public_share(track) or {}
     ext = declared.get("extensions") or {}
     if not isinstance(ext, dict):
@@ -31,6 +32,7 @@ async def public_share_extensions(track: Track) -> Dict[str, str]:
 
 
 async def authenticated_only_entry_type_keys(track: Track) -> FrozenSet[str]:
+    """Return declared entry types that require an authenticated reader."""
     ext = await public_share_extensions(track)
     return frozenset(_split_csv(ext.get("authenticated_only_entry_type_keys", "")))
 
@@ -38,6 +40,7 @@ async def authenticated_only_entry_type_keys(track: Track) -> FrozenSet[str]:
 async def server_managed_field_keys(
     track: Track, *, entry_type_slug: str
 ) -> FrozenSet[str]:
+    """Return declared server-managed field keys for one entry type."""
     ext = await public_share_extensions(track)
     key = f"server_managed_field_keys_{entry_type_slug}"
     return frozenset(_split_csv(ext.get(key, "")))
@@ -69,6 +72,7 @@ async def partition_server_managed_for_track(
     merged_custom_fields: Dict[str, Any],
     allowed_keys: set[str],
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """Separate persisted server-managed values before schema validation."""
     managed = await server_managed_field_keys(track, entry_type_slug=entry_type_slug)
     return partition_server_managed_custom_fields(
         entry_type_slug=entry_type_slug,

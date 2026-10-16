@@ -170,6 +170,15 @@ async def provision_workspace_member(
             message="Alternate credentials recipient requires send_credentials"
         )
     if alternate_delivery and body.send_credentials:
+        from app.services.credential_crypto import encryption_available
+        from app.services.credential_delivery import require_delivery_storage
+
+        require_delivery_storage()
+
+        if not encryption_available():
+            raise BadRequestError(
+                message="Alternate delivery requires credential encryption"
+            )
         existing_auth = await _find_auth_user_by_email(email_norm)
         if existing_auth is not None:
             raise BadRequestError(
@@ -225,6 +234,10 @@ async def provision_workspace_member(
                 message="Only the workspace owner can grant admin"
             )
         if auth_user is not None:
+            if alternate_delivery:
+                raise BadRequestError(
+                    message="Alternate delivery is only allowed for newly created accounts"
+                )
             user_node = await get_user_node(auth_user.id)
             if (
                 user_node is None

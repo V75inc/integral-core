@@ -297,7 +297,14 @@ def scrub_event_credentials(value: Any) -> Any:
         return {
             key: scrub_event_credentials(item)
             for key, item in value.items()
-            if key not in {"password_hash", "email_verification", "reset_token"}
+            if key
+            not in {
+                "password_hash",
+                "email_verification",
+                "reset_token",
+                "credentials_delivery",
+                "credentials_delivery_released",
+            }
         }
     if isinstance(value, list):
         return [scrub_event_credentials(item) for item in value]

@@ -366,20 +366,6 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
       }
     }
     const nextIndex = Math.min(currentStepIndex + 1, formSteps.length - 1);
-    const nextStep = formSteps[nextIndex];
-    const enteringContract = Boolean(
-      nextStep?.fields?.some((f: { type?: string }) => f.type === 'contract_review'),
-    );
-    if (enteringContract && assignedEntryId && memberFormMode) {
-      try {
-        await memberAssignedFormApi.generateContract({
-          force: false,
-          entryId: assignedEntryId,
-        });
-      } catch {
-        /* Contract step will generate or surface errors */
-      }
-    }
     setCurrentStepIndex(nextIndex);
     } finally {
       setWizardStepBusy(false);
