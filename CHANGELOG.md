@@ -4,7 +4,7 @@ This pre-launch change record describes the supported Integral Core runtime.
 Package publication and deployment are separate release gates; a local version
 bump does not establish that a release is available on a package index.
 
-## Unreleased
+## 0.1.1rc19 — 2026-10-16
 
 - Preserve JSON array order and primitive types when saving entry edits, while
   normalizing representations only for fields with a known non-JSON type.
