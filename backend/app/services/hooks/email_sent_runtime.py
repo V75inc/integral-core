@@ -32,9 +32,19 @@ async def run_email_sent_hooks(
         )
         return
 
+    write_actor = actor
+    try:
+        from app.services.workspace_permissions import get_workspace_owner_user_id
+
+        owner_id = str(await get_workspace_owner_user_id(ws) or "").strip()
+        if owner_id:
+            write_actor = owner_id
+    except Exception:  # noqa: BLE001
+        pass
+
     tools = get_workspace_tools(ws)
     ctx = ToolContext(
-        user_id=actor,
+        user_id=write_actor,
         workspace_id=ws,
         scope="email:sent",
     )

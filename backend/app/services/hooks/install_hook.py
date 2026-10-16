@@ -261,28 +261,9 @@ async def rehydrate_all_installed_bundles() -> None:
 
                     await pause_app(app_id=app_node.id, actor_id="system:entitlement")
                     continue
-            bundle_dir = (
-                str((getattr(cp, "metadata", None) or {}).get("bundle_dir_path") or "")
-                or None
-            )
-            if not bundle_dir:
-                # Fall back to library row's recorded path when attached CP
-                # was merged without metadata.
-                lib_id = getattr(app_node, "installed_from_library_id", None)
-                if lib_id:
-                    from app.models import nodes as _nodes
+            from app.services.app_lifecycle import _resolve_app_bundle_dir
 
-                    lib = await _nodes.OperationalModel.get(lib_id)
-                    if lib is not None:
-                        bundle_dir = (
-                            str(
-                                (getattr(lib, "metadata", None) or {}).get(
-                                    "bundle_dir_path"
-                                )
-                                or ""
-                            )
-                            or None
-                        )
+            bundle_dir = await _resolve_app_bundle_dir(app_node)
             await register_bundle_on_install(
                 workspace_id=app_node.workspace_id,
                 canonical=canonical,

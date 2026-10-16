@@ -1,4 +1,3 @@
-/* patch:kanban-hire-host */
 import { Outlet, useLocation } from 'react-router-dom';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { Loader2 } from 'lucide-react';
@@ -16,7 +15,6 @@ import {
 import { useIsMdUp } from '../../hooks/useMediaQuery';
 import { useCrumbs } from '../../context/CrumbsContext';
 import { useScope } from '../../context/ScopeContext';
-import { KanbanHirePromptHost } from '../../features/kanbanHire/KanbanHirePromptHost';
 import { CommandPalette } from '../command/CommandPalette';
 import { useFirstLoginOnboarding } from '../../hooks/useFirstLoginOnboarding';
 import { OnboardingDockAutoOpen } from '../../features/ai-chat/dock/OnboardingDockAutoOpen';
@@ -281,7 +279,6 @@ export function Layout() {
       <AssistantDockToggle />
 
       {/* ⌘K command palette — mounted at root so it overlays any page. */}
-      <KanbanHirePromptHost />
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}

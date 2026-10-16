@@ -47,9 +47,9 @@ import {
   firstMissingRequiredPolicy,
 } from '../components/intakeForm/PolicyAcknowledgmentStep';
 import {
-  ContractReviewStep,
+  ContractReviewHost as ContractReviewStep,
   ContractReviewRejectedTerminal,
-} from '../components/intakeForm/ContractReviewStep';
+} from '../host/ContractReviewHost';
 import { memberAssignedFormApi } from '../features/memberAssignedForm/memberAssignedFormApi';
 
 function isEmptyFileFieldValue(val: unknown): boolean {
@@ -110,6 +110,7 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
   const [formBody, setFormBody] = useState('');
   const [formCustomFields, setFormCustomFields] = useState<Record<string, any>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [wizardStepBusy, setWizardStepBusy] = useState(false);
   const [submittedSuccess, setSubmittedSuccess] = useState(false);
   const [assignedEntryLocked, setAssignedEntryLocked] = useState(false);
   const [assignedEntryLoading, setAssignedEntryLoading] = useState(false);
@@ -338,9 +339,12 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
   };
 
   const handleNextStep = async () => {
+    if (wizardStepBusy) return;
     if (!validateCurrentStep()) return;
 
     setInvalidFieldKey(null);
+    setWizardStepBusy(true);
+    try {
     if (assignedEntryId && !assignedEntryLocked) {
       try {
         const patchBody = {
@@ -361,7 +365,11 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
         return;
       }
     }
-    setCurrentStepIndex(prev => Math.min(prev + 1, formSteps.length - 1));
+    const nextIndex = Math.min(currentStepIndex + 1, formSteps.length - 1);
+    setCurrentStepIndex(nextIndex);
+    } finally {
+      setWizardStepBusy(false);
+    }
   };
 
   const isContractReviewStep = Boolean(
@@ -1472,10 +1480,10 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
                         key="wizard-next-btn"
                         type="button"
                         variant="primary"
-                        disabled={isContractReviewStep && !contractAccepted}
+                        disabled={wizardStepBusy || (isContractReviewStep && !contractAccepted)}
                         onClick={() => void handleNextStep()}
                       >
-                        Next
+                        {wizardStepBusy ? 'Please wait…' : 'Next'}
                       </Button>
                     ) : (
                       <Button
@@ -1818,9 +1826,10 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
                       key="modal-next-btn"
                       type="button"
                       variant="primary"
+                      disabled={wizardStepBusy}
                       onClick={() => void handleNextStep()}
                     >
-                      Next
+                      {wizardStepBusy ? 'Please wait…' : 'Next'}
                     </Button>
                   ) : (
                     <Button

@@ -41,6 +41,7 @@ class OperationContext(Protocol):
         entry_id: str,
         custom_fields: Dict[str, Any],
         *,
+        title: Optional[str] = None,
         expected_record_revision: Optional[int] = None,
     ) -> bool:
         """Apply a validated update; False includes a stale record revision."""

@@ -83,6 +83,32 @@ def _reportlab_rect_to_fitz(
     return fitz.Rect(x, y_top, x + width, y_top + height)
 
 
+def _fit_png_in_place(
+    png_bytes: bytes,
+    place: Dict[str, Any],
+) -> tuple[float, float, float, float]:
+    """Return ReportLab ``(x, y, width, height)`` keeping aspect ratio inside the block."""
+    x = float(place.get("x") or 72.0)
+    y = float(place.get("y") or 72.0)
+    max_w = float(place.get("width") or 220.0)
+    max_h = float(place.get("height") or 48.0)
+    try:
+        from PIL import Image
+    except ImportError:
+        return x, y, max_w, max_h
+    try:
+        img = Image.open(io.BytesIO(png_bytes))
+        img_w, img_h = img.size
+    except Exception:  # noqa: BLE001
+        return x, y, max_w, max_h
+    if img_w <= 0 or img_h <= 0:
+        return x, y, max_w, max_h
+    scale = min(max_w / img_w, max_h / img_h)
+    draw_w = img_w * scale
+    draw_h = img_h * scale
+    return x, y, draw_w, draw_h
+
+
 def _collect_stamps_by_page(
     pdf_page_count: int,
     signatures: List[Dict[str, Any]],
@@ -117,10 +143,7 @@ def _overlay_signatures_pymupdf(
             page = doc[page_index]
             page_height = float(page.rect.height)
             for png_bytes, target in overlays:
-                x = float(target.get("x") or 72.0)
-                y = float(target.get("y") or 72.0)
-                width = float(target.get("width") or 200.0)
-                height = float(target.get("height") or 48.0)
+                x, y, width, height = _fit_png_in_place(png_bytes, target)
                 rect = _reportlab_rect_to_fitz(page_height, x, y, width, height)
                 page.insert_image(
                     rect,
@@ -153,10 +176,7 @@ def _overlay_signatures_reportlab_fallback(
         packet = io.BytesIO()
         can = canvas.Canvas(packet, pagesize=(page_width, page_height))
         for png_bytes, target in overlays:
-            x = float(target.get("x") or 72.0)
-            y = float(target.get("y") or 72.0)
-            width = float(target.get("width") or 200.0)
-            height = float(target.get("height") or 48.0)
+            x, y, width, height = _fit_png_in_place(png_bytes, target)
             img = ImageReader(io.BytesIO(normalize_signature_png_alpha(png_bytes)))
             can.drawImage(img, x, y, width=width, height=height, mask="auto")
         can.save()

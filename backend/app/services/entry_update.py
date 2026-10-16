@@ -28,7 +28,11 @@ from app.services.entry_write_scope import (
     entry_write_scope,
     is_postgres_entry_transaction,
 )
-from app.services.hooks.entry_save_runtime import run_entry_save_hooks
+from app.services.hooks.entry_save_runtime import (
+    entry_type_hook_slug,
+    run_entry_before_write_hooks,
+    run_entry_save_hooks,
+)
 from app.services.migration_write_guard import assert_track_schema_writable
 from app.services.operational_model_compile import slug_manifest_key
 from app.services.operational_model_runtime import (
@@ -274,6 +278,63 @@ async def update_entry_in_track(
                         track=track,
                         entry_type=entry_type,
                         custom_fields=merged,
+                        runtime_tier=tier,
+                        entry=entry,
+                        actor_user_id=admitted_principal_id,
+                        actor_kind=actor_kind,
+                        authorization_subject=authorization_subject,
+                        source_entry_title=title if title is not None else entry.title,
+                    )
+                )
+                try:
+                    validated = await run_entry_before_write_hooks(
+                        workspace_id=track.workspace_id,
+                        actor_id=admitted_principal_id,
+                        hook_point="entry.update",
+                        entry_type_slug=entry_type_hook_slug(entry_type),
+                        entry_type_id=str(entry_type.id),
+                        operation="update",
+                        custom_fields=validated,
+                        entry_id=str(entry.id),
+                        write_actor=admitted_principal_id,
+                    )
+                except ValueError as exc:
+                    from app.api.errors import BadRequestError
+
+                    raise BadRequestError(message=str(exc)) from exc
+                mutation_principal_id = (
+                    actor_id
+                    if actor_id and actor_kind in {"agent", "connector"}
+                    else user_id
+                )
+                baseline_custom = entry.custom_fields or {}
+                post_hook_custom = {
+                    key: value
+                    for key, value in (validated or {}).items()
+                    if baseline_custom.get(key) != value
+                }
+                await enforce_protected_field_write(
+                    principal_id=mutation_principal_id,
+                    workspace_id=track.workspace_id,
+                    entry_type_key=slug_manifest_key(
+                        str(
+                            (entry_type.form_schema or {}).get(
+                                "_manifest_entry_type_key"
+                            )
+                            or entry_type.name
+                        )
+                    ),
+                    proposed_custom_fields=post_hook_custom,
+                    entry_id=entry.id,
+                    track_id=track.id,
+                    mutation_kind="type_change" if type_changed else "update",
+                    proposed_fields=proposed_top_level,
+                )
+                validated, relations = (
+                    await validate_and_materialize_entry_custom_fields(
+                        track=track,
+                        entry_type=entry_type,
+                        custom_fields=validated,
                         runtime_tier=tier,
                         entry=entry,
                         actor_user_id=admitted_principal_id,

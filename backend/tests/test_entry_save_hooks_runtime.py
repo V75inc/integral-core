@@ -66,6 +66,7 @@ async def test_hook_dispatch_prefers_manifest_key_over_slugified_name(monkeypatc
     assert len(captured) == 1
     # The bug: this used to be "employee_line" (slugified display name).
     assert captured[0]["entry_type"] == "nis_schedule_line"
+    assert captured[0]["phase"] == "after_write"
 
 
 @pytest.mark.asyncio
@@ -111,3 +112,34 @@ async def test_hook_dispatch_falls_back_to_slugified_name_when_no_manifest_key(
 
     assert len(captured) == 1
     assert captured[0]["entry_type"] == "time_off_request"
+    assert captured[0]["phase"] == "after_write"
+
+
+@pytest.mark.asyncio
+async def test_before_write_dispatch_includes_phase_and_manifest_key(monkeypatch):
+    captured: List[Dict[str, Any]] = []
+
+    def fake_find_matching_bindings(
+        workspace_id, point, payload, explicit_hook_key=None
+    ):
+        captured.append(payload)
+        return []
+
+    monkeypatch.setattr(resolver, "find_matching_bindings", fake_find_matching_bindings)
+
+    from app.services.hooks.entry_save_runtime import run_entry_before_write_hooks
+
+    await run_entry_before_write_hooks(
+        workspace_id="ws-hooktest3",
+        actor_id="user-hooktest3",
+        hook_point="entry.update",
+        entry_type_slug="onboarding_form",
+        entry_type_id="type-onboarding",
+        operation="update",
+        custom_fields={"status": "approved"},
+        entry_id="form-1",
+    )
+
+    assert len(captured) == 1
+    assert captured[0]["phase"] == "before_write"
+    assert captured[0]["entry_type"] == "onboarding_form"

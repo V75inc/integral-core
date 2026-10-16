@@ -8,9 +8,9 @@ export const EXTENSION_VIEW_SHELL_CLASS =
 export const EXTENSION_VIEW_IFRAME_CLASS =
   'w-full h-full min-h-[32rem] border border-[var(--panel-border)] rounded-[var(--radius-card)] bg-[var(--bg)]';
 
-/** Document Templates TipTap editor — full track width + tall viewport (matches integral SPA editor). */
+/** Document Templates TipTap editor — tall viewport within the main column (no negative horizontal bleed). */
 export const EXTENSION_VIEW_TEMPLATE_EDITOR_SHELL_CLASS =
-  'relative w-[calc(100%+1.5rem)] max-w-none -mx-3 md:w-[calc(100%+8rem)] md:-mx-16 ' +
+  'relative w-full min-w-0 max-w-full overflow-hidden ' +
   'h-[calc(100dvh-var(--app-topbar-height)-var(--system-bar-h,0px)-9rem)] min-h-[36rem]';
 
 export const EXTENSION_VIEW_TEMPLATE_EDITOR_IFRAME_CLASS =

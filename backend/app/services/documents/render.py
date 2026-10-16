@@ -363,6 +363,18 @@ def _marks_wrap(text: str, marks: Optional[List[Dict[str, Any]]]) -> str:
     return out
 
 
+def _signature_meta_by_role(
+    token_metadata: Optional[Dict[str, Any]],
+) -> Dict[str, Dict[str, Any]]:
+    out: Dict[str, Dict[str, Any]] = {}
+    for spec in (token_metadata or {}).get("signatures") or []:
+        if isinstance(spec, dict):
+            role = str(spec.get("role") or "").strip()
+            if role:
+                out[role] = spec
+    return out
+
+
 def _node_marks(node: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
     """Marks on text nodes; inline atoms (field tokens) carry marks on the node."""
     marks = node.get("marks")
@@ -378,6 +390,7 @@ def _render_node(
     eval_condition: Optional[Any] = None,
     embed_pre_signatures: bool = True,
     highlight_field_tokens: bool = True,
+    signature_meta_by_role: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> str:
     ntype = node.get("type") or ""
     attrs = node.get("attrs") or {}
@@ -414,12 +427,17 @@ def _render_node(
         embedded_b64 = str(
             attrs.get("embeddedPngB64") or attrs.get("embedded_png_b64") or ""
         ).strip()
+        if not embedded_b64 and signature_meta_by_role:
+            spec = signature_meta_by_role.get(role) or {}
+            embedded_b64 = str(
+                spec.get("embedded_png_b64") or spec.get("embeddedPngB64") or ""
+            ).strip()
+        sig_marker = _escape(f"SIGMARK:{safe_role}")
         inner = (
+            f'<span class="doc-signature-marker">{sig_marker}</span>'
             f'<div class="doc-signature-line">______________________________</div>'
             f'<div class="doc-signature-label">{_escape(label)}</div>'
         )
-        # PDF generation burns pre-embedded PNGs via ``apply_pre_embedded_signatures``
-        # — embedding the image in HTML too would duplicate it in the final PDF.
         if mode == "pre_embedded" and embedded_b64 and embed_pre_signatures:
             inner = (
                 f'<img class="doc-signature-image" alt="{_escape(label)}" '
@@ -453,6 +471,7 @@ def _render_node(
                 eval_condition=eval_condition,
                 embed_pre_signatures=embed_pre_signatures,
                 highlight_field_tokens=highlight_field_tokens,
+                signature_meta_by_role=signature_meta_by_role,
             )
             for c in content
         )
@@ -467,6 +486,7 @@ def _render_node(
                 eval_condition=eval_condition,
                 embed_pre_signatures=embed_pre_signatures,
                 highlight_field_tokens=highlight_field_tokens,
+                signature_meta_by_role=signature_meta_by_role,
             )
             for c in content
         )
@@ -480,6 +500,7 @@ def _render_node(
                 eval_condition=eval_condition,
                 embed_pre_signatures=embed_pre_signatures,
                 highlight_field_tokens=highlight_field_tokens,
+                signature_meta_by_role=signature_meta_by_role,
             )
             for c in content
         )
@@ -495,6 +516,7 @@ def _render_node(
                 eval_condition=eval_condition,
                 embed_pre_signatures=embed_pre_signatures,
                 highlight_field_tokens=highlight_field_tokens,
+                signature_meta_by_role=signature_meta_by_role,
             )
             for c in content
         )
@@ -508,6 +530,7 @@ def _render_node(
                 eval_condition=eval_condition,
                 embed_pre_signatures=embed_pre_signatures,
                 highlight_field_tokens=highlight_field_tokens,
+                signature_meta_by_role=signature_meta_by_role,
             )
             for c in content
         )
@@ -521,6 +544,7 @@ def _render_node(
                 eval_condition=eval_condition,
                 embed_pre_signatures=embed_pre_signatures,
                 highlight_field_tokens=highlight_field_tokens,
+                signature_meta_by_role=signature_meta_by_role,
             )
             for c in content
         )
@@ -534,6 +558,7 @@ def _render_node(
                 eval_condition=eval_condition,
                 embed_pre_signatures=embed_pre_signatures,
                 highlight_field_tokens=highlight_field_tokens,
+                signature_meta_by_role=signature_meta_by_role,
             )
             for c in content
         )
@@ -547,6 +572,7 @@ def _render_node(
                 eval_condition=eval_condition,
                 embed_pre_signatures=embed_pre_signatures,
                 highlight_field_tokens=highlight_field_tokens,
+                signature_meta_by_role=signature_meta_by_role,
             )
             for c in content
         )
@@ -563,6 +589,7 @@ def _render_node(
                 eval_condition=eval_condition,
                 embed_pre_signatures=embed_pre_signatures,
                 highlight_field_tokens=highlight_field_tokens,
+                signature_meta_by_role=signature_meta_by_role,
             )
             for c in content
         )
@@ -576,6 +603,7 @@ def _render_node(
                 eval_condition=eval_condition,
                 embed_pre_signatures=embed_pre_signatures,
                 highlight_field_tokens=highlight_field_tokens,
+                signature_meta_by_role=signature_meta_by_role,
             )
             for c in content
         )
@@ -590,6 +618,7 @@ def _render_node(
                 eval_condition=eval_condition,
                 embed_pre_signatures=embed_pre_signatures,
                 highlight_field_tokens=highlight_field_tokens,
+                signature_meta_by_role=signature_meta_by_role,
             )
             for c in content
         )
@@ -610,6 +639,7 @@ def _render_node(
                 eval_condition=eval_condition,
                 embed_pre_signatures=embed_pre_signatures,
                 highlight_field_tokens=highlight_field_tokens,
+                signature_meta_by_role=signature_meta_by_role,
             )
             for c in content
         )
@@ -623,6 +653,7 @@ def _render_node(
             eval_condition=eval_condition,
             embed_pre_signatures=embed_pre_signatures,
             highlight_field_tokens=highlight_field_tokens,
+            signature_meta_by_role=signature_meta_by_role,
         )
         for c in content
     )
@@ -634,13 +665,16 @@ def render_document_body_html(
     *,
     embed_pre_signatures: bool = True,
     highlight_field_tokens: bool = True,
+    token_metadata: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Render editor JSON to HTML body fragment (before sanitize)."""
+    sig_meta = _signature_meta_by_role(token_metadata)
     return _render_node(
         editor_document or {"type": "doc", "content": []},
         formatted,
         embed_pre_signatures=embed_pre_signatures,
         highlight_field_tokens=highlight_field_tokens,
+        signature_meta_by_role=sig_meta or None,
     )
 
 
@@ -656,6 +690,7 @@ def merge_document_to_html(
     title: str = "Document",
     embed_pre_signatures: bool = True,
     highlight_field_tokens: bool = True,
+    token_metadata: Optional[Dict[str, Any]] = None,
 ) -> str:
     from app.services.documents.document_theme import (
         build_document_css,
@@ -668,6 +703,7 @@ def merge_document_to_html(
         formatted,
         embed_pre_signatures=embed_pre_signatures,
         highlight_field_tokens=highlight_field_tokens,
+        token_metadata=token_metadata,
     )
     header = sanitize_html(header_html) if header_html else ""
     footer = sanitize_html(footer_html) if footer_html else ""

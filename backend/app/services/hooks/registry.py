@@ -599,6 +599,52 @@ class ToolContext:
             expected_record_revision=expected_record_revision,
         )
 
+    async def update_entry_fields_in_workspace(
+        self,
+        entry_id: str,
+        custom_fields: Dict[str, Any],
+        *,
+        title: Optional[str] = None,
+        expected_record_revision: Optional[int] = None,
+    ) -> bool:
+        """Merge fields on an entry in ``self.workspace_id`` (org hook side effects).
+
+        Unlike :meth:`update_entry_fields`, resolves the owning App in the
+        workspace where the hook fired — not the caller's personal workspace.
+        """
+        if getattr(self, "read_only", False):
+            return False
+        if not (self.workspace_id and self.user_id and entry_id):
+            return False
+        if not custom_fields and title is None:
+            return False
+        from app.middleware.permissions_cache import isolated_permissions_cache
+        from app.services.app_operations.context import OperationContext
+        from app.services.resource_location import locate_resource
+
+        with isolated_permissions_cache():
+            location = await locate_resource("entry", entry_id)
+            if location is None or not location.app_id:
+                return False
+            if str(location.workspace_id or self.workspace_id) != self.workspace_id:
+                return False
+            context = OperationContext(
+                user_id=self.user_id,
+                workspace_id=self.workspace_id,
+                scope=self.scope,
+                bundle_slug=self.bundle_slug,
+                actor_kind=getattr(self, "actor_kind", "human") or "human",
+                actor_id=getattr(self, "actor_id", None) or None,
+                app_id=str(location.app_id),
+                deferred_change_events=getattr(self, "deferred_change_events", None),
+            )
+            return await context.update_entry_fields(
+                entry_id,
+                custom_fields,
+                title=title,
+                expected_record_revision=expected_record_revision,
+            )
+
     async def conditional_update_entry_fields(
         self,
         entry_id: str,
@@ -635,6 +681,54 @@ class ToolContext:
                 expected_state=expected_state,
                 updates=updates,
             )
+
+    async def _active_app_for_bundle_slug(
+        self, slug: str, *, workspace_id: Optional[str] = None
+    ) -> Optional[Any]:
+        """Active installed App for ``slug`` in ``workspace_id`` (or this context's)."""
+        from app.models.nodes import App
+
+        key = (slug or "").strip()
+        if not key:
+            return None
+        ws = str(
+            workspace_id if workspace_id is not None else self.workspace_id or ""
+        ).strip()
+        slug_keys = {key}
+        alt = key.replace("-", "_")
+        if alt != key:
+            slug_keys.add(alt)
+        alt = key.replace("_", "-")
+        if alt != key:
+            slug_keys.add(alt)
+        queries: tuple[Dict[str, str], ...] = tuple(
+            q
+            for slug_key in slug_keys
+            for q in (
+                {"source_operational_model_slug": slug_key},
+                {"context.source_operational_model_slug": slug_key},
+                {"installed_package_slug": slug_key},
+                {"context.installed_package_slug": slug_key},
+            )
+        )
+        seen: set[str] = set()
+        candidates: list[Any] = []
+        for query in queries:
+            try:
+                for app in list(await App.find(query) or []):
+                    app_id = str(getattr(app, "id", "") or "")
+                    if app_id and app_id not in seen:
+                        seen.add(app_id)
+                        candidates.append(app)
+            except Exception:  # noqa: BLE001
+                continue
+        for app in candidates:
+            if ws and str(getattr(app, "workspace_id", "") or "") != ws:
+                continue
+            if str(getattr(app, "lifecycle_state", "") or "") != "active":
+                continue
+            return app
+        return None
 
     async def _bundle_app_owning(self, entry_id: str) -> Optional[Any]:
         """This bundle's App when it owns ``entry_id`` in the tool's workspace.
@@ -684,7 +778,6 @@ class ToolContext:
 
         Returns ``None`` on any missing link. Never raises.
         """
-        from app.models.nodes import App
         from app.services.permissions import get_user_node
         from app.services.personal_workspace import ensure_personal_workspace
 
@@ -698,15 +791,8 @@ class ToolContext:
             workspace = await ensure_personal_workspace(user)
             if workspace is None or getattr(workspace, "kind", "") != "personal":
                 return None
-            found = await App.find({"context.source_operational_model_slug": slug})
-            return next(
-                (
-                    a
-                    for a in list(found or [])
-                    if getattr(a, "workspace_id", "") == workspace.id
-                    and getattr(a, "lifecycle_state", "") == "active"
-                ),
-                None,
+            return await self._active_app_for_bundle_slug(
+                slug, workspace_id=str(workspace.id)
             )
         except Exception:  # noqa: BLE001
             logger.exception("_own_bundle_app failed (bundle=%s)", slug)
@@ -926,7 +1012,6 @@ class ToolContext:
         Returns ``None`` (never raises) on any missing link or refusal.
         """
         from app.models.edges import CONTAINS
-        from app.models.nodes import App
         from app.schemas.policy import Resource, Subject
         from app.services.entry_create import create_entry_in_track
         from app.services.entry_type_resolver import (
@@ -941,16 +1026,7 @@ class ToolContext:
         if not (key and slug and self.workspace_id and self.user_id):
             return None
         try:
-            found = await App.find({"context.source_operational_model_slug": slug})
-            app_node = next(
-                (
-                    a
-                    for a in list(found or [])
-                    if getattr(a, "workspace_id", "") == self.workspace_id
-                    and getattr(a, "lifecycle_state", "") == "active"
-                ),
-                None,
-            )
+            app_node = await self._active_app_for_bundle_slug(slug)
             if app_node is None:
                 return None
             tracks = await app_node.nodes(
@@ -1485,8 +1561,8 @@ class ToolContext:
 
         return await roll_up_plan(plan_id, entry_reader=self.get_entry)
 
-    async def clear_pending_onboarding_form_for_user(self, member_user_id: str) -> bool:
-        """Clear hire onboarding prompt on a workspace member (HR bundle hook)."""
+    async def clear_member_assigned_form_prompt(self, member_user_id: str) -> bool:
+        """Clear pending member assigned-form URL on a user (bundle hook side effect)."""
         from app.models.nodes import User
         from app.services.onboarding_prompt import clear_pending_onboarding_form
 
@@ -1498,11 +1574,16 @@ class ToolContext:
             return False
         cleared = await clear_pending_onboarding_form(user)
         if cleared:
+            from app.services.credential_delivery import _save_user_node
             from app.utils.time import utc_now_iso
 
             user.updated_at = utc_now_iso()
-            await user.save()
+            await _save_user_node(user)
         return cleared
+
+    async def clear_pending_onboarding_form_for_user(self, member_user_id: str) -> bool:
+        """Backward-compatible alias for :meth:`clear_member_assigned_form_prompt`."""
+        return await self.clear_member_assigned_form_prompt(member_user_id)
 
     async def is_workspace_administrator(self) -> bool:
         """True when the caller is workspace owner or admin."""
