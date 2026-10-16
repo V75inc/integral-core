@@ -345,10 +345,13 @@ class OperationContext(ToolContext):
         entry_id: str,
         custom_fields: Dict[str, Any],
         *,
+        title: Optional[str] = None,
         expected_record_revision: Optional[int] = None,
     ) -> bool:
         """Update an Entry through the same schema and scope rules as HTTP."""
         if self.read_only:
+            return False
+        if not custom_fields and title is None:
             return False
         from app.api.errors import ResourceConflictError
         from app.models.edges import CONTAINS
@@ -391,19 +394,26 @@ class OperationContext(ToolContext):
             app_id=self.app_id,
             entry_id=entry_id,
             custom_fields=custom_fields,
+            top_level={"title": title} if title is not None else None,
         )
         if not exact_transition and self.actor_kind in {"agent", "connector"}:
             return False
-        if not exact_transition and await resolve_role(
-            self.user_id, "entry", entry_id
-        ) not in ("owner", "admin", "editor"):
+        from app.services.workspace_permissions import is_workspace_admin_or_owner
+
+        ws_admin = await is_workspace_admin_or_owner(self.user_id, self.workspace_id)
+        if (
+            not exact_transition
+            and not ws_admin
+            and await resolve_role(self.user_id, "entry", entry_id)
+            not in ("owner", "admin", "editor")
+        ):
             return False
         decision = await policy_evaluate(
             subject=Subject(kind="human", id=self.user_id),
             action="entry.update",
             resource=Resource(kind="entry", id=entry_id, scope=f"entry:{entry_id}"),
         )
-        if not decision.allowed and not exact_transition:
+        if not decision.allowed and not exact_transition and not ws_admin:
             return False
         from app.services.app_invariant_guards import (
             reset_operation_write_active,
@@ -419,7 +429,8 @@ class OperationContext(ToolContext):
                 entry_id=entry_id,
                 user_id=self.user_id,
                 workspace_id=self.workspace_id,
-                custom_fields=custom_fields,
+                custom_fields=custom_fields or None,
+                title=title,
                 expected_record_revision=(
                     expected_record_revision
                     if expected_record_revision is not None

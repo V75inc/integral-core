@@ -93,7 +93,11 @@ export const memberAssignedFormApi = {
 
   async generateContract(
     options?: { force?: boolean; entryId?: string },
-  ): Promise<unknown> {
+  ): Promise<{
+    contract_status?: string;
+    reused?: boolean;
+    update_available?: boolean;
+  }> {
     const params = new URLSearchParams();
     if (options?.force === true) {
       params.set('force', '1');

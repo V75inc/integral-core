@@ -155,6 +155,66 @@ def iter_profile_yaml_paths(
         yield from sorted(root.glob("*/operational-model.yaml"))
 
 
+def _slug_dir_variants(slug: str) -> set[str]:
+    """Directory names that may identify the same App on disk."""
+    key = (slug or "").strip()
+    if not key:
+        return set()
+    out = {key, key.replace("_", "-"), key.replace("-", "_")}
+    return {v for v in out if v}
+
+
+def resolve_bundle_dir_for_slug(
+    slug: str,
+    package_paths: Optional[Sequence[str | Path]] = None,
+) -> Optional[str]:
+    """Filesystem root for an App package (``…/slug/operational-model.yaml``).
+
+    Legacy installs may persist ``email_log`` while the folder is ``email-log``;
+    stale ``metadata.bundle_dir_path`` may point at a non-existent path. This
+    resolver matches directory names and manifest ``package.slug`` under
+    :func:`resolve_package_paths`.
+    """
+    variants = _slug_dir_variants(slug)
+    if not variants:
+        return None
+    for root in resolve_package_paths(package_paths):
+        if not root.is_dir():
+            continue
+        for child in sorted(root.iterdir()):
+            if not child.is_dir() or child.name not in variants:
+                continue
+            if (child / "operational-model.yaml").is_file():
+                return str(child.resolve())
+        for yaml_path in sorted(root.glob("*/operational-model.yaml")):
+            try:
+                import yaml
+
+                raw = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
+            except Exception:  # noqa: BLE001
+                continue
+            pkg = raw.get("package") or {}
+            manifest_slug = str(pkg.get("slug") or pkg.get("name") or "").strip()
+            if manifest_slug in variants or yaml_path.parent.name in variants:
+                return str(yaml_path.parent.resolve())
+    return None
+
+
+def normalize_bundle_dir(
+    recorded: Optional[str],
+    *,
+    slug: str,
+    package_paths: Optional[Sequence[str | Path]] = None,
+) -> Optional[str]:
+    """Prefer a recorded bundle dir when it exists; otherwise resolve by slug."""
+    path = str(recorded or "").strip()
+    if path:
+        candidate = Path(path).expanduser().resolve()
+        if (candidate / "operational-model.yaml").is_file():
+            return str(candidate)
+    return resolve_bundle_dir_for_slug(slug, package_paths=package_paths)
+
+
 # Back-compat alias used by modules that previously imported _PROFILES_ROOT.
 def get_packages_root() -> Path:
     """Return the primary package root (Core seeds / first configured path)."""

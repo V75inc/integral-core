@@ -27,7 +27,6 @@ vi.mock('../../../hooks/useChangeEventInvalidation', () => ({ useChangeEventInva
 vi.mock('../../../hooks/useAgentiveWebSocket', () => ({ useAgentiveWebSocket: () => {} }));
 vi.mock('../../../host/registry', () => ({ getRegisteredLayoutBanners: () => [] }));
 vi.mock('../../command/CommandPalette', () => ({ CommandPalette: () => null }));
-vi.mock('../../../features/kanbanHire/KanbanHirePromptHost', () => ({ KanbanHirePromptHost: () => null }));
 vi.mock('../../../features/ai-chat/dock/OnboardingDockAutoOpen', () => ({ OnboardingDockAutoOpen: () => null }));
 vi.mock('../../onboarding/OnboardingGetStartedBanner', () => ({ OnboardingGetStartedBanner: () => null }));
 vi.mock('../../auth/MustChangePasswordModal', () => ({ MustChangePasswordModal: () => null }));

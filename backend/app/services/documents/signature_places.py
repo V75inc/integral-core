@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import logging
 import re
 from typing import Any, Dict, List, Optional
@@ -9,6 +10,13 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 _SIG_ID_RE = re.compile(r'id="sig-([^"]+)"')
+_SIGMARK_PREFIX = "SIGMARK:"
+
+
+def signature_marker_text(role: str) -> str:
+    """Stable PDF text marker paired with ``render._render_node`` signature blocks."""
+    safe = re.sub(r"[^a-zA-Z0-9_-]", "_", (role or "").strip()) or "signature"
+    return f"{_SIGMARK_PREFIX}{safe}"
 
 
 def collect_signature_roles(editor_document: Dict[str, Any]) -> List[str]:
@@ -55,15 +63,9 @@ def collect_signature_blocks(
                     "width": float(merged.get("width") or attrs.get("width") or 220),
                     "height": float(merged.get("height") or attrs.get("height") or 48),
                     "embedded_png_b64": str(
-                        (
-                            merged.get("embedded_png_b64")
-                            if mode == "pre_embedded"
-                            else (
-                                merged.get("embedded_png_b64")
-                                or attrs.get("embeddedPngB64")
-                                or attrs.get("embedded_png_b64")
-                            )
-                        )
+                        merged.get("embedded_png_b64")
+                        or attrs.get("embeddedPngB64")
+                        or attrs.get("embedded_png_b64")
                         or ""
                     ).strip(),
                 }
@@ -86,23 +88,56 @@ def collect_signature_blocks(
     return blocks
 
 
+def _page_index_for_signature_block(
+    pdf_bytes: bytes,
+    *,
+    role: str,
+    label: str,
+    page_count: int,
+) -> int:
+    """Find which PDF page contains a signature block (ReportLab omits SIGMARK often)."""
+    marker = signature_marker_text(role)
+    needles = [marker]
+    if label:
+        needles.append(label)
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(__import__("io").BytesIO(pdf_bytes))
+        for page_index, page in enumerate(reader.pages):
+            text = page.extract_text() or ""
+            if any(n and n in text for n in needles):
+                return page_index
+    except Exception:  # noqa: BLE001
+        pass
+    return 0
+
+
 def _places_from_editor_fallback(
     editor_document: Dict[str, Any],
     *,
     page_count: int = 1,
     token_metadata: Optional[Dict[str, Any]] = None,
+    pdf_bytes: Optional[bytes] = None,
 ) -> List[Dict[str, Any]]:
     blocks = collect_signature_blocks(editor_document, token_metadata=token_metadata)
-    last_page = max(page_count - 1, 0)
     places: List[Dict[str, Any]] = []
     y = 120.0
     for block in blocks:
+        role = str(block.get("role") or "").strip()
+        label = str(block.get("label") or role).strip()
+        if pdf_bytes:
+            page_index = _page_index_for_signature_block(
+                pdf_bytes, role=role, label=label, page_count=page_count
+            )
+        else:
+            page_index = 0
         places.append(
             {
                 "role": block["role"],
                 "mode": block.get("mode") or "runtime",
-                "label": block.get("label") or block["role"],
-                "page": last_page,
+                "label": label or block["role"],
+                "page": page_index,
                 "x": 72.0,
                 "y": y,
                 "width": float(block.get("width") or 220),
@@ -124,6 +159,48 @@ def _reportlab_y_for_line_rect(rect: Any, *, page_height_pt: float) -> float:
     bottom of the placeholder underline row.
     """
     return max(page_height_pt - float(rect.y1), 36.0)
+
+
+def _underline_rect_near_marker(page: Any, marker_rect: Any) -> Any:
+    """Pick the underline row that belongs to the same signature block as ``marker_rect``."""
+    underlines = page.search_for("______________________________")
+    if not underlines:
+        return marker_rect
+    my0 = float(marker_rect.y0)
+    my1 = float(marker_rect.y1)
+    candidates = [
+        rect
+        for rect in underlines
+        if abs(float(rect.y0) - my0) <= 10.0
+        or (float(rect.y0) <= my1 + 6.0 and float(rect.y1) >= my0 - 6.0)
+    ]
+    if not candidates:
+        return marker_rect
+    return min(candidates, key=lambda rect: abs(float(rect.y0) - my0))
+
+
+def _place_from_marker_rect(
+    page: Any,
+    page_index: int,
+    block: Dict[str, Any],
+    marker_rect: Any,
+) -> Dict[str, Any]:
+    role = str(block.get("role") or "").strip()
+    label = str(block.get("label") or role.replace("_", " ").title()).strip()
+    width = float(block.get("width") or 220)
+    height = float(block.get("height") or 48)
+    page_height_pt = float(page.rect.height)
+    line_rect = _underline_rect_near_marker(page, marker_rect)
+    return {
+        "role": role,
+        "mode": block.get("mode") or "runtime",
+        "label": label,
+        "page": page_index,
+        "x": float(line_rect.x0),
+        "y": _reportlab_y_for_line_rect(line_rect, page_height_pt=page_height_pt),
+        "width": max(width, float(line_rect.width), 120.0),
+        "height": height,
+    }
 
 
 def _find_underline_rect_for_label(
@@ -161,7 +238,7 @@ def _refine_places_from_pdf_markers(
     places: List[Dict[str, Any]],
     pdf_bytes: bytes,
 ) -> List[Dict[str, Any]]:
-    """Snap WeasyPrint-derived coords to rendered underline positions in the PDF."""
+    """Snap overlay coords to rendered signature blocks in the PDF."""
     if not places or not pdf_bytes:
         return places
     try:
@@ -176,10 +253,37 @@ def _refine_places_from_pdf_markers(
         return places
 
     refined: List[Dict[str, Any]] = []
+    used_markers: set[tuple[int, float, float]] = set()
     used_by_page: Dict[int, set[float]] = {}
     try:
         for place in places:
             merged = dict(place)
+            role = str(merged.get("role") or "").strip()
+            marker = signature_marker_text(role)
+            snapped = False
+            for page_index in range(len(doc)):
+                page = doc[page_index]
+                for hit in page.search_for(marker):
+                    key = (
+                        page_index,
+                        round(float(hit.x0), 1),
+                        round(float(hit.y0), 1),
+                    )
+                    if key in used_markers:
+                        continue
+                    used_markers.add(key)
+                    snapped_place = _place_from_marker_rect(
+                        page, page_index, merged, hit
+                    )
+                    merged.update(snapped_place)
+                    snapped = True
+                    break
+                if snapped:
+                    break
+            if snapped:
+                refined.append(merged)
+                continue
+
             page_index = int(merged.get("page") or 0)
             if page_index < 0 or page_index >= len(doc):
                 refined.append(merged)
@@ -195,6 +299,11 @@ def _refine_places_from_pdf_markers(
                 merged["x"] = float(rect.x0)
                 merged["y"] = _reportlab_y_for_line_rect(
                     rect, page_height_pt=page_height_pt
+                )
+                merged["width"] = max(
+                    float(merged.get("width") or 220),
+                    float(rect.width),
+                    120.0,
                 )
             refined.append(merged)
     finally:
@@ -220,12 +329,11 @@ def _place_from_weasy_anchor(
     width_pt = 220.0
     height_pt = 48.0
     if len(coords) >= 4:
-        x1_css, y1_css, y2_css = coords[0], coords[1], coords[3]
+        x1_css, y1_css, x2_css, y2_css = coords[0], coords[1], coords[2], coords[3]
         x_pt = _css_px_to_pt(float(x1_css))
-        # Underline row sits below the anchor top; approximate before PDF refine.
-        underline_bottom_css = float(y1_css) + min(
-            20.0, max(12.0, (float(y2_css) - float(y1_css)) * 0.45)
-        )
+        width_pt = max(_css_px_to_pt(float(x2_css) - float(x1_css)), 120.0)
+        box_height_css = max(float(y2_css) - float(y1_css), 12.0)
+        underline_bottom_css = float(y1_css) + min(22.0, box_height_css * 0.38)
         y_line_bottom_pt = _css_px_to_pt(underline_bottom_css)
     elif len(coords) >= 2:
         x_pt = _css_px_to_pt(float(coords[0]))
@@ -242,7 +350,7 @@ def _place_from_weasy_anchor(
         "page": page_index,
         "x": x_pt,
         "y": max(y_pt, 36.0),
-        "width": width_pt,
+        "width": width_pt if len(coords) >= 4 else 220.0,
         "height": height_pt,
     }
 
@@ -276,6 +384,117 @@ def extract_places_from_weasyprint(html: str) -> Optional[List[Dict[str, Any]]]:
     return places or None
 
 
+def _place_from_pdfplumber_underline(
+    page_height_pt: float,
+    page_index: int,
+    block: Dict[str, Any],
+    *,
+    underline_word: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Map pdfplumber word box to ReportLab overlay coordinates (origin bottom-left)."""
+    role = str(block.get("role") or "").strip()
+    label = str(block.get("label") or role.replace("_", " ").title()).strip()
+    width = float(block.get("width") or 220)
+    height = float(block.get("height") or 48)
+    x = float(underline_word.get("x0") or 72.0)
+    underline_bottom = float(
+        underline_word.get("bottom") or underline_word.get("top") or 0
+    )
+    y = max(page_height_pt - underline_bottom, 36.0)
+    return {
+        "role": role,
+        "mode": block.get("mode") or "runtime",
+        "label": label,
+        "page": page_index,
+        "x": x,
+        "y": y,
+        "width": max(width, float(underline_word.get("width") or 120), 120.0),
+        "height": height,
+    }
+
+
+def extract_places_from_pdfplumber(
+    pdf_bytes: bytes,
+    *,
+    blocks: List[Dict[str, Any]],
+) -> Optional[List[Dict[str, Any]]]:
+    """Locate signature underlines via pdfplumber (ReportLab PDFs without PyMuPDF)."""
+    if not pdf_bytes or not blocks:
+        return None
+    try:
+        import pdfplumber
+    except ImportError:
+        return None
+
+    places: List[Dict[str, Any]] = []
+    used_underline_tops: set[tuple[int, float]] = set()
+    try:
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            for block in blocks:
+                role = str(block.get("role") or "").strip()
+                if not role:
+                    continue
+                marker = signature_marker_text(role)
+                label = str(
+                    block.get("label") or role.replace("_", " ").title()
+                ).strip()
+                placed = False
+                for page_index, page in enumerate(pdf.pages):
+                    words = page.extract_words() or []
+                    page_h = float(page.height or 792)
+                    marker_top: Optional[float] = None
+                    for word in words:
+                        if marker in str(word.get("text") or ""):
+                            marker_top = float(word["top"])
+                            break
+                    underlines = [
+                        w for w in words if str(w.get("text") or "").startswith("___")
+                    ]
+                    if not underlines:
+                        continue
+                    if marker_top is not None:
+                        candidates = [
+                            w for w in underlines if float(w["top"]) >= marker_top - 1
+                        ]
+                    else:
+                        label_top = None
+                        for word in words:
+                            if str(word.get("text") or "") in label.split():
+                                label_top = float(word["top"])
+                                break
+                        if label_top is None:
+                            continue
+                        candidates = [
+                            w
+                            for w in underlines
+                            if float(w["bottom"]) <= label_top + 4.0
+                        ]
+                    if not candidates:
+                        continue
+                    underline = min(candidates, key=lambda w: float(w["top"]))
+                    key = (page_index, round(float(underline["top"]), 1))
+                    if key in used_underline_tops:
+                        continue
+                    used_underline_tops.add(key)
+                    places.append(
+                        _place_from_pdfplumber_underline(
+                            page_h, page_index, block, underline_word=underline
+                        )
+                    )
+                    placed = True
+                    break
+                if not placed:
+                    logger.debug(
+                        "pdfplumber could not locate signature block for role=%s",
+                        role,
+                    )
+                    return None
+    except Exception:  # noqa: BLE001
+        logger.exception("pdfplumber signature place extraction failed")
+        return None
+    return places or None
+
+
 def extract_places_from_pymupdf(
     pdf_bytes: bytes,
     *,
@@ -297,6 +516,7 @@ def extract_places_from_pymupdf(
 
     places: List[Dict[str, Any]] = []
     used_underline_keys: set = set()
+    used_marker_keys: set[tuple[int, float, float]] = set()
     try:
         for block in blocks:
             role = str(block.get("role") or "").strip()
@@ -306,6 +526,25 @@ def extract_places_from_pymupdf(
             width = float(block.get("width") or 220)
             height = float(block.get("height") or 48)
             found = False
+            marker = signature_marker_text(role)
+            for page_index in range(len(doc)):
+                page = doc[page_index]
+                for hit in page.search_for(marker):
+                    key = (
+                        page_index,
+                        round(float(hit.x0), 1),
+                        round(float(hit.y0), 1),
+                    )
+                    if key in used_marker_keys:
+                        continue
+                    used_marker_keys.add(key)
+                    places.append(_place_from_marker_rect(page, page_index, block, hit))
+                    found = True
+                    break
+                if found:
+                    break
+            if found:
+                continue
             for page_index in range(len(doc)):
                 page = doc[page_index]
                 page_height_pt = float(page.rect.height)
@@ -428,29 +667,44 @@ def resolve_signature_places(
     blocks = collect_signature_blocks(editor_document, token_metadata=token_metadata)
     places: Optional[List[Dict[str, Any]]] = None
 
-    weasy = extract_places_from_weasyprint(html)
-    if weasy:
-        places = weasy
-    elif pdf_bytes:
+    if pdf_bytes:
         places = extract_places_from_pymupdf(pdf_bytes, blocks=blocks)
+    if not places and pdf_bytes:
+        places = extract_places_from_pdfplumber(pdf_bytes, blocks=blocks)
+    if not places:
+        places = extract_places_from_weasyprint(html)
 
     if not places:
         ids = _SIG_ID_RE.findall(html or "")
         if ids:
-            last_page = max(page_count - 1, 0)
+            blocks_by_role = {str(b.get("role") or ""): b for b in blocks}
             places = []
             y = 120.0
             for role in ids:
+                block = blocks_by_role.get(role) or {}
+                label = str(
+                    block.get("label") or role.replace("_", " ").title()
+                ).strip()
+                page_index = (
+                    _page_index_for_signature_block(
+                        pdf_bytes,
+                        role=role,
+                        label=label,
+                        page_count=page_count,
+                    )
+                    if pdf_bytes
+                    else 0
+                )
                 places.append(
                     {
                         "role": role,
-                        "mode": "runtime",
-                        "label": role.replace("_", " ").title(),
-                        "page": last_page,
+                        "mode": block.get("mode") or "runtime",
+                        "label": label,
+                        "page": page_index,
                         "x": 72.0,
                         "y": y,
-                        "width": 220.0,
-                        "height": 48.0,
+                        "width": float(block.get("width") or 220),
+                        "height": float(block.get("height") or 48),
                     }
                 )
                 y += 72.0
@@ -460,6 +714,7 @@ def resolve_signature_places(
             editor_document,
             page_count=page_count,
             token_metadata=token_metadata,
+            pdf_bytes=pdf_bytes,
         )
 
     places = _merge_block_metadata(places, editor_document, token_metadata)

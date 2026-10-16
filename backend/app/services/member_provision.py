@@ -159,10 +159,34 @@ async def provision_workspace_member(
     name = body.display_name.strip()
     if not name:
         raise BadRequestError(message="Display name is required")
-    if body.credentials_email and str(body.credentials_email).lower() != email_norm:
+    deliver_norm = (
+        str(body.credentials_email).strip().lower()
+        if body.credentials_email
+        else email_norm
+    )
+    alternate_delivery = deliver_norm != email_norm
+    if alternate_delivery and not body.send_credentials:
         raise BadRequestError(
-            message="Credentials must be delivered to the account email"
+            message="Alternate credentials recipient requires send_credentials"
         )
+    if alternate_delivery and body.send_credentials:
+        from app.services.credential_crypto import encryption_available
+        from app.services.credential_delivery import require_delivery_storage
+
+        require_delivery_storage()
+
+        if not encryption_available():
+            raise BadRequestError(
+                message="Alternate delivery requires credential encryption"
+            )
+        existing_auth = await _find_auth_user_by_email(email_norm)
+        if existing_auth is not None:
+            raise BadRequestError(
+                message=(
+                    "Alternate credential delivery is only allowed for newly "
+                    "created accounts"
+                )
+            )
     if (
         is_postgres_entry_transaction(get_default_context().database)
         and send_credentials
@@ -179,6 +203,8 @@ async def provision_workspace_member(
     created = False
     temp_password: Optional[str] = None
     credentials_emailed = False
+    credentials_pending_verification = False
+    delivery_meta: Dict[str, Any] = {}
     outbox_id = None
     database = get_default_context().database
     transaction = (
@@ -208,6 +234,10 @@ async def provision_workspace_member(
                 message="Only the workspace owner can grant admin"
             )
         if auth_user is not None:
+            if alternate_delivery:
+                raise BadRequestError(
+                    message="Alternate delivery is only allowed for newly created accounts"
+                )
             user_node = await get_user_node(auth_user.id)
             if (
                 user_node is None
@@ -283,16 +313,44 @@ async def provision_workspace_member(
                 )
                 outcome = "created"
             if created:
+                provision_after: Dict[str, Any] = {
+                    **actual,
+                    "account_created": True,
+                }
+                if alternate_delivery:
+                    provision_after["credentials_delivered_to"] = deliver_norm
+                    provision_after["account_email"] = email_norm
                 outbox_id = await membership._record_change(
                     actor,
                     workspace,
                     "workspace.member_provision",
                     None,
-                    {**actual, "account_created": True},
+                    provision_after,
                 )
     await membership._deliver(outbox_id)
-    deliver_to = str(credentials_email or "").strip().lower() or email_norm
-    if send_credentials and deliver_to:
+    deliver_to = deliver_norm
+    if alternate_delivery and send_credentials and created and user_node is not None:
+        from app.services.credential_delivery import (
+            begin_alternate_credentials_delivery,
+        )
+
+        ws_name = str(getattr(workspace, "name", "") or "your organization").strip()
+        # OTP slot persists after the provisioning transaction commits (fresh TX in delivery).
+        user_node = await get_user_node(user_node.id)
+        if user_node is None:
+            raise AuthorizationUnavailableError()
+        delivery_meta = await begin_alternate_credentials_delivery(
+            user_node=user_node,
+            recipient_email=deliver_norm,
+            account_email=email_norm,
+            workspace_id=str(workspace.id),
+            workspace_name=ws_name,
+            display_name=name,
+            welcome_message=(welcome_message or "").strip() or None,
+            actor_user_id=str(actor_id or ""),
+        )
+        credentials_pending_verification = True
+    elif send_credentials and deliver_to and user_node is not None:
         login_url = f"{settings.APP_BASE_URL.rstrip('/')}/login"
         ws_name = str(getattr(workspace, "name", "") or "your organization").strip()
         message = render_member_provision_email(
@@ -318,6 +376,11 @@ async def provision_workspace_member(
         "created": created,
         "already_member": already_member,
         "credentials_emailed": credentials_emailed,
+        "credentials_pending_verification": credentials_pending_verification,
+        "credentials_delivery_intent_id": delivery_meta.get("intent_id"),
+        "credentials_delivery_expires_at": delivery_meta.get("expires_at"),
+        "credentials_verify_url": delivery_meta.get("verify_url"),
+        "credentials_challenge_emailed": delivery_meta.get("challenge_emailed"),
         "must_change_password": must_change_password(user_node),
         "grant_outcome": outcome,
         "granted_role": actual["role"],

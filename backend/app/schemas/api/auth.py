@@ -35,8 +35,23 @@ class VerifyEmailRequest(BaseModel):
     code: str
 
 
+class VerifyCredentialsDeliveryRequest(BaseModel):
+    """Body for ``POST /auth/credentials-delivery/verify`` (public)."""
+
+    member_user_id: str
+    intent_id: str
+    code: str
+
+
 class ChangePasswordRequest(BaseModel):
     """Request body for ``POST /auth/update-password``."""
 
     current_password: str
     new_password: str
+
+
+class ResendCredentialsDeliveryRequest(BaseModel):
+    """Identify a fixed mailbox challenge without supplying a recipient."""
+
+    member_user_id: str
+    intent_id: str

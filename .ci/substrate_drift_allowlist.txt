@@ -28,4 +28,3 @@ backend/app/services/package_paths.py  # reason: CORE_SEED_SLUGS taxonomy for co
 # Document generation resolves hire-readiness field-registry modules; "hr_app"
 # is the default registry module key, overridable per call via field_module.
 backend/app/services/documents/hire_readiness.py  # reason: default field-registry module key, passed as a parameter (overridable)
-backend/app/services/documents/onboarding_contract.py  # reason: candidate field-registry module keys probed for contract prefill

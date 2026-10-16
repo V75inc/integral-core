@@ -567,6 +567,23 @@ async def _validate_file_field_value(
     return validated[0] if ftype == "file" else validated
 
 
+def _normalized_relation_target_ids(value: Any, *, many: bool) -> List[str]:
+    """Canonical sorted id list for relation equality (many and single-valued)."""
+    if many:
+        if value is None:
+            return []
+        raw = value if isinstance(value, list) else [value]
+        return sorted({str(v).strip() for v in raw if str(v).strip()})
+    if value is None or (isinstance(value, str) and not str(value).strip()):
+        return []
+    if isinstance(value, list):
+        first = value[0] if value else None
+    else:
+        first = value
+    sid = str(first or "").strip()
+    return [sid] if sid else []
+
+
 async def _validate_relation_values(
     *,
     relation: Dict[str, Any],
@@ -575,6 +592,7 @@ async def _validate_relation_values(
     field_key: str,
     viewer_subject: Optional[Subject] = None,
     resolved_target_apps: Optional[Dict[str, str]] = None,
+    enforce_target_read: bool = True,
 ) -> List[str]:
     """Validate relation field values; return the canonical id list.
 
@@ -615,7 +633,7 @@ async def _validate_relation_values(
                         f"'{target_ws}' != source workspace '{source_ws}')"
                     )
                 )
-            if viewer_subject is not None:
+            if viewer_subject is not None and enforce_target_read:
                 from app.services.policy_engine import evaluate
 
                 decision = await evaluate(
@@ -685,7 +703,7 @@ async def _validate_relation_values(
                 raise BadRequestError(
                     message=f"Relation field '{field_key}' requires a declared target App"
                 )
-            if viewer_subject is not None:
+            if viewer_subject is not None and enforce_target_read:
                 from app.services.policy_engine import evaluate
 
                 decision = await evaluate(
@@ -988,6 +1006,17 @@ async def validate_and_materialize_entry_custom_fields(
                 raise BadRequestError(
                     message=f"Relation field '{key}' requires an authorization subject"
                 )
+            many = bool(relation.get("many", False))
+            enforce_target_read = True
+            if entry is not None and bool(fd.get("readonly")):
+                prior_ids = _normalized_relation_target_ids(
+                    (entry.custom_fields or {}).get(key), many=many
+                )
+                incoming_ids = _normalized_relation_target_ids(value, many=many)
+                if prior_ids != incoming_ids:
+                    raise BadRequestError(message=f"Field '{key}' is readonly")
+                if prior_ids:
+                    enforce_target_read = False
             target_apps: Dict[str, str] = {}
             rel_ids = await _validate_relation_values(
                 relation=relation,
@@ -996,6 +1025,7 @@ async def validate_and_materialize_entry_custom_fields(
                 field_key=key,
                 viewer_subject=subject,
                 resolved_target_apps=target_apps,
+                enforce_target_read=enforce_target_read,
             )
             out[key] = (
                 rel_ids if relation.get("many") else (rel_ids[0] if rel_ids else None)

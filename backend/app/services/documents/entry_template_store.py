@@ -26,6 +26,9 @@ from app.utils.time import utc_now_iso
 
 logger = logging.getLogger(__name__)
 
+# Legacy slug constant for migrations/docs only — Core never defaults resolution
+# to a particular App; callers must pass ``template_provider_slug`` explicitly
+# or read it from a neutral track/workspace extension declaration.
 DOCUMENT_TEMPLATES_SLUG = "document_templates"
 TRACK_TEMPLATES = "templates"
 
@@ -151,7 +154,22 @@ def _checksum_version_payload(
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-async def find_document_templates_app(workspace_id: str) -> Optional[App]:
+def normalize_template_provider_slug(raw: Optional[str]) -> Optional[str]:
+    """Map manifest slugs (kebab) to installed package slug (underscore)."""
+    s = str(raw or "").strip()
+    if not s:
+        return None
+    return s.replace("-", "_").casefold()
+
+
+async def find_entry_template_provider_app(
+    workspace_id: str,
+    *,
+    template_provider_slug: Optional[str] = None,
+) -> Optional[App]:
+    want = normalize_template_provider_slug(template_provider_slug)
+    if not want:
+        return None
     rows: List[Any] = []
     seen: set[str] = set()
     for query in (
@@ -170,32 +188,57 @@ async def find_document_templates_app(workspace_id: str) -> Optional[App]:
                 rows.append(app)
     if not rows:
         return None
-    slug_fold = DOCUMENT_TEMPLATES_SLUG.casefold()
     for app in rows:
         if str(getattr(app, "lifecycle_state", "") or "active") == "uninstalled":
             continue
-        if _installed_package_slug(app).casefold() == slug_fold:
+        if normalize_template_provider_slug(_installed_package_slug(app)) == want:
             return app
     return None
 
 
-async def require_document_templates_app(workspace_id: str) -> App:
+async def find_document_templates_app(
+    workspace_id: str,
+    *,
+    template_provider_slug: Optional[str] = None,
+) -> Optional[App]:
+    slug = normalize_template_provider_slug(template_provider_slug)
+    return await find_entry_template_provider_app(
+        workspace_id, template_provider_slug=slug
+    )
+
+
+async def require_document_templates_app(
+    workspace_id: str,
+    *,
+    template_provider_slug: Optional[str] = None,
+) -> App:
     from app.exceptions import AppDependencyError
 
-    app = await find_document_templates_app(workspace_id)
+    app = await find_document_templates_app(
+        workspace_id, template_provider_slug=template_provider_slug
+    )
     if not app:
         raise AppDependencyError(
             message=(
-                "Document Templates app is not installed in this workspace. "
-                "Install it from Manage Apps before using document templates."
+                "No entry-template provider App is installed for this workspace. "
+                "Install a template library App and declare template_provider_slug."
             ),
-            details={"missing_deps": [DOCUMENT_TEMPLATES_SLUG]},
+            details={
+                "template_provider_slug": template_provider_slug or "",
+            },
         )
     return app
 
 
-async def is_entry_mode(workspace_id: str) -> bool:
-    return await find_document_templates_app(workspace_id) is not None
+async def is_entry_mode(
+    workspace_id: str, *, template_provider_slug: Optional[str] = None
+) -> bool:
+    return (
+        await find_document_templates_app(
+            workspace_id, template_provider_slug=template_provider_slug
+        )
+        is not None
+    )
 
 
 async def _tracks_by_key(app: App) -> Dict[str, Track]:
@@ -351,11 +394,13 @@ async def _load_version_entry(version_id: str, workspace_id: str) -> Optional[En
 
 
 async def get_template_view(
-    *, workspace_id: str, template_id: str
+    *, workspace_id: str, template_id: str, template_provider_slug: Optional[str] = None
 ) -> Optional[TemplateView]:
     entry = await _load_template_entry(template_id, workspace_id)
     if entry:
-        app = await find_document_templates_app(workspace_id)
+        app = await find_document_templates_app(
+            workspace_id, template_provider_slug=template_provider_slug
+        )
         view = _template_view_from_entry(entry, app_id=str(app.id) if app else "")
         if not view.document_type:
             view.document_type = await _resolve_document_type_code(entry)
@@ -389,8 +434,11 @@ async def list_template_views(
     context_type: Optional[str] = None,
     document_type: Optional[str] = None,
     status: Optional[str] = None,
+    template_provider_slug: Optional[str] = None,
 ) -> List[TemplateView]:
-    app = await find_document_templates_app(workspace_id)
+    app = await find_document_templates_app(
+        workspace_id, template_provider_slug=template_provider_slug
+    )
     if app:
         track = await _get_track(app, TRACK_TEMPLATES)
         if not track:
@@ -433,6 +481,12 @@ async def list_template_views(
     return [_template_view_from_node(r) for r in rows]
 
 
+def _pick_default_active_template(rows: List[TemplateView]) -> Optional[TemplateView]:
+    if not rows:
+        return None
+    return next((r for r in rows if r.is_default), None) or rows[0]
+
+
 async def resolve_for_generate(
     *,
     workspace_id: str,
@@ -440,6 +494,7 @@ async def resolve_for_generate(
     template_version_id: Optional[str] = None,
     module: Optional[str] = None,
     document_type: Optional[str] = None,
+    template_provider_slug: Optional[str] = None,
 ) -> Tuple[TemplateView, VersionView]:
     tmpl: Optional[TemplateView] = None
     ver: Optional[VersionView] = None
@@ -451,11 +506,15 @@ async def resolve_for_generate(
         if not ver:
             raise ValueError("Template version not found")
         tmpl = await get_template_view(
-            workspace_id=workspace_id, template_id=ver.template_id
+            workspace_id=workspace_id,
+            template_id=ver.template_id,
+            template_provider_slug=template_provider_slug,
         )
     elif template_id:
         tmpl = await get_template_view(
-            workspace_id=workspace_id, template_id=template_id
+            workspace_id=workspace_id,
+            template_id=template_id,
+            template_provider_slug=template_provider_slug,
         )
     elif module and document_type:
         rows = await list_template_views(
@@ -463,10 +522,17 @@ async def resolve_for_generate(
             module=module,
             document_type=document_type,
             status="active",
+            template_provider_slug=template_provider_slug,
         )
-        tmpl = next((r for r in rows if r.is_default), None) or (
-            rows[0] if rows else None
+        tmpl = _pick_default_active_template(rows)
+    elif document_type:
+        rows = await list_template_views(
+            workspace_id=workspace_id,
+            document_type=document_type,
+            status="active",
+            template_provider_slug=template_provider_slug,
         )
+        tmpl = _pick_default_active_template(rows)
 
     if not tmpl:
         raise ValueError("Template not found")
@@ -499,8 +565,11 @@ async def create_template_entry(
     editor_document: Optional[Dict[str, Any]] = None,
     token_metadata: Optional[Dict[str, Any]] = None,
     required_inputs: Optional[List[Dict[str, Any]]] = None,
+    template_provider_slug: Optional[str] = None,
 ) -> TemplateView:
-    app = await require_document_templates_app(workspace_id)
+    app = await require_document_templates_app(
+        workspace_id, template_provider_slug=template_provider_slug
+    )
     templates_track = await _get_track(app, TRACK_TEMPLATES)
     versions_track = await _get_track(app, TRACK_VERSIONS)
     if not templates_track or not versions_track:
@@ -584,6 +653,7 @@ async def create_template_entry(
             document_type=document_type,
             keep_id=str(tmpl_entry.id),
             app=app,
+            template_provider_slug=template_provider_slug,
         )
 
     return _template_view_from_entry(tmpl_entry, app_id=str(app.id))
@@ -596,12 +666,14 @@ async def _clear_other_defaults_entry(
     document_type: str,
     keep_id: str,
     app: App,
+    template_provider_slug: Optional[str] = None,
 ) -> None:
     for view in await list_template_views(
         workspace_id=workspace_id,
         module=module,
         document_type=document_type,
         status="active",
+        template_provider_slug=template_provider_slug,
     ):
         if view.id == keep_id or not view.is_default:
             continue
@@ -626,8 +698,11 @@ async def update_template_entry(
     track_id: Optional[str] = None,
     status: Optional[str] = None,
     is_default: Optional[bool] = None,
+    template_provider_slug: Optional[str] = None,
 ) -> TemplateView:
-    app = await require_document_templates_app(workspace_id)
+    app = await require_document_templates_app(
+        workspace_id, template_provider_slug=template_provider_slug
+    )
     entry = await _load_template_entry(template_id, workspace_id)
     if not entry:
         raise ValueError("Template not found")
@@ -664,6 +739,7 @@ async def update_template_entry(
             document_type=str(cf.get("document_type_code") or ""),
             keep_id=str(entry.id),
             app=app,
+            template_provider_slug=template_provider_slug,
         )
     return _template_view_from_entry(entry, app_id=str(app.id))
 
@@ -673,8 +749,11 @@ async def publish_version_entry(
     workspace_id: str,
     version_id: str,
     user_id: str,
+    template_provider_slug: Optional[str] = None,
 ) -> VersionView:
-    await require_document_templates_app(workspace_id)
+    await require_document_templates_app(
+        workspace_id, template_provider_slug=template_provider_slug
+    )
     ver_entry = await _load_version_entry(version_id, workspace_id)
     if not ver_entry:
         raise ValueError("Version not found")
@@ -688,7 +767,9 @@ async def publish_version_entry(
         raise ValueError("Template not found")
 
     now = utc_now_iso()
-    app = await find_document_templates_app(workspace_id)
+    app = await find_document_templates_app(
+        workspace_id, template_provider_slug=template_provider_slug
+    )
     versions_track = await _get_track(app, TRACK_VERSIONS) if app else None
     if versions_track:
         siblings = await Entry.find({"context.track_id": str(versions_track.id)}) or []
@@ -782,9 +863,11 @@ def version_view_to_api(
 
 
 async def list_version_views(
-    *, workspace_id: str, template_id: str
+    *, workspace_id: str, template_id: str, template_provider_slug: Optional[str] = None
 ) -> List[VersionView]:
-    app = await find_document_templates_app(workspace_id)
+    app = await find_document_templates_app(
+        workspace_id, template_provider_slug=template_provider_slug
+    )
     if not app:
         return []
     track = await _get_track(app, TRACK_VERSIONS)
@@ -813,8 +896,11 @@ async def update_version_draft_entry(
     layout_id: Optional[str] = None,
     header_footer: Optional[Dict[str, Any]] = None,
     render_html: Optional[str] = None,
+    template_provider_slug: Optional[str] = None,
 ) -> VersionView:
-    await require_document_templates_app(workspace_id)
+    await require_document_templates_app(
+        workspace_id, template_provider_slug=template_provider_slug
+    )
     ver_entry = await _load_version_entry(version_id, workspace_id)
     if not ver_entry:
         raise ValueError("Version not found")
@@ -861,16 +947,24 @@ def extract_contract_template_id(cf: Dict[str, Any]) -> str:
     return _as_single_id(cf.get("contract_template_id"))
 
 
-async def delete_template_entry(*, workspace_id: str, template_id: str) -> str:
+async def delete_template_entry(
+    *, workspace_id: str, template_id: str, template_provider_slug: Optional[str] = None
+) -> str:
     """Remove template entry and its version entries."""
-    await require_document_templates_app(workspace_id)
-    app = await find_document_templates_app(workspace_id)
+    await require_document_templates_app(
+        workspace_id, template_provider_slug=template_provider_slug
+    )
+    app = await find_document_templates_app(
+        workspace_id, template_provider_slug=template_provider_slug
+    )
     assert app
     entry = await _load_template_entry(template_id, workspace_id)
     if not entry:
         raise ValueError("Template not found")
     for ver in await list_version_views(
-        workspace_id=workspace_id, template_id=template_id
+        workspace_id=workspace_id,
+        template_id=template_id,
+        template_provider_slug=template_provider_slug,
     ):
         ver_entry = await Entry.get(ver.id)
         if ver_entry:
@@ -984,9 +1078,12 @@ async def create_generated_document_entry(
     resolved_snapshot: Dict[str, Any],
     checksum: str,
     title: str,
+    template_provider_slug: Optional[str] = None,
 ) -> Entry:
     """Log a generated document on the Document Templates app track."""
-    app = await find_document_templates_app(workspace_id)
+    app = await find_document_templates_app(
+        workspace_id, template_provider_slug=template_provider_slug
+    )
     if not app:
         raise ValueError("Document Templates app not installed")
     track = await _get_track(app, TRACK_GENERATED)
@@ -1027,17 +1124,64 @@ async def create_generated_document_entry(
     return gd_entry
 
 
+async def wire_template_to_generated_document(
+    *,
+    workspace_id: str,
+    template: TemplateView,
+    generated_document: Any,
+    generated_at: str,
+) -> None:
+    """Attach a ``GeneratedDocument`` to its template (entry or legacy node)."""
+    from app.models.edges import HAS_GENERATED_DOCUMENT
+
+    if template.entry_backed:
+        entry = await _load_template_entry(template.id, workspace_id)
+        if entry is not None:
+            await entry.connect(
+                generated_document,
+                edge=HAS_GENERATED_DOCUMENT,
+                generated_at=generated_at,
+            )
+            return
+    DocumentTemplate, _ = _legacy_template_node_types()
+    if DocumentTemplate is not None:
+        node = await DocumentTemplate.get(template.id)
+        if node is not None and str(getattr(node, "workspace_id", "") or "") == (
+            workspace_id
+        ):
+            await node.connect(
+                generated_document,
+                edge=HAS_GENERATED_DOCUMENT,
+                generated_at=generated_at,
+            )
+            return
+    logger.warning(
+        "wire_template_to_generated_document: template id=%s not found",
+        template.id,
+    )
+
+
 async def create_version_draft_entry(
-    *, workspace_id: str, template_id: str, user_id: str
+    *,
+    workspace_id: str,
+    template_id: str,
+    user_id: str,
+    template_provider_slug: Optional[str] = None,
 ) -> VersionView:
-    await require_document_templates_app(workspace_id)
-    app = await find_document_templates_app(workspace_id)
+    await require_document_templates_app(
+        workspace_id, template_provider_slug=template_provider_slug
+    )
+    app = await find_document_templates_app(
+        workspace_id, template_provider_slug=template_provider_slug
+    )
     assert app
     versions_track = await _get_track(app, TRACK_VERSIONS)
     if not versions_track:
         raise ValueError("Template versions track missing")
     existing = await list_version_views(
-        workspace_id=workspace_id, template_id=template_id
+        workspace_id=workspace_id,
+        template_id=template_id,
+        template_provider_slug=template_provider_slug,
     )
     source_entry = None
     tmpl_entry = await _load_template_entry(template_id, workspace_id)

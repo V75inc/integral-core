@@ -30,7 +30,6 @@ import {
   viewsForTrackQueryKey
 } from '../queryKeys';
 import { errorMessageFromAxios } from '../api/helpers';
-import { interceptKanbanHireStageChange } from '../features/kanbanHire/kanbanHirePrompt';
 import { resolveDocumentTemplatesTrackRedirect } from '../features/documents/documentTemplatesRouting';
 import { pathAfterTrackDelete } from '../utils/pathAfterTrackDelete';
 import type { TrackDetailBundle, TrackEntriesPage } from '../api/tracks';
@@ -1079,22 +1078,6 @@ export function TrackDetailPage() {
         previous = p.entries.find(e => e.id === u.id);
         return p;
       });
-      if (
-        previous &&
-        interceptKanbanHireStageChange(previous, u, {
-          appId: u.app?.id || track?.app?.id,
-          workspaceId:
-            track?.app?.workspace_id ||
-            track?.workspace_id ||
-            u.track?.workspace_id,
-        })
-      ) {
-        patchEntriesCache(p => ({
-          ...p,
-          entries: p.entries.map(e => (e.id === previous!.id ? previous! : e)),
-        }));
-        return;
-      }
       patchEntriesCache(p => ({
         ...p,
         entries: p.entries.map(e => (e.id === u.id ? u : e))
