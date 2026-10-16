@@ -243,6 +243,7 @@ async def test_actual_litellm_dispatch_uses_guarded_client(
             "stream": stream,
             "messages": [{"role": "user", "content": "hello"}],
         },
+        keyless_endpoint=keyless,
     )
     if stream:
         chunks = [chunk async for chunk in result]
@@ -413,4 +414,87 @@ async def test_inference_enforces_network_policy_not_only_probe(
             },
         )
     assert len(seen) == (1 if redirect else 0)
+    assert "llm.example" not in url_safety._pinned_hosts
+
+
+async def test_key_equal_to_sdk_sentinel_is_not_implicitly_keyless(
+    public_dns, monkeypatch
+):
+    from app.services.model_provider_endpoints import KEYLESS_PLACEHOLDER_API_KEY
+
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "id": "reply",
+                "object": "chat.completion",
+                "created": 1,
+                "model": "fixture",
+                "choices": [],
+            },
+        )
+
+    mock_network(monkeypatch, handler)
+
+    async def completion(**kwargs):
+        return await kwargs["client"].chat.completions.create(
+            model="fixture", messages=[]
+        )
+
+    await transport.custom_endpoint_completion(
+        completion,
+        {
+            "api_base": "https://llm.example/v1",
+            "api_key": KEYLESS_PLACEHOLDER_API_KEY,
+            "timeout": 1,
+        },
+        keyless_endpoint=False,
+    )
+    assert seen[0].headers["authorization"] == f"Bearer {KEYLESS_PLACEHOLDER_API_KEY}"
+
+
+async def test_compressed_probe_response_is_rejected_without_decoding(
+    public_dns, monkeypatch
+):
+    import gzip
+
+    reads = []
+
+    class CompressedBody(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            reads.append(True)
+            yield gzip.compress(b"x" * 1000000)
+
+    def handler(request):
+        assert request.headers["accept-encoding"] == "identity"
+        return httpx.Response(
+            200, headers={"content-encoding": "gzip"}, stream=CompressedBody()
+        )
+
+    mock_network(monkeypatch, handler)
+    assert not (
+        await transport.probe_custom_model_endpoint("https://llm.example/v1", "")
+    )[0]
+    assert reads == []
+
+
+async def test_raw_probe_body_limit_closes_stream(public_dns, monkeypatch):
+    closed = []
+
+    class LargeBody(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            for _ in range(20):
+                yield b"x" * 8192
+
+        async def aclose(self):
+            closed.append(True)
+
+    mock_network(monkeypatch, lambda request: httpx.Response(200, stream=LargeBody()))
+    assert not (
+        await transport.probe_custom_model_endpoint("https://llm.example/v1", "")
+    )[0]
+    assert closed
     assert "llm.example" not in url_safety._pinned_hosts

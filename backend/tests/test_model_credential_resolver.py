@@ -281,6 +281,7 @@ async def test_resolver_keyless_custom_carries_placeholder_key(enc_key, test_use
     assert override["model"] == "openai/my-model"
     assert override["api_base"] == "https://llm.example.com/v1"
     assert override["api_key"] == KEYLESS_PLACEHOLDER_API_KEY
+    assert override["keyless_endpoint"] is True
 
 
 @pytest.mark.asyncio
@@ -304,6 +305,7 @@ async def test_resolver_keyed_custom_keeps_real_key(enc_key, test_user):
     assert override["model"] == "openai/my-model"
     assert override["api_base"] == "https://llm.example.com/v1"
     assert override["api_key"] == "sk-custom-key"
+    assert override["keyless_endpoint"] is False
 
 
 @pytest.mark.asyncio
@@ -342,3 +344,38 @@ async def test_custom_decryption_failure_is_not_keyless(
             await resolve_native_model_override(ws.id)
     else:
         assert await resolve_native_model_override(ws.id) is None
+
+
+@pytest.mark.asyncio
+async def test_existing_provider_credential_generation_is_unchanged(enc_key, test_user):
+    """Adding custom endpoints must not invalidate existing vendor generations."""
+    import hashlib
+    import json
+
+    ws = await ensure_personal_workspace(test_user)
+    uid = getattr(test_user, "user_id", None) or test_user.id
+    record = UserModelCredential(
+        user_id=uid,
+        provider="openai",
+        model="gpt-4.1",
+        api_key_enc=encrypt_secret_for_storage("synthetic-existing-key", aad=uid),
+        is_active=True,
+    )
+    await record.save()
+    identity = json.dumps(
+        [
+            record.id,
+            record.provider,
+            record.model,
+            record.api_key_enc,
+            record.updated_at,
+        ],
+        separators=(",", ":"),
+    )
+    override = await resolve_native_model_override(
+        ws.id, include_credential_identity=True
+    )
+    assert (
+        override["credential_ref"]
+        == "user-model-generation:" + hashlib.sha256(identity.encode()).hexdigest()
+    )

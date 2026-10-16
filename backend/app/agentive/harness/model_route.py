@@ -235,6 +235,7 @@ async def _resolve_native_model_route(
         model=model,
         api_base=api_base,
         api_key=api_key if api_key else None,
+        keyless_endpoint=override.get("keyless_endpoint") is True,
         ollama_num_ctx=ollama_num_ctx,
         ollama_num_predict=ollama_num_predict,
         ollama_think=ollama_think,

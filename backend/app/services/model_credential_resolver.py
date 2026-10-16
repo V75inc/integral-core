@@ -198,23 +198,23 @@ async def resolve_native_model_override(
             logger.warning("custom_openai credential missing base_url")
             return None
         override["api_base"] = custom_base
+        override["keyless_endpoint"] = not bool(record.api_key_enc)
 
     if include_credential_identity:
         # Identify this stored generation, never the plaintext key or its
         # display fingerprint. Rotation/re-encryption conservatively changes
         # attribution; last-used telemetry does not. Callers may omit identity
         # when they only need routing.
-        identity = json.dumps(
-            [
-                record.id,
-                record.provider,
-                record.model,
-                getattr(record, "base_url", ""),
-                record.api_key_enc,
-                record.updated_at,
-            ],
-            separators=(",", ":"),
-        )
+        identity_parts = [
+            record.id,
+            record.provider,
+            record.model,
+            record.api_key_enc,
+            record.updated_at,
+        ]
+        if (default_provider or "").strip().lower() == "custom_openai":
+            identity_parts.append(override["api_base"])
+        identity = json.dumps(identity_parts, separators=(",", ":"))
         override["credential_ref"] = (
             "user-model-generation:" + hashlib.sha256(identity.encode()).hexdigest()
         )
