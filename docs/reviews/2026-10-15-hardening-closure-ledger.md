@@ -66,11 +66,13 @@ both, and reads both `/api/audit-log` and `/api/events` under each selected
 workspace. Each response contains its own workspace's track event and excludes
 the other workspace's track. An authenticated continuation from the first
 workspace is rejected when presented under the second workspace. The new
-regression plus the existing audit-log and polling suites passed **18 tests**
-on the JSON-backed HTTP harness. This closes same-principal/two-workspace
-route binding and cursor cross-scope coverage for those two consumers; it does
-not cover Personal account-event boundaries, the native event-history consumer, or every
-invalid/revoked scope variant. R4 and system qualification remain open.
+regression also persists a user-scoped profile event for the same principal:
+both APIs return it under the default Personal scope and withhold it under an
+organization scope. Together with the existing audit-log and polling suites,
+these cases passed **19 tests** on the JSON-backed HTTP harness. This closes
+same-principal/two-workspace and Personal account-event boundary coverage for
+the two HTTP consumers. It does not cover the native event-history consumer or
+every invalid/revoked scope variant. R4 and system qualification remain open.
 
 The 20,000-row native PostgreSQL probe also ran successfully after explicitly
 overriding the repository's default `not slow` marker filter. It confirms the
