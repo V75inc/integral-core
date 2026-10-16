@@ -28,7 +28,12 @@ pytestmark = pytest.mark.smoke
 
 
 @pytest.fixture
-async def graph(test_user, test_user2):
+async def graph(test_user, test_user2, monkeypatch):
+    from app.services import graph_context as service
+
+    # Contents/privacy assertions require a complete capture, not a host-load
+    # benchmark. The dedicated deadline cases below explicitly restore 3s.
+    monkeypatch.setattr(service, "_CAPTURE_TIMEOUT_SECONDS", 30.0)
     ws = await ensure_personal_workspace(test_user)
     await test_user2.connect(ws, edge=IS_MEMBER_OF, role="guest")
     app = await App.create(name="Research", workspace_id=ws.id)
@@ -65,9 +70,10 @@ async def graph(test_user, test_user2):
 async def recorded_graph(graph, tmp_path):
     """Qualify semantic detail on a complete native SQL store under real access.
 
-    The capture's cooperative deadline is unchanged. JSON lookup timing is
-    not a reliable way to assert complete projection semantics after adding
-    fresh primary identity and containment checks.
+    Semantic assertions have an explicit test-only budget so host contention
+    cannot replace them with an incidental timeout. Separate deterministic
+    deadline tests retain production's three-second bound and fail-closed
+    behavior. JSON lookup timing is not a semantic projection assertion.
     """
     from jvspatial.core import GraphContext
     from jvspatial.core.context import get_default_context, scoped_default_context
@@ -736,6 +742,7 @@ async def test_root_capture_deadline_is_not_reported_as_permission_denial(
     from app.api.errors import ServiceUnavailableError
     from app.services import graph_context as service
 
+    monkeypatch.setattr(service, "_CAPTURE_TIMEOUT_SECONDS", 3.0)
     original_project = service._project_current_graph
     original_allowed = service.WorkspaceProjectionAccess._node_allowed
     observed = []
@@ -792,3 +799,33 @@ async def test_transaction_projection_reads_uncommitted_rows_and_rolls_back(grap
             assert created_id in {node["id"] for node in result["nodes"]}
             raise ValueError("rollback probe")
     assert await get_default_context().database.get("node", created_id) is None
+
+
+async def test_capture_default_deadline_remains_three_seconds():
+    from app.services import graph_context as service
+
+    assert service._CAPTURE_TIMEOUT_SECONDS == 3.0
+
+
+async def test_expired_discovery_deadline_is_service_unavailability(graph, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.api.errors import ServiceUnavailableError
+    from app.services import graph_context as service
+
+    monkeypatch.setattr(service, "_CAPTURE_TIMEOUT_SECONDS", 3.0)
+    clock = iter((100.0, 104.0))
+    monkeypatch.setattr(service, "monotonic", lambda: next(clock))
+
+    async def discovery(_context, request, **_kwargs):
+        assert request.timeout_seconds == 3.0
+        return SimpleNamespace(
+            statistics={"candidate_records": 1},
+            to_dict=lambda: {"meta": {"root_available": True}},
+        )
+
+    monkeypatch.setattr(service, "_project_current_graph", discovery)
+    with pytest.raises(
+        ServiceUnavailableError, match="Graph context capture timed out"
+    ):
+        await _capture(graph, root_id=graph[3].id, detail="recorded")

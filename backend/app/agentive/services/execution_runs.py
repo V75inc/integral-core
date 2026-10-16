@@ -99,6 +99,7 @@ class RunStep(Object):
     capability_key: str = ""
     capability_version: str = ""
     capability_source: str = ""
+    capability_op_class: str = ""
     app_id: Optional[str] = None
     connector_id: Optional[str] = None
     origin: str = ""

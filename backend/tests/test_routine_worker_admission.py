@@ -20,6 +20,9 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.smoke]
         "write_target_deleted",
         "lease_cancelled",
         "lease_expired",
+        "instruction_changed",
+        "write_scope_removed",
+        "missing_mandate",
     ],
 )
 async def test_recovered_routine_refuses_changed_admission(change, monkeypatch):
@@ -60,14 +63,31 @@ async def test_recovered_routine_refuses_changed_admission(change, monkeypatch):
     )
     item = await routine_tasks.enqueue_routine_turn_work(
         routine_id=routine.id,
-        principal_id="different-owner" if change == "principal_mismatch" else user_id,
-        workspace_id=(
-            "different-workspace" if change == "workspace_mismatch" else workspace_id
-        ),
-        thread_id="different-thread" if change == "thread_mismatch" else thread.id,
+        principal_id=user_id,
+        workspace_id=workspace_id,
+        thread_id=thread.id,
         scheduled_for="2026-10-11T09:00:00+00:00",
     )
-    if change in {"paused", "cancelled", "completed"}:
+    # Persisted corruption/legacy binding is tested after legitimate enqueue;
+    # the production enqueue helper itself now refuses mismatched scopes.
+    mismatch = {
+        "principal_mismatch": ("principal_id", "different-owner"),
+        "workspace_mismatch": ("workspace_id", "different-workspace"),
+        "thread_mismatch": ("thread_id", "different-thread"),
+    }.get(change)
+    if mismatch:
+        setattr(item, *mismatch)
+        await item.save()
+    if change == "missing_mandate":
+        item.input_payload.pop("routine_mandate_fingerprint")
+        await item.save()
+    elif change in {"instruction_changed", "write_scope_removed"}:
+        if change == "instruction_changed":
+            routine.instruction = "An unreviewed replacement instruction."
+        else:
+            routine.write_scope = []
+        await routine.save()
+    elif change in {"paused", "cancelled", "completed"}:
         routine.status = change
         await routine.save()
     elif change == "thread_archived":
@@ -115,7 +135,7 @@ async def test_recovered_routine_refuses_changed_admission(change, monkeypatch):
             lease_seconds=30,
         )
 
-    if change in {"lease_cancelled", "lease_expired"}:
+    if change == "lease_expired":
         with pytest.raises(WorkError) as refused:
             await execute()
         assert refused.value.code == (
@@ -123,6 +143,10 @@ async def test_recovered_routine_refuses_changed_admission(change, monkeypatch):
         )
         done = await WorkItem.get(item.id)
         assert done.status != "succeeded"
+    elif change in {"paused", "cancelled", "completed", "lease_cancelled"}:
+        done = await execute()
+        assert done is not None and done.status == "cancelled"
+        assert done.failure["code"] == "work.cancelled"
     else:
         done = await execute()
         assert done is not None and done.status == "failed"

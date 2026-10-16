@@ -675,3 +675,41 @@ async def test_generic_app_read_classification_is_server_bound(
         )
         is expected
     )
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", [{"op_class": "execute"}, {"connector_id": "other"}])
+async def test_reused_key_cannot_change_operation_or_connector(
+    run_store: Dict[str, Any], change: Dict[str, Any]
+) -> None:
+    run_store["runs"]["run-1"] = _run()
+    first = await broker.invoke(_inv(idempotency_key="exact-bound-request"))
+    assert first.ok
+    changed = await broker.invoke(_inv(idempotency_key="exact-bound-request", **change))
+    assert not changed.ok
+    assert changed.error_code == "capability.idempotency_conflict"
+    assert run_store["adapter_calls"] == ["integral_list_tracks"]
+    assert len(run_store["steps"]) == 1
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+async def test_connector_receipt_binds_actual_operation_class(
+    run_store: Dict[str, Any],
+) -> None:
+    run_store["runs"]["run-1"] = _run()
+    invocation = dict(
+        idempotency_key="connector-class",
+        source="connector",
+        connector_id="conn-1",
+        capability_key="mcp__c__ping",
+        op_class="read",
+    )
+    first = await broker.invoke(_inv(**invocation))
+    assert first.ok
+    invocation["op_class"] = "execute"
+    changed = await broker.invoke(_inv(**invocation))
+    assert not changed.ok
+    assert changed.error_code == "capability.idempotency_conflict"
+    assert run_store["adapter_calls"] == ["mcp__c__ping"]

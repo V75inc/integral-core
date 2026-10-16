@@ -1354,6 +1354,36 @@ async def _x_delete_dashboard(user_id: str, payload: Dict[str, Any]) -> Dict[str
 async def _x_routine_task_create(
     user_id: str, payload: Dict[str, Any]
 ) -> Dict[str, Any]:
+    from app.agentive.services.staging_routine_commands import apply_routine_command
+    from app.services.agent_scope import active_workspace_id
+
+    return await apply_routine_command(
+        user_id=user_id,
+        workspace_id=payload.get("workspace_id") or active_workspace_id() or "",
+        payload=payload,
+        kind="routine_task_create",
+        execute=lambda: _execute_routine_task_create(user_id, payload),
+    )
+
+
+async def _x_routine_task_update(
+    user_id: str, payload: Dict[str, Any]
+) -> Dict[str, Any]:
+    from app.agentive.services.staging_routine_commands import apply_routine_command
+    from app.services.agent_scope import active_workspace_id
+
+    return await apply_routine_command(
+        user_id=user_id,
+        workspace_id=active_workspace_id() or "",
+        payload=payload,
+        kind="routine_task_update",
+        execute=lambda: _execute_routine_task_update(user_id, payload),
+    )
+
+
+async def _execute_routine_task_create(
+    user_id: str, payload: Dict[str, Any]
+) -> Dict[str, Any]:
     from app.agentive.services.routine_tasks import create_routine_task
     from app.services.agent_scope import active_workspace_id
 
@@ -1394,7 +1424,7 @@ async def _x_routine_task_create(
     }
 
 
-async def _x_routine_task_update(
+async def _execute_routine_task_update(
     user_id: str, payload: Dict[str, Any]
 ) -> Dict[str, Any]:
     from app.agentive.services.routine_tasks import update_routine_task
@@ -1433,6 +1463,21 @@ async def _x_routine_task_update(
 async def _x_routine_task_cancel(
     user_id: str, payload: Dict[str, Any]
 ) -> Dict[str, Any]:
+    from app.agentive.services.staging_routine_commands import apply_routine_command
+    from app.services.agent_scope import active_workspace_id
+
+    return await apply_routine_command(
+        user_id=user_id,
+        workspace_id=active_workspace_id() or "",
+        payload=payload,
+        kind="routine_task_cancel",
+        execute=lambda: _execute_routine_task_cancel(user_id, payload),
+    )
+
+
+async def _execute_routine_task_cancel(
+    user_id: str, payload: Dict[str, Any]
+) -> Dict[str, Any]:
     from app.agentive.services.routine_tasks import cancel_routine_task
 
     routine = await cancel_routine_task(
@@ -1456,6 +1501,21 @@ async def _x_routine_task_cancel(
 async def _x_routine_task_purge(
     user_id: str, payload: Dict[str, Any]
 ) -> Dict[str, Any]:
+    from app.agentive.services.staging_routine_commands import apply_routine_command
+    from app.services.agent_scope import active_workspace_id
+
+    return await apply_routine_command(
+        user_id=user_id,
+        workspace_id=active_workspace_id() or "",
+        payload=payload,
+        kind="routine_task_purge",
+        execute=lambda: _execute_routine_task_purge(user_id, payload),
+    )
+
+
+async def _execute_routine_task_purge(
+    user_id: str, payload: Dict[str, Any]
+) -> Dict[str, Any]:
     from app.agentive.services.routine_tasks import (
         delete_routine_task,
         get_routine_task,
@@ -1475,7 +1535,7 @@ async def _x_routine_task_purge(
         action="routine_task.purge",
         resource_type="RoutineTask",
         resource_id=deleted_id,
-        before={"id": deleted_id, "status": prior_status},
+        before={"id": deleted_id, "status": prior_status, "workspace_id": workspace_id},
         after=None,
         scope=f"workspace:{workspace_id}",
     )

@@ -10,7 +10,7 @@ be read as the present checkout state.
 
 | Requirement | Implementation present | Remaining proof or implementation |
 | --- | --- | --- |
-| R1: shared approval ownership | Native task/fence claims, current proposal checks and integrated canonical resource commands | Complete all 69 registered contracts, including the 39 remaining effectful kinds and the explicitly refused retired design-card kind, the separately integrated App-operation path and conditional batch. Preserve immutable original identity/workspace/review and current approval state. Independent workers, stale owners, cancellation, expiry, revocation and restart must not create a second effect. |
+| R1: shared approval ownership | Native task/fence claims, current proposal checks and integrated canonical resource commands | Complete all 69 registered contracts, including all remaining effectful kinds and the explicitly refused retired design-card kind, the separately integrated App-operation path and conditional batch. Preserve immutable original identity/workspace/review and current approval state. Independent workers, stale owners, cancellation, expiry, revocation and restart must not create a second effect. |
 | R2: atomic effects and recoverable completion | Canonical graph/result/event receipts, recorded-result observation and current disclosure controls | The local staged App-operation path now shares its canonical receipt and exact original review proof; preserve policy Approval's existing transaction owner and complete external handler contracts. Finish remaining local families, per-child mixed batches, external dispatch intent/readback and unknown-outcome reconciliation. Move external I/O out of held authority transactions. |
 | R3: stream release authorization | Fresh per-connection/frame and identity/workspace admission | Complete the multi-connection/revocation-ordering matrix on final source. Document the exact transport boundary; bytes already handed to transport cannot be recalled. Include sandboxed extension reply scope/frame replacement. |
 | R4: request-bound history | Validated selected workspace, canonical containment and live per-resource gates; HTTP and native dispatcher workspace/Personal boundaries qualified | Reconcile these consumer checks with the final source and aggregate authorization/system gates. This is not a general instantaneous-revocation guarantee. |
@@ -305,3 +305,50 @@ aligned onto qualified tag commit `d1212962` without changing its tested runtime
 The historical direction-index experiment is retained as evidence only; its
 regressing runtime/index changes were reverted. R5 and the other remaining
 hardening rows stay open. No deployment is included.
+
+
+## 2026-10-16 four-command routine and worker candidate
+
+The uncommitted candidate integrates create/edit/cancel/remove into the native
+receipt kernel and passes the existing routine WorkItem lease through the actual
+agent route. Later worker effects recheck live routine state under the native
+row fence, and stop/remove interruption is offered after commit. Scheduler and
+owner writers now serialize fresh state to prevent stale overwrite/revival.
+Current working inventory: 31 native kinds, of which four await final combined
+qualification. Committed baseline inventory remains 27.
+
+Evidence: the final combined native routine/tag/release/work-kernel/effect-fence
+selection passed 98 tests (one non-native deselected); 97 focused tests passed
+with one native-only skip. These are distinct selections with overlapping
+component history. The [routine report](2026-10-16-routine-command-recovery-boundary.md)
+retains original red evidence, historical fixture corrections, proof limitations,
+and the remaining automatic-write provenance and durable fire accounting
+contracts. Broad CI/full/native/artifact gates must be rerun on final source.
+R1/R2 and the full goal remain open. No deployment or routine-candidate push has
+occurred.
+
+
+## 2026-10-16 controlled QA cut and sprint boundary
+
+The [QA handoff](2026-10-16-hardening-qa-handoff.md) names the exact pushed
+source, its scheduled-write exclusion, current-cut qualification gates and the
+proposed subsequent-sprint backlog. It does not close this acceptance ledger.
+The routine candidate replaces unsafe timestamp-based automatic approval with
+private task-owned broker provenance and a frozen queued mandate, retains human
+approval by default, binds receipt reuse to exact invocation identity and
+withholds saved proposal details from recovered results. The final graph test
+module passed **46 tests / two native-only skipped** under an explicit semantic
+fixture budget; dedicated timeout cases preserve the production three-second
+ceiling. Broader final-source CI/full/native/artifact gates are running in
+sequence. Current baseline and candidate inventory counts are distinguished in
+the [executor inventory](2026-10-15-approved-executor-recovery-inventory.md).
+Deferred sprint work remains an explicit requirement, not a completion claim.
+
+
+The controlled routine QA cut completed final local qualification: 6609 default
+backend tests passed (933 skipped), 1813 CI-faithful passed (22 skipped), 139
+native passed (47 non-native deselected), Core-only 9/9, all independent
+artifacts, pinned hooks, staged guards and the frozen production advisory audit.
+Source hashes remained unchanged through every pipeline stage. This qualifies
+the documented cut, not the full goal. R1/R2, durable fire accounting and the
+remaining requirements in this ledger remain open for subsequent sprint work.
