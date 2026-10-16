@@ -666,8 +666,10 @@ async def complete_mcp_oauth(
             message="MCP OAuth callback rejected — state token invalid or expired",
             details={"reauth_required": False, "reason": "state_mismatch"},
         )
+    from app.agentive.connectors.connector_resolution import connector_owner_is
+
     connector = await Connector.get(connector_id)
-    if connector is None or connector.owner != user_id:
+    if not await connector_owner_is(connector, user_id):
         raise ResourceNotFoundError(
             message=f"Connector {connector_id!r} not found",
             details={"connector_id": connector_id},

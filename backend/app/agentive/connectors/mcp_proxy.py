@@ -13,6 +13,7 @@ from typing import Any, Dict, Optional
 from app.agentive.connectors.mcp_client import (
     HEALTH_ERROR,
     HEALTH_OK,
+    McpRemoteToolError,
     call_remote_tool,
     describe_mcp_failure,
 )
@@ -136,21 +137,22 @@ async def invoke(
 
     When called from ``run_tool``, metadata arrives on the tool *spec*, not
     as kwargs — so :func:`invoke_from_spec` is the preferred entry. This
-    function remains the ``handler_ref`` target and reads metadata from
-    ``payload`` keys when present, else from explicit kwargs (resident overlay).
+    function remains the ``handler_ref`` target. Routing metadata comes only
+    from the registered spec or trusted keyword arguments, never tool input.
 
     Canonical (slug-addressed) specs carry no row id: the row is resolved
     per call from (workspace, slug, caller) — personal row wins, else the
     shared row — so one tool key serves every member correctly.
     """
-    connector_id = (
-        _mcp_connector_id or str(payload.pop("_mcp_connector_id", "") or "") or ""
-    )
-    remote_name = (
-        _mcp_remote_name or str(payload.pop("_mcp_remote_name", "") or "") or ""
-    )
+    if any(key.startswith("_mcp_") for key in payload):
+        raise McpProxyError(
+            "Connector routing metadata cannot be supplied as tool arguments",
+            "invalid_arguments",
+        )
+    connector_id = _mcp_connector_id or ""
+    remote_name = _mcp_remote_name or ""
     if not connector_id:
-        slug = _mcp_connector_slug or str(payload.pop("_mcp_connector_slug", "") or "")
+        slug = _mcp_connector_slug or ""
         if slug:
             from app.agentive.connectors.connector_resolution import (
                 ResolutionError,
@@ -172,13 +174,18 @@ async def invoke(
             "misconfigured",
         )
 
+    connector = await _load_connector(connector_id)
+    if not ctx.workspace_id or connector.workspace_id != ctx.workspace_id:
+        raise McpProxyError(
+            "Connector is not available in the current workspace",
+            "scope_mismatch",
+        )
     await _enforce_invoke_policy(
         connector_id=connector_id,
         principal_id=ctx.user_id,
         actor_kind=getattr(ctx, "actor_kind", None) or "human",
     )
 
-    connector = await _load_connector(connector_id)
     auth_state = dict(getattr(connector, "auth_state", None) or {})
 
     try:
@@ -194,7 +201,7 @@ async def invoke(
         await _record_invoke_health(connector, status=HEALTH_ERROR, error=detail)
         raise McpProxyError(
             f"remote MCP call failed: {detail}",
-            "remote_error",
+            exc.error_code if isinstance(exc, McpRemoteToolError) else "remote_error",
         ) from exc
     await _record_invoke_health(connector, status=HEALTH_OK, error=None)
 
