@@ -30,6 +30,10 @@ import {
   type ConnectorResponse,
 } from "../../../api/connectors";
 import { Button } from "../../../components/ui/Button";
+import {
+  KebabMenu,
+  type KebabMenuItem,
+} from "../../../components/ui/KebabMenu";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { Surface, Text } from "../../../ui";
 import { AsyncBoundary } from "../../../patterns";
@@ -68,11 +72,9 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 function McpConnectorSummary({
   connector,
   title,
-  onInspectTools,
 }: {
   connector: ConnectorResponse;
   title?: string;
-  onInspectTools: () => void;
 }) {
   const details = mcpConnectorDetails(connector);
   const displayTitle = title || details.title;
@@ -83,15 +85,16 @@ function McpConnectorSummary({
   ].filter(Boolean);
   const showRegistry =
     Boolean(details.registryName) && details.registryName !== displayTitle;
-  const toolCount = details.tools.length;
 
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="inline-flex rounded-[var(--radius-pill)] bg-[var(--badge-muted-bg)] px-2 py-0.5 text-[10px] uppercase tracking-wide text-[var(--badge-muted-fg)]">
-          MCP
-        </span>
-        <Text variant="heading-sm" weight="semibold" as="span">
+        <Text
+          variant="heading-sm"
+          weight="semibold"
+          as="span"
+          className="min-w-0 break-words"
+        >
           {displayTitle}
         </Text>
         <StatusPill
@@ -105,7 +108,13 @@ function McpConnectorSummary({
                   : "idle"
           }
         >
-          {connector.health_status || "unknown"}
+          {connector.health_status === "ok"
+            ? "Connected"
+            : connector.health_status === "error"
+              ? "Connection error"
+              : connector.health_status === "degraded"
+                ? "Needs attention"
+                : "Not checked"}
         </StatusPill>
       </div>
       {showRegistry ? (
@@ -113,28 +122,27 @@ function McpConnectorSummary({
           {details.registryName}
         </Text>
       ) : null}
-      <Text variant="body-sm" tone="subtle" as="p" className="mt-1">
-        {metaBits.join(" · ")}
-        {connector.last_error ? ` · ${connector.last_error}` : ""}
+      <Text variant="body-sm" tone="subtle" as="p" className="mt-1 break-words">
+        {connector.connection_mode === "shared"
+          ? "Shared connection"
+          : "Personal connection"}{" "}
+        · MCP
       </Text>
-      {toolCount > 0 ? (
-        <div className="mt-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="xs"
-            icon={<List size={12} />}
-            onClick={onInspectTools}
-            aria-label={`View tools for ${displayTitle}`}
-          >
-            {`View ${toolCountLabel(toolCount)}`}
-          </Button>
-        </div>
-      ) : (
-        <Text variant="body-sm" tone="subtle" as="p" className="mt-1">
-          No tools discovered
+      {metaBits.length > 0 ? (
+        <Text variant="meta" tone="subtle" as="p" className="mt-1 break-all">
+          {metaBits.join(" · ")}
         </Text>
-      )}
+      ) : null}
+      {connector.last_error ? (
+        <Text
+          variant="body-sm"
+          tone="danger"
+          as="p"
+          className="mt-2 break-words"
+        >
+          {connector.last_error}
+        </Text>
+      ) : null}
     </>
   );
 }
@@ -166,7 +174,9 @@ function ScopedConnectorsSection({
   const isCurrentPanel = useRef(true);
   useEffect(() => {
     isCurrentPanel.current = true;
-    return () => { isCurrentPanel.current = false; };
+    return () => {
+      isCurrentPanel.current = false;
+    };
   }, []);
   const qc = useQueryClient();
   const toast = useToast();
@@ -436,7 +446,7 @@ function ScopedConnectorsSection({
 
           <SettingsSection
             title="Connected"
-            description="Sync triggers a fresh pull right now; Edit changes connection settings; Delete removes the connector permanently."
+            description="Manage your connections and check that their tools are available."
           >
             <div className="mb-2 flex items-center gap-2">
               <SegmentedControl
@@ -488,7 +498,10 @@ function ScopedConnectorsSection({
                     {visible.map((c) => {
                       const meta = instanceMeta(c);
                       const showConfig = configuringId === c.id;
-                      const isMine = !myId || c.owner === myId;
+                      const isMine =
+                        !myId ||
+                        c.owner === myId ||
+                        c.owner === auth?.user?.user_id;
                       const canAdminister =
                         isMine || (meta.isShared && isWsAdmin);
                       const isSharedView = meta.isShared && !canAdminister;
@@ -500,7 +513,7 @@ function ScopedConnectorsSection({
                           border="subtle"
                           radius="card"
                           padding="md"
-                          className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-4"
+                          className="min-w-0 flex flex-col gap-4"
                         >
                           <div className="flex-1 min-w-0">
                             <div className="flex items-start gap-3">
@@ -513,7 +526,6 @@ function ScopedConnectorsSection({
                                   <McpConnectorSummary
                                     connector={c}
                                     title={meta.title}
-                                    onInspectTools={() => setInspectingId(c.id)}
                                   />
                                 ) : (
                                   <>
@@ -525,8 +537,13 @@ function ScopedConnectorsSection({
                                       >
                                         {meta.title}
                                       </Text>
-                                      <StatusPill state={c.conflict_policy ? "ok" : "idle"}>
-                                        {c.conflict_policy || "no conflict rule"}
+                                      <StatusPill
+                                        state={
+                                          c.conflict_policy ? "ok" : "idle"
+                                        }
+                                      >
+                                        {c.conflict_policy ||
+                                          "no conflict rule"}
                                       </StatusPill>
                                       {meta.isShared ? (
                                         <StatusPill state="idle">
@@ -580,164 +597,122 @@ function ScopedConnectorsSection({
                               </div>
                             ) : null}
                           </div>
-                          <div className="flex shrink-0 flex-wrap items-center gap-0.5 sm:flex-col sm:items-stretch">
-                            {/* Shared rows viewed by non-admin members: status
-                              only (Health + Tools). Owners and workspace admins get
-                              the full row — edit, re-auth, sync, delete stay
-                              server-gated. Mirror config (Gmail/QuickBooks
-                              settings) stays owner-only. */}
-                            {isSharedView ? (
-                              <>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="xs"
-                                  className="justify-start"
-                                  icon={<HeartPulse size={12} />}
-                                  onClick={() => healthMut.mutate(c.id)}
-                                  disabled={
-                                    healthMut.isPending &&
-                                    healthMut.variables === c.id
+                          <div className="flex min-w-0 flex-wrap items-center gap-2 border-t border-[var(--border-subtle)] pt-3">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              icon={<List size={14} />}
+                              onClick={() => setInspectingId(c.id)}
+                              aria-label={`View tools for ${meta.title}`}
+                            >
+                              {meta.isMcp
+                                ? `View ${toolCountLabel(mcpConnectorDetails(c).tools.length)}`
+                                : "View tools"}
+                            </Button>
+                            {meta.isMcp ? (
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                icon={<HeartPulse size={14} />}
+                                onClick={() => healthMut.mutate(c.id)}
+                                disabled={
+                                  healthMut.isPending &&
+                                  healthMut.variables === c.id
+                                }
+                                aria-label={`Health check ${c.id}`}
+                              >
+                                {healthMut.isPending &&
+                                healthMut.variables === c.id
+                                  ? "Checking…"
+                                  : "Check connection"}
+                              </Button>
+                            ) : canAdminister ? (
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                icon={<RefreshCw size={14} />}
+                                onClick={() => syncMut.mutate(c.id)}
+                                disabled={
+                                  syncMut.isPending &&
+                                  syncMut.variables === c.id
+                                }
+                                aria-label={`Sync connector ${c.id}`}
+                              >
+                                Sync now
+                              </Button>
+                            ) : null}
+                            {canAdminister ? (
+                              <div className="ml-auto shrink-0">
+                                <KebabMenu
+                                  ariaLabel={`Manage ${meta.title}`}
+                                  menuTitle={meta.title}
+                                  portal
+                                  items={
+                                    [
+                                      ...(meta.isMcp
+                                        ? [
+                                            {
+                                              key: "refresh",
+                                              label: "Refresh tools",
+                                              icon: <RefreshCw size={14} />,
+                                              onClick: () =>
+                                                refreshMcpMut.mutate(c.id),
+                                              disabled:
+                                                refreshMcpMut.isPending &&
+                                                refreshMcpMut.variables ===
+                                                  c.id,
+                                            },
+                                            {
+                                              key: "reconnect",
+                                              label: "Reconnect",
+                                              icon: <PlugZap size={14} />,
+                                              onClick: () =>
+                                                reauthMut.mutate(c.id),
+                                              disabled:
+                                                reauthMut.isPending &&
+                                                reauthMut.variables === c.id,
+                                            },
+                                          ]
+                                        : []),
+                                      ...(isMine &&
+                                      (c.subclass_slug === "gmail" ||
+                                        c.subclass_slug === "quickbooks")
+                                        ? [
+                                            {
+                                              key: "configure",
+                                              label: "Settings",
+                                              icon: <Settings size={14} />,
+                                              onClick: () =>
+                                                setConfiguringId((prev) =>
+                                                  prev === c.id ? null : c.id,
+                                                ),
+                                            },
+                                          ]
+                                        : []),
+                                      {
+                                        key: "edit",
+                                        label: "Edit connection",
+                                        icon: <Pencil size={14} />,
+                                        onClick: () => setEditing(c),
+                                      },
+                                      {
+                                        key: "delete",
+                                        label: "Delete connection",
+                                        icon: <Trash2 size={14} />,
+                                        danger: true,
+                                        dividerAbove: true,
+                                        onClick: () => {
+                                          void handleDelete(c);
+                                        },
+                                      },
+                                    ] satisfies KebabMenuItem[]
                                   }
-                                  aria-label={`Health check ${c.id}`}
-                                >
-                                  Health
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="xs"
-                                  className="justify-start"
-                                  icon={<List size={12} />}
-                                  onClick={() => setInspectingId(c.id)}
-                                  aria-label={`View tools for ${c.id}`}
-                                >
-                                  Tools
-                                </Button>
-                              </>
-                            ) : (
-                              <>
-                                {c.subclass_slug === "mcp" ? (
-                                  <>
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="xs"
-                                      className="justify-start"
-                                      icon={<RefreshCw size={12} />}
-                                      onClick={() => refreshMcpMut.mutate(c.id)}
-                                      disabled={
-                                        refreshMcpMut.isPending &&
-                                        refreshMcpMut.variables === c.id
-                                      }
-                                      aria-label={`Refresh MCP tools ${c.id}`}
-                                    >
-                                      Refresh
-                                    </Button>
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="xs"
-                                      className="justify-start"
-                                      icon={<HeartPulse size={12} />}
-                                      onClick={() => healthMut.mutate(c.id)}
-                                      disabled={
-                                        healthMut.isPending &&
-                                        healthMut.variables === c.id
-                                      }
-                                      aria-label={`Health check ${c.id}`}
-                                    >
-                                      Health
-                                    </Button>
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="xs"
-                                      className="justify-start"
-                                      icon={<PlugZap size={12} />}
-                                      onClick={() => reauthMut.mutate(c.id)}
-                                      disabled={
-                                        reauthMut.isPending &&
-                                        reauthMut.variables === c.id
-                                      }
-                                      aria-label={`Reconnect ${c.id}`}
-                                    >
-                                      Reconnect
-                                    </Button>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="xs"
-                                      className="justify-start"
-                                      icon={<RefreshCw size={12} />}
-                                      onClick={() => syncMut.mutate(c.id)}
-                                      disabled={
-                                        syncMut.isPending &&
-                                        syncMut.variables === c.id
-                                      }
-                                      aria-label={`Sync connector ${c.id}`}
-                                    >
-                                      Sync
-                                    </Button>
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="xs"
-                                      className="justify-start"
-                                      icon={<List size={12} />}
-                                      onClick={() => setInspectingId(c.id)}
-                                      aria-label={`View tools for ${c.id}`}
-                                    >
-                                      Tools
-                                    </Button>
-                                  </>
-                                )}
-                                {isMine &&
-                                (c.subclass_slug === "gmail" ||
-                                  c.subclass_slug === "quickbooks") ? (
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="xs"
-                                    className="justify-start"
-                                    icon={<Settings size={12} />}
-                                    onClick={() =>
-                                      setConfiguringId((prev) =>
-                                        prev === c.id ? null : c.id,
-                                      )
-                                    }
-                                    aria-label={`Configure connector ${c.id}`}
-                                  >
-                                    Settings
-                                  </Button>
-                                ) : null}
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="xs"
-                                  className="justify-start"
-                                  icon={<Pencil size={12} />}
-                                  onClick={() => setEditing(c)}
-                                  aria-label={`Edit connector ${c.id}`}
-                                >
-                                  Edit
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="xs"
-                                  className="justify-start"
-                                  icon={<Trash2 size={12} />}
-                                  onClick={() => handleDelete(c)}
-                                  aria-label={`Delete connector ${c.id}`}
-                                >
-                                  Delete
-                                </Button>
-                              </>
-                            )}
+                                />
+                              </div>
+                            ) : null}
                           </div>
                         </Surface>
                       );
@@ -781,9 +756,7 @@ function ScopedConnectorsSection({
       {customMcpOpen ? (
         <CustomMcpMountModal
           open={customMcpOpen}
-          sharingAllowed={
-            scope ? !scope.isPersonal && canMountCustomMcp : true
-          }
+          sharingAllowed={scope ? !scope.isPersonal && canMountCustomMcp : true}
           onClose={() => setCustomMcpOpen(false)}
           onMounted={() => {
             setCustomMcpOpen(false);

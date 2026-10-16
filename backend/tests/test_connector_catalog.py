@@ -1081,6 +1081,16 @@ def test_finishing_oauth_grants_the_connector_tool_invoke_immediately(monkeypatc
     async def materialize(*, connector, actor_id):
         granted.append((connector.id, actor_id))
 
+    async def resolve_fixture_user(principal_id):
+        return (
+            SimpleNamespace(id="n.User.fixture", user_id="u1")
+            if principal_id == "u1"
+            else None
+        )
+
+    # This unit fixture uses a synthetic row; real login/profile authority is
+    # covered by test_mcp_connector_identity_boundary on both stores.
+    monkeypatch.setattr("app.services.permissions.get_user_node", resolve_fixture_user)
     monkeypatch.setattr(mcp_adapter, "Connector", Registry)
     monkeypatch.setattr(
         mcp_adapter, "plain_auth_state", lambda c: {"oauth": {"state": "S"}}
