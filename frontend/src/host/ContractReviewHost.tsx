@@ -1,3 +1,5 @@
+import { AlertTriangle } from 'lucide-react';
+
 import { Text } from '../ui';
 
 /** Host extension slot for App-owned contract review workflows (Core ships a stub). */
@@ -15,5 +17,23 @@ export function ContractReviewHost(_props: ContractReviewHostProps) {
     <Text variant="body" tone="muted">
       Document review for this step is supplied by your workspace app package.
     </Text>
+  );
+}
+
+/** Neutral terminal when the user declines a document-review step (App may override). */
+export function ContractReviewRejectedTerminal() {
+  return (
+    <div className="animate-fade-in space-y-4 py-8 text-center">
+      <AlertTriangle size={56} className="mx-auto text-amber-500" aria-hidden />
+      <div>
+        <Text variant="heading-md" weight="semibold" as="h2">
+          Form closed
+        </Text>
+        <Text variant="body-sm" tone="muted" as="p" className="mt-1 block">
+          You declined the document. Contact your workspace administrator if you need
+          help.
+        </Text>
+      </div>
+    </div>
   );
 }

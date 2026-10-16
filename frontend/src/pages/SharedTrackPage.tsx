@@ -46,8 +46,10 @@ import {
   PolicyAcknowledgmentStep,
   firstMissingRequiredPolicy,
 } from '../components/intakeForm/PolicyAcknowledgmentStep';
-import { ContractReviewRejectedTerminal } from '../components/intakeForm/ContractReviewRejectedTerminal';
-import { ContractReviewHost as ContractReviewStep } from '../host/ContractReviewHost';
+import {
+  ContractReviewHost as ContractReviewStep,
+  ContractReviewRejectedTerminal,
+} from '../host/ContractReviewHost';
 import { memberAssignedFormApi } from '../features/memberAssignedForm/memberAssignedFormApi';
 
 function isEmptyFileFieldValue(val: unknown): boolean {
