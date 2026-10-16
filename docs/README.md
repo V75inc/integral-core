@@ -13,6 +13,7 @@ The [concept](product/CONCEPT.md) states the purpose. The [architecture](product
 Start your own workspace with the [local installation and CLI guide](ops/LOCAL_INSTALLATION.md). Then follow the [user guide](user-guide/README.md) for workspaces, Apps and Tracks, records, views, sharing, the resident AI, and approvals.
 
 Understand dependencies and decision evidence with [workspace graph context](product/GRAPH_CONTEXT.md).
+Browse the structure visible to you with the [workspace ontology viewer](product/WORKSPACE_ONTOLOGY_VIEWER.md).
 
 ## Build on it
 
