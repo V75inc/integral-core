@@ -10,18 +10,203 @@ be read as the present checkout state.
 
 | Requirement | Implementation present | Remaining proof or implementation |
 | --- | --- | --- |
-| R1: shared approval ownership | Native task/fence claims, current proposal checks and integrated canonical resource commands | Complete all 69 registered kinds, including the 43 remaining classified kinds, the separately integrated App-operation path and conditional batch. Preserve immutable original identity/workspace/review and current approval state. Independent workers, stale owners, cancellation, expiry, revocation and restart must not create a second effect. |
+| R1: shared approval ownership | Native task/fence claims, current proposal checks and integrated canonical resource commands | Complete all 69 registered contracts, including all remaining effectful kinds and the explicitly refused retired design-card kind, the separately integrated App-operation path and conditional batch. Preserve immutable original identity/workspace/review and current approval state. Independent workers, stale owners, cancellation, expiry, revocation and restart must not create a second effect. |
 | R2: atomic effects and recoverable completion | Canonical graph/result/event receipts, recorded-result observation and current disclosure controls | The local staged App-operation path now shares its canonical receipt and exact original review proof; preserve policy Approval's existing transaction owner and complete external handler contracts. Finish remaining local families, per-child mixed batches, external dispatch intent/readback and unknown-outcome reconciliation. Move external I/O out of held authority transactions. |
 | R3: stream release authorization | Fresh per-connection/frame and identity/workspace admission | Complete the multi-connection/revocation-ordering matrix on final source. Document the exact transport boundary; bytes already handed to transport cannot be recalled. Include sandboxed extension reply scope/frame replacement. |
-| R4: request-bound history | Validated selected workspace, canonical containment and live per-resource gates | Final same-principal/two-workspace, revoked/invalid scope and HTTP/native consumer qualification. Personal/account events require their explicit Personal-workspace boundary. |
+| R4: request-bound history | Validated selected workspace, canonical containment and live per-resource gates; HTTP and native dispatcher workspace/Personal boundaries qualified | Reconcile these consumer checks with the final source and aggregate authorization/system gates. This is not a general instantaneous-revocation guarantee. |
 | R5: bounded history | Database timestamp/id keysets, candidate budget, opaque denied-row cursors and unavailable errors | Final populated PostgreSQL query/index plan and latency probe, both directions/ties/deleted boundaries, withheld windows and honest continuation. This is not a production latency SLA. |
-| R6: execution scope tool | Dedicated dispatcher-bound scope service and matching tool manifest | Final bound-versus-saved preference, selective creation flags and absent/revoked binding tests; generated capability map must match. |
+| R6: execution scope tool | Dedicated dispatcher-bound scope service and matching tool manifest; focused execution-scope qualification passed | Reconcile the qualified tool/service/capability-map selection with final source and aggregate system gates. |
 | Result and event privacy | Current nested reference checks, whole-output withholding, parent containment and unsupported object refusal | Complete declared-reference, deleted-history audience and safe author/type/model/public-identity contracts. Conservative withholding prevents exposure but does not prove usable metadata projection. |
 | Durable chat and restore | Native durable turns, interrupted-run recovery and disposable encrypted checkpoint/credential restore evidence | Complete attachment bytes, session invalidation, migration, independent-process restore and ordinary-owner/member recovery journeys on final source. A backup manifest alone is insufficient. |
 | Deployment architecture | Trusted-proxy client identity and per-process admission limits | Shared admission limits across replicas and explicit scoped directory/privacy policy. Do not silently treat multiplied process limits as a shared guarantee. |
 | Legacy relation identity | Stable declared identities and bounded unambiguous creation-evidence lookup | Reviewed migration for missing/ambiguous retained creation evidence, default dry run and preserved original IDs/data. Never infer identity from the relation the caller wants to create. |
 | Maintainability | Shared canonical paths and isolated result/status contracts | Finish remaining command consolidation, targeted module extraction, classified error contracts and current documentation reconciliation. All runtime components remain reusable and domain-neutral. |
 | System qualification | Focused source, native fault/concurrency and clean artifact gates for individual increments | Reconcile final source, run full default backend, CI-faithful selections, frontend, native concurrency/fault/multi-principal/load/restore matrix and independent Core/SDK/external-App artifacts. Inspect actual remote CI at the pushed head. Skips and unqualified journeys stay explicit. |
+
+## 2026-10-16 stream-release ordering follow-through
+
+The transport contract is admission ordering, not recall: for PostgreSQL-backed
+requests, current identity and workspace authorization are read while holding
+the shared admission fences. The protected interval ends before `yield` or
+`send_text`, so no graph transaction waits on a slow client. A frame admitted
+before a revocation commits may still be delivered afterward; once bytes are
+handed to the transport they cannot be recalled. Every later SSE frame and each
+later WebSocket connection obtains fresh admission, and a frame whose admission
+starts after the revocation commit is denied. Local JSON mode cannot claim this
+cross-worker ordering guarantee.
+
+Added an integrated committed-chat SSE contract that uses the native PostgreSQL
+admission path, yields one frame, commits workspace membership revocation, and
+proves the next frame is withheld without replaying the page. The complete
+release-admission PostgreSQL contract file passed **3/3**. The sandboxed iframe
+host's stale operation/query/capabilities reply checks were also rerun: its
+scope-switch/frame-replacement suite passed **10/10**. These focused checks
+close the previously missing integrated SSE revocation-ordering and extension
+reply/frame replacement probes. They do not qualify all ASGI disconnect and
+replay paths, every provider stream, or the full multi-principal/load matrix;
+the overall R3 and system qualification rows remain open until the final source
+and aggregate gates are reconciled.
+
+## 2026-10-16 execution-scope tool qualification
+
+The dispatcher-bound `integral_get_scope` projection is independently tested
+against a different saved workspace preference, owner/admin/guest creation
+rights, absent and revoked bindings, and attempts to pass model-controlled
+identity arguments. Its declared result and generated capability map are
+checked in the same selection. The focused run passed **38/38** across the scope
+service, resident-skill alignment, and generated capability-map suites. R6 is
+qualified on this source; this does not close the distinct workspace-policy,
+authorization-revocation, or overall system qualification rows.
+
+## 2026-10-16 request-bound history follow-through
+
+Added an authenticated HTTP regression that gives one principal live owner
+membership in two organization workspaces, creates track and entry events in
+both, and reads both `/api/audit-log` and `/api/events` under each selected
+workspace. Each response contains its own workspace's track event and excludes
+the other workspace's track. An authenticated continuation from the first
+workspace is rejected when presented under the second workspace. The new
+regression also persists a user-scoped profile event for the same principal:
+both APIs return it under the default Personal scope and withhold it under an
+organization scope. Together with the existing audit-log and polling suites,
+these cases passed **19 tests** on the JSON-backed HTTP harness. This closes
+same-principal/two-workspace and Personal account-event boundary coverage for
+the two HTTP consumers. It does not cover the native event-history consumer or
+every invalid/revoked scope variant. R4 and system qualification remain open.
+
+The 20,000-row native PostgreSQL probe also ran successfully after explicitly
+overriding the repository's default `not slow` marker filter. It confirms the
+attributed and legacy paths use index scans and no sort/sequence scan for the
+sample plans. However, the attributed plan removed 3,592 rows by residual filter
+to return 100 rows, and three timed two-page runs reported 732-841 ms ascending
+versus 17-20 ms descending. Index catalog inspection confirms a workspace
+composite exists, but the planner selected the generic DBLog timestamp index.
+An experiment with an entity-partial composite selected the workspace index,
+but reintroduced a top-N sort and failed the current plan contract; that
+unqualified index change was reverted. The timings and plan are from one
+disposable fixture shape, not a stable latency claim. Query/index expression
+alignment, bounded work under a much larger workspace history and the direction
+asymmetry need investigation before R5 can close.
+
+## 2026-10-16 native audit consumer and filter repair
+
+The native `integral_query_audit_log` contract advertised `resource_id` and
+`resource_type`, but its route binding discarded both. A PostgreSQL regression
+against the actual dispatcher reproduced a Track-only query returning the
+neighboring Entry event. The binding now forwards these filters together with
+actor kind, exact event action, cursor and limit. The model's published schema
+now exposes the supported confidential continuation instead of the previously
+advertised, unimplemented `since` argument. An undocumented `scope` argument is
+removed from the binding; the authenticated execution workspace remains the
+invoker's separate scope input.
+
+The native PostgreSQL selection passed **8/8**, with no skips or errors. Each
+filter is checked independently through the actual dispatcher, route, logger,
+policy and database. The same principal owns two workspaces: queries and
+continuation remain bound to the selected one, while a continued query in the
+other is refused. Revoked and nonexistent bindings return errors without event
+data. Account events appear in the caller's Personal workspace and are withheld
+under an organization workspace. The catalogue schema is checked for the
+model-visible filters and cursor. History endpoint documentation now describes
+the actual bounded reader and confidential continuation.
+
+The focused HTTP/history, manifest/reconciliation and capability-map selection
+passed **43/43**. All 16 staged substrate guards and the configured changed-file
+pre-commit checks passed, including pinned formatting, lint and backend typing.
+The generated capability map was regenerated and remained unchanged.
+`make verify-ci` also passed: **1,797 passed / 22 skipped**, with zero failures
+or errors. Skips retain their stated PostgreSQL, optional Atlas and slow-probe
+requirements; this smoke result does not replace those separate lanes or the
+full default backend suite.
+
+The separate index investigation confirmed that the pinned adapter compares
+string timestamp ranges using text extraction while its ordered companion uses
+JSONB extraction. Exact scalar workspace predicates improve selectivity but
+cause an unbounded top-N workspace sort in the populated fixture. Splitting
+timestamp and equal-timestamp/id branches still sorted 906 matching workspace
+rows for a 100-row page. Both experiments were reverted; no dependency or
+runtime index change is included here. R5 remains open and requires a qualified
+query/index alignment solution, rather than relaxing the plan assertion to
+accept the full-workspace sort.
+
+## 2026-10-16 history qualification matrix correction
+
+The populated PostgreSQL probe previously timed both directions but explained
+only the final descending page, and all 20,000 fixture events shared a timestamp.
+It now checks exact merged-stream page IDs against an independently ordered
+fixture for both tied and varying (non-ID-monotonic) timestamps. Both directions
+continue correctly after the boundary record is deleted. Every first/continued
+workspace/legacy query is explained, and JUnit stores explicit sort, residual-row
+and workspace-index findings. The original descending/tied no-sort/no-sequence-
+scan assertion is retained; the new diagnostic shapes do not silently expand
+that narrow qualification into an R5 completion claim.
+
+Three independent disposable database runs each passed both fixture shapes
+(six case executions, two distinct cases). Two-page logger timings were:
+
+| Shape | Ascending milliseconds (three runs) | Descending milliseconds (three runs) |
+| --- | --- | --- |
+| Tied timestamps | 1337.49, 1136.75, 694.31 | 27.02, 55.57, 30.44 |
+| Varying timestamps | 58.26, 49.25, 73.81 | 31.17, 37.31, 42.20 |
+
+These include query/hydration/connection effects and must not be attributed solely
+to an EXPLAIN node or reported as a stable latency SLA. Every sampled ascending
+stream plan includes a sort. The tied descending workspace continuation removes
+3,592 rows by filter for a 100-row query; the varying continuation removes 3,489.
+The descending workspace plans lack a workspace index condition. R5 remains
+open: bounded returned rows are not bounded database scan work. No production
+index, adapter monkeypatch or query workaround is included in this increment.
+On the final source, the two expanded probe cases plus eight native audit-tool
+contracts passed **10/10** with zero skips, failures or errors
+(`/tmp/core-history-expanded-final.xml`). EXPLAIN binds the same page-limit
+parameter as the adapter. Configured changed-file formatting, typing and drift
+checks passed. These are test/documentation changes; no runtime behavior changed.
+The probe requires both `INTEGRAL_RUN_SLOW_TESTS=1` and an explicit marker
+selection overriding the default slow exclusion; a skipped run is not evidence.
+
+## 2026-10-16 exact native design approval and legacy refusal
+
+The unadvertised legacy `design_proposal` executor now refuses all effects
+instead of stamping the current thread marker from an older payload. It retains
+an explicit reconciliation tombstone for persisted cards. The current propose-
+design and native build-selection tools remain available; no second design
+approval journal or automatic build is introduced.
+
+An independent native regression reproduced the active service returning early
+for an already-approved marker before checking the current run. The native
+service now performs its existing revision/turn/run CAS on every selection,
+joins current identity/workspace admission through that write, validates the
+owning session edge and preserves the timestamp on an exact same-run retry.
+The focused native selection passed **16/16**: current versus stale run under
+both new and earlier approval, revoked membership, inactive identity, detached
+session edge, concurrent design replacement, deterministic repeat, and an
+integrated approval/revocation ordering probe, plus the three existing release-
+admission contracts. No skips, failures or errors. Two supplementary native
+cases then exercised actual persisted legacy cards through bless/dispatch/error
+recording: both remained unapplied, retained an error and left the current design
+unchanged (**2/2**, separate from the 16-case selection). The focused default-store
+selection passed **80/80**, covering primary broker selection, design dispatch,
+legacy refusal and executor scope inventory. Its two resident-skill metadata
+warnings are retained; no test skipped or errored. The Core wheel rebuilt byte
+for byte with SHA256
+`0e4889fe84ac625550e3fc71d3b4946b7805179ef0b3dde97b26287b16d6c251`
+and passed the isolated import gate. Clean public install, SDK wheel and
+external reference-App artifact gates also passed against a frozen snapshot
+whose two changed runtime files match this checkout. Configured staged hooks
+and all substrate guards passed. The CI-faithful suite passed **1,797 tests /
+22 skipped**, with zero failures or errors. The full backend suite then passed
+**6,593 tests / 845 skipped**, with zero failures or errors
+(`/tmp/core-design-hardening-full.xml`, 4,003.5 seconds). The two supplementary
+native persisted-card cases were added after that run collected and retain their
+separate qualification above. Default-suite skips do not qualify native storage
+contracts; the independent PostgreSQL selections supply the stated component
+proof. This qualifies the design increment, not the full hardening goal.
+
+R1/R2 remain open: the 39 other effectful kinds, complete native design approval
+history and recovery contracts, external effects, mixed batches and final system
+qualification remain within the goal. Refusing an obsolete path is not proof of
+those contracts or of a completed App build. See the executor inventory for the
+current-versus-historical distinction.
 
 ## Rules for recording closure
 
@@ -81,3 +266,89 @@ This qualifies one local integration. The other 43 executor kinds, conditional
 batches, arbitrary external App effects, history query plans, replica admission
 limits, privacy and restore/session journeys remain within the original goal.
 There has been no merge, deployment or live-provider acceptance for this increment.
+
+
+## 2026-10-16 qualified Entry-tag delta integration
+
+The exact add/remove tag commands share canonical Entry serialization, live
+identity/workspace authority, schema/taxonomy validation, atomic revision/event
+intent and encrypted receipt, and current-state recovery. Full backend:
+**6,593 passed / 866 skipped**, zero failures/errors (7,459 collected; 4,485.163
+seconds). CI-faithful: **1,797 passed / 22 skipped**. The combined native
+selection passed **34/34**, covering 16 tag, 15 design and three release cases;
+counts from overlapping reruns are not additive. All four independent artifact
+gates passed; reproducible wheel SHA256:
+`db14df11a3d357169c6b129deef962bf5438b3e23ad11548c065ea9a7a8d1408`.
+The changed runtime/test source still matches the sealed qualification manifest.
+The tag-only increment is now based on merged PR #142 (`22d381a3`); this is the
+same tested runtime tree after removing already-merged design changes from the
+commit diff. The report records independent-interpreter race proof and external
+delivery limitations. R1/R2 remain open for the 39 other effectful kinds and the
+remaining contracts above. No deployment is included.
+
+
+## 2026-10-16 qualified existing-byte attachment filing
+
+The shared filing command now commits Entry revision/attachment membership,
+validated private chat source ownership, file ownership transition, event intent
+and exact encrypted approval receipt together. Existing bytes and storage
+accounting are unchanged; recovery reads current authority and never files again.
+Full backend: **6,593 passed / 878 skipped**, zero failures/errors (7,471 tests,
+4,193.580 seconds; `/tmp/core-design-tags-filing-full.xml`). CI-faithful:
+**1,797 passed / 22 skipped**. Combined native: **75/75**, comprising 16 tag,
+15 design, three release, 11 filing, one filing cancellation and 29 result-access
+cases. These selections overlap component reports and are not additive.
+All four independent artifacts passed; reproducible Core wheel SHA256:
+`14433df22fe37150e88d4eb0b614eea2e5453c423c41988b9bf951f2a1377023`.
+Runtime/test files match the sealed source manifest. The isolated candidate is
+aligned onto qualified tag commit `d1212962` without changing its tested runtime.
+The historical direction-index experiment is retained as evidence only; its
+regressing runtime/index changes were reverted. R5 and the other remaining
+hardening rows stay open. No deployment is included.
+
+
+## 2026-10-16 four-command routine and worker candidate
+
+The uncommitted candidate integrates create/edit/cancel/remove into the native
+receipt kernel and passes the existing routine WorkItem lease through the actual
+agent route. Later worker effects recheck live routine state under the native
+row fence, and stop/remove interruption is offered after commit. Scheduler and
+owner writers now serialize fresh state to prevent stale overwrite/revival.
+Current working inventory: 31 native kinds, of which four await final combined
+qualification. Committed baseline inventory remains 27.
+
+Evidence: the final combined native routine/tag/release/work-kernel/effect-fence
+selection passed 98 tests (one non-native deselected); 97 focused tests passed
+with one native-only skip. These are distinct selections with overlapping
+component history. The [routine report](2026-10-16-routine-command-recovery-boundary.md)
+retains original red evidence, historical fixture corrections, proof limitations,
+and the remaining automatic-write provenance and durable fire accounting
+contracts. Broad CI/full/native/artifact gates must be rerun on final source.
+R1/R2 and the full goal remain open. No deployment or routine-candidate push has
+occurred.
+
+
+## 2026-10-16 controlled QA cut and sprint boundary
+
+The [QA handoff](2026-10-16-hardening-qa-handoff.md) names the exact pushed
+source, its scheduled-write exclusion, current-cut qualification gates and the
+proposed subsequent-sprint backlog. It does not close this acceptance ledger.
+The routine candidate replaces unsafe timestamp-based automatic approval with
+private task-owned broker provenance and a frozen queued mandate, retains human
+approval by default, binds receipt reuse to exact invocation identity and
+withholds saved proposal details from recovered results. The final graph test
+module passed **46 tests / two native-only skipped** under an explicit semantic
+fixture budget; dedicated timeout cases preserve the production three-second
+ceiling. Broader final-source CI/full/native/artifact gates are running in
+sequence. Current baseline and candidate inventory counts are distinguished in
+the [executor inventory](2026-10-15-approved-executor-recovery-inventory.md).
+Deferred sprint work remains an explicit requirement, not a completion claim.
+
+
+The controlled routine QA cut completed final local qualification: 6609 default
+backend tests passed (933 skipped), 1813 CI-faithful passed (22 skipped), 139
+native passed (47 non-native deselected), Core-only 9/9, all independent
+artifacts, pinned hooks, staged guards and the frozen production advisory audit.
+Source hashes remained unchanged through every pipeline stage. This qualifies
+the documented cut, not the full goal. R1/R2, durable fire accounting and the
+remaining requirements in this ledger remain open for subsequent sprint work.

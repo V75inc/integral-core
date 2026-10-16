@@ -550,6 +550,73 @@ async def _evaluate_human_default(
             )
         return False
 
+    # Phase 5 Plan 05-05 — connector:<id> scope dispatch for humans.
+    # Owner of the Connector may invoke ``connector.sync`` + read its
+    # audit-trail events; without this branch ``POST /api/connectors/{id}/sync``
+    # is unreachable by any human caller (the per-connector Policy
+    # materialized in Plan 05-01 covers the CONNECTOR subject, not humans).
+    # Owner check uses ``Connector.owner`` scalar (Phase 1 D-07) which carries
+    # the User Node id; the request principal id may be either the User Node
+    # id OR the AuthUser id, so we resolve through ``get_user_node`` to find
+    # the canonical User Node id (matching the pattern used by can_view_*
+    # / can_edit_* helpers elsewhere in this module).
+    if scope_str.startswith("connector:") or (rk == "connector" and rid):
+        connector_id = rid or scope_str.split(":", 1)[1]
+        if (
+            scope_str.startswith("connector:")
+            and scope_str != f"connector:{connector_id}"
+        ):
+            return False
+        try:
+            from app.agentive.nodes import Connector as _Connector
+
+            _connector = await _Connector.get(connector_id)
+            if _connector is None:
+                return False
+            caller_user_node = await get_user_node(user_id)
+            caller_user_node_id = (
+                getattr(caller_user_node, "id", None) if caller_user_node else None
+            )
+            owner = await get_user_node(getattr(_connector, "owner", ""))
+            # Installation may store the login id or the graph profile id.
+            # Compare live canonical users on BOTH sides; delegation evaluates
+            # its issuer by profile id even when the installer used a login id.
+            if owner is not None and owner.id == caller_user_node_id:
+                return True
+            # Connector scoping: a shared row is invocable (and its status
+            # readable) by any member of the mounted workspace. Workspace
+            # admins additionally get update/delete/sync on shared rows so
+            # they can maintain connections they did not install.
+            if (
+                action in ("tool.invoke", "connector.read")
+                and (getattr(_connector, "connection_mode", "") or "per_user")
+                == "shared"
+            ):
+                workspace_id = getattr(_connector, "workspace_id", "") or ""
+                if workspace_id:
+                    from app.services.workspace_permissions import (
+                        user_in_workspace_member_pool,
+                    )
+
+                    if await user_in_workspace_member_pool(user_id, workspace_id):
+                        return True
+            if (
+                action in ("connector.update", "connector.delete", "connector.sync")
+                and (getattr(_connector, "connection_mode", "") or "per_user")
+                == "shared"
+            ):
+                workspace_id = getattr(_connector, "workspace_id", "") or ""
+                if workspace_id:
+                    from app.services.workspace_permissions import (
+                        is_workspace_admin_or_owner,
+                    )
+
+                    if await is_workspace_admin_or_owner(user_id, workspace_id):
+                        return True
+            return False
+        except Exception:  # noqa: BLE001 — defensive: any failure → deny
+            return False
+
     # Resource kinds where read access cascades through scope (tags,
     # operational_models, comments, attachments, entry_types) — humans see
     # anything in a track they can view.
@@ -649,65 +716,6 @@ async def _evaluate_human_default(
         return await can_admin_app(user_id, app_id)
     if scope_str.startswith("user:"):
         return scope_str.split(":", 1)[1] == user_id
-
-    # Phase 5 Plan 05-05 — connector:<id> scope dispatch for humans.
-    # Owner of the Connector may invoke ``connector.sync`` + read its
-    # audit-trail events; without this branch ``POST /api/connectors/{id}/sync``
-    # is unreachable by any human caller (the per-connector Policy
-    # materialized in Plan 05-01 covers the CONNECTOR subject, not humans).
-    # Owner check uses ``Connector.owner`` scalar (Phase 1 D-07) which carries
-    # the User Node id; the request principal id may be either the User Node
-    # id OR the AuthUser id, so we resolve through ``get_user_node`` to find
-    # the canonical User Node id (matching the pattern used by can_view_*
-    # / can_edit_* helpers elsewhere in this module).
-    if scope_str.startswith("connector:"):
-        connector_id = scope_str.split(":", 1)[1]
-        try:
-            from app.agentive.nodes import Connector as _Connector
-
-            _connector = await _Connector.get(connector_id)
-            if _connector is None:
-                return False
-            caller_user_node = await get_user_node(user_id)
-            caller_user_node_id = (
-                getattr(caller_user_node, "id", None) if caller_user_node else None
-            )
-            owner = getattr(_connector, "owner", "")
-            if owner and (owner == user_id or owner == caller_user_node_id):
-                return True
-            # Connector scoping: a shared row is invocable (and its status
-            # readable) by any member of the mounted workspace. Workspace
-            # admins additionally get update/delete/sync on shared rows so
-            # they can maintain connections they did not install.
-            if (
-                action in ("tool.invoke", "connector.read")
-                and (getattr(_connector, "connection_mode", "") or "per_user")
-                == "shared"
-            ):
-                workspace_id = getattr(_connector, "workspace_id", "") or ""
-                if workspace_id:
-                    from app.services.workspace_permissions import (
-                        user_in_workspace_member_pool,
-                    )
-
-                    if await user_in_workspace_member_pool(user_id, workspace_id):
-                        return True
-            if (
-                action in ("connector.update", "connector.delete", "connector.sync")
-                and (getattr(_connector, "connection_mode", "") or "per_user")
-                == "shared"
-            ):
-                workspace_id = getattr(_connector, "workspace_id", "") or ""
-                if workspace_id:
-                    from app.services.workspace_permissions import (
-                        is_workspace_admin_or_owner,
-                    )
-
-                    if await is_workspace_admin_or_owner(user_id, workspace_id):
-                        return True
-            return False
-        except Exception:  # noqa: BLE001 — defensive: any failure → deny
-            return False
 
     return False  # defensive deny
 

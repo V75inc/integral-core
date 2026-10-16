@@ -18,6 +18,26 @@ from app.api.errors import BadRequestError
 pytestmark = pytest.mark.smoke
 
 
+async def _setup_approval_turn(monkeypatch):
+    """Use a live auth identity for tests that actually apply approved writes."""
+    import uuid
+
+    from jvspatial.api.auth.models import User as AuthUser
+
+    from app.models.nodes import User
+    from tests.native_harness.test_adaptive_context import setup_turn
+
+    ctx, thread, run, calls = await setup_turn(monkeypatch)
+    profile = await User.find_one({"id": ctx.user_id})
+    auth = await AuthUser.create(
+        email=f"routine-approval-{uuid.uuid4().hex}@example.com",
+        password_hash="fixture",
+    )
+    profile.user_id = auth.id
+    await profile.save()
+    return ctx, thread, run, calls
+
+
 @pytest.mark.asyncio
 async def test_reminder_stream_rechecks_authority_after_tool_event(monkeypatch):
     from app.schemas.agentive.work import WorkError
@@ -166,10 +186,9 @@ async def test_agent_routine_approval_keeps_general_outcome_path(monkeypatch):
     from app.models.nodes import ChatThread
     from app.services.prompt_queue import reconcile_staged_write_items
     from app.services.simple_reminders import current_reminder_confirmation
-    from tests.native_harness.test_adaptive_context import setup_turn
 
     monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "55" * 32)
-    ctx, thread, _, _ = await setup_turn(monkeypatch)
+    ctx, thread, _, _ = await _setup_approval_turn(monkeypatch)
     staged = await dispatch_tool(
         "integral_schedule_task",
         {
@@ -198,10 +217,9 @@ async def test_reminder_approval_confirmation_uses_saved_current_episode(monkeyp
     from app.services.chat_providers.pydantic_ai_provider import PydanticAIProvider
     from app.services.prompt_queue import reconcile_staged_write_items
     from app.services.simple_reminders import current_reminder_confirmation
-    from tests.native_harness.test_adaptive_context import setup_turn
 
     monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "55" * 32)
-    ctx, thread, _, _ = await setup_turn(monkeypatch)
+    ctx, thread, _, _ = await _setup_approval_turn(monkeypatch)
     user = ctx.user_id
     workspace = ctx.workspace_id
     staged = await dispatch_tool(

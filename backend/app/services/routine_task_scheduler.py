@@ -204,11 +204,17 @@ async def _emit_run_event(
 
 
 async def _auto_pause(task: RoutineTask, *, reason: str) -> None:
-    task.status = "paused"
-    task.last_run_status = "error"
-    task.last_run_error = reason
-    task.updated_at = utc_now_iso()
-    await task.save()
+    from app.agentive.services.routine_state import locked_routine
+
+    async with locked_routine(task.id) as current:
+        if current is None or current.status != "active":
+            return
+        task = current
+        task.status = "paused"
+        task.last_run_status = "error"
+        task.last_run_error = reason
+        task.updated_at = utc_now_iso()
+        await task.save()
     await _emit_run_event(
         task, action="routine_task.auto_paused", details={"reason": reason}
     )
@@ -366,116 +372,63 @@ async def _reconcile_write_scope(
     preexisting_tokens: Optional[Set[str]] = None,
     turn_started_at: Optional[datetime] = None,
 ) -> None:
-    """Auto-apply pending StagedChanges the run just minted, IF allowlisted.
-
-    Fail-closed: a token whose payload doesn't carry a matchable
-    ``entry_id``/``track_id``, or one for a ``kind`` outside the routine's
-    ``write_scope``, is left pending for manual review — never silently
-    dropped, never silently applied.
-
-    ``preexisting_tokens`` (from ``_snapshot_pending_tokens`` taken before the
-    turn) are skipped outright: a card the user staged in the same thread and
-    has not reviewed is not the routine's to bless, even when its target is
-    inside ``write_scope``.
-
-    ``turn_started_at`` is the second, independent gate: the skip-set is
-    provenance-by-inference (a pre-turn observation, not something recorded on
-    the card), so a card minted before the turn but missed by the snapshot —
-    or one staged by the user mid-run — would otherwise be eligible. A card
-    whose ``created_at`` predates the turn is never the routine's to bless.
-    """
-    if not task.write_scope:
-        return
-
-    from app.agentive.staging import list_pending_tokens
-    from app.agentive.staging_executors import (
-        _DELETE_KINDS,  # type: ignore[attr-defined]
-    )
-    from app.models.nodes import ChatThread
-
-    thread = await ChatThread.get(task.thread_id)
-    if thread is None:
-        return
-
-    tokens = await list_pending_tokens(task.user_id, thread.provider_session_id)
-    if not tokens:
-        return
-
-    allowed_ids = {
-        g.get("resource_id") for g in task.write_scope if g.get("resource_id")
-    }
-    skip_tokens = preexisting_tokens or set()
-
-    from app.agentive.services.staging_apply import bless_and_execute
-
-    for sc in tokens:
-        if sc.token in skip_tokens:
-            continue  # staged before this run — not ours to bless
-        if turn_started_at is not None and not _minted_during_turn(
-            sc.created_at, turn_started_at
-        ):
-            continue  # predates the turn — the routine did not mint it
-        if sc.kind in _DELETE_KINDS:
-            continue  # v1 hard rule: delete-class ops never auto-apply
-        target = sc.payload.get("entry_id") or sc.payload.get("track_id")
-        if not target or target not in allowed_ids:
-            continue
-        try:
-            await bless_and_execute(
-                user_id=task.user_id, token=sc.token, autonomy="single"
-            )
-            logger.info(
-                "routine_task_scheduler: auto-applied token=%s kind=%s for routine=%s",
-                sc.token,
-                sc.kind,
-                task.id,
-            )
-        except Exception:  # noqa: BLE001
-            logger.warning(
-                "routine_task_scheduler: auto-apply failed token=%s routine=%s",
-                sc.token,
-                task.id,
-                exc_info=True,
-            )
+    """Legacy scan cannot authorize cards; the broker owns exact-origin execution."""
+    return None
 
 
 async def _record_failed_run(task: RoutineTask, *, reason: str) -> None:
-    """Persist one failed attempt; auto-pause at the consecutive-failure cap."""
-    task.last_run_status = "error"
-    task.last_run_error = reason
-    task.consecutive_failures += 1
-    # One-shots clear next_run_at on dispatch; re-arm a short retry so a
-    # transient failure can still consume the max_runs budget.
-    if not (task.cron or "").strip() and task.status == "active":
-        retry_iso = (utc_now() + timedelta(seconds=_SKIP_RETRY_SECONDS)).isoformat()
-        task.next_run_at = retry_iso
-    if task.consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+    """Patch fresh progress without replacing owner edits or reviving a stop."""
+    from app.agentive.services.routine_state import locked_routine
+
+    async with locked_routine(task.id) as current:
+        if current is None or current.status != "active":
+            return
+        task = current
+        task.last_run_at = utc_now_iso()
+        task.last_run_status = "error"
+        task.last_run_error = reason
+        task.consecutive_failures += 1
+        if not (task.cron or "").strip():
+            task.next_run_at = (
+                utc_now() + timedelta(seconds=_SKIP_RETRY_SECONDS)
+            ).isoformat()
+        paused = task.consecutive_failures >= _MAX_CONSECUTIVE_FAILURES
+        if paused:
+            task.status = "paused"
+            task.last_run_error = f"{task.consecutive_failures} consecutive failed runs"
+        task.updated_at = utc_now_iso()
         await task.save()
-        await _auto_pause(
+    if paused:
+        await _emit_run_event(
             task,
-            reason=f"{task.consecutive_failures} consecutive failed runs",
+            action="routine_task.auto_paused",
+            details={"reason": task.last_run_error},
         )
-        return
-    await task.save()
-    await _emit_run_event(
-        task,
-        action="routine_task.run_completed",
-        details={"status": "error", "reason": task.last_run_error},
-    )
+        await _notify_auto_paused(task, reason=task.last_run_error)
+    else:
+        await _emit_run_event(
+            task,
+            action="routine_task.run_completed",
+            details={"status": "error", "reason": task.last_run_error},
+        )
 
 
 async def _record_skipped_run(task: RoutineTask, *, reason: str) -> None:
-    """A run refused at admission (thread busy / user turn cap) is deferred,
-    not failed: no failure increment, retry after a short delay — but never
-    later than the cron slot already computed for it."""
-    task.last_run_at = utc_now_iso()
-    task.last_run_status = "skipped"
-    task.last_run_error = None
-    retry_iso = (utc_now() + timedelta(seconds=_SKIP_RETRY_SECONDS)).isoformat()
-    if not task.next_run_at or retry_iso < task.next_run_at:
-        task.next_run_at = retry_iso
-    task.updated_at = utc_now_iso()
-    await task.save()
+    """Defer from fresh state; a skipped run cannot overwrite a later stop/edit."""
+    from app.agentive.services.routine_state import locked_routine
+
+    async with locked_routine(task.id) as current:
+        if current is None or current.status != "active":
+            return
+        task = current
+        task.last_run_at = utc_now_iso()
+        task.last_run_status = "skipped"
+        task.last_run_error = None
+        retry_iso = (utc_now() + timedelta(seconds=_SKIP_RETRY_SECONDS)).isoformat()
+        if not task.next_run_at or retry_iso < task.next_run_at:
+            task.next_run_at = retry_iso
+        task.updated_at = utc_now_iso()
+        await task.save()
     logger.info(
         "routine_task_scheduler: run skipped for %s (%s) — retry at %s",
         task.id,
@@ -530,11 +483,6 @@ async def _execute_run(task: RoutineTask) -> None:
         await _auto_pause(task, reason=reason)
         return
 
-    # Snapshot BEFORE the turn: only tokens minted by this run may be
-    # auto-applied under write_scope (C1). ``None`` = snapshot failed →
-    # reconciliation is skipped entirely (fail closed).
-    preexisting_tokens = await _snapshot_pending_tokens(task)
-    turn_started_at = utc_now()
     # Slot identity includes run bookkeeping so a failed fire does not block
     # the next attempt that still shares ``next_run_at`` (tests / busy skip).
     # Mid-flight crash recovery still sees the same key because
@@ -593,27 +541,16 @@ async def _execute_run(task: RoutineTask) -> None:
             success = False
             error_reason = (done.failure or {}).get("message") or done.status
 
-    # Stop / Remove may have cancelled or deleted the row while the turn ran.
-    # Do not record success/failure against a row the user already stopped —
-    # that would bump consecutive_failures into an auto-pause after an abort.
-    fresh = await RoutineTask.get(task.id)
-    if fresh is None:
-        logger.info(
-            "routine_task_scheduler: routine %s deleted mid-run — discarding result",
-            task.id,
-        )
-        return
-    if fresh.status != "active":
-        logger.info(
-            "routine_task_scheduler: routine %s status=%s mid-run — discarding result",
-            task.id,
-            fresh.status,
-        )
-        return
-    task = fresh
-    task.last_run_at = utc_now_iso()
+    from app.agentive.services.routine_state import locked_routine
 
-    if success:
+    if not success:
+        await _record_failed_run(task, reason=error_reason or "Agent turn failed")
+        return
+    async with locked_routine(task.id) as current:
+        if current is None or current.status != "active":
+            return
+        task = current
+        task.last_run_at = utc_now_iso()
         task.last_run_status = "success"
         task.last_run_error = None
         task.consecutive_failures = 0
@@ -626,50 +563,26 @@ async def _execute_run(task: RoutineTask) -> None:
                 task.status = "completed"
                 just_completed = True
         await task.save()
-        logger.info(
-            "routine_task_scheduler: run succeeded for %s (run_count=%s/%s)",
-            task.id,
-            task.run_count,
-            task.max_runs if task.max_runs is not None else "∞",
-        )
-        if preexisting_tokens is None:
-            # Fail closed — without the pre-turn snapshot we cannot tell the
-            # routine's own cards from the user's, and blessing the user's
-            # unreviewed cards is worse than leaving ours pending.
-            logger.warning(
-                "routine_task_scheduler: skipping write-scope reconciliation for "
-                "%s — pre-turn pending-token snapshot unavailable",
-                task.id,
-            )
-        else:
-            try:
-                await _reconcile_write_scope(
-                    task,
-                    preexisting_tokens=preexisting_tokens,
-                    turn_started_at=turn_started_at,
-                )
-            except Exception:  # noqa: BLE001
-                logger.warning(
-                    "routine_task_scheduler: write-scope reconciliation failed for %s",
-                    task.id,
-                    exc_info=True,
-                )
+    logger.info(
+        "routine_task_scheduler: run succeeded for %s (run_count=%s/%s)",
+        task.id,
+        task.run_count,
+        task.max_runs if task.max_runs is not None else "∞",
+    )
+    await _emit_run_event(
+        task, action="routine_task.run_completed", details={"status": "success"}
+    )
+    if just_completed:
         await _emit_run_event(
-            task, action="routine_task.run_completed", details={"status": "success"}
+            task,
+            action="routine_task.completed",
+            details={"run_count": task.run_count, "max_runs": task.max_runs},
         )
-        if just_completed:
-            await _emit_run_event(
-                task,
-                action="routine_task.completed",
-                details={"run_count": task.run_count, "max_runs": task.max_runs},
-            )
-            logger.info(
-                "routine_task_scheduler: %s reached max_runs=%s — marked completed",
-                task.id,
-                task.max_runs,
-            )
-    else:
-        await _record_failed_run(task, reason=error_reason or "Agent turn failed")
+        logger.info(
+            "routine_task_scheduler: %s reached max_runs=%s — marked completed",
+            task.id,
+            task.max_runs,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -743,19 +656,29 @@ async def run_scheduler_pass() -> int:
     by_user: Dict[str, List[str]] = {}
     for task in candidates:
         try:
+            from app.agentive.services.routine_state import locked_routine
             from app.agentive.services.routine_tasks import compute_next_run_at
 
-            if (task.cron or "").strip():
-                # Recurring: advance next_run_at BEFORE dispatch so a slow
-                # run cannot be double-picked on the next tick.
-                task.next_run_at = compute_next_run_at(
-                    task.cron, task.timezone, base_iso=now_iso
-                )
-            else:
-                # One-shot (empty cron): clear next_run_at so this pass cannot
-                # re-pick mid-flight. Failure / skip paths may re-arm a retry.
-                task.next_run_at = None
-            await task.save()
+            async with locked_routine(task.id) as current:
+                if (
+                    current is None
+                    or current.status != "active"
+                    or not current.next_run_at
+                    or current.next_run_at > now_iso
+                ):
+                    continue
+                task = current
+                if (task.cron or "").strip():
+                    # Recurring: advance next_run_at BEFORE dispatch so a slow
+                    # run cannot be double-picked on the next tick.
+                    task.next_run_at = compute_next_run_at(
+                        task.cron, task.timezone, base_iso=now_iso
+                    )
+                else:
+                    # One-shot (empty cron): clear next_run_at so this pass cannot
+                    # re-pick mid-flight. Failure / skip paths may re-arm a retry.
+                    task.next_run_at = None
+                await task.save()
         except Exception:  # noqa: BLE001
             logger.warning(
                 "run_scheduler_pass: failed to recompute next_run_at for %s",

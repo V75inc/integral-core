@@ -1354,6 +1354,36 @@ async def _x_delete_dashboard(user_id: str, payload: Dict[str, Any]) -> Dict[str
 async def _x_routine_task_create(
     user_id: str, payload: Dict[str, Any]
 ) -> Dict[str, Any]:
+    from app.agentive.services.staging_routine_commands import apply_routine_command
+    from app.services.agent_scope import active_workspace_id
+
+    return await apply_routine_command(
+        user_id=user_id,
+        workspace_id=payload.get("workspace_id") or active_workspace_id() or "",
+        payload=payload,
+        kind="routine_task_create",
+        execute=lambda: _execute_routine_task_create(user_id, payload),
+    )
+
+
+async def _x_routine_task_update(
+    user_id: str, payload: Dict[str, Any]
+) -> Dict[str, Any]:
+    from app.agentive.services.staging_routine_commands import apply_routine_command
+    from app.services.agent_scope import active_workspace_id
+
+    return await apply_routine_command(
+        user_id=user_id,
+        workspace_id=active_workspace_id() or "",
+        payload=payload,
+        kind="routine_task_update",
+        execute=lambda: _execute_routine_task_update(user_id, payload),
+    )
+
+
+async def _execute_routine_task_create(
+    user_id: str, payload: Dict[str, Any]
+) -> Dict[str, Any]:
     from app.agentive.services.routine_tasks import create_routine_task
     from app.services.agent_scope import active_workspace_id
 
@@ -1394,7 +1424,7 @@ async def _x_routine_task_create(
     }
 
 
-async def _x_routine_task_update(
+async def _execute_routine_task_update(
     user_id: str, payload: Dict[str, Any]
 ) -> Dict[str, Any]:
     from app.agentive.services.routine_tasks import update_routine_task
@@ -1433,6 +1463,21 @@ async def _x_routine_task_update(
 async def _x_routine_task_cancel(
     user_id: str, payload: Dict[str, Any]
 ) -> Dict[str, Any]:
+    from app.agentive.services.staging_routine_commands import apply_routine_command
+    from app.services.agent_scope import active_workspace_id
+
+    return await apply_routine_command(
+        user_id=user_id,
+        workspace_id=active_workspace_id() or "",
+        payload=payload,
+        kind="routine_task_cancel",
+        execute=lambda: _execute_routine_task_cancel(user_id, payload),
+    )
+
+
+async def _execute_routine_task_cancel(
+    user_id: str, payload: Dict[str, Any]
+) -> Dict[str, Any]:
     from app.agentive.services.routine_tasks import cancel_routine_task
 
     routine = await cancel_routine_task(
@@ -1456,6 +1501,21 @@ async def _x_routine_task_cancel(
 async def _x_routine_task_purge(
     user_id: str, payload: Dict[str, Any]
 ) -> Dict[str, Any]:
+    from app.agentive.services.staging_routine_commands import apply_routine_command
+    from app.services.agent_scope import active_workspace_id
+
+    return await apply_routine_command(
+        user_id=user_id,
+        workspace_id=active_workspace_id() or "",
+        payload=payload,
+        kind="routine_task_purge",
+        execute=lambda: _execute_routine_task_purge(user_id, payload),
+    )
+
+
+async def _execute_routine_task_purge(
+    user_id: str, payload: Dict[str, Any]
+) -> Dict[str, Any]:
     from app.agentive.services.routine_tasks import (
         delete_routine_task,
         get_routine_task,
@@ -1475,7 +1535,7 @@ async def _x_routine_task_purge(
         action="routine_task.purge",
         resource_type="RoutineTask",
         resource_id=deleted_id,
-        before={"id": deleted_id, "status": prior_status},
+        before={"id": deleted_id, "status": prior_status, "workspace_id": workspace_id},
         after=None,
         scope=f"workspace:{workspace_id}",
     )
@@ -2537,52 +2597,20 @@ async def _x_mcp_tool_call(user_id: str, payload: Dict[str, Any]) -> Dict[str, A
 
 
 async def _x_design_proposal(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Approve a staged greenfield design. Does not create apps or tracks.
+    """Refuse obsolete design cards; native approval owns exact run/revision proof.
 
-    Bless records ``approved`` on the thread marker so ``commit_batch`` can
-    mint the build card. The later batch executor performs the writes.
+    Keep a tombstone for persisted cards instead of interpreting an old payload
+    as approval of whichever design happens to be current now. The live design
+    flow records an outline and uses the primary native build-tool selection.
     """
-    session_id = str(payload.get("session_id") or "").strip()
-    if not session_id:
-        return {
-            "error": True,
-            "error_code": "session_required",
-            "message": "design_proposal payload needs session_id",
-        }
-    from app.services import chat_threads
-    from app.utils.time import utc_now_iso
-
-    thread = await chat_threads.get_thread_by_session(session_id)
-    if thread is None:
-        return {
-            "error": True,
-            "error_code": "not_found",
-            "message": "Chat thread not found",
-        }
-    if (getattr(thread, "user_id", "") or "") != user_id:
-        return {
-            "error": True,
-            "error_code": "forbidden",
-            "message": "Thread does not belong to the caller",
-        }
-    marker = dict(getattr(thread, "design_proposed", None) or {})
-    marker["approved"] = True
-    marker["approved_at"] = utc_now_iso()
-    marker["idempotency_key"] = payload.get("idempotency_key")
-    if payload.get("summary"):
-        marker["summary"] = payload.get("summary")
-    if payload.get("proposal"):
-        marker["proposal"] = payload.get("proposal")
-    thread.design_proposed = marker
-    await thread.save()
     return {
-        "ok": True,
-        "approved": True,
-        # FE + resume: this is not a substrate write — the follow-on agent
-        # turn must begin_batch and build (AGENT-17).
-        "needs_agent_build": True,
-        "summary": marker.get("summary") or "",
-        "idempotency_key": marker.get("idempotency_key"),
+        "error": True,
+        "error_code": "design_approval_reconciliation_required",
+        "message": (
+            "This older design approval cannot authorize the current design. "
+            "Read the saved design and confirm it in the current conversation "
+            "before building. No design was approved or replayed."
+        ),
     }
 
 

@@ -16,6 +16,7 @@ from app.agentive.services.staging_execution import (
     release_unapplied_staging_claim,
 )
 from app.agentive.services.staging_model_commands import MODEL_COMMAND_KINDS
+from app.agentive.services.staging_routine_commands import ROUTINE_COMMAND_KINDS
 from app.agentive.staging import StagedChange, StagingError
 
 CANONICAL_COMMAND_KINDS = (
@@ -35,10 +36,14 @@ CANONICAL_COMMAND_KINDS = (
             "delete_comment",
             "save_view",
             "delete_view",
+            "attach_uploaded_file",
+            "add_entry_tag",
+            "remove_entry_tag",
         }
     )
     | DASHBOARD_COMMAND_KINDS
     | MODEL_COMMAND_KINDS
+    | ROUTINE_COMMAND_KINDS
 )
 
 
@@ -216,6 +221,10 @@ async def _readback_view(
 async def _readback(
     sc: StagedChange, workspace_id: str, evidence: dict[str, Any]
 ) -> dict[str, Any]:
+    if sc.kind in ROUTINE_COMMAND_KINDS:
+        from app.agentive.services.staging_routine_commands import readback
+
+        return await readback(sc, workspace_id, evidence)
     if sc.kind in MODEL_COMMAND_KINDS:
         from app.agentive.services.staging_model_commands import readback
 

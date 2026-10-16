@@ -73,6 +73,18 @@ def is_shared_row(connector: Any) -> bool:
     return (getattr(connector, "connection_mode", "") or "per_user") == "shared"
 
 
+async def connector_owner_is(connector: Any, principal_id: str) -> bool:
+    """Match current login/profile aliases without trusting raw id equality."""
+    from app.services.permissions import get_user_node
+
+    if connector is None or not principal_id:
+        return False
+    caller = await get_user_node(principal_id)
+    owner_id = getattr(connector, "owner", "")
+    owner = await get_user_node(owner_id) if owner_id else None
+    return caller is not None and owner is not None and caller.id == owner.id
+
+
 async def rows_for_workspace(workspace_id: str) -> List[Any]:
     """All connector rows mounted in a workspace (empty on lookup failure)."""
     try:
@@ -108,6 +120,12 @@ async def resolve_connector_row(
             "Connector tools require a bound workspace",
             "misconfigured",
         )
+    from app.services.permissions import get_user_node
+
+    principal = await get_user_node(principal_id) if principal_id else None
+    aliases = {principal_id} if principal_id else set()
+    if principal is not None:
+        aliases.update((principal.id, principal.user_id))
     connectors = await rows_for_workspace(workspace_id)
     personal = None
     shared = None
@@ -120,7 +138,7 @@ async def resolve_connector_row(
         # invoked with shared credentials instead of their per-user row.
         owned_personal = (
             bool(principal_id)
-            and getattr(connector, "owner", "") == principal_id
+            and getattr(connector, "owner", "") in aliases
             and not is_shared_row(connector)
         )
         if owned_personal:

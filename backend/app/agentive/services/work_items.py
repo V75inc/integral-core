@@ -303,6 +303,11 @@ async def authorized_work_item_effect(
                     "work.lease_lost", "execution lease is no longer current"
                 ) from None
             raise
+        from app.agentive.services.routine_work_admission import (
+            assert_routine_work_current,
+        )
+
+        await assert_routine_work_current(item, lock=True)
         held_token = _held_effect_fence.set(
             (_execution_authority(context), transaction, asyncio.current_task())
         )

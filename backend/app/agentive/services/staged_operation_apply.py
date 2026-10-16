@@ -47,7 +47,7 @@ def _intent(sc: StagedChange) -> str:
 
 
 async def _lock_decision(
-    sc: StagedChange, *, recovering: bool
+    sc: StagedChange, *, recovering: bool, original_completion: bool = False
 ) -> tuple[dict | None, StagedChange]:
     database = current_graph_transaction_database()
     rows = await database.find(
@@ -123,7 +123,8 @@ async def _lock_decision(
             "approval_not_current", "Current decision does not permit this command"
         )
     if current.expires_at.tzinfo is None or (
-        not recovering and current.expires_at <= datetime.now(timezone.utc)
+        (not recovering or not original_completion)
+        and current.expires_at <= datetime.now(timezone.utc)
     ):
         raise StagingError("expired", "Original approval has expired")
     return row, current
@@ -214,20 +215,24 @@ async def apply_staged_operation_once(
             idempotency_key=body["operation_idempotency_key"],
         )
 
-    async def lookup(original, aliases):
+    async def lookup(original, aliases, *, original_decision=True):
         return await lookup_operation_outcome(
             identity=original,
             request_hash=request_hash,
             principal_aliases=aliases,
             expected_effect_contract_fingerprint=contract,
-            expected_decision_intent_fingerprint=_intent(sc),
+            expected_decision_intent_fingerprint=(
+                _intent(sc) if original_decision else None
+            ),
         )
 
     async def observe():
         async with operation_history_admission(
             scope=scope, subject=subject, app_id=body["app_id"]
         ) as principal:
-            return await lookup(identity(principal), principal.aliases)
+            return await lookup(
+                identity(principal), principal.aliases, original_decision=False
+            )
 
     @asynccontextmanager
     async def admit_decision(original, aliases):
@@ -275,13 +280,22 @@ async def apply_staged_operation_once(
         async with operation_history_admission(
             scope=scope, subject=subject, app_id=body["app_id"]
         ) as principal:
-            current_observation = await lookup(identity(principal), principal.aliases)
+            current_observation = await lookup(
+                identity(principal), principal.aliases, original_decision=False
+            )
             if (
                 current_observation is None
                 or current_observation.identity != observation.identity
+                or current_observation.original_decision_fingerprint
+                != observation.original_decision_fingerprint
             ):
                 raise OperationReceiptIncomplete("Original operation receipt changed")
-            row, current = await _lock_decision(sc, recovering=True)
+            original_completion = (
+                current_observation.original_decision_fingerprint == _intent(sc)
+            )
+            row, current = await _lock_decision(
+                sc, recovering=True, original_completion=original_completion
+            )
             completed = await _consume(
                 current_graph_transaction_database(), row, current
             )
@@ -295,11 +309,21 @@ async def apply_staged_operation_once(
             payload=body["input"],
             idempotency_key=body["operation_idempotency_key"],
             expected_effect_contract_fingerprint=contract,
-            expected_decision_intent_fingerprint=_intent(sc),
+            expected_decision_intent_fingerprint=(
+                _intent(sc) if original_completion else None
+            ),
         )
         if recovered is None:
             raise OperationReceiptIncomplete("Original completion is unavailable")
         public = recovered.model_dump()
+        if not original_completion:
+            # A fresh approval may acknowledge an already committed exact
+            # operation. It cannot claim to have authorized that earlier effect,
+            # rewrite its decision proof, or invoke the handler again.
+            public.update(
+                already_completed=True,
+                message="This operation completed earlier. No new changes were made.",
+            )
         if (
             result
             and not result.get("error")

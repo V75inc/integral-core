@@ -382,6 +382,22 @@ async def _handle_routine_turn_safe(
         # Lazy import — avoid scheduler import cycle at module load.
         from app.services.routine_task_scheduler import _TurnBusy
 
+        if isinstance(exc, WorkError) and exc.code == "work.cancelled":
+            return await work_items.transition_leased(
+                item.work_item_id,
+                lease_token=item.lease_token,
+                lease_fence=int(item.lease_fence or 0),
+                expected_status="running",
+                target="cancelled",
+                fields={
+                    "failure": work_items.normalize_failure(
+                        class_="cancelled",
+                        code=exc.code,
+                        message=exc.message,
+                        retryable=False,
+                    )
+                },
+            )
         if isinstance(exc, _TurnBusy):
             return await work_items.schedule_retry(
                 item.work_item_id,

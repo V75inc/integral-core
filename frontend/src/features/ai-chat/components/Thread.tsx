@@ -1,4 +1,5 @@
 import { KebabMenu } from '../../../components/ui/KebabMenu';
+import './composer.css';
 import { useChatEntityRefsOptional } from '../../../context/ChatEntityRefsContext';
 import { PageMeta } from '../../../components/ui';
 import {
@@ -1278,14 +1279,14 @@ export function Composer({ locked = false, home = false, onSendAttempt }: { lock
       <ComposerHostAccessory />
       <ComposerPrimitive.Root
       className="
-        relative flex w-full flex-col
+        relative flex min-w-0 w-full flex-col
       "
     >
       <ComposerAttachmentErrorToast />
       <ComposerDictationProvider>
         <div
           className="
-            flex w-full flex-col gap-2 rounded-[var(--radius-card)]
+            chat-composer flex min-w-0 w-full flex-col gap-2 rounded-[var(--radius-card)]
             border border-[var(--border-subtle)] bg-[var(--panel)] p-2 home-chat-composer
             transition-[border-color,box-shadow] duration-fast
             focus-within:border-[var(--brand-accent-line)]
@@ -1424,15 +1425,15 @@ function ComposerAction({ home = false }: { home?: boolean }) {
   const canSuggest = useAuiState(s => !s.thread.isRunning);
   const actionRef = useRef<HTMLDivElement>(null);
   return (
-    <div ref={actionRef} className="relative flex items-center justify-between">
-      <div className="flex items-center gap-1">
+    <div ref={actionRef} className="relative flex min-w-0 items-end gap-2">
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
         <ComposerPrimitive.AddAttachment asChild>
           <button
             type="button"
             aria-label="Attach a file"
             title="Attach an image or file"
             className="
-              flex h-8 w-8 items-center justify-center rounded-full
+              flex h-8 w-8 shrink-0 items-center justify-center rounded-full
               text-[var(--text-subtle)]
               transition-colors hover:bg-[var(--panel-2)] hover:text-[var(--text)]
               focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]
@@ -1442,7 +1443,7 @@ function ComposerAction({ home = false }: { home?: boolean }) {
           </button>
         </ComposerPrimitive.AddAttachment>
         <ComposerMicButton />
-        <KebabMenu portal={!home} ariaLabel="Suggestions" align="start" menuTitle="Try asking Integral" menuCaption="Choose a prompt, then make it your own." icon={<Sparkles size={15} aria-hidden />} items={suggestions.map(suggestion => ({
+        <KebabMenu portal ariaLabel="Suggestions" align="start" menuTitle="Try asking Integral" menuCaption="Choose a prompt, then make it your own." icon={<Sparkles size={15} aria-hidden />} items={suggestions.map(suggestion => ({
           key: suggestion.label, label: suggestion.label, description: suggestion.text, disabled: !canSuggest,
           onClick: () => {
             refs?.resetComposerEntityRefs();
@@ -1450,7 +1451,7 @@ function ComposerAction({ home = false }: { home?: boolean }) {
             actionRef.current?.parentElement?.querySelector('textarea')?.focus();
           },
         }))} />
-        <span className="px-1 text-[11px] text-[var(--text-subtle)]">
+        <span className="chat-composer-mention-hint whitespace-nowrap px-1 text-[11px] text-[var(--text-subtle)]">
           @people, #apps/tracks
         </span>
       </div>
@@ -1458,7 +1459,7 @@ function ComposerAction({ home = false }: { home?: boolean }) {
         <ComposerSendWithRefs
           aria-label={home ? "Ask Integral" : "Send message"}
           className={home ? "flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[var(--cta-bg)] text-[var(--cta-fg)] hover:bg-[var(--cta-hover)] disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]" : `
-            flex h-8 w-8 items-center justify-center rounded-full
+            flex h-8 w-8 shrink-0 items-center justify-center rounded-full
             bg-[var(--cta-bg)] text-[var(--cta-fg)]
             transition-colors hover:bg-[var(--cta-hover)]
             disabled:bg-[var(--badge-muted-bg)] disabled:text-[var(--text-subtle)]
@@ -1471,7 +1472,7 @@ function ComposerAction({ home = false }: { home?: boolean }) {
         <ComposerPrimitive.Cancel
           aria-label="Stop generating"
           className="
-            flex h-8 w-8 items-center justify-center rounded-full
+            flex h-8 w-8 shrink-0 items-center justify-center rounded-full
             bg-[var(--cta-bg)] text-[var(--cta-fg)]
             transition-colors hover:bg-[var(--cta-hover)]
             focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]

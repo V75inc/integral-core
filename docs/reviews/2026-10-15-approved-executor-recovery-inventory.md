@@ -4,9 +4,14 @@ Source snapshot after Core `07dc7750`, including the qualified standalone View d
 The dispatcher and `CANONICAL_COMMAND_KINDS` are authoritative after this date.
 This is command-integration coverage, not a test pass percentage or goal completion score.
 
-69 registered kinds: 24 in the native command inventory, one separate canonical
-App-operation integration, one conditional batch dispatcher, and 43 other kinds
-requiring effect/recovery integration. The App-operation path reuses its existing
+Committed baseline `18ea5ef0` has 69 registered kinds: 27 in the native command
+inventory, one separate canonical App-operation integration, one conditional
+batch dispatcher, one retired design-card tombstone that refuses effects, and
+39 other effectful kinds requiring effect/recovery integration. The qualified QA cut has 31 native kinds and 35 other effectful kinds after
+adding four routine commands. Its full, CI-faithful, native and artifact gates
+passed; the receipt inventory remains integration coverage, not whole-goal
+completion. The 2026-10-16 design follow-through below
+supersedes the historical design-executor classification. The App-operation path reuses its existing
 canonical receipt rather than joining `CANONICAL_COMMAND_KINDS`; its local graph
 qualification does not cover arbitrary external handler effects. Final artifact,
 GitHub and wider system qualification remain distinct.
@@ -14,11 +19,11 @@ GitHub and wider system qualification remain distinct.
 | Kind | Executor | Native staging receipt integration |
 | --- | --- | --- |
 | `add_comment` | `_x_add_comment` | Integrated on transactional graph stores |
-| `add_entry_tag` | `_x_add_entry_tag` | Not in native staging inventory; qualify underlying effects |
+| `add_entry_tag` | `_x_add_entry_tag` | Canonical delta/receipt integration; native, full backend, CI-faithful and artifact gates passed |
 | `apply_library_operational_model` | `_x_apply_library_operational_model` | Not in native staging inventory; qualify underlying effects |
 | `apply_to_draft` | `_x_propose_profile_revision` | Not in native staging inventory; qualify underlying effects |
 | `attach_file` | `_x_attach_file` | Not in native staging inventory; qualify underlying effects |
-| `attach_uploaded_file` | `_x_attach_uploaded_file` | Not in native staging inventory; qualify underlying effects |
+| `attach_uploaded_file` | `_x_attach_uploaded_file` | Existing-byte graph filing and exact receipt; native, full backend, CI-faithful and artifact gates passed |
 | `attach_uploaded_image` | `_x_attach_uploaded_image` | Not in native staging inventory; qualify underlying effects |
 | `author_operational_model` | `_x_author_operational_model` | Not in native staging inventory; qualify underlying effects |
 | `author_skill` | `_x_author_skill` | Not in native staging inventory; qualify underlying effects |
@@ -39,7 +44,7 @@ GitHub and wider system qualification remain distinct.
 | `delete_skill` | `_x_delete_skill` | Not in native staging inventory; qualify underlying effects |
 | `delete_track` | `_x_delete_track` | Integrated on transactional graph stores |
 | `delete_view` | `_x_delete_view` | Integrated on PostgreSQL; local source gates passed |
-| `design_proposal` | `_x_design_proposal` | Not in native staging inventory; qualify underlying effects |
+| `design_proposal` | `_x_design_proposal` | Retired: refuses all effects; current native design selection retains its separate authority contract |
 | `discard_profile_draft` | `_x_discard_profile_draft` | Not in native staging inventory; qualify underlying effects |
 | `draft_new_profile` | `_x_draft_new_profile` | Not in native staging inventory; qualify underlying effects |
 | `edit_comment` | `_x_edit_comment` | Integrated on transactional graph stores |
@@ -62,7 +67,7 @@ GitHub and wider system qualification remain distinct.
 | `publish_profile_draft` | `_x_publish_profile_draft` | Not in native staging inventory; qualify underlying effects |
 | `register_track_template` | `_x_register_track_template` | Not in native staging inventory; qualify underlying effects |
 | `remove_collaborator` | `_x_remove_collaborator` | Not in native staging inventory; qualify underlying effects |
-| `remove_entry_tag` | `_x_remove_entry_tag` | Not in native staging inventory; qualify underlying effects |
+| `remove_entry_tag` | `_x_remove_entry_tag` | Canonical delta/receipt integration; native, full backend, CI-faithful and artifact gates passed |
 | `remove_exclusion` | `_x_remove_exclusion` | Not in native staging inventory; qualify underlying effects |
 | `resolve_conflict` | `_x_resolve_conflict` | Not in native staging inventory; qualify underlying effects |
 | `revoke_share_link` | `_x_revoke_share_link` | Not in native staging inventory; qualify underlying effects |
@@ -100,7 +105,8 @@ R1/R2 remain incomplete until each row has a justified and qualified recovery co
 
 The original source triage of 44 non-native kinds below is **not qualification**.
 The separate App-operation local integration now has combined native evidence;
-43 other kinds remain, and arbitrary external App handlers still need explicit
+39 other effectful kinds remain, the retired design card refuses effects,
+and arbitrary external App handlers still need explicit
 dispatch/readback contracts. The
 classification identifies the effect owner to integrate and prevents a second
 journal being added around a service that already owns durable execution.
@@ -125,9 +131,84 @@ References are relative to `backend/app/`; the dispatcher remains
 | `invoke_app_operation` | `services/app_operations/dispatch.py` owns the canonical transaction and receipt | Local decision/effect integration qualified by 224 combined native cases plus three separate expiry/revocation cases; see [atomicity report](2026-10-15-staged-app-operation-atomicity.md). Original complete review and declaration have independent private fingerprints. External effects and final system gates remain open. |
 | `resolve_conflict` | `api/conflicts.py` resolves recorded conflict state | Inventory selected resolution's local/connector effects and immutable conflict revision before choosing graph receipt or external intent recovery. |
 | `routine_task_create`, `routine_task_update`, `routine_task_cancel`, `routine_task_purge` | `agentive/services/routine_tasks.py`, with executor ChangeEvents | Command recovery must cover schedule record plus emitted event and exact routine identity. The existing scheduled-run WorkItem idempotency key protects a different boundary; it does not deduplicate routine creation. |
-| `design_proposal` | Executor updates the chat thread's proposal marker | Atomically bind thread ownership, proposal identity/revision and approval marker. Recover the approval result with `needs_agent_build`; it must never claim the later App build completed. |
+| `design_proposal` | Retired compatibility tombstone, with no graph write or thread lookup | Old cards return `design_approval_reconciliation_required`. Current native design approval validates exact revision, latest user turn, session edge/run and current identity/workspace admission. It does not claim the later App build completed. Native historical evidence and the broader recovery matrix remain separate requirements. |
 
-These groups contain all 44 currently non-native kinds; aliases count as
+These groups enumerate the original 44 non-native kind names; aliases count as
 registered kinds. After an integration, update the table and native inventory
 from the actual dispatcher and qualify its denied, unavailable, interrupted,
 post-commit, and cross-worker paths. No family is closed by this classification.
+
+
+## 2026-10-16 design approval follow-through
+
+The current `integral_propose_design` dispatcher records an outline and artifact;
+it does not create a staged design card. The obsolete executor previously stamped
+the current marker from an old payload and could replace its summary/proposal.
+It now refuses effects with an explicit reconciliation error. Persisted cards
+are retained; none is consumed, migrated or interpreted as fresh approval.
+The native design capability remains available through its existing primary
+model selection, exact revision and current-run CAS service.
+
+The native service's early return for an already-approved marker also bypassed
+its run fence. The PostgreSQL regression reproduced two failures for prior
+approvals: stale runs returned success, and current runs failed to bind the new
+approval to themselves. That shortcut is removed. The write now joins current
+identity/workspace admission, requires one owning session edge, validates the
+active session/run and uses its existing revision CAS. Same-run repeated
+selection preserves the approval timestamp. Native design approval is still
+separate from staged build effects and their receipts; no native historical
+approval-journal or whole-goal completion is claimed by this increment.
+
+## 2026-10-16 Entry-tag delta integration
+
+Both tag delta kinds now compose the canonical Entry revision/validation boundary
+and their own exact command receipts, rather than relabeling their approval as
+`update_entry`. Their native component tests cover effect/receipt rollback, lost
+completion, current readback after a later edit, canonical taxonomy containment,
+revoked authority, two-pool different-delta concurrency and separate-interpreter
+same-approval attempts. The combined source passed its full backend,
+CI-faithful, native and independent artifact gates. See [the qualification report](2026-10-16-entry-tag-command-recovery.md).
+The historical classification table above identifies the original boundaries;
+it is not a statement that these two integrations are absent on this source.
+
+
+## 2026-10-16 existing-byte chat attachment filing
+
+`attach_uploaded_file` uses canonical Entry serialization and a receipt/event
+boundary for its exact approved Entry/file identities. It changes graph state
+only; it does not upload bytes or change storage accounting. The native source
+and race/cancellation/access matrix, full backend, CI-faithful and independent
+artifact gates passed. See the [filing qualification report](2026-10-16-chat-attachment-filing-recovery.md).
+Arbitrary byte uploads, external effects and mixed batches remain separate
+unqualified families. The index-direction experiment report records a reverted
+performance attempt and makes no production index or latency claim.
+
+
+## Uncommitted four-command routine candidate — 2026-10-16
+
+The current working dispatcher includes all four routine command kinds (31
+native kinds / 35 other effectful kinds). Four of those integrations await final
+aggregate qualification; the committed baseline contains 27 native kinds.
+The combined native routine/tag/release/work-kernel/effect-fence selection
+passed 98 tests (one non-native deselected); the focused default-store selection passed 97 tests
+with one native-only skip. These are separate source/selection proofs, not a
+single aggregate gate or whole-goal completion score.
+
+See the [routine recovery report](2026-10-16-routine-command-recovery-boundary.md)
+for the exact lease handoff, cancellation ordering and remaining contracts.
+The automatic write approval scan has been replaced by exact broker-origin
+execution and a frozen mandate; its focused native proof passed eight cases.
+Broader provenance/recovery qualification and durable fire accounting remain
+open alongside final aggregate qualification. No routine candidate is pushed.
+
+
+## Qualified routine QA cut
+
+The final unchanged source passed 6609 default backend tests (933 skipped),
+1813 CI-faithful tests (22 skipped), 139 native tests (47 non-native deselected)
+and all independent artifact gates. Core-only passed 9/9. All four routine
+commands now have qualified native receipt integration. Scheduled broker
+provenance is qualified for the documented supported commands; unsupported and
+external effects retain review. Durable fire accounting, cross-attempt recovery
+and the remaining 35 effectful kinds/contracts remain open. See the
+[QA handoff](2026-10-16-hardening-qa-handoff.md) for exact scope and limitations.

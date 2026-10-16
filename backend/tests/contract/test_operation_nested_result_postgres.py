@@ -703,7 +703,14 @@ async def test_saved_result_does_not_relabel_old_output_as_replacement_contract(
                 "reference",
                 [{**spec, "handler_ref": "reference:replacement"}],
             )
-            with pytest.raises(InsufficientPermissionsError):
+            from app.api.errors import OperationIdempotencyConflictError
+
+            expected_error = (
+                OperationIdempotencyConflictError
+                if operation_kind == "execute"
+                else InsufficientPermissionsError
+            )
+            with pytest.raises(expected_error):
                 await dispatch.invoke_app_operation(**arguments)
             assert calls == ["first"]
             if operation_kind == "execute":

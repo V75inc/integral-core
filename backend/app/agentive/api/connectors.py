@@ -27,6 +27,7 @@ from typing import Any, Dict, List, Optional, Set, cast
 from fastapi import Request, status
 from jvspatial.api import endpoint
 
+from app.agentive.connectors.connector_resolution import connector_owner_is
 from app.agentive.connectors.mcp_client import describe_mcp_failure
 from app.agentive.services.connector_registry_node import (
     attach_connector_to_workspace,
@@ -482,7 +483,9 @@ async def get_connector_by_id(
     # Owns edge per D-07, but the scalar `owner` field is the authoritative
     # check here until policy_engine.evaluate (Phase 3) takes over.
     owner_id = getattr(user, "id", None) or ""
-    if c.owner != owner_id and not await _is_shared_visible_to(c, owner_id):
+    if not await connector_owner_is(c, owner_id) and not await _is_shared_visible_to(
+        c, owner_id
+    ):
         raise ResourceNotFoundError(
             message=f"Connector {connector_id!r} not found",
             details={"connector_id": connector_id},
@@ -517,7 +520,7 @@ async def _require_owner_or_shared_admin(connector: Any, user_id: str) -> None:
             message="Connector not found",
             details={},
         )
-    if connector.owner == user_id:
+    if await connector_owner_is(connector, user_id):
         return
     if await _is_shared_admin(connector, user_id):
         return
@@ -1267,7 +1270,7 @@ async def get_mcp_connector_health(
             message=f"Connector {connector_id!r} not found",
             details={"connector_id": connector_id},
         )
-    is_owner = existing.owner == user_id
+    is_owner = await connector_owner_is(existing, user_id)
     shared_visible = not is_owner and await _is_shared_visible_to(existing, user_id)
     if not is_owner and not shared_visible:
         raise ResourceNotFoundError(
@@ -1336,7 +1339,7 @@ async def list_connector_tools(
             message=f"Connector {connector_id!r} not found",
             details={"connector_id": connector_id},
         )
-    is_owner = existing.owner == user_id
+    is_owner = await connector_owner_is(existing, user_id)
     shared_visible = not is_owner and await _is_shared_visible_to(existing, user_id)
     if not is_owner and not shared_visible:
         raise ResourceNotFoundError(
@@ -2112,7 +2115,7 @@ async def _require_connector_workspace_authority(user_id: str, connector: Any) -
 
     if await is_workspace_admin_or_owner(user_id, workspace_id):
         return
-    owns_row = getattr(connector, "owner", "") == user_id
+    owns_row = await connector_owner_is(connector, user_id)
     per_user = (getattr(connector, "connection_mode", "") or "per_user") != "shared"
     if (
         owns_row
@@ -2392,7 +2395,7 @@ async def post_create_binding(
         )
 
     connector = await get_connector(connector_id)
-    if connector is None or connector.owner != user_id:
+    if connector is None or not await connector_owner_is(connector, user_id):
         # T-08-02-I01 — same canonical envelope for unknown vs cross-owner.
         raise ResourceNotFoundError(
             message=f"Connector {connector_id!r} not found",
@@ -2519,7 +2522,7 @@ async def list_bindings(
         raise MissingAuthenticationError(message="Authentication required")
 
     connector = await get_connector(connector_id)
-    if connector is None or connector.owner != user_id:
+    if connector is None or not await connector_owner_is(connector, user_id):
         raise ResourceNotFoundError(
             message=f"Connector {connector_id!r} not found",
             details={"connector_id": connector_id},
@@ -2588,7 +2591,7 @@ async def delete_binding(
         raise MissingAuthenticationError(message="Authentication required")
 
     connector = await get_connector(connector_id)
-    if connector is None or connector.owner != user_id:
+    if connector is None or not await connector_owner_is(connector, user_id):
         raise ResourceNotFoundError(
             message=f"Connector {connector_id!r} not found",
             details={"connector_id": connector_id},
@@ -2686,7 +2689,7 @@ async def post_quickbooks_authorize(
     stored_client_id = None
     if connector_id:
         c = await get_connector(connector_id)
-        if c is None or c.owner != user_id:
+        if c is None or not await connector_owner_is(c, user_id):
             raise ResourceNotFoundError(
                 message=f"Connector {connector_id!r} not found",
                 details={"connector_id": connector_id},
@@ -2755,7 +2758,9 @@ async def post_quickbooks_callback(
     existing_connector = None
     if resolved_id:
         existing_connector = await get_connector(resolved_id)
-        if existing_connector is None or existing_connector.owner != user_id:
+        if existing_connector is None or not await connector_owner_is(
+            existing_connector, user_id
+        ):
             raise ResourceNotFoundError(
                 message=f"Connector {resolved_id!r} not found",
                 details={"connector_id": resolved_id},
@@ -2910,7 +2915,7 @@ async def post_gmail_oauth_start(
     stored_client_id = None
     if connector_id:
         c = await get_connector(connector_id)
-        if c is None or c.owner != user_id:
+        if c is None or not await connector_owner_is(c, user_id):
             raise ResourceNotFoundError(
                 message=f"Connector {connector_id!r} not found",
                 details={"connector_id": connector_id},
@@ -2968,7 +2973,9 @@ async def post_gmail_oauth_callback(
     existing_connector = None
     if resolved_id:
         existing_connector = await get_connector(resolved_id)
-        if existing_connector is None or existing_connector.owner != user_id:
+        if existing_connector is None or not await connector_owner_is(
+            existing_connector, user_id
+        ):
             raise ResourceNotFoundError(
                 message=f"Connector {resolved_id!r} not found",
                 details={"connector_id": resolved_id},
@@ -3042,7 +3049,7 @@ async def get_gmail_labels(request: Request, connector_id: str):
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
     c = await get_connector(connector_id)
-    if c is None or c.owner != user_id:
+    if c is None or not await connector_owner_is(c, user_id):
         raise ResourceNotFoundError(
             message=f"Connector {connector_id!r} not found",
             details={"connector_id": connector_id},
@@ -3107,7 +3114,7 @@ async def post_gmail_set_labels(
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
     c = await get_connector(connector_id)
-    if c is None or c.owner != user_id:
+    if c is None or not await connector_owner_is(c, user_id):
         raise ResourceNotFoundError(
             message=f"Connector {connector_id!r} not found",
             details={"connector_id": connector_id},
