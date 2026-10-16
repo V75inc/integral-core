@@ -59,3 +59,7 @@ credential invalidation, canonical/legacy template identities and provider
 propagation. UI coverage exercises confirmation, pending delivery, retry and the
 unsupported Core review stub. Exact final suite/CI results are recorded in the
 PR description after execution, rather than asserted in advance here.
+
+The credential-delivery, member-provision authority, relation-admission and
+template-resolution regression modules also run in the PostgreSQL CI lane and
+the matching `make test-postgres-ci` target.

@@ -244,6 +244,9 @@ jobs:
           pytest -q --tb=short tests/spikes/ -m postgres
           pytest -q --tb=short tests/contract/ -m "contract and postgres"
           pytest -q --tb=short tests/test_app_jobs.py tests/test_tool_context_own_bundle_workspace.py
+          pytest -q --tb=short \
+            tests/test_credentials_delivery.py tests/test_member_provision_authority.py \
+            tests/test_entry_relation_admission_regressions.py tests/test_entry_template_resolve.py
 
   docker-build-verify:
     runs-on: ubuntu-latest
