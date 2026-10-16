@@ -76,12 +76,66 @@ def test_step_and_finish_keep_source_backed_usage_and_timing() -> None:
     }
 
 
+def test_usage_evidence_survives_replay_and_saved_transcript() -> None:
+    from app.agentive.services.work_worker import _native_chat_transcript
+    from app.services.chat_turn_transcript import _public_metadata
+
+    event = {
+        "type": "step",
+        "usage": {"inputTokens": 0},
+        "usageComplete": False,
+        "inputTokensReported": True,
+        "outputTokensReported": False,
+        "costComplete": False,
+        "requestContext": {
+            "instruction_chars": 12,
+            "conversation_chars": 30,
+            "tool_result_chars": 0,
+            "tool_schema_chars": 0,
+            "message_count": 1,
+            "visible_tool_count": 0,
+            "tool_schema_fingerprint": None,
+        },
+    }
+    assert normalize_public_event(event) == event
+    _, metadata = _native_chat_transcript([event])
+    assert metadata["steps"] == [{k: v for k, v in event.items() if k != "type"}]
+    assert _public_metadata(metadata)["steps"] == metadata["steps"]
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"steps": [{"raw": {"prompt": "must not persist"}}]},
+        {"steps": [{"usage": {"inputTokens": 1, "prompt": "private"}}]},
+        {"steps": [{"type": "text-delta", "delta": "private"}]},
+        {"steps": [{"requestContext": {"prompt": "private"}}]},
+        {"steps": [{"usageComplete": 1}]},
+        {"timing": {"prompt": "private"}},
+        {"timing": {"modelPassMs": float("nan")}},
+    ],
+)
+def test_saved_transcript_keeps_the_strict_public_boundary(metadata: dict) -> None:
+    from app.services.chat_turn_transcript import _public_metadata
+
+    with pytest.raises(ValueError):
+        _public_metadata(metadata)
+
+
 @pytest.mark.parametrize(
     "event",
     [
         {"type": "reasoning-delta", "delta": "private reasoning"},
         {"type": "step", "usage": {"inputTokens": 1, "secret": "hidden"}},
         {"type": "message-finish", "timing": {"prompt": "hidden"}},
+        {"type": "message-finish", "timing": {"modelPassMs": -1}},
+        {"type": "message-finish", "contextMode": "arbitrary"},
+        {"type": "message-finish", "contextMode": []},
+        {"type": "step", "usageComplete": 1},
+        {"type": "step", "inputTokensReported": "true"},
+        {"type": "step", "outputTokensReported": 0},
+        {"type": "step", "costComplete": "false"},
+        {"type": "step", "requestContext": {"prompt": "must not replay"}},
         {"type": "step", "usage": {"outputTokens": 1.5}},
         {"type": "step", "attempt": 0},
         {"type": "step", "providerCostUsd": -0.01},

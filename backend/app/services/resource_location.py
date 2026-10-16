@@ -18,6 +18,8 @@ from app.models.nodes import (
     WORKSPACES_REGISTRY_ID,
     App,
     Apps,
+    Dashboard,
+    Dashboards,
     Entry,
     IntegralApp,
     OperationalModel,
@@ -253,6 +255,47 @@ class ResourceLocationWalker(Walker):
         self.workspace_id = workspace_id
         return True
 
+    @on_visit(Dashboard)
+    async def on_dashboard(self, here: Dashboard) -> None:
+        """Require one catalog registry and its unique matching App parent."""
+        context = await here.get_context()
+        catalogs = await self.parent_rows(here.id, CATALOGS, 1, context)
+        if len(catalogs) != 1:
+            self.valid = False
+            return
+        registry = await self.source_node(catalogs[0], (Dashboards,), context)
+        if registry is None:
+            self.valid = False
+            return
+        parents = await self.parent_rows(registry.id, CONTAINS, 1, context)
+        if len(parents) != 1:
+            self.valid = False
+            return
+        app = await self.source_node(parents[0], (App,), context)
+        if app is None:
+            self.valid = False
+            return
+        app_id = required_node_text(self._records[here.id], "app_id")
+        registry_app = required_node_text(self._records[registry.id], "app_id")
+        workspace_id = required_node_text(self._records[app.id], "workspace_id")
+        if app_id != app.id or registry_app != app.id:
+            self.valid = False
+            return
+        for node_id in (here.id, registry.id):
+            row = self._records[node_id]
+            if (
+                "workspace_id" not in row.get("context", {})
+                and "workspace_id" not in row
+            ):
+                # Older dashboards can omit this denormalized cache. The
+                # unique named App path still supplies current workspace scope.
+                continue
+            declared = required_node_text(row, "workspace_id", allow_empty=True)
+            if declared and declared != workspace_id:
+                self.valid = False
+                return
+        await self.visit(app)
+
     @on_visit(View)
     async def on_view(self, here: View) -> None:
         """Require one Track scope plus matching model catalog facts."""
@@ -434,6 +477,7 @@ async def locate_resource(
         "app": App,
         "workspace": Workspace,
         "view": View,
+        "dashboard": Dashboard,
     }.get(kind)
     if model is None or not resource_id:
         return None

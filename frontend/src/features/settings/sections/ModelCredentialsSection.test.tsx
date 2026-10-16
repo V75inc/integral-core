@@ -50,3 +50,51 @@ describe('native model credentials', () => {
     expect(Object.keys(body).some(key => /^(light|heavy|vision)_/.test(key))).toBe(false);
   });
 });
+
+describe('custom endpoint credential boundaries', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(modelCredentialsApi.get).mockResolvedValue({
+      provider: 'custom_openai', model: 'my-model', base_url: 'https://first.example/v1',
+      key_fingerprint: 'saved-key', is_active: true,
+    });
+  });
+
+  it('requires a new key or an explicit keyless choice after changing endpoint', async () => {
+    showSettings();
+    const base = await screen.findByLabelText('Custom endpoint base URL');
+    fireEvent.change(base, { target: { value: 'https://second.example/v1' } });
+    const save = screen.getByRole('button', { name: 'Save' });
+    expect(save).toBeDisabled();
+    fireEvent.click(screen.getByRole('checkbox', { name: /Use without an API key/ }));
+    expect(save).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Test connection' })).toBeEnabled();
+    fireEvent.click(save);
+    await waitFor(() => expect(modelCredentialsApi.upsert).toHaveBeenCalledOnce());
+    expect(vi.mocked(modelCredentialsApi.upsert).mock.calls[0][0]).toMatchObject({
+      provider: 'custom_openai', base_url: 'https://second.example/v1', clear_api_key: true,
+    });
+    expect(vi.mocked(modelCredentialsApi.upsert).mock.calls[0][0]).not.toHaveProperty('api_key');
+  });
+
+  it('retains the existing key only when the endpoint is unchanged', async () => {
+    showSettings();
+    await screen.findByLabelText('Custom endpoint base URL');
+    expect(screen.getByRole('button', { name: 'Test connection' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(modelCredentialsApi.upsert).toHaveBeenCalledOnce());
+    const body = vi.mocked(modelCredentialsApi.upsert).mock.calls[0][0];
+    expect(body).not.toHaveProperty('api_key');
+    expect(body).not.toHaveProperty('clear_api_key');
+    expect(body.base_url).toBe('https://first.example/v1');
+  });
+
+  it('clears an unsaved key when switching providers', async () => {
+    showSettings();
+    await screen.findByLabelText('Custom endpoint base URL');
+    const key = document.querySelector('input[type="password"]')!;
+    fireEvent.change(key, { target: { value: 'synthetic-unsaved-key' } });
+    fireEvent.change(screen.getByLabelText('Chat model provider'), { target: { value: 'openai' } });
+    expect(document.querySelector('input[type="password"]')).toHaveValue('');
+  });
+});

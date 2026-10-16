@@ -290,7 +290,7 @@ describe('FormRegionWidget', () => {
     const numberInput = await screen.findByDisplayValue('INV-0001');
     expect(numberInput).toBeDisabled();
 
-    const statusTrigger = await screen.findByRole('button', { name: /Status/i });
+    const statusTrigger = await screen.findByRole('combobox', { name: /Status/i });
     expect(statusTrigger).not.toBeDisabled();
     fireEvent.click(statusTrigger);
     const sentOption = await screen.findByRole('option', { name: /^Sent$/i });

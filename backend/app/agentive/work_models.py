@@ -45,6 +45,8 @@ class WorkItem(Object):
     transition_seq: int = 0
     run_id: str = ""
     result_refs: List[str] = Field(default_factory=list)
+    # App jobs (kind ``app_tool``) report done/total/label here while running.
+    progress: Dict[str, Any] = Field(default_factory=dict)
     receipt_refs: List[str] = Field(default_factory=list)
     result_fingerprint: str = ""
     failure: Optional[Dict[str, Any]] = None

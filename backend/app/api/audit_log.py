@@ -1,15 +1,17 @@
 """Audit log query endpoint (PROV-04).
 
-Returns ChangeEvents the caller is permitted to see, ordered (ts, id) DESC,
-paginated by opaque base64 cursor (D-08 — direct reuse of pagination helper).
+Returns ChangeEvents the caller is permitted to see, ordered (ts, id) DESC.
+New confidential continuation tokens bind the principal, selected workspace,
+filters and direction; current permissions are still checked on every read.
 
 Per D-07: every event in the result set passes can_view_track / can_view_space /
 identity check before being returned. Cross-tenant queries return empty (no leak).
 
 Storage shape: ChangeEvents live as ``DBLog`` rows with
 ``log_level="CHANGE_EVENT"`` in the logging database. Reads go through
-``ChangeEventLogger.find_all`` and are surfaced via the ``ChangeEventEnvelope``
-wire shape.
+bounded ``ChangeEventLogger.find_page`` windows and are surfaced via the
+``ChangeEventEnvelope`` wire shape. A continuation may advance through withheld
+events without revealing their identifiers or promising another visible result.
 """
 
 import logging

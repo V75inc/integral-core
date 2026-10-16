@@ -14,6 +14,85 @@ from tests.contract.test_staging_command_apply_postgres import proposal
 pytestmark = [pytest.mark.contract, pytest.mark.postgres, pytest.mark.asyncio]
 
 
+async def test_terminal_closure_does_not_poison_enclosing_effect_transaction(
+    postgres_raw_db, monkeypatch
+):
+    from app.agentive import staging_store
+    from app.services.app_operations.transaction_scope import postgres_graph_transaction
+
+    monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "44" * 32)
+    async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+        auth, _, track, sc = await proposal()
+        async with postgres_graph_transaction():
+            result = await staging_apply.bless_and_execute(
+                user_id=auth.id, token=sc.token
+            )
+            assert result["consumed"] is True
+            # The transient proposal row has been removed; a second notifier
+            # must use the matching shared terminal marker without replay.
+            await staging._push_state_and_record_closure(sc)
+        assert len(await Entry.find({"track_id": track.id})) == 1
+        assert (await staging_store.load_decision_state(sc.token, auth.id))[
+            "state"
+        ] == "consumed"
+
+
+@pytest.mark.parametrize(
+    "mismatch",
+    [
+        "user",
+        "kind",
+        "state",
+        "target",
+        "workspace",
+        "payload",
+        "review",
+        "session",
+        "key",
+    ],
+)
+async def test_terminal_acknowledgment_cannot_change_decision(
+    postgres_raw_db, monkeypatch, mismatch
+):
+    from dataclasses import replace
+
+    from app.agentive.services.staging_decision_store import transition_staged_decision
+
+    monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "44" * 32)
+    async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+        auth, _, track, sc = await proposal()
+        await staging_apply.bless_and_execute(user_id=auth.id, token=sc.token)
+        snapshot = replace(sc)
+        target = "consumed"
+        if mismatch == "user":
+            snapshot.user_id = "another-principal"
+        elif mismatch == "kind":
+            snapshot.kind = "another-kind"
+        elif mismatch == "state":
+            snapshot.state = "revoked"
+        elif mismatch == "workspace":
+            snapshot.workspace_id = "another-workspace"
+        elif mismatch == "payload":
+            snapshot.payload = {**snapshot.payload, "title": "Unreviewed replacement"}
+        elif mismatch == "review":
+            snapshot.diff_machine = {"unreviewed": True}
+        elif mismatch == "session":
+            snapshot.session_id = "another-conversation"
+        elif mismatch == "key":
+            snapshot.idempotency_key = "another-intent"
+        else:
+            target = "blessed"
+        with pytest.raises(StagingError):
+            await transition_staged_decision(
+                token=sc.token,
+                user_id=auth.id,
+                target=target,
+                expected_kind=sc.kind,
+                terminal_snapshot=snapshot,
+            )
+        assert len(await Entry.find({"track_id": track.id})) == 1
+
+
 async def test_concurrent_consumption_has_one_terminal_transition(postgres_raw_db):
     async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
         auth, _, _, sc = await proposal()

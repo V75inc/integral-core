@@ -32,7 +32,7 @@ import {
   tagsApi,
   tracksApi
 } from '../../api';
-import { extensionsApi } from '../../api/extensions';
+import { extensionsApi, requireOperationOutput } from '../../api/extensions';
 import { toolsApi } from '../../api/tools';
 import { patchFromAppSettings } from '../../utils/fieldSettingDefaults';
 import {
@@ -78,6 +78,7 @@ import { buildBaseSlotPlaceholder } from '../../utils/fieldPlaceholders';
 import { resolveFieldDefault } from '../../utils/fieldDefaults';
 import { deriveAutoOffsetPatch } from '../../utils/fieldDateOffset';
 import { deriveRelationLabelPatch } from '../../utils/relationFieldSync';
+import { findEntryTypeBySlug } from '../../utils/entryMetaFields';
 import {
   buildCustomFieldsForEntryType,
   resolveFieldValuesForEntryType,
@@ -160,7 +161,7 @@ export interface UseEntryExpandedFormOptions {
   workflowEnumLabels?: Record<string, Record<string, string>>;
   showToast: (
     message: string,
-    variant: 'success' | 'error',
+    variant: 'success' | 'error' | 'info',
     action?: ToastAction,
   ) => void;
   onCreated?: (entry: Entry) => void;
@@ -478,7 +479,7 @@ export function useEntryExpandedForm(
   ]);
 
   useEffect(() => {
-    const matchingType = entryTypes.find(x => entryTypeSlug(x) === slug(type));
+    const matchingType = findEntryTypeBySlug(entryTypes, type);
     const pendingSeed = pendingCustomFieldSeedRef.current;
     const awaitingSeededType =
       mode === 'create' &&
@@ -570,7 +571,7 @@ export function useEntryExpandedForm(
 
   /** Resolve from ``type`` in the same render as the type control (not via effect), so labels/placeholders update immediately. */
   const selectedType = useMemo(
-    () => entryTypes.find(x => entryTypeSlug(x) === slug(type)),
+    () => findEntryTypeBySlug(entryTypes, type),
     [entryTypes, type]
   );
   const selectedTypeId = selectedType?.id || '';
@@ -700,7 +701,7 @@ export function useEntryExpandedForm(
             : {};
         try {
           const output = appId
-            ? (await extensionsApi.invokeOperation(appId, tool, input)).output
+            ? requireOperationOutput(await extensionsApi.invokeOperation(appId, tool, input)).output
             : (await toolsApi.call(tool, input)).output;
           if (cancelled) return;
           if (output?.auto_generate !== true) continue;
@@ -1400,7 +1401,7 @@ export function useEntryExpandedForm(
             showToast(
               submitResult.error ||
                 'Entry created but related data could not be saved. Open it to finish the missing rows.',
-              'error',
+              submitResult.outcomeRecorded ? 'info' : 'error',
               {
                 label: 'View entry',
                 href: entryPath(created.id, tid),
@@ -1531,7 +1532,8 @@ export function useEntryExpandedForm(
         dynamicFields,
         fieldValues,
         baseline.custom_fields,
-        linkExtras
+        linkExtras,
+        { changedOnly: true }
       );
       if (slug(String(type || selectedType?.name || '')) === 'sprint') {
         // Task.sprint is SoT — do not persist Sprint.tasks (dual REFERENCES).
@@ -1614,7 +1616,7 @@ export function useEntryExpandedForm(
             showToast(
               submitResult.error ||
                 'Entry updated but contribution data could not be saved',
-              'error',
+              submitResult.outcomeRecorded ? 'info' : 'error',
             );
           }
         } catch {

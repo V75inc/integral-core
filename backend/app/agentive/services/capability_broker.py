@@ -209,7 +209,24 @@ def _deny(
 async def _call_adapter(inv: CapabilityInvocation, cap: Dict[str, Any]) -> Any:
     from app.agentive.services.capability_adapters import dispatch_capability
 
-    return await dispatch_capability(inv, cap)
+    context = inv.work_execution_context
+    if context is None or inv.source != "core" or inv.op_class != "propose":
+        return await dispatch_capability(inv, cap)
+    from app.agentive.services.proposal_origin import bind_proposal_origin, origin_for
+    from app.agentive.services.routine_proposal_apply import apply_routine_proposal
+    from app.agentive.services.work_execution import assert_effect_boundary_allowed
+    from app.agentive.services.work_items import authorized_work_item_effect
+
+    async with authorized_work_item_effect(context):
+        item = await assert_effect_boundary_allowed(context)
+        proof = origin_for(
+            context,
+            inv.capability_key,
+            str(item.input_payload.get("routine_mandate_fingerprint") or ""),
+        )
+        with bind_proposal_origin(proof):
+            data = await dispatch_capability(inv, cap)
+        return await apply_routine_proposal(inv, data, proof)
 
 
 async def _persist_envelope(step: Any, result: CapabilityResult) -> None:
@@ -298,7 +315,56 @@ async def _invoke_current(inv: CapabilityInvocation) -> CapabilityResult:
     idem_key = (inv.idempotency_key or "").strip() or derive_idempotency_key(inv)
     inv.idempotency_key = idem_key
     step = await RunStep.find_one({"run_id": inv.run_id, "idempotency_key": idem_key})
+    if step is not None and any(
+        (getattr(step, field, None) or "") != (expected or "")
+        for field, expected in {
+            "principal_id": inv.principal_id,
+            "workspace_id": inv.workspace_id,
+            "capability_key": inv.capability_key,
+            "capability_source": inv.source,
+            "kind": _kind_for(inv),
+            "capability_op_class": inv.op_class,
+            "connector_id": inv.connector_id,
+            "app_id": inv.app_id,
+            "input_fingerprint": _fingerprint(inv.arguments),
+        }.items()
+    ):
+        from app.schemas.capability_broker import ERR_IDEMPOTENCY_CONFLICT
+
+        return _deny(
+            error_code=ERR_IDEMPOTENCY_CONFLICT,
+            message="Capability request identity changed for this idempotency key",
+            snapshot_fingerprint=snapshot_fp,
+        )
     if step is not None and str(step.status) in _STEP_TERMINAL:
+        if (
+            inv.source == "core"
+            and inv.op_class == "propose"
+            and inv.work_execution_context is not None
+            and step.approval_ref
+            and str(step.status) == "succeeded"
+        ):
+            from app.agentive.services.routine_proposal_apply import (
+                recover_routine_proposal,
+            )
+            from app.schemas.agentive.work import WorkError
+
+            try:
+                data = await recover_routine_proposal(inv, step.approval_ref)
+            except WorkError as exc:
+                return _deny(
+                    error_code=exc.code,
+                    message=exc.message,
+                    snapshot_fingerprint=snapshot_fp,
+                )
+            if data is not None:
+                return _result_from_step(
+                    step,
+                    ok=True,
+                    data=data,
+                    replayed=True,
+                    snapshot_fingerprint=snapshot_fp,
+                )
         replay_from_durable_operation_receipt = (
             inv.source == "app" and inv.op_class == "execute"
         )
@@ -399,6 +465,7 @@ async def _invoke_current(inv: CapabilityInvocation) -> CapabilityResult:
             cap.get("package_version") or snapshot.get("manifest_version") or ""
         ),
         capability_source=inv.source,
+        capability_op_class=inv.op_class,
         app_id=inv.app_id,
         connector_id=inv.connector_id,
         origin=inv.origin,
@@ -470,7 +537,8 @@ async def _invoke_current(inv: CapabilityInvocation) -> CapabilityResult:
     status = "succeeded"
     if isinstance(data, dict) and data.get("_kind") == "staged_change":
         approval_ref = str(data.get("token") or "") or None
-        status = "waiting_for_human"
+        if data.get("state") != "consumed":
+            status = "waiting_for_human"
     step.status = status
     step.approval_ref = approval_ref
     step.result_class = status

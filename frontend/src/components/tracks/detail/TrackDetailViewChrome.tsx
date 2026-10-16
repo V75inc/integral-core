@@ -127,9 +127,15 @@ export function TrackDetailViewChrome({
               <div className="flex items-center gap-1">
                 <div role="group" aria-label="View actions" className="flex items-center gap-1">
                   {onEditLayout ? (
-                    <Button size="sm" variant="ghost" onClick={onEditLayout} aria-label="Edit view layout">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={onEditLayout}
+                      aria-label="Edit view layout"
+                      title="Edit view layout"
+                      className="h-8 w-8 !p-0"
+                    >
                       <LayoutTemplate size={13} strokeWidth={LINE_ICON_STROKE} aria-hidden />
-                      Edit layout
                     </Button>
                   ) : null}
                   {canViewTrackConfig ? (
@@ -138,6 +144,7 @@ export function TrackDetailViewChrome({
                       subjectName={activeView.name}
                       subjectId={activeView.id}
                       trackId={trackId}
+                      compact
                     />
                   ) : null}
                 </div>

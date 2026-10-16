@@ -641,21 +641,30 @@ async def _x_author_operational_model(
 async def _x_modify_operational_model(
     user_id: str, payload: Dict[str, Any]
 ) -> Dict[str, Any]:
-    from app.services.operational_model_authoring import (
-        modify_operational_model as _impl,
-    )
+    from app.agentive.services.staging_model_commands import apply_model_command
+    from app.services.operational_model_authoring import modify_operational_model
 
+    action = str(payload["action"])
     forwarded = {
-        k: v
-        for k, v in payload.items()
-        if k not in ("action", "track_id", "app_id") and v is not None
+        key: value
+        for key, value in payload.items()
+        if key not in ("action", "track_id", "app_id") and value is not None
     }
-    return await _impl(
+
+    async def execute() -> Dict[str, Any]:
+        return await modify_operational_model(
+            user_id=user_id,
+            action=action,
+            track_id=payload.get("track_id"),
+            app_id=payload.get("app_id"),
+            **forwarded,
+        )
+
+    return await apply_model_command(
         user_id=user_id,
-        action=payload["action"],
-        track_id=payload.get("track_id"),
-        app_id=payload.get("app_id"),
-        **forwarded,
+        payload=payload,
+        kind=f"modify_operational_model.{action}",
+        execute=execute,
     )
 
 
@@ -1208,20 +1217,64 @@ async def _x_invoke_app_operation(
 
 
 async def _x_save_view(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    from app.services.agent_insights import save_view as _impl
-
-    return await _impl(
-        user_id=user_id,
-        track_id=payload["track_id"],
-        name=payload["name"],
-        view_type=payload.get("view_type") or "feed",
-        config=payload.get("config") or {},
-        is_default=payload.get("is_default"),
-        view_id=payload.get("view_id"),
+    from app.agentive.services.staging_execution import (
+        UnappliedStagedCommand,
+        deliver_staging_command_events,
+        staged_command_effect,
     )
+    from app.models.nodes import Track
+    from app.services.agent_insights import save_view as _impl
+    from app.services.membership_write_scope import membership_write_scope
+    from app.services.resource_location import locate_resource
+
+    track_id = str(payload["track_id"])
+    track = await Track.get(track_id)
+    if track is None:
+        return {"error": "not_found", "detail": "Track not found"}
+
+    # Saved views mutate the graph and can also synchronize the attached
+    # Operational Model. Keep that complete operation and its replay receipt
+    # in the same transaction, just like the canonical Entry and metadata
+    # commands. A disconnect can then leave either the old view or the fully
+    # committed new view, and recovery can identify which outcome occurred.
+    workspace_id = str(track.workspace_id or "")
+    try:
+        async with membership_write_scope(workspace_id, principal_ids=(user_id,)):
+            location = await locate_resource(
+                "track", track_id, allowed_app_states=MANAGEMENT_APP_STATES
+            )
+            if location is None or location.workspace_id != workspace_id:
+                return {
+                    "error": "not_found",
+                    "detail": "Track not found in this workspace",
+                }
+            async with staged_command_effect(
+                user_id=user_id,
+                workspace_id=workspace_id,
+                kind="save_view",
+                targets=dict(payload),
+            ) as complete:
+                result = await _impl(
+                    user_id=user_id,
+                    track_id=track_id,
+                    name=payload["name"],
+                    view_type=payload.get("view_type") or "feed",
+                    config=payload.get("config") or {},
+                    is_default=payload.get("is_default"),
+                    view_id=payload.get("view_id"),
+                )
+                if result.get("error") or result.get("ok") is False:
+                    raise UnappliedStagedCommand(result)
+                if complete is not None:
+                    await complete({"track_id": track_id, "view_id": result["view_id"]})
+    except UnappliedStagedCommand as exc:
+        return exc.result
+    await deliver_staging_command_events()
+    return result
 
 
 async def _x_create_dashboard(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    from app.agentive.services.staging_dashboard_commands import apply_dashboard_command
     from app.api.apps_dashboards import create_app_dashboard
 
     body: Dict[str, Any] = {
@@ -1232,15 +1285,22 @@ async def _x_create_dashboard(user_id: str, payload: Dict[str, Any]) -> Dict[str
         body["layout"] = payload["layout"]
     if payload.get("widgets") is not None:
         body["widgets"] = payload["widgets"]
-    return await _call_endpoint_with_json(
-        create_app_dashboard,
-        user_id,
-        body,
-        app_id=payload["app_id"],
+
+    async def execute() -> Dict[str, Any]:
+        return await _call_endpoint_with_json(
+            create_app_dashboard, user_id, body, app_id=payload["app_id"]
+        )
+
+    return await apply_dashboard_command(
+        user_id=user_id,
+        payload=payload,
+        kind="create_dashboard",
+        execute=execute,
     )
 
 
 async def _x_update_dashboard(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    from app.agentive.services.staging_dashboard_commands import apply_dashboard_command
     from app.api.apps_dashboards import patch_app_dashboard
 
     body: Dict[str, Any] = {}
@@ -1252,28 +1312,76 @@ async def _x_update_dashboard(user_id: str, payload: Dict[str, Any]) -> Dict[str
         body["widgets"] = payload["widgets"]
     if payload.get("is_default") is not None:
         body["is_default"] = payload["is_default"]
-    return await _call_endpoint_with_json(
-        patch_app_dashboard,
-        user_id,
-        body,
-        app_id=payload["app_id"],
-        dashboard_id=payload["dashboard_id"],
+
+    async def execute() -> Dict[str, Any]:
+        return await _call_endpoint_with_json(
+            patch_app_dashboard,
+            user_id,
+            body,
+            app_id=payload["app_id"],
+            dashboard_id=payload["dashboard_id"],
+        )
+
+    return await apply_dashboard_command(
+        user_id=user_id,
+        payload=payload,
+        kind="update_dashboard",
+        execute=execute,
     )
 
 
 async def _x_delete_dashboard(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    from app.agentive.services.staging_dashboard_commands import apply_dashboard_command
     from app.api.apps_dashboards import delete_app_dashboard
 
-    return await _call_endpoint(
-        delete_app_dashboard,
-        user_id,
-        app_id=payload["app_id"],
-        dashboard_id=payload["dashboard_id"],
+    async def execute() -> Dict[str, Any]:
+        return await _call_endpoint(
+            delete_app_dashboard,
+            user_id,
+            app_id=payload["app_id"],
+            dashboard_id=payload["dashboard_id"],
+        )
+
+    return await apply_dashboard_command(
+        user_id=user_id,
+        payload=payload,
+        kind="delete_dashboard",
+        execute=execute,
     )
 
 
 # ---- routine tasks (P_scheduling) ----------------------------------------- #
 async def _x_routine_task_create(
+    user_id: str, payload: Dict[str, Any]
+) -> Dict[str, Any]:
+    from app.agentive.services.staging_routine_commands import apply_routine_command
+    from app.services.agent_scope import active_workspace_id
+
+    return await apply_routine_command(
+        user_id=user_id,
+        workspace_id=payload.get("workspace_id") or active_workspace_id() or "",
+        payload=payload,
+        kind="routine_task_create",
+        execute=lambda: _execute_routine_task_create(user_id, payload),
+    )
+
+
+async def _x_routine_task_update(
+    user_id: str, payload: Dict[str, Any]
+) -> Dict[str, Any]:
+    from app.agentive.services.staging_routine_commands import apply_routine_command
+    from app.services.agent_scope import active_workspace_id
+
+    return await apply_routine_command(
+        user_id=user_id,
+        workspace_id=active_workspace_id() or "",
+        payload=payload,
+        kind="routine_task_update",
+        execute=lambda: _execute_routine_task_update(user_id, payload),
+    )
+
+
+async def _execute_routine_task_create(
     user_id: str, payload: Dict[str, Any]
 ) -> Dict[str, Any]:
     from app.agentive.services.routine_tasks import create_routine_task
@@ -1285,6 +1393,8 @@ async def _x_routine_task_create(
         thread_id=payload["thread_id"],
         agent_id=payload.get("agent_id") or "",
         instruction=payload["instruction"],
+        delivery_mode=payload.get("delivery_mode", "agent"),
+        source_staging_token=_active_staging_token(),
         cron=payload.get("cron") or "",
         timezone=payload.get("timezone"),
         write_scope=payload.get("write_scope") or [],
@@ -1306,6 +1416,7 @@ async def _x_routine_task_create(
     return {
         "id": routine.id,
         "instruction": routine.instruction,
+        "delivery_mode": routine.delivery_mode,
         "cron": routine.cron,
         "timezone": routine.timezone,
         "next_run_at": routine.next_run_at,
@@ -1313,7 +1424,7 @@ async def _x_routine_task_create(
     }
 
 
-async def _x_routine_task_update(
+async def _execute_routine_task_update(
     user_id: str, payload: Dict[str, Any]
 ) -> Dict[str, Any]:
     from app.agentive.services.routine_tasks import update_routine_task
@@ -1352,6 +1463,21 @@ async def _x_routine_task_update(
 async def _x_routine_task_cancel(
     user_id: str, payload: Dict[str, Any]
 ) -> Dict[str, Any]:
+    from app.agentive.services.staging_routine_commands import apply_routine_command
+    from app.services.agent_scope import active_workspace_id
+
+    return await apply_routine_command(
+        user_id=user_id,
+        workspace_id=active_workspace_id() or "",
+        payload=payload,
+        kind="routine_task_cancel",
+        execute=lambda: _execute_routine_task_cancel(user_id, payload),
+    )
+
+
+async def _execute_routine_task_cancel(
+    user_id: str, payload: Dict[str, Any]
+) -> Dict[str, Any]:
     from app.agentive.services.routine_tasks import cancel_routine_task
 
     routine = await cancel_routine_task(
@@ -1375,6 +1501,21 @@ async def _x_routine_task_cancel(
 async def _x_routine_task_purge(
     user_id: str, payload: Dict[str, Any]
 ) -> Dict[str, Any]:
+    from app.agentive.services.staging_routine_commands import apply_routine_command
+    from app.services.agent_scope import active_workspace_id
+
+    return await apply_routine_command(
+        user_id=user_id,
+        workspace_id=active_workspace_id() or "",
+        payload=payload,
+        kind="routine_task_purge",
+        execute=lambda: _execute_routine_task_purge(user_id, payload),
+    )
+
+
+async def _execute_routine_task_purge(
+    user_id: str, payload: Dict[str, Any]
+) -> Dict[str, Any]:
     from app.agentive.services.routine_tasks import (
         delete_routine_task,
         get_routine_task,
@@ -1394,7 +1535,7 @@ async def _x_routine_task_purge(
         action="routine_task.purge",
         resource_type="RoutineTask",
         resource_id=deleted_id,
-        before={"id": deleted_id, "status": prior_status},
+        before={"id": deleted_id, "status": prior_status, "workspace_id": workspace_id},
         after=None,
         scope=f"workspace:{workspace_id}",
     )
@@ -1834,7 +1975,16 @@ _BATCH_POSITIONAL_REF_RE = _re.compile(r"\$batch\.(\d+)\.id\b")
 
 # Entity wrapper keys a create-handler may return its new node under. Order is
 # irrelevant (a result wraps exactly one). Keep in sync with the create_* handlers.
-_CREATED_ENTITY_KEYS = ("app", "track", "entry", "tag", "view", "comment")
+_CREATED_ENTITY_KEYS = (
+    "app",
+    "track",
+    "entry",
+    "tag",
+    "view",
+    "comment",
+    "dashboard",
+    "entry_type",
+)
 # Keys a created node may carry its display name/title under.
 _NAME_KEYS = ("title", "name")
 
@@ -1921,6 +2071,7 @@ def _capture_batch_refs(ref_ctx: Dict[str, str], idx: int, result: Any) -> None:
         return
     ref_ctx[f"{et}.id"] = new_id  # last-created of this type
     ref_ctx[f"{et}_id"] = new_id
+    new_name = (new_name or "").strip()
     if new_name:
         # Named token — order-independent reference by title/name.
         ref_ctx[f"{et}.id:{new_name}"] = new_id
@@ -2446,52 +2597,20 @@ async def _x_mcp_tool_call(user_id: str, payload: Dict[str, Any]) -> Dict[str, A
 
 
 async def _x_design_proposal(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Approve a staged greenfield design. Does not create apps or tracks.
+    """Refuse obsolete design cards; native approval owns exact run/revision proof.
 
-    Bless records ``approved`` on the thread marker so ``commit_batch`` can
-    mint the build card. The later batch executor performs the writes.
+    Keep a tombstone for persisted cards instead of interpreting an old payload
+    as approval of whichever design happens to be current now. The live design
+    flow records an outline and uses the primary native build-tool selection.
     """
-    session_id = str(payload.get("session_id") or "").strip()
-    if not session_id:
-        return {
-            "error": True,
-            "error_code": "session_required",
-            "message": "design_proposal payload needs session_id",
-        }
-    from app.services import chat_threads
-    from app.utils.time import utc_now_iso
-
-    thread = await chat_threads.get_thread_by_session(session_id)
-    if thread is None:
-        return {
-            "error": True,
-            "error_code": "not_found",
-            "message": "Chat thread not found",
-        }
-    if (getattr(thread, "user_id", "") or "") != user_id:
-        return {
-            "error": True,
-            "error_code": "forbidden",
-            "message": "Thread does not belong to the caller",
-        }
-    marker = dict(getattr(thread, "design_proposed", None) or {})
-    marker["approved"] = True
-    marker["approved_at"] = utc_now_iso()
-    marker["idempotency_key"] = payload.get("idempotency_key")
-    if payload.get("summary"):
-        marker["summary"] = payload.get("summary")
-    if payload.get("proposal"):
-        marker["proposal"] = payload.get("proposal")
-    thread.design_proposed = marker
-    await thread.save()
     return {
-        "ok": True,
-        "approved": True,
-        # FE + resume: this is not a substrate write — the follow-on agent
-        # turn must begin_batch and build (AGENT-17).
-        "needs_agent_build": True,
-        "summary": marker.get("summary") or "",
-        "idempotency_key": marker.get("idempotency_key"),
+        "error": True,
+        "error_code": "design_approval_reconciliation_required",
+        "message": (
+            "This older design approval cannot authorize the current design. "
+            "Read the saved design and confirm it in the current conversation "
+            "before building. No design was approved or replayed."
+        ),
     }
 
 

@@ -13,6 +13,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, AsyncIterator
 
+from anyio import CancelScope
 from jvspatial.core.context import TransactionUnavailable as _JvTxnUnavailable
 from jvspatial.core.context import graph_transaction as _jv_graph_transaction
 from jvspatial.db import get_prime_database
@@ -30,6 +31,7 @@ class _TransactionScope:
     handle: Any
     owner: Any
     failed: bool = False
+    failure: BaseException | None = None
 
 
 _active_transaction: ContextVar[_TransactionScope | None] = ContextVar(
@@ -99,6 +101,51 @@ def current_graph_transaction_database() -> Any:
     return active.handle
 
 
+def require_outside_graph_transaction() -> None:
+    """Keep result recovery outside a caller's effect/receipt commit boundary."""
+    from jvspatial.core.context import get_default_context
+    from jvspatial.db.transaction import Transaction
+
+    # A caller can use jvspatial directly, without Core's ContextVar. Inspect
+    # the bound handle as well; opening a second pool transaction would escape
+    # that caller's atomic boundary. Refuse even a closed bound handle.
+    database = get_default_context().database
+    seen: set[int] = set()
+    while database is not None and id(database) not in seen:
+        seen.add(id(database))
+        if isinstance(database, Transaction):
+            raise OperationTransactionUnavailable(
+                "Recorded output recovery must run outside effect transactions"
+            )
+        database = getattr(database, "inner", None)
+    if _active_transaction.get() is not None:
+        raise OperationTransactionUnavailable(
+            "Recorded output recovery must run outside effect transactions"
+        )
+
+
+@asynccontextmanager
+async def _transaction_with_shielded_lifecycle(database: Any) -> AsyncIterator[Any]:
+    """Keep ASGI disconnect cancellation out of connection acquisition/cleanup.
+
+    The caller's transaction body remains cancellable. Enter and exit run in
+    the same task so framework ContextVar tokens retain their owner; shielding
+    only these boundaries lets rollback finish before pool release.
+    """
+    manager = _jv_graph_transaction(database)
+    with CancelScope(shield=True):
+        context = await manager.__aenter__()
+    try:
+        yield context
+    except BaseException as exc:
+        with CancelScope(shield=True):
+            if not await manager.__aexit__(type(exc), exc, exc.__traceback__):
+                raise
+    else:
+        with CancelScope(shield=True):
+            await manager.__aexit__(None, None, None)
+
+
 @asynccontextmanager
 async def postgres_graph_transaction(
     database: Any | None = None,
@@ -123,9 +170,11 @@ async def postgres_graph_transaction(
                 )
         try:
             yield active.handle
-        except BaseException:
+        except BaseException as exc:
             # Catching a nested failure must not commit its partial mutations.
             active.failed = True
+            if active.failure is None:
+                active.failure = exc
             raise
         return
 
@@ -134,7 +183,7 @@ async def postgres_graph_transaction(
     concrete = _transaction_database(bound)
     adapter = concrete
     try:
-        async with _jv_graph_transaction(adapter) as ctx:
+        async with _transaction_with_shielded_lifecycle(adapter) as ctx:
             # Discard authorization memo entries so reads inside this scope
             # observe grants written on the transaction's connection.
             reset_permissions_cache()
@@ -146,7 +195,7 @@ async def postgres_graph_transaction(
                 if frame.failed:
                     raise OperationTransactionUnavailable(
                         "Nested transaction failure requires rollback"
-                    )
+                    ) from frame.failure
             finally:
                 _active_transaction.reset(token)
     except _JvTxnUnavailable as exc:

@@ -3794,7 +3794,9 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     ),
     "integral_query_audit_log": ToolBinding(
         _h("app.api.audit_log", "list_audit_log"),
-        _pick("scope", "actor_kind", "cursor", "limit"),
+        _pick(
+            "actor_kind", "action", "resource_id", "resource_type", "cursor", "limit"
+        ),
     ),
     "integral_list_conflicts": ToolBinding(
         _h("app.api.conflicts", "list_all"), _pick("connector_id", "status")

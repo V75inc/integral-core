@@ -56,6 +56,7 @@ async def test_closed_state_survives_restart_without_executable_payload(
     assert closed["diff_human"] == ""
     assert "Private" not in str(closed)
     assert "payload" not in closed
+    assert "intent_fingerprint" not in closed
     assert not await staging.get_pending_for_user("u1")
     with pytest.raises(staging.StagingError) as exc:
         await staging.bless_token(user_id="u1", token=sc.token)

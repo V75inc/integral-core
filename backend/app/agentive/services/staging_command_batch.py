@@ -11,6 +11,7 @@ from typing import Any
 from jvspatial.core.context import get_default_context
 
 from app.agentive.services.staging_command_apply import (
+    CANONICAL_COMMAND_KINDS,
     _identity,
     apply_staged_command_once,
 )
@@ -30,28 +31,13 @@ from app.services.app_operations.transaction_scope import postgres_graph_transac
 
 
 def supports_canonical_batch(sc: StagedChange) -> bool:
-    """Identify the creation and Entry mutation command family journaled here."""
+    """Use the same durable command inventory for individual and batch writes."""
     operations = sc.payload.get("operations")
     return (
         sc.kind == "batch"
         and isinstance(operations, list)
         and all(
-            isinstance(op, dict)
-            and op.get("kind")
-            in {
-                "create_entry",
-                "update_entry",
-                "delete_entry",
-                "delete_track",
-                "delete_app",
-                "create_app",
-                "create_track",
-                "update_app",
-                "update_track",
-                "add_comment",
-                "edit_comment",
-                "delete_comment",
-            }
+            isinstance(op, dict) and op.get("kind") in CANONICAL_COMMAND_KINDS
             for op in operations
         )
     )
@@ -193,7 +179,17 @@ async def apply_command_batch_once(*, sc: StagedChange, request: Any) -> dict[st
                 "create_track": "track",
                 "update_track": "track",
                 "add_comment": "comment",
+                "save_view": "view",
+                "create_dashboard": "dashboard",
+                "update_dashboard": "dashboard",
             }.get(child.kind)
+            if child.kind.startswith("modify_operational_model."):
+                reference_kind = {
+                    "add_entry_type": "entry_type",
+                    "add_tag": "tag",
+                    "add_view": "view",
+                    "update_view": "view",
+                }.get(child.payload.get("action"))
             if reference_kind is not None:
                 # Keep command references private and independent of a current
                 # UI projection. A later approved deletion or ACL change must
@@ -203,11 +199,21 @@ async def apply_command_batch_once(*, sc: StagedChange, request: Any) -> dict[st
                 )
                 resource_id = (evidence or {}).get(f"{reference_kind}_id")
                 if resource_id:
-                    name_key = "name" if reference_kind == "app" else "title"
+                    name_key = (
+                        "name"
+                        if reference_kind
+                        in {"app", "view", "dashboard", "tag", "entry_type"}
+                        else "title"
+                    )
                     reference_result = {
                         reference_kind: {
                             "id": resource_id,
-                            name_key: child.payload.get(name_key, ""),
+                            name_key: child.payload.get(name_key)
+                            or (
+                                "Feed"
+                                if child.kind == "modify_operational_model.add_view"
+                                else ""
+                            ),
                         }
                     }
             _capture_batch_refs(references, index, reference_result)

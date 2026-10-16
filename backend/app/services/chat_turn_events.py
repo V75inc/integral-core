@@ -26,7 +26,7 @@ _PUBLIC_FIELDS: dict[str, tuple[str, ...]] = {
     "text-delta": ("delta",),
     "text-replace": ("content",),
     "message-boundary": (),
-    "message-finish": ("timing",),
+    "message-finish": ("timing", "contextMode"),
     "step": (
         "name",
         "status",
@@ -37,6 +37,11 @@ _PUBLIC_FIELDS: dict[str, tuple[str, ...]] = {
         "outcome",
         "costSource",
         "usage",
+        "usageComplete",
+        "inputTokensReported",
+        "outputTokensReported",
+        "costComplete",
+        "requestContext",
         "providerCostUsd",
         "durationMs",
     ),
@@ -45,8 +50,11 @@ _PUBLIC_FIELDS: dict[str, tuple[str, ...]] = {
     "status": ("status", "text"),
     "error": ("code", "message"),
 }
-_TIMING_FIELDS = frozenset({"totalMs", "firstTokenMs"})
+_TIMING_FIELDS = frozenset({"totalMs", "firstTokenMs", "modelPassMs"})
 _USAGE_FIELDS = frozenset({"inputTokens", "outputTokens"})
+_USAGE_FLAG_FIELDS = frozenset(
+    {"usageComplete", "inputTokensReported", "outputTokensReported", "costComplete"}
+)
 _OBJECT_COLLECTION = "object"
 
 
@@ -66,12 +74,16 @@ def _cursor_id(work_item_id: str) -> str:
     return f"o.HarnessChatEventCursor.{digest}"
 
 
-def normalize_public_event(event: dict[str, Any]) -> dict[str, Any]:
+def normalize_public_event(
+    event: dict[str, Any], *, reject_unknown_fields: bool = False
+) -> dict[str, Any]:
     """Project events to the public chat contract, excluding raw parts."""
     event_type = str(event.get("type") or "")
     allowed = _PUBLIC_FIELDS.get(event_type)
     if allowed is None:
         raise ValueError("event type is not part of the public chat contract")
+    if reject_unknown_fields and set(event).difference({"type", *allowed}):
+        raise ValueError("unsupported public event fields")
     normalized: dict[str, Any] = {"type": event_type}
     for key in allowed:
         value = event.get(key)
@@ -94,6 +106,25 @@ def normalize_public_event(event: dict[str, Any]) -> dict[str, Any]:
                     for item in value.values()
                 ):
                     raise ValueError("token usage must be integral")
+            elif event_type == "step" and key in _USAGE_FLAG_FIELDS:
+                if not isinstance(value, bool):
+                    raise ValueError(f"{key} must be boolean")
+            elif event_type == "step" and key == "requestContext":
+                from app.agentive.harness.contracts import (
+                    ModelRequestContextObservation,
+                )
+
+                # Reuse the content-free request schema; raw prompts, tool
+                # results and arbitrary provider metadata cannot enter replay.
+                value = ModelRequestContextObservation.model_validate(
+                    value
+                ).model_dump()
+            elif key == "contextMode":
+                if not isinstance(value, str) or value not in {
+                    "conversation",
+                    "operational",
+                }:
+                    raise ValueError("unsupported context mode")
             elif event_type == "step" and key == "attempt":
                 valid_attempt = False
                 if isinstance(value, int) and not isinstance(value, bool):

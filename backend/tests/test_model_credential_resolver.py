@@ -304,3 +304,41 @@ async def test_resolver_keyed_custom_keeps_real_key(enc_key, test_user):
     assert override["model"] == "openai/my-model"
     assert override["api_base"] == "https://llm.example.com/v1"
     assert override["api_key"] == "sk-custom-key"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["hybrid", "byo_strict"])
+@pytest.mark.parametrize("failure", ["malformed", "rotated_key", "missing_key"])
+async def test_custom_decryption_failure_is_not_keyless(
+    enc_key, test_user, monkeypatch, mode, failure
+):
+    """A nonempty encrypted secret must never silently become keyless routing."""
+    monkeypatch.setattr(
+        "app.services.model_credential_resolver.settings.INTEGRAL_AGENT_KEY_MODE", mode
+    )
+    ws = await ensure_personal_workspace(test_user)
+    uid = getattr(test_user, "user_id", None) or test_user.id
+    encrypted = encrypt_secret_for_storage("synthetic-custom-key", aad=uid)
+    record = UserModelCredential(
+        user_id=uid,
+        provider="custom_openai",
+        model="model",
+        base_url="https://llm.example/v1",
+        api_key_enc="v1:broken" if failure == "malformed" else encrypted,
+        is_active=True,
+    )
+    await record.save()
+    if failure == "rotated_key":
+        monkeypatch.setenv(
+            "INTEGRAL_CREDENTIAL_ENC_KEY",
+            base64.urlsafe_b64encode(b"2" * 32).decode().rstrip("="),
+        )
+        monkeypatch.delenv("INTEGRAL_CREDENTIAL_ENC_KEY_PREVIOUS", raising=False)
+    elif failure == "missing_key":
+        monkeypatch.delenv("INTEGRAL_CREDENTIAL_ENC_KEY", raising=False)
+        monkeypatch.delenv("INTEGRAL_CREDENTIAL_ENC_KEY_PREVIOUS", raising=False)
+    if mode == "byo_strict":
+        with pytest.raises(ModelKeyRequiredError):
+            await resolve_native_model_override(ws.id)
+    else:
+        assert await resolve_native_model_override(ws.id) is None

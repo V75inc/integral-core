@@ -96,6 +96,10 @@ export type ObservabilityStep = {
   attempt?: number;
   requestId?: string;
   finishReason?: string;
+  usageComplete?: boolean;
+  inputTokensReported?: boolean;
+  outputTokensReported?: boolean;
+  costComplete?: boolean;
   usage?: { inputTokens?: number; outputTokens?: number };
 };
 
@@ -550,10 +554,10 @@ function persistedToMessage(m: AIChatPersistedMessage): ThreadMessageLike {
         ? {
             steps: pmSteps.map((s) => ({
               messageId: m.id,
-              usage: s.usage
+              usage: s.usage?.inputTokens != null && s.usage.outputTokens != null
                 ? {
-                    inputTokens: s.usage.inputTokens ?? 0,
-                    outputTokens: s.usage.outputTokens ?? 0,
+                    inputTokens: s.usage.inputTokens,
+                    outputTokens: s.usage.outputTokens,
                   }
                 : undefined,
             })),
@@ -2029,6 +2033,10 @@ function applyEvent(draft: AssistantMessageDraft, ev: NormalizedEvent) {
           attempt: ev.attempt,
           requestId: ev.requestId,
           finishReason: ev.finishReason,
+          usageComplete: ev.usageComplete,
+          inputTokensReported: ev.inputTokensReported,
+          outputTokensReported: ev.outputTokensReported,
+          costComplete: ev.costComplete,
           usage: customUsage,
         },
       ];

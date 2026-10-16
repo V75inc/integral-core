@@ -246,8 +246,15 @@ def _tool_error_from_exception(exc: Exception) -> ToolResult:
             error_code=exc.error_code,
             message=exc.message,
         )
+    from app.agentive.connectors.mcp_proxy import McpProxyError
     from app.agentive.staging import StagingBlockedError
 
+    if isinstance(exc, McpProxyError):
+        return ToolResult(
+            is_error=True,
+            error_code=exc.error_code,
+            message=exc.message,
+        )
     if isinstance(exc, StagingBlockedError):
         # A propose (or batch commit) refused because an unresolved card
         # already owns the decision. It is a RuntimeError, so the generic

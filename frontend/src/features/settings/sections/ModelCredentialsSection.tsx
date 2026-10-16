@@ -1,7 +1,7 @@
 /**
  * User-facing AI model and API key settings.
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ExternalLink, Sparkles, Trash2 } from 'lucide-react';
 
@@ -52,14 +52,6 @@ function ModelSelect({
   value: string;
   onChange: (modelId: string) => void;
 }) {
-  const prevProvider = useRef(provider);
-
-  useEffect(() => {
-    if (prevProvider.current === provider) return;
-    prevProvider.current = provider;
-    onChange(defaultModel(provider));
-  }, [provider, onChange]);
-
   return (
     <PresetModelSelect
       presets={RECOMMENDED_MODELS[provider]}
@@ -427,6 +419,7 @@ export function ModelCredentialsSection() {
   const [model, setModel] = useState(() => defaultModel('ollama'));
   const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
+  const [withoutKey, setWithoutKey] = useState(false);
   const [speech, setSpeech] = useState<SpeechSlotState>(freshSpeechSlot);
 
   const credQuery = useQuery<ModelCredential | null>({
@@ -452,6 +445,7 @@ export function ModelCredentialsSection() {
     setProvider(active.provider);
     setModel(active.model);
     setBaseUrl(active.base_url ?? '');
+    setWithoutKey(active.provider === 'custom_openai' && !active.key_fingerprint);
     const speechProvider: SpeechProvider = isSpeechProvider(active.speech_provider)
       ? active.speech_provider
       : isSpeechProvider(active.provider)
@@ -465,17 +459,15 @@ export function ModelCredentialsSection() {
     });
   }, [activeSyncKey, active]);
 
-  const applyRecommendedOllama = () => {
-    setProvider('ollama');
-    setModel(defaultModel('ollama'));
-  };
-
   const handleProviderChange = (next: ModelProvider) => {
     setProvider(next);
     setModel(defaultModel(next));
-    if (next === 'ollama_local') setApiKey('');
+    setApiKey('');
+    setWithoutKey(false);
     if (next !== 'custom_openai') setBaseUrl('');
   };
+
+  const applyRecommendedOllama = () => handleProviderChange('ollama');
 
   const saveMut = useMutation({
     mutationFn: () => {
@@ -487,6 +479,7 @@ export function ModelCredentialsSection() {
         provider,
         model: model.trim(),
         ...(trimmedKey ? { api_key: trimmedKey } : {}),
+        ...(provider === 'custom_openai' && withoutKey ? { clear_api_key: true } : {}),
         ...(provider === 'custom_openai' && trimmedBase
           ? { base_url: trimmedBase }
           : {}),
@@ -564,6 +557,12 @@ export function ModelCredentialsSection() {
     provider !== 'custom_openai' ||
     !!(baseUrl.trim() || active?.base_url);
 
+  const canRetainKey = active?.provider === provider &&
+    (provider !== 'custom_openai' ||
+      (baseUrl.trim() || active.base_url || '').replace(/\/+$/, '') === active.base_url);
+  const customKeyValid = provider !== 'custom_openai' ||
+    withoutKey || !!apiKey.trim() || (canRetainKey && !!active?.key_fingerprint);
+
   const canSave =
     (active ||
       apiKey.trim() ||
@@ -571,6 +570,7 @@ export function ModelCredentialsSection() {
       provider === 'custom_openai') &&
     model.trim() &&
     customBaseValid &&
+    customKeyValid &&
     speechSlotValid;
 
   return (
@@ -707,8 +707,9 @@ export function ModelCredentialsSection() {
                         className="min-w-[12rem] flex-1"
                       />
                       <Text variant="body-sm" tone="muted" as="p">
-                        OpenAI-compatible base URL up to /v1. Validated live via
-                        GET /models before saving.
+                        HTTPS OpenAI-compatible base URL up to /v1. Validated live via
+                        GET /models before saving. Private hosts require operator approval.
+                        Changing the endpoint requires a new key or an explicit keyless choice.
                         {active?.base_url && !baseUrl.trim()
                           ? ` Leave blank to keep ${active.base_url}.`
                           : ''}
@@ -719,13 +720,15 @@ export function ModelCredentialsSection() {
                     provider={provider}
                     label={
                       provider === 'custom_openai'
-                        ? 'API key (optional — blank for unauthenticated endpoints)'
+                        ? canRetainKey && active?.key_fingerprint
+                          ? 'API key (leave blank to keep current)'
+                          : 'API key for this endpoint'
                         : active
                           ? 'API key (leave blank to keep current)'
                           : 'API key'
                     }
                     value={apiKey}
-                    onChange={setApiKey}
+                    onChange={value => { setApiKey(value); if (value.trim()) setWithoutKey(false); }}
                     onTest={() =>
                       validateKey.mutate({
                         prov: provider,
@@ -740,13 +743,26 @@ export function ModelCredentialsSection() {
                       provider === 'ollama_local'
                         ? false
                         : provider === 'custom_openai'
-                          ? !(baseUrl.trim() || active?.base_url)
+                          ? !(baseUrl.trim() || active?.base_url) || (!withoutKey && !apiKey.trim())
                           : !apiKey.trim()
                     }
                     testPending={validateKey.isPending}
                     consoleUrl={PROVIDER_CONSOLE_URLS[provider]}
                     consoleLabel={`${providerLabel(provider)} console`}
                   />
+                  {provider === 'custom_openai' ? (
+                    <Text as="label" variant="body-sm" className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={withoutKey}
+                        onChange={event => {
+                          setWithoutKey(event.target.checked);
+                          if (event.target.checked) setApiKey('');
+                        }}
+                      />
+                      Use without an API key (removes any saved primary key)
+                    </Text>
+                  ) : null}
                 </TierPanel>
 
                 <SpeechSlotEditor

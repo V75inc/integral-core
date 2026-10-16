@@ -167,6 +167,8 @@ class StagedChange:
     # Private migration discriminator. Older blessed proposals may have
     # unrecorded effects; their absence of a new receipt is not replay proof.
     execution_contract_version: str = ""
+    # Private server provenance; never emitted by to_dict or accepted in payload.
+    origin_proof: Optional[Dict[str, Any]] = None
 
     def is_expired(self, *, now: Optional[datetime] = None) -> bool:
         """Return True when ``expires_at`` is at or before ``now``."""
@@ -736,6 +738,8 @@ async def create_staged_change(
 
     now = _now()
     idem = str((payload or {}).get("idempotency_key") or "").strip() or None
+    from app.agentive.services.proposal_origin import current_proposal_origin
+
     sc = StagedChange(
         token=_new_token(),
         user_id=user_id,
@@ -751,6 +755,7 @@ async def create_staged_change(
         workspace_id=minted_workspace_id,
         idempotency_key=idem,
         execution_contract_version="durable-staging-v1",
+        origin_proof=current_proposal_origin(user_id, minted_workspace_id),
     )
 
     async with _lock:
@@ -1291,6 +1296,7 @@ async def _push_state_and_record_closure(sc: StagedChange) -> None:
                 user_id=sc.user_id,
                 target=sc.state,
                 expected_kind=sc.kind,
+                terminal_snapshot=sc,
             )
         except StagingError as exc:
             if exc.code != f"already_{sc.state}":

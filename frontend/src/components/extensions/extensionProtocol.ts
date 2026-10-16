@@ -45,6 +45,8 @@ export type ExtensionBridgeMessage =
       ok: boolean;
       value?: unknown;
       error?: string;
+      error_code?: string;
+      retryable?: boolean;
     }
   | {
       protocol: typeof EXTENSION_PROTOCOL;

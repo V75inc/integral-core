@@ -59,6 +59,10 @@ This is a handler fragment; use the actual reference tool's signature and declar
 
 OperationContext additionally exposes the installed App, operation key, idempotency/correlation identity, validated create/update helpers, conditional update, audit, and deduplicated notifications. `expected_record_revision` supports stale-update detection. Check the returned result rather than assuming a write occurred.
 
+## Long work: background jobs
+
+If a tool may run longer than a request (an import, a month-end run), queue it with `ctx.enqueue_job(...)` and have it save its place and call `ctx.report_progress(...)`. Core runs it as the same person, retries it, and resumes it after a restart. See [Background jobs for Apps](../platform/background-app-jobs.md).
+
 ## 5. Give the App useful behavior
 
 Declare queries with bounded inputs and explicit outputs. A Home widget expecting rows and totals needs both. Declare operations with policy and staging requirements. Keep read operations free of hidden writes.
