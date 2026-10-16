@@ -1443,7 +1443,7 @@ function ComposerAction({ home = false }: { home?: boolean }) {
           </button>
         </ComposerPrimitive.AddAttachment>
         <ComposerMicButton />
-        <KebabMenu portal={!home} ariaLabel="Suggestions" align="start" menuTitle="Try asking Integral" menuCaption="Choose a prompt, then make it your own." icon={<Sparkles size={15} aria-hidden />} items={suggestions.map(suggestion => ({
+        <KebabMenu portal ariaLabel="Suggestions" align="start" menuTitle="Try asking Integral" menuCaption="Choose a prompt, then make it your own." icon={<Sparkles size={15} aria-hidden />} items={suggestions.map(suggestion => ({
           key: suggestion.label, label: suggestion.label, description: suggestion.text, disabled: !canSuggest,
           onClick: () => {
             refs?.resetComposerEntityRefs();
