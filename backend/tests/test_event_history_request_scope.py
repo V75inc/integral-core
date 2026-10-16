@@ -66,3 +66,53 @@ async def test_event_history_routes_isolate_two_workspaces_for_one_principal(
             params={cursor_param: cursor, "limit": 1},
         )
         assert crossed.status_code == 400, crossed.text
+
+
+@pytest.mark.asyncio
+async def test_personal_account_history_does_not_follow_org_workspace(
+    authenticated_client: AsyncClient, test_user
+):
+    """Account events belong to Personal history even for multi-workspace users."""
+    from app.services.change_event_logger import (
+        ChangeEventEnvelope,
+        get_change_event_logger,
+    )
+
+    organization = await Workspace.create(
+        name="Account history organization", kind="organization"
+    )
+    await catalog_workspace(organization)
+    await test_user.connect(organization, edge=IS_MEMBER_OF, role="owner")
+
+    event = ChangeEventEnvelope(
+        id="",
+        ts="2026-10-16T00:00:00+00:00",
+        actor_kind="human",
+        actor_id=test_user.id,
+        action="user.update",
+        resource_type="User",
+        resource_id=test_user.id,
+        scope=f"user:{test_user.id}",
+        before={"id": test_user.id, "display_name": "Before"},
+        after={"id": test_user.id, "display_name": "After"},
+        details={"section": "profile"},
+    )
+    await get_change_event_logger().persist(event)
+    assert event.id
+
+    for path in ("/api/audit-log", "/api/events"):
+        personal = await authenticated_client.get(
+            path, params={"scope": f"user:{test_user.id}"}
+        )
+        assert personal.status_code == 200, personal.text
+        assert any(item["id"] == event.id for item in personal.json()["events"])
+
+        organization_history = await authenticated_client.get(
+            path,
+            params={"scope": f"user:{test_user.id}"},
+            headers={"X-Integral-Scope": f"ws:{organization.id}"},
+        )
+        assert organization_history.status_code == 200, organization_history.text
+        assert all(
+            item["id"] != event.id for item in organization_history.json()["events"]
+        )
