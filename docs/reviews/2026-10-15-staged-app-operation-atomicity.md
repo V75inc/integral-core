@@ -126,3 +126,66 @@ The pinned jvspatial 0.2.2 adapter exposes native begin/commit/rollback on
 PostgreSQL. Its SQLite adapter does not expose those methods, so it cannot enter
 this native integration. Do not infer SQLite transactional recovery coverage
 from the PostgreSQL results or change the existing unsupported-store boundary.
+
+
+## Cross-transport acknowledgement follow-through
+
+Remote PostgreSQL CI at `0c9fea2c` exposed a compatibility gap: a fresh MCP
+approval for an already completed exact operation was rejected rather than
+acknowledging the earlier receipt. The new no-effect path explicitly reports
+`already_completed`; it does not claim that the later review authorized the
+earlier effect. Current proposal identity/state/expiry, independent original
+declaration/input proof and current own-history/output admission still apply.
+The original receipt and its decision fingerprint remain byte for byte unchanged.
+Missing/invalid declaration or malformed decision metadata requires
+reconciliation; it cannot become a dispatch permit. Terminal intent supports
+recovery of an acknowledged decision without re-entering a handler.
+
+The C6 correction test now uses real current Auth/App authority and prepared
+review metadata, rather than a substituted dispatcher with invented identities.
+Its private fixture effect is verified directly, without publishing unsupported
+Object IDs. Changed mutation declarations retain the explicit idempotency
+conflict; read-only replacement contracts retain disclosure denial.
+
+All 26 focused native cases passed (`/tmp/core-ci-repair-all-focused-native.xml`).
+The full default backend run passed 6,588 tests with 827 skips and zero
+failures/errors (`/tmp/core-ci-repair-full.xml`). Its runtime is unchanged by
+the subsequent PostgreSQL-only observation test update.
+
+The initial full native contract run recorded 724 passes, three failures and
+three skips (`/tmp/core-ci-repair-pg-contracts.xml`). All three failures were
+private dataclass shape assertions after adding the decision fingerprint;
+they were reproduced independently and corrected without changing runtime.
+The entire updated observation component then passed 30 native tests
+(`/tmp/core-ci-repair-observation-shape-green.xml`). The public receipt retains
+only its three supported fields, with explicit coverage that private decision
+proof and malformed private output never enter it. The three broad-run skips
+were the opt-in restore gate, the opt-in slow query-plan gate and a backup drill
+whose local `pg_dump` connection was refused. These are unqualified gates,
+not passes. The PostgreSQL spike passed one test; the separate CI App-job and
+bundle authorization phase passed all 56 tests with no skips/errors/failures
+(`/tmp/core-ci-repair-sidecar-app-jobs.xml`).
+
+The earlier qualification above describes the original increment, not this
+amended runtime. No new push or deployment yet.
+
+### Pause checkpoint qualification
+
+The final combined current-source PostgreSQL selection passed all 69 tests with
+zero skips, failures or errors (`/tmp/core-ci-repair-checkpoint-native.xml`).
+It includes the corrected observation component, acknowledgment proof,
+C6 correction/expiry, nested contract replacement and staged-operation recovery.
+CI-faithful smoke passed 1,797 tests with 22 skips and zero failures/errors
+(`/tmp/core-ci-repair-ci.xml`). All four independent artifact gates passed:
+Core wheel, public clean install, SDK wheel and external App loading
+(`/tmp/core-ci-repair-checkpoint-artifacts.log`). Pinned hooks and all 16 staged
+guards passed. No frontend source changed in this checkpoint.
+
+The original broad native run remains recorded above with its three corrected
+assertion failures; this is partitioned qualification, not a claim of a freshly
+all-green full native run. The backup/slow/restore gates remain outstanding.
+Remote CI still describes the previously pushed commit `0c9fea2c`; this repair
+is a local checkpoint pending a future push and fresh remote CI. The separate
+routine-command candidate remains uncommitted in its own worktree. The overall
+hardening goal is incomplete and pauses at this commit; no runtime redeployment
+or browser acceptance is claimed.
