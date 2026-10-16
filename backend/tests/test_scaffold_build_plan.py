@@ -341,6 +341,16 @@ def test_labelled_seed_text_becomes_fields_and_named_relation_refs():
     assert "text" not in titled
     assert "fields" not in titled
 
+    explicit_title = _structured_seed(
+        {"track_id": "{{track.id:Rentals}}", "title": "Named record", "fields": {}},
+        tracks,
+        {},
+    )
+    assert explicit_title["title"] == "Named record"
+    assert explicit_title["fields"] == {}
+    with pytest.raises(ValueError, match="needs structured fields"):
+        _structured_seed({"track_id": "{{track.id:Rentals}}"}, tracks, {})
+
     with pytest.raises(ValueError, match="use a relation field"):
         _structured_seed(
             {"track_id": "{{track.id:Jobs}}", "text": "Assigned Technician: Alice"},

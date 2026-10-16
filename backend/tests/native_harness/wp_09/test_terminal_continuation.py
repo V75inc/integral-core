@@ -68,6 +68,104 @@ def _receipt(tool, status):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    "code",
+    [
+        "invalid_scaffold_plan",
+        "plan_differs_from_design",
+        "scaffold_plan_validation_failed",
+        "incomplete_scaffold",
+    ],
+)
+async def test_pre_effect_rejection_recovers_without_replaying_build(monkeypatch, code):
+    from app.agentive.harness import model_observations
+    from app.agentive.work_models import WorkApproval
+
+    tool = "integral_build_approved_design"
+    receipt = _receipt(tool, "failed")
+    receipt.capability_source = "core"
+    receipt.adapter_error_code = code
+    effect = ToolEffectRecord(
+        run_id="failed-run", tool_name=tool, tool_call_id="call-1", status="started"
+    )
+    audit = []
+
+    async def empty(**kwargs):
+        return []
+
+    async def rows(query):
+        return [receipt]
+
+    async def no_rows(query):
+        return []
+
+    class Store:
+        async def list_unresolved_tool_effects(self, **kwargs):
+            return [effect]
+
+        async def list_tool_effects(self, **kwargs):
+            return [effect]
+
+        async def latest_snapshot(self, **kwargs):
+            return None
+
+        async def record_tool_effect(self, record):
+            audit.append(record)
+
+    monkeypatch.setattr(model_observations, "list_model_request_observations", empty)
+    monkeypatch.setattr(WorkApproval, "find", no_rows)
+    monkeypatch.setattr(RunStep, "find", rows)
+    prompt = ModelRequest(parts=[UserPromptPart(content="yes")])
+    history = await _resume_history(
+        _scope("next-run"),
+        SimpleNamespace(last_run_id="failed-run"),
+        Store(),
+        recovery_message=prompt,
+        previous_run=_run(),
+    )
+    assert history[0] == prompt
+    assert "not applied" in history[-1].parts[0].content
+    assert len(audit) == 1
+    assert audit[0].status == "failed"
+    assert "no replay" in audit[0].effect_summary.lower()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "source,code",
+    [
+        ("connector", "invalid_scaffold_plan"),
+        ("core", "scaffold_plan_stage_failed"),
+        ("core", "partial_build_requires_repair"),
+        ("core", "unknown"),
+    ],
+)
+async def test_pre_effect_recovery_rejects_foreign_or_partial_failure(
+    monkeypatch, source, code
+):
+    receipt = _receipt("integral_build_approved_design", "failed")
+    receipt.capability_source = source
+    receipt.adapter_error_code = code
+
+    async def rows(query):
+        return [receipt]
+
+    monkeypatch.setattr(RunStep, "find", rows)
+    assert (
+        await _settled_terminal_history(
+            _scope("next-run"),
+            _run(),
+            object(),
+            None,
+            [],
+            recovery_message=ModelRequest(parts=[UserPromptPart(content="yes")]),
+            checkpoint_run_id=None,
+        )
+        is None
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     "tool,status,allowed",
     [
         ("read_tool", "succeeded", True),
@@ -427,3 +525,212 @@ async def test_completed_retry_run_continues_with_unknown_billing_without_replay
     assert restored[:3] == history
     assert "previous turn completed" in restored[-1].parts[0].content.lower()
     assert "must not be repeated" in restored[-1].parts[0].content
+
+
+@pytest.mark.asyncio
+async def test_rejected_build_repairs_missing_tool_return_from_original_receipt(
+    monkeypatch,
+):
+    tool = "integral_build_approved_design"
+    receipt = _receipt(tool, "failed")
+    receipt.capability_source = "core"
+    receipt.adapter_error_code = "invalid_scaffold_plan"
+
+    async def rows(query):
+        return [receipt]
+
+    class Store:
+        async def latest_snapshot(self, **kwargs):
+            return SimpleNamespace(
+                messages=[ModelResponse(parts=[ToolCallPart(tool, {}, "call-1")])]
+            )
+
+    monkeypatch.setattr(RunStep, "find", rows)
+    history = await _settled_terminal_history(
+        _scope("next-run"),
+        _run(),
+        Store(),
+        SimpleNamespace(state="complete"),
+        [SimpleNamespace(tool_name=tool, tool_call_id="call-1", status="failed")],
+        recovery_message=None,
+        checkpoint_run_id=None,
+    )
+    returned = history[-2].parts[0]
+    assert isinstance(returned, ToolReturnPart)
+    assert returned.tool_call_id == "call-1"
+    assert returned.content["applied"] is False
+    assert returned.content["error_code"] == "invalid_scaffold_plan"
+
+
+@pytest.mark.asyncio
+async def test_exhausted_plan_corrections_produce_truthful_final_answer():
+    from app.services.chat_providers.pydantic_ai_provider import (
+        _scaffold_completion_validator,
+    )
+
+    validator = _scaffold_completion_validator(
+        {
+            "scaffold_coverage_attempted": True,
+            "build_validation_failure": "Date Spent must retain its approved field key.",
+        }
+    )
+    answer = await validator(None, "Everything is ready!")
+    assert "No build changes were applied" in answer
+    assert "Date Spent" in answer
+    assert "Everything is ready" not in answer
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "tool,code",
+    [
+        ("integral_build_approved_design", "build_already_attempted"),
+        ("integral_propose_design", "approved_design_immutable"),
+    ],
+)
+async def test_completed_core_guard_return_recovers_without_broker_receipt(
+    monkeypatch, tool, code
+):
+    async def rows(query):
+        return []
+
+    history = [
+        ModelResponse(
+            parts=[ToolCallPart(tool_name=tool, args={}, tool_call_id="guard-call")]
+        ),
+        ModelRequest(
+            parts=[
+                ToolReturnPart(
+                    tool_name=tool,
+                    tool_call_id="guard-call",
+                    content={"error": True, "error_code": code, "retryable": False},
+                )
+            ]
+        ),
+    ]
+
+    class Store:
+        async def continue_messages(self, **kwargs):
+            return history
+
+    async def checkpoint(store, run_id):
+        return history
+
+    monkeypatch.setattr(RunStep, "find", rows)
+    monkeypatch.setattr(
+        "app.services.chat_providers.pydantic_ai_provider._continue_from_checkpoint",
+        checkpoint,
+    )
+    effect = ToolEffectRecord(
+        run_id="failed-run",
+        tool_name=tool,
+        tool_call_id="guard-call",
+        status="completed",
+    )
+    result = await _settled_terminal_history(
+        _scope("next-run"),
+        _run(
+            capability_snapshot={
+                "capabilities": [{"name": tool, "op_class": "propose"}]
+            }
+        ),
+        Store(),
+        object(),
+        [effect],
+        recovery_message=None,
+        checkpoint_run_id=None,
+    )
+    assert result is not None
+    assert result[:2] == history[:2]
+
+
+@pytest.mark.parametrize(
+    "mismatch", ["tool", "code", "unresolved", "missing_call", "retryable"]
+)
+def test_guard_recovery_requires_exact_original_completed_return(mismatch):
+    from app.agentive.harness.effect_reconciliation import settled_core_guard_calls
+
+    tool = "integral_build_approved_design"
+    code = "build_already_attempted"
+    status = "completed"
+    if mismatch == "tool":
+        tool = "connector_build"
+    if mismatch == "code":
+        code = "unknown"
+    if mismatch == "unresolved":
+        status = "started"
+    history = [
+        ModelResponse(
+            parts=[ToolCallPart(tool_name=tool, args={}, tool_call_id="guard-call")]
+        )
+    ]
+    if mismatch == "missing_call":
+        history = []
+    history.append(
+        ModelRequest(
+            parts=[
+                ToolReturnPart(
+                    tool_name=tool,
+                    tool_call_id="guard-call",
+                    content={
+                        "error": True,
+                        "error_code": code,
+                        "retryable": mismatch == "retryable",
+                    },
+                )
+            ]
+        )
+    )
+    effect = ToolEffectRecord(
+        run_id="failed-run", tool_name=tool, tool_call_id="guard-call", status=status
+    )
+    assert settled_core_guard_calls(history, [effect]) == set()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["succeeded", "denied"])
+async def test_original_core_receipt_repairs_started_write_with_missing_return(
+    monkeypatch, status
+):
+    tool = "write_tool"
+    receipt = _receipt(tool, status)
+    receipt.capability_source = "core"
+
+    async def rows(query):
+        return [receipt]
+
+    audit = []
+
+    class Store:
+        async def latest_snapshot(self, **kwargs):
+            return SimpleNamespace(
+                messages=[ModelResponse(parts=[ToolCallPart(tool, {}, "call-1")])]
+            )
+
+        async def record_tool_effect(self, record):
+            audit.append(record)
+
+    monkeypatch.setattr(RunStep, "find", rows)
+    history = await _settled_terminal_history(
+        _scope("next-run"),
+        _run(),
+        Store(),
+        SimpleNamespace(state="complete"),
+        [
+            ToolEffectRecord(
+                run_id="failed-run",
+                tool_name=tool,
+                tool_call_id="call-1",
+                status="started",
+            )
+        ],
+        recovery_message=None,
+        checkpoint_run_id=None,
+    )
+    result = history[-2].parts[0]
+    assert isinstance(result, ToolReturnPart)
+    assert result.content["recorded_status"] == status
+    assert result.content["observation_only"] is True
+    assert "not current state" in result.content["message"]
+    assert audit[0].status == "completed"
+    assert "no replay" in audit[0].effect_summary

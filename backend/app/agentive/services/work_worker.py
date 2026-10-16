@@ -475,6 +475,11 @@ def _native_chat_transcript(
     return parts, metadata
 
 
+def _chat_stream_event_key(context, ordinal: int) -> str:
+    """Namespace producer-local ordinals by the authoritative lease generation."""
+    return f"{context.run_id}:lease-{context.lease_fence}:{ordinal}"
+
+
 async def _handle_chat_turn(
     item: WorkItem,
     *,
@@ -763,7 +768,7 @@ async def _handle_chat_turn(
                     continue
                 await append_work_item_chat_event(
                     context=ctx,
-                    event_key=f"{ctx.run_id}:{event_ordinal}",
+                    event_key=_chat_stream_event_key(ctx, event_ordinal),
                     event=event,
                 )
                 event_ordinal += 1

@@ -751,6 +751,25 @@ async def invoke_app_operation(
             principal_id=operation_principal.principal_id,
             idempotency_key=idem_key,
         )
+        from contextlib import asynccontextmanager
+
+        from app.services.app_operations.decision_binding import (
+            current_operation_decision_fingerprint,
+            operation_decision_admission,
+        )
+
+        @asynccontextmanager
+        async def admit_command_decision():
+            async with operation_principal.admit():
+                async with operation_decision_admission(
+                    identity=identity,
+                    subject=actor_subject,
+                    request_hash=request_hash,
+                    contract_fingerprint=prepared["declaration_fingerprint"],
+                    principal_aliases=operation_principal.aliases,
+                ):
+                    yield
+
         try:
             execution = await execute_operation_once(
                 identity=identity,
@@ -758,7 +777,9 @@ async def invoke_app_operation(
                 execute=run_handler,
                 event_outbox=ctx.deferred_change_events,
                 principal_aliases=operation_principal.aliases,
-                admit_identity=operation_principal.admit,
+                admit_identity=admit_command_decision,
+                effect_contract_fingerprint=prepared["declaration_fingerprint"],
+                decision_intent_fingerprint=current_operation_decision_fingerprint(),
             )
         except OperationReceiptConflict as exc:
             raise OperationIdempotencyConflictError(message=str(exc)) from exc

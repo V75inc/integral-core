@@ -87,6 +87,8 @@ dependencies = [
     # and every test erroring with
     # "AttributeError: 'Server' object has no attribute 'list_tools'".
     # Lift the cap only together with a port of build_mcp_server to the 2.x API.
+    # 1.30 fixes retained Streamable-HTTP session state (CVE-2026-59951).
+    # Keep the 1.x API boundary above; do not suppress the dependency audit.
     "mcp[cli]>=1.30.0,<2",
     # Phase 4 — Hybrid Retrieval substrate (RET-01..04).
     # fastembed: ONNX-Runtime backend for sentence-transformers/all-MiniLM-L6-v2

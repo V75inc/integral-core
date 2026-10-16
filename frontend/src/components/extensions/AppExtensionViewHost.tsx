@@ -8,7 +8,8 @@ import {
   useState,
 } from 'react';
 import apiClient from '../../api/client';
-import { extensionsApi } from '../../api/extensions';
+import { extensionsApi, isRecordedOutputWithheld, RECORDED_OUTPUT_WITHHELD_MESSAGE } from '../../api/extensions';
+import { Text } from '../../ui';
 import {
   useExtensionBridge,
   type ExtensionBridgeApi,
@@ -61,8 +62,17 @@ export const AppExtensionViewHost = forwardRef<
   },
   ref,
 ) {
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [failed, setFailed] = useState(false);
+  const [recordedCompletion, setRecordedCompletion] = useState(false);
+  // Do not relabel an already mounted grant when parent scope props change
+  // before its replacement handshake arrives.
+  const scopeKey = JSON.stringify([workspaceId, appId, viewKey]);
+  const tokenScopeRef = useRef({ token: handshakeToken, scopeKey });
+  if (tokenScopeRef.current.token !== handshakeToken) {
+    tokenScopeRef.current = { token: handshakeToken, scopeKey };
+  }
+  const frameGrantMatches = tokenScopeRef.current.scopeKey === scopeKey;
   // A real sandbox document has its own hash-only CSP. srcDoc would inherit
   // Core's CSP and block the verified package's inline bridge script.
   const frameUrl = apiClient.getUri({
@@ -181,6 +191,7 @@ export const AppExtensionViewHost = forwardRef<
       onResize: height =>
         setFrameHeight(height === 'fill' ? 'fill' : Math.min(Math.max(Math.round(height), minHeight), 2400)),
       onNavigate: entryId => onOpenEntry?.(entryId),
+      onOperationResult: value => setRecordedCompletion(isRecordedOutputWithheld(value)),
     },
   );
 
@@ -197,7 +208,8 @@ export const AppExtensionViewHost = forwardRef<
 
   useEffect(() => {
     setFailed(false);
-  }, [handshakeToken]);
+    setRecordedCompletion(false);
+  }, [handshakeToken, workspaceId, appId, viewKey]);
 
   if (failed) {
     return <ExtensionViewFallback />;
@@ -208,15 +220,20 @@ export const AppExtensionViewHost = forwardRef<
       className={className ?? 'relative w-full'}
       style={{ minHeight: frameHeight === 'fill' ? Math.max(windowHeight - 96, 480) : frameHeight }}
     >
-      {!loaded ? (
+      {recordedCompletion && frameGrantMatches ? (
+        <div role="status" className="mb-2 px-3 py-2">
+          <Text as="p" variant="body-sm" tone="info">{RECORDED_OUTPUT_WITHHELD_MESSAGE}</Text>
+        </div>
+      ) : null}
+      {!loaded || !frameGrantMatches ? (
         <div className="absolute inset-0 flex items-center justify-center" style={{ minHeight }}>
           <Skeleton className="h-full w-full min-h-[240px]" />
         </div>
       ) : null}
-      {handshakeToken ? (
+      {handshakeToken && frameGrantMatches ? (
         <iframe
           key={handshakeToken}
-          ref={iframeRef}
+          ref={bridgeApi.bindFrame}
           title={`App extension view ${viewKey}`}
           src={frameUrl}
           referrerPolicy="no-referrer"

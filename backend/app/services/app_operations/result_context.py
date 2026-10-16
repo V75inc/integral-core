@@ -37,6 +37,21 @@ class OperationResultContext:
 
     async def admit(self, result: dict[str, Any]) -> None:
         """Recheck inside result admission, without entering a handler permit."""
+        if result.get(_CONTRACT_KEY) != self.declaration_fingerprint:
+            # A missing legacy marker is not evidence of declaration identity.
+            # Never stamp an old result or rerun a command to repair it.
+            raise InsufficientPermissionsError(
+                message="Current function authority required before result release"
+            )
+        await self.admit_current_function()
+
+    async def admit_current_function(self) -> None:
+        """Current read eligibility only; this does not prove an original result.
+
+        Recovery may use this before decoding saved output. Final disclosure
+        must still call ``admit`` with the original saved contract and admit all
+        current output dependencies. No handler or execution permit is loaded.
+        """
         from jvspatial.core.context import get_default_context
 
         from app.models.nodes import App
@@ -52,10 +67,6 @@ class OperationResultContext:
                 message="Current function authority required before result release"
             )
 
-        if result.get(_CONTRACT_KEY) != self.declaration_fingerprint:
-            # A missing legacy marker is not evidence of declaration identity.
-            # Keep the receipt/cache intact; never rerun a command to repair it.
-            raise denied()
         context = get_default_context()
         row = await primary_node_record(context.database, App, self.app_id)
         if row is None or row["context"].get("workspace_id") != self.workspace_id:

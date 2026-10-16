@@ -188,6 +188,62 @@ class WorkspaceProjectionAccess:
         return grants
 
 
+class _TransactionProjectionReads:
+    """Projection's compatibility protocol over the held transaction only."""
+
+    supports_native_graph_paging = False
+
+    def __init__(self, transaction: Any) -> None:
+        self.transaction = transaction
+
+    async def graph_node_batch(self, ids):
+        return await self.transaction.find_many("node", ids)
+
+    async def graph_edge_page(self, node_id, *, after=None, limit=50):
+        from jvspatial.db.database import Database
+
+        return await Database.graph_edge_page(
+            self.transaction, node_id, after=after, limit=limit
+        )
+
+
+async def _project_current_graph(context, request, **kwargs):
+    """Bridge older JV transaction handles without escaping their snapshot."""
+    database = context.database
+    if callable(getattr(database, "graph_node_batch", None)) and callable(
+        getattr(database, "graph_edge_page", None)
+    ):
+        return await context.project_graph(request, **kwargs)
+    from types import SimpleNamespace
+
+    from jvspatial.core.graph_projection import project_graph
+    from jvspatial.db.transaction import Transaction
+
+    if not isinstance(database, Transaction):
+        raise ServiceUnavailableError(message="Graph projection storage is unavailable")
+    return await project_graph(
+        SimpleNamespace(database=_TransactionProjectionReads(database)),
+        request,
+        **kwargs,
+    )
+
+
+def _require_projection_root(payload: Dict[str, Any], *, recorded: bool) -> None:
+    meta = payload["meta"]
+    if meta["root_available"]:
+        return
+    # A deadline can expire during the root's live authorization reads. That
+    # provides no permission decision; keep withholding data but report service
+    # availability accurately rather than claiming the caller lost access.
+    if "timeout" in meta["stop_reasons"]:
+        raise ServiceUnavailableError(message="Graph context capture timed out")
+    if recorded and "max_bytes" in meta["stop_reasons"]:
+        raise BadRequestError(
+            message="Increase max_bytes to represent the recorded graph root"
+        )
+    raise InsufficientPermissionsError(message="Workspace graph unavailable")
+
+
 async def capture_workspace_graph(
     *, principal_id: str, workspace_id: str, spec: GraphContextRequest
 ) -> Dict[str, Any]:
@@ -275,11 +331,14 @@ async def _capture_workspace_graph(
                 "max_candidates": max(1, spec.max_candidates // 2),
             }
         )
-        first = await context.project_graph(
-            first_request, scope=first_scope, access=first_access, semantics=semantics
+        first = await _project_current_graph(
+            context,
+            first_request,
+            scope=first_scope,
+            access=first_access,
+            semantics=semantics,
         )
-        if not first.to_dict()["meta"]["root_available"]:
-            raise InsufficientPermissionsError(message="Workspace graph unavailable")
+        _require_projection_root(first.to_dict(), recorded=True)
         remaining = spec.max_candidates - first.statistics["candidate_records"]
         timeout = 3 - (monotonic() - started)
         if remaining < 1 or timeout <= 0:
@@ -333,7 +392,8 @@ async def _capture_workspace_graph(
             }
         )
     with isolated_permissions_cache():
-        projection = await context.project_graph(
+        projection = await _project_current_graph(
+            context,
             request,
             scope=scope,
             access=access,
@@ -341,11 +401,6 @@ async def _capture_workspace_graph(
             context_config=config,
         )
     payload = projection.to_dict()
-    if not payload["meta"]["root_available"]:
-        if spec.detail == "recorded" and "max_bytes" in payload["meta"]["stop_reasons"]:
-            raise BadRequestError(
-                message="Increase max_bytes to represent the recorded graph root"
-            )
-        raise InsufficientPermissionsError(message="Workspace graph unavailable")
+    _require_projection_root(payload, recorded=spec.detail == "recorded")
     # Host-only work statistics can reveal inaccessible cardinalities.
     return payload

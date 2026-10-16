@@ -677,3 +677,51 @@ Return Demo Rental A.
     assert "active" in str(routines)
     current_scope_workspace_id.reset(scope_token)
     staging._reset_for_tests()
+
+
+def test_name_only_record_shape_accepts_and_materializes_title_table():
+    ops = [
+        _op("create_app", name="Named records"),
+        _op(
+            "create_track",
+            title="Items",
+            app_id="{{app.id}}",
+            entry_types=[{"name": "Item", "fields": []}],
+        ),
+        _op(
+            "save_view",
+            track_id="{{track.id:Items}}",
+            view_type="table",
+            config={"columns": [{"field": "title", "label": "Name"}]},
+        ),
+        _op("create_entry", track_id="{{track.id:Items}}", title="First"),
+    ]
+    assert scaffold_missing(ops) == []
+    ops[2]["payload"]["config"] = {}
+    assert materialize_scaffold_view_bindings(ops) == 1
+    assert ops[2]["payload"]["config"]["columns"] == [
+        {"field": "title", "label": "Name"}
+    ]
+    assert scaffold_missing(ops) == []
+
+
+def test_title_only_table_does_not_hide_declared_custom_fields():
+    ops = [
+        _op("create_app", name="Named records"),
+        _op(
+            "create_track",
+            title="Items",
+            app_id="{{app.id}}",
+            entry_types=[
+                {"name": "Item", "fields": [{"key": "notes", "type": "markdown"}]}
+            ],
+        ),
+        _op(
+            "save_view",
+            track_id="{{track.id:Items}}",
+            view_type="table",
+            config={"columns": [{"field": "title", "label": "Name"}]},
+        ),
+        _op("create_entry", track_id="{{track.id:Items}}", title="First"),
+    ]
+    assert any("schema-bound view" in item for item in scaffold_missing(ops))

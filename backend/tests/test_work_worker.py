@@ -670,3 +670,19 @@ async def test_lifecycle_validation_failure_is_terminal_and_not_reclaimed(
             is None
         )
         handler.assert_awaited_once()
+
+
+def test_chat_stream_event_keys_separate_lease_generations():
+    from types import SimpleNamespace
+
+    first = SimpleNamespace(run_id="same-run", lease_fence=1)
+    resumed = SimpleNamespace(run_id="same-run", lease_fence=2)
+    assert work_worker._chat_stream_event_key(
+        first, 0
+    ) == work_worker._chat_stream_event_key(first, 0)
+    assert work_worker._chat_stream_event_key(
+        first, 0
+    ) != work_worker._chat_stream_event_key(resumed, 0)
+    assert work_worker._chat_stream_event_key(
+        first, 0
+    ) != work_worker._chat_stream_event_key(first, 1)

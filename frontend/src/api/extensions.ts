@@ -25,13 +25,59 @@ export interface ExtensionViewHandshakeResponse {
   theme?: Record<string, unknown>;
 }
 
-export interface AppOperationInvokeResponse {
+export interface AppOperationAvailableResponse {
   app_id: string;
   operation_key: string;
   output: Record<string, unknown>;
   receipt?: Record<string, unknown> | null;
   object_refs?: Array<Record<string, unknown>>;
   evidence?: Record<string, unknown>;
+  output_disposition?: 'available';
+  current_state_verified?: false;
+  operation_receipt?: RecordedOperationReceipt | null;
+}
+
+export interface RecordedOperationReceipt {
+  id: string;
+  status: 'succeeded';
+  replayed: boolean;
+}
+
+export interface AppOperationWithheldResponse {
+  output_disposition: 'withheld';
+  current_state_verified: false;
+  operation_receipt: RecordedOperationReceipt & { replayed: true };
+}
+
+export type AppOperationInvokeResponse = AppOperationAvailableResponse | AppOperationWithheldResponse;
+
+export const RECORDED_OUTPUT_WITHHELD_MESSAGE =
+  'This action completed earlier. Its saved result is unavailable; current records have not been verified.';
+
+export function isRecordedOutputWithheld(value: unknown): value is AppOperationWithheldResponse {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const result = value as Record<string, unknown>;
+  const receipt = result.operation_receipt as Record<string, unknown> | undefined;
+  return result.output_disposition === 'withheld' && result.current_state_verified === false &&
+    Boolean(receipt && typeof receipt.id === 'string' &&
+      /^o\.OperationExecutionReceipt\.[0-9a-f]{64}$/.test(receipt.id) &&
+      receipt.status === 'succeeded' && receipt.replayed === true);
+}
+
+/** Stop output consumers from treating withheld completion as empty data. */
+export class RecordedOperationOutputWithheld extends Error {
+  readonly retryable = false;
+  constructor(readonly operationReceipt: RecordedOperationReceipt) {
+    super(RECORDED_OUTPUT_WITHHELD_MESSAGE);
+    this.name = 'RecordedOperationOutputWithheld';
+  }
+}
+
+export function requireOperationOutput(result: AppOperationInvokeResponse): AppOperationAvailableResponse {
+  if (result.output_disposition === 'withheld') {
+    throw new RecordedOperationOutputWithheld(result.operation_receipt);
+  }
+  return result;
 }
 
 export const extensionsApi = {

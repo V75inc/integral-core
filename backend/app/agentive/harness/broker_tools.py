@@ -12,6 +12,7 @@ from app.agentive.harness.capability_search import (
     build_search_capabilities_tool,
 )
 from app.agentive.harness.contracts import HarnessExecutionScope
+from app.agentive.harness.effect_reconciliation import BUILD_PRE_EFFECT_ERRORS
 from app.agentive.harness.pydantic_ai_compat import (
     ModelRetry,
     RunContext,
@@ -157,6 +158,7 @@ def _make_handler(
     """Freeze capability identity and host scope into one function tool."""
 
     build_attempted = False
+    build_validation_failures = 0
 
     async def invoke_tool(ctx: RunContext[Any], **arguments: Any) -> dict[str, Any]:
         """Each tool call re-resolves access independently of previous reads."""
@@ -170,7 +172,7 @@ def _make_handler(
     ) -> dict[str, Any]:
         """Invoke the declared capability with server-bound identity."""
 
-        nonlocal build_attempted
+        nonlocal build_attempted, build_validation_failures
         call_state["attempted"] += 1
         arguments = normalize_tool_arguments(arguments, input_schema)
         effective_op_class = capability_op_class
@@ -424,11 +426,29 @@ def _make_handler(
                 }
         if capability_name == "integral_build_approved_design":
             call_state["build_succeeded"] = bool(result.ok)
-            if not result.ok and result.error_code in {
-                "invalid_scaffold_plan",
-                "plan_differs_from_design",
-                "scaffold_plan_validation_failed",
-            }:
+            if not result.ok and result.error_code in BUILD_PRE_EFFECT_ERRORS:
+                build_validation_failures += 1
+                if (
+                    build_validation_failures >= 3
+                    or getattr(ctx, "last_attempt", False) is True
+                ):
+                    call_state["build_validation_failure"] = result.message
+                    # Return a settled tool result before the framework's retry
+                    # budget raises. The model can explain the rejection and
+                    # persistence can save a complete conversation checkpoint.
+                    # Keep build_attempted set: no fourth dispatch this turn.
+                    return {
+                        **model_result,
+                        "retryable": False,
+                        "next_tool": "",
+                        "message": (
+                            result.message
+                            + " Plan correction attempts are exhausted. No build "
+                            "changes were applied. Explain this failure; do not "
+                            "retry the build in this turn or request approval "
+                            "of the unchanged design again."
+                        ),
+                    }
                 # These Core errors are returned only before any substrate
                 # effect (including cancellation of the staging-only batch).
                 # Let Pydantic AI own bounded argument correction against the
