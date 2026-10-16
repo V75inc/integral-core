@@ -126,9 +126,11 @@ class Settings(BaseSettings):
     # Bound a native chat WorkItem from acceptance through completion. A
     # persisted deadline lets workers stop a wedged provider stream and keeps
     # recovery from extending the same turn indefinitely.
-    # WP-03 rollout candidate: enable only after durable HTTP/recovery/browser
-    # qualification. Native remains the selected provider in either mode.
-    INTEGRAL_NATIVE_DURABLE_CHAT_ENABLED: bool = False
+    # Accepted native chat turns must survive a browser disconnect. Durable
+    # WorkItems are therefore the default on the supported PostgreSQL store;
+    # setting this false is an explicit legacy-mode opt-out and gives up
+    # process-restart recovery.
+    INTEGRAL_NATIVE_DURABLE_CHAT_ENABLED: bool = True
     INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS: int = Field(default=900, ge=30, le=3600)
     # Bound one provider request inside the longer multi-step chat-turn budget.
     # A stalled stream must not hold a browser turn open until the full harness
@@ -136,9 +138,10 @@ class Settings(BaseSettings):
     INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS: int = Field(
         default=180, ge=10, le=900
     )
+    INTEGRAL_NATIVE_MODEL_MAX_ATTEMPTS: int = Field(default=3, ge=1, le=3)
     # Aggregate input and output tokens across the native agent's model calls
     # in one turn; independent from any provider's per-request output limit.
-    INTEGRAL_NATIVE_TURN_TOKEN_LIMIT: int = Field(default=600_000, ge=1)
+    INTEGRAL_NATIVE_TURN_TOKEN_LIMIT: int = Field(default=1_200_000, ge=1)
     # A document filing journey may span discovery, two skills, source/schema
     # reads and a combined record/attachment proposal. Keep it bounded without
     # cutting off productive work at the old ten-request ceiling.

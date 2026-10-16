@@ -520,7 +520,7 @@ def test_large_broker_catalogue_defers_nonessential_tools() -> None:
         "integral_verify_build",
     }
     assert {name for name, tool in by_name.items() if not tool.defer_loading} == (
-        always_available
+        always_available | {"integral_get_page_context"}
     )
     assert len(by_name) > 100
 
@@ -1251,10 +1251,12 @@ async def test_approved_build_macro_runs_at_most_once_per_model_turn(
         "invalid_scaffold_plan",
         "plan_differs_from_design",
         "scaffold_plan_validation_failed",
+        "incomplete_scaffold",
     ],
 )
+@pytest.mark.parametrize("last_attempt", [False, True])
 async def test_pre_effect_build_validation_can_be_corrected_with_framework_retry(
-    monkeypatch, code
+    monkeypatch, code, last_attempt
 ):
     calls = []
 
@@ -1290,7 +1292,14 @@ async def test_pre_effect_build_validation_can_be_corrected_with_framework_retry
         ],
     )[0]
     assert tool.max_retries == 2
-    ctx = SimpleNamespace(tool_call_id="invalid", active_capability_ids=set())
+    ctx = SimpleNamespace(
+        tool_call_id="invalid", active_capability_ids=set(), last_attempt=last_attempt
+    )
+    if last_attempt:
+        result = await tool.function_schema.call({}, ctx)
+        assert result["retryable"] is False
+        assert "No build changes were applied" in result["message"]
+        return
     with pytest.raises(ModelRetry, match="approved design") as retry:
         await tool.function_schema.call({}, ctx)
     assert "Do not ask the user to repeat approval" in str(retry.value)
@@ -1333,17 +1342,21 @@ async def test_framework_bounds_pre_effect_build_correction(monkeypatch):
             }
         ],
     )
-    agent = Agent(
-        FunctionModel(
-            lambda _messages, _info: ModelResponse(
+
+    def respond(messages, info):
+        if len(calls) < 3:
+            return ModelResponse(
                 parts=[ToolCallPart("integral_build_approved_design", {})]
             )
-        ),
-        tools=tools,
-    )
-    with pytest.raises(UnexpectedModelBehavior, match="retries"):
-        await agent.run("Build the approved design.")
-    assert len(calls) == 3  # Initial validation plus the two library-owned retries.
+        assert messages[-1].parts[0].content["retryable"] is False
+        return ModelResponse(
+            parts=[TextPart("The plan was rejected before changes were applied.")]
+        )
+
+    agent = Agent(FunctionModel(respond), tools=tools)
+    result = await agent.run("Build the approved design.")
+    assert result.output == "The plan was rejected before changes were applied."
+    assert len(calls) == 3  # Initial validation plus two bounded corrections.
 
 
 @pytest.mark.asyncio

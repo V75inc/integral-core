@@ -177,17 +177,12 @@ def _passthrough(args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _list_tracks_params(args: Dict[str, Any]) -> Dict[str, Any]:
-    """List tracks on the focused app when this turn has one.
-
-    A model that just called ``integral_list_apps`` will pass some other
-    app's id. The open app replaces that id. A turn with no focused app
-    keeps the id the model passed.
-    """
+    """Default an omitted App target to focus; preserve an explicit target."""
     out = _pick("cursor", "limit", "app_id", "include_total", "include_nav_hidden")(
         args
     )
     focused = _focused_app_id()
-    if focused:
+    if focused and not out.get("app_id"):
         out["app_id"] = focused
     return out
 
@@ -1225,6 +1220,12 @@ async def _stage_delete_entry(args: Dict[str, Any]) -> Dict[str, Any]:
             f"{entry_id!r}. Find it with integral_query_entries and call "
             "integral_delete_entry with that entry_id. Nothing was staged."
         )
+    revision = current.get("record_revision")
+    if type(revision) is int and revision >= 1:
+        payload["expected_record_revision"] = revision
+    schema_revision = await _schema_revision_for_update(current)
+    if schema_revision is not None:
+        payload["expected_schema_revision"] = schema_revision
     title_lbl = _sd.entry_display_label(current, entry_id)
 
     return {
@@ -1453,18 +1454,28 @@ def _app_id_for_single_track_create(raw: str) -> str:
 
     ``{{app.id}}`` is valid only inside a batch that creates the app. A
     standalone approval leaves that token unresolved and policy then says
-    "Cannot add a track to this app." The focused app wins over a different
-    real id the model picked from a workspace-wide list. Otherwise refuse
-    before a card.
+    "Cannot add a track to this app." Focus supplies an omitted or placeholder
+    target. Explicit real IDs retain normal policy/staging checks; unresolved
+    names must be resolved rather than silently redirected to another App.
     """
     normalized = _normalize_in_batch_app_id(str(raw or ""))
     if not _is_node_id(normalized) and _batch_creates_app():
         return normalized
+    if _is_node_id(normalized):
+        return normalized
+    placeholder = str(raw or "").strip().lower()
+    if (
+        placeholder
+        and not placeholder.startswith("{{")
+        and placeholder
+        not in {"pending", "null", "none", "undefined", "tbd", "todo", "new", "app"}
+    ):
+        raise ValueError(
+            "Resolve the named App to its verified app_id before creating a track."
+        )
     focused = _focused_app_id()
     if focused:
         return focused
-    if _is_node_id(normalized):
-        return normalized
     raise ValueError(
         "create_app_track: this approval is not part of a new-App batch. "
         "Pass the real app_id from integral_list_apps, or focus that app. "
@@ -3491,13 +3502,22 @@ def _stage_register_track_template(args: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _stage_update_app(args: Dict[str, Any]) -> Dict[str, Any]:
+async def _stage_update_app(args: Dict[str, Any]) -> Dict[str, Any]:
     _require(args, "app_id")
     fields = {
         k: args[k]
-        for k in ("name", "description", "visibility", "accent_color")
+        for k in ("name", "description", "visibility", "accent_color", "home")
         if args.get(k) is not None
     }
+    if "home" in fields:
+        from app.services.app_home_override import validate_home_composition
+
+        principal = _propose_principal.get()
+        if not principal:
+            raise ValueError("App Home requires an authenticated principal")
+        fields["home"] = await validate_home_composition(
+            user_id=principal, app_id=args["app_id"], home=fields["home"]
+        )
     return {
         "kind": "update_app",
         "summary": f"Update app {args.get('app_id')}",
@@ -3599,7 +3619,12 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     # identity is the bound dispatch principal (PC-1), read off request.state.user
     # by the handler — never a tool arg.
     "integral_whoami": ToolBinding(_h("app.api.auth", "get_current_user")),
-    "integral_get_scope": ToolBinding(_h("app.api.users", "get_my_scope")),
+    "integral_get_scope": ToolBinding(
+        service_ref=_h(
+            "app.services.resident_execution_scope", "get_execution_scope_for_dispatch"
+        ),
+        service_param_map=_pick(),
+    ),
     "integral_get_page_context": ToolBinding(
         service_ref=_h(
             "app.services.chat_page_context", "get_page_context_for_dispatch"
@@ -3740,6 +3765,9 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     "integral_describe_dashboard_substrate": ToolBinding(
         _h("app.api.apps_dashboards", "get_dashboard_widget_substrate")
     ),
+    "integral_read_app_home": ToolBinding(
+        _h("app.api.apps_dashboards", "get_app_home"), _pick("app_id")
+    ),
     "integral_list_dashboards": ToolBinding(
         _h("app.api.apps_dashboards", "list_app_dashboards"), _pick("app_id")
     ),
@@ -3766,7 +3794,9 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     ),
     "integral_query_audit_log": ToolBinding(
         _h("app.api.audit_log", "list_audit_log"),
-        _pick("scope", "actor_kind", "cursor", "limit"),
+        _pick(
+            "actor_kind", "action", "resource_id", "resource_type", "cursor", "limit"
+        ),
     ),
     "integral_list_conflicts": ToolBinding(
         _h("app.api.conflicts", "list_all"), _pick("connector_id", "status")

@@ -33,6 +33,22 @@ class _RollbackProbe(Exception):
 @pytest.mark.contract
 @pytest.mark.postgres
 @pytest.mark.asyncio
+async def test_disconnect_rolls_back_before_releasing_the_connection(postgres_raw_db):
+    import anyio
+
+    with anyio.CancelScope() as disconnect:
+        async with postgres_graph_transaction(postgres_raw_db) as transaction:
+            node = await TransactionProbeNode.create(label="cancelled-write")
+            disconnect.cancel()
+            await anyio.lowlevel.checkpoint()
+    assert transaction.is_rolled_back
+    assert not transaction.is_active
+    assert await postgres_raw_db.get("node", node.id) is None
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
 async def test_transaction_track_count_preserves_entry_access_overrides(
     postgres_raw_db,
 ) -> None:
@@ -90,14 +106,8 @@ async def test_transaction_track_count_preserves_entry_access_overrides(
 @pytest.mark.asyncio
 async def test_transaction_supports_concurrent_graph_reads_and_bounded_pagination(
     postgres_raw_db,
-    monkeypatch,
 ) -> None:
     from app.services.pagination import paginate_entity_find
-
-    monkeypatch.setattr(
-        "app.services.app_operations.transaction_scope._TRANSACTION_COUNT_PAGE_SIZE",
-        2,
-    )
 
     suffix = uuid.uuid4().hex
     async with postgres_graph_transaction(postgres_raw_db):

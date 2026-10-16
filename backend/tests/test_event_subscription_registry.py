@@ -316,3 +316,35 @@ async def test_broadcast_with_no_subscribers_is_noop(monkeypatch):
 
     # No registrations.
     await broadcast_change_event(_new_change_event("track:T1"))
+
+
+@pytest.mark.asyncio
+async def test_stalled_first_socket_does_not_admit_second_after_revocation(monkeypatch):
+    import asyncio
+
+    from app.services import event_subscription_registry as registry
+
+    entered, unblock = asyncio.Event(), asyncio.Event()
+    allowed = True
+
+    async def check(*args, **kwargs):
+        return {"id": "test"} if allowed else None
+
+    async def stalled_send(message):
+        entered.set()
+        await unblock.wait()
+
+    monkeypatch.setattr(registry, "prepare_event_payload", check)
+    first, second = AsyncMock(), AsyncMock()
+    first.send_text.side_effect = stalled_send
+    await registry.register_subscription("user", first)
+    await registry.register_subscription("user", second)
+    sending = asyncio.create_task(
+        registry.broadcast_change_event(_new_change_event("track:T1"))
+    )
+    await asyncio.wait_for(entered.wait(), timeout=2)
+    allowed = False
+    unblock.set()
+    await sending
+    first.send_text.assert_awaited_once()
+    second.send_text.assert_not_awaited()

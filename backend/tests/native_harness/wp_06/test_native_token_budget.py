@@ -7,16 +7,21 @@ from app.config import Settings
 
 
 def test_native_token_budget_default():
-    assert Settings.model_fields["INTEGRAL_NATIVE_TURN_TOKEN_LIMIT"].default == 600_000
+    """The default allows 1.2 million aggregate tokens per turn."""
+    assert (
+        Settings.model_fields["INTEGRAL_NATIVE_TURN_TOKEN_LIMIT"].default == 1_200_000
+    )
 
 
 def test_native_token_budget_reads_deployment_override(monkeypatch):
+    """An explicit deployment allowance overrides the source default."""
     monkeypatch.setenv("INTEGRAL_NATIVE_TURN_TOKEN_LIMIT", "450000")
     assert Settings(_env_file=None).INTEGRAL_NATIVE_TURN_TOKEN_LIMIT == 450_000
 
 
 @pytest.mark.parametrize("value", ["0", "-1", "unbounded"])
 def test_native_token_budget_rejects_invalid_override(monkeypatch, value):
+    """A deployment cannot silently disable the finite token guard."""
     monkeypatch.setenv("INTEGRAL_NATIVE_TURN_TOKEN_LIMIT", value)
     with pytest.raises(ValidationError):
         Settings(_env_file=None)

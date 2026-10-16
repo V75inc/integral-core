@@ -7,10 +7,12 @@ from contextlib import asynccontextmanager
 
 from app.agentive.harness.contracts import HarnessExecutionScope
 from app.api.errors import InsufficientPermissionsError, ResourceConflictError
+from app.models.edges import HAS_HARNESS_SESSION
 from app.models.nodes import ChatThread, HarnessSession
 from app.schemas.agentive.work import WorkExecutionContext
 from app.services import chat_threads
 from app.services.app_operations.transaction_scope import postgres_graph_transaction
+from app.services.release_admission import release_admission
 
 logger = logging.getLogger(__name__)
 
@@ -81,8 +83,9 @@ async def authorize_pending_design_build(
     marker = dict(getattr(thread, "design_proposed", None) or {})
     if not marker or marker.get("build_receipt"):
         return False
-    if marker.get("approved"):
-        return True
+    # Earlier approval belongs to its saved revision and run. Even an already
+    # approved design must revalidate this run and current authority before a
+    # later primary tool selection can authorize continuation.
     proposed_turn = marker.get("proposed_at_user_turn")
     if (
         not isinstance(proposed_turn, int)
@@ -107,10 +110,20 @@ async def authorize_pending_design_build(
         affirm_via="native_build_tool_selection",
         affirm_run_id=scope.run_id,
         reply_kind="approve",
-        approved_at=chat_threads.utc_now_iso(),
+        approved_at=(
+            marker["approved_at"]
+            if marker.get("approved")
+            and marker.get("affirm_run_id") == scope.run_id
+            and marker.get("affirm_for") == utterance
+            and marker.get("approved_at")
+            else chat_threads.utc_now_iso()
+        ),
         approved_via="native_build_tool_selection",
     )
-    async with _authority_transaction(work_context) as transaction:
+    async with (
+        _authority_transaction(work_context) as transaction,
+        release_admission(scope.principal_id, scope.workspace_id),
+    ):
         # Reading the graph participant inside the transaction also registers
         # its cache key for jvspatial's commit invalidation. Raw CAS alone
         # would leave an older ChatThread in the parent graph cache.
@@ -133,6 +146,14 @@ async def authorize_pending_design_build(
         ):
             raise ResourceConflictError(
                 message="Design approval run is no longer current"
+            )
+        context = await current.get_context()
+        links = await context.find_edges_between(
+            scope.thread_id, session.id, edge_class=HAS_HARNESS_SESSION
+        )
+        if len(links) != 1:
+            raise ResourceConflictError(
+                message="Design approval session is detached or ambiguous"
             )
         # Lock the owning session row with its run fence in the same
         # transaction as the proposal CAS. A read alone permits a newer run

@@ -21,10 +21,9 @@ from app.api.utils import (
 from app.models.edges import (
     CONTAINS,
     MENTIONS,
-    TAGGED_WITH,
     WATCHES,
 )
-from app.models.nodes import Entry, EntryType, Tag, Track
+from app.models.nodes import Entry, EntryType, Track
 from app.schemas.policy import Resource, Subject
 from app.services import notification_router
 from app.services.app_graph import ensure_track_attached_operational_model
@@ -47,12 +46,6 @@ from app.services.mentions import resolve_mentions
 from app.services.notification_paths import entry_path
 from app.services.operational_model_derived_fields import (
     resolve_derived_fields_for_entry,
-)
-from app.services.operational_model_runtime import (
-    resolve_entry_type_spec,
-    resolve_track_runtime_profile,
-    validate_tags_apply_to_entry_type,
-    validate_taxonomy_constraints,
 )
 from app.services.permissions import get_user_node
 from app.services.policy_engine import evaluate as policy_evaluate
@@ -756,17 +749,26 @@ async def delete_entry(request: Request, entry_id: str) -> Dict[str, Any]:
         actor_kind=getattr(request.state, "actor_kind", "human"),
     )
 
-    # D-05 single emission path. Sync inline emit before HTTP response (D-06).
-    await emit_change_event(
-        actor_kind="human",
-        actor_id=user_id,
-        action="entry.delete",
-        resource_type="Entry",
-        resource_id=entry_id,
-        before=prior_snapshot,
-        after=None,
-        scope=f"track:{track_id_for_scope}",
+    from app.agentive.services.staging_execution import (
+        deliver_staging_command_events,
+        staged_command_completed,
     )
+
+    if not staged_command_completed("delete_entry"):
+        # D-05 single emission path. Sync inline emit before HTTP response (D-06).
+        await emit_change_event(
+            actor_kind="human",
+            actor_id=user_id,
+            action="entry.delete",
+            resource_type="Entry",
+            resource_id=entry_id,
+            before=prior_snapshot,
+            after=None,
+            scope=f"track:{track_id_for_scope}",
+        )
+
+    else:
+        await deliver_staging_command_events()
 
     # RET-02 hook — soft-delete the embedding row (I-RET-03: NEVER hard-delete).
     await _soft_delete_embedding(entry_id)
@@ -774,141 +776,49 @@ async def delete_entry(request: Request, entry_id: str) -> Dict[str, Any]:
     return {"message": "Entry deleted successfully", "deleted_entry_id": entry_id}
 
 
-@endpoint("/entries/{entry_id}/tags", methods=["POST"], auth=True, tags=["Entries"])
-async def add_tag_to_entry(
-    request: Request,
-    entry_id: str,
-    tag_id: str,
+async def _change_entry_tag_request(
+    request: Request, entry_id: str, tag_id: str, *, present: bool
 ) -> Dict[str, Any]:
-    """Add a tag to an entry."""
+    """Keep transport scope checks outside the shared tag-delta command."""
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    _decision = await policy_evaluate(
+    decision = await policy_evaluate(
         subject=Subject(kind="human", id=user_id),
         action="entry.update",
         resource=Resource(kind="entry", id=entry_id, scope=f"entry:{entry_id}"),
     )
-    if not _decision.allowed:
+    if not decision.allowed:
         raise InsufficientPermissionsError(message="Access denied")
-
     entry = await Entry.get(entry_id)
-    if not entry:
+    if entry is None:
         raise ResourceNotFoundError(message="Entry not found")
+    from app.services.request_scope import require_effect_parent_scope
 
-    tag = await Tag.get(tag_id)
-    if not tag:
-        raise ResourceNotFoundError(message="Tag not found")
+    await require_effect_parent_scope(request, user_id, Track, entry.track_id)
+    from app.services.entry_tag_commands import change_entry_tag
 
-    prior_snapshot = await export_node(entry)  # D-03 before-snapshot
-
-    if tag_id not in entry.tags:
-        track = await Track.get(entry.track_id) if entry.track_id else None
-        entry_type = await EntryType.get(entry.type_id) if entry.type_id else None
-        next_tags = list(entry.tags) + [tag_id]
-        if track and entry_type:
-            _, runtime_tier, _ = await resolve_track_runtime_profile(track)
-            entry_type_spec = resolve_entry_type_spec(entry_type, runtime_tier)
-            await validate_taxonomy_constraints(
-                track_id=track.id,
-                tag_ids=next_tags,
-                entry_type_spec=entry_type_spec,
-                runtime_tier=runtime_tier,
-            )
-            await validate_tags_apply_to_entry_type(
-                track_id=track.id,
-                tag_ids=next_tags,
-                entry_type=entry_type,
-            )
-        entry.tags = next_tags
-        await entry.save()
-
-    await entry.connect(
-        tag,
-        edge=TAGGED_WITH,
-        tagged_at=utc_now_iso(),
-        tagged_by=user_id,
+    return await change_entry_tag(
+        user_id=user_id, entry_id=entry_id, tag_id=tag_id, present=present
     )
 
-    # D-05 single emission path. Sync inline emit before HTTP response (D-06).
-    await emit_change_event(
-        actor_kind="human",
-        actor_id=user_id,
-        action="entry.update",
-        resource_type="Entry",
-        resource_id=entry.id,
-        before=prior_snapshot,
-        after=await export_node(entry),
-        scope=f"track:{entry.track_id or ''}",
-    )
 
-    return {"message": "Tag added to entry", "entry_id": entry_id, "tag_id": tag_id}
+@endpoint("/entries/{entry_id}/tags", methods=["POST"], auth=True, tags=["Entries"])
+async def add_tag_to_entry(
+    request: Request, entry_id: str, tag_id: str
+) -> Dict[str, Any]:
+    """Add a tag through the canonical revision and exact-approval boundary."""
+    return await _change_entry_tag_request(request, entry_id, tag_id, present=True)
 
 
 @endpoint(
     "/entries/{entry_id}/tags/{tag_id}", methods=["DELETE"], auth=True, tags=["Entries"]
 )
 async def remove_tag_from_entry(
-    request: Request,
-    entry_id: str,
-    tag_id: str,
+    request: Request, entry_id: str, tag_id: str
 ) -> Dict[str, Any]:
-    """Remove a tag from an entry."""
-    user_id = resolve_principal_id(request)
-    if not user_id:
-        raise MissingAuthenticationError(message="Authentication required")
-    _decision = await policy_evaluate(
-        subject=Subject(kind="human", id=user_id),
-        action="entry.update",
-        resource=Resource(kind="entry", id=entry_id, scope=f"entry:{entry_id}"),
-    )
-    if not _decision.allowed:
-        raise InsufficientPermissionsError(message="Access denied")
-
-    entry = await Entry.get(entry_id)
-    if not entry:
-        raise ResourceNotFoundError(message="Entry not found")
-
-    tag = await Tag.get(tag_id)
-    if not tag:
-        raise ResourceNotFoundError(message="Tag not found")
-
-    prior_snapshot = await export_node(entry)  # D-03 before-snapshot
-
-    if tag_id in entry.tags:
-        next_tags = [t for t in entry.tags if t != tag_id]
-        track = await Track.get(entry.track_id) if entry.track_id else None
-        entry_type = await EntryType.get(entry.type_id) if entry.type_id else None
-        if track and entry_type:
-            _, runtime_tier, _ = await resolve_track_runtime_profile(track)
-            entry_type_spec = resolve_entry_type_spec(entry_type, runtime_tier)
-            await validate_taxonomy_constraints(
-                track_id=track.id,
-                tag_ids=next_tags,
-                entry_type_spec=entry_type_spec,
-                runtime_tier=runtime_tier,
-            )
-        entry.tags.remove(tag_id)
-        await entry.save()
-
-    ctx = await entry.get_context()
-    edges = await ctx.find_edges_between(entry.id, tag.id, edge_class=TAGGED_WITH)
-    for edge in edges:
-        await edge.delete()
-
-    # D-05 single emission path. Sync inline emit before HTTP response (D-06).
-    await emit_change_event(
-        actor_kind="human",
-        actor_id=user_id,
-        action="entry.update",
-        resource_type="Entry",
-        resource_id=entry.id,
-        before=prior_snapshot,
-        after=await export_node(entry),
-        scope=f"track:{entry.track_id or ''}",
-    )
-
-    return {"message": "Tag removed from entry", "entry_id": entry_id, "tag_id": tag_id}
+    """Remove a tag through the canonical revision and exact-approval boundary."""
+    return await _change_entry_tag_request(request, entry_id, tag_id, present=False)
 
 
 @endpoint(

@@ -1,3 +1,4 @@
+import { Text } from '../../ui';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft } from 'lucide-react';
@@ -43,7 +44,7 @@ export function AdminResourceDetailPage({
       <PageSection>
         <Link
           to={listPath}
-          className="inline-flex items-center gap-2 text-sm text-[var(--text-muted)] hover:text-[var(--text)]"
+          className="inline-flex items-center gap-2 text-sm opacity-70 hover:opacity-100"
         >
           <ArrowLeft size={14} strokeWidth={LINE_ICON_STROKE} />
           Back to {label.toLowerCase()}
@@ -59,7 +60,7 @@ export function AdminResourceDetailPage({
         )}
         {resource && (
           <div className="mt-6">
-            <PageHeading>{resource.name || resource.id}</PageHeading>
+            <PageHeading>{resource.name || `Untitled ${resourceType}`}</PageHeading>
             <div className="mt-3 flex flex-wrap gap-2">
               <Badge variant="info">{resourceType}</Badge>
               {resource.visibility ? (
@@ -68,11 +69,7 @@ export function AdminResourceDetailPage({
             </div>
             <dl className="mt-6 grid gap-3 text-sm max-w-xl">
               <div>
-                <dt className="text-[var(--text-subtle)]">ID</dt>
-                <dd className="font-mono text-xs mt-0.5 break-all">{resource.id}</dd>
-              </div>
-              <div>
-                <dt className="text-[var(--text-subtle)]">Workspace</dt>
+                <Text as="dt" variant="label" tone="subtle">Workspace</Text>
                 <dd className="mt-0.5">
                   <AdminEntityLink
                     type="workspace"
@@ -82,22 +79,22 @@ export function AdminResourceDetailPage({
                 </dd>
               </div>
               <div>
-                <dt className="text-[var(--text-subtle)]">Owner</dt>
+                <Text as="dt" variant="label" tone="subtle">Owner</Text>
                 <dd className="mt-0.5">
                   <AdminOwnerCell owner={resource.owner} />
                 </dd>
               </div>
               {resource.created_at ? (
                 <div>
-                  <dt className="text-[var(--text-subtle)]">Created</dt>
+                  <Text as="dt" variant="label" tone="subtle">Created</Text>
                   <dd className="mt-0.5">{resource.created_at}</dd>
                 </div>
               ) : null}
             </dl>
-            <p className="mt-6 text-sm text-[var(--text-muted)]">
+            <Text as="p" variant="body-sm" tone="muted" className="mt-6">
               Platform admin view — open the workspace above to manage this{' '}
               {resourceType} in context.
-            </p>
+            </Text>
           </div>
         )}
       </PageSection>

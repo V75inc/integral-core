@@ -81,7 +81,7 @@ export function PageSearchInput({
         placeholder={placeholder}
         aria-label={ariaLabel ?? placeholder}
         className="
-          w-full pl-8 pr-3 py-2 text-sm
+          w-full pl-9 pr-3 py-2 text-sm
           rounded-[var(--radius-input)]
           bg-[var(--panel)] border border-[var(--panel-border)]
           text-[var(--text)] placeholder:text-[var(--text-subtle)]

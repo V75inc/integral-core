@@ -28,12 +28,25 @@ mkdir "$TMP/run"
 (
   cd "$TMP/run"
   "$TMP/venv/bin/python" - <<'PYTHON'
+import sys
+from typing import get_args
+
 import integral_sdk
-from integral_sdk import FieldDefinition, OperationContext, RecordRevision, ToolContextV2
+from integral_sdk import (
+    AvailableOperationResponse, FieldDefinition, OperationContext,
+    OperationResponse, RecordRevision, ToolContextV2, WithheldOperationResponse,
+)
 
 assert "/site-packages/integral_sdk/" in integral_sdk.__file__, integral_sdk.__file__
 assert integral_sdk.__version__ == "0.2.0"
 assert FieldDefinition and RecordRevision and OperationContext and ToolContextV2
+assert AvailableOperationResponse.__required_keys__ == {"app_id", "operation_key", "output"}
+assert WithheldOperationResponse.__required_keys__ == {
+    "operation_receipt", "output_disposition", "current_state_verified",
+}
+assert "output" not in WithheldOperationResponse.__annotations__
+assert set(get_args(OperationResponse)) == {AvailableOperationResponse, WithheldOperationResponse}
+assert not any(name == "app" or name.startswith("app.") for name in sys.modules)
 print("sdk-wheel-import-ok")
 PYTHON
 )

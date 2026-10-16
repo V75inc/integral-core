@@ -7,6 +7,7 @@ transaction. Connector actor identity is separate from its authorized owner.
 
 from __future__ import annotations
 
+from contextlib import AsyncExitStack
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
@@ -77,7 +78,10 @@ async def update_entry_in_track(
     if await approved_capture_active():
         change_event_sink = approved_event_sink
     outbox_id = None
-    async with entry_write_scope(entry_id) as graph:
+    async with (
+        entry_write_scope(entry_id) as graph,
+        AsyncExitStack() as staging_effects,
+    ):
         entry = await Entry.get(entry_id)
         if entry is None:
             raise ResourceNotFoundError(message="Entry not found")
@@ -88,6 +92,16 @@ async def update_entry_in_track(
             raise InsufficientPermissionsError(
                 message="Entry is outside the bound workspace"
             )
+        from app.agentive.services.staging_execution import staged_entry_effect
+
+        complete_staged_effect = await staging_effects.enter_async_context(
+            staged_entry_effect(
+                user_id=user_id,
+                workspace_id=track.workspace_id,
+                track_id=track.id,
+                entry_id=entry_id,
+            )
+        )
         from app.services.entry_effect_scope import entry_effect_scope
 
         raw_type = (
@@ -312,12 +326,6 @@ async def update_entry_in_track(
             if validated is not None:
                 entry.custom_fields = validated
                 await sync_relation_edges(source_entry=entry, relation_refs=relations)
-                await run_entry_save_hooks(
-                    entry=entry,
-                    workspace_id=track.workspace_id,
-                    actor_id=admitted_principal_id,
-                    hook_point="entry.update",
-                )
             if new_tags is not None:
                 for tid in set(entry.tags or []) - set(new_tags):
                     for edge in await graph.find_edges_between(
@@ -348,6 +356,22 @@ async def update_entry_in_track(
                     update={"synced_at": datetime.fromisoformat(entry.updated_at)}
                 )
             await entry.save()
+            if validated is not None:
+                # Nested hooks must see the admitted fields and new revision.
+                # Publishing after hooks creates false CAS conflicts and can
+                # overwrite their own updates when the outer save resumes.
+                await run_entry_save_hooks(
+                    entry=entry,
+                    workspace_id=track.workspace_id,
+                    actor_id=admitted_principal_id,
+                    hook_point="entry.update",
+                )
+                refreshed = await Entry.find_one({"id": entry.id})
+                if refreshed is None:
+                    raise ResourceNotFoundError(
+                        message="Entry not found after save hooks"
+                    )
+                entry = refreshed
             event = {
                 "actor_kind": actor_kind,
                 "actor_id": actor_id or user_id,
@@ -371,6 +395,14 @@ async def update_entry_in_track(
                         workspace_id=track.workspace_id,
                         event=event,
                     )
+        if complete_staged_effect is not None:
+            await complete_staged_effect(
+                {
+                    "entry_id": entry.id,
+                    "track_id": track.id,
+                    "record_revision": entry.record_revision,
+                }
+            )
     # A returned entity must not keep an owned, now-committed transaction.
     # When joining an outer transaction, this is that same active context.
     await entry.set_context(caller_context)

@@ -23,6 +23,15 @@ def _view_binding_error(
         return "config must be an object"
     if view_type == "table":
         columns = config.get("columns")
+        if (
+            fields == []
+            and isinstance(columns, list)
+            and any(
+                isinstance(column, dict) and column.get("field") == "title"
+                for column in columns
+            )
+        ):
+            return None
         if not isinstance(columns, list) or not any(
             isinstance(column, dict)
             and str(column.get("field") or "").startswith("custom_fields.")
@@ -114,6 +123,7 @@ def materialize_scaffold_view_bindings(ops: List[Dict[str, Any]]) -> int:
 
     refs: Dict[str, str] = {}
     track_fields: Dict[str, List[Dict[str, Any]]] = {}
+    declared_shapes: set[str] = set()
     repaired = 0
     for index, op in enumerate(ops):
         kind = op.get("kind")
@@ -121,6 +131,8 @@ def materialize_scaffold_view_bindings(ops: List[Dict[str, Any]]) -> int:
         if kind in {"create_track", "create_app_track"}:
             identity = f"step:{index}"
             track_fields[identity] = _field_specs(payload.get("entry_types"))
+            if payload.get("entry_types"):
+                declared_shapes.add(identity)
             _capture_batch_refs(
                 refs,
                 index,
@@ -134,10 +146,13 @@ def materialize_scaffold_view_bindings(ops: List[Dict[str, Any]]) -> int:
             continue
         if kind != "save_view":
             continue
-        fields = track_fields.get(str(payload.get("track_id") or ""), [])
-        if not fields or _view_binding_error(payload, fields) is None:
-            continue
+        track_id = str(payload.get("track_id") or "")
+        fields = track_fields.get(track_id, [])
         view_type = str(payload.get("view_type") or "feed")
+        if not fields and not (view_type == "table" and track_id in declared_shapes):
+            continue
+        if _view_binding_error(payload, fields) is None:
+            continue
         config = dict(payload.get("config") or {})
         if view_type == "table":
             config["columns"] = [

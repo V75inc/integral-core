@@ -1207,3 +1207,37 @@ async def test_sdk_failures_survive_client_wrapping_without_private_details(
         "dispatch_intent",
         "failed" if rejected else "outcome_unknown",
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("keyless", [False, True])
+async def test_custom_workspace_route_enters_guarded_sdk_boundary(monkeypatch, keyless):
+    """The actual bridge must use the guarded client for custom BYOK routing."""
+    from unittest.mock import AsyncMock
+
+    completion = AsyncMock()
+    guarded = AsyncMock(return_value={"guarded": True})
+    monkeypatch.setattr(
+        "app.services.custom_model_transport.custom_endpoint_completion", guarded
+    )
+    transport = LiteLLMSDKTransport(
+        route=ResolvedModelRoute(
+            provider="openai",
+            model="openai/fixture",
+            api_key="synthetic-key",
+            api_base="https://llm.example/v1",
+            credential_source="workspace_byok",
+            keyless_endpoint=keyless,
+        ),
+        scope=_scope(),
+        completion=completion,
+    )
+    kwargs = {
+        "model": "openai/fixture",
+        "api_base": "https://llm.example/v1",
+        "api_key": "synthetic-key",
+        "timeout": 1.0,
+    }
+    assert await transport._sdk_completion(**kwargs) == {"guarded": True}
+    guarded.assert_awaited_once_with(completion, kwargs, keyless_endpoint=keyless)
+    completion.assert_not_awaited()

@@ -1,6 +1,6 @@
 import { lazy, Suspense, type ReactNode } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Layout } from '../Layout';
 
@@ -34,7 +34,7 @@ vi.mock('../../auth/MustChangePasswordModal', () => ({ MustChangePasswordModal: 
 vi.mock('../../../features/memberAssignedForm/MemberAssignedFormPromptModal', () => ({ MemberAssignedFormPromptModal: () => null }));
 vi.mock('../EmailVerificationBanner', () => ({ EmailVerificationBanner: () => null }));
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); window.history.replaceState(null, '', '/'); });
 
 function renderDelayedRoute() {
   let finish!: (value: { default: () => ReactNode }) => void;
@@ -80,4 +80,24 @@ describe('page loading and navigation', () => {
     expect(screen.queryByRole('status', { name: 'Loading page' })).not.toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: 'Primary navigation' })).toBeVisible();
   });
+  it('does not retain Track content after BrowserRouter changes the URL to a delayed Apps route', async () => {
+    let finish!: (value: { default: () => ReactNode }) => void;
+    const Apps = lazy(() => new Promise<{ default: () => ReactNode }>(resolve => { finish = resolve; }));
+    window.history.replaceState(null, '', '/tracks/qa');
+    render(<BrowserRouter><Suspense fallback={<div>Global loading</div>}><Routes>
+      <Route element={<Layout />}>
+        <Route path="tracks/:id" element={<><h1>QA Bug Tracker 2026 — Bugs</h1><Link to="/apps">Go to Apps</Link></>} />
+        <Route path="apps" element={<Apps />} />
+        <Route path="fast" element={<h1>Fast content</h1>} />
+      </Route>
+    </Routes></Suspense></BrowserRouter>);
+    fireEvent.click(screen.getByRole('link', { name: 'Go to Apps' }));
+    expect(window.location.pathname).toBe('/apps');
+    expect(await screen.findByRole('status', { name: 'Loading page' })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'QA Bug Tracker 2026 — Bugs' })).not.toBeInTheDocument();
+    await act(async () => finish({ default: () => <h1>Apps view</h1> }));
+    expect(await screen.findByRole('heading', { name: 'Apps view' })).toBeVisible();
+    expect(screen.queryByText('Global loading')).not.toBeInTheDocument();
+  });
+
 });

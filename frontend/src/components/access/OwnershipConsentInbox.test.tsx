@@ -51,7 +51,7 @@ describe('Recipient ownership consent', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Accept ownership' }));
     await screen.findByText(/decision was not confirmed/);
     expect(screen.getByRole('button', { name: 'Accept ownership' })).toBeDisabled();
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh ownership proposals' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Accept ownership' })).toBeEnabled());
     expect(mocks.respond).toHaveBeenCalledTimes(1);
   });

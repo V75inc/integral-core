@@ -1501,13 +1501,10 @@ async def provision_prescribed_tracks_from_app_manifest(
                 await apply_space_track_spec_to_track(existing_track, spec)
             continue
         now = datetime.now(timezone.utc).isoformat()
-        # Provisioned tracks inherit cascade from the parent App via the
-        # resolver; storing the App's literal visibility ("private",
-        # "workspace", …) on the Track would (a) be invalid under the
-        # new "inherit" | "private" Track visibility enum and (b) make
-        # resolve_role treat the Track as a deny gate, killing
-        # app_node-collaborator cascade.
-        resolved_vis = "inherit"
+        # New provisioned Tracks start private. Explicit App collaborators
+        # retain capped cascade access; Workspace/Public audiences need a
+        # separate authorized visibility choice on the Track.
+        resolved_vis = "private"
         # Inherit the parent App's workspace_id (single-parent rule).
         from app.services.workspace_resolver import (
             resolve_workspace_id_for_user_node,

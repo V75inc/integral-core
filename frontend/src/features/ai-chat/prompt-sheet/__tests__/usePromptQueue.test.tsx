@@ -1,6 +1,6 @@
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getPromptQueue, markPromptWrite, revokeStagingToken } from '../../../../api/agentive';
+import { blessStagingToken, getStagingTokenState, getPromptQueue, markPromptWrite, revokeStagingToken } from '../../../../api/agentive';
 import { usePromptQueue } from '../usePromptQueue';
 
 const state = vi.hoisted(() => ({ thread: 'thread-a', startRun: vi.fn(), append: vi.fn() }));
@@ -23,6 +23,22 @@ afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); });
 async function settled() { await act(async () => { await Promise.resolve(); }); }
 
 describe('approval queue refresh', () => {
+  it('keeps an applied result distinct from a failed review refresh', async () => {
+    vi.mocked(getStagingTokenState).mockResolvedValue({ requires_strong_confirmation: false } as never);
+    vi.mocked(blessStagingToken).mockResolvedValue({ok: true, consumed: true, staged_change: {state: 'consumed'}, execute_result: {ok: true}} as never);
+    vi.mocked(markPromptWrite).mockRejectedValueOnce({response: {status: 429, data: {message: 'Too many requests'}}});
+    const {result} = renderHook(() => usePromptQueue()); await settled();
+    await act(async () => { await result.current.approveWrite(); });
+    expect(result.current.error).toMatch(/change was applied/);
+    expect(result.current.error).toMatch(/do not approve it again/);
+    expect(blessStagingToken).toHaveBeenCalledOnce();
+  });
+  it('observes a stale resolved approval on mount without starting a model run', async () => {
+    vi.mocked(getPromptQueue).mockResolvedValue({...closedQueue, resume_text: "Change didn't go through", resume_required: true});
+    renderHook(() => usePromptQueue()); await settled();
+    expect(state.append).toHaveBeenCalledOnce();
+    expect(state.startRun).not.toHaveBeenCalled();
+  });
   it('closes a chat-resolved review and appends its receipt without another continuation', async () => {
     const { result } = renderHook(() => usePromptQueue()); await settled();
     vi.mocked(getPromptQueue).mockResolvedValueOnce({ ...closedQueue, resume_text: 'Updates applied', resume_required: false });
@@ -48,7 +64,7 @@ describe('approval queue refresh', () => {
     await act(async () => { await result.current.refresh(); });
     vi.mocked(getPromptQueue).mockResolvedValueOnce(closed);
     await act(async () => { await result.current.refresh(); });
-    expect(state.append).toHaveBeenCalledTimes(2); expect(state.startRun).toHaveBeenCalledTimes(2);
+    expect(state.append).toHaveBeenCalledTimes(2); expect(state.startRun).toHaveBeenCalledTimes(1);
   });
   it('keeps the review on failure, honors backoff, and closes only on verified empty state', async () => {
     const { result } = renderHook(() => usePromptQueue());

@@ -72,6 +72,34 @@ async def test_bless_survives_restart():
 
 
 @pytest.mark.asyncio
+async def test_stale_bookkeeping_cannot_resurrect_revoked_decision():
+    import copy
+
+    sc = await _mint()
+    stale_pending = copy.deepcopy(sc)
+    await bless_token(user_id="u1", token=sc.token)
+    stale_blessed = copy.deepcopy(sc)
+    await revoke_token(user_id="u1", token=sc.token)
+    for stale in (stale_pending, stale_blessed):
+        stale.last_error = {"message": "A delayed bookkeeping update"}
+        await staging_store.persist(stale)
+    assert await staging_store._find_record(sc.token) is None
+
+
+@pytest.mark.asyncio
+async def test_stale_pending_snapshot_cannot_downgrade_durable_approval():
+    import copy
+
+    sc = await _mint()
+    stale = copy.deepcopy(sc)
+    await bless_token(user_id="u1", token=sc.token)
+    await staging_store.persist(stale)
+    loaded = await staging_store.load(sc.token)
+    assert loaded.state == "blessed"
+    assert loaded.execution_contract_version == "durable-staging-v1"
+
+
+@pytest.mark.asyncio
 async def test_consume_survives_restart_and_returns_payload():
     """Bless, restart, then consume — the original payload is intact."""
     sc = await _mint()
@@ -100,7 +128,13 @@ async def test_expired_live_token_is_finalized_and_removed_from_store():
     """A TTL sweep must retire its durable approval, not only its cache copy."""
     sc = await _mint()
     sc.expires_at = sc.created_at - timedelta(seconds=1)
-    await staging_store.persist(sc)
+    record = await staging_store._find_record(sc.token)
+    context = await record.get_context()
+    await context.database.find_one_and_update(
+        "object",
+        {"id": record.id},
+        {"$set": {"context.expires_at": sc.expires_at.isoformat()}},
+    )
 
     loaded = await get_token(sc.token)
 

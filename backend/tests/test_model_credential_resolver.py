@@ -250,3 +250,132 @@ async def test_key_source_byo_strict_reports_byok_without_credential(
     )
     workspace = await ensure_personal_workspace(test_user)
     assert await resolve_agent_key_source(workspace.id) == "byok"
+
+
+@pytest.mark.asyncio
+async def test_resolver_keyless_custom_carries_placeholder_key(enc_key, test_user):
+    """Keyless custom endpoints resolve with api_base plus an inert key.
+
+    The placeholder keeps LiteLLM from falling back to an unrelated provider
+    env key; unauthenticated servers ignore the header.
+    """
+    from app.services.model_credential_resolver import (
+        KEYLESS_PLACEHOLDER_API_KEY,
+        resolve_agent_key_source,
+    )
+
+    workspace = await ensure_personal_workspace(test_user)
+    auth_user_id = getattr(test_user, "user_id", None) or test_user.id
+    record = UserModelCredential(
+        user_id=auth_user_id,
+        provider="custom_openai",
+        model="my-model",
+        base_url="https://llm.example.com/v1",
+        is_active=True,
+    )
+    await record.save()
+
+    assert await resolve_agent_key_source(workspace.id) == "byok"
+    override = await resolve_native_model_override(workspace.id)
+    assert override is not None
+    assert override["model"] == "openai/my-model"
+    assert override["api_base"] == "https://llm.example.com/v1"
+    assert override["api_key"] == KEYLESS_PLACEHOLDER_API_KEY
+    assert override["keyless_endpoint"] is True
+
+
+@pytest.mark.asyncio
+async def test_resolver_keyed_custom_keeps_real_key(enc_key, test_user):
+    """Keyed custom endpoints resolve with the stored key, not the placeholder."""
+    workspace = await ensure_personal_workspace(test_user)
+    auth_user_id = getattr(test_user, "user_id", None) or test_user.id
+    record = UserModelCredential(
+        user_id=auth_user_id,
+        provider="custom_openai",
+        model="my-model",
+        base_url="https://llm.example.com/v1",
+        api_key_enc=encrypt_secret_for_storage("sk-custom-key", aad=auth_user_id),
+        key_fingerprint=compute_key_fingerprint("sk-custom-key"),
+        is_active=True,
+    )
+    await record.save()
+
+    override = await resolve_native_model_override(workspace.id)
+    assert override is not None
+    assert override["model"] == "openai/my-model"
+    assert override["api_base"] == "https://llm.example.com/v1"
+    assert override["api_key"] == "sk-custom-key"
+    assert override["keyless_endpoint"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["hybrid", "byo_strict"])
+@pytest.mark.parametrize("failure", ["malformed", "rotated_key", "missing_key"])
+async def test_custom_decryption_failure_is_not_keyless(
+    enc_key, test_user, monkeypatch, mode, failure
+):
+    """A nonempty encrypted secret must never silently become keyless routing."""
+    monkeypatch.setattr(
+        "app.services.model_credential_resolver.settings.INTEGRAL_AGENT_KEY_MODE", mode
+    )
+    ws = await ensure_personal_workspace(test_user)
+    uid = getattr(test_user, "user_id", None) or test_user.id
+    encrypted = encrypt_secret_for_storage("synthetic-custom-key", aad=uid)
+    record = UserModelCredential(
+        user_id=uid,
+        provider="custom_openai",
+        model="model",
+        base_url="https://llm.example/v1",
+        api_key_enc="v1:broken" if failure == "malformed" else encrypted,
+        is_active=True,
+    )
+    await record.save()
+    if failure == "rotated_key":
+        monkeypatch.setenv(
+            "INTEGRAL_CREDENTIAL_ENC_KEY",
+            base64.urlsafe_b64encode(b"2" * 32).decode().rstrip("="),
+        )
+        monkeypatch.delenv("INTEGRAL_CREDENTIAL_ENC_KEY_PREVIOUS", raising=False)
+    elif failure == "missing_key":
+        monkeypatch.delenv("INTEGRAL_CREDENTIAL_ENC_KEY", raising=False)
+        monkeypatch.delenv("INTEGRAL_CREDENTIAL_ENC_KEY_PREVIOUS", raising=False)
+    if mode == "byo_strict":
+        with pytest.raises(ModelKeyRequiredError):
+            await resolve_native_model_override(ws.id)
+    else:
+        assert await resolve_native_model_override(ws.id) is None
+
+
+@pytest.mark.asyncio
+async def test_existing_provider_credential_generation_is_unchanged(enc_key, test_user):
+    """Adding custom endpoints must not invalidate existing vendor generations."""
+    import hashlib
+    import json
+
+    ws = await ensure_personal_workspace(test_user)
+    uid = getattr(test_user, "user_id", None) or test_user.id
+    record = UserModelCredential(
+        user_id=uid,
+        provider="openai",
+        model="gpt-4.1",
+        api_key_enc=encrypt_secret_for_storage("synthetic-existing-key", aad=uid),
+        is_active=True,
+    )
+    await record.save()
+    identity = json.dumps(
+        [
+            record.id,
+            record.provider,
+            record.model,
+            record.api_key_enc,
+            record.updated_at,
+        ],
+        separators=(",", ":"),
+    )
+    override = await resolve_native_model_override(
+        ws.id, include_credential_identity=True
+    )
+    assert (
+        override["credential_ref"]
+        == "user-model-generation:" + hashlib.sha256(identity.encode()).hexdigest()
+    )

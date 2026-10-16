@@ -1,7 +1,6 @@
 import { AppIcon } from '../ui';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { ResourceAccessReview } from '../components/access/ResourceAccessReview';
-import { AppFunctionAccess } from '../components/access/AppFunctionAccess';
 import { usePhantomClickGuard } from '../hooks/usePhantomClickGuard';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
@@ -139,6 +138,9 @@ export function AppDetailPage() {
   const [, setTrackTemplates] = useState<{ id: string; name: string }[]>([]);
   const [trackSearch, setTrackSearch] = useState('');
   const [collaboratorsModalOpen, setCollaboratorsModalOpen] = useState(false);
+  const [collaboratorTotal, setCollaboratorTotal] = useState<number | null>(null);
+  const [collaboratorDirectoryVisible, setCollaboratorDirectoryVisible] = useState(true);
+  const [accessDetailsOpen, setAccessDetailsOpen] = useState(false);
   const [appSection, setAppSection] = useState<AppDetailSection>(() =>
     appId ? readAppDetailSection(appId) : 'tracks'
   );
@@ -167,6 +169,7 @@ export function AppDetailPage() {
   const homeQuery = useQuery({
     queryKey: ['app-home-definition', appId],
     queryFn: () => dashboardsApi.home(appId!, false),
+    refetchInterval: 15_000,
     enabled: Boolean(appId),
   });
   const hasHome = Boolean(homeQuery.data?.home);
@@ -226,6 +229,8 @@ export function AppDetailPage() {
       setAppOperationalModel(profile);
       setTracks(tr);
       setCollabs(c.collaborators as CollabRow[]);
+      setCollaboratorTotal(typeof c.total === 'number' ? c.total : null);
+      setCollaboratorDirectoryVisible(c.directory_visible !== false);
       setCallerRole(c.caller_role);
       setAllTracks(at as Track[]);
       setTrackTemplates(tpls.map(t => ({ id: t.id, name: t.name })));
@@ -306,7 +311,7 @@ export function AppDetailPage() {
           title: t.title || undefined
         }))
       },
-      metadata: { app_name: app?.name }
+      metadata: { app_name: app?.name, app_section: appSection }
     });
     return () => clearPageContext();
   }, [
@@ -324,7 +329,7 @@ export function AppDetailPage() {
       pageKind: 'app_dashboards',
       focusedAppId: appId,
       visibleData: null,
-      metadata: { app_name: app?.name }
+      metadata: { app_name: app?.name, app_section: appSection }
     });
     return () => clearPageContext();
   }, [appId, app?.name, appSection, setPageContext, clearPageContext]);
@@ -345,6 +350,8 @@ export function AppDetailPage() {
   }, [filteredTracks]);
 
   const uniqueCollabs = useMemo(() => dedupeCollaborators(collabs), [collabs]);
+  const collaboratorCount = collaboratorTotal ??
+    (collaboratorDirectoryVisible ? uniqueCollabs.length : null);
 
   const isAppOwner = useMemo(() => {
     if (!app?.owner_user_id || !me) return false;
@@ -626,13 +633,13 @@ export function AppDetailPage() {
               icon={<Users size={14} strokeWidth={LINE_ICON_STROKE} />}
               onClick={() => setCollaboratorsModalOpen(true)}
               aria-label={
-                uniqueCollabs.length > 0
-                  ? `Collaborators, ${uniqueCollabs.length} people`
+                collaboratorCount !== null && collaboratorCount > 0
+                  ? `Collaborators, ${collaboratorCount} people`
                   : 'Collaborators'
               }
             >
-              {uniqueCollabs.length}{' '}
-              {uniqueCollabs.length === 1 ? 'collaborator' : 'collaborators'}
+              {collaboratorCount === null ? 'Collaborators' :
+                `${collaboratorCount} ${collaboratorCount === 1 ? 'collaborator' : 'collaborators'}`}
             </Button>
             {canAdmin ? (
               <Button
@@ -738,12 +745,12 @@ export function AppDetailPage() {
               </span>
             </>
           ) : null}
-          {uniqueCollabs.length > 0 ? (
+          {collaboratorCount !== null && collaboratorCount > 0 ? (
             <>
               <span aria-hidden>·</span>
               <span>
-                {uniqueCollabs.length}{' '}
-                {uniqueCollabs.length === 1 ? 'collaborator' : 'collaborators'}
+                {collaboratorCount}{' '}
+                {collaboratorCount === 1 ? 'collaborator' : 'collaborators'}
               </span>
             </>
           ) : null}
@@ -1030,6 +1037,7 @@ export function AppDetailPage() {
           open={showAppSettingsModal}
           appId={appId}
           appName={app.name}
+          functionAccessWorkspaceId={isWorkspaceOwner ? app.workspace_id : undefined}
           onClose={() => setShowAppSettingsModal(false)}
           onSaved={() => {
             showToast('Settings saved', 'success');
@@ -1058,11 +1066,7 @@ export function AppDetailPage() {
         onClose={() => setCollaboratorsModalOpen(false)}
         title="Collaborators"
       >
-        <div className="space-y-5 p-4">
-          {isWorkspaceOwner && app?.workspace_id && appId && (
-            <AppFunctionAccess appId={appId} workspaceId={app.workspace_id} />
-          )}
-          <ResourceAccessReview resourceType="app" resourceId={appId} />
+        <Modal.Body className="space-y-5">
           {canManageCollaborators ? (
             <div className="space-y-2">
               <h3 className="text-[13px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
@@ -1095,7 +1099,8 @@ export function AppDetailPage() {
             <ul className="max-h-[min(50vh,320px)] space-y-1 overflow-y-auto pr-1">
               {uniqueCollabs.length === 0 ? (
                 <li className="rounded-[var(--radius-input)] border border-dashed border-[var(--panel-border)] px-3 py-6 text-center text-sm text-[var(--text-muted)]">
-                  No one else has been added yet.
+                  {collaboratorDirectoryVisible ? 'No one else has been added yet.' :
+                    'Collaborator details are visible to the owner and admins.'}
                   {canManageCollaborators ? ' Use the search above to invite editors.' : ''}
                 </li>
               ) : (
@@ -1156,7 +1161,30 @@ export function AppDetailPage() {
               )}
             </ul>
           </div>
-        </div>
+        </Modal.Body>
+        <Modal.Footer align="between">
+          <Button variant="ghost" size="sm" onClick={() => {
+            setCollaboratorsModalOpen(false);
+            setAccessDetailsOpen(true);
+          }}>Access details</Button>
+          <Button variant="outline" size="sm" onClick={() => setCollaboratorsModalOpen(false)}>Done</Button>
+        </Modal.Footer>
+      </Modal>
+
+      <Modal open={accessDetailsOpen} onClose={() => setAccessDetailsOpen(false)} title="Access details">
+        <Modal.Body>
+          <Text variant="body-sm" tone="muted" as="p" className="mb-4">
+            See who can use this App and manage their access.
+          </Text>
+          {accessDetailsOpen && <ResourceAccessReview resourceType="app" resourceId={appId} autoLoad people={uniqueCollabs} currentUser={me} />}
+        </Modal.Body>
+        <Modal.Footer align="between">
+          <Button variant="ghost" size="sm" onClick={() => {
+            setAccessDetailsOpen(false);
+            setCollaboratorsModalOpen(true);
+          }}>Back to collaborators</Button>
+          <Button variant="outline" size="sm" onClick={() => setAccessDetailsOpen(false)}>Done</Button>
+        </Modal.Footer>
       </Modal>
 
       <Modal

@@ -6,6 +6,102 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Preserve JSON array order and primitive types when saving entry edits, while
+  normalizing representations only for fields with a known non-JSON type.
+  Optional select fields can be cleared with None; required and read-only
+  fields retain their restrictions.
+- Require signed service authentication on MCP paths, including nested URLs;
+  only the exact system uplink routes retain their signature exemptions.
+
+- New Apps and Tracks default to Private, including catalog, anchored and scratch Tracks. App visibility offers Private, Workspace and Public; App Inherit is removed and rejected by the API. Explicit authorized sharing remains available; saved access settings are preserved. Agent creation schemas now use the canonical Workspace spelling.
+
+- Retry recoverable model failures up to three total attempts with inline retry
+  progress, distinct attempt accounting and fresh admission; never restart a
+  complete agent run or replay already delivered output.
+- Continue completed conversations safely after uncertain earlier model attempts
+  by checking original tool receipts while preserving unknown billing evidence.
+- Add native approval claims, atomic effect receipts and recovery for App/Track/
+  Entry mutations and identified comments; retain reconciliation for unresolved
+  effects and explicit single-process limits for local adapters.
+- Bind audit/event history to current workspace authority with bounded keyset
+  windows and per-recipient snapshot filtering, and recheck stream release access.
+
+- Background jobs for Apps: `ToolContext.enqueue_job`, `report_progress` and
+  `job_status` run an App's own tool as a durable, resumable work item (kind
+  `app_tool`) as the person who queued it, with progress and results shown in
+  background tasks. App jobs run on their own in-process loop; the supported
+  `WORKERS` baseline is unchanged. See `docs/platform/background-app-jobs.md`
+  and ADR 014.
+
+- Scheduled tools: a tool may declare `schedule` (cron, optional timezone) and
+  Core queues it once per due slot as the App's installing person.
+
+- A generic `region-system/processing-status` region and an optional
+  `min_height` for App extension views.
+
+- Compact message debug request context by omitting empty optional session/focus
+  fields and identical page-context focus duplicates; retain diagnostic evidence.
+
+- Clarify the chat activity line with Thinking, observable tool activity, and
+  distinct finished/stopped/interrupted states; explain expandable usage details.
+
+- Ordinary chat starts with compact public dialogue and no workspace functions;
+  the configured model can request operational context within the same turn.
+  Approvals, builds and recovery retain the operational harness. Conversation
+  replies preserve operational checkpoints and omit automatic title inference.
+
+- Home card accent borders follow the selected Workspace identity color and
+  retain the theme fallback when no Workspace color is configured.
+
+### Fixed
+
+- Recheck current workspace membership and privileged-tool authority when App
+  jobs are queued and on every execution attempt. Apply canonical work observer
+  authorization to App job status so members cannot inspect another member's
+  progress, failure details or result references.
+
+- A bundle tool that updates its own App's records now resolves the App in the
+  workspace where it is installed, not only in the caller's personal workspace.
+- Keep ad-hoc Track relation identity stable through display renames, including
+  bounded recovery from retained creation snapshots for legacy Tracks.
+- Give passive agent polling and approval actions independent bounded rate
+  budgets; retain token preflight in the action budget and retry-after responses.
+- Retain failed/skipped approvals as unapplied, label explicit application
+  retries, and distinguish an applied write from a failed review refresh.
+
+- Show the actual App and Track collaborator count to invited readers while
+  keeping collaborator names and access details restricted to managers.
+
+- Resolve dashboard widgets with bounded parallel reads and independent live
+  permission checks, reducing measured local dashboard latency while preserving
+  widget results, ordering and error handling.
+- Batch scoped bundle entry reads through canonical audience admission, avoiding
+  repeated point authorization cascades while retaining current membership,
+  exclusions, direct grants and active-App checks.
+
+- Keep Kanban relation labels and unchanged board state stable so mounting a
+  board cannot trigger a render loop that stalls route navigation.
+
+- Publish admitted entry fields and revisions before save hooks run, preserving
+  nested updates and transaction rollback without false revision conflicts.
+- Prevent same-task save hooks from recursively re-entering themselves on the
+  same entry, while allowing independent tasks and subsequent saves.
+
+## 0.1.1rc18 — 2026-10-13
+
+- Pin published jvspatial 0.2.2 and remove the transaction compatibility adapter.
+  Restore admin inventory and owner labels, invited-user track listing, and
+  quiet successful database operations while preserving error logs and metrics.
+- Prevent passive approval reconciliation from starting another model run;
+  retain explicit-action continuations and single receipts across refresh races.
+- Streamline Home and Admin, unify chat composer capabilities and theme styles,
+  send Home and Enhance requests immediately, and dismiss the floating welcome
+  hint after acknowledgement or a user message.
+- Correct search-icon spacing, navigation and profile routing, and remove
+  internal IDs from ordinary lists, details, pickers and missing-name fallbacks.
+- Default native turns to 1,200,000 tokens with bounded context retrieval.
+- Refresh documentation and add PostgreSQL, browser and artifact evidence.
+
 - Let trusted hosts supply temporary commercial entitlement access without
   creating durable grants. Recheck installed package access during execution,
   settings finalization, resume and startup; retain generic read/export access
@@ -22,8 +118,6 @@ bump does not establish that a release is available on a package index.
   and expose an editable Profile setting. New reminders and relative-date query
   plans inherit the account zone while existing and approved schedules retain
   their saved zone; ambiguous local one-shots require an explicit offset.
-- Pin jvspatial 0.2.1. Routine database timings use DEBUG, keeping INFO logs quiet
-  while slow-query/failure warnings and operation metrics remain available.
 
 ## 0.1.1rc17 — 2026-10-12
 

@@ -5,6 +5,7 @@ import { entriesApi, tracksApi } from '../../api';
 import { slug } from '../entries/entryFormCustomFields';
 import type { ViewWidgetProps } from './types';
 import type { Entry } from '../../types';
+import { IconButton, Surface, Text } from '../../ui';
 
 /**
  * Hierarchical tree region over a track's entries via a self-relational
@@ -49,7 +50,7 @@ export function TreeRegionWidget({ view, entries, isLoading, onEntryOpen }: View
         const allTracks = await tracksApi.list();
         const track =
           allTracks.find(t => t.id === sourceTrack) ||
-          allTracks.find(t => slug(String(t.template_id || t.title)) === slug(sourceTrack));
+          allTracks.find(t => slug(String(t.template_id || t.relation_type_key || t.title)) === slug(sourceTrack));
         if (!track) {
           if (!cancelled) setFetchedEntries([]);
           return;
@@ -87,14 +88,15 @@ export function TreeRegionWidget({ view, entries, isLoading, onEntryOpen }: View
     const hasChildren = node.children.length > 0;
     return (
       <div key={node.entry.id}>
-        <div
-          className="flex items-center gap-1.5 py-1.5 px-2 rounded-md hover:bg-[var(--panel-2)] cursor-pointer"
+        <Surface tone="transparent" border="none" radius="input" hoverTone="panel-2"
+          className="flex items-center gap-1.5 py-1.5 px-2 cursor-pointer"
           style={{ paddingLeft: `${depth * 20 + 8}px` }}
           onClick={() => onEntryOpen(node.entry)}
         >
           {hasChildren ? (
-            <button
+            <IconButton
               type="button"
+              label={isCollapsed ? 'Expand' : 'Collapse'}
               onClick={e => {
                 e.stopPropagation();
                 setCollapsed(prev => {
@@ -104,20 +106,18 @@ export function TreeRegionWidget({ view, entries, isLoading, onEntryOpen }: View
                   return next;
                 });
               }}
-              className="text-[var(--text-muted)] hover:text-[var(--text)]"
-              aria-label={isCollapsed ? 'Expand' : 'Collapse'}
             >
               <ChevronRight
                 size={14}
                 strokeWidth={1.5}
                 className={`transition-transform ${isCollapsed ? '' : 'rotate-90'}`}
               />
-            </button>
+            </IconButton>
           ) : (
             <span className="w-3.5" />
           )}
-          <span className="text-sm text-[var(--text)]">{getLabel(node.entry)}</span>
-        </div>
+          <Text as="span" variant="body">{getLabel(node.entry)}</Text>
+        </Surface>
         {hasChildren && !isCollapsed && (
           <div>{node.children.map(child => renderNode(child, depth + 1))}</div>
         )}
@@ -127,22 +127,21 @@ export function TreeRegionWidget({ view, entries, isLoading, onEntryOpen }: View
 
   if (isLoading || loadingSource) {
     return (
-      <div className="h-24 bg-[var(--panel-2)] rounded-[var(--radius-input)] animate-pulse" />
+      <Surface tone="panel-2" border="none" radius="input" className="h-24 animate-pulse" />
     );
   }
 
   if (!tree.roots.length) {
     return (
-      <div className="p-6 text-center text-sm text-[var(--text-muted)]">No entries yet.</div>
+      <Text as="div" variant="body" tone="muted" className="p-6 text-center">No entries yet.</Text>
     );
   }
 
   return (
-    <div
-      className="bg-[var(--panel)] rounded-lg border border-[var(--panel-border)] p-2"
+    <Surface tone="panel" border="default" radius="input" padding="sm"
       data-testid="tree-region-widget"
     >
       {tree.roots.map(node => renderNode(node, 0))}
-    </div>
+    </Surface>
   );
 }

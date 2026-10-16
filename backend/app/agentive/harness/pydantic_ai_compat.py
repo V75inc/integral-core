@@ -8,7 +8,7 @@ at this seam and qualified by adapter contract tests.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -25,14 +25,16 @@ from pydantic_ai import (
     PartStartEvent,
     RetryPromptPart,
     RunContext,
+    TextOutput,
     TextPart,
     TextPartDelta,
     ThinkingPart,
     Tool,
+    ToolOutput,
     UsageLimitExceeded,
     UsageLimits,
 )
-from pydantic_ai.capabilities import Instrumentation, ToolSearch
+from pydantic_ai.capabilities import AbstractCapability, Instrumentation, ToolSearch
 from pydantic_ai.messages import (
     LoadCapabilityCallPart,
     LoadCapabilityReturnPart,
@@ -41,6 +43,7 @@ from pydantic_ai.messages import (
     ModelResponse,
     SystemPromptPart,
     ToolAvailabilityDeltaPart,
+    ToolCallPart,
     ToolReturn,
     ToolReturnPart,
     UserPromptPart,
@@ -183,7 +186,12 @@ class IntegralToolDisclosure(ToolSearch):
                 available: frozenset[str] = getattr(
                     ctx, "available_tool_names", frozenset()
                 )
-                if not any(name.startswith("integral_") for name in available):
+                if "integral_get_page_context" in available:
+                    # Let the model select the current-screen read on demand.
+                    # The response hook below still requires discovery for
+                    # arbitrary operational answers before a workflow is loaded.
+                    resolved["tool_choice"] = "auto"
+                elif not any(name.startswith("integral_") for name in available):
                     resolved["tool_choice"] = ["search_capabilities"]
             else:
                 candidates = {
@@ -230,6 +238,19 @@ class IntegralToolDisclosure(ToolSearch):
         response = await super().after_model_request(
             ctx, request_context=request_context, response=response
         )
+        from app.agentive.harness.disclosure import is_public_support_text
+
+        # A fixed host support response carries no current-state assertions.
+        # This permits a model-recognized disclosure request to stop without
+        # forcing workspace retrieval. Arbitrary prose still requires discovery.
+        if not any(
+            part.part_kind == "tool-call" for part in response.parts
+        ) and is_public_support_text(
+            "".join(
+                part.content for part in response.parts if isinstance(part, TextPart)
+            )
+        ):
+            return response
         if (
             not self.require_initial_search
             or self.pending_decision_tool
@@ -262,8 +283,14 @@ class IntegralToolDisclosure(ToolSearch):
             if part.tool_name == "search_capabilities"
             and not (isinstance(part.content, dict) and part.content.get("error"))
         ]
+        only_page_reads = bool(outcomes) and all(
+            part.tool_name == "integral_get_page_context" for part in outcomes
+        )
+        if only_page_reads:
+            return response
         if not searches and not any(
-            name.startswith("integral_") for name in ctx.available_tool_names
+            name.startswith("integral_") and name != "integral_get_page_context"
+            for name in ctx.available_tool_names
         ):
             raise ModelRetry(
                 "This turn has not searched Integral's authorized capabilities. "
@@ -455,6 +482,33 @@ def build_integral_run_instructions(
     return instructions
 
 
+_HOST_TURN_METADATA_KEY = "integral_host_turn_v1"
+
+
+def build_integral_host_turn(content: str, *, run_id: str) -> ModelRequest:
+    """Mark a Core-generated event boundary without fabricating a user turn."""
+    if not run_id or run_id != run_id.strip():
+        raise ValueError("host turn requires a canonical Core run ID")
+    return ModelRequest(
+        parts=[SystemPromptPart(content=content)],
+        metadata={_HOST_TURN_METADATA_KEY: run_id},
+    )
+
+
+def _active_turn_start(messages) -> int | None:
+    """Find a human turn or a typed Core event; prompt prose is never a marker."""
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if not isinstance(message, ModelRequest):
+            continue
+        if any(isinstance(part, UserPromptPart) for part in message.parts):
+            return index
+        marker = (message.metadata or {}).get(_HOST_TURN_METADATA_KEY)
+        if isinstance(marker, str) and marker and marker == marker.strip():
+            return index
+    return None
+
+
 @dataclass
 class IntegralToolResultCompaction(ClearToolResults):
     """Clear completed-turn payloads without erasing the active task's inputs.
@@ -466,18 +520,17 @@ class IntegralToolResultCompaction(ClearToolResults):
     it. Completed turns retain only the library's bounded recent window.
     """
 
+    async def before_model_request(self, ctx, request_context):
+        # Request-only projection must also become the checkpoint working
+        # history. Otherwise later runs resurrect the completed-turn payloads.
+        before = list(request_context.messages)
+        processed = await super().before_model_request(ctx, request_context)
+        if processed.messages != before:
+            ctx.messages[:] = processed.messages
+        return processed
+
     async def compact(self, messages, ctx):
-        turn_start = next(
-            (
-                index
-                for index in range(len(messages) - 1, -1, -1)
-                if isinstance(messages[index], ModelRequest)
-                and any(
-                    isinstance(part, UserPromptPart) for part in messages[index].parts
-                )
-            ),
-            None,
-        )
+        turn_start = _active_turn_start(messages)
         if turn_start is None:
             return await super().compact(messages, ctx)
         history = await super().compact(messages[:turn_start], ctx)
@@ -512,6 +565,10 @@ class IntegralHistorySummary(SummarizingCompaction):
         # Persist compaction through the documented RunContext.messages seam
         # so StepPersistence and later turns receive the same working history.
         before = list(request_context.messages)
+        turn_start = _active_turn_start(before)
+        history = before[:turn_start] if turn_start is not None else []
+        if len(ModelMessagesTypeAdapter.dump_json(history)) > self.max_history_bytes:
+            request_context.messages = await self.compact(before, ctx)
         processed = await super().before_model_request(ctx, request_context)
         if processed.messages != before:
             ctx.messages[:] = processed.messages
@@ -522,17 +579,7 @@ class IntegralHistorySummary(SummarizingCompaction):
         # it mid-batch can erase a queued effect receipt and provoke restaging.
         # ClearToolResults still bounds older payloads; the library usage limits
         # bound a long active turn. Summarization owns completed-turn history.
-        turn_start = next(
-            (
-                index
-                for index in range(len(messages) - 1, -1, -1)
-                if isinstance(messages[index], ModelRequest)
-                and any(
-                    isinstance(part, UserPromptPart) for part in messages[index].parts
-                )
-            ),
-            0,
-        )
+        turn_start = _active_turn_start(messages) or 0
         history, active_turn = messages[:turn_start], messages[turn_start:]
         if (
             len(history) <= self.keep_messages
@@ -540,9 +587,17 @@ class IntegralHistorySummary(SummarizingCompaction):
             <= self.max_history_bytes
         ):
             return messages
+        # A summary request must not resend large completed-turn tool payloads.
+        # Durable scoped checkpoints keep the full evidence searchable.
+        history = await ClearToolResults(
+            max_tokens=1,
+            keep_pairs=0,
+            exclude_tools=frozenset(),
+            clear_tool_inputs=True,
+        ).compact(history, ctx)
         compacted = await super().compact(history, ctx)
         if compacted == history:
-            return messages
+            return [*history, *active_turn]
         calls = {}
         pairs = {}
         names = set()
@@ -616,6 +671,7 @@ def classify_integral_harness_exception(exc: BaseException) -> str | None:
 
 
 __all__ = [
+    "build_integral_host_turn",
     "Agent",
     "AgentRunResultEvent",
     "CancellationToken",
@@ -656,8 +712,11 @@ __all__ = [
     "Tool",
     "ToolEffectRecord",
     "ToolReturn",
+    "ToolCallPart",
     "ToolReturnPart",
     "ToolSearch",
+    "TextOutput",
+    "ToolOutput",
     "UsageLimitExceeded",
     "UsageLimits",
     "UserPromptPart",
@@ -669,3 +728,79 @@ __all__ = [
     "core_schema",
     "to_jsonable_python",
 ]
+
+
+@dataclass
+class InstructionDisclosureGuard(AbstractCapability[Any]):
+    """Remove literal instruction copies before processing or checkpointing.
+
+    Append last: the pinned framework runs after-model hooks in reverse order.
+    Stream deltas remain private until the provider's settled-output buffer
+    publishes the modified result. This does not detect semantic paraphrases.
+    """
+
+    protected_instructions: str
+
+    async def after_model_request(self, ctx, *, request_context, response):
+        """Replace unsafe text or tool arguments before any tool dispatch."""
+        from app.agentive.harness.disclosure import instruction_output_validator
+
+        inspect_output = instruction_output_validator(self.protected_instructions)
+        text = "".join(
+            part.content for part in response.parts if isinstance(part, TextPart)
+        )
+        candidates = [
+            text,
+            *(
+                str(getattr(part, "args", ""))
+                for part in response.parts
+                if part.part_kind == "tool-call"
+            ),
+        ]
+        for candidate in candidates:
+            safe = inspect_output(candidate)
+            if safe != candidate:
+                return replace(response, parts=[TextPart(safe)])
+        return response
+
+
+class PublicConversationHistorySource:
+    """Project scoped checkpoints to conversation search without host context.
+
+    Private instructions/reasoning remain in the encrypted restore store; the
+    searchable tool corpus contains human turns, safe answers and tool results.
+    """
+
+    def __init__(self, source: Any, *, protected_instructions: str):
+        self._source = source
+        self._protected = protected_instructions
+
+    async def list_runs(self):
+        """Retain the underlying scoped run inventory."""
+        return await self._source.list_runs()
+
+    async def run_history(self, *, run_id: str):
+        """Remove host-only parts before the search tool can render them."""
+        guard = InstructionDisclosureGuard(protected_instructions=self._protected)
+        public = []
+        for message in await self._source.run_history(run_id=run_id):
+            if isinstance(message, ModelRequest):
+                parts = [
+                    part
+                    for part in message.parts
+                    if isinstance(part, (UserPromptPart, ToolReturnPart))
+                ]
+                if parts:
+                    public.append(replace(message, parts=parts, instructions=None))
+            elif isinstance(message, ModelResponse):
+                response = await guard.after_model_request(
+                    None, request_context=None, response=message
+                )
+                parts = [
+                    part
+                    for part in response.parts
+                    if isinstance(part, TextPart) or part.part_kind == "tool-call"
+                ]
+                if parts:
+                    public.append(replace(response, parts=parts))
+        return public

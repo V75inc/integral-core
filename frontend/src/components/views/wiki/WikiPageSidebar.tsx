@@ -266,7 +266,7 @@ export function WikiPageSidebar({
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search pages…"
-            className="w-full pl-8 pr-8 py-1.5 text-sm rounded-md border border-[var(--panel-border)] bg-[var(--panel-2)] text-[var(--text)] placeholder:text-[var(--text-subtle)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring-color)]"
+            className="w-full pl-9 pr-8 py-1.5 text-sm rounded-md border border-[var(--panel-border)] bg-[var(--panel-2)] text-[var(--text)] placeholder:text-[var(--text-subtle)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring-color)]"
             aria-label="Search pages"
             autoComplete="off"
           />

@@ -96,6 +96,10 @@ export type ObservabilityStep = {
   attempt?: number;
   requestId?: string;
   finishReason?: string;
+  usageComplete?: boolean;
+  inputTokensReported?: boolean;
+  outputTokensReported?: boolean;
+  costComplete?: boolean;
   usage?: { inputTokens?: number; outputTokens?: number };
 };
 
@@ -550,10 +554,10 @@ function persistedToMessage(m: AIChatPersistedMessage): ThreadMessageLike {
         ? {
             steps: pmSteps.map((s) => ({
               messageId: m.id,
-              usage: s.usage
+              usage: s.usage?.inputTokens != null && s.usage.outputTokens != null
                 ? {
-                    inputTokens: s.usage.inputTokens ?? 0,
-                    outputTokens: s.usage.outputTokens ?? 0,
+                    inputTokens: s.usage.inputTokens,
+                    outputTokens: s.usage.outputTokens,
                   }
                 : undefined,
             })),
@@ -779,6 +783,7 @@ export interface UseAIChatRuntimeOptions {
    * conversation, and a first run should start on a blank page.
    */
   startNewThread?: boolean;
+  handoffEnabled?: boolean;
 }
 
 export function useAIChatRuntime(
@@ -795,6 +800,7 @@ export function useAIChatRuntime(
     resetComposerEntityRefs,
     initialThreadId = null,
     startNewThread = false,
+    handoffEnabled = true,
   } = options;
   // Active workspace drives the X-Integral-Scope header on every API
   // call (set globally in ScopeContext). The chat thread list is
@@ -823,9 +829,9 @@ export function useAIChatRuntime(
   const [settledSelectionKey, setSettledSelectionKey] = useState<string | null>(null);
   const selectionReady = selectionScopeReady && (!provider.serverPersisted || settledSelectionKey === selectionKey);
   const selectThread = useCallback((threadId: string) => {
-    rememberFreshChat(freshChatScope, false);
+    if (handoffEnabled) rememberFreshChat(freshChatScope, false);
     setActiveThreadId(threadId);
-  }, [freshChatScope]);
+  }, [freshChatScope, handoffEnabled]);
   /**
    * Per-thread transcript + stream state (I-CHAT-PAR-04), read from a
    * module-level store rather than local state so it outlives this hook
@@ -855,12 +861,13 @@ export function useAIChatRuntime(
   }, [workspaceId]);
 
   useEffect(() => {
+    if (!handoffEnabled) return;
     rememberActiveChatThreadId(activeThreadId, workspaceIdRef.current);
-  }, [activeThreadId]);
+  }, [activeThreadId, handoffEnabled]);
 
   // Companion handoff from /agent Created links — switch to the originating thread.
   useEffect(() => {
-    if (!selectionScopeReady) return;
+    if (!selectionScopeReady || !handoffEnabled) return;
     const apply = (threadId?: string | null) => {
       if (!threadId || threadId.startsWith("local-")) return;
       selectThread(threadId);
@@ -877,7 +884,7 @@ export function useAIChatRuntime(
     };
     window.addEventListener(OPEN_AI_CHAT_EVENT, onOpen);
     return () => window.removeEventListener(OPEN_AI_CHAT_EVENT, onOpen);
-  }, [freshChatScope, selectThread, selectionScopeReady]);
+  }, [freshChatScope, selectThread, selectionScopeReady, handoffEnabled]);
 
   // Guards concurrent callers (onNew + any in-flight attachment upload) from
   // creating two threads for the same first message — see ensureThreadId.
@@ -2026,6 +2033,10 @@ function applyEvent(draft: AssistantMessageDraft, ev: NormalizedEvent) {
           attempt: ev.attempt,
           requestId: ev.requestId,
           finishReason: ev.finishReason,
+          usageComplete: ev.usageComplete,
+          inputTokensReported: ev.inputTokensReported,
+          outputTokensReported: ev.outputTokensReported,
+          costComplete: ev.costComplete,
           usage: customUsage,
         },
       ];

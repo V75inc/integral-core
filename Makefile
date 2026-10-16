@@ -1,13 +1,13 @@
 # Integral — local verification gate.
 #
-# The team's model is: CI stays lean (it runs only the `smoke` marker on PRs),
-# and the FULL suite is a local responsibility. That only works if "run it
+# CI runs smoke, Core-only, contract, PostgreSQL, frontend and artifact lanes;
+# the FULL default suite remains a local responsibility. That only works if "run it
 # locally" is one command instead of tribal knowledge — this file is that
 # command.
 #
 #   make verify        everything below, in order
-#   make verify-pr     both PR CI jobs (backend + postgres lane) — pre-push
-#   make verify-ci     backend job only (smoke marker)
+#   make verify-pr     backend test lanes + postgres lane — pre-push
+#   make verify-ci     smoke lane only (not the entire backend job)
 #
 # Read `make help` for the full target list.
 
@@ -51,8 +51,8 @@ help:
 	@echo "Integral verification targets"
 	@echo ""
 	@echo "  make verify         full gate: guards, format, types, both suites, CI-faithful run"
-	@echo "  make verify-pr      reproduce BOTH PR CI jobs — run before every push"
-	@echo "  make verify-ci      reproduce the PR CI backend job only (smoke marker)"
+	@echo "  make verify-pr      reproduce backend test lanes and Postgres — pre-push"
+	@echo "  make verify-ci      reproduce the PR CI smoke lane only"
 	@echo "  make verify-core-only  F0 Core-only lane (INTEGRAL_CORE_ONLY=1 + core_only marker)"
 	@echo "  make verify-contract   F0 extension-contract lane (reference App)"
 	@echo "  make build-asset-register  Build the external reference App archive into dist/"
@@ -166,14 +166,20 @@ test-postgres-ci:
 		JVSPATIAL_DB_TYPE=postgres \
 		JVSPATIAL_POSTGRES_DSN=$${JVSPATIAL_POSTGRES_DSN:-postgresql://integral:integral@localhost:5432/integral_core} \
 		$(PY) -m pytest -q --tb=short tests/contract/ -m "contract and postgres"
+	@cd backend && TESTING=1 INTEGRAL_TEST_DB=postgres \
+		JVSPATIAL_DB_TYPE=postgres \
+		JVSPATIAL_POSTGRES_DSN=$${JVSPATIAL_POSTGRES_DSN:-postgresql://integral:integral@localhost:5432/integral_core} \
+		$(PY) -m pytest -q --tb=short \
+		tests/test_app_jobs.py tests/test_tool_context_own_bundle_workspace.py
 
-## Reproduce everything a PR runs in CI before pushing. Catches black/isort
+## Reproduce backend test lanes, frontend tests and Postgres before pushing.
+## Artifact CI checks have separate targets above. Catches black/isort
 ## drift, contract lane, smoke marker, and the separate postgres job — the
 ## three failure modes that turned PR #4 red (pre-commit reformat, wrong
 ## mock patch target, restore glob typo + env leak).
 verify-pr: guards precommit format-check verify-core-only verify-contract verify-ci test-frontend test-postgres-ci
 	@echo ""
-	@echo "verify-pr: all PR CI checks passed"
+	@echo "verify-pr: backend, frontend test and Postgres checks passed"
 
 test-frontend:
 	@echo "==> Frontend suite"

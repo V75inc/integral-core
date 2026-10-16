@@ -14,6 +14,7 @@ import {
 } from '../../components/ui';
 import { useSetCrumbs } from '../../context/CrumbsContext';
 import { AdminEntityLink, AdminOwnerCell } from '../../components/admin/AdminEntityLink';
+import { adminQueryRecovery } from './adminQueryRecovery';
 
 export function AdminWorkspacesPage() {
   useSetCrumbs([
@@ -55,6 +56,7 @@ export function AdminWorkspacesPage() {
         search: debouncedSearch || undefined,
         kind: kind || undefined,
       }),
+    ...adminQueryRecovery,
   });
 
   function setKind(next: 'personal' | 'organization' | null) {
@@ -85,7 +87,7 @@ export function AdminWorkspacesPage() {
             <Search
               size={16}
               strokeWidth={LINE_ICON_STROKE}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-subtle)]"
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-subtle)]"
             />
             <input
               type="search"

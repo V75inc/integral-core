@@ -134,7 +134,7 @@ export function RelatedCommunications({
                 className="flex-1 text-left hover:opacity-80"
               >
                 <Text variant="meta">
-                  {t.subject || t.title || t.id} · {t.message_count} msg ·{' '}
+                  {t.subject || t.title || 'Untitled conversation'} · {t.message_count} msg ·{' '}
                   {t.last_message_at?.slice(0, 10) || ''}
                 </Text>
               </button>
@@ -142,7 +142,7 @@ export function RelatedCommunications({
                 type="button"
                 onClick={() => unlink(t.id)}
                 className="opacity-50 hover:opacity-100"
-                aria-label={`Unlink thread ${t.id}`}
+                aria-label={`Unlink ${t.subject || t.title || 'conversation'}`}
                 data-testid={`related-unlink-${t.id}`}
               >
                 <Text variant="meta">remove</Text>

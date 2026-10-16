@@ -215,10 +215,13 @@ export function AuditLogSection() {
                       {ev.ts || ''}
                     </Text>
                   </div>
+                  <details className="mt-1">
+                    <summary className="cursor-pointer"><Text variant="meta" tone="muted">Technical details</Text></summary>
                   <Text variant="meta" tone="muted" as="div" className="break-all">
                     {ev.actor_kind}:{ev.actor_id} · {ev.resource_type}/
                     {ev.resource_id} · {ev.scope}
                   </Text>
+                  </details>
                   {Boolean(
                     details.decision_reason ||
                       details.failed_action ||

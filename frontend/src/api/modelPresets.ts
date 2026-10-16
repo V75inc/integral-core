@@ -34,6 +34,9 @@ export const RECOMMENDED_MODELS: Record<ModelProvider, ModelPreset[]> = {
     { id: 'gemma4:e2b', label: 'Gemma 4 E2B (local)', recommended: true },
     { id: 'gemma4:26b', label: 'Gemma 4 26B (local)' },
   ],
+  // Custom OpenAI-compatible endpoints have no known model catalog, so the
+  // dropdown is empty and the UI falls through to the custom model ID input.
+  custom_openai: [],
 };
 
 /**

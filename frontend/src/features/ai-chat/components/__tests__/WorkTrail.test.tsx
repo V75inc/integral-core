@@ -20,13 +20,14 @@ describe('activity disclosure', () => {
     state.message.metadata = {custom: {steps: [{modelId: 'ollama_chat/deepseek-v4.1-flash:cloud', provider: 'ollama', durationMs: 1700, usage: {inputTokens: 1200, outputTokens: 50}}]}};
     render(<WorkTrail><span>Tool receipt</span></WorkTrail>);
     const trigger = screen.getByRole('button');
-    expect(trigger).toHaveTextContent('Worked · 2 steps · deepseek-v4.1-flash:cloud');
+    expect(trigger).toHaveTextContent('Finished · 2 tool calls · deepseek-v4.1-flash:cloud');
     expect(trigger).not.toHaveTextContent(/tokens|cost|1.7s/);
     expect(screen.queryByText('1,250 tokens')).not.toBeInTheDocument();
     fireEvent.click(trigger);
     expect(screen.getAllByRole('button')).toHaveLength(1);
-    expect(screen.getByText('1,250 tokens')).toBeVisible();
-    expect(screen.getByText('Provider cost unavailable for some calls')).toBeVisible();
+    expect(screen.getByText(/Input 1,200 tokens \(1\/1 calls reported\)/)).toBeVisible();
+    expect(screen.getByText(/Output 50 tokens \(1\/1 calls reported\)/)).toBeVisible();
+    expect(screen.getByText(/Cost unavailable for 1\/1 calls/)).toBeVisible();
     expect(screen.getByText('Total: 1.7s')).toBeVisible();
     state.message.parts = [];
     state.message.metadata = {};
@@ -37,9 +38,10 @@ describe('activity disclosure', () => {
     state.message.parts = [];
     state.message.metadata = {custom: {steps: [{modelId: 'provider/model', usage: {inputTokens: 3, outputTokens: 2}}]}};
     render(<WorkTrail>{null}</WorkTrail>);
-    expect(screen.getByRole('button')).toHaveTextContent('Worked · model');
+    expect(screen.getByRole('button')).toHaveTextContent('Finished · model');
     fireEvent.click(screen.getByRole('button'));
-    expect(screen.getByText('5 tokens')).toBeVisible();
+    expect(screen.getByText(/Input 3 tokens \(1\/1 calls reported\)/)).toBeVisible();
+    expect(screen.getByText(/Output 2 tokens \(1\/1 calls reported\)/)).toBeVisible();
     state.message.metadata = {};
   });
   it('centers the working mark with its label and supports reduced motion', () => {

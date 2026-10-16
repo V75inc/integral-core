@@ -79,3 +79,11 @@ async def test_postgres_transaction_cas_probe_against_live_db(
     loaded = await db.get("o", "o.WorkItem.probe")
     assert loaded["context"]["status"] == "queued"
     assert await db.get("o", "o.WorkOutbox.probe") is None
+
+
+def test_postgres_transaction_exposes_database_query_contract() -> None:
+    """Graph and pager reads must stay available on the active transaction."""
+    from jvspatial.db.postgres import PostgresTransaction
+
+    for method in ("find_one", "find_ids", "find_many", "count"):
+        assert callable(getattr(PostgresTransaction, method, None)), method

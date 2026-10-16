@@ -784,6 +784,19 @@ shared-store compare-and-set/fencing; process-local locks are insufficient.
 **Verification:** `backend/tests/native_harness/wp_02/` and WP-03 PostgreSQL
 concurrency tests.
 
+Native design acceptance preserves I-HARNESS-01 at the write boundary: the
+selected design revision and latest user turn must still match, the owning
+session edge and active run must be current, and identity/workspace admission
+must remain valid through the approval commit. A prior `approved` marker cannot
+skip these checks. Repeating the same selection in the same run preserves its
+approval timestamp. Design acceptance is not a receipt for the subsequent App
+build. Obsolete staged design cards refuse effects instead of approving a
+replacement design from an old payload.
+
+**Additional verification:**
+`backend/tests/native_harness/wp_06/test_native_design_approval_postgres.py` and
+`backend/tests/test_legacy_design_approval.py`.
+
 ### I-WORK-07 — Approved work prices every physical model dispatch
 
 **Scope:** Native SDK transport, `work_model_admission.py`, host bounds/price hooks,
@@ -809,6 +822,69 @@ use lease/permission/route fencing without acquiring mandate authority.
 `backend/tests/contract/test_work_model_admission_postgres.py`, and shared-ledger
 and model-receipt contract tests. Public executable approval and tool admission
 remain separately gated under I-WORK-05.
+
+### I-WORK-08 — Own execution history is separate from output authority
+
+A successful operation receipt proves a past outcome, not current domain state
+or permission to disclose saved output. Observe only the authenticated subject's
+exact original namespace in the validated request/turn workspace. The original
+receipt and idempotency identity remain immutable; observation cannot create a
+claim, repair aliases, rerun a handler or manufacture domain references.
+
+Current active human identity and workspace membership remain mandatory.
+Agent/connector observation requires an exact current, directly usable
+`operation.history.read_own` policy bound to that workspace or the subject's
+canonical App. Legacy wildcards, generic reads and function execution grants do
+not imply this new permission. Fence current subject and issuer identities;
+an issuer never becomes its delegate's receipt alias. Repeat current admission
+before release; transport authentication/credential validation is still required.
+
+Opaque status exposes only the qualified receipt reference, with explicit
+withheld-output and unverified-current-state semantics. Incomplete/conflicting
+history or unavailable authority never becomes success or permission to retry.
+An original approval's own reconciliation contract must be qualified separately;
+it cannot impersonate a delegate or expose its general operation history.
+
+**Verification:** `test_operation_outcome_observation.py`,
+`contract/test_operation_outcome_observation_postgres.py`,
+`test_operation_history_policy.py` and
+`contract/test_operation_history_admission_postgres.py` cover internal storage
+and admission. Authenticated HTTP/SDK/broker/MCP, approval, worker and transcript
+release/readback qualification remains required before exposing the new path.
+
+### I-WORK-09 — A reviewed local operation has one effect owner
+
+Staged local App operations use the canonical operation receipt, not another
+staging effect journal. The exact original declaration and complete reviewed
+proposal have separate private immutable fingerprints. Current identity,
+workspace, proposal state/expiry and normal operation authority are admitted
+before dispatch; graph effect, result/event receipt and decision consumption
+commit in one native transaction. A different or legacy unproven proposal cannot
+claim to have authorized an older operation merely by reusing its
+key/input/declaration. A fresh current approval can instead acknowledge a
+known exact earlier completion under own-history admission. This no-effect
+path requires independent matching declaration/input proof, preserves the
+original receipt/approval fingerprint, consumes only the current reviewed
+decision and explicitly returns `already_completed`. An expired live approval
+cannot create a new acknowledgment. It never dispatches a handler.
+
+The producer binding belongs to one task and one root invocation. It grants no
+function/resource permission and is cleared before nested or post-commit work.
+Recovery occurs outside caller effect transactions, requires exact original
+proof and fresh own-history admission, and never enters the handler. Current
+output disclosure remains independent. Notification failure cannot replay an
+effect or change a committed consumed decision into a pending one.
+
+This local contract is not proof of arbitrary external effects; external intent,
+readback and unknown-outcome reconciliation retain their own required contract.
+Existing policy Approval retains its original Subject and transaction owner.
+
+**Verification:** `test_operation_decision_binding.py`,
+`test_operation_contract_proof.py`, `test_staging_decision_intent.py`,
+`contract/test_staged_app_operation_postgres.py` (including fresh interpreters),
+`contract/test_staged_operation_acknowledgment_postgres.py`, and native
+operation/decision/approved-effect regressions. Full combined-source
+and release qualification is recorded separately.
 
 ### I-HARNESS-02 — Restored chat input matches accepted content
 

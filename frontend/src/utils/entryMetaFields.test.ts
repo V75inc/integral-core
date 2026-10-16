@@ -1,14 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
   feedCardPrimaryNeedsExpand,
+  findEntryTypeBySlug,
   formatCustomFieldValue,
   getDisallowedCustomFieldKeys,
   getMissingRequiredFields,
   isEmptyCustomFieldValue,
+  resolveEntryProfileFields,
   shouldRenderMetaField,
   slugEntryTypeName,
   sortFieldsByOrder,
 } from './entryMetaFields';
+import type { OperationalModelEntryTypeLike } from './entryMetaFields';
 import type { OperationalModelFieldSpec } from '../types';
 
 describe('entryMetaFields', () => {
@@ -102,6 +105,81 @@ describe('entryMetaFields', () => {
     expect(shouldRenderMetaField(f, 'user-1', 'detail')).toBe(true);
     expect(shouldRenderMetaField(f, null, 'card')).toBe(false);
     expect(shouldRenderMetaField(f, null, 'detail')).toBe(true);
+  });
+
+  it('resolveEntryProfileFields matches by manifest key, not display name', () => {
+    const entryTypes = [
+      {
+        name: 'Contact',
+        form_schema: {
+          _manifest_entry_type_key: 'crm_contact',
+          fields: [
+            { key: 'organization', name: 'Organization', type: 'text' },
+            { key: 'request', name: 'Request', type: 'text' },
+          ],
+        },
+      },
+    ] as unknown as OperationalModelEntryTypeLike[];
+    // The bug: name "Contact" slugs to "contact" ≠ entry.type "crm_contact".
+    expect(resolveEntryProfileFields(entryTypes, 'crm_contact').map(f => f.key)).toEqual([
+      'organization',
+      'request',
+    ]);
+  });
+
+  it('resolveEntryProfileFields falls back to the display-name slug', () => {
+    const entryTypes = [
+      {
+        name: 'Bug Report',
+        form_schema: { fields: [{ key: 'a', name: 'A', type: 'text' }] },
+      },
+    ] as unknown as OperationalModelEntryTypeLike[];
+    expect(resolveEntryProfileFields(entryTypes, 'bug_report').map(f => f.key)).toEqual([
+      'a',
+    ]);
+  });
+
+  it('resolveEntryProfileFields returns [] when nothing matches', () => {
+    expect(resolveEntryProfileFields([], 'crm_contact')).toEqual([]);
+  });
+
+  it('findEntryTypeBySlug matches key, name, id, and single-type fallback', () => {
+    const types = [
+      {
+        id: 'et1',
+        name: 'Contact',
+        form_schema: { _manifest_entry_type_key: 'crm_contact' },
+      },
+    ] as unknown as OperationalModelEntryTypeLike[];
+    expect(findEntryTypeBySlug(types, 'crm_contact')).toBe(types[0]); // key
+    expect(findEntryTypeBySlug(types, 'Contact')).toBe(types[0]); // name
+    expect(findEntryTypeBySlug(types, 'et1')).toBe(types[0]); // id
+    expect(findEntryTypeBySlug(types, 'whatever')).toBe(types[0]); // single-type fallback
+
+    const twoTypes = [
+      ...types,
+      { id: 'et2', name: 'Other', form_schema: {} },
+    ] as unknown as OperationalModelEntryTypeLike[];
+    expect(findEntryTypeBySlug(twoTypes, 'whatever')).toBeNull();
+    expect(findEntryTypeBySlug(twoTypes, '')).toBeNull();
+  });
+
+  it('shouldRenderMetaField honors hide_on_card (card hidden, detail shown)', () => {
+    const hidden = {
+      key: 'summary',
+      name: 'Summary',
+      type: 'text',
+      hide_on_card: true,
+    } as OperationalModelFieldSpec;
+    expect(shouldRenderMetaField(hidden, 'some text', 'card')).toBe(false);
+    expect(shouldRenderMetaField(hidden, 'some text', 'detail')).toBe(true);
+
+    const normal = {
+      key: 'note',
+      name: 'Note',
+      type: 'text',
+    } as OperationalModelFieldSpec;
+    expect(shouldRenderMetaField(normal, 'some text', 'card')).toBe(true);
   });
 
   it('feedCardPrimaryNeedsExpand for long body or meta', () => {

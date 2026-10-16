@@ -413,7 +413,7 @@ def test_child_configuration_is_independent_of_terminal_and_working_directory(
             "-c",
             "from app.config import Settings; s = Settings(); "
             "assert s.REGISTRATION_OPEN is True; "
-            "assert s.INTEGRAL_NATIVE_TURN_TOKEN_LIMIT == 600000; "
+            "assert s.INTEGRAL_NATIVE_TURN_TOKEN_LIMIT == 1200000; "
             "assert s.DEBUG is False",
         ],
         cwd=tmp_path,

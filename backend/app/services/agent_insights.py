@@ -1723,7 +1723,7 @@ async def save_view(
                 "name": name,
                 "message": f"Updated existing view '{name}' on the track.",
             }
-            return result
+        return result
 
     result = await modify_operational_model(
         user_id=user_id,

@@ -202,3 +202,40 @@ async def test_retired_key_rejection_does_not_expose_secret(
     assert "light_api_key" in response.text
     assert secret not in response.text
     assert secret not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_custom_endpoint_keyless_transition_requires_explicit_clear(
+    enc_key, authenticated_client
+):
+    """The public API preserves authority binding and forwards explicit key clearing."""
+    with patch(
+        "app.services.model_credentials.validate_provider_api_key",
+        new=AsyncMock(return_value=(True, "validated")),
+    ) as probe:
+        first = await authenticated_client.post(
+            "/api/users/me/model-credentials",
+            json={
+                "provider": "openai",
+                "model": "model",
+                "api_key": "synthetic-original-key",
+            },
+        )
+        assert first.status_code == 200
+        probe.reset_mock()
+        update = {
+            "provider": "custom_openai",
+            "model": "model",
+            "base_url": "https://llm.example/v1",
+        }
+        rejected = await authenticated_client.post(
+            "/api/users/me/model-credentials", json=update
+        )
+        assert rejected.status_code == 400
+        probe.assert_not_awaited()
+        saved = await authenticated_client.post(
+            "/api/users/me/model-credentials", json={**update, "clear_api_key": True}
+        )
+        assert saved.status_code == 200
+        assert saved.json()["credential"]["key_fingerprint"] == ""
+        probe.assert_awaited_once_with("custom_openai", "", "https://llm.example/v1")

@@ -170,7 +170,7 @@ export function AdminWorkspaceDetailPage() {
                     <AdminEntityLink
                       type="user"
                       id={m.id}
-                      label={m.display_name || m.email || m.id}
+                      label={m.display_name || m.email || 'Unnamed user'}
                     />
                     {m.email && m.display_name ? (
                       <Text as="p" variant="body" tone="muted" className="">{m.email}</Text>

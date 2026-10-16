@@ -410,7 +410,7 @@ async def materialize_anchor_track(
         owner_id=getattr(source_track, "owner_id", None) or "",
         purpose="",
         icon="",
-        visibility="inherit",
+        visibility="private",
         template_id=template_key,
         workspace_id=source_ws,
         attached_operational_model_id=template_cp.id,

@@ -1,0 +1,13 @@
+{
+  "observed_run_utc": "2026-10-13T09:36:42.413880+00:00",
+  "cause": "Passive approval reconciliation appended a failure receipt and triggered a host continuation on dock mount.",
+  "new_user_message": false,
+  "provider_calls": 3,
+  "fix": "Passive queue refresh appends a deduplicated receipt without starting a model run. Explicit review actions retain one continuation even when polling wins the race.",
+  "targeted_tests_passed": 27,
+  "browser_reopen_verification": {
+    "chat_submission_posts": 0,
+    "provider_completion_calls": 0,
+    "chat_history_reads": 1
+  }
+}

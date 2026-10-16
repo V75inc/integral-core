@@ -70,4 +70,6 @@ it('retains execution failure and partial progress in the review card', () => {
   expect(screen.getByRole('alert')).toHaveTextContent('Approval recorded; application failed');
   expect(screen.getByRole('alert')).toHaveTextContent('Validation failed');
   expect(screen.getByRole('alert')).toHaveTextContent('2 operations already applied');
+  expect(screen.getByRole('button', { name: 'Retry application' })).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
 });

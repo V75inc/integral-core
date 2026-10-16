@@ -48,7 +48,7 @@ def test_single_add_track_uses_the_focused_app_instead_of_the_batch_token():
     token = current_focused_app_id.set(_APP)
     try:
         staged = _stage_create_app_track(
-            {"app_id": "Car Rental Desk", "name": "Maintenance"}
+            {"app_id": "{{app.id}}", "name": "Maintenance"}
         )
     finally:
         current_focused_app_id.reset(token)
@@ -56,15 +56,15 @@ def test_single_add_track_uses_the_focused_app_instead_of_the_batch_token():
     assert "{{app.id}}" not in staged["payload"]["app_id"]
 
 
-def test_focused_app_replaces_a_different_real_app_id():
+def test_explicit_app_target_is_preserved_over_incidental_focus():
     other = "n.WorkspaceApp.b58efb20fc6947ed90921934"
     token = current_focused_app_id.set(_APP)
     try:
-        assert _app_id_for_single_track_create(other) == _APP
+        assert _app_id_for_single_track_create(other) == other
         listed = _list_tracks_params({"app_id": other, "limit": 20})
     finally:
         current_focused_app_id.reset(token)
-    assert listed["app_id"] == _APP
+    assert listed["app_id"] == other
     assert listed["limit"] == 20
 
 
@@ -267,3 +267,13 @@ async def test_texting_routine_is_refused_before_a_card():
                 "cron": "0 9 * * *",
             }
         )
+
+
+def test_unresolved_named_app_cannot_be_redirected_to_current_focus():
+    """A display name is not permission to change a different focused App."""
+    token = current_focused_app_id.set(_APP)
+    try:
+        with pytest.raises(ValueError, match="Resolve the named App"):
+            _app_id_for_single_track_create("A different named App")
+    finally:
+        current_focused_app_id.reset(token)

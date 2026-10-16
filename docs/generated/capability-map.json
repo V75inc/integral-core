@@ -329,8 +329,10 @@
         "integral_list_apps",
         "integral_list_dashboards",
         "integral_list_tracks",
+        "integral_read_app_home",
         "integral_read_dashboard_data",
         "integral_suggest_dashboard",
+        "integral_update_app",
         "integral_update_dashboard"
       ],
       "body_tools": [
@@ -340,15 +342,17 @@
         "integral_list_apps",
         "integral_list_dashboards",
         "integral_list_tracks",
+        "integral_read_app_home",
         "integral_read_dashboard_data",
         "integral_suggest_dashboard",
+        "integral_update_app",
         "integral_update_dashboard"
       ],
       "delegates_to": [
         "integral-insights",
         "integral-models"
       ],
-      "intent": "Compose and customize app-scoped analytics dashboards \u2014 create, adjust, add/remove widgets, change layout, rename. Use for bar charts, KPI tiles, edits to an existing board, or vague requests like the best dashboard for this App.",
+      "intent": "Create and edit distinct App Home tabs, and compose app-scoped analytics dashboards \u2014 create, adjust, add/remove widgets, change layout, rename. Use for bar charts, KPI tiles, edits to an existing board, or vague requests like the best dashboard for this App.",
       "name": "integral-dashboards",
       "source": "agent/skills/integral-dashboards/SKILL.md",
       "unresolved_refs": []
@@ -920,15 +924,15 @@
     }
   ],
   "counts": {
-    "advertised": 124,
+    "advertised": 125,
     "apps": 5,
     "by_op_class": {
       "execute": 1,
       "propose": 69,
-      "read": 54
+      "read": 55
     },
     "core_skills": 16,
-    "tools": 126
+    "tools": 127
   },
   "diagnostics": {
     "advertised_tools_without_skill": [
@@ -974,13 +978,13 @@
     {
       "advertised": true,
       "dispatch": {
-        "seam": "handler",
+        "seam": "service",
         "targets": [
-          "app.api.users.get_my_scope"
+          "app.services.resident_execution_scope.get_execution_scope_for_dispatch"
         ]
       },
       "domain": "A_discovery",
-      "http": "GET /api/users/me/scope",
+      "http": null,
       "mcp_min_scope": "integral:read",
       "name": "integral_get_scope",
       "op_class": "read",
@@ -2536,6 +2540,25 @@
       "dispatch": {
         "seam": "handler",
         "targets": [
+          "app.api.apps_dashboards.get_app_home"
+        ]
+      },
+      "domain": "G_dashboards",
+      "http": "GET /api/apps/{app_id}/home",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_read_app_home",
+      "op_class": "read",
+      "policy_action": "app.read",
+      "skills": [
+        "integral-dashboards"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
           "app.api.apps_dashboards.list_app_dashboards"
         ]
       },
@@ -2760,6 +2783,7 @@
       "op_class": "propose",
       "policy_action": "app.update",
       "skills": [
+        "integral-dashboards",
         "integral-workspace"
       ],
       "status": "existing"

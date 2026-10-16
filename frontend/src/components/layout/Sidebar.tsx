@@ -615,7 +615,7 @@ function SidebarAccountMenu({
   const goProfile = () => {
     setOpen(false);
     onDismissMobile();
-    navigate('/profile');
+    navigate('/settings#profile');
   };
 
   const signOut = () => {

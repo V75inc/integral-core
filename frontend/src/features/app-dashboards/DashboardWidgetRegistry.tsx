@@ -401,7 +401,7 @@ export function ActivityDigestWidget({
               className="dashboard-list-row flex items-center justify-between gap-2 py-2.5"
             >
               <Text variant="body-sm" as="span" truncate className="min-w-0 flex-1">
-                {t.title || t.track_id}
+                {t.title || 'Untitled track'}
               </Text>
               <Text variant="body-sm" tone="muted" as="span" className="shrink-0 tabular-nums">
                 {t.recent_count ?? 0} recent
@@ -490,8 +490,8 @@ export function RecentEntriesWidget({
             <li key={e.id} className="dashboard-list-row py-2.5">
               <Text variant="body-sm" as="span" truncate>
                 {e.track_id ? (
-                  <Link to={`/tracks/${encodeURIComponent(e.track_id)}?entry=${encodeURIComponent(e.id)}`} className="underline underline-offset-2">{e.title || e.id}</Link>
-                ) : (e.title || e.id)}
+                  <Link to={`/tracks/${encodeURIComponent(e.track_id)}?entry=${encodeURIComponent(e.id)}`} className="underline underline-offset-2">{e.title || 'Untitled record'}</Link>
+                ) : (e.title || 'Untitled record')}
               </Text>
             </li>
           ))
@@ -528,8 +528,8 @@ export function TableWidget({
               {entries.map(entry => (
                 <tr key={entry.id}>
                   <td>{entry.track_id ? (
-                    <Link to={`/tracks/${encodeURIComponent(entry.track_id)}?entry=${encodeURIComponent(entry.id)}`} className="underline underline-offset-2">{entry.title || entry.id}</Link>
-                  ) : (entry.title || entry.id)}</td>
+                    <Link to={`/tracks/${encodeURIComponent(entry.track_id)}?entry=${encodeURIComponent(entry.id)}`} className="underline underline-offset-2">{entry.title || 'Untitled record'}</Link>
+                  ) : (entry.title || 'Untitled record')}</td>
                   <td>{entry.status || '—'}</td>
                   <td>{entry.updated_at ? String(entry.updated_at).slice(0, 10) : '—'}</td>
                 </tr>
@@ -577,7 +577,7 @@ export function TrackBreakdownWidget({
             {tracks.map(t => (
               <tr key={t.track_id} className="dashboard-list-row">
                 <Text variant="body-sm" as="td" truncate className="py-2.5">
-                  {t.title || t.track_id}
+                  {t.title || 'Untitled track'}
                 </Text>
                 <Text variant="body-sm" as="td" className="py-2.5 text-right tabular-nums">
                   {t.entry_count ?? 0}

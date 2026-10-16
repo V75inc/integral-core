@@ -4,13 +4,14 @@ import { Bug, Check, Copy, X } from "lucide-react";
 
 import JsonViewer from "../../../components/ui/JsonViewer";
 import { useTheme } from "../../../context/ThemeContext";
+import { compactMessageDebugPayload } from "./assistantMessagePresentation";
 import { tryParseJsonDisplay } from "../../../utils/tryParseJsonDisplay";
 
 type MessageDebugDialogProps = {
   /** Assembled response text (Panel 1) — rendered as a JSON tree if it parses,
    *  otherwise verbatim in a <pre>. Mirrors jvchat's "Message Content". */
   messageContent?: string;
-  /** Full payload that came back from the server (Panel 2). */
+  /** Server final payload or reconstructed message diagnostics (Panel 2). */
   payload: Record<string, unknown> | null;
   onClose: () => void;
 };
@@ -20,6 +21,10 @@ export function MessageDebugDialog({
   payload,
   onClose,
 }: MessageDebugDialogProps) {
+  const debugPayload = useMemo(
+    () => payload ? compactMessageDebugPayload(payload) : null,
+    [payload],
+  );
   const { theme } = useTheme();
   const dark = theme === "dark";
   const [copied, setCopied] = useState(false);
@@ -33,10 +38,10 @@ export function MessageDebugDialog({
   }, [onClose]);
 
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(JSON.stringify(payload ?? {}, null, 2));
+    navigator.clipboard.writeText(JSON.stringify(debugPayload ?? {}, null, 2));
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
-  }, [payload]);
+  }, [debugPayload]);
 
   // jvchat parses the response text: JSON object/array → tree, else raw <pre>.
   const parsedContent = useMemo(
@@ -169,14 +174,14 @@ export function MessageDebugDialog({
             )}
           </div>
 
-          {/* Panel 2 — Full JSON Response (the payload back from the server). */}
+          {/* The viewer and copy action use the same compact diagnostic projection. */}
           <div>
             <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
-              Full JSON Response
+              Diagnostic payload
             </h4>
             {hasPayload ? (
               <JsonViewer
-                data={payload}
+                data={debugPayload}
                 defaultExpandDepth={2}
                 maxHeight="50vh"
                 dark={dark}

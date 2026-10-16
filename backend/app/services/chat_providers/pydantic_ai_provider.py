@@ -30,6 +30,13 @@ from app.agentive.harness.contracts import (
     HarnessExecutionScope,
     PhysicalModelRequest,
 )
+from app.agentive.harness.disclosure import public_disclosure_response
+from app.agentive.harness.effect_reconciliation import (
+    is_pre_effect_rejection,
+    is_settled_core_receipt,
+    receipt_recovery_result,
+    settled_core_guard_calls,
+)
 from app.agentive.harness.events import PydanticAIEventTranslator, SettledTextBuffer
 from app.agentive.harness.litellm_model import build_litellm_sdk_model
 from app.agentive.harness.model_observations import persist_model_request_observation
@@ -40,12 +47,12 @@ from app.agentive.harness.pydantic_ai_compat import (
     ModelResponse,
     ModelRetry,
     RetryPromptPart,
-    SystemPromptPart,
     TextPart,
     ToolEffectRecord,
     ToolReturnPart,
     UsageLimits,
     UserPromptPart,
+    build_integral_host_turn,
     classify_integral_harness_exception,
     continue_run,
 )
@@ -110,7 +117,7 @@ _FRAMEWORK_READ_TOOLS = frozenset(
 def _terminal_run_matches(scope, run) -> bool:
     return bool(
         run is not None
-        and run.status in {"failed", "cancelled"}
+        and run.status in {"succeeded", "failed", "cancelled"}
         and run.user_id == scope.principal_id
         and run.workspace_id == scope.workspace_id
         and run.thread_id == scope.thread_id
@@ -130,6 +137,13 @@ def _scaffold_completion_validator(run_state: dict[str, Any]):
     """Validate scaffold receipts without imposing discovery on plain chat."""
 
     async def validate(ctx: Any, output: str) -> str:
+        build_validation_failure = run_state.get("build_validation_failure")
+        if isinstance(build_validation_failure, str):
+            return (
+                "The approved setup could not be built because the generated "
+                "plan did not match it. No build changes were applied. "
+                + build_validation_failure
+            )
         workflow_attempted = run_state.get(
             "scaffold_coverage_attempted"
         ) or run_state.get("proposal_attempted")
@@ -268,10 +282,20 @@ def _model_observability_events(
         )
         if known_usage:
             call_event["usage"] = {
-                "inputTokens": summary.reported_input_tokens,
-                "outputTokens": summary.reported_output_tokens,
+                **(
+                    {"inputTokens": summary.reported_input_tokens}
+                    if summary.input_token_request_count
+                    else {}
+                ),
+                **(
+                    {"outputTokens": summary.reported_output_tokens}
+                    if summary.output_token_request_count
+                    else {}
+                ),
             }
             call_event["usageComplete"] = summary.token_usage_complete
+            call_event["inputTokensReported"] = summary.input_token_request_count > 0
+            call_event["outputTokensReported"] = summary.output_token_request_count > 0
             call_event["costComplete"] = summary.provider_cost_complete
             if summary.provider_cost_usd is not None:
                 call_event["providerCostUsd"] = float(summary.provider_cost_usd)
@@ -330,6 +354,13 @@ async def _resume_history(
     if not session.last_run_id:
         return []
 
+    # A worker can lose its lease after the provider has started but before
+    # finish_run persists the Harness outcome (for example, process death or
+    # a reclaimed WorkItem). The durable WorkItem is the execution authority:
+    # once a newer attempt owns its lease, the old attempt can no longer make
+    # effects. Reconcile that stale run before the normal receipt checks below.
+    previous_run = await _reconcile_fenced_harness_run(scope, previous_run)
+
     from app.agentive.harness.model_observations import (
         list_model_request_observations,
         unsettled_model_request_ids,
@@ -352,6 +383,11 @@ async def _resume_history(
         )
 
     unresolved = await store.list_unresolved_tool_effects(run_id=session.last_run_id)
+    if unresolved and not terminal_run:
+        raise ResourceConflictError(
+            message="The prior Harness run has an unresolved tool effect",
+            details={"reason": "harness_tool_effect_unresolved"},
+        )
     can_abandon_reads = (
         _terminal_run_matches(scope, previous_run)
         and previous_run.run_id == session.last_run_id
@@ -360,12 +396,6 @@ async def _resume_history(
             for effect in unresolved
         )
     )
-    if unresolved and not can_abandon_reads:
-        raise ResourceConflictError(
-            message="The prior Harness run has an unresolved tool effect",
-            details={"reason": "harness_tool_effect_unresolved"},
-        )
-
     effects_method = getattr(store, "list_tool_effects", None)
     effect_records = (
         await effects_method(run_id=session.last_run_id)
@@ -414,6 +444,7 @@ async def _resume_history(
                 checkpoint_run_id == session.last_run_id
                 and not unsettled_requests
                 and not effect_records
+                and not unresolved
                 and not pending_approvals
             ):
                 return await _continue_from_checkpoint(store, checkpoint_run_id)
@@ -428,6 +459,26 @@ async def _resume_history(
     # A safe completed snapshot may have been persisted immediately before a
     # process died, while the following session-pointer CAS did not run.
     latest = await store.latest_snapshot(run_id=session.last_run_id)
+    if unresolved and not can_abandon_reads:
+        history = (
+            await _settled_terminal_history(
+                scope,
+                previous_run,
+                store,
+                latest,
+                effect_records,
+                recovery_message=recovery_message,
+                checkpoint_run_id=checkpoint_run_id,
+            )
+            if terminal_run and not pending_approvals
+            else None
+        )
+        if history is not None:
+            return history
+        raise ResourceConflictError(
+            message="The prior Harness run has an unresolved tool effect",
+            details={"reason": "harness_tool_effect_unresolved"},
+        )
     if unsettled_requests:
         # Terminal failure or cancellation ends the old run's authority. A model
         # response cannot independently mutate Integral. Reuse only history
@@ -505,6 +556,115 @@ async def _resume_history(
     return history
 
 
+async def _reconcile_fenced_harness_run(scope, run):
+    """Terminalize a stale run only when its WorkItem proves it was fenced.
+
+    The model-run status alone is insufficient after a worker crash. A newer
+    attempt number and deterministic run id, paired with the currently-held
+    WorkItem lease, prove that the old worker has lost effect authority. A
+    terminal WorkItem is also authoritative for the outcome. This changes no
+    tool receipt; checkpoint, request, and effect checks still decide whether
+    any history can safely continue.
+    """
+    if (
+        run is None
+        or getattr(run, "status", None) != "running"
+        or getattr(run, "provider_id", None) != "integral_native"
+        or not getattr(run, "work_item_id", None)
+        or getattr(run, "user_id", None) != scope.principal_id
+        or getattr(run, "workspace_id", None) != scope.workspace_id
+        or getattr(run, "thread_id", None) != scope.thread_id
+    ):
+        return run
+
+    from app.agentive.services.execution_runs import finish_run
+    from app.agentive.services.work_execution import deterministic_run_id
+    from app.agentive.work_models import WorkItem
+
+    matches = await WorkItem.find({"context.work_item_id": run.work_item_id})
+    if len(matches) != 1:
+        return run
+    item = matches[0]
+    if (
+        item.principal_id != scope.principal_id
+        or item.workspace_id != scope.workspace_id
+        or item.thread_id != scope.thread_id
+    ):
+        return run
+
+    terminal_status = {
+        "succeeded": "succeeded",
+        "failed": "failed",
+        "cancelled": "cancelled",
+        "expired": "failed",
+        "dead_letter": "failed",
+    }.get(item.status)
+    if (
+        terminal_status
+        and deterministic_run_id(
+            work_item_id=item.work_item_id, attempt=int(item.attempt or 0)
+        )
+        == run.run_id
+    ):
+        return await finish_run(
+            run.run_id,
+            status=terminal_status,
+            error=(
+                (
+                    dict(item.failure)
+                    if isinstance(item.failure, dict)
+                    else {
+                        "code": "work.item_terminal",
+                        "message": "WorkItem is terminal.",
+                    }
+                )
+                if terminal_status != "succeeded"
+                else None
+            ),
+        )
+
+    # A retry is safe to classify as an interrupted prior attempt only when
+    # the present Harness run is the deterministic run for the currently
+    # claimed WorkItem attempt and the lease is live. The worker created this
+    # run after claiming; the old deterministic run is therefore fenced out.
+    current_attempt = int(item.attempt or 0)
+    lease_expiry = None
+    try:
+        lease_expiry = datetime.fromisoformat(
+            str(item.lease_expires_at or "").replace("Z", "+00:00")
+        )
+    except ValueError:
+        pass
+    if lease_expiry is not None and lease_expiry.tzinfo is None:
+        lease_expiry = lease_expiry.replace(tzinfo=timezone.utc)
+    if (
+        item.status == "running"
+        and item.lease_token
+        and int(item.lease_fence or 0) > 0
+        and lease_expiry is not None
+        and lease_expiry > datetime.now(timezone.utc)
+        and current_attempt > 1
+        and deterministic_run_id(
+            work_item_id=item.work_item_id, attempt=current_attempt
+        )
+        == scope.run_id
+        and any(
+            deterministic_run_id(work_item_id=item.work_item_id, attempt=attempt)
+            == run.run_id
+            for attempt in range(1, current_attempt)
+        )
+    ):
+        return await finish_run(
+            run.run_id,
+            status="failed",
+            error={
+                "code": "work.attempt_superseded",
+                "message": "A newer leased WorkItem attempt superseded this run.",
+            },
+        )
+    return run
+
+
 async def _settled_terminal_history(
     scope,
     run,
@@ -515,10 +675,11 @@ async def _settled_terminal_history(
     recovery_message,
     checkpoint_run_id,
 ):
-    """Admit a failed turn's library history using original Core receipts.
+    """Admit a terminal turn's library history using original Core receipts.
 
     No transcript guesses, model judgment, or new authority are involved.
-    Failed mutations without a successful/denied receipt remain ambiguous.
+    Failed mutations remain ambiguous unless an original, audited Core
+    validation receipt proves rejection before mutation.
     Framework discovery tools only change run-local capability visibility.
     """
     if not _terminal_run_matches(scope, run):
@@ -549,10 +710,21 @@ async def _settled_terminal_history(
             or (
                 step.status == "failed"
                 and operation_classes.get(step.capability_key) != "read"
+                and not is_pre_effect_rejection(step)
             )
         ):
             return None
     read_tools = _read_tools_for_run(run)
+    history = (
+        await _continue_from_checkpoint(store, run.run_id)
+        if snapshot is not None
+        else []
+    )
+    guard_calls = {
+        pair
+        for pair in settled_core_guard_calls(history, effects)
+        if pair[1] in operation_classes
+    }
     for effect in effects:
         if effect.status not in {"started", "completed", "failed"}:
             return None
@@ -561,10 +733,14 @@ async def _settled_terminal_history(
         receipt = receipts.get(
             _idempotency_key(run.run_id, effect.tool_call_id, effect.tool_name)
         )
-        if receipt is None or receipt.status not in {"succeeded", "denied"}:
+        if receipt is None and (effect.tool_call_id, effect.tool_name) in guard_calls:
+            continue
+        if receipt is None or (
+            receipt.status not in {"succeeded", "denied"}
+            and not is_pre_effect_rejection(receipt)
+        ):
             return None
     if snapshot is not None:
-        history = await _continue_from_checkpoint(store, run.run_id)
         resolved_ids = {
             part.tool_call_id
             for message in history
@@ -576,12 +752,51 @@ async def _settled_terminal_history(
         if any(
             effect.tool_call_id not in resolved_ids
             and effect.tool_name not in read_tools
+            and not is_settled_core_receipt(
+                receipts.get(
+                    _idempotency_key(run.run_id, effect.tool_call_id, effect.tool_name)
+                )
+            )
             for effect in effects
         ):
             return None
+        missing_returns = []
+        for message in history:
+            if not isinstance(message, ModelResponse):
+                continue
+            for part in message.parts:
+                if getattr(part, "part_kind", None) != "tool-call":
+                    continue
+                receipt = receipts.get(
+                    _idempotency_key(run.run_id, part.tool_call_id, part.tool_name)
+                )
+                if part.tool_call_id not in resolved_ids and is_settled_core_receipt(
+                    receipt
+                ):
+                    missing_returns.append(
+                        ToolReturnPart(
+                            tool_name=part.tool_name,
+                            tool_call_id=part.tool_call_id,
+                            content=receipt_recovery_result(receipt),
+                        )
+                    )
+                    resolved_ids.add(part.tool_call_id)
+        if missing_returns:
+            history.append(ModelRequest(parts=missing_returns))
     elif (
-        any(effect.tool_name not in read_tools for effect in effects)
-        or any(step.capability_key not in read_tools for step in steps)
+        any(
+            effect.tool_name not in read_tools
+            and not is_pre_effect_rejection(
+                receipts.get(
+                    _idempotency_key(run.run_id, effect.tool_call_id, effect.tool_name)
+                )
+            )
+            for effect in effects
+        )
+        or any(
+            step.capability_key not in read_tools and not is_pre_effect_rejection(step)
+            for step in steps
+        )
         or recovery_message is None
     ):
         return None
@@ -596,28 +811,64 @@ async def _settled_terminal_history(
     for effect in effects:
         latest_effects[effect.tool_call_id] = effect
     for effect in latest_effects.values():
+        receipt = receipts.get(
+            _idempotency_key(run.run_id, effect.tool_call_id, effect.tool_name)
+        )
         if effect.status == "started":
-            # This is an audit transition, not a replay or synthetic result.
-            # Only declared reads can reach this branch. Any unknown mutation
-            # was rejected above; no completed write receipt is changed.
+            # Audit a declared read or an original pre-effect rejection.
+            # Unknown mutations were rejected above. No completed receipt or
+            # execution outcome is changed, and no capability is dispatched.
             await store.record_tool_effect(
                 ToolEffectRecord(
                     run_id=run.run_id,
                     tool_call_id=effect.tool_call_id,
                     tool_name=effect.tool_name,
-                    status="failed",
+                    status=(
+                        "completed"
+                        if is_settled_core_receipt(receipt)
+                        and not is_pre_effect_rejection(receipt)
+                        else "failed"
+                    ),
                     started_at=effect.started_at,
                     ended_at=datetime.now(timezone.utc),
                     idempotency_key=effect.idempotency_key,
-                    effect_summary="Read abandoned after terminal run; result unavailable; no replay.",
+                    effect_summary=(
+                        "Core validation rejected before mutation; not applied; no replay."
+                        if is_pre_effect_rejection(
+                            receipts.get(
+                                _idempotency_key(
+                                    run.run_id, effect.tool_call_id, effect.tool_name
+                                )
+                            )
+                        )
+                        else (
+                            "Original Core receipt confirms a settled outcome; observe current state; no replay."
+                            if is_settled_core_receipt(receipt)
+                            else "Read abandoned after terminal run; result unavailable; no replay."
+                        )
+                    ),
                 )
             )
+    rejected = sorted(
+        {step.adapter_error_code for step in steps if is_pre_effect_rejection(step)}
+    )
     history.append(
         ModelResponse(
             parts=[
                 TextPart(
-                    "The previous turn stopped without a final answer. Its "
-                    "settled tool results are preserved in this conversation; "
+                    (
+                        "The previous turn completed. Its "
+                        if run.status == "succeeded"
+                        else "The previous turn stopped without a final answer. Its "
+                    )
+                    + (
+                        "Build validation was rejected before mutation and changes were not applied ("
+                        + ", ".join(rejected)
+                        + "). "
+                        if rejected
+                        else ""
+                    )
+                    + "settled tool results are preserved in this conversation; "
                     "applied actions must not be repeated. No interrupted "
                     "operation was replayed. Continue with the latest request."
                 )
@@ -883,19 +1134,41 @@ def _bind_integral_turn_context(ctx: ChatTurnContext):
     """Bind the trusted turn scope used by existing Integral tool services."""
     from app.services.agent_scope import (
         current_chat_thread_id,
+        current_focused_app_id,
         current_focused_track_id,
         current_focused_view_id,
         current_page_context,
+        current_page_context_bound,
+        current_page_context_run_id,
         current_scope_workspace_id,
     )
     from app.services.turn_binding import current_user_sentence
 
     page_context = (ctx.extra_data or {}).get("page_context")
+    app_focus, track_focus, view_focus = (
+        ctx.focused_space_id,
+        ctx.focused_track_id,
+        ctx.focused_view_id,
+    )
+    if isinstance(page_context, dict) and "route_path" in page_context:
+        from app.services.chat_page_context import sanitize_page_snapshot
+
+        try:
+            reported = sanitize_page_snapshot(page_context)
+            app_focus = reported.get("focused_app_id")
+            track_focus = reported.get("focused_track_id")
+            view_focus = reported.get("focused_view_id")
+        except (ValueError, TypeError):
+            # Conflicting/stale UI state supplies no implicit operation target.
+            app_focus = track_focus = view_focus = None
     bindings = (
         (current_user_sentence, ctx.text or ""),
         (current_scope_workspace_id, ctx.workspace_id),
-        (current_focused_track_id, ctx.focused_track_id),
-        (current_focused_view_id, ctx.focused_view_id),
+        (current_focused_app_id, app_focus),
+        (current_focused_track_id, track_focus),
+        (current_page_context_bound, True),
+        (current_page_context_run_id, (ctx.extra_data or {}).get("run_id")),
+        (current_focused_view_id, view_focus),
         (
             current_page_context,
             page_context if isinstance(page_context, dict) else None,
@@ -928,7 +1201,7 @@ async def _load_recovery_user_message(previous_run, scope):
         or message.id != message_id
         or message.thread_id != scope.thread_id
         or message.role != "user"
-        or (message.provider_metadata or {})
+        or set(message.provider_metadata or {}) - {"page_context"}
     ):
         return None
     parts = list(message.parts or [])
@@ -1026,21 +1299,10 @@ class PydanticAIProvider:
         with isolated_permissions_cache():
             return await self._prepare_current(ctx)
 
-    async def _prepare_current(self, ctx: ChatTurnContext):
-        raw_work_context = (ctx.extra_data or {}).get("work_execution_context")
-        work_execution_context = (
-            WorkExecutionContext.model_validate(raw_work_context)
-            if raw_work_context is not None
-            else None
-        )
+    async def _validate_chat_scope(self, ctx: ChatTurnContext):
+        """Shared authority check for operational runs and public support."""
         if not ctx.workspace_id:
             raise InsufficientPermissionsError(message="Workspace scope is required")
-        if work_execution_context is not None and (
-            work_execution_context.principal_id != ctx.user_id
-            or work_execution_context.workspace_id != ctx.workspace_id
-            or work_execution_context.thread_id != ctx.thread_id
-        ):
-            raise WorkError("work.policy_denied", "execution scope mismatch")
         thread = await ChatThread.get(ctx.thread_id)
         if (
             thread is None
@@ -1056,6 +1318,222 @@ class PydanticAIProvider:
         if workspace_role == "none":
             raise InsufficientPermissionsError(message="Workspace access is required")
 
+        return thread, workspace_role
+
+    async def _build_turn_model(
+        self, ctx, scope, work_execution_context, workspace_role
+    ):
+        """One funding, metering and current-authority contract for both modes."""
+        from app.config import settings
+        from app.services.workspace_permissions import can_access_workspace
+
+        route = await resolve_native_model_route(
+            workspace_id=ctx.workspace_id,
+            default_model=os.getenv("INTEGRAL_NATIVE_MODEL", "").strip(),
+        )
+        model_observer = (
+            partial(
+                persist_model_request_observation,
+                work_execution_context=work_execution_context,
+            )
+            if work_execution_context is not None
+            else persist_model_request_observation
+        )
+        model_admission = None
+        if work_execution_context is not None:
+            from app.agentive.services.work_model_admission import WorkModelAdmission
+
+            async def assert_model_authority() -> None:
+                from app.middleware.permissions_cache import isolated_permissions_cache
+
+                with isolated_permissions_cache():
+                    current_role = await can_access_workspace(
+                        ctx.user_id, ctx.workspace_id
+                    )
+                    if current_role == "none" or current_role != workspace_role:
+                        raise WorkError("work.permission_stale")
+                    current_route = await resolve_native_model_route(
+                        workspace_id=ctx.workspace_id,
+                        default_model=os.getenv("INTEGRAL_NATIVE_MODEL", "").strip(),
+                    )
+                    if current_route != route:
+                        raise WorkError("work.model_route_stale")
+
+            model_admission = WorkModelAdmission(
+                context=work_execution_context,
+                assert_authority=assert_model_authority,
+                observer=model_observer,
+            )
+            model_observer = model_admission.observe
+        from app.services.model_retry_status import emit_model_retry_status
+
+        return build_litellm_sdk_model(
+            route=route,
+            scope=scope,
+            observer=model_observer,
+            admission=model_admission,
+            timeout_seconds=settings.INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS,
+            max_attempts=settings.INTEGRAL_NATIVE_MODEL_MAX_ATTEMPTS,
+            retry_status=emit_model_retry_status,
+        )
+
+    async def _try_light_turn(self, ctx, thread, workspace_role, work_context):
+        from app.agentive.harness.adaptive import (
+            EscalatedTurn,
+            LightTurnResult,
+            OperationalContextRequest,
+            SimpleReminderRequest,
+            build_light_agent,
+            public_dialogue,
+            recent_public_messages,
+            requires_operational_path,
+        )
+        from app.agentive.services.execution_runs import AgentRun
+        from app.config import settings
+
+        if os.getenv("INTEGRAL_NATIVE_ADAPTIVE_CONTEXT", "1") != "1":
+            return None
+        active = (
+            await HarnessSession.get(thread.active_harness_session_id)
+            if thread.active_harness_session_id
+            else None
+        )
+        previous = (
+            await AgentRun.find_one({"run_id": active.last_run_id})
+            if active and active.last_run_id
+            else None
+        )
+        if requires_operational_path(ctx, thread, previous):
+            return None
+        run_id = str((ctx.extra_data or {}).get("run_id") or "").strip()
+        run = await AgentRun.find_one({"run_id": run_id}) if run_id else None
+        if (
+            run is None
+            or run.user_id != ctx.user_id
+            or run.workspace_id != ctx.workspace_id
+            or run.thread_id != ctx.thread_id
+            or run.provider_id != self.id
+            or run.status != "running"
+        ):
+            raise InsufficientPermissionsError(
+                message="Native execution run scope mismatch"
+            )
+        if getattr(run, "origin", "") not in {"http", "chat", "interactive_chat"}:
+            return None
+        if work_context is not None and work_context.run_id != run.run_id:
+            raise WorkError("work.policy_denied", "execution run mismatch")
+        if work_context is not None:
+            from app.agentive.work_models import WorkItem
+
+            await _assert_work_output_authority_current(work_context)
+            item = await WorkItem.find_one({"work_item_id": work_context.work_item_id})
+            if (
+                item is None
+                or item.kind != "chat_turn"
+                or item.origin != "interactive_chat"
+                or item.parent_work_item_id
+            ):
+                # Mandates, scheduled work and child/recovery execution are
+                # host-owned operations even when their utterance is short.
+                return None
+        accepted_id = (run.metadata or {}).get("chat_message_id")
+        if not accepted_id:
+            return None
+        messages = await recent_public_messages(thread)
+        accepted = next((m for m in messages if m.id == accepted_id), None)
+        if accepted is None or any(p.get("type") != "text" for p in accepted.parts):
+            return None
+        scope = HarnessExecutionScope(
+            tenant_id=ctx.workspace_id,
+            principal_id=ctx.user_id,
+            workspace_id=ctx.workspace_id,
+            thread_id=ctx.thread_id,
+            # Ephemeral model accounting namespace. Never advance or replace
+            # the operational HarnessSession/checkpoint pointer for light chat.
+            session_id=f"light-{run.run_id}",
+            run_id=run.run_id,
+            permission_revision=_digest(
+                {"policy": _POLICY_REVISION, "workspace_role": workspace_role}
+            ),
+            capability_version=run.capability_version or "conversation-v1",
+        )
+        model = await self._build_turn_model(ctx, scope, work_context, workspace_role)
+        from app.services.user_timezone import user_time_context
+
+        time_context = await user_time_context(ctx.user_id)
+        started = time.monotonic()
+        result = await build_light_agent(model, time_context=time_context).run(
+            ctx.text,
+            message_history=public_dialogue(messages, exclude_id=accepted_id),
+            cancellation_token=self._active_tokens.get(ctx.thread_id),
+            usage_limits=UsageLimits(
+                request_limit=1,
+                total_tokens_limit=settings.INTEGRAL_NATIVE_TURN_TOKEN_LIMIT,
+            ),
+        )
+        if isinstance(result.output, OperationalContextRequest):
+            logger.info("native adaptive escalation run=%s", run_id)
+            usage = result.usage
+            return EscalatedTurn(
+                input_tokens=usage.input_tokens, output_tokens=usage.output_tokens
+            )
+        if isinstance(result.output, SimpleReminderRequest):
+            from app.services.simple_reminders import stage_simple_reminder
+
+            if (
+                self._active_tokens.get(ctx.thread_id)
+                and self._active_tokens[ctx.thread_id].cancelled
+            ):
+                raise asyncio.CancelledError
+            await _assert_work_output_authority_current(work_context)
+            text, events = await stage_simple_reminder(
+                proposal=result.output,
+                scope=scope,
+                work_context=work_context,
+                no_workspace_writes=bool(
+                    (ctx.extra_data or {}).get("no_workspace_writes")
+                ),
+            )
+            return LightTurnResult(
+                text=text,
+                scope=scope,
+                work_context=work_context,
+                elapsed_ms=(time.monotonic() - started) * 1000,
+                tool_events=events,
+            )
+        from app.agentive.harness.pydantic_ai_compat import AgentRunResultEvent
+
+        public_text = ""
+        for event in PydanticAIEventTranslator().translate(AgentRunResultEvent(result)):
+            if event.get("type") == "error":
+                raise ServiceUnavailableError(message=str(event["message"]))
+            if event.get("type") == "text-delta":
+                public_text += str(event["delta"])
+        if not public_text.strip():
+            raise ServiceUnavailableError(
+                message="The assistant returned no usable answer"
+            )
+        return LightTurnResult(
+            text=public_text,
+            scope=scope,
+            work_context=work_context,
+            elapsed_ms=(time.monotonic() - started) * 1000,
+        )
+
+    async def _prepare_current(self, ctx: ChatTurnContext):
+        raw_work_context = (ctx.extra_data or {}).get("work_execution_context")
+        work_execution_context = (
+            WorkExecutionContext.model_validate(raw_work_context)
+            if raw_work_context is not None
+            else None
+        )
+        if work_execution_context is not None and (
+            work_execution_context.principal_id != ctx.user_id
+            or work_execution_context.workspace_id != ctx.workspace_id
+            or work_execution_context.thread_id != ctx.thread_id
+        ):
+            raise WorkError("work.policy_denied", "execution scope mismatch")
+        thread, workspace_role = await self._validate_chat_scope(ctx)
         from app.services.credential_crypto import encryption_available
 
         if not encryption_available():
@@ -1063,6 +1541,63 @@ class PydanticAIProvider:
                 message="Integral storage encryption requires installation setup",
                 details={"reason": "native_storage_encryption_not_configured"},
             )
+
+        if not ctx.text and (ctx.extra_data or {}).get("staging_outcome_continuation"):
+            from app.agentive.harness.adaptive import LightTurnResult
+            from app.agentive.services.execution_runs import AgentRun
+            from app.services.simple_reminders import current_reminder_confirmation
+
+            run_id = str((ctx.extra_data or {}).get("run_id") or "")
+            current_run = (
+                await AgentRun.find_one({"run_id": run_id}) if run_id else None
+            )
+            if (
+                current_run is None
+                or current_run.user_id != ctx.user_id
+                or current_run.workspace_id != ctx.workspace_id
+                or current_run.thread_id != ctx.thread_id
+                or current_run.provider_id != self.id
+                or current_run.status != "running"
+                or (
+                    work_execution_context is not None
+                    and work_execution_context.run_id != run_id
+                )
+            ):
+                raise InsufficientPermissionsError(
+                    message="Native execution run scope mismatch"
+                )
+            await _assert_work_output_authority_current(work_execution_context)
+            confirmation = await current_reminder_confirmation(thread)
+            if confirmation:
+                return LightTurnResult(
+                    text=confirmation,
+                    scope=HarnessExecutionScope(
+                        tenant_id=ctx.workspace_id,
+                        principal_id=ctx.user_id,
+                        workspace_id=ctx.workspace_id,
+                        thread_id=ctx.thread_id,
+                        session_id=f"reminder-{run_id}",
+                        run_id=run_id,
+                        permission_revision=_digest(
+                            {
+                                "policy": _POLICY_REVISION,
+                                "workspace_role": workspace_role,
+                            }
+                        ),
+                        capability_version=current_run.capability_version
+                        or "reminder-v1",
+                    ),
+                    work_context=work_execution_context,
+                    elapsed_ms=0,
+                )
+
+        light = await self._try_light_turn(
+            ctx, thread, workspace_role, work_execution_context
+        )
+        from app.agentive.harness.adaptive import EscalatedTurn
+
+        if light is not None and not isinstance(light, EscalatedTurn):
+            return light
 
         from app.agentive.tooling.catalogue import build_tool_catalogue
 
@@ -1109,7 +1644,6 @@ class PydanticAIProvider:
         ):
             raise WorkError("work.policy_denied", "execution run mismatch")
         from app.agentive.services.execution_runs import AgentRun
-        from app.config import settings
 
         core_run = await AgentRun.find_one({"run_id": requested_run_id})
         if (
@@ -1174,50 +1708,8 @@ class PydanticAIProvider:
                 work_execution_context=work_execution_context,
             )
 
-        route = await resolve_native_model_route(
-            workspace_id=ctx.workspace_id,
-            default_model=os.getenv("INTEGRAL_NATIVE_MODEL", "").strip(),
-        )
-        model_observer = (
-            partial(
-                persist_model_request_observation,
-                work_execution_context=work_execution_context,
-            )
-            if work_execution_context is not None
-            else persist_model_request_observation
-        )
-        model_admission = None
-        if work_execution_context is not None:
-            from app.agentive.services.work_model_admission import WorkModelAdmission
-
-            async def assert_model_authority() -> None:
-                from app.middleware.permissions_cache import isolated_permissions_cache
-
-                with isolated_permissions_cache():
-                    current_role = await can_access_workspace(
-                        ctx.user_id, ctx.workspace_id
-                    )
-                    if current_role == "none" or current_role != workspace_role:
-                        raise WorkError("work.permission_stale")
-                    current_route = await resolve_native_model_route(
-                        workspace_id=ctx.workspace_id,
-                        default_model=os.getenv("INTEGRAL_NATIVE_MODEL", "").strip(),
-                    )
-                    if current_route != route:
-                        raise WorkError("work.model_route_stale")
-
-            model_admission = WorkModelAdmission(
-                context=work_execution_context,
-                assert_authority=assert_model_authority,
-                observer=model_observer,
-            )
-            model_observer = model_admission.observe
-        model = build_litellm_sdk_model(
-            route=route,
-            scope=scope,
-            observer=model_observer,
-            admission=model_admission,
-            timeout_seconds=settings.INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS,
+        model = await self._build_turn_model(
+            ctx, scope, work_execution_context, workspace_role
         )
         design_marker = getattr(thread, "design_proposed", None) or {}
         active_user_turn = 0
@@ -1385,6 +1877,11 @@ class PydanticAIProvider:
             "assistant-message envelope unless the user explicitly requests "
             "that format."
         )
+        from app.services.chat_page_context import page_context_availability_hint
+
+        instructions += "\n\n" + page_context_availability_hint(
+            (ctx.extra_data or {}).get("page_context")
+        )
         skill_temp = tempfile.TemporaryDirectory(prefix="integral-native-skills-")
         try:
             allowed_skill_names = materialize_standard_skill_library(
@@ -1403,6 +1900,12 @@ class PydanticAIProvider:
                 },
             )
             run_state: dict[str, Any] = {
+                "adaptive_requests": 1 if isinstance(light, EscalatedTurn) else 0,
+                "adaptive_tokens": (
+                    light.input_tokens + light.output_tokens
+                    if isinstance(light, EscalatedTurn)
+                    else 0
+                ),
                 "proposal_attempted": False,
                 "proposal_succeeded": False,
                 "approved_design_ready": bool(
@@ -1440,6 +1943,12 @@ class PydanticAIProvider:
             agent, store = build_native_runtime(
                 model=model,
                 instructions=instructions,
+                protected_instruction_text=instructions.replace(
+                    ctx.system_context or "", ""
+                )
+                .replace(receipt_instructions, "")
+                .replace(approval_instructions, "")
+                .replace(time_context, ""),
                 tools=tools,
                 scope=scope,
                 agent_name="integral_core",
@@ -1471,6 +1980,31 @@ class PydanticAIProvider:
             history = await _refresh_staged_history(
                 history, scope, conversation_id=ctx.thread_id
             )
+            # Public conversation completed since the last operational
+            # checkpoint must remain visible after light turns. Those turns
+            # never mutate the operational restore pointer or its tool effects.
+            from app.agentive.harness.adaptive import (
+                public_dialogue,
+                recent_public_messages,
+            )
+
+            cutoff = str(getattr(previous_run, "finished_at", "") or "")
+            if history and session.last_run_id and previous_run is None:
+                previous_run = await AgentRun.find_one({"run_id": session.last_run_id})
+                cutoff = str(getattr(previous_run, "finished_at", "") or "")
+            if (cutoff or not history) and (
+                getattr(core_run, "metadata", {}) or {}
+            ).get("chat_message_id"):
+                public = await recent_public_messages(thread)
+                newer = [
+                    m for m in public if not cutoff or (m.created_at or "") > cutoff
+                ]
+                history.extend(
+                    public_dialogue(
+                        newer,
+                        exclude_id=(core_run.metadata or {}).get("chat_message_id"),
+                    )
+                )
         except BaseException:
             skill_temp.cleanup()
             raise
@@ -1486,10 +2020,21 @@ class PydanticAIProvider:
         )
 
     async def stream_turn(self, ctx: ChatTurnContext) -> AsyncIterator[dict[str, Any]]:
+        from app.services.model_retry_status import stream_with_retry_status
+
+        stream = stream_with_retry_status(self._stream_turn(ctx))
+        try:
+            async for event in stream:
+                yield event
+        finally:
+            await stream.aclose()
+
+    async def _stream_turn(self, ctx: ChatTurnContext) -> AsyncIterator[dict[str, Any]]:
         """Stream normalized chat events with Core-owned session identity."""
         from app.config import settings
 
         active_task = asyncio.current_task()
+        turn_started = time.monotonic()
         cancellation = self._active_tokens.get(ctx.thread_id) or CancellationToken()
         if cancellation.cancelled:
             if self._active_tokens.get(ctx.thread_id) is cancellation:
@@ -1499,6 +2044,64 @@ class PydanticAIProvider:
         if active_task is not None:
             self._active_tasks[ctx.thread_id] = active_task
         try:
+            public_response = (
+                public_disclosure_response(ctx.text)
+                if ctx.text
+                and (ctx.extra_data or {}).get("origin")
+                in (None, "", "interactive_chat")
+                else None
+            )
+            if public_response is not None:
+                # Host support is persisted by the ordinary chat event consumer.
+                # No model, workspace tool, private context, or resume-pointer write.
+                from app.agentive.services.execution_runs import AgentRun
+                from app.middleware.permissions_cache import isolated_permissions_cache
+
+                raw_work = (ctx.extra_data or {}).get("work_execution_context")
+                public_work = (
+                    WorkExecutionContext.model_validate(raw_work)
+                    if raw_work is not None
+                    else None
+                )
+                if public_work is not None and (
+                    public_work.principal_id != ctx.user_id
+                    or public_work.workspace_id != ctx.workspace_id
+                    or public_work.thread_id != ctx.thread_id
+                    or public_work.run_id != (ctx.extra_data or {}).get("run_id")
+                ):
+                    raise WorkError("work.policy_denied", "execution scope mismatch")
+                with isolated_permissions_cache():
+                    await self._validate_chat_scope(ctx)
+                run_id = str((ctx.extra_data or {}).get("run_id") or "").strip()
+                core_run = (
+                    await AgentRun.find_one({"run_id": run_id}) if run_id else None
+                )
+                if (
+                    core_run is None
+                    or core_run.thread_id != ctx.thread_id
+                    or core_run.user_id != ctx.user_id
+                    or core_run.workspace_id != ctx.workspace_id
+                    or core_run.provider_id != self.id
+                    or core_run.status != "running"
+                ):
+                    raise InsufficientPermissionsError(
+                        message="Native execution run scope mismatch"
+                    )
+                if cancellation.cancelled or (
+                    ctx.is_disconnected and await ctx.is_disconnected()
+                ):
+                    raise asyncio.CancelledError
+                try:
+                    await _assert_work_output_authority_current(public_work)
+                    yield {"type": "text-delta", "delta": public_response}
+                    await _assert_work_output_authority_current(public_work)
+                    yield {"type": "message-finish"}
+                finally:
+                    if self._active_tokens.get(ctx.thread_id) is cancellation:
+                        self._active_tokens.pop(ctx.thread_id, None)
+                    if self._active_tasks.get(ctx.thread_id) is active_task:
+                        self._active_tasks.pop(ctx.thread_id, None)
+                return
             prepared = await self._prepare(ctx)
         except BaseException:
             if self._active_tokens.get(ctx.thread_id) is cancellation:
@@ -1506,6 +2109,48 @@ class PydanticAIProvider:
             if self._active_tasks.get(ctx.thread_id) is active_task:
                 self._active_tasks.pop(ctx.thread_id, None)
             raise
+        from app.agentive.harness.adaptive import LightTurnResult
+
+        if isinstance(prepared, LightTurnResult):
+            try:
+                from app.middleware.permissions_cache import isolated_permissions_cache
+
+                with isolated_permissions_cache():
+                    await self._validate_chat_scope(ctx)
+                await _assert_work_output_authority_current(prepared.work_context)
+                if cancellation.cancelled or (
+                    ctx.is_disconnected and await ctx.is_disconnected()
+                ):
+                    raise asyncio.CancelledError
+                for event in prepared.tool_events:
+                    await _assert_work_output_authority_current(prepared.work_context)
+                    yield event
+                await _assert_work_output_authority_current(prepared.work_context)
+                yield {"type": "text-delta", "delta": prepared.text}
+                from app.agentive.harness.model_observations import (
+                    list_model_request_observations,
+                )
+
+                for event in _model_observability_events(
+                    await list_model_request_observations(scope=prepared.scope)
+                ):
+                    await _assert_work_output_authority_current(prepared.work_context)
+                    yield event
+                await _assert_work_output_authority_current(prepared.work_context)
+                yield {
+                    "type": "message-finish",
+                    "timing": {
+                        "totalMs": (time.monotonic() - turn_started) * 1000,
+                        "modelPassMs": prepared.elapsed_ms,
+                    },
+                    "contextMode": "conversation",
+                }
+            finally:
+                if self._active_tokens.get(ctx.thread_id) is cancellation:
+                    self._active_tokens.pop(ctx.thread_id, None)
+                if self._active_tasks.get(ctx.thread_id) is active_task:
+                    self._active_tasks.pop(ctx.thread_id, None)
+            return
         if len(prepared) == 6:
             # Keep monkeypatched/legacy provider fixtures compatible while
             # the optional durable WorkItem path is being introduced.
@@ -1521,6 +2166,7 @@ class PydanticAIProvider:
                 skill_temp,
                 work_execution_context,
             ) = prepared[:7]
+        run_state = prepared[7] if len(prepared) > 7 else {}
         started = time.monotonic()
         first_token_ms: float | None = None
         emitted_observation_ids: set[str] = set()
@@ -1603,6 +2249,19 @@ class PydanticAIProvider:
                 )
                 if (
                     not ctx.text
+                    and not host_outcome
+                    and (ctx.extra_data or {}).get("staging_outcome_continuation")
+                ):
+                    host_outcome = (
+                        "This is a NEW approval-outcome event, not a request to continue "
+                        "an older conversation topic. Report only the current host outcome "
+                        "below. Read back only its affected resource before claiming success. "
+                        "Do not resume an earlier analysis, offer, or task. If the outcome "
+                        "cannot be verified, say so concisely. No new write is authorized.\n\n"
+                        + (ctx.system_context or "")
+                    )
+                if (
+                    not ctx.text
                     and (ctx.extra_data or {}).get("origin") == "routine_task"
                 ):
                     from app.services.scheduled_turn import ROUTINE_EVENT_INSTRUCTIONS
@@ -1630,7 +2289,7 @@ class PydanticAIProvider:
                 run_history = (
                     [
                         *history,
-                        ModelRequest(parts=[SystemPromptPart(content=host_outcome)]),
+                        build_integral_host_turn(host_outcome, run_id=scope.run_id),
                     ]
                     if host_outcome
                     else history
@@ -1647,9 +2306,17 @@ class PydanticAIProvider:
                     # that ignore tool results; the limit is host-enforced and
                     # must not depend on brittle user-text intent detection.
                     usage_limits=UsageLimits(
-                        request_limit=settings.INTEGRAL_NATIVE_TURN_REQUEST_LIMIT,
+                        request_limit=max(
+                            0,
+                            settings.INTEGRAL_NATIVE_TURN_REQUEST_LIMIT
+                            - run_state.get("adaptive_requests", 0),
+                        ),
                         tool_calls_limit=32,
-                        total_tokens_limit=settings.INTEGRAL_NATIVE_TURN_TOKEN_LIMIT,
+                        total_tokens_limit=max(
+                            0,
+                            settings.INTEGRAL_NATIVE_TURN_TOKEN_LIMIT
+                            - run_state.get("adaptive_tokens", 0),
+                        ),
                     ),
                     cancellation_token=cancellation,
                 ) as stream:
@@ -1707,7 +2374,19 @@ class PydanticAIProvider:
             from app.agentive.harness.plan_store import JvSpatialPlanStore
             from app.agentive.work_models import WorkApproval
 
-            observations = await list_model_request_observations(scope=scope)
+            if run_state.get("adaptive_requests"):
+                from app.agentive.harness.model_observations import (
+                    list_run_model_request_observations,
+                )
+
+                observations = await list_run_model_request_observations(
+                    run_id=scope.run_id,
+                    principal_id=scope.principal_id,
+                    workspace_id=scope.workspace_id,
+                    thread_id=scope.thread_id,
+                )
+            else:
+                observations = await list_model_request_observations(scope=scope)
             unsettled_requests = unsettled_model_request_ids(observations)
             unresolved_effects = await store.list_unresolved_tool_effects(
                 run_id=scope.run_id
@@ -1789,7 +2468,15 @@ class PydanticAIProvider:
                 work_execution_context=work_execution_context,
             )
 
-            observations = await list_model_request_observations(scope=scope)
+            if run_state.get("adaptive_requests"):
+                observations = await list_run_model_request_observations(
+                    run_id=scope.run_id,
+                    principal_id=scope.principal_id,
+                    workspace_id=scope.workspace_id,
+                    thread_id=scope.thread_id,
+                )
+            else:
+                observations = await list_model_request_observations(scope=scope)
 
             # Expose one safe row per physical request. The source records are
             # persisted before this point and retain unknown token/cost fields

@@ -12,6 +12,7 @@ from app.models.edges import CONTAINS
 from app.models.nodes import ChatMessage, ChatThread
 from app.schemas.agentive.work import WorkError, WorkExecutionContext
 from app.services.chat_threads import append_message
+from app.services.chat_turn_events import normalize_public_event
 
 _PART_FIELDS = {
     "text": frozenset({"type", "text"}),
@@ -19,21 +20,6 @@ _PART_FIELDS = {
     "source": frozenset({"type", "sourceType", "id", "url", "title"}),
     "error": frozenset({"type", "code", "message"}),
 }
-_STEP_FIELDS = frozenset(
-    {
-        "usage",
-        "modelId",
-        "provider",
-        "providerCostUsd",
-        "costSource",
-        "durationMs",
-        "outcome",
-        "attempt",
-        "requestId",
-    }
-)
-_USAGE_FIELDS = frozenset({"inputTokens", "outputTokens"})
-_TIMING_FIELDS = frozenset({"totalMs", "firstTokenMs"})
 _MAX_TRANSCRIPT_BYTES = 1_000_000
 
 
@@ -141,54 +127,23 @@ def _public_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("assistant observability steps must be a list")
         safe_steps = []
         for step in steps:
-            if not isinstance(step, dict) or set(step).difference(_STEP_FIELDS):
+            if not isinstance(step, dict) or "type" in step:
                 raise ValueError("assistant observability contains unsupported fields")
-            safe = dict(step)
-            string_fields = {
-                "modelId",
-                "provider",
-                "costSource",
-                "outcome",
-                "requestId",
-            }
-            if any(
-                key in safe and not isinstance(safe[key], str) for key in string_fields
-            ):
-                raise ValueError("assistant observability text fields must be strings")
-            usage = safe.get("usage")
-            if usage is not None:
-                if not isinstance(usage, dict) or set(usage).difference(_USAGE_FIELDS):
-                    raise ValueError("assistant usage has unsupported fields")
-                if any(
-                    not isinstance(value, int) or isinstance(value, bool) or value < 0
-                    for value in usage.values()
-                ):
-                    raise ValueError("assistant token usage must be non-negative")
-            for key in ("providerCostUsd", "durationMs"):
-                if key in safe and (
-                    not isinstance(safe[key], (int, float))
-                    or isinstance(safe[key], bool)
-                    or safe[key] < 0
-                ):
-                    raise ValueError(f"assistant {key} must be non-negative")
-            if "attempt" in safe and (
-                not isinstance(safe["attempt"], int)
-                or isinstance(safe["attempt"], bool)
-                or safe["attempt"] < 1
-            ):
-                raise ValueError("assistant attempt must be positive")
-            safe_steps.append(safe)
+            safe_steps.append(
+                {
+                    key: value
+                    for key, value in normalize_public_event(
+                        {"type": "step", **step}, reject_unknown_fields=True
+                    ).items()
+                    if key != "type"
+                }
+            )
         result["steps"] = safe_steps
     timing = metadata.get("timing")
     if timing is not None:
-        if not isinstance(timing, dict) or set(timing).difference(_TIMING_FIELDS):
-            raise ValueError("assistant timing has unsupported fields")
-        if any(
-            not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0
-            for value in timing.values()
-        ):
-            raise ValueError("assistant timing must be non-negative")
-        result["timing"] = dict(timing)
+        result["timing"] = normalize_public_event(
+            {"type": "message-finish", "timing": timing}, reject_unknown_fields=True
+        )["timing"]
     error = metadata.get("error")
     if error is not None:
         if (

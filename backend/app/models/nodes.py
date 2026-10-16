@@ -409,6 +409,7 @@ class App(Node):
     name_fold: str = ""  # casefold(name.strip()) for fuzzy index-friendly lookup
     icon: str = ""  # built-in icon key or bounded inline raster logo
     owner_user_id: Optional[str] = None
+    home_composition: Optional[Dict[str, Any]] = None
     description: str = ""
     visibility: str = "private"  # private, workspace, public
     # Every App lives in exactly one Workspace (Personal or Organization).
@@ -542,8 +543,11 @@ class Track(Node):
     # "private" opts out of workspace-wide visibility inheritance from a
     # parent App; direct App OWNS / COLLABORATES_ON still cascade. Per-user
     # EXCLUDED_FROM also blocks inherited paths.
-    visibility: str = "inherit"  # inherit | private | workspace | public
+    visibility: str = "private"  # private | workspace | public | inherit (explicit)
     template_id: Optional[str] = None
+    # Stable relation identity for ad-hoc Tracks. Display renames do not change
+    # which Track type a declared relation accepts. Template identity wins.
+    relation_type_key: str = ""
     # Every Track lives in exactly one Workspace. Tracks inside an App
     # always carry the parent App's workspace_id (persisted on write for
     # query speed).

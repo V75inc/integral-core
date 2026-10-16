@@ -42,6 +42,15 @@ class TestDebugDefault:
         # so this asserts the *code* default, not the developer's environment.
         assert Settings.model_fields["DEBUG"].default is False
 
+    def test_native_chat_defaults_to_durable_work_items(self):
+        """A missing feature flag must not bind accepted work to an SSE socket."""
+        from app.config import Settings
+
+        assert (
+            Settings.model_fields["INTEGRAL_NATIVE_DURABLE_CHAT_ENABLED"].default
+            is True
+        )
+
     def test_debug_is_what_gates_the_oauth_issuer_check(self):
         """Guards the coupling, so the default cannot be relaxed casually."""
         main_src = (REPO_ROOT / "backend" / "app" / "main.py").read_text(

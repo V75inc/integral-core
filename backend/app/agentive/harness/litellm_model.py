@@ -32,7 +32,10 @@ from app.agentive.harness.contracts import (
     PhysicalModelRequest,
     ResolvedModelRoute,
 )
-from app.agentive.harness.model_errors import model_request_error
+from app.agentive.harness.model_errors import (
+    NativeModelRequestError,
+    model_request_error,
+)
 from app.agentive.harness.pydantic_ai_compat import LiteLLMProvider, OpenAIChatModel
 from app.schemas.agentive.model_dispatch import ModelDispatchInput
 
@@ -458,7 +461,11 @@ class _LiteLLMStream(httpx.AsyncByteStream):
                     else _ModelStreamOutcome.UNKNOWN
                 )
                 await self._finish(self._accounting_response(), outcome)
-                classified = model_request_error(exc)
+                classified = (
+                    NativeModelRequestError("model_empty_response")
+                    if isinstance(exc, StopAsyncIteration)
+                    else model_request_error(exc)
+                )
                 if classified is not None:
                     raise classified from exc
             raise
@@ -490,9 +497,15 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         completion: Callable[..., Awaitable[Any]] | None = None,
         timeout_seconds: float = 180.0,
         admission: ModelAdmission | None = None,
+        max_attempts: int = 1,
+        retry_status: Callable[[int, int], Awaitable[None]] | None = None,
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("model request timeout must be positive")
+        if not 1 <= max_attempts <= 3:
+            raise ValueError("model attempts must be between one and three")
+        self._max_attempts = max_attempts
+        self._retry_status = retry_status
         self._route = route
         self._scope = scope
         self._observer = observer
@@ -506,6 +519,16 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
             import litellm
 
             completion = litellm.acompletion
+        if (
+            self._route.provider == "openai"
+            and self._route.credential_source == "workspace_byok"
+            and self._route.api_base is not None
+        ):
+            from app.services.custom_model_transport import custom_endpoint_completion
+
+            return await custom_endpoint_completion(
+                completion, kwargs, keyless_endpoint=self._route.keyless_endpoint
+            )
         return await completion(**kwargs)
 
     async def _observe(
@@ -518,6 +541,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         complete: bool = False,
         required: bool = False,
         request_context: ModelRequestContextObservation | None = None,
+        attempt: int = 1,
     ) -> None:
         if self._observer is None:
             if required:
@@ -542,7 +566,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
             model=self._route.model,
             credential_source=self._route.credential_source,
             credential_ref=self._route.credential_ref,
-            attempt=1,
+            attempt=attempt,
             dispatched_at=started_at,
             observed_at=datetime.now(timezone.utc),
             outcome=outcome,
@@ -643,91 +667,203 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         else:
             kwargs.pop("api_key", None)
 
-        readiness = None
-        if self._admission is not None:
-            # Use final mapped SDK kwargs, including tools, reasoning controls
-            # and enforced output settings. Do not pass credential material to
-            # the host payload resolver or persist plaintext input there.
-            payload = {
-                key: value
-                for key, value in kwargs.items()
-                if key not in {"api_key", "api_base"}
-            }
-            readiness = await self._admission(
-                ModelDispatchInput(
-                    scope=self._scope,
-                    route=ModelRouteIdentity(
-                        provider=self._route.provider,
-                        model=self._route.model,
-                        credential_source=self._route.credential_source,
-                        credential_ref=self._route.credential_ref,
-                    ),
-                    request_id=request_id,
-                    sdk_payload_json=json.dumps(
-                        payload,
-                        sort_keys=True,
-                        separators=(",", ":"),
-                        allow_nan=False,
-                    ),
-                    endpoint_fingerprint=hashlib.sha256(
-                        (self._route.api_base or "provider-default").encode()
-                    ).hexdigest(),
+        for attempt in range(1, self._max_attempts + 1):
+            request_id = str(uuid4())
+            started_at = datetime.now(timezone.utc)
+            readiness = None
+            if self._admission is not None:
+                # Use final mapped SDK kwargs, including tools, reasoning controls
+                # and enforced output settings. Do not pass credential material to
+                # the host payload resolver or persist plaintext input there.
+                payload = {
+                    key: value
+                    for key, value in kwargs.items()
+                    if key not in {"api_key", "api_base"}
+                }
+                readiness = await self._admission(
+                    ModelDispatchInput(
+                        scope=self._scope,
+                        route=ModelRouteIdentity(
+                            provider=self._route.provider,
+                            model=self._route.model,
+                            credential_source=self._route.credential_source,
+                            credential_ref=self._route.credential_ref,
+                        ),
+                        request_id=request_id,
+                        sdk_payload_json=json.dumps(
+                            payload,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                            allow_nan=False,
+                        ),
+                        endpoint_fingerprint=hashlib.sha256(
+                            (self._route.api_base or "provider-default").encode()
+                        ).hexdigest(),
+                    )
                 )
-            )
-            if not callable(readiness):
-                raise RuntimeError("model admission requires final dispatch readiness")
+                if not callable(readiness):
+                    raise RuntimeError(
+                        "model admission requires final dispatch readiness"
+                    )
 
-        await self._observe(
-            request_id=request_id,
-            request_context=request_context,
-            started_at=started_at,
-            outcome="dispatch_intent",
-            required=True,
-        )
-
-        if readiness is not None:
-            # Receipt persistence can outlive pricing or current authority.
-            # A rejected readiness check has no SDK dispatch; retain its hold
-            # conservatively for the separate no-dispatch recovery path.
-            await readiness()
-
-        try:
-            response = await self._sdk_completion(**kwargs)
-        except asyncio.CancelledError:
             await self._observe(
                 request_id=request_id,
                 request_context=request_context,
+                attempt=attempt,
                 started_at=started_at,
-                outcome="cancelled",
+                outcome="dispatch_intent",
+                required=True,
             )
-            raise
-        except BaseException as exc:
-            classified = model_request_error(exc)
-            # Explicit rejection before a response is a failed attempt. Network
-            # loss/timeouts still retain unknown outcome and billing; neither
-            # path automatically retries the physical request.
-            rejected = classified is not None and classified.code in {
-                "model_context_limit",
-                "model_authentication_failed",
-                "model_rate_limited",
-                "model_unavailable",
-                "model_request_rejected",
-            }
-            await self._observe(
-                request_id=request_id,
-                request_context=request_context,
-                started_at=started_at,
-                outcome="failed" if rejected else "outcome_unknown",
-            )
-            if classified is not None:
-                raise classified from exc
-            raise
+
+            if readiness is not None:
+                # Receipt persistence can outlive pricing or current authority.
+                # A rejected readiness check has no SDK dispatch; retain its hold
+                # conservatively for the separate no-dispatch recovery path.
+                await readiness()
+
+            try:
+                deadline = asyncio.get_running_loop().time() + self._timeout_seconds
+                response = await asyncio.wait_for(
+                    self._sdk_completion(**kwargs), timeout=self._timeout_seconds
+                )
+                if self._max_attempts > 1:
+                    if body.get("stream") is True and hasattr(response, "__aiter__"):
+                        original_stream = response
+                        iterator = original_stream.__aiter__()
+                        buffered = []
+                        try:
+                            async with asyncio.timeout(
+                                max(0, deadline - asyncio.get_running_loop().time())
+                            ):
+                                for _ in range(64):
+                                    chunk = await anext(iterator)
+                                    buffered.append(chunk)
+                                    choices = _plain(chunk).get("choices") or []
+                                    if any(
+                                        any(
+                                            (choice.get("delta") or {}).get(key)
+                                            for key in (
+                                                "content",
+                                                "tool_calls",
+                                                "function_call",
+                                                "refusal",
+                                                "reasoning_content",
+                                            )
+                                        )
+                                        for choice in choices
+                                    ):
+                                        break
+                                    if any(
+                                        choice.get("finish_reason")
+                                        for choice in choices
+                                    ):
+                                        raise NativeModelRequestError(
+                                            "model_empty_response"
+                                        )
+                                else:
+                                    raise NativeModelRequestError(
+                                        "model_empty_response"
+                                    )
+                        except BaseException:
+                            close = getattr(original_stream, "aclose", None)
+                            if callable(close):
+                                await close()
+                            raise
+
+                        async def prefetched(
+                            buffered=buffered,
+                            iterator=iterator,
+                            original_stream=original_stream,
+                        ):
+                            try:
+                                for chunk in buffered:
+                                    yield chunk
+                                async for chunk in iterator:
+                                    yield chunk
+                            finally:
+                                close = getattr(original_stream, "aclose", None)
+                                if callable(close):
+                                    await close()
+
+                        response = prefetched()
+                    elif body.get("stream") is not True:
+                        plain = _plain(response)
+                        choices = plain.get("choices") or []
+                        if not any(
+                            any(
+                                (choice.get("message") or {}).get(key)
+                                for key in (
+                                    "content",
+                                    "tool_calls",
+                                    "function_call",
+                                    "refusal",
+                                )
+                            )
+                            for choice in choices
+                        ):
+                            raise NativeModelRequestError("model_empty_response")
+            except asyncio.CancelledError:
+                await self._observe(
+                    request_id=request_id,
+                    request_context=request_context,
+                    attempt=attempt,
+                    started_at=started_at,
+                    outcome="cancelled",
+                )
+                raise
+            except BaseException as exc:
+                classified = (
+                    NativeModelRequestError("model_empty_response")
+                    if isinstance(exc, StopAsyncIteration)
+                    else model_request_error(exc)
+                )
+                # Explicit rejection before a response is a failed attempt. Network
+                # loss/timeouts still retain unknown outcome and billing; each
+                # retry retains this evidence and obtains fresh admission.
+                rejected = classified is not None and classified.code in {
+                    "model_context_limit",
+                    "model_authentication_failed",
+                    "model_rate_limited",
+                    "model_unavailable",
+                    "model_request_rejected",
+                }
+                await self._observe(
+                    request_id=request_id,
+                    request_context=request_context,
+                    attempt=attempt,
+                    started_at=started_at,
+                    outcome="failed" if rejected else "outcome_unknown",
+                )
+                if (
+                    classified is not None
+                    and classified.code
+                    in {
+                        "model_rate_limited",
+                        "model_provider_unavailable",
+                        "model_request_timeout",
+                        "model_endpoint_unreachable",
+                        "model_empty_response",
+                    }
+                    and attempt < self._max_attempts
+                ):
+                    if self._retry_status is not None:
+                        await self._retry_status(attempt + 1, self._max_attempts)
+                    await asyncio.sleep(0.5 * 2 ** (attempt - 1))
+                    continue
+                if classified is not None:
+                    raise classified from exc
+                raise
+
+            if attempt > 1 and self._retry_status is not None:
+                await self._retry_status(0, self._max_attempts)
+            break
 
         if body.get("stream") is True:
             if not hasattr(response, "__aiter__"):
                 await self._observe(
                     request_id=request_id,
                     request_context=request_context,
+                    attempt=attempt,
                     started_at=started_at,
                     outcome="failed",
                 )
@@ -741,6 +877,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
                 await self._observe(
                     request_id=request_id,
                     request_context=request_context,
+                    attempt=attempt,
                     started_at=started_at,
                     outcome=outcome.value,
                     response=last,
@@ -763,6 +900,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
             await self._observe(
                 request_id=request_id,
                 request_context=request_context,
+                attempt=attempt,
                 started_at=started_at,
                 outcome="failed",
             )
@@ -775,6 +913,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         await self._observe(
             request_id=request_id,
             request_context=request_context,
+            attempt=attempt,
             started_at=started_at,
             outcome="responded",
             response=response,
@@ -796,6 +935,8 @@ def build_litellm_sdk_model(
     completion: Callable[..., Awaitable[Any]] | None = None,
     timeout_seconds: float = 180.0,
     admission: ModelAdmission | None = None,
+    max_attempts: int = 1,
+    retry_status: Callable[[int, int], Awaitable[None]] | None = None,
 ) -> OpenAIChatModel:
     """Build an OpenAI-compatible Pydantic model over LiteLLM's in-process SDK."""
     transport = LiteLLMSDKTransport(
@@ -805,6 +946,8 @@ def build_litellm_sdk_model(
         completion=completion,
         timeout_seconds=timeout_seconds,
         admission=admission,
+        max_attempts=max_attempts,
+        retry_status=retry_status,
     )
     http_client = httpx.AsyncClient(
         transport=transport, timeout=httpx.Timeout(timeout_seconds)

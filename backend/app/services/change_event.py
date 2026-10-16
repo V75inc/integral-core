@@ -176,6 +176,24 @@ async def emit_change_event(
     ):
         return envelope
 
+    from app.agentive.services.staging_execution import capture_staging_change_event
+
+    if await capture_staging_change_event(
+        {
+            "actor_kind": actor_kind,
+            "actor_id": actor_id or "",
+            "actor_capability": actor_capability,
+            "action": action,
+            "resource_type": resource_type,
+            "resource_id": resource_id or "",
+            "before": before,
+            "after": after,
+            "scope": scope,
+            "details": enriched_details or None,
+        }
+    ):
+        return envelope
+
     if not is_change_event_enabled():
         return envelope
 

@@ -2,8 +2,8 @@
 
 GET /api/events?since=<cursor>&scope=...&actor_kind=...&limit=N
 
-Cursor format: opaque base64-encoded {ts, id} (D-08 — direct reuse of
-app/services/pagination.py::encode_cursor / decode_cursor / build_paginated_response).
+New confidential continuation tokens bind the principal, selected workspace,
+filters and direction; current permissions are still checked on every read.
 
 Empty cursor = "from beginning of retention window" — the polling endpoint
 returns events in ASC ``(ts, id)`` order so cron-style agents (forward-stream
@@ -12,13 +12,13 @@ which sorts DESC.
 
 Per CONTEXT D-07: same per-event permission filter as audit-log + WS broadcast.
 Per CONTEXT D-08: page size capped at EVENT_FEED_PAGE_SIZE (default 100).
-Per CONTEXT D-13 / D-12: this is core infrastructure, available without
-AGENTIVE_ENABLED.
+This is always-available Core infrastructure.
 
 Storage shape: ChangeEvents live as ``DBLog`` rows with
 ``log_level="CHANGE_EVENT"`` in the logging database. Reads go through
-``ChangeEventLogger.find_all`` and are surfaced via the ``ChangeEventEnvelope``
-wire shape.
+bounded ``ChangeEventLogger.find_page`` windows and are surfaced via the
+``ChangeEventEnvelope`` wire shape. A continuation may advance through withheld
+events without revealing their identifiers or promising another visible result.
 """
 
 from __future__ import annotations
@@ -34,13 +34,10 @@ from app.api.errors import MissingAuthenticationError
 from app.api.utils import resolve_principal_id
 from app.services.change_event_logger import (
     ChangeEventEnvelope,
-    envelope_from_dblog,
     get_change_event_logger,
     is_change_event_enabled,
 )
-from app.services.event_access import can_release_event, scrub_event_credentials
 from app.services.pagination import build_paginated_response
-from app.services.policy_engine import evaluate as policy_evaluate
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +73,13 @@ async def list_events_polling(
     if limit < 1:
         limit = 1
 
+    from app.services.event_history import read_event_history
+    from app.services.request_scope import resolve_execution_scope_from_request
+
+    execution = await resolve_execution_scope_from_request(
+        request, user_id, origin="event_history"
+    )
+
     # Kill switch: when ChangeEvents are disabled, the event feed is empty.
     if not is_change_event_enabled():
         empty: List[ChangeEventEnvelope] = []
@@ -85,23 +89,14 @@ async def list_events_polling(
         empty_response["events"] = []
         return empty_response
 
-    ce_logger = get_change_event_logger()
-    rows = await ce_logger.find_all(scope=scope, actor_kind=actor_kind)
-    candidates = [envelope_from_dblog(r) for r in rows]
-
-    # Permission filter — D-07 routes per-event through policy_engine.evaluate.
-    # The engine's default-human branch dispatches on resource.scope prefix
-    # (track:/space:/user:) — verbatim replacement of the legacy decision tree.
-    permitted: List[ChangeEventEnvelope] = []
-    for ev in candidates:
-        if await can_release_event(
-            user_id, ev, action="event_feed.subscribe", evaluate=policy_evaluate
-        ):
-            permitted.append(ev)
-
-    # ASC ordering — forward-stream (oldest first). Tie-break by id.
-    permitted.sort(key=lambda e: (e.ts or "", e.id or ""))
-
-    page, response = build_paginated_response(permitted, since, limit, _envelope_key)
-    response["events"] = [scrub_event_credentials(ev.to_wire_flat()) for ev in page]
-    return response
+    return await read_event_history(
+        logger=get_change_event_logger(),
+        user_id=user_id,
+        workspace_id=execution.workspace_id,
+        action="event_feed.subscribe",
+        cursor=since,
+        limit=limit,
+        descending=False,
+        scope=scope,
+        actor_kind=actor_kind,
+    )

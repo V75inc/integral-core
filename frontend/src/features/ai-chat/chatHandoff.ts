@@ -80,6 +80,10 @@ export function peekLastActiveChatThreadId(workspaceId?: string | null): string 
 export function requestOpenCompanionChat(opts?: {
   threadId?: string | null;
   draftText?: string | null;
+  /** Explicit user action to send the scoped handoff immediately. */
+  submit?: boolean;
+  workspaceId?: string | null;
+  principalId?: string | null;
 }): void {
   const payload: ChatHandoff = {
     threadId: opts?.threadId ?? null,
@@ -90,7 +94,8 @@ export function requestOpenCompanionChat(opts?: {
     if (opts?.draftText?.trim()) {
       sessionStorage.setItem(
         CHAT_DRAFT_KEY,
-        JSON.stringify({ text: opts.draftText.trim(), ts: payload.ts }),
+        JSON.stringify({ text: opts.draftText.trim(), ts: payload.ts,
+          submit: opts.submit === true, workspaceId: opts.workspaceId ?? null, principalId: opts.principalId ?? null }),
       );
     }
   } catch {
@@ -101,20 +106,28 @@ export function requestOpenCompanionChat(opts?: {
   );
 }
 
-/** Consume a short-lived composer draft attached to a contextual chat open. */
-export function consumePendingChatDraft(): string | null {
+export type PendingChatInput = { text: string; submit: boolean; workspaceId: string | null; principalId: string | null };
+
+/** Consume once, only when the runtime can accept the handoff. */
+export function consumePendingChatInput(): PendingChatInput | null {
   try {
     const raw = sessionStorage.getItem(CHAT_DRAFT_KEY);
     if (!raw) return null;
     sessionStorage.removeItem(CHAT_DRAFT_KEY);
-    const parsed = JSON.parse(raw) as { text?: string; ts?: number };
+    const parsed = JSON.parse(raw) as { text?: string; ts?: number; submit?: boolean; workspaceId?: string | null; principalId?: string | null };
     if (!parsed?.ts || Date.now() - parsed.ts > HANDOFF_TTL_MS) return null;
-    return typeof parsed.text === 'string' && parsed.text.trim()
-      ? parsed.text
-      : null;
+    if (typeof parsed.text !== 'string' || !parsed.text.trim()) return null;
+    return { text: parsed.text.trim(), submit: parsed.submit === true,
+      workspaceId: typeof parsed.workspaceId === 'string' ? parsed.workspaceId : null,
+      principalId: typeof parsed.principalId === 'string' ? parsed.principalId : null };
   } catch {
     return null;
   }
+}
+
+/** Compatibility for draft-only consumers; never submits. */
+export function consumePendingChatDraft(): string | null {
+  return consumePendingChatInput()?.text ?? null;
 }
 
 /** Read + clear a still-fresh handoff (or null if missing/expired). */

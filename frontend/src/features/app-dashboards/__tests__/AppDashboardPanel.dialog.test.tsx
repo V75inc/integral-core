@@ -4,7 +4,9 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 
-const { listMock, substrateMock, dataMock, drillThroughMock } = vi.hoisted(() => ({
+const { listMock, substrateMock, dataMock, drillThroughMock, confirmMock, removeMock } = vi.hoisted(() => ({
+  confirmMock: vi.fn(),
+  removeMock: vi.fn(),
   listMock: vi.fn(),
   substrateMock: vi.fn(),
   dataMock: vi.fn(),
@@ -19,7 +21,7 @@ vi.mock('../../../api/dashboards', () => ({
     drillThrough: drillThroughMock,
     create: vi.fn(),
     update: vi.fn(),
-    remove: vi.fn(),
+    remove: removeMock,
     suggest: vi.fn(),
   },
 }));
@@ -45,7 +47,13 @@ vi.mock('../../../context/ChatPageFocusContext', () => ({
   useChatPageFocus: () => ({ setPageContext: vi.fn() }),
 }));
 
+vi.mock('../../../context/ConfirmContext', () => ({ useConfirm: () => confirmMock }));
+
 import { AppDashboardPanel } from '../AppDashboardPanel';
+
+beforeEach(() => {
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ x: 0, y: 0, top: 0, left: 0, right: 200, bottom: 34, width: 200, height: 34, toJSON: () => ({}) });
+});
 
 function LocationProbe() {
   const location = useLocation();
@@ -263,5 +271,40 @@ describe('AppDashboardPanel drill-through dialog', () => {
     expect(new URLSearchParams(query).get('dashboard_filters')).toBe(
       JSON.stringify([{ field: 'status', op: 'eq', value: 'active' }]),
     );
+  });
+});
+
+
+describe('dashboard deletion confirmation', () => {
+  it('does not delete when confirmation is cancelled', async () => {
+    removeMock.mockClear();
+    confirmMock.mockResolvedValue(false);
+    listMock.mockResolvedValue([{ id: 'confirm-board', name: 'Review board', widgets: [], layout: { columns: 12, row_height: 80 } }]);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<MemoryRouter><QueryClientProvider client={queryClient}><AppDashboardPanel appId="app-1" canEdit /></QueryClientProvider></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: 'Dashboard actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete dashboard' }));
+    await waitFor(() => expect(confirmMock).toHaveBeenCalledWith(expect.objectContaining({ title: 'Delete dashboard?', confirmLabel: 'Delete dashboard' })));
+    expect(removeMock).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('streamlined dashboard controls', () => {
+  it('keeps selection and editing visible and secondary actions in the menu', async () => {
+    listMock.mockResolvedValue([{ id: 'controls-board', name: 'Home', is_default: true, widgets: [], layout: { columns: 12, row_height: 80 } }]);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<MemoryRouter><QueryClientProvider client={queryClient}><AppDashboardPanel appId="app-1" canEdit /></QueryClientProvider></MemoryRouter>);
+    const selector = await screen.findByRole('combobox', { name: 'Dashboard' });
+    expect(screen.getByRole('option', { name: 'Home · Default' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit layout' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem')).not.toBeInTheDocument();
+    fireEvent.change(selector, { target: { value: '__new__' } });
+    expect(await screen.findByRole('dialog', { name: 'New dashboard' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Dashboard actions' }));
+    expect(screen.getByRole('menuitem', { name: 'Default dashboard' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Rename dashboard' }));
+    expect(await screen.findByRole('textbox', { name: 'Dashboard name' })).toHaveValue('Home');
   });
 });

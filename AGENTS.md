@@ -13,7 +13,7 @@ Monorepo:
 
 Backend uses jvspatial graph-based data model — all entities are Nodes with explicit Edges for relationships. Integral is an **ops layer** on a pluggable harness: `backend/app/agentive/` is **always-on** and hosts staging, skills overlay, MCP perimeter, and the active harness binding (default Integral AI via Pydantic AI; Integral AI is the only resident harness; Echo is a test fixture, not a product option). Singular resident mind applies **per active binding**, faceted by principal (personal / org-facing / system) — not a peer-agent fleet. External agents connect via Integral's **MCP surface** only; there is **no agent-to-agent (A2A) fabric** (retired). See [docs/backend/adr/003-singular-resident-harness.md](docs/backend/adr/003-singular-resident-harness.md), [docs/product/RESIDENT_HARNESS.md](docs/product/RESIDENT_HARNESS.md). Architecture provisional (pre-1.0) — see [docs/product/ARCHITECTURE.md](docs/product/ARCHITECTURE.md) → "Vision-Aligned Architectural Directions".
 
-**Current jvspatial security compatibility:** package metadata pins `jvspatial==0.2.1` and `pydantic-ai-harness[skills]==0.36.0`. Runtime dependencies resolve from PyPI; no alternate resident or Git source override remains. Use `uv sync --frozen --extra dev --extra test` and the clean wheel and full release gates before release. Integral's `RATE_LIMIT_DISABLED=1` bypasses jvspatial's auth-entrypoint cap only under pytest or `DEBUG`; production keeps that cap. Production OAuth requires `JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY` from a secret manager. See [backend/README.md](backend/README.md#jvspatial-security-compatibility) and [docs/ops/DEPLOY.md](docs/ops/DEPLOY.md#jvspatial-021-release-gate).
+**Current jvspatial security compatibility:** package metadata pins `jvspatial==0.2.2` and `pydantic-ai-harness[skills]==0.36.0`. Runtime dependencies resolve from PyPI; no alternate resident or Git source override remains. Use `uv sync --frozen --extra dev --extra test` and the clean wheel and full release gates before release. Integral's `RATE_LIMIT_DISABLED=1` bypasses jvspatial's auth-entrypoint cap only under pytest or `DEBUG`; production keeps that cap. Production OAuth requires `JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY` from a secret manager. See [backend/README.md](backend/README.md#jvspatial-security-compatibility) and [docs/ops/DEPLOY.md](docs/ops/DEPLOY.md#jvspatial-022-release-gate).
 
 When repairing legacy `UserModelCredential` duplicates, read through `GraphContext.find` so the unique index is not created before deduplication. Validate the migration against a PostgreSQL schema containing actual duplicate rows, then verify the index rejects a new duplicate.
 
@@ -46,12 +46,14 @@ init` with no `--slug` writes a blank distro (`integral-apps/` empty).
 
 ### Testing
 
-**The gate is `make verify`.** CI runs only the `smoke` marker on PRs; the full
-suite is a local responsibility. One command covers it:
+**The gate is `make verify`.** PR CI runs smoke, Core-only, extension-contract,
+PostgreSQL, frontend and artifact lanes; the full default suite remains a local
+responsibility. One command covers the broad local gate:
 
 ```bash
 make verify      # guards, pinned formatters, tsc, CI-faithful run, both suites
-make verify-ci   # just the CI reproduction — the fast pre-push check
+make verify-ci   # reproduce the CI smoke lane; not the whole workflow
+make verify-pr   # reproduce backend test lanes and the PostgreSQL lane
 make help        # all targets
 ```
 
@@ -230,6 +232,9 @@ Domain-specific behavior needed at a substrate trigger point?  → Declare in
 Need pythonic execution inside a bundle?                        → Declare a
    tools[] entry. trust_tier=trusted required. Skill OR hook binding routes
    to it. Bundles never import from app.services / app.models.
+Bundle work that can outlast a request (import, month-end run)?   → ctx.enqueue_job(...)
+   from a tools[] entry; the job tool saves its place on the record and calls
+   ctx.report_progress. See docs/platform/background-app-jobs.md.
 ```
 
 Lines marked **ALWAYS** have no efficiency exception. Lines with `↳` branches are where pragmatism applies; deviation always carries `# deviation: <reason> — measured <X ms vs Y ms on <fixture>>`.

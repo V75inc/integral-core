@@ -27,7 +27,6 @@ from app.services.attachment_urls import (
     enrich_attachment_export,
     is_visible_to_user,
 )
-from app.services.change_event import emit_change_event
 from app.services.policy_engine import evaluate as policy_evaluate
 from app.utils.time import utc_now_iso
 
@@ -652,42 +651,13 @@ async def attach_uploaded_file_to_entry(
     workspace storage accounting is untouched.
     """
 
-    from app.models.edges import HAS_ATTACHMENT
+    from app.services.entry_attachment_filing import file_chat_attachment
 
-    attachment, entry, error = await validate_chat_attachment_for_entry(
+    _, _, error = await validate_chat_attachment_for_entry(
         user_id=user_id, attachment_id=attachment_id, entry_id=entry_id
     )
     if error:
         return error
-
-    attachment_ids_before = list(entry.attachment_ids or [])
-    await entry.connect(
-        attachment,
-        edge=HAS_ATTACHMENT,
-        attached_at=utc_now_iso(),
-        attached_by=user_id,
+    return await file_chat_attachment(
+        user_id=user_id, attachment_id=attachment_id, entry_id=entry_id
     )
-    if attachment.id not in (entry.attachment_ids or []):
-        entry.attachment_ids = list(entry.attachment_ids or []) + [attachment.id]
-        await entry.save()
-
-    attachment.owner_kind = "entry"
-    await attachment.save()
-
-    await emit_change_event(
-        actor_kind="human",
-        actor_id=user_id,
-        action="attachment.attach",
-        resource_type="Entry",
-        resource_id=entry.id,
-        before={"attachment_ids": attachment_ids_before},
-        after={"attachment_ids": list(entry.attachment_ids or [])},
-        scope=f"track:{entry.track_id or ''}",
-        details={
-            "attachment_id": attachment.id,
-            "attachment_owner_kind_before": "chat",
-        },
-    )
-
-    item = await export_node(attachment)
-    return {"attachment": item, "entry_id": entry.id}

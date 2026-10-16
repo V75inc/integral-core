@@ -930,7 +930,7 @@ export function SharedTrackPage({ memberFormMode = false }: { memberFormMode?: b
         for (const { key, targets } of results) {
           newChoices[key] = targets.map(t => ({
             value: t.id,
-            label: t.track_title ? `${t.title || t.id} (${t.track_title})` : (t.title || t.id)
+            label: t.track_title ? `${t.title || 'Untitled record'} (${t.track_title})` : (t.title || 'Untitled record')
           }));
         }
         setRelationChoices(newChoices);

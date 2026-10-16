@@ -315,6 +315,9 @@ async def deliver_pending_operation_events(*, database: Any | None = None) -> in
     from app.services.entry_cleanup_outbox import deliver_pending_cleanup
 
     await deliver_pending_cleanup(database=db)
+    from app.services.bundle_cleanup_outbox import deliver_bundle_cleanup
+
+    await deliver_bundle_cleanup(database=db)
     return delivered
 
 

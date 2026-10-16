@@ -4,9 +4,13 @@ import pytest
 
 from app.api.apps import list_app_collaborators
 from app.api.errors import InsufficientPermissionsError
-from app.api.tracks import list_collaborators, list_mention_candidates
+from app.api.tracks import (
+    get_track_detail_bundle,
+    list_collaborators,
+    list_mention_candidates,
+)
 from app.api.workspaces import list_workspace_members
-from app.models.edges import COLLABORATES_ON, IS_MEMBER_OF
+from app.models.edges import COLLABORATES_ON, EXCLUDED_FROM, IS_MEMBER_OF
 from app.models.nodes import User
 from app.services.app_graph import catalog_user
 from tests.test_access_perimeter_regressions import rooted_graph
@@ -24,6 +28,8 @@ async def test_reader_cannot_enumerate_legacy_access_but_owner_can():
         reduced = await function(request_for(reader.id, workspace.id), resource.id)
         assert reduced["collaborators"] == [] and reduced["directory_visible"] is False
         allowed = await function(request_for(owner.id, workspace.id), resource.id)
+        assert reduced["total"] == allowed["total"] == 2
+        assert reduced["effective_total"] == allowed["effective_total"] == 2
         assert allowed["collaborators"]
         assert allowed["caller_role"] == "owner"
         assert all("preferences" not in row for row in allowed["collaborators"])
@@ -46,7 +52,19 @@ async def test_app_member_retains_own_role_without_directory_access(role):
     assert response["collaborators"] == []
     assert response["directory_visible"] is False
     assert response["caller_role"] == role
+    assert response["total"] == response["effective_total"] == 2
     assert await can_edit_app(reader.id, app.id) is (role == "editor")
+
+
+async def test_track_detail_keeps_hidden_directory_count():
+    """Initial Track navigation carries the same aggregate as the modal route."""
+    _, reader, workspace, _, track, _ = await rooted_graph()
+    response = await get_track_detail_bundle(
+        request_for(reader.id, workspace.id), track.id
+    )
+    assert response["collaborators"] == []
+    assert response["collaborator_effective_total"] == 2
+    assert response["caller_role"] == "viewer"
 
 
 async def test_guest_member_pool_is_restricted_to_administration():
@@ -59,6 +77,37 @@ async def test_guest_member_pool_is_restricted_to_administration():
     assert allowed["members"] and all(
         "preferences" not in m for m in allowed["members"]
     )
+
+
+async def test_track_count_deduplicates_grants_and_respects_inherited_exclusion():
+    """A hidden directory keeps the owner's effective count, not its row count."""
+    owner, reader, workspace, app, track, _ = await rooted_graph()
+    peer = await User.create(display_name="Excluded collaborator")
+    await catalog_user(peer)
+    await peer.connect(workspace, edge=IS_MEMBER_OF, role="member")
+    await peer.connect(app, edge=COLLABORATES_ON, role="viewer")
+    await peer.connect(track, edge=EXCLUDED_FROM)
+    reduced = await list_collaborators(request_for(reader.id, workspace.id), track.id)
+    allowed = await list_collaborators(request_for(owner.id, workspace.id), track.id)
+    assert reduced["collaborators"] == []
+    assert reduced["total"] == allowed["total"] == 3
+    assert reduced["effective_total"] == allowed["effective_total"] == 2
+    await peer.connect(track, edge=COLLABORATES_ON, role="viewer")
+    reduced = await list_collaborators(request_for(reader.id, workspace.id), track.id)
+    assert reduced["effective_total"] == reduced["total"] == 3
+
+
+async def test_collaborator_counts_are_unavailable_without_resource_read_access():
+    """Aggregate counts must not become a directory probe for outsiders."""
+    _, _, workspace, app, track, _ = await rooted_graph()
+    outsider = await User.create(display_name="Outsider")
+    await catalog_user(outsider)
+    for function, resource in [
+        (list_app_collaborators, app),
+        (list_collaborators, track),
+    ]:
+        with pytest.raises(InsufficientPermissionsError):
+            await function(request_for(outsider.id, workspace.id), resource.id)
 
 
 async def test_public_track_mention_picker_cannot_search_global_users():

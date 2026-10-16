@@ -21,13 +21,14 @@ from app.services.credential_crypto import (
 from app.services.model_provider_endpoints import (
     OLLAMA_CLOUD_API_BASE,
     OLLAMA_LOCAL_DEFAULT_API_BASE,
+    normalize_custom_base_url,
 )
 from app.utils.time import utc_now_iso
 
 logger = logging.getLogger(__name__)
 
 SUPPORTED_PROVIDERS = frozenset(
-    {"openai", "anthropic", "openrouter", "ollama", "ollama_local"}
+    {"openai", "anthropic", "openrouter", "ollama", "ollama_local", "custom_openai"}
 )
 
 # Cheap auth probe per provider (must actually exercise credentials).
@@ -73,6 +74,7 @@ def audit_snapshot_credential(record: UserModelCredential) -> Dict[str, Any]:
     return {
         "provider": record.provider,
         "model": record.model,
+        "base_url": getattr(record, "base_url", "") or None,
         "speech_provider": record.speech_provider or None,
         "speech_model": record.speech_model or None,
         "key_fingerprint": record.key_fingerprint,
@@ -131,12 +133,20 @@ async def _validate_optional_slot_key(
 
 
 async def validate_provider_api_key(
-    provider: str, api_key: Optional[str]
+    provider: str, api_key: Optional[str], base_url: Optional[str] = None
 ) -> tuple[bool, str]:
     """Probe provider access before persisting a key or local model choice."""
     slug = (provider or "").strip().lower()
     if slug not in SUPPORTED_PROVIDERS:
         return False, f"Unsupported provider: {provider}"
+    if slug == "custom_openai":
+        from app.services.custom_model_transport import probe_custom_model_endpoint
+
+        try:
+            base = normalize_custom_base_url(base_url)
+        except ValueError as exc:
+            return False, str(exc)
+        return await probe_custom_model_endpoint(base, (api_key or "").strip())
     key = (api_key or "").strip()
     if slug == "ollama_local":
         if key:
@@ -268,6 +278,8 @@ async def upsert_user_credential(
     provider: str,
     model: str,
     api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+    clear_api_key: bool = False,
     speech_model: Optional[str] = None,
     speech_provider: Optional[str] = None,
     speech_api_key: Optional[str] = None,
@@ -280,8 +292,20 @@ async def upsert_user_credential(
     if slug not in SUPPORTED_PROVIDERS:
         raise ValueError(f"Unsupported provider: {provider}")
 
+    if clear_api_key and (slug != "custom_openai" or (api_key or "").strip()):
+        raise ValueError("clear_api_key is only supported for keyless custom endpoints")
     local_ollama = slug == "ollama_local"
-    if not local_ollama and not encryption_available():
+    existing = await get_credential_for_user(user_id)
+    # Encryption is required only when a secret is stored or retained. Keyless
+    # custom endpoints persist no secret, so they work without vault config
+    # (same exemption local Ollama enjoys).
+    stores_secret = bool((api_key or "").strip() or (speech_api_key or "").strip())
+    retains_secret = bool(existing and existing.api_key_enc and not clear_api_key)
+    if (
+        not local_ollama
+        and not encryption_available()
+        and (stores_secret or retains_secret)
+    ):
         # Hosted credentials need a dedicated key at rest. Local Ollama stores
         # no secret, so that model choice does not require an encryption key.
         raise RuntimeError(
@@ -289,18 +313,46 @@ async def upsert_user_credential(
             or "INTEGRAL_CREDENTIAL_ENC_KEY is not configured"
         )
 
-    existing = await get_credential_for_user(user_id)
+    custom = slug == "custom_openai"
+    if custom:
+        incoming_base = (base_url or "").strip()
+        if not incoming_base and existing and existing.provider == "custom_openai":
+            incoming_base = (getattr(existing, "base_url", "") or "").strip()
+        base_normalized = normalize_custom_base_url(incoming_base)
+    else:
+        if (base_url or "").strip():
+            raise ValueError("base_url is only supported for custom_openai")
+        base_normalized = ""
     api_key_plain = (api_key or "").strip()
     if local_ollama and api_key_plain:
         raise ValueError("Local Ollama does not use an API key")
-    if not api_key_plain and not local_ollama:
-        if not existing:
+    if not api_key_plain and not local_ollama and not clear_api_key:
+        same_endpoint = bool(existing and existing.provider == slug)
+        if custom and same_endpoint:
+            same_endpoint = (
+                normalize_custom_base_url(existing.base_url) == base_normalized
+            )
+        if existing and not same_endpoint:
+            raise ValueError(
+                "Provider or endpoint changed: supply a new API key or explicitly choose no API key"
+            )
+        if existing:
+            api_key_plain = decrypt_credential_api_key(existing)
+            if existing.api_key_enc and not api_key_plain:
+                raise ValueError(
+                    "Stored API key could not be decrypted; replace or explicitly clear it"
+                )
+        if not api_key_plain and not custom:
             raise ValueError("api_key is required")
-        api_key_plain = decrypt_credential_api_key(existing)
-    elif api_key_plain and len(api_key_plain) < 8:
+    if api_key_plain and len(api_key_plain) < 8:
         raise ValueError("api_key must be at least 8 characters")
 
-    valid, message = await validate_provider_api_key(slug, api_key_plain)
+    if custom:
+        valid, message = await validate_provider_api_key(
+            slug, api_key_plain, base_normalized or None
+        )
+    else:
+        valid, message = await validate_provider_api_key(slug, api_key_plain)
     if not valid:
         raise ValueError(message)
 
@@ -365,6 +417,7 @@ async def upsert_user_credential(
     if existing:
         existing.provider = slug
         existing.model = model.strip()
+        existing.base_url = base_normalized
         existing.speech_provider = speech_slug if speech_slug != slug else ""
         existing.speech_model = speech_model_clean
         existing.api_key_enc = encrypted
@@ -381,6 +434,7 @@ async def upsert_user_credential(
         user_id=user_id,
         provider=slug,
         model=model.strip(),
+        base_url=base_normalized,
         speech_provider=speech_slug if speech_slug != slug else "",
         speech_model=speech_model_clean,
         api_key_enc=encrypted,

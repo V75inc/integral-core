@@ -69,10 +69,46 @@ class StagingDecisionRecord(Object):
     expires_at: str = ""
     resolved_at: str = ""
     retained_until: str = ""
+    # Private immutable-intent proof; never included in public decision readback.
+    intent_fingerprint: str = ""
 
 
 def _decision_record_id(token: str) -> str:
     return "o.StagingDecisionRecord." + hashlib.sha256(token.encode()).hexdigest()
+
+
+def decision_intent_fingerprint(fields: Dict[str, Any]) -> str:
+    """Bind terminal reconciliation to the exact original reviewed proposal.
+
+    Mutable decision/progress fields are excluded. This digest is evidence for
+    comparing a private snapshot, never executable approval authority. Legacy
+    state-only markers cannot supply this proof or be silently backfilled.
+    """
+    names = (
+        "token",
+        "user_id",
+        "workspace_id",
+        "session_id",
+        "kind",
+        "payload",
+        "created_at",
+        "expires_at",
+        "summary",
+        "diff_human",
+        "diff_machine",
+        "interaction_id",
+        "idempotency_key",
+    )
+    intent = {name: fields.get(name) for name in names}
+    if fields.get("origin_proof") is not None:
+        intent["origin_proof"] = fields["origin_proof"]
+    value = ["staged-decision-intent-v1", intent]
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    # json.dumps silently coerces integer object keys and tuples. Such Python
+    # shapes are not the same reviewed JSON intent as their normalized output.
+    if json.loads(encoded) != value:
+        raise ValueError("Proposal intent must contain canonical JSON values")
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 async def persist_decision(sc: "StagedChange") -> None:
@@ -104,10 +140,13 @@ async def persist_decision(sc: "StagedChange") -> None:
             user_id=sc.user_id,
             state=sc.state,
             kind=sc.kind,
+            intent_fingerprint=decision_intent_fingerprint(_sc_to_fields(sc)),
             created_at=sc.created_at.isoformat(),
             expires_at=sc.expires_at.isoformat(),
             resolved_at=(sc.resolved_at or now).isoformat(),
-            retained_until=(now + _DECISION_READBACK_TTL).isoformat(),
+            retained_until=(
+                max(now, sc.expires_at) + _DECISION_READBACK_TTL
+            ).isoformat(),
         )
     except Exception:  # noqa: BLE001 — state readback must not authorize a write
         logger.warning("staging_store.decision_persist_failed", exc_info=True)
@@ -116,7 +155,28 @@ async def persist_decision(sc: "StagedChange") -> None:
 async def load_decision_state(token: str, user_id: str) -> Optional[Dict[str, Any]]:
     """Read a principal's terminal state; never hydrate executable staging."""
     try:
-        record = await StagingDecisionRecord.get(_decision_record_id(token))
+        from jvspatial.core.context import get_default_context
+
+        from app.services.app_operations.transaction_scope import (
+            graph_transaction_available,
+            postgres_graph_transaction,
+        )
+
+        if graph_transaction_available():
+            async with postgres_graph_transaction(
+                get_default_context().database
+            ) as held:
+                row = await held.get("object", _decision_record_id(token))
+            record = (
+                StagingDecisionRecord(id=row["id"], **row["context"])
+                if row is not None
+                and row.get("entity") == StagingDecisionRecord._entity_name()
+                else None
+            )
+            if record is not None:
+                await record.set_context(get_default_context())
+        else:
+            record = await StagingDecisionRecord.get(_decision_record_id(token))
         if record is None or record.user_id != user_id:
             return None
         until = _parse_iso(record.retained_until)
@@ -140,7 +200,17 @@ async def load_decision_state(token: str, user_id: str) -> Optional[Dict[str, An
             "requires_strong_confirmation": False,
             "decision_state_only": True,
         }
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        from app.services.app_operations.transaction_scope import (
+            graph_transaction_available,
+        )
+
+        if graph_transaction_available():
+            from app.api.errors import QueryUnavailableError
+
+            raise QueryUnavailableError(
+                message="Proposal decision read is unavailable"
+            ) from exc
         logger.warning("staging_store.decision_load_failed", exc_info=True)
         return None
 
@@ -185,6 +255,8 @@ class StagedChangeRecord(Object):
     resolved_at: Optional[str] = None
     idempotency_key: Optional[str] = None
     decision_source: Optional[str] = None
+    execution_contract_version: str = ""
+    origin_proof: Optional[Dict[str, Any]] = None
 
 
 class OpenBatchRecord(Object):
@@ -343,6 +415,8 @@ def _sc_to_fields(sc: "StagedChange") -> Dict[str, Any]:
         "resolved_at": sc.resolved_at.isoformat() if sc.resolved_at else None,
         "idempotency_key": sc.idempotency_key,
         "decision_source": sc.decision_source,
+        "execution_contract_version": sc.execution_contract_version,
+        "origin_proof": dict(sc.origin_proof) if sc.origin_proof else None,
     }
 
 
@@ -379,6 +453,8 @@ def _record_to_sc(rec: StagedChangeRecord) -> Optional["StagedChange"]:
         resolved_at=_parse_iso(rec.resolved_at) if rec.resolved_at else None,
         idempotency_key=getattr(rec, "idempotency_key", None),
         decision_source=getattr(rec, "decision_source", None),
+        execution_contract_version=getattr(rec, "execution_contract_version", ""),
+        origin_proof=dict(rec.origin_proof) if rec.origin_proof else None,
     )
 
 
@@ -387,26 +463,93 @@ async def _find_record(token: str) -> Optional[StagedChangeRecord]:
     return rec  # type: ignore[return-value]
 
 
-async def persist(sc: "StagedChange") -> None:
-    """Write-through a staged change.
+async def persist(sc: "StagedChange", *, allow_create: bool = False) -> None:
+    """Persist an existing proposal without resurrecting a terminal decision.
 
-    Upserts by token when the change is non-terminal (``pending`` / ``blessed``);
-    removes the row when the change has reached a terminal state. Best-effort.
+    Only minting may create a row. PostgreSQL locks it before inspecting or
+    changing state; a stale instance cannot recreate a row after deletion.
+    Readback/cosmetic persistence remains best-effort, never execution proof.
     """
+    from jvspatial.core.context import get_default_context
+
+    from app.services.app_operations.transaction_scope import (
+        graph_transaction_available,
+        postgres_graph_transaction,
+    )
+
     try:
-        if sc.state not in _DURABLE_STATES:
-            await remove(sc.token)
-            return
-        fields = _sc_to_fields(sc)
-        existing = await _find_record(sc.token)
-        if existing is not None:
-            for key, val in fields.items():
-                setattr(existing, key, val)
-            await existing.save()
+        database = get_default_context().database
+        if graph_transaction_available(database):
+            async with postgres_graph_transaction(database):
+                await _persist_existing(sc, allow_create=allow_create, lock=True)
         else:
-            await StagedChangeRecord.create(**fields)
-    except Exception:  # noqa: BLE001 — durability is best-effort, never fatal
+            await _persist_existing(sc, allow_create=allow_create, lock=False)
+    except (
+        Exception
+    ):  # noqa: BLE001 — authoritative apply still requires the stored decision
         logger.warning("staging_store.persist_failed token=%s", sc.token, exc_info=True)
+
+
+async def _persist_existing(
+    sc: "StagedChange", *, allow_create: bool, lock: bool
+) -> None:
+    if sc.state not in _DURABLE_STATES:
+        await remove(sc.token)
+        return
+    fields = _sc_to_fields(sc)
+    # A stale process must not resurrect a revoked/consumed proposal or
+    # downgrade a newer decision while attaching cosmetic bookkeeping.
+    terminal = await StagingDecisionRecord.get(_decision_record_id(sc.token))
+    if terminal is not None and terminal.state in _TERMINAL_STATES:
+        return
+    existing = await _find_record(sc.token)
+    if existing is not None:
+        if lock:
+            from jvspatial.core.context import get_default_context
+
+            context = get_default_context()
+            row = await context.database.find_one_and_update(
+                "object",
+                {"id": existing.id, "entity": StagedChangeRecord._entity_name()},
+                {"$set": {}},
+            )
+            if row is None:
+                return
+            existing = StagedChangeRecord(id=row["id"], **row["context"])
+            await existing.set_context(context)
+        if existing.state not in _DURABLE_STATES:
+            return
+        immutable = {
+            "token",
+            "user_id",
+            "session_id",
+            "kind",
+            "payload",
+            "created_at",
+            "expires_at",
+            "workspace_id",
+            "idempotency_key",
+            "origin_proof",
+        }
+        if any(getattr(existing, key) != fields[key] for key in immutable):
+            logger.warning("staging_store.immutable_intent_conflict")
+            return
+        if existing.state == "blessed" and sc.state == "pending":
+            fields["state"] = existing.state
+            fields["blessed_at"] = existing.blessed_at
+            fields["resolved_at"] = existing.resolved_at
+            fields["decision_source"] = existing.decision_source
+        if existing.execution_contract_version:
+            fields["execution_contract_version"] = existing.execution_contract_version
+        elif existing.state == "blessed":
+            fields["execution_contract_version"] = ""
+        for key, val in fields.items():
+            setattr(existing, key, val)
+        await existing.save()
+    elif sc.state == "pending" and allow_create:
+        await StagedChangeRecord.create(**fields)
+    else:
+        logger.warning("staging_store.missing_approved_decision")
 
 
 async def replace_partial(old: "StagedChange", new: "StagedChange") -> None:
@@ -419,21 +562,116 @@ async def replace_partial(old: "StagedChange", new: "StagedChange") -> None:
 
 
 async def remove(token: str) -> None:
-    """Delete a token's durable row, if present. Best-effort."""
+    """Delete only an authoritative terminal row on shared stores."""
+    from jvspatial.core.context import get_default_context
+
+    from app.services.app_operations.transaction_scope import (
+        graph_transaction_available,
+        postgres_graph_transaction,
+    )
+
     try:
-        existing = await _find_record(token)
-        if existing is not None:
-            await existing.delete()
+        database = get_default_context().database
+        if graph_transaction_available(database):
+            async with postgres_graph_transaction(database) as held:
+                rows = await held.find(
+                    "object",
+                    {
+                        "entity": StagedChangeRecord._entity_name(),
+                        "context.token": token,
+                    },
+                    limit=2,
+                )
+                if len(rows) != 1:
+                    return
+                row = await held.find_one_and_update(
+                    "object", {"id": rows[0]["id"]}, {"$set": {}}
+                )
+                if row is None:
+                    return
+                current = row.get("context") or {}
+                terminal = await held.get("object", _decision_record_id(token))
+                decision = (terminal or {}).get("context") or {}
+                if current.get("state") not in _TERMINAL_STATES or any(
+                    current.get(key) != decision.get(key)
+                    for key in ("state", "user_id", "kind")
+                ):
+                    return
+                await held.delete("object", row["id"])
+        else:
+            existing = await _find_record(token)
+            if existing is not None:
+                await existing.delete()
     except Exception:  # noqa: BLE001
         logger.warning("staging_store.remove_failed token=%s", token, exc_info=True)
 
 
-async def load(token: str) -> Optional["StagedChange"]:
-    """Load one non-terminal staged change by token, or ``None``.
+async def load_current(token: str) -> Optional["StagedChange"]:
+    """Read shared decision facts without lazy expiry or caller entity caches."""
+    from jvspatial.core.context import get_default_context
 
-    An expired or non-durable row is deleted and reported as absent (lazy
-    expiry — mirrors the in-memory sweep's philosophy).
-    """
+    from app.api.errors import QueryUnavailableError
+    from app.services.app_operations.transaction_scope import postgres_graph_transaction
+
+    try:
+        async with postgres_graph_transaction(get_default_context().database) as held:
+            rows = await held.find(
+                "object",
+                {
+                    "entity": StagedChangeRecord._entity_name(),
+                    "context.token": token,
+                },
+                limit=2,
+            )
+    except Exception as exc:
+        raise QueryUnavailableError(message="Proposal read is unavailable") from exc
+    if not rows:
+        return None
+    from app.api.errors import QueryUnavailableError
+
+    if len(rows) != 1:
+        raise QueryUnavailableError(message="Proposal identity is ambiguous")
+    sc = _record_to_sc(StagedChangeRecord(id=rows[0]["id"], **rows[0]["context"]))
+    if sc is None:
+        raise QueryUnavailableError(message="Proposal facts could not be decoded")
+    return sc
+
+
+async def _resolve_expired_record(rec: StagedChangeRecord) -> Optional["StagedChange"]:
+    from app.agentive.services.staging_decision_store import transition_staged_decision
+    from app.services.app_operations.transaction_scope import (
+        graph_transaction_available,
+    )
+
+    if not graph_transaction_available():
+        await remove(rec.token)
+        return None
+    fresh = await transition_staged_decision(
+        token=rec.token,
+        user_id=rec.user_id,
+        target="expired",
+    )
+    if fresh.state == "expired":
+        await remove(rec.token)
+        return None
+    # Preserve a current owner or committed/uncertain outcome for reconciliation.
+    return fresh
+
+
+async def load(token: str) -> Optional["StagedChange"]:
+    """Read a current proposal; native store failures never become absence."""
+    from app.services.app_operations.transaction_scope import (
+        graph_transaction_available,
+    )
+
+    if graph_transaction_available():
+        sc = await load_current(token)
+        if sc is None or sc.state not in _DURABLE_STATES:
+            return None
+        if sc.is_expired():
+            rec = StagedChangeRecord(**_sc_to_fields(sc))
+            return await _resolve_expired_record(rec)
+        return sc
     try:
         rec = await _find_record(token)
         if rec is None:
@@ -442,7 +680,7 @@ async def load(token: str) -> Optional["StagedChange"]:
             await remove(token)
             return None
         return _record_to_sc(rec)
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 — legacy single-process readback
         logger.warning("staging_store.load_failed token=%s", token, exc_info=True)
         return None
 
@@ -453,6 +691,50 @@ async def load_pending_for_user(user_id: str) -> List["StagedChange"]:
     Expired rows are swept (deleted) and excluded. Used to rehydrate the
     in-memory cache after a restart so the pending-inbox reads are complete.
     """
+    from jvspatial.core.context import get_default_context
+
+    from app.services.app_operations.transaction_scope import (
+        graph_transaction_available,
+        postgres_graph_transaction,
+    )
+
+    if graph_transaction_available():
+        from app.api.errors import QueryUnavailableError
+
+        try:
+            async with postgres_graph_transaction(
+                get_default_context().database
+            ) as held:
+                rows = await held.find(
+                    "object",
+                    {
+                        "entity": StagedChangeRecord._entity_name(),
+                        "context.user_id": user_id,
+                        "context.state": {"$in": list(_DURABLE_STATES)},
+                    },
+                )
+        except Exception as exc:
+            raise QueryUnavailableError(
+                message="Proposal inbox read is unavailable"
+            ) from exc
+        current: List["StagedChange"] = []
+        for row in rows:
+            rec = StagedChangeRecord(id=row["id"], **row["context"])
+            sc = (
+                await _resolve_expired_record(rec)
+                if _record_is_expired(rec)
+                else _record_to_sc(rec)
+            )
+            if sc is None:
+                if _record_is_expired(rec):
+                    continue
+                from app.api.errors import QueryUnavailableError
+
+                raise QueryUnavailableError(
+                    message="Proposal facts could not be decoded"
+                )
+            current.append(sc)
+        return current
     out: List["StagedChange"] = []
     try:
         recs = await StagedChangeRecord.find({"user_id": user_id})
@@ -461,9 +743,9 @@ async def load_pending_for_user(user_id: str) -> List["StagedChange"]:
             if rec.state not in _DURABLE_STATES:
                 continue
             if _record_is_expired(rec, now=now):
-                await remove(rec.token)
-                continue
-            sc = _record_to_sc(rec)
+                sc = await _resolve_expired_record(rec)
+            else:
+                sc = _record_to_sc(rec)
             if sc is not None:
                 out.append(sc)
     except Exception:  # noqa: BLE001

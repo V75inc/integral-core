@@ -68,6 +68,20 @@ and edit its own Entry only under the explicit author condition. Moderation
 does not permit rewriting another person's comment. App-protected transitions
 and separation-of-duty conditions still constrain canonical mutations.
 
+### Collaborator counts and directory visibility
+
+An authenticated caller with current resource-read authority may see the App or
+Track's aggregate collaborator count. The count uses the same deduplicated roster
+as the manager view; Track counts distinguish excluded inherited rows from
+effective rows. Broad workspace/public visibility pools are summarized separately.
+Counts are display metadata and do not confer authority.
+
+Directory visibility remains a separate manager/governance capability. A reader
+may receive `collaborators: []` with `directory_visible: false` and a nonzero
+count. The UI must use the server aggregate and explain that details are restricted;
+it must not treat a hidden directory as an empty one. Unauthorized callers receive
+neither the count nor identities. Existing roster truncation indicators still apply.
+
 ## Canonical facts and admission
 
 Resource scope comes from the unique rooted structural graph. Scalar workspace
@@ -205,3 +219,13 @@ The [implementation plan](ACCESS_CONTROL_PLAN.md) and U01–U76 ledger retain
 all required runtime, migration, browser/MCP, independent-worker, artifact and
 operator evidence. A new owner capability does not close its use case before
 those surfaces and allowed/denied outcomes are qualified.
+
+
+### Private creation defaults
+
+New Apps and Tracks default to Private in every Workspace. App visibility is
+Private, Workspace or Public; App creation and updates reject `inherit`.
+Workspace/public viewing requires an explicit authorized choice and does not
+grant editing or access-management capabilities. Track inheritance remains
+an explicit supported choice. Existing saved visibility and collaborator grants
+are preserved. See [resource visibility](RESOURCE_VISIBILITY.md).

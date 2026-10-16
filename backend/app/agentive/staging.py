@@ -1,31 +1,16 @@
-"""Staging primitive for agent-initiated writes.
+"""Approval decisions, proposal storage and transcript closure.
 
-Every write the embedded agent performs goes through a two-step pattern:
-``prepare_X`` (which calls :func:`create_staged_change` to mint a confirmation
-token) and ``execute_X`` (which calls :func:`consume_token` to validate and
-unwrap the original payload). The intermediate frontend approval card calls
-:func:`bless_token` (or :func:`revoke_token`) over HTTP.
+The shared apply service approves, dispatches and then records consumption.
+PostgreSQL decisions use locked current rows and durable terminal markers;
+supported App/Track/Entry mutations and their batches additionally bind effects
+to command fences and atomic result receipts. Other executor families still need
+that receipt integration. Consumption alone is not proof of a graph effect.
 
-This file is the single source of truth for that primitive: the
-``StagedChange`` dataclass, the in-memory token store, and the small set of
-async helpers skills and endpoints use to mutate it.
-
-See ``.planning/agentive/staging-primitive.md`` for the architectural
-rationale and end-to-end flow.
-
-Scope notes
------------
-* Live token state is an in-memory dict, single-process, backed by the
-  write-through :mod:`app.agentive.staging_store`. Open, uncommitted batches
-  live in the runtime ``_open_batches`` map and have durable snapshots in
-  ``staging_store``; pending and blessed changes also persist and are
-  reloaded after a process restart. Terminal states are removed from the
-  store.
-* All mutating helpers are awaited and serialized through one asyncio.Lock
-  so concurrent turns from the same user can't race the state machine.
-* No business logic lives here — staging only knows about tokens, kinds,
-  and opaque payload dicts. The skill that consumed the token is what
-  actually writes to Integral.
+The worker cache (_tokens and _open_batches) is hydrated from staging_store.
+Its asyncio lock is a convenience, not distributed execution ownership. JSON retains the explicit single-process fallback.
+Expired native approvals are reconciled against current execution evidence
+before any terminal closure or removal. See the dated hardening execution
+report for coverage and remaining recovery boundaries.
 """
 
 from __future__ import annotations
@@ -179,6 +164,11 @@ class StagedChange:
     # Decision channel is persisted with the pending record so terminal audit
     # events can distinguish explicit UI approval from conversation approval.
     decision_source: Optional[str] = None
+    # Private migration discriminator. Older blessed proposals may have
+    # unrecorded effects; their absence of a new receipt is not replay proof.
+    execution_contract_version: str = ""
+    # Private server provenance; never emitted by to_dict or accepted in payload.
+    origin_proof: Optional[Dict[str, Any]] = None
 
     def is_expired(self, *, now: Optional[datetime] = None) -> bool:
         """Return True when ``expires_at`` is at or before ``now``."""
@@ -318,6 +308,14 @@ def _sweep_expired_locked() -> None:
             drop.append(tok)
             continue
         if sc.state in ("pending", "blessed") and sc.is_expired(now=now):
+            if _durable_decisions_available():
+                # This lock protects only a worker cache. Resolve shared expiry
+                # after releasing it, without publishing a guessed terminal state.
+                if not any(item.token == tok for item in _expired_awaiting_closure):
+                    candidate = copy.copy(sc)
+                    candidate.state = "expired"
+                    _expired_awaiting_closure.append(candidate)
+                continue
             sc.state = "expired"
             sc.resolved_at = now
             # Queued for BOTH the decision ledger and a conversation closure
@@ -740,6 +738,8 @@ async def create_staged_change(
 
     now = _now()
     idem = str((payload or {}).get("idempotency_key") or "").strip() or None
+    from app.agentive.services.proposal_origin import current_proposal_origin
+
     sc = StagedChange(
         token=_new_token(),
         user_id=user_id,
@@ -754,6 +754,8 @@ async def create_staged_change(
         interaction_id=interaction_id,
         workspace_id=minted_workspace_id,
         idempotency_key=idem,
+        execution_contract_version="durable-staging-v1",
+        origin_proof=current_proposal_origin(user_id, minted_workspace_id),
     )
 
     async with _lock:
@@ -792,7 +794,7 @@ async def create_staged_change(
     await _flush_stale_revocations()
     # Write-through to the durable store so a restart doesn't orphan this
     # (still-actionable) card. Outside the lock — one insert, best-effort.
-    await staging_store.persist(sc)
+    await staging_store.persist(sc, allow_create=True)
 
     logger.info(
         "staging.created token=%s kind=%s user=%s autonomy=%s",
@@ -1279,6 +1281,45 @@ async def _push_state_and_record_closure(sc: StagedChange) -> None:
     All three are best-effort and isolated — a failure in one must not
     prevent the others from firing.
     """
+    if _durable_decisions_available() and sc.state in {
+        "consumed",
+        "revoked",
+        "expired",
+    }:
+        from app.agentive.services.staging_decision_store import (
+            transition_staged_decision,
+        )
+
+        try:
+            fresh = await transition_staged_decision(
+                token=sc.token,
+                user_id=sc.user_id,
+                target=sc.state,
+                expected_kind=sc.kind,
+                terminal_snapshot=sc,
+            )
+        except StagingError as exc:
+            if exc.code != f"already_{sc.state}":
+                # A stale expiry/rejection must not publish closure or delete
+                # another worker's current approval.
+                logger.debug("staging closure refused: %s", exc.code)
+                fresh = await staging_store.load_current(sc.token)
+                if fresh is not None:
+                    await _cache_durable_decision(fresh)
+                return
+            # The matching shared terminal marker also resolves this worker's
+            # stale cache when another worker already performed cleanup.
+            marker = await staging_store.load_decision_state(sc.token, sc.user_id)
+            if (
+                marker is None
+                or marker["state"] != sc.state
+                or marker["kind"] != sc.kind
+            ):
+                return
+            sc.resolved_at = datetime.fromisoformat(marker["resolved_at"])
+            sc = await _cache_durable_decision(sc)
+        else:
+            sc = await _cache_durable_decision(fresh)
     await _push_state_event(sc)
     if sc.state in ("consumed", "revoked", "expired"):
         # Record the decision BEFORE the row goes (ADR-007). What the person
@@ -1295,6 +1336,31 @@ async def _push_state_and_record_closure(sc: StagedChange) -> None:
         # store, which only holds still-actionable pending/blessed changes).
         await staging_store.remove(sc.token)
         await _persist_terminal_state_in_transcript(sc)
+
+
+def _durable_decisions_available() -> bool:
+    from app.services.app_operations.transaction_scope import (
+        graph_transaction_available,
+    )
+
+    return graph_transaction_available()
+
+
+async def _cache_durable_decision(sc: StagedChange) -> StagedChange:
+    from dataclasses import fields
+
+    async with _lock:
+        existing = _tokens.get(sc.token)
+        if existing is None:
+            _tokens[sc.token] = sc
+            return sc
+        for field in fields(sc):
+            if field.name not in {"executing", "execute_started_at"}:
+                setattr(existing, field.name, getattr(sc, field.name))
+        if sc.state in {"consumed", "revoked", "expired"}:
+            existing.executing = False
+            existing.execute_started_at = None
+        return existing
 
 
 async def bless_token(
@@ -1315,6 +1381,20 @@ async def bless_token(
             "Integral V1 can approve only the specific proposed change. "
             "Session-wide auto-approval is not enabled.",
         )
+    if _durable_decisions_available():
+        from app.agentive.services.staging_decision_store import (
+            transition_staged_decision,
+        )
+
+        fresh = await transition_staged_decision(
+            token=token,
+            user_id=user_id,
+            target="blessed",
+            decision_source=decision_source,
+        )
+        sc = await _cache_durable_decision(fresh)
+        await _push_state_event(sc)
+        return sc
     async with _lock:
         _sweep_expired_locked()
         sc = await _get_or_load_locked(token)
@@ -1330,6 +1410,7 @@ async def bless_token(
                 f"Token is in terminal state {sc.state!r}",
             )
         sc.state = "blessed"
+        sc.execution_contract_version = "durable-staging-v1"
         sc.decision_source = decision_source
         sc.blessed_at = _now()
         sc.resolved_at = sc.blessed_at
@@ -1454,18 +1535,39 @@ async def revoke_token(
     ones that haven't yet been consumed (this is the "undo" path for
     auto-approved changes).
     """
-    # Linked durable WorkApproval fails closed with the staging revoke.
-    try:
-        from app.agentive.services.staging_apply import (
-            _maybe_decide_linked_work_approval,
+
+    async def reject_linked_approval() -> None:
+        # Linked state follows a successful rejection. A rejected revoke must
+        # never mark an already-applied command's WorkApproval as rejected.
+        try:
+            from app.agentive.services.staging_apply import (
+                _maybe_decide_linked_work_approval,
+            )
+
+            await _maybe_decide_linked_work_approval(
+                token=token,
+                user_id=user_id,
+                decision="rejected",
+                reason="staging_revoked",
+            )
+        except Exception:  # noqa: BLE001 — linked projection is best effort
+            logger.warning("linked approval rejection failed", exc_info=True)
+
+    if _durable_decisions_available():
+        from app.agentive.services.staging_decision_store import (
+            transition_staged_decision,
         )
 
-        await _maybe_decide_linked_work_approval(
-            token=token, user_id=user_id, decision="rejected", reason="staging_revoked"
+        fresh = await transition_staged_decision(
+            token=token,
+            user_id=user_id,
+            target="revoked",
+            decision_source=decision_source,
         )
-    except Exception:  # noqa: BLE001 — never block revoke on approval wiring
-        pass
-
+        sc = await _cache_durable_decision(fresh)
+        await reject_linked_approval()
+        await _push_state_and_record_closure(sc)
+        return sc
     async with _lock:
         _sweep_expired_locked()
         sc = await _get_or_load_locked(token)
@@ -1481,6 +1583,7 @@ async def revoke_token(
         sc.state = "revoked"
         sc.decision_source = decision_source
         sc.resolved_at = _now()
+    await reject_linked_approval()
     await _flush_decision_ledger()
     await _flush_expiry_closures()
     await _push_state_and_record_closure(sc)
@@ -1501,6 +1604,17 @@ async def consume_token(
     This is the structural enforcement point for the staging primitive.
     Skills' ``execute_X`` cannot succeed without a valid blessed token.
     """
+    if _durable_decisions_available():
+        from app.agentive.services.staging_decision_store import (
+            transition_staged_decision,
+        )
+
+        fresh = await transition_staged_decision(
+            token=token, user_id=user_id, target="consumed", expected_kind=expected_kind
+        )
+        sc = await _cache_durable_decision(fresh)
+        await _push_state_and_record_closure(sc)
+        return dict(sc.payload)
     try:
         async with _lock:
             _sweep_expired_locked()
@@ -1580,6 +1694,16 @@ async def list_pending_tokens(
     """
     if not session_id:
         return []
+    if _durable_decisions_available():
+        items = await get_pending_for_user(user_id)
+        return sorted(
+            (
+                item
+                for item in items
+                if item.session_id == session_id and item.state == "pending"
+            ),
+            key=lambda item: item.created_at,
+        )
     async with _lock:
         _sweep_expired_locked()
         items = [
@@ -1607,6 +1731,17 @@ async def list_unresolved_for_session(
     """
     if not session_id:
         return []
+    if _durable_decisions_available():
+        items = await get_pending_for_user(user_id)
+        return sorted(
+            (
+                item
+                for item in items
+                if item.session_id == session_id
+                and item.state in {"pending", "blessed"}
+            ),
+            key=lambda item: item.created_at,
+        )
     async with _lock:
         _sweep_expired_locked()
         items = [
@@ -1633,6 +1768,12 @@ async def get_pending_for_user(user_id: str) -> List[StagedChange]:
     (best-effort) — the FE inbox then re-renders the cards the user staged
     before the restart instead of showing nothing.
     """
+    if _durable_decisions_available():
+        # Native rows are authoritative, including terminal transitions made
+        # by another worker. Do not merge stale cache-only approvals into them.
+        items = await staging_store.load_pending_for_user(user_id)
+        current = [await _cache_durable_decision(item) for item in items]
+        return sorted(current, key=lambda item: item.created_at, reverse=True)
     async with _lock:
         for sc in await staging_store.load_pending_for_user(user_id):
             if sc.token not in _tokens:
@@ -1658,6 +1799,29 @@ async def get_token(token: str) -> Optional[StagedChange]:
     miss so a token that outlived a restart is still visible. Used for
     debugging / endpoints that surface state.
     """
+    if _durable_decisions_available():
+        fresh = await staging_store.load_current(token)
+        if fresh is not None:
+            sc = await _cache_durable_decision(fresh)
+            if sc.state in {"pending", "blessed"} and sc.is_expired():
+                candidate = copy.copy(sc)
+                candidate.state = "expired"
+                await _push_state_and_record_closure(candidate)
+                async with _lock:
+                    return _tokens.get(token)
+            return sc
+        async with _lock:
+            cached = _tokens.get(token)
+        if cached is not None:
+            marker = await staging_store.load_decision_state(token, cached.user_id)
+            if marker is not None:
+                resolved = copy.copy(cached)
+                resolved.state = marker["state"]
+                resolved.resolved_at = datetime.fromisoformat(marker["resolved_at"])
+                return await _cache_durable_decision(resolved)
+            async with _lock:
+                _tokens.pop(token, None)
+        return None
     async with _lock:
         _sweep_expired_locked()
         sc = await _get_or_load_locked(token)
