@@ -62,7 +62,10 @@ async def test_observation_preserves_original_identity_without_alias_backfill(
     async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
         before = await save(postgres_raw_db, principal=original)
         result = await observe(postgres_raw_db, aliases=("linked-profile",))
-        assert asdict(result) == {"identity": asdict(identity(original))}
+        assert asdict(result) == {
+            "identity": asdict(identity(original)),
+            "original_decision_fingerprint": None,
+        }
         assert result.reference() == {
             "id": before["id"],
             "status": "succeeded",
@@ -148,9 +151,34 @@ async def test_recorded_completion_does_not_deserialize_private_output(postgres_
         row = await save(postgres_raw_db, result_json="not-parseable-private-result")
         result = await observe(postgres_raw_db)
         assert result.reference()["id"] == row["id"]
-        assert set(asdict(result)) == {"identity"}
+        assert set(asdict(result)) == {
+            "identity",
+            "original_decision_fingerprint",
+        }
+        assert result.original_decision_fingerprint is None
         assert "not-parseable-private-result" not in str(result.reference())
         assert "private-test-key" not in str(result.reference())
+        assert await postgres_raw_db.get("object", row["id"]) == row
+
+
+async def test_private_decision_proof_never_enters_the_public_receipt(postgres_raw_db):
+    async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+        fingerprint = "ad" * 32
+        row = await save(
+            postgres_raw_db,
+            decision_intent_fingerprint=fingerprint,
+            result_json="not-parseable-private-result",
+        )
+        result = await observe(postgres_raw_db)
+        assert result.original_decision_fingerprint == fingerprint
+        assert result.reference() == {
+            "id": row["id"],
+            "status": "succeeded",
+            "replayed": True,
+        }
+        assert fingerprint not in str(result.reference())
+        assert "private-test-key" not in str(result.reference())
+        assert not hasattr(result, "result")
         assert await postgres_raw_db.get("object", row["id"]) == row
 
 

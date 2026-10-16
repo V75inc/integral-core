@@ -172,14 +172,14 @@ async def test_post_commit_notification_failure_recovers_original_without_handle
             unregister_app_operations(ws.id, app.id)
 
 
-@pytest.mark.parametrize("legacy", [False, True])
-async def test_other_proposal_or_legacy_receipt_is_not_current_approval_proof(
-    postgres_raw_db, monkeypatch, legacy
+@pytest.mark.parametrize("earlier_http", [False, True])
+async def test_new_approval_acknowledges_prior_completion_without_replacing_its_proof(
+    postgres_raw_db, monkeypatch, earlier_http
 ):
     async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
         actor, ws, app, sc, calls = await proposal(monkeypatch)
         try:
-            if legacy:
+            if earlier_http:
                 first = await dispatch.invoke_app_operation(
                     user_id=actor.id,
                     workspace_id=ws.id,
@@ -208,13 +208,19 @@ async def test_other_proposal_or_legacy_receipt_is_not_current_approval_proof(
                 assert current.token != sc.token
             await staging.bless_token(user_id=actor.id, token=current.token)
             before = await postgres_raw_db.get("object", receipt_id)
-            with pytest.raises(
-                staging.StagingError, match="decision proof|reviewed proposal"
-            ):
-                await staging_apply.execute_blessed_change(
-                    user_id=actor.id, token=current.token
-                )
-            assert (await staging.get_token(current.token)).state == "blessed"
+            result = await staging_apply.execute_blessed_change(
+                user_id=actor.id, token=current.token
+            )
+            assert result["consumed"] is True, result
+            assert result["execute_result"]["already_completed"] is True
+            assert result["execute_result"]["operation_receipt"]["id"] == receipt_id
+            assert result["execute_result"]["operation_receipt"]["replayed"] is True
+            marker = await postgres_raw_db.get(
+                "object", staging_store._decision_record_id(current.token)
+            )
+            assert marker["context"]["intent_fingerprint"] != before["context"].get(
+                "decision_intent_fingerprint"
+            )
             assert calls == ["effect"]
             assert await postgres_raw_db.get("object", receipt_id) == before
         finally:

@@ -45,6 +45,15 @@ async def test_build_tool_selection_persists_scoped_approval(monkeypatch):
     )
     writes = []
 
+    class Context:
+        async def find_edges_between(self, *args, **kwargs):
+            return [object()]
+
+    async def get_context():
+        return Context()
+
+    thread.get_context = get_context
+
     async def get_thread(_id):
         return thread
 
