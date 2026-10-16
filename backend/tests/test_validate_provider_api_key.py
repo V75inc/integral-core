@@ -114,3 +114,37 @@ async def test_local_ollama_rejects_api_keys():
     ok, msg = await validate_provider_api_key("ollama_local", "not-a-local-key")
     assert ok is False
     assert msg == "Local Ollama does not use an API key"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "key,result",
+    [
+        ("synthetic-custom-key", (True, "validated")),
+        ("", (True, "validated (no API key)")),
+        ("", (False, "endpoint requires an API key")),
+    ],
+)
+async def test_custom_validation_uses_guarded_probe(key, result):
+    """Custom validation delegates the canonical endpoint to its guarded transport."""
+    with patch(
+        "app.services.custom_model_transport.probe_custom_model_endpoint",
+        new=AsyncMock(return_value=result),
+    ) as probe:
+        assert (
+            await validate_provider_api_key(
+                "custom_openai", key, "https://llm.example.com/v1/"
+            )
+            == result
+        )
+    probe.assert_awaited_once_with("https://llm.example.com/v1", key)
+
+
+@pytest.mark.asyncio
+async def test_custom_openai_requires_base_url():
+    """Custom validation without a base URL is rejected before any probe."""
+    ok, msg = await validate_provider_api_key(
+        "custom_openai", "sk-custom-key-1234", None
+    )
+    assert ok is False
+    assert "base_url" in msg

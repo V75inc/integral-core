@@ -8,7 +8,10 @@ import os
 from typing import Any
 
 from app.agentive.harness.contracts import ResolvedModelRoute
-from app.services.model_provider_endpoints import OLLAMA_CLOUD_API_BASE
+from app.services.model_provider_endpoints import (
+    OLLAMA_CLOUD_API_BASE,
+    normalize_custom_base_url,
+)
 
 
 async def resolve_native_model_route(
@@ -153,6 +156,15 @@ async def _resolve_native_model_route(
             ollama_num_ctx, ollama_num_predict = _local_ollama_generation_settings()
             ollama_think = _local_ollama_think_setting()
             ollama_clear_thinking = _local_ollama_clear_thinking()
+        elif provider != "ollama":
+            # Deployment-level custom OpenAI-compatible endpoint. Pair with
+            # INTEGRAL_NATIVE_MODEL=openai/<model>; auth (when the endpoint
+            # needs it) comes from the route's standard provider env key, or
+            # any placeholder value for unauthenticated servers. Ollama routes
+            # stay governed by OLLAMA_API_BASE / OLLAMA_CLOUD_API_BASE.
+            raw_base = os.getenv("INTEGRAL_NATIVE_API_BASE", "").strip()
+            if raw_base:
+                api_base = normalize_custom_base_url(raw_base)
         from app.services.host_hooks import assert_platform_quota
 
         # Funding follows the selected credential plane, not the transport.
@@ -212,11 +224,18 @@ async def _resolve_native_model_route(
             resolved_provider = "ollama_chat"
             model = f"ollama_chat/{model.split('/', 1)[1]}"
             api_base = OLLAMA_CLOUD_API_BASE
+        else:
+            # Custom OpenAI-compatible BYOK carries its endpoint in the
+            # override; LiteLLM uses it as ``api_base`` with the openai route.
+            raw_base = override.get("api_base")
+            if raw_base is not None:
+                api_base = normalize_custom_base_url(str(raw_base))
     return ResolvedModelRoute(
         provider=resolved_provider,
         model=model,
         api_base=api_base,
         api_key=api_key if api_key else None,
+        keyless_endpoint=override.get("keyless_endpoint") is True,
         ollama_num_ctx=ollama_num_ctx,
         ollama_num_predict=ollama_num_predict,
         ollama_think=ollama_think,

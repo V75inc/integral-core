@@ -519,6 +519,16 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
             import litellm
 
             completion = litellm.acompletion
+        if (
+            self._route.provider == "openai"
+            and self._route.credential_source == "workspace_byok"
+            and self._route.api_base is not None
+        ):
+            from app.services.custom_model_transport import custom_endpoint_completion
+
+            return await custom_endpoint_completion(
+                completion, kwargs, keyless_endpoint=self._route.keyless_endpoint
+            )
         return await completion(**kwargs)
 
     async def _observe(
