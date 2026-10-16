@@ -17,6 +17,7 @@ from app.services.model_credentials import (
     get_active_credential_for_user,
     touch_credential_last_used,
 )
+from app.services.model_provider_endpoints import KEYLESS_PLACEHOLDER_API_KEY
 from app.services.workspace_permissions import get_workspace_owner_user_id
 
 logger = logging.getLogger(__name__)
@@ -28,12 +29,14 @@ class ModelKeyRequiredError(Exception):
 
 # Provider slugs Integral stores on a credential. Each is also a LiteLLM
 # route prefix, so composing ``<slug>/<model>`` yields a valid LiteLLM model id.
+# ``custom_openai`` routes as ``openai/`` with a per-credential ``api_base``.
 _LITELLM_PROVIDER_ROUTES = {
     "openai": "openai",
     "anthropic": "anthropic",
     "openrouter": "openrouter",
     "ollama": "ollama",
     "ollama_local": "ollama",
+    "custom_openai": "openai",
 }
 
 
@@ -68,9 +71,17 @@ def _credential_funds_byok(record: UserModelCredential) -> bool:
 
     Matches ``resolve_native_model_override``: keyless ``ollama_local`` is a
     valid local BYOK configuration; other providers need a decryptable key.
+    A keyless ``custom_openai`` credential funds execution through its stored
+    endpoint -- the dispatch carries the inert placeholder key below.
     """
     default_provider = (getattr(record, "provider", None) or "").strip()
     if default_provider == "ollama_local":
+        return True
+    if (
+        default_provider == "custom_openai"
+        and not record.api_key_enc
+        and (getattr(record, "base_url", "") or "").strip()
+    ):
         return True
     return bool(decrypt_credential_api_key(record))
 
@@ -161,6 +172,15 @@ async def resolve_native_model_override(
 
     default_provider = record.provider
     default_key = decrypt_credential_api_key(record)
+    if (
+        not default_key
+        and not record.api_key_enc
+        and (default_provider or "").strip().lower() == "custom_openai"
+    ):
+        # Keyless custom endpoint: carry the inert placeholder so LiteLLM
+        # never falls back to an unrelated provider env key. See
+        # KEYLESS_PLACEHOLDER_API_KEY.
+        default_key = KEYLESS_PLACEHOLDER_API_KEY
     if not _credential_funds_byok(record):
         if mode == "byo_strict":
             raise ModelKeyRequiredError("stored credential could not be decrypted")
@@ -172,22 +192,29 @@ async def resolve_native_model_override(
     }
     if default_key:
         override["api_key"] = default_key
+    if (default_provider or "").strip().lower() == "custom_openai":
+        custom_base = (getattr(record, "base_url", "") or "").strip().rstrip("/")
+        if not custom_base:
+            logger.warning("custom_openai credential missing base_url")
+            return None
+        override["api_base"] = custom_base
+        override["keyless_endpoint"] = not bool(record.api_key_enc)
 
     if include_credential_identity:
         # Identify this stored generation, never the plaintext key or its
         # display fingerprint. Rotation/re-encryption conservatively changes
         # attribution; last-used telemetry does not. Callers may omit identity
         # when they only need routing.
-        identity = json.dumps(
-            [
-                record.id,
-                record.provider,
-                record.model,
-                record.api_key_enc,
-                record.updated_at,
-            ],
-            separators=(",", ":"),
-        )
+        identity_parts = [
+            record.id,
+            record.provider,
+            record.model,
+            record.api_key_enc,
+            record.updated_at,
+        ]
+        if (default_provider or "").strip().lower() == "custom_openai":
+            identity_parts.append(override["api_base"])
+        identity = json.dumps(identity_parts, separators=(",", ":"))
         override["credential_ref"] = (
             "user-model-generation:" + hashlib.sha256(identity.encode()).hexdigest()
         )

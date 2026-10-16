@@ -187,3 +187,175 @@ async def test_dedupe_user_model_credentials_collapses_duplicates(enc_key, test_
             duplicate = UserModelCredential(user_id=auth_user_id)
             with pytest.raises(asyncpg.UniqueViolationError):
                 await context.database.save("object", await duplicate.export())
+
+
+@pytest.mark.asyncio
+async def test_keyless_custom_credential_saves_without_secret(enc_key, test_user):
+    """Keyless custom endpoints record base URL with no key material."""
+    from app.services.model_credentials import (
+        decrypt_credential_api_key,
+        upsert_user_credential,
+    )
+
+    auth_user_id = getattr(test_user, "user_id", None) or test_user.id
+    with patch(
+        "app.services.model_credentials.validate_provider_api_key",
+        new=AsyncMock(return_value=(True, "validated (no API key)")),
+    ) as validate:
+        record = await upsert_user_credential(
+            user_id=auth_user_id,
+            provider="custom_openai",
+            model="my-model",
+            base_url="https://llm.example.com/v1/",
+        )
+
+    assert record.provider == "custom_openai"
+    assert record.base_url == "https://llm.example.com/v1"
+    assert record.api_key_enc == ""
+    assert record.key_fingerprint == ""
+    assert decrypt_credential_api_key(record) == ""
+    validate.assert_awaited_once_with("custom_openai", "", "https://llm.example.com/v1")
+
+
+@pytest.mark.asyncio
+async def test_keyless_custom_does_not_require_encryption_key(test_user, monkeypatch):
+    """No secret is stored, so keyless custom setup works without vault config."""
+    from app.services.model_credentials import upsert_user_credential
+
+    monkeypatch.setattr(
+        "app.services.model_credentials.settings.INTEGRAL_AGENT_KEY_MODE", "hybrid"
+    )
+    monkeypatch.setattr(
+        "app.services.model_credentials.encryption_available", lambda: False
+    )
+    monkeypatch.setattr(
+        "app.services.model_credentials.encryption_unavailable_reason",
+        lambda: "INTEGRAL_CREDENTIAL_ENC_KEY is not set",
+    )
+    auth_user_id = getattr(test_user, "user_id", None) or test_user.id
+    with patch(
+        "app.services.model_credentials.validate_provider_api_key",
+        new=AsyncMock(return_value=(True, "validated (no API key)")),
+    ):
+        record = await upsert_user_credential(
+            user_id=auth_user_id,
+            provider="custom_openai",
+            model="my-model",
+            base_url="https://llm.example.com/v1",
+        )
+
+    assert record.api_key_enc == ""
+    assert record.key_fingerprint == ""
+    assert record.base_url == "https://llm.example.com/v1"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "original_provider,original_base",
+    [
+        ("openai", None),
+        ("custom_openai", "https://first.example/v1"),
+    ],
+)
+async def test_endpoint_change_never_reuses_saved_secret(
+    enc_key, test_user, original_provider, original_base
+):
+    """Omitting a new key may retain it only at the exact original endpoint."""
+    uid = getattr(test_user, "user_id", None) or test_user.id
+    with patch(
+        "app.services.model_credentials.validate_provider_api_key",
+        new=AsyncMock(return_value=(True, "validated")),
+    ) as probe:
+        original = await upsert_user_credential(
+            user_id=uid,
+            provider=original_provider,
+            model="model",
+            api_key="synthetic-original-key",
+            base_url=original_base,
+        )
+        encrypted = original.api_key_enc
+        probe.reset_mock()
+        with pytest.raises(ValueError, match="Provider or endpoint changed"):
+            await upsert_user_credential(
+                user_id=uid,
+                provider="custom_openai",
+                model="model",
+                base_url="https://second.example/v1",
+            )
+        probe.assert_not_awaited()
+        assert (await get_credential_for_user(uid)).api_key_enc == encrypted
+        cleared = await upsert_user_credential(
+            user_id=uid,
+            provider="custom_openai",
+            model="model",
+            base_url="https://second.example/v1",
+            clear_api_key=True,
+        )
+        probe.assert_awaited_once_with("custom_openai", "", "https://second.example/v1")
+        assert cleared.api_key_enc == ""
+
+
+@pytest.mark.asyncio
+async def test_same_custom_endpoint_retains_key_and_explicit_clear_removes_it(
+    enc_key, test_user
+):
+    """Canonical endpoint equality permits retention; clear remains explicit."""
+    uid = getattr(test_user, "user_id", None) or test_user.id
+    with patch(
+        "app.services.model_credentials.validate_provider_api_key",
+        new=AsyncMock(return_value=(True, "validated")),
+    ) as probe:
+        await upsert_user_credential(
+            user_id=uid,
+            provider="custom_openai",
+            model="model",
+            api_key="synthetic-original-key",
+            base_url="https://first.example/v1",
+        )
+        probe.reset_mock()
+        await upsert_user_credential(
+            user_id=uid,
+            provider="custom_openai",
+            model="next-model",
+            base_url="https://FIRST.example:443/v1/",
+        )
+        probe.assert_awaited_once_with(
+            "custom_openai", "synthetic-original-key", "https://first.example/v1"
+        )
+        probe.reset_mock()
+        result = await upsert_user_credential(
+            user_id=uid,
+            provider="custom_openai",
+            model="model",
+            base_url="https://first.example/v1",
+            clear_api_key=True,
+        )
+        assert result.api_key_enc == "" and result.key_fingerprint == ""
+        probe.assert_awaited_once_with("custom_openai", "", "https://first.example/v1")
+
+
+@pytest.mark.asyncio
+async def test_replacing_secret_on_new_endpoint_only_sends_new_key(enc_key, test_user):
+    """A deliberate new endpoint/key pair must never send the retained key."""
+    uid = getattr(test_user, "user_id", None) or test_user.id
+    with patch(
+        "app.services.model_credentials.validate_provider_api_key",
+        new=AsyncMock(return_value=(True, "validated")),
+    ) as probe:
+        await upsert_user_credential(
+            user_id=uid,
+            provider="openai",
+            model="model",
+            api_key="synthetic-original-key",
+        )
+        probe.reset_mock()
+        await upsert_user_credential(
+            user_id=uid,
+            provider="custom_openai",
+            model="model",
+            base_url="https://second.example/v1",
+            api_key="synthetic-new-key",
+        )
+        probe.assert_awaited_once_with(
+            "custom_openai", "synthetic-new-key", "https://second.example/v1"
+        )

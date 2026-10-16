@@ -342,13 +342,15 @@ class DnsPinScope:
     def __init__(self) -> None:
         self._pinned: List[Tuple[str, List[Tuple]]] = []
 
-    def pin_url(self, url: str) -> None:
+    def pin_url(self, url: str, *, required: bool = False) -> None:
         """Validate and pin the host of ``url`` (no-op when unresolvable)."""
         host = (urlparse(str(url or "")).hostname or "").lower()
         if not host or any(h == host for h, _ in self._pinned):
             return
         records = _resolve_pinned_records(host)
         if not records:
+            if required:
+                raise BadRequestError(message="Could not pin outbound URL host")
             return
         _install_pinning_resolver()
         with _pin_lock:

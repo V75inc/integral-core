@@ -113,6 +113,7 @@ class ResolvedModelRoute(BaseModel):
     model: str
     api_base: str | None = None
     api_key: SecretStr | None = None
+    keyless_endpoint: bool = Field(default=False, exclude=True)
     ollama_num_ctx: int | None = Field(default=None, ge=512, le=131072)
     ollama_num_predict: int | None = Field(default=None, ge=1, le=131072)
     ollama_think: str | bool | None = None
@@ -143,6 +144,14 @@ class ResolvedModelRoute(BaseModel):
 
     @model_validator(mode="after")
     def _validate_key_source(self) -> "ResolvedModelRoute":
+        if self.keyless_endpoint and not (
+            self.provider == "openai"
+            and self.credential_source == "workspace_byok"
+            and self.api_base
+        ):
+            raise ValueError(
+                "keyless endpoints require a custom workspace OpenAI route"
+            )
         if (
             self.ollama_num_ctx is not None
             or self.ollama_num_predict is not None
