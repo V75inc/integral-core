@@ -13,9 +13,9 @@ be read as the present checkout state.
 | R1: shared approval ownership | Native task/fence claims, current proposal checks and integrated canonical resource commands | Complete all 69 registered kinds, including the 43 remaining classified kinds, the separately integrated App-operation path and conditional batch. Preserve immutable original identity/workspace/review and current approval state. Independent workers, stale owners, cancellation, expiry, revocation and restart must not create a second effect. |
 | R2: atomic effects and recoverable completion | Canonical graph/result/event receipts, recorded-result observation and current disclosure controls | The local staged App-operation path now shares its canonical receipt and exact original review proof; preserve policy Approval's existing transaction owner and complete external handler contracts. Finish remaining local families, per-child mixed batches, external dispatch intent/readback and unknown-outcome reconciliation. Move external I/O out of held authority transactions. |
 | R3: stream release authorization | Fresh per-connection/frame and identity/workspace admission | Complete the multi-connection/revocation-ordering matrix on final source. Document the exact transport boundary; bytes already handed to transport cannot be recalled. Include sandboxed extension reply scope/frame replacement. |
-| R4: request-bound history | Validated selected workspace, canonical containment and live per-resource gates | Final same-principal/two-workspace, revoked/invalid scope and HTTP/native consumer qualification. Personal/account events require their explicit Personal-workspace boundary. |
+| R4: request-bound history | Validated selected workspace, canonical containment and live per-resource gates; HTTP and native dispatcher workspace/Personal boundaries qualified | Reconcile these consumer checks with the final source and aggregate authorization/system gates. This is not a general instantaneous-revocation guarantee. |
 | R5: bounded history | Database timestamp/id keysets, candidate budget, opaque denied-row cursors and unavailable errors | Final populated PostgreSQL query/index plan and latency probe, both directions/ties/deleted boundaries, withheld windows and honest continuation. This is not a production latency SLA. |
-| R6: execution scope tool | Dedicated dispatcher-bound scope service and matching tool manifest | Final bound-versus-saved preference, selective creation flags and absent/revoked binding tests; generated capability map must match. |
+| R6: execution scope tool | Dedicated dispatcher-bound scope service and matching tool manifest; focused execution-scope qualification passed | Reconcile the qualified tool/service/capability-map selection with final source and aggregate system gates. |
 | Result and event privacy | Current nested reference checks, whole-output withholding, parent containment and unsupported object refusal | Complete declared-reference, deleted-history audience and safe author/type/model/public-identity contracts. Conservative withholding prevents exposure but does not prove usable metadata projection. |
 | Durable chat and restore | Native durable turns, interrupted-run recovery and disposable encrypted checkpoint/credential restore evidence | Complete attachment bytes, session invalidation, migration, independent-process restore and ordinary-owner/member recovery journeys on final source. A backup manifest alone is insufficient. |
 | Deployment architecture | Trusted-proxy client identity and per-process admission limits | Shared admission limits across replicas and explicit scoped directory/privacy policy. Do not silently treat multiplied process limits as a shared guarantee. |
@@ -87,6 +87,47 @@ unqualified index change was reverted. The timings and plan are from one
 disposable fixture shape, not a stable latency claim. Query/index expression
 alignment, bounded work under a much larger workspace history and the direction
 asymmetry need investigation before R5 can close.
+
+## 2026-10-16 native audit consumer and filter repair
+
+The native `integral_query_audit_log` contract advertised `resource_id` and
+`resource_type`, but its route binding discarded both. A PostgreSQL regression
+against the actual dispatcher reproduced a Track-only query returning the
+neighboring Entry event. The binding now forwards these filters together with
+actor kind, exact event action, cursor and limit. The model's published schema
+now exposes the supported confidential continuation instead of the previously
+advertised, unimplemented `since` argument. An undocumented `scope` argument is
+removed from the binding; the authenticated execution workspace remains the
+invoker's separate scope input.
+
+The native PostgreSQL selection passed **8/8**, with no skips or errors. Each
+filter is checked independently through the actual dispatcher, route, logger,
+policy and database. The same principal owns two workspaces: queries and
+continuation remain bound to the selected one, while a continued query in the
+other is refused. Revoked and nonexistent bindings return errors without event
+data. Account events appear in the caller's Personal workspace and are withheld
+under an organization workspace. The catalogue schema is checked for the
+model-visible filters and cursor. History endpoint documentation now describes
+the actual bounded reader and confidential continuation.
+
+The focused HTTP/history, manifest/reconciliation and capability-map selection
+passed **43/43**. All 16 staged substrate guards and the configured changed-file
+pre-commit checks passed, including pinned formatting, lint and backend typing.
+The generated capability map was regenerated and remained unchanged.
+`make verify-ci` also passed: **1,797 passed / 22 skipped**, with zero failures
+or errors. Skips retain their stated PostgreSQL, optional Atlas and slow-probe
+requirements; this smoke result does not replace those separate lanes or the
+full default backend suite.
+
+The separate index investigation confirmed that the pinned adapter compares
+string timestamp ranges using text extraction while its ordered companion uses
+JSONB extraction. Exact scalar workspace predicates improve selectivity but
+cause an unbounded top-N workspace sort in the populated fixture. Splitting
+timestamp and equal-timestamp/id branches still sorted 906 matching workspace
+rows for a 100-row page. Both experiments were reverted; no dependency or
+runtime index change is included here. R5 remains open and requires a qualified
+query/index alignment solution, rather than relaxing the plan assertion to
+accept the full-workspace sort.
 
 ## Rules for recording closure
 

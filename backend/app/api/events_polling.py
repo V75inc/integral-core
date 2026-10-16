@@ -2,8 +2,8 @@
 
 GET /api/events?since=<cursor>&scope=...&actor_kind=...&limit=N
 
-Cursor format: opaque base64-encoded {ts, id} (D-08 — direct reuse of
-app/services/pagination.py::encode_cursor / decode_cursor / build_paginated_response).
+New confidential continuation tokens bind the principal, selected workspace,
+filters and direction; current permissions are still checked on every read.
 
 Empty cursor = "from beginning of retention window" — the polling endpoint
 returns events in ASC ``(ts, id)`` order so cron-style agents (forward-stream
@@ -12,13 +12,13 @@ which sorts DESC.
 
 Per CONTEXT D-07: same per-event permission filter as audit-log + WS broadcast.
 Per CONTEXT D-08: page size capped at EVENT_FEED_PAGE_SIZE (default 100).
-Per CONTEXT D-13 / D-12: this is core infrastructure, available without
-AGENTIVE_ENABLED.
+This is always-available Core infrastructure.
 
 Storage shape: ChangeEvents live as ``DBLog`` rows with
 ``log_level="CHANGE_EVENT"`` in the logging database. Reads go through
-``ChangeEventLogger.find_all`` and are surfaced via the ``ChangeEventEnvelope``
-wire shape.
+bounded ``ChangeEventLogger.find_page`` windows and are surfaced via the
+``ChangeEventEnvelope`` wire shape. A continuation may advance through withheld
+events without revealing their identifiers or promising another visible result.
 """
 
 from __future__ import annotations

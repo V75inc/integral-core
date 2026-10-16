@@ -2397,8 +2397,14 @@ domains:
         summary: "Query change events scoped to resources the caller can read (actor, action, resource, before/after, time)."
         http: "GET /api/audit-log"
         policy_action: audit_log.read
-        params: { resource_type: {type: string, optional: true}, resource_id: {type: string, optional: true}, since: {type: string, optional: true}, limit: {type: integer, default: 100} }
-        returns: { events: list }
+        params:
+          resource_type: {type: string, optional: true}
+          resource_id: {type: string, optional: true}
+          actor_kind: {type: string, optional: true}
+          action: {type: string, optional: true, desc: "Exact change-event action, such as entry.update."}
+          cursor: {type: string, optional: true, desc: "Opaque next_cursor returned by a previous query with the same filters and bound workspace."}
+          limit: {type: integer, default: 100}
+        returns: { events: list, next_cursor: "string|null", has_more: bool, scan_complete: bool }
         privacy: "Filtered to the caller's permitted resources; not a global log reader (PC-3, PC-4)."
 
   # ---------------------------------------------------------------------------
