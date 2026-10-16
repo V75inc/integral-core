@@ -15,8 +15,8 @@ import pytest
 
 from app.agentive.tooling import bindings
 from app.api.attachments import _persist_uploaded_chat_file
-from app.models.edges import CONTAINS, HAS_ATTACHMENT
-from app.models.nodes import Attachment, Entry, Track
+from app.models.edges import CONTAINS, HAS_ATTACHMENT, IS_MEMBER_OF, IS_OF_TYPE, OWNS
+from app.models.nodes import App, Attachment, Entry, EntryType, Track, User, Workspace
 from app.services import chat_threads as chat_store
 from app.services.attachment_agent import attach_uploaded_file_to_entry
 
@@ -49,7 +49,37 @@ def _make_upload(content: bytes, filename: str, content_type: str):
     )
 
 
+async def _ensure_owner(user_id):
+    from jvspatial.api.auth.models import User as AuthUser
+
+    from app.services.app_graph import (
+        catalog_user,
+        catalog_workspace,
+        ensure_integral_app_graph,
+    )
+    from app.services.permissions import get_user_node
+
+    await ensure_integral_app_graph(include_library=False)
+    if await AuthUser.get(user_id) is None:
+        await AuthUser.create(
+            id=user_id, email=f"{user_id}@filing.example", password_hash="fixture"
+        )
+    profile = await get_user_node(user_id)
+    if profile is None:
+        profile = await User.create(user_id=user_id, display_name="Filing QA")
+        await catalog_user(profile)
+    workspace = await Workspace.get("ws1")
+    if workspace is None:
+        workspace = await Workspace.create(
+            id="ws1", name="Filing QA", kind="organization"
+        )
+        await catalog_workspace(workspace)
+    await profile.connect(workspace, edge=IS_MEMBER_OF, role="owner")
+    return profile, workspace
+
+
 async def _seed_chat_attachment(user_id: str):
+    await _ensure_owner(user_id)
     thread = await chat_store.create_thread(
         user_id=user_id, provider_id="integral_native", workspace_id="ws1"
     )
@@ -61,9 +91,29 @@ async def _seed_chat_attachment(user_id: str):
 
 
 async def _seed_entry():
-    track = await Track.create(title="Files", visibility="private")
-    entry = await Entry.create(title="Target entry", track_id=track.id)
+    from app.services.app_graph import (
+        catalog_app,
+        catalog_track,
+        ensure_track_attached_operational_model,
+    )
+
+    profile, workspace = await _ensure_owner("o.User.filing-owner")
+    app = await App.create(name="Filing QA", workspace_id=workspace.id)
+    await catalog_app(app)
+    await profile.connect(app, edge=OWNS)
+    track = await Track.create(
+        title="Files", visibility="private", workspace_id=workspace.id
+    )
+    await catalog_track(track)
+    await profile.connect(track, edge=OWNS)
+    await app.connect(track, edge=CONTAINS)
+    model = await ensure_track_attached_operational_model(track)
+    entry_type = (await model.nodes(edge=[CONTAINS], node=[EntryType], limit=1))[0]
+    entry = await Entry.create(
+        title="Target entry", track_id=track.id, type_id=entry_type.id
+    )
     await track.connect(entry, edge=CONTAINS)
+    await entry.connect(entry_type, edge=IS_OF_TYPE)
     return entry
 
 
@@ -73,12 +123,12 @@ async def test_attach_uploaded_file_wires_entry_edge(monkeypatch):
 
     monkeypatch.setattr(attachment_agent, "policy_evaluate", _async(_Allow()))
     emit_event = AsyncMock()
-    monkeypatch.setattr(attachment_agent, "emit_change_event", emit_event)
-    _thread, attachment_id = await _seed_chat_attachment("u1")
+    monkeypatch.setattr("app.services.change_event.emit_change_event", emit_event)
+    _thread, attachment_id = await _seed_chat_attachment("o.User.filing-owner")
     entry = await _seed_entry()
 
     result = await attach_uploaded_file_to_entry(
-        user_id="u1", attachment_id=attachment_id, entry_id=entry.id
+        user_id="o.User.filing-owner", attachment_id=attachment_id, entry_id=entry.id
     )
 
     assert "error" not in result
@@ -90,7 +140,7 @@ async def test_attach_uploaded_file_wires_entry_edge(monkeypatch):
         edge=[HAS_ATTACHMENT], node=["Attachment"], direction="out"
     )
     assert any(a.id == attachment_id for a in linked)
-    assert attachment_id in entry.attachment_ids
+    assert attachment_id in (await Entry.get(entry.id)).attachment_ids
 
     emit_event.assert_awaited_once()
     receipt = emit_event.await_args.kwargs
@@ -98,7 +148,7 @@ async def test_attach_uploaded_file_wires_entry_edge(monkeypatch):
     assert receipt["resource_type"] == "Entry"
     assert receipt["resource_id"] == entry.id
     assert receipt["before"] == {"attachment_ids": []}
-    assert receipt["after"] == {"attachment_ids": [attachment_id]}
+    assert receipt["after"] == {"attachment_ids": [attachment_id], "record_revision": 2}
     assert receipt["details"] == {
         "attachment_id": attachment_id,
         "attachment_owner_kind_before": "chat",
@@ -111,11 +161,11 @@ async def test_attach_uploaded_file_stays_reachable_from_thread(monkeypatch):
     from app.services import attachment_agent
 
     monkeypatch.setattr(attachment_agent, "policy_evaluate", _async(_Allow()))
-    thread, attachment_id = await _seed_chat_attachment("u1")
+    thread, attachment_id = await _seed_chat_attachment("o.User.filing-owner")
     entry = await _seed_entry()
 
     await attach_uploaded_file_to_entry(
-        user_id="u1", attachment_id=attachment_id, entry_id=entry.id
+        user_id="o.User.filing-owner", attachment_id=attachment_id, entry_id=entry.id
     )
 
     still_on_thread = await thread.nodes(
@@ -126,11 +176,11 @@ async def test_attach_uploaded_file_stays_reachable_from_thread(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_attach_uploaded_file_rejects_non_owner():
-    _thread, attachment_id = await _seed_chat_attachment("owner")
+    _thread, attachment_id = await _seed_chat_attachment("o.User.filing-other")
     entry = await _seed_entry()
 
     result = await attach_uploaded_file_to_entry(
-        user_id="someone-else", attachment_id=attachment_id, entry_id=entry.id
+        user_id="o.User.filing-stranger", attachment_id=attachment_id, entry_id=entry.id
     )
     assert result.get("error") is True
     assert result["error_code"] == "permission_denied"
@@ -141,14 +191,14 @@ async def test_attach_uploaded_file_rejects_already_filed(monkeypatch):
     from app.services import attachment_agent
 
     monkeypatch.setattr(attachment_agent, "policy_evaluate", _async(_Allow()))
-    _thread, attachment_id = await _seed_chat_attachment("u1")
+    _thread, attachment_id = await _seed_chat_attachment("o.User.filing-owner")
     entry = await _seed_entry()
     await attach_uploaded_file_to_entry(
-        user_id="u1", attachment_id=attachment_id, entry_id=entry.id
+        user_id="o.User.filing-owner", attachment_id=attachment_id, entry_id=entry.id
     )
 
     result = await attach_uploaded_file_to_entry(
-        user_id="u1", attachment_id=attachment_id, entry_id=entry.id
+        user_id="o.User.filing-owner", attachment_id=attachment_id, entry_id=entry.id
     )
     assert result.get("error") is True
     assert result["error_code"] == "not_chat_owned"
@@ -161,18 +211,18 @@ async def test_rollback_attachment_filing_preserves_chat_upload(monkeypatch):
 
     monkeypatch.setattr(attachment_agent, "policy_evaluate", _async(_Allow()))
     monkeypatch.setattr("app.services.policy_engine.evaluate", _async(_Allow()))
-    monkeypatch.setattr(attachment_agent, "emit_change_event", AsyncMock())
-    thread, attachment_id = await _seed_chat_attachment("u1")
+    monkeypatch.setattr("app.services.change_event.emit_change_event", AsyncMock())
+    thread, attachment_id = await _seed_chat_attachment("o.User.filing-owner")
     entry = await _seed_entry()
     await attach_uploaded_file_to_entry(
-        user_id="u1", attachment_id=attachment_id, entry_id=entry.id
+        user_id="o.User.filing-owner", attachment_id=attachment_id, entry_id=entry.id
     )
     attachment = await Attachment.get(attachment_id)
     envelope = ChangeEventEnvelope(
         id="event-attachment-attach",
         ts="2026-10-05T00:00:00Z",
         actor_kind="human",
-        actor_id="u1",
+        actor_id="o.User.filing-owner",
         action="attachment.attach",
         resource_type="Entry",
         resource_id=entry.id,
@@ -187,7 +237,7 @@ async def test_rollback_attachment_filing_preserves_chat_upload(monkeypatch):
     )
 
     result = await mutation_rollback._invert_event(
-        envelope=envelope, user_id="u1", force=False
+        envelope=envelope, user_id="o.User.filing-owner", force=False
     )
 
     assert result["method"] == "detach"
@@ -212,11 +262,11 @@ async def test_rollback_attachment_filing_refuses_to_orphan_attachment(monkeypat
 
     monkeypatch.setattr(attachment_agent, "policy_evaluate", _async(_Allow()))
     monkeypatch.setattr("app.services.policy_engine.evaluate", _async(_Allow()))
-    monkeypatch.setattr(attachment_agent, "emit_change_event", AsyncMock())
-    thread, attachment_id = await _seed_chat_attachment("u1")
+    monkeypatch.setattr("app.services.change_event.emit_change_event", AsyncMock())
+    thread, attachment_id = await _seed_chat_attachment("o.User.filing-owner")
     entry = await _seed_entry()
     await attach_uploaded_file_to_entry(
-        user_id="u1", attachment_id=attachment_id, entry_id=entry.id
+        user_id="o.User.filing-owner", attachment_id=attachment_id, entry_id=entry.id
     )
     context = await thread.get_context()
     thread_edges = await context.find_edges_between(
@@ -228,7 +278,7 @@ async def test_rollback_attachment_filing_refuses_to_orphan_attachment(monkeypat
         id="event-attachment-attach",
         ts="2026-10-05T00:00:00Z",
         actor_kind="human",
-        actor_id="u1",
+        actor_id="o.User.filing-owner",
         action="attachment.attach",
         resource_type="Entry",
         resource_id=entry.id,
@@ -243,7 +293,7 @@ async def test_rollback_attachment_filing_refuses_to_orphan_attachment(monkeypat
 
     with pytest.raises(mutation_rollback.RollbackError) as exc:
         await mutation_rollback._invert_event(
-            envelope=envelope, user_id="u1", force=False
+            envelope=envelope, user_id="o.User.filing-owner", force=False
         )
 
     assert exc.value.code == "conflict"
@@ -281,12 +331,12 @@ async def test_attachment_stage_accepts_valid_backward_target_without_writes(
     from app.services.agent_scope import current_scope_workspace_id
 
     staging._reset_for_tests()
-    thread, attachment_id = await _seed_chat_attachment("owner")
+    thread, attachment_id = await _seed_chat_attachment("o.User.filing-other")
     await staging.open_batch(
-        user_id="owner", session_id=thread.id, label="File receipt"
+        user_id="o.User.filing-other", session_id=thread.id, label="File receipt"
     )
     await staging.append_to_batch(
-        user_id="owner",
+        user_id="o.User.filing-other",
         session_id=thread.id,
         op={
             "kind": "create_entry",
@@ -296,7 +346,7 @@ async def test_attachment_stage_accepts_valid_backward_target_without_writes(
     monkeypatch.setattr(
         chat_store, "get_thread_by_session", AsyncMock(return_value=thread)
     )
-    principal = bindings._propose_principal.set("owner")
+    principal = bindings._propose_principal.set("o.User.filing-other")
     session = bindings._propose_session_id.set(thread.id)
     workspace = current_scope_workspace_id.set("ws1")
     try:
@@ -323,7 +373,7 @@ async def test_attachment_stage_accepts_valid_backward_target_without_writes(
                 )
         finally:
             current_scope_workspace_id.reset(workspace_wrong)
-        other, _ = await _seed_chat_attachment("owner")
+        other, _ = await _seed_chat_attachment("o.User.filing-other")
         monkeypatch.setattr(
             chat_store, "get_thread_by_session", AsyncMock(return_value=other)
         )
