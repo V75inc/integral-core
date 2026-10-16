@@ -10,10 +10,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from app.exceptions import BadRequestError
-from app.services.model_provider_endpoints import (
-    KEYLESS_PLACEHOLDER_API_KEY,
-    normalize_custom_base_url,
-)
+from app.services.model_provider_endpoints import normalize_custom_base_url
 from app.services.url_safety import (
     DnsPinScope,
     outbound_trusted_hosts,
@@ -84,6 +81,7 @@ async def probe_custom_model_endpoint(base_url: str, api_key: str) -> tuple[bool
     try:
         base = normalize_custom_base_url(base_url)
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        headers["Accept-Encoding"] = "identity"
         async with (
             asyncio.timeout(MODEL_PROBE_TIMEOUT_SECONDS),
             CustomModelAsyncClient(base, timeout=MODEL_PROBE_TIMEOUT_SECONDS) as client,
@@ -97,11 +95,22 @@ async def probe_custom_model_endpoint(base_url: str, api_key: str) -> tuple[bool
                     )
                 if response.status_code != 200:
                     return False, f"provider returned HTTP {response.status_code}"
+                if response.headers.get(
+                    "content-encoding", "identity"
+                ).strip().lower() not in {"", "identity"}:
+                    return False, "provider must return an uncompressed model list"
                 body = bytearray()
-                async for chunk in response.aiter_bytes(chunk_size=8192):
-                    if len(body) + len(chunk) > MAX_MODEL_PROBE_BYTES:
+                if response.is_stream_consumed:
+                    # Already-buffered test transports; network responses take
+                    # the bounded raw streaming path below.
+                    if len(response.content) > MAX_MODEL_PROBE_BYTES:
                         return False, "provider model list is too large"
-                    body.extend(chunk)
+                    body.extend(response.content)
+                else:
+                    async for chunk in response.aiter_raw(chunk_size=8192):
+                        if len(body) + len(chunk) > MAX_MODEL_PROBE_BYTES:
+                            return False, "provider model list is too large"
+                        body.extend(chunk)
         payload = json.loads(body)
         if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
             return False, "endpoint did not return an OpenAI-compatible model list"
@@ -148,7 +157,12 @@ class _OwnedModelStream:
             await self._client.close()
 
 
-async def custom_endpoint_completion(completion: Any, kwargs: dict[str, Any]) -> Any:
+async def custom_endpoint_completion(
+    completion: Any,
+    kwargs: dict[str, Any],
+    *,
+    keyless_endpoint: bool = False,
+) -> Any:
     """Give LiteLLM an explicit guarded OpenAI SDK client for this call only."""
     from openai import AsyncOpenAI
 
@@ -156,7 +170,7 @@ async def custom_endpoint_completion(completion: Any, kwargs: dict[str, Any]) ->
     http_client = CustomModelAsyncClient(
         base,
         timeout=float(kwargs["timeout"]),
-        omit_authorization=kwargs["api_key"] == KEYLESS_PLACEHOLDER_API_KEY,
+        omit_authorization=keyless_endpoint,
     )
     client = AsyncOpenAI(
         api_key=kwargs["api_key"],

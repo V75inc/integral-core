@@ -130,7 +130,8 @@ Public endpoints require HTTPS. Private services require an exact operator-owned
 cannot grant themselves access to the server's internal network. Validation and
 inference both enforce outbound policy, pin checked DNS addresses, disable proxy
 environment fallback and refuse redirects. The `/models` validation probe has a
-10-second total deadline and a 64 KiB response limit.
+10-second total deadline and a 64 KiB raw response limit; compressed probe
+responses are rejected before decoding.
 
 Saved credentials are bound to their provider and canonical endpoint. Changing
 either requires a new key or the explicit **Use without an API key** option

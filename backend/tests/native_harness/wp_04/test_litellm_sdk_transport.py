@@ -1210,7 +1210,8 @@ async def test_sdk_failures_survive_client_wrapping_without_private_details(
 
 
 @pytest.mark.asyncio
-async def test_custom_workspace_route_enters_guarded_sdk_boundary(monkeypatch):
+@pytest.mark.parametrize("keyless", [False, True])
+async def test_custom_workspace_route_enters_guarded_sdk_boundary(monkeypatch, keyless):
     """The actual bridge must use the guarded client for custom BYOK routing."""
     from unittest.mock import AsyncMock
 
@@ -1226,6 +1227,7 @@ async def test_custom_workspace_route_enters_guarded_sdk_boundary(monkeypatch):
             api_key="synthetic-key",
             api_base="https://llm.example/v1",
             credential_source="workspace_byok",
+            keyless_endpoint=keyless,
         ),
         scope=_scope(),
         completion=completion,
@@ -1237,5 +1239,5 @@ async def test_custom_workspace_route_enters_guarded_sdk_boundary(monkeypatch):
         "timeout": 1.0,
     }
     assert await transport._sdk_completion(**kwargs) == {"guarded": True}
-    guarded.assert_awaited_once_with(completion, kwargs)
+    guarded.assert_awaited_once_with(completion, kwargs, keyless_endpoint=keyless)
     completion.assert_not_awaited()

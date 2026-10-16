@@ -526,7 +526,9 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         ):
             from app.services.custom_model_transport import custom_endpoint_completion
 
-            return await custom_endpoint_completion(completion, kwargs)
+            return await custom_endpoint_completion(
+                completion, kwargs, keyless_endpoint=self._route.keyless_endpoint
+            )
         return await completion(**kwargs)
 
     async def _observe(

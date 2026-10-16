@@ -602,6 +602,7 @@ async def test_workspace_keyless_custom_override_reaches_route(monkeypatch):
                 "api_key": KEYLESS_PLACEHOLDER_API_KEY,
                 "api_base": "https://llm.example.com/v1",
                 "credential_ref": "user-model-generation:synthetic",
+                "keyless_endpoint": True,
             }
         ),
     )
@@ -610,5 +611,30 @@ async def test_workspace_keyless_custom_override_reaches_route(monkeypatch):
     )
     assert route.provider == "openai"
     assert route.api_base == "https://llm.example.com/v1"
+    assert route.keyless_endpoint is True
     assert route.api_key.get_secret_value() == KEYLESS_PLACEHOLDER_API_KEY
     assert route.credential_source == "workspace_byok"
+
+
+@pytest.mark.parametrize(
+    "source,provider,base",
+    [
+        ("platform", "openai", "https://llm.example/v1"),
+        ("workspace_byok", "anthropic", "https://llm.example/v1"),
+        ("workspace_byok", "openai", None),
+    ],
+)
+def test_keyless_route_requires_custom_workspace_endpoint(source, provider, base):
+    from pydantic import ValidationError
+
+    from app.agentive.harness.contracts import ResolvedModelRoute
+
+    with pytest.raises(ValidationError):
+        ResolvedModelRoute(
+            provider=provider,
+            model=f"{provider}/fixture",
+            api_base=base,
+            api_key=None if source == "platform" else "synthetic-key",
+            credential_source=source,
+            keyless_endpoint=True,
+        )

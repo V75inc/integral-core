@@ -25,12 +25,14 @@ introduced. There are no new dependencies or runtime data migrations.
    validate outbound policy and pin checked DNS answers at actual dispatch;
    redirects and environment proxies are disabled. Failed DNS pinning fails
    closed. Validation requires an OpenAI-shaped models list, caps its response
-   at 64 KiB and enforces a 10-second total deadline. Probe error bodies are not logged.
+   at 64 KiB raw bytes, refuses compression before decoding and enforces a
+   10-second total deadline. Probe error bodies are not logged.
 3. **Explicit keyless versus damaged credentials.** Only a record with no stored
    secret receives the keyless SDK sentinel. Nonempty ciphertext that fails
    decryption follows the existing strict/hybrid credential-failure behavior.
-   The sentinel prevents SDK deployment-key fallback and is removed from the
-   wire. Deployment organization/project IDs are not inherited by the explicit
+   An explicit route flag distinguishes intentional keyless dispatch from any
+   particular key value. The sentinel prevents SDK deployment-key fallback and is
+   removed from the wire only for the explicit keyless route. Deployment organization/project IDs are not inherited by the explicit
    custom SDK client.
 4. **Usable saved configuration.** Removed a redundant model-selection effect
    that cleared a saved custom model ID when credentials loaded. Endpoint changes
@@ -60,22 +62,24 @@ selects the guarded transport.
 
 ## Completed local qualification
 
-- Full default substrate backend selection: **6,688 passed, 933 skipped, zero
-  failures/errors** (7,621 outcomes). Domain Apps and slow opt-in tests retain
+- Full default substrate backend selection: **6,703 passed, 933 skipped, zero
+  failures/errors** (7,636 outcomes). Domain Apps and slow opt-in tests retain
   the repository's normal default exclusions.
 - Final targeted API, service, resolver, network and native SDK selection:
-  **182 passed, zero skips/failures/errors**. This includes the final inference
+  **190 passed, zero skips/failures/errors**. This includes the final inference
   guards and provider accounting metadata regression cases.
-- Native PostgreSQL credential/API/transport selection: **83 passed**, no skips,
+- Native PostgreSQL credential/API/transport selection: **94 passed**, no skips,
   errors or failures.
 - Full frontend: **1,832 tests across 321 files passed**. Final model settings
   and speech selection: **10 passed** after the last UI edit.
 - TypeScript check and production frontend build passed (existing chunk-size
   warning only).
 - CI-faithful smoke selection passed with TESTING=1, DEBUG=false and xdist.
-- Core-only lane passed. Staged formatting/lint, mypy and substrate guards passed.
+- Core-only and extension-contract lanes passed. Staged formatting/lint, mypy
+  and substrate guards passed. Existing vendor credential-generation IDs remain
+  unchanged; a dedicated regression checks this compatibility property.
 
 Logs and XML are retained as `pr138-*` under `/private/tmp` and copied into the
-local remediation evidence directory at handoff. The separate extension-contract
-run and remote CI are reported at handoff rather than assumed to be green here.
+local remediation evidence directory at handoff. Remote CI on the final pushed head is reported at handoff rather than assumed
+to be green here.
 This change does not deploy the feature or merge the pull request.
