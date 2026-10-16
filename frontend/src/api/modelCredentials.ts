@@ -5,7 +5,8 @@ export type ModelProvider =
   | 'anthropic'
   | 'openrouter'
   | 'ollama'
-  | 'ollama_local';
+  | 'ollama_local'
+  | 'custom_openai';
 
 /** Providers that can back voice input (mirrors backend SpeechProvider). */
 export type SpeechProvider = Extract<ModelProvider, 'openai'>;
@@ -20,6 +21,7 @@ export function isSpeechProvider(
 export interface ModelCredential {
   provider: ModelProvider;
   model: string;
+  base_url?: string | null;
   speech_provider?: ModelProvider | null;
   speech_model?: string | null;
   key_fingerprint: string;
@@ -33,8 +35,12 @@ export interface ModelCredential {
 export interface ModelCredentialUpsertBody {
   provider: ModelProvider;
   model: string;
-  /** Required on first create; omit on update to keep stored key. */
+  /** Omit to retain only for the same provider and endpoint. */
   api_key?: string;
+  /** Explicitly remove the saved key for a custom endpoint. */
+  clear_api_key?: boolean;
+  /** Custom OpenAI-compatible base URL (required for custom_openai). */
+  base_url?: string;
   /** Voice input. Empty string turns the slot off. */
   speech_model?: string;
   speech_provider?: ModelProvider;
@@ -44,6 +50,7 @@ export interface ModelCredentialUpsertBody {
 export interface ModelCredentialValidateBody {
   provider: ModelProvider;
   api_key?: string;
+  base_url?: string;
 }
 
 export const modelCredentialsApi = {
@@ -90,6 +97,7 @@ export const PROVIDER_LABELS: Record<ModelProvider, string> = {
   openrouter: 'OpenRouter',
   ollama: 'Ollama Cloud',
   ollama_local: 'Ollama (Local)',
+  custom_openai: 'Custom (OpenAI-compatible)',
 };
 
 /** User-facing model role labels (AI Models settings). */

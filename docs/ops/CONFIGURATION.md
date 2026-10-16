@@ -39,6 +39,7 @@ Core-only mode and an empty App catalog do not disable agentive boot. `AGENTIVE_
 | `INTEGRAL_NATIVE_TURN_REQUEST_LIMIT` | 20 | Model requests per turn |
 | `INTEGRAL_HARNESS_SESSION_RETENTION_DAYS` | 90 | Terminal private execution-record retention |
 | `INTEGRAL_NATIVE_MODEL` | unset | Optional server model; workspace model setup works independently |
+| `INTEGRAL_NATIVE_API_BASE` | unset | Deployment custom OpenAI-compatible endpoint for the `INTEGRAL_NATIVE_MODEL` route (Ollama routes stay on `OLLAMA_API_BASE`) |
 
 Configure the model, route, and credential reference according to the selected binding. A default model identifier in Compose is not a supplied credential or a universal provider guarantee.
 
@@ -118,3 +119,28 @@ cancellation are not retried. Once text, reasoning or tool output has started,
 a later stream failure is surfaced rather than replayed. The existing overall
 turn budget still applies. Set the attempt limit to `1` to disable automatic
 model retries. This mechanism does not resubmit an entire failed chat HTTP turn.
+
+
+### User-configured OpenAI-compatible endpoints
+
+Settings → AI Models supports `custom_openai` with a model ID and base URL.
+Public endpoints require HTTPS. Private services require an exact operator-owned
+`INTEGRAL_OUTBOUND_TRUSTED_HOSTS` entry and, for nonstandard ports, an explicit
+`INTEGRAL_OUTBOUND_EXTRA_PORTS` entry. These are deployment decisions; users
+cannot grant themselves access to the server's internal network. Validation and
+inference both enforce outbound policy, pin checked DNS addresses, disable proxy
+environment fallback and refuse redirects. The `/models` validation probe has a
+10-second total deadline and a 64 KiB raw response limit; compressed probe
+responses are rejected before decoding.
+
+Saved credentials are bound to their provider and canonical endpoint. Changing
+either requires a new key or the explicit **Use without an API key** option
+(`clear_api_key: true` in the API). Blank key input retains the current key only
+at an unchanged endpoint. Keyless inference does not forward deployment provider
+keys, organization IDs or project IDs. A saved encrypted key that cannot decrypt
+is a credential failure, never an implicit keyless selection. Endpoint URLs may
+not contain credentials, query parameters or fragments because they are stored
+as ordinary metadata.
+
+`INTEGRAL_NATIVE_API_BASE` is a separate operator-owned deployment route; it does
+not grant arbitrary user endpoints permission to reach internal services.
