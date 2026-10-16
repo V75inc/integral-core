@@ -1,0 +1,171 @@
+[
+  {
+    "check": "admin user pagination",
+    "page1Rows": 20,
+    "page2Rows": 3,
+    "overlap": 0
+  },
+  {
+    "check": "admin user search",
+    "rows": 1
+  },
+  {
+    "check": "admin workspace pagination",
+    "page1Rows": 20,
+    "page2Rows": 3,
+    "overlap": 0
+  },
+  {
+    "check": "admin apps pagination",
+    "page1Rows": 20,
+    "page2Rows": 2,
+    "ownerResolved": true
+  },
+  {
+    "check": "admin tracks pagination",
+    "page1Rows": 20,
+    "page2Rows": 4,
+    "overlap": 2
+  },
+  {
+    "check": "populated admin overview",
+    "counts": [
+      "Home",
+      "Admin",
+      "Overview",
+      "Users",
+      "Workspaces",
+      "Apps",
+      "Tracks",
+      "People2323 active accounts",
+      "Workspaces230 organization workspaces",
+      "Apps22Apps across the platform",
+      "Tracks24Tracks across the platform",
+      "Open directory",
+      "Open directory",
+      "Review user access"
+    ]
+  },
+  {
+    "check": "live graph context answer",
+    "total508": true,
+    "unlinkedCoffee": true,
+    "largestExpenseContactXYZ": true,
+    "sourceLinks": [
+      "",
+      "Hotel expenses at Berghotel Grosse Scheidegg",
+      "Groceries at Walmart",
+      "Amazon purchase",
+      "Fuel at Shell",
+      "Dinner at McDonald's",
+      "Coffee purchase",
+      "Hotel expenses at Berghotel Grosse Scheidegg",
+      "Berghotel Grosse Scheidegg",
+      "XYZ Supplies",
+      "Expenses",
+      "Businesses",
+      "Contacts"
+    ]
+  },
+  {
+    "check": "home immediate send",
+    "passed": true
+  },
+  {
+    "check": "distinct linked business count",
+    "expected": 5,
+    "observed": 5
+  },
+  {
+    "check": "sidebar suggestions do not displace composer",
+    "before": {
+      "height": 36,
+      "top": 871
+    },
+    "after": {
+      "height": 36,
+      "top": 871
+    }
+  },
+  {
+    "check": "agent cited contact deep link",
+    "passed": true,
+    "url": "http://127.0.0.1:9016/tracks/n.Track.22de906446e3482dbd11cf81?entry=n.Entry.71c8729a39da407998fdecff"
+  },
+  {
+    "check": "Apps navigation from contact detail",
+    "passed": true,
+    "url": "http://127.0.0.1:9016/apps"
+  },
+  {
+    "check": "administrator global Tracks listing",
+    "passed": true
+  },
+  {
+    "check": "live graph turn usage",
+    "tokens": 130491,
+    "provider": "ollama_chat/deepseek-v4.1-flash:cloud",
+    "allCallsResponded": true
+  },
+  {
+    "check": "invited non-admin Global Tracks",
+    "expected": 3,
+    "visible": [
+      "Home",
+      "Release Validation",
+      "Expenses6 entries9 minutes ago",
+      "Contacts4 entries9 minutes ago",
+      "Businesses23 entries17 minutes ago"
+    ],
+    "adminLinkAbsent": true
+  },
+  {
+    "check": "non-admin agent permissions",
+    "total508": true,
+    "threeTracks": true,
+    "privateAppDenied": true,
+    "canaryExcluded": true
+  },
+  {
+    "check": "invited editor updates shared record",
+    "passed": true
+  },
+  {
+    "check": "profile field order and timezone detection",
+    "order": [
+      "Avatar",
+      "Display name",
+      "Email",
+      "Password",
+      "Time zone"
+    ],
+    "timezone": "America/Guyana"
+  },
+  {
+    "check": "profile alias uses Settings",
+    "url": "http://127.0.0.1:9016/settings#profile"
+  },
+  {
+    "check": "all Admin directories with observation explicitly enabled",
+    "passed": true
+  },
+  {
+    "check": "entry detail duplicate React keys repaired",
+    "postFixErrors": 0
+  },
+  {
+    "check": "installed Core wheel serves built UI and all Admin directories",
+    "passed": true
+  },
+  {
+    "check": "installed Core wheel live graph-context read",
+    "passed": true,
+    "contact": "XYZ Supplies",
+    "sourceLinks": [
+      "",
+      "Hotel expenses at Berghotel Grosse Scheidegg",
+      "Berghotel Grosse Scheidegg",
+      "XYZ Supplies"
+    ]
+  }
+]

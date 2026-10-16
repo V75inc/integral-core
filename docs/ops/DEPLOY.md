@@ -58,7 +58,7 @@ Provision a qualified PostgreSQL deployment and persistent file storage. Keep `D
 
 Provide JWT, OAuth, and model-credential encryption keys through a secret manager. Configure public URL, allowed origins, reverse proxy, TLS, CSP, email delivery, provider policy, retention, and a real attachment scanner as required. Core-only boot does not disable the resident or agentive layer.
 
-The durable work runtime fails closed when required transaction/CAS APIs or indexes are unavailable. Mongo is not a qualified production work store; JSON/SQLite are development stores with single-worker limitations. Native durable chat is a separate feature flag and is disabled by default.
+The durable work runtime fails closed when required transaction/CAS APIs or indexes are unavailable. Mongo is not a qualified production work store; JSON/SQLite are development stores with single-worker limitations. Native chat uses durable WorkItems by default and requires PostgreSQL transaction/CAS support. `INTEGRAL_NATIVE_DURABLE_CHAT_ENABLED=false` opts out to legacy request-bound turns, which do not survive browser disconnects or process restarts.
 
 Review App trust tiers and signature policy before loading packages with Python. Configure host extensions deliberately; do not import commercial App logic into Core.
 
@@ -68,15 +68,41 @@ Back up the graph database and attachment bytes as one recoverable deployment. P
 
 Restore into an isolated environment first. Verify user access, records, relations, files, App definitions, and any enabled durable work. A volume existing on disk is not evidence that a restore can recover the application.
 
+`scripts/pg_backup.sh` produces a verified logical archive. Use
+`scripts/pg_restore.sh ARCHIVE --drill` for an isolated count/identity rehearsal,
+or `--into DATABASE` for a separately created copy. Any nonzero `pg_restore`
+exit fails the restore immediately, even if counts could match. An explicit
+target can contain partial data after an error; successful diagnostics do not
+override the failed restore. Drill scratch databases are removed on exit.
+
+The encrypted-state restore contract is an explicit integration gate. Set
+`INTEGRAL_TEST_POSTGRES_DSN` to a **disposable PostgreSQL server**: the test
+fixtures create/reset their `integral_test` database. With Docker available,
+run from `backend/`:
+
+```bash
+INTEGRAL_TEST_DB=postgres INTEGRAL_TEST_RESTORE=1 \
+  .venv/bin/python -m pytest tests/contract/test_checkpoint_restore_postgres.py
+```
+
+The client container must reach that server. Set `INTEGRAL_RESTORE_CLIENT_HOST`
+when its host name differs inside Docker, and `PGDUMP_DOCKER_IMAGE` when a
+different PostgreSQL client major version is required. This gate backs up
+test-only encrypted snapshots, recovery manifests and a synthetic credential,
+reads a separate restored copy in a fresh process, rejects foreign scope and
+wrong keys, then runs the scratch drill. It does not qualify attachment bytes,
+session invalidation, live provider credentials, or automatic continuation of
+an interrupted production run.
+
 ## Upgrade
 
 Build and identify the candidate, run source and artifact gates, back up, and review migrations and dependency changes. Deploy the exact candidate to a test environment. Check schema transition status and supported recovery before promotion.
 
 For a failed upgrade, inspect the schema and effect state before reverting an image. A schema migration or external effect may make a blind rollback unsafe. Reconcile pending work and use the reviewed restore or compatibility path.
 
-## jvspatial 0.2.1 release gate
+## jvspatial 0.2.2 release gate
 
-Current metadata pins `jvspatial==0.2.1` and `pydantic-ai-harness[skills]==0.36.0`. Use `uv sync --frozen --extra dev --extra test`. Run `make verify`, the clean wheel gate, Core-only checks, and relevant PostgreSQL contracts.
+Current metadata pins `jvspatial==0.2.2` and `pydantic-ai-harness[skills]==0.36.0`. Use `uv sync --frozen --extra dev --extra test`. Run `make verify`, the clean wheel gate, Core-only checks, and relevant PostgreSQL contracts.
 
 When repairing duplicate UserModelCredential records, query through `GraphContext.find` before creating a unique index. Test with actual duplicates, then verify the repaired index rejects another duplicate. Production OAuth requires `JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY`. `RATE_LIMIT_DISABLED=1` bypass is restricted to pytest or DEBUG; it does not justify removing the production auth cap.
 

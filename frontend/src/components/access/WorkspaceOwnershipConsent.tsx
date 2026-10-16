@@ -35,7 +35,7 @@ export function WorkspaceOwnershipConsent({ workspaceId, members }: {
       }}>
         <label>New owner <select className="app-input" value={recipient} disabled={busy} required onChange={event => setRecipient(event.target.value)}>
           <option value="">Select a current member</option>
-          {members.filter(member => member.role !== 'owner').map(member => <option key={member.user_id || member.id} value={member.user_id || member.id}>{member.display_name || member.user_id || member.id}</option>)}
+          {members.filter(member => member.role !== 'owner').map(member => <option key={member.user_id || member.id} value={member.user_id || member.id}>{member.display_name || 'Unnamed user'}</option>)}
         </select></label>
         <Button type="submit" disabled={busy || !recipient}>Request ownership transfer</Button>
       </form>

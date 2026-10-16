@@ -226,7 +226,7 @@ async def provision_scratch_track(*, user_id: str) -> Track:
         owner_id=user.id,
         purpose="Per-user agent working memory (MEM-01).",
         icon="brain",
-        visibility="inherit",
+        visibility="private",
         workspace_id=workspace.id,
         kind=AGENT_SCRATCH_TRACK_KIND,
         created_at=now,

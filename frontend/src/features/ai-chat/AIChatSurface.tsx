@@ -102,6 +102,7 @@ export function AIChatRuntimeBoundary({
   children,
   initialThreadId = null,
   startNewThread = false,
+  handoffEnabled = true,
 }: {
   provider: ChatProvider;
   children: ReactNode;
@@ -109,6 +110,7 @@ export function AIChatRuntimeBoundary({
   initialThreadId?: string | null;
   /** Open on the empty greeter instead of resuming the latest thread. */
   startNewThread?: boolean;
+  handoffEnabled?: boolean;
 }) {
   const { scope } = useScope();
 
@@ -119,6 +121,7 @@ export function AIChatRuntimeBoundary({
         provider={provider}
         initialThreadId={initialThreadId}
         startNewThread={startNewThread}
+        handoffEnabled={handoffEnabled}
       >
         {children}
       </AIChatRuntimeBoundaryInner>
@@ -131,11 +134,13 @@ function AIChatRuntimeBoundaryInner({
   children,
   initialThreadId = null,
   startNewThread = false,
+  handoffEnabled = true,
 }: {
   provider: ChatProvider;
   children: ReactNode;
   initialThreadId?: string | null;
   startNewThread?: boolean;
+  handoffEnabled?: boolean;
 }) {
   const { consumePendingEntityRefs, resetComposerEntityRefs } =
     useChatEntityRefs();
@@ -158,6 +163,7 @@ function AIChatRuntimeBoundaryInner({
     resetComposerEntityRefs,
     initialThreadId,
     startNewThread,
+    handoffEnabled,
   });
   return (
     <AssistantRuntimeProvider runtime={runtime}>

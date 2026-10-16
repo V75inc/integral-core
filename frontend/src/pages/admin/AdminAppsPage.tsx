@@ -15,6 +15,7 @@ import {
 import { useSetCrumbs } from '../../context/CrumbsContext';
 import { AdminEntityLink, AdminOwnerCell } from '../../components/admin/AdminEntityLink';
 import { AdminResourceDetailPage } from './AdminResourceDetailPage';
+import { adminQueryRecovery } from './adminQueryRecovery';
 
 function ResourceListPage({
   title,
@@ -64,6 +65,7 @@ function ResourceListPage({
         per_page: 20,
         search: debouncedSearch || undefined,
       }),
+    ...adminQueryRecovery,
   });
 
   function setPage(next: number) {
@@ -80,7 +82,7 @@ function ResourceListPage({
       </PageSection>
       <PageSection className="mt-6">
         <div className="relative max-w-md">
-          <Text as="span" tone="subtle" className="absolute left-3 top-1/2 -translate-y-1/2"><Search
+          <Text as="span" tone="subtle" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2"><Search
             size={16}
             strokeWidth={LINE_ICON_STROKE}
             /></Text>
@@ -121,9 +123,6 @@ function ResourceListPage({
                           id={item.id}
                           label={item.name || 'Untitled'}
                         />
-                        <Text as="p" variant="mono" tone="subtle" className="mt-0.5 truncate max-w-xs">
-                          {item.id}
-                        </Text>
                       </td>
                       <td className="px-4 py-3">
                         <AdminEntityLink

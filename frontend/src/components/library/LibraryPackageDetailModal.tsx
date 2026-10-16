@@ -83,7 +83,7 @@ export function LibraryPackageDetailModal({ open, profile, onClose, onDeleted }:
   const manifest = (profile.manifest ?? {}) as Record<string, unknown>;
   const pkg = (manifest.package ?? {}) as Record<string, unknown>;
 
-  const name = profile.name || (typeof pkg.name === 'string' ? pkg.name : undefined) || profile.id;
+  const name = profile.name || (typeof pkg.name === 'string' ? pkg.name : undefined) || 'Untitled model';
   const description =
     profile.description ||
     (typeof pkg.description === 'string' ? pkg.description : undefined);

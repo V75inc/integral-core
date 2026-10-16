@@ -16,16 +16,16 @@ Understand dependencies and decision evidence with [workspace graph context](pro
 
 ## Build on it
 
-Follow the [App quickstart](developer/quickstart.md), then use the [extension contract](platform/extension-contract-v1.md), [Operational Model guide](operational-models/README.md), and [backend reference](backend/README.md). The [generated capability map](generated/capability-map.md) derives from source and must be regenerated rather than edited by hand.
+Follow the [App quickstart](developer/quickstart.md), then use the [extension contract](platform/extension-contract-v1.md), [background jobs for Apps](platform/background-app-jobs.md), [Operational Model guide](operational-models/README.md), and [backend reference](backend/README.md). The [generated capability map](generated/capability-map.md) derives from source and must be regenerated rather than edited by hand.
 
 ## Operate it
 
-Use the [CLI guide](ops/LOCAL_INSTALLATION.md) for local startup, logs, backups, restore, and upgrades. For hosted environments, use the [deployment runbook](ops/DEPLOY.md), [configuration guide](ops/CONFIGURATION.md), [security guide](ops/SECURITY.md), and [qualification record](ops/QUALIFICATION.md). Deployment, publication, CI, and user-flow acceptance are distinct checks.
+Use the [CLI guide](ops/LOCAL_INSTALLATION.md) for local startup, logs, backups, restore, and upgrades. For hosted environments, use the [deployment runbook](ops/DEPLOY.md), [configuration guide](ops/CONFIGURATION.md), [security guide](ops/SECURITY.md), and [qualification record](ops/QUALIFICATION.md). Commercial distributions also use the [commercial host integration guide](platform/commercial-host-integration.md); payment-provider and plan settings remain in the host. Deployment, publication, CI, and user-flow acceptance are distinct checks.
 
 ## Maintain it
 
 The [contributor guide](developer/CONTRIBUTING.md) explains repository discipline. [Invariants](INVARIANTS.md) preserve the substrate's access, graph, extension, and execution contracts.
 
-The [access-control review](product/ACCESS_CONTROL_REVIEW.md) examines collaboration, workspace-owner governance and declarative App permissions. Its [gap-closure plan](product/ACCESS_CONTROL_PLAN.md) defines implementation dependencies and acceptance gates. The [access contract](product/ACCESS_CONTROL_CONTRACT.md) states the normative target; the [closure ledger](ops/qualification/access-control-review/closure.json) records actual implementation and qualification.
+The [access-control review](product/ACCESS_CONTROL_REVIEW.md) examines collaboration, workspace-owner governance and declarative App permissions. The [access contract](product/ACCESS_CONTROL_CONTRACT.md) is normative; [resource visibility](product/RESOURCE_VISIBILITY.md) documents private creation defaults; the [delivery reset](product/ACCESS_CONTROL_DELIVERY_PLAN.md) and [lifecycle handoff](product/ACCESS_CONTROL_LIFECYCLE_HANDOFF.md) record the later delivery checkpoint. The earlier [gap-closure plan](product/ACCESS_CONTROL_PLAN.md) is retained as design history. The [closure ledger](ops/qualification/access-control-review/closure.json) and [qualification index](ops/QUALIFICATION.md) carry evidence and limits.
 
-This edition was rebuilt against the staging checkout on 8 October 2026. Superseded plans, duplicate explanations, old candidate reports, and obsolete architecture narratives were removed from maintained documentation. The [editorial audit](editorial/README.md) records each original Markdown document's disposition. Historical originals remain recoverable in Git and a separate local snapshot.
+The maintained reader guides and technical references were renewed against the staging checkout on 8 October 2026. Superseded plans, duplicate explanations, old candidate reports, and obsolete architecture narratives were removed from the reader set. The [editorial audit](editorial/README.md) documents that renewal and the disposition of its source set. Dated qualification records remain as evidence snapshots; consult the qualification index for their scope and limits rather than treating an older result as current release status.

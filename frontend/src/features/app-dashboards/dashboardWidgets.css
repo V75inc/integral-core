@@ -220,22 +220,32 @@
   padding: 0.75rem 1rem;
 }
 
-.dashboard-tab-row {
+.dashboard-control-bar {
+  container-type: inline-size;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--panel-border);
+}
+.dashboard-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1 1 16rem;
   min-width: 0;
+  max-width: 24rem;
 }
-
-.dashboard-tab-scroll {
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: thin;
-}
-
-.dashboard-tab-scroll::-webkit-scrollbar {
-  height: 4px;
-}
-
-.dashboard-tab-scroll::-webkit-scrollbar-thumb {
-  background: var(--panel-border);
-  border-radius: 999px;
+.dashboard-picker select { min-width: 0; width: 100%; }
+.dashboard-control-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-left: auto;
 }
 
 /* Home layouts respond to actual App width, including the assistant dock. */

@@ -55,7 +55,7 @@ export function TrackModal({
     editTrack?.purpose || editTrack?.description || ''
   );
   const [visibilityChoice, setVisibilityChoice] = useState<VisibilityChoice>(() =>
-    isEdit ? normalizeTrackVisibility(editTrack?.visibility) : 'inherit'
+    isEdit ? normalizeTrackVisibility(editTrack?.visibility) : 'private'
   );
   const [loading, setLoading] = useState(false);
   const queryClient = useQueryClient();
@@ -99,7 +99,7 @@ export function TrackModal({
       const { entryTypeCount, viewCount } = summarizeLibraryManifest(manifest);
       items.push({
         value: `template:${tpl.id}`,
-        name: tpl.name || tpl.id,
+        name: tpl.name || 'Untitled model',
         description: tpl.description?.trim().slice(0, 140) || 'App-defined track template.',
         entryTypeCount,
         viewCount,
@@ -178,7 +178,7 @@ export function TrackModal({
 
   useEffect(() => {
     if (open && !isEdit) {
-      setVisibilityChoice('inherit');
+      setVisibilityChoice('private');
     }
   }, [open, isEdit]);
 
@@ -228,9 +228,7 @@ export function TrackModal({
           ...(effectiveAppId ? { app_id: effectiveAppId } : {}),
         };
         applyOperationalModelToBody(body);
-        if (visibilityChoice !== 'inherit') {
-          body.visibility = visibilityChoice;
-        }
+        body.visibility = visibilityChoice;
         t = await tracksApi.create(body);
       }
       void invalidateWorkspaceListCaches(queryClient);
@@ -238,7 +236,7 @@ export function TrackModal({
       onClose();
       setTitle('');
       setPurpose('');
-      setVisibilityChoice('inherit');
+      setVisibilityChoice('private');
       setOperationalModelChoice('');
       setChosenParentAppId('');
       showToast(

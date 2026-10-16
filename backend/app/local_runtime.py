@@ -532,7 +532,7 @@ def _environment(
         "APP_BASE_URL": f"http://127.0.0.1:{web_port}",
         "EMAIL_PROVIDER": "console",
         "RATE_LIMIT_DISABLED": "0",
-        "INTEGRAL_NATIVE_DURABLE_CHAT_ENABLED": "false",
+        "INTEGRAL_NATIVE_DURABLE_CHAT_ENABLED": "true",
         "PYTHONPATH": str(Path(__file__).resolve().parents[1]),
     }
     # Platform keys are opt-in; startup never inherits a checkout's paid keys.

@@ -270,8 +270,8 @@ async def test_list_update_cancel_routine():
 
 
 @pytest.mark.asyncio
-async def test_abort_routine_run_origin_gated():
-    """abort_routine_run cancels only origin=routine_task turns."""
+async def test_abort_routine_run_exact_worker_gated():
+    """Stop only this routine; another schedule sharing its thread is unrelated."""
     from app.agentive.services.routine_tasks import (
         abort_routine_run,
         create_routine_task,
@@ -298,10 +298,45 @@ async def test_abort_routine_run_origin_gated():
     assert serialize_routine(routine)["running"] is False
     await registry.release_turn(thread.id)
 
-    # Scheduled turn — cancelled and reported as running beforehand.
+    # A legacy origin label alone does not prove which routine owns the turn.
     sched = await registry.acquire_turn(
         thread_id=thread.id, user_id=user_id, origin="routine_task"
     )
+    assert serialize_routine(routine)["running"] is False
+    assert await abort_routine_run(routine) is False
+    assert not sched.cancel_event.is_set()
+
+    other = await create_routine_task(
+        user_id=user_id,
+        workspace_id=workspace_id,
+        thread_id=thread.id,
+        instruction="Another schedule on this conversation.",
+        cron="0 10 * * *",
+    )
+    from app.agentive.services.routine_tasks import enqueue_routine_turn_work
+
+    foreign = await enqueue_routine_turn_work(
+        routine_id=other.id,
+        principal_id=user_id,
+        workspace_id=workspace_id,
+        thread_id=thread.id,
+        scheduled_for="2026-10-16T10:00:00+00:00",
+    )
+    sched.work_item_id = foreign.work_item_id
+    sched.routine_id = other.id
+    assert await abort_routine_run(routine) is False
+    assert not sched.cancel_event.is_set()
+    assert serialize_routine(routine)["running"] is False
+
+    owned = await enqueue_routine_turn_work(
+        routine_id=routine.id,
+        principal_id=user_id,
+        workspace_id=workspace_id,
+        thread_id=thread.id,
+        scheduled_for="2026-10-16T08:00:00+00:00",
+    )
+    sched.work_item_id = owned.work_item_id
+    sched.routine_id = routine.id
     assert serialize_routine(routine)["running"] is True
     assert await abort_routine_run(routine) is True
     assert sched.cancel_event.is_set()
@@ -467,10 +502,11 @@ async def test_permission_gate_blocks_when_thread_archived():
 
 
 @pytest.mark.asyncio
-async def test_write_scope_reconciliation_auto_applies_allowlisted_only():
-    """A pending token targeting an allowlisted entry auto-applies; one
-    targeting a different entry is left pending; a delete-class kind never
-    auto-applies even when its target is allowlisted."""
+async def test_write_scope_reconciliation_keeps_unproven_cards_pending():
+    """Target allowlists alone cannot authorize human or unproven proposals.
+
+    Real broker-created proposal execution is covered by native contracts.
+    """
     from app.agentive.services.routine_tasks import create_routine_task
     from app.agentive.staging import create_staged_change, get_token
     from app.services.routine_task_scheduler import _reconcile_write_scope
@@ -544,7 +580,7 @@ async def test_write_scope_reconciliation_auto_applies_allowlisted_only():
     other_after = await get_token(other_sc.token)
     delete_after = await get_token(delete_sc.token)
 
-    assert allowed_after.state == "consumed"  # auto-applied
+    assert allowed_after.state == "pending"  # target alone grants no authority
     assert other_after.state == "pending"  # outside write_scope — untouched
     assert delete_after.state == "pending"  # delete-class — never auto-applied
 

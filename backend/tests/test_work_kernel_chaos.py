@@ -11,6 +11,7 @@ import pytest
 
 from app.agentive.services import work_items, work_recovery, work_worker
 from app.agentive.work_models import WorkItem
+from tests.support.routine_work import make_routine_work
 from tests.support.work_chaos import CRASH_POINTS, DurableFakeAdapter
 
 
@@ -31,14 +32,7 @@ async def test_crash_after_claim_reclaim_no_duplicate_effect() -> None:
         # Simulate crash after effect but before completion by forcing lease loss.
         await work_items.force_expire_lease_for_tests(item.work_item_id)
 
-    item = await work_items.enqueue_work_item(
-        kind="routine_turn",
-        origin="scheduler",
-        principal_id="chaos-u",
-        workspace_id="chaos-ws",
-        idempotency_key="chaos-claim-1",
-        input_payload={},
-    )
+    item = await make_routine_work(key="chaos-claim-1")
     work_worker.register_test_handler(item.work_item_id, _handler)
     claimed = await work_items.claim_due_candidate(
         worker_id="victim", work_item_id=item.work_item_id, lease_seconds=30
@@ -68,14 +62,7 @@ async def test_crash_after_claim_reclaim_no_duplicate_effect() -> None:
 
 @pytest.mark.asyncio
 async def test_stale_fence_cannot_complete_after_reclaim() -> None:
-    item = await work_items.enqueue_work_item(
-        kind="routine_turn",
-        origin="scheduler",
-        principal_id="chaos-u2",
-        workspace_id="chaos-ws2",
-        idempotency_key="chaos-fence-1",
-        input_payload={},
-    )
+    item = await make_routine_work(key="chaos-fence-1")
     claimed = await work_items.claim_due_candidate(
         worker_id="old", work_item_id=item.work_item_id, lease_seconds=30
     )

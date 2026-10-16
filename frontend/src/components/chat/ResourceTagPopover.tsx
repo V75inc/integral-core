@@ -250,7 +250,7 @@ export function ResourceTagPopover({
     // Map which apps match query
     const matchingAppIds = new Set<string>();
     for (const app of apps) {
-      const label = app.name || app.id;
+      const label = app.name || 'Untitled app';
       if (!q || matchesQuery(label, q)) {
         matchingAppIds.add(app.id);
         if (tabFilter !== 'tracks') {
@@ -281,7 +281,7 @@ export function ResourceTagPopover({
         continue;
       }
 
-      const label = track.title || track.id;
+      const label = track.title || 'Untitled track';
       const matchesDirect = !q || matchesQuery(label, q);
       const matchesViaParentApp =
         Boolean(q) &&

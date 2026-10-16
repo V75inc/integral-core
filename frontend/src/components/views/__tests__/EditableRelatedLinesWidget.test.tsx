@@ -3,17 +3,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const invokeOperation = vi.fn();
 
-vi.mock('../../../api/extensions', () => ({
+vi.mock('../../../api/extensions', async importOriginal => ({
+  ...await importOriginal<typeof import('../../../api/extensions')>(),
   extensionsApi: { invokeOperation: (...args: unknown[]) => invokeOperation(...args) },
 }));
 vi.mock('../../../api/tools', () => ({ toolsApi: { call: vi.fn() } }));
 vi.mock('../../../api', () => ({
-  entriesApi: { listRelated: vi.fn() },
+  entriesApi: { listRelated: vi.fn(), delete: vi.fn() },
   tracksApi: { list: vi.fn() },
 }));
 
 import { entriesApi } from '../../../api';
 import { EditableRelatedLinesWidget } from '../EditableRelatedLinesWidget';
+import { ContributionLifecycleContext, type ContributionLifecycleHandle } from '../../entries/contributionLifecycle';
 import type { ViewWidgetProps } from '../types';
 
 type SavedView = ViewWidgetProps['view'];
@@ -106,5 +108,32 @@ describe('EditableRelatedLinesWidget', () => {
     );
     await waitFor(() => expect(entriesApi.listRelated).toHaveBeenCalled());
     expect(screen.queryByText('—')).toBeNull();
+  });
+
+  it('preserves recorded tool completion without preliminary deletion or retry', async () => {
+    let handle: ContributionLifecycleHandle | undefined;
+    vi.mocked(entriesApi.listRelated).mockResolvedValue({ entries: [], nextCursor: null, hasMore: false });
+    invokeOperation.mockResolvedValue({
+      output_disposition: 'withheld', current_state_verified: false,
+      operation_receipt: { id: 'o.OperationExecutionReceipt.' + 'a'.repeat(64), status: 'succeeded', replayed: true },
+    });
+    render(
+      <ContributionLifecycleContext.Provider value={{
+        mode: 'edit', placement: 'entry_compose', entryId: 'parent-1', appId: 'app1', customFields: {},
+        register: next => { handle = next; return () => {}; },
+      }}>
+        <EditableRelatedLinesWidget {...lineView({
+          persist_mode: 'tool', persist_tool: 'persist_records', require_at_least_one: false,
+          __bindings: { __contributionMode: 'edit', appId: 'app1', entryId: 'parent-1', entryValues: {} },
+        })} />
+      </ContributionLifecycleContext.Provider>,
+    );
+    await waitFor(() => expect(handle).toBeDefined());
+    const result = await handle!.requestSubmit('parent-1');
+    expect(result.ok).toBe(false);
+    expect(result.outcomeRecorded).toBe(true);
+    expect(result.error).toContain('completed earlier');
+    expect(entriesApi.delete).not.toHaveBeenCalled();
+    expect(invokeOperation).toHaveBeenCalledTimes(1);
   });
 });

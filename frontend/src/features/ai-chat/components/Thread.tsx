@@ -1,3 +1,6 @@
+import { KebabMenu } from '../../../components/ui/KebabMenu';
+import './composer.css';
+import { useChatEntityRefsOptional } from '../../../context/ChatEntityRefsContext';
 import { PageMeta } from '../../../components/ui';
 import {
   ActionBarMorePrimitive,
@@ -278,7 +281,7 @@ function ThreadSuggestions() {
  * Sourced from the runtime's activity-text channel, which the
  * backend translator populates from the cockpit's `tool_progress`
  * frames. The activity text updates AS new humanized statuses
- * arrive ("Working" → "Filing your content" → …) so when the
+ * arrive ("Thinking" → "Filing your content" → …) so when the
  * cockpit emits multiple tool_progress events, the user sees the
  * action evolve.
  *
@@ -356,32 +359,29 @@ function clipStatus(text: string): string {
   return `${clean.slice(0, 71).trimEnd()}…`;
 }
 
-function prettyTool(name: string): string {
-  const bare = name.replace(/^integral_/, "").replace(/_/g, " ").trim();
-  if (!bare) return "Working";
-  return bare.charAt(0).toUpperCase() + bare.slice(1);
-}
-
 /** One line for a closed trail while the turn is still running. */
 export function liveWorkSynopsis(
   activity: string | undefined,
   latestTool: string | undefined,
 ): string {
   const activityLine = activity?.replace(/\s+/g, " ").trim();
-  if (activityLine) return clipStatus(activityLine);
-  if (latestTool?.trim()) return clipStatus(prettyTool(latestTool));
-  return "Working";
+  if (activityLine && !/^working[.…]*$/i.test(activityLine)) return clipStatus(activityLine);
+  if (latestTool?.trim()) return "Using tools";
+  return "Thinking";
 }
 
 /**
  * One trail for reasoning and tool steps.
  *
  * Stays collapsed. While the turn runs the label is a one-line status.
- * When the reply lands it becomes "Worked · steps · model". Expanding retraces the
+ * When the reply lands it becomes "Finished · tools · model". Expanding retraces the
  * activity and the steps. A manual expansion survives completion.
  */
 export function WorkTrail({ children }: { children: ReactNode }) {
   const running = useAuiState((s) => s.message.status?.type === "running");
+  const interruptedReason = useAuiState((s) =>
+    s.message.status?.type === "incomplete" ? s.message.status.reason : undefined,
+  );
   const { activityText } = useChatActivity();
   const statusLabel = useAuiState(
     (s) =>
@@ -394,7 +394,8 @@ export function WorkTrail({ children }: { children: ReactNode }) {
   );
   const latestTool = useAuiState((s) => {
     const tools = (s.message.parts ?? []).filter((p) => p.type === "tool-call");
-    const last = tools[tools.length - 1] as { toolName?: string } | undefined;
+    const last = tools[tools.length - 1] as { toolName?: string; result?: unknown; status?: { type?: string } } | undefined;
+    if (last?.result !== undefined || last?.status?.type === "complete" || last?.status?.type === "incomplete") return "";
     return last?.toolName ?? "";
   });
   const toolFailed = useAuiState((s) =>
@@ -411,8 +412,8 @@ export function WorkTrail({ children }: { children: ReactNode }) {
     latestTool,
   );
   const done = [
-    "Worked",
-    toolCount > 0 ? `${toolCount} ${toolCount === 1 ? "step" : "steps"}` : "",
+    interruptedReason === "cancelled" ? "Stopped" : interruptedReason ? "Interrupted" : "Finished",
+    toolCount > 0 ? `${toolCount} ${toolCount === 1 ? "tool call" : "tool calls"}` : "",
     modelLabel,
     toolFailed ? "a step failed" : "",
   ]
@@ -428,6 +429,7 @@ export function WorkTrail({ children }: { children: ReactNode }) {
       className="mt-4 mb-3"
     >
       <CollapsibleTrigger
+        title="Show activity, timing, token usage, and cost when available"
         className="
           flex w-full min-w-0 items-center gap-1.5 py-0.5 text-left text-[12px]
           text-[var(--text-muted)] transition-colors hover:text-[var(--text)]
@@ -444,7 +446,7 @@ export function WorkTrail({ children }: { children: ReactNode }) {
         <span role="status" aria-live="polite" title={label} className="inline-flex min-h-4 min-w-0 items-center leading-4"><span key={label} className="truncate animate-status-reveal motion-reduce:animate-none">{label}</span></span>
       </CollapsibleTrigger>
       <CollapsibleContent className="mt-2 flex max-h-80 flex-col gap-3 overflow-y-auto pl-5 text-xs">
-        <p className="text-xs text-[var(--text-muted)]">Activity and tool results are shown here. Private model reasoning is not displayed.</p>
+        <p className="text-xs text-[var(--text-muted)]">Activity, tool results, and model usage are shown here. Costs appear when available from the provider or a labelled estimate. Private model reasoning is not displayed.</p>
         <MessageObservability />
         {children}
       </CollapsibleContent>
@@ -725,8 +727,8 @@ function MessageError() {
     <MessagePrimitive.Error>
       <ErrorPrimitive.Root
         className="
-          mt-2 rounded-[var(--radius-card)] border border-[var(--danger-fg)]
-          bg-[var(--danger-bg)] p-3 text-sm text-[var(--danger-fg)]
+          chat-message-error mt-2 rounded-[var(--radius-card)] border border-[var(--chat-error-border)]
+          bg-[var(--chat-error-bg)] p-3 text-sm text-[var(--chat-error-fg)]
         "
       >
         <ErrorPrimitive.Message className="line-clamp-2" />
@@ -794,7 +796,7 @@ function AssistantActionBar({ debugOnly = false }: { debugOnly?: boolean }) {
         .join("")
     : "";
   const messageContent = finalContent ?? assembledText;
-  // Panel 2 ("Full JSON Response") = the full final chunk from the server
+  // Panel 2 ("Diagnostic payload") uses the final chunk from the server
   // (`finalPayload`). Fall back to a reconstruction (assembled response +
   // steps/timing + request) for pre-capture turns.
   const fullPayload: Record<string, unknown> | null = finalPayload
@@ -1117,9 +1119,10 @@ function UserMessage() {
       <div className="relative col-start-2 min-w-0">
         <div
           className="
-            [overflow-wrap:anywhere] peer rounded-2xl
-            bg-[var(--brand-accent-soft)]
-            border border-[var(--brand-accent-line)]
+            chat-user-message-bubble [overflow-wrap:anywhere] peer rounded-2xl
+            bg-[var(--chat-user-bg)]
+            border border-[var(--chat-user-border)]
+            border-t-[3px] border-t-[var(--chat-user-accent)]
             px-4 py-2.5 text-[var(--text)]
             empty:hidden
           "
@@ -1171,7 +1174,8 @@ function EditComposer() {
       <ComposerPrimitive.Root
         className="
           ms-auto flex w-full max-w-[85%] flex-col rounded-2xl
-          bg-[var(--panel-2)] border border-[var(--border-subtle)]
+          bg-[var(--chat-edit-bg)] border border-[var(--chat-edit-border)]
+          border-t-[3px] border-t-[var(--chat-user-accent)]
         "
       >
         <ComposerPrimitive.Input
@@ -1225,7 +1229,7 @@ function ComposerHostAccessory() {
   return <Hint workspaceId={workspaceId} />;
 }
 
-function Composer({ locked = false }: { locked?: boolean }) {
+export function Composer({ locked = false, home = false, onSendAttempt }: { locked?: boolean; home?: boolean; onSendAttempt?: () => void }) {
   const { blockedReason } = useAgentiveCapability();
   const { composerReady = true } = useChatActivity();
 
@@ -1275,15 +1279,15 @@ function Composer({ locked = false }: { locked?: boolean }) {
       <ComposerHostAccessory />
       <ComposerPrimitive.Root
       className="
-        relative flex w-full flex-col
+        relative flex min-w-0 w-full flex-col
       "
     >
       <ComposerAttachmentErrorToast />
       <ComposerDictationProvider>
         <div
           className="
-            flex w-full flex-col gap-2 rounded-[var(--radius-card)]
-            border border-[var(--border-subtle)] bg-[var(--panel)] p-2
+            chat-composer flex min-w-0 w-full flex-col gap-2 rounded-[var(--radius-card)]
+            border border-[var(--border-subtle)] bg-[var(--panel)] p-2 home-chat-composer
             transition-[border-color,box-shadow] duration-fast
             focus-within:border-[var(--brand-accent-line)]
             focus-within:shadow-[0_0_0_3px_var(--focus-ring-color)]
@@ -1298,10 +1302,12 @@ function Composer({ locked = false }: { locked?: boolean }) {
             }}
           />
           <AuiTaggableComposer
-            autoFocus
-            rows={1}
-            placeholder="Ask Integral…"
-            aria-label="Message input"
+            autoFocus={!home}
+            rows={home ? 2 : 1}
+            placeholder={home ? "Tell Integral what you need…" : "Ask Integral…"}
+            aria-label={home ? "Draft for Integral AI" : "Message input"}
+            acceptHandoff={!home}
+            onSendAttempt={onSendAttempt}
             className="
               block w-full resize-none bg-transparent
               px-2 py-1.5 text-sm leading-5 text-[var(--text)]
@@ -1309,7 +1315,7 @@ function Composer({ locked = false }: { locked?: boolean }) {
               outline-none focus:outline-none
             "
           />
-          <ComposerAction />
+          <ComposerAction home={home} />
         </div>
       </ComposerDictationProvider>
     </ComposerPrimitive.Root>
@@ -1412,17 +1418,22 @@ function AttachmentChip() {
   );
 }
 
-function ComposerAction() {
+function ComposerAction({ home = false }: { home?: boolean }) {
+  const suggestions = useScopedSuggestions();
+  const aui = useAui();
+  const refs = useChatEntityRefsOptional();
+  const canSuggest = useAuiState(s => !s.thread.isRunning);
+  const actionRef = useRef<HTMLDivElement>(null);
   return (
-    <div className="relative flex items-center justify-between">
-      <div className="flex items-center gap-1">
+    <div ref={actionRef} className="relative flex min-w-0 items-end gap-2">
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
         <ComposerPrimitive.AddAttachment asChild>
           <button
             type="button"
             aria-label="Attach a file"
             title="Attach an image or file"
             className="
-              flex h-8 w-8 items-center justify-center rounded-full
+              flex h-8 w-8 shrink-0 items-center justify-center rounded-full
               text-[var(--text-subtle)]
               transition-colors hover:bg-[var(--panel-2)] hover:text-[var(--text)]
               focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]
@@ -1432,28 +1443,36 @@ function ComposerAction() {
           </button>
         </ComposerPrimitive.AddAttachment>
         <ComposerMicButton />
-        <span className="px-1 text-[11px] text-[var(--text-subtle)]">
+        <KebabMenu portal ariaLabel="Suggestions" align="start" menuTitle="Try asking Integral" menuCaption="Choose a prompt, then make it your own." icon={<Sparkles size={15} aria-hidden />} items={suggestions.map(suggestion => ({
+          key: suggestion.label, label: suggestion.label, description: suggestion.text, disabled: !canSuggest,
+          onClick: () => {
+            refs?.resetComposerEntityRefs();
+            aui.composer().setText(suggestion.text);
+            actionRef.current?.parentElement?.querySelector('textarea')?.focus();
+          },
+        }))} />
+        <span className="chat-composer-mention-hint whitespace-nowrap px-1 text-[11px] text-[var(--text-subtle)]">
           @people, #apps/tracks
         </span>
       </div>
       <AuiIf condition={(s) => !s.thread.isRunning}>
         <ComposerSendWithRefs
-          aria-label="Send message"
-          className="
-            flex h-8 w-8 items-center justify-center rounded-full
+          aria-label={home ? "Ask Integral" : "Send message"}
+          className={home ? "flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[var(--cta-bg)] text-[var(--cta-fg)] hover:bg-[var(--cta-hover)] disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]" : `
+            flex h-8 w-8 shrink-0 items-center justify-center rounded-full
             bg-[var(--cta-bg)] text-[var(--cta-fg)]
             transition-colors hover:bg-[var(--cta-hover)]
             disabled:bg-[var(--badge-muted-bg)] disabled:text-[var(--text-subtle)]
             disabled:cursor-not-allowed
             focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]
-          "
+          `}
         />
       </AuiIf>
       <AuiIf condition={(s) => s.thread.isRunning}>
         <ComposerPrimitive.Cancel
           aria-label="Stop generating"
           className="
-            flex h-8 w-8 items-center justify-center rounded-full
+            flex h-8 w-8 shrink-0 items-center justify-center rounded-full
             bg-[var(--cta-bg)] text-[var(--cta-fg)]
             transition-colors hover:bg-[var(--cta-hover)]
             focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]

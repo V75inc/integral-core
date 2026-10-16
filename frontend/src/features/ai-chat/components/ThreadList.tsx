@@ -75,7 +75,7 @@ export function AIChatThreadList() {
           <input type="search" aria-label="Search conversations" placeholder="Search conversations…"
             value={search} onChange={e => setSearch(e.target.value)}
             onKeyDown={e => { if (e.key === "Escape") setSearch(""); }}
-            className="h-9 w-full rounded-[var(--radius-input)] border border-[var(--panel-border)] bg-[var(--bg)] pl-8 pr-8 text-sm text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring-color)]" />
+            className="h-9 w-full rounded-[var(--radius-input)] border border-[var(--panel-border)] bg-[var(--bg)] pl-9 pr-8 text-sm text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring-color)]" />
           {search && <button type="button" aria-label="Clear conversation search" onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)]"><XIcon size={14} /></button>}
         </div>
         {search.trim() && <p role="status" className="pt-2 text-xs text-[var(--text-muted)]">{visibleGroups.size} matching conversations</p>}

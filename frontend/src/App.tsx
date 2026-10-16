@@ -60,9 +60,6 @@ const NotificationsPage = lazy(() =>
     default: m.NotificationsPage,
   })),
 );
-const ProfilePage = lazy(() =>
-  import('./pages/ProfilePage').then((m) => ({ default: m.ProfilePage })),
-);
 const WorkspacesPage = lazy(() =>
   import('./pages/WorkspacesPage').then((m) => ({
     default: m.WorkspacesPage,
@@ -378,7 +375,7 @@ export default function App() {
         <Route path="tracks/:id" element={<TrackDetailPage />} />
         <Route path="entries/:entryId" element={<EntryPage />} />
         <Route path="notifications" element={<NotificationsPage />} />
-        <Route path="profile" element={<ProfilePage />} />
+        <Route path="profile" element={<Navigate to="/settings#profile" replace />} />
         <Route path="workspaces" element={<WorkspacesPage />} />
         <Route path="workspaces/setup" element={<WorkspaceSetupPage />} />
         <Route path="workspaces/:workspaceId" element={<WorkspaceDetailPage />} />

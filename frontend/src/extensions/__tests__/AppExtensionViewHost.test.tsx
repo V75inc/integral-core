@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { AppExtensionViewHost } from '../../components/extensions/AppExtensionViewHost';
 import { EXTENSION_PROTOCOL } from '../../components/extensions/extensionProtocol';
 import { extensionsApi } from '../../api/extensions';
 
-vi.mock('../../api/extensions', () => ({
+vi.mock('../../api/extensions', async importOriginal => ({
+  ...await importOriginal<typeof import('../../api/extensions')>(),
   extensionsApi: {
     invokeOperation: vi.fn(async (...args: unknown[]) => ({
       app_id: args[0],
@@ -23,7 +24,8 @@ vi.mock('../../api/client', () => ({
   },
 }));
 
-vi.mock('../../api/extensions', () => ({
+vi.mock('../../api/extensions', async importOriginal => ({
+  ...await importOriginal<typeof import('../../api/extensions')>(),
   extensionsApi: {
     invokeOperation: vi.fn(),
     listCapabilities: vi.fn(async () => ({ capabilities: [] })),
@@ -237,4 +239,82 @@ describe('AppExtensionViewHost bridge', () => {
       });
     });
   });
+});
+
+it('forwards withheld completion without inventing output or repeating the operation', async () => {
+  const completion = {
+    output_disposition: 'withheld' as const,
+    current_state_verified: false as const,
+    operation_receipt: { id: 'o.OperationExecutionReceipt.' + 'a'.repeat(64), status: 'succeeded' as const, replayed: true as const },
+  };
+  vi.mocked(extensionsApi.invokeOperation).mockReset().mockResolvedValue(completion);
+  const posted: unknown[] = [];
+  const frameWindow = { postMessage: (message: unknown) => posted.push(message) };
+  render(<AppExtensionViewHost appId="app" viewKey="record_view" workspaceId="workspace" handshakeToken="token" />);
+  const iframe = document.querySelector('iframe')!;
+  Object.defineProperty(iframe, 'contentWindow', { value: frameWindow, configurable: true });
+  window.dispatchEvent(new MessageEvent('message', {
+    data: { protocol: EXTENSION_PROTOCOL, type: 'operation', requestId: 'retry-1', operationKey: 'record', idempotencyKey: 'same-intent', payload: {} },
+    source: frameWindow as unknown as MessageEventSource,
+  }));
+  await waitFor(() => expect(posted).toContainEqual({
+    protocol: EXTENSION_PROTOCOL, type: 'operation.result', requestId: 'retry-1', ok: false, value: completion,
+    error: 'This action completed earlier. Its saved result is unavailable; current records have not been verified.',
+    error_code: 'operation_output_withheld', retryable: false,
+  }));
+  expect(extensionsApi.invokeOperation).toHaveBeenCalledTimes(1);
+  expect('output' in completion).toBe(false);
+  expect(await screen.findByRole('status')).toHaveTextContent('completed earlier');
+});
+
+it.each(['operation', 'query', 'capabilities'] as const)(
+  'drops a delayed %s reply after a sandbox scope switch', async type => {
+    let finish!: (value: unknown) => void;
+    const delayed = new Promise(resolve => { finish = resolve; });
+    const method = type === 'operation' ? extensionsApi.invokeOperation
+      : type === 'query' ? extensionsApi.invokeQuery : extensionsApi.listCapabilities;
+    vi.mocked(method).mockReset().mockReturnValue(delayed as never);
+    const oldMessages: unknown[] = [], newMessages: unknown[] = [];
+    const oldWindow = { postMessage: (message: unknown) => oldMessages.push(message) };
+    const newWindow = { postMessage: (message: unknown) => newMessages.push(message) };
+    const { rerender } = render(<AppExtensionViewHost appId="app-a" viewKey="view" workspaceId="ws-a" handshakeToken="token-a" />);
+    Object.defineProperty(document.querySelector('iframe')!, 'contentWindow', { value: oldWindow, configurable: true });
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { protocol: EXTENSION_PROTOCOL, type, requestId: 'old-request', operationKey: 'record', capabilityKey: 'read', idempotencyKey: 'same-intent' },
+      source: oldWindow as unknown as MessageEventSource,
+    }));
+    await waitFor(() => expect(method).toHaveBeenCalledTimes(1));
+    rerender(<AppExtensionViewHost appId="app-b" viewKey="view" workspaceId="ws-b" handshakeToken="token-b" />);
+    Object.defineProperty(document.querySelector('iframe')!, 'contentWindow', { value: newWindow, configurable: true });
+    await act(async () => finish({ app_id: 'app-a', output: { private: 'original-scope' }, capabilities: [{ app_id: 'app-a', private: 'original-scope' }] }));
+    expect([...oldMessages, ...newMessages].some(message => (message as { requestId?: string }).requestId === 'old-request')).toBe(false);
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(method).toHaveBeenCalledTimes(1);
+  },
+);
+
+it('does not grant a reused old frame token a new App scope', () => {
+  vi.mocked(extensionsApi.invokeOperation).mockReset();
+  const originalWindow = { postMessage: vi.fn() };
+  const { rerender } = render(<AppExtensionViewHost appId="app-a" viewKey="view" workspaceId="ws-a" handshakeToken="same-token" />);
+  Object.defineProperty(document.querySelector('iframe')!, 'contentWindow', { value: originalWindow, configurable: true });
+  rerender(<AppExtensionViewHost appId="app-b" viewKey="view" workspaceId="ws-b" handshakeToken="same-token" />);
+  expect(document.querySelector('iframe')).toBeNull();
+  window.dispatchEvent(new MessageEvent('message', {
+    data: { protocol: EXTENSION_PROTOCOL, type: 'operation', requestId: 'stale-frame', operationKey: 'record' },
+    source: originalWindow as unknown as MessageEventSource,
+  }));
+  expect(extensionsApi.invokeOperation).not.toHaveBeenCalled();
+});
+
+it('does not turn a pending draft submission into success when its frame closes', async () => {
+  const ref = { current: null as import('../../components/extensions/AppExtensionViewHost').AppExtensionViewHostHandle | null };
+  const messages: unknown[] = [];
+  const frameWindow = { postMessage: (message: unknown) => messages.push(message) };
+  const { unmount } = render(<AppExtensionViewHost ref={ref} appId="app" viewKey="view" workspaceId="workspace" handshakeToken="token" />);
+  Object.defineProperty(document.querySelector('iframe')!, 'contentWindow', { value: frameWindow, configurable: true });
+  const pending = ref.current!.requestSubmit('original-entry');
+  expect(messages.some(message => (message as { type?: string }).type === 'draft.submit')).toBe(true);
+  unmount();
+  await expect(pending).resolves.toMatchObject({ ok: false, error: expect.stringContaining('Check the original record') });
 });

@@ -6,10 +6,12 @@ import re
 from typing import Any, Dict, List, Optional
 
 from jvspatial.api.auth.models import User as AuthUser
+from jvspatial.core import Walker
+from jvspatial.core.decorators import on_visit
 from jvspatial.core.pager import ObjectPager
 
-from app.models.edges import IS_MEMBER_OF
-from app.models.nodes import App, Track, User, Workspace
+from app.models.edges import CATALOGS, CONTAINS, IS_MEMBER_OF
+from app.models.nodes import App, Apps, Track, Tracks, User, Workspace
 from app.schemas.admin import (
     AdminMemberListItem,
     AdminMemberListResponse,
@@ -22,6 +24,7 @@ from app.schemas.admin import (
     AdminWorkspaceListResponse,
     AdminWorkspaceUpdate,
 )
+from app.services.permissions import batch_resolve_users_by_principal_ids
 from app.services.workspace_lifecycle import delete_workspace_cascade
 from app.services.workspace_permissions import get_workspace_owner_user_id
 
@@ -32,26 +35,39 @@ def _resource_label(node: Any, *, kind: str) -> str:
     return getattr(node, "name", "") or ""
 
 
+class _WorkspaceInventoryWalker(Walker):
+    """Count canonical workspace registry children without hydrating resources."""
+
+    app_count: int = 0
+    track_count: int = 0
+
+    @on_visit(Workspace)
+    async def on_workspace(self, here: Workspace) -> None:
+        branches = await here.nodes(
+            edge=[CONTAINS], direction="out", node=[Apps, Tracks], limit=2
+        )
+        await self.visit(branches)
+
+    @on_visit(Apps)
+    async def on_apps(self, here: Apps) -> None:
+        self.app_count = await here.count_nodes(
+            edge=[CATALOGS], direction="out", node=[App]
+        )
+
+    @on_visit(Tracks)
+    async def on_tracks(self, here: Tracks) -> None:
+        self.track_count = await here.count_nodes(
+            edge=[CATALOGS], direction="out", node=[Track]
+        )
+
+
 async def _workspace_counts(ws: Workspace) -> tuple[int, int, int]:
-    member_count = 0
-    app_count = 0
-    track_count = 0
-    try:
-        members = await ws.nodes(edge=[IS_MEMBER_OF], direction="in", node=["User"])
-        member_count = len(members)
-    except Exception:
-        pass
-    try:
-        apps = await ws.nodes(edge=["CONTAINS"], direction="out", node=["WorkspaceApp"])
-        app_count = len(apps)
-    except Exception:
-        pass
-    try:
-        tracks = await ws.nodes(edge=["CONTAINS"], direction="out", node=["Track"])
-        track_count = len(tracks)
-    except Exception:
-        pass
-    return member_count, app_count, track_count
+    member_count = await ws.count_nodes(
+        edge=[IS_MEMBER_OF], direction="in", node=[User]
+    )
+    inventory = _WorkspaceInventoryWalker()
+    await inventory.spawn(ws)
+    return member_count, inventory.app_count, inventory.track_count
 
 
 async def _owner_summaries_for_ids(
@@ -65,8 +81,9 @@ async def _owner_summaries_for_ids(
             seen.add(uid)
             unique.append(uid)
     out: Dict[str, AdminOwnerSummary] = {}
+    users = await batch_resolve_users_by_principal_ids(unique)
     for uid in unique:
-        user = await User.get(uid)
+        user = users.get(uid)
         if not user:
             continue
         email = await _auth_email(user)

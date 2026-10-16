@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import uuid
@@ -10,7 +11,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Literal, Optional, cast
 from zoneinfo import ZoneInfo
 
-from app.models.edges import CATALOGS, CONTAINS
+from app.middleware.permissions_cache import isolated_permissions_cache
+from app.models.edges import CONTAINS
 from app.models.nodes import App, Dashboard, Track
 from app.schemas.entry_aggregate import AggregateSpec
 from app.schemas.query_spec import QuerySpec
@@ -131,9 +133,9 @@ async def _get_app_or_none(app_id: str) -> Optional[App]:
 
 
 async def _list_dashboard_nodes(app: App) -> List[Dashboard]:
-    dreg = await get_or_create_dashboards_registry(app)
-    children = await dreg.nodes(edge=[CATALOGS], node=["Dashboard"])
-    return [cast(Dashboard, c) for c in children]
+    from app.services.dashboard_scope import list_scoped_app_dashboards
+
+    return await list_scoped_app_dashboards(app.id)
 
 
 async def list_dashboards(*, user_id: str, app_id: str) -> List[Dashboard]:
@@ -154,10 +156,9 @@ async def get_dashboard(
     """Return one dashboard when the caller may view it."""
     if not await can_view_app(user_id, app_id):
         return None
-    dash = await Dashboard.get(dashboard_id)
-    if not dash or dash.app_id != app_id:
-        return None
-    return dash
+    from app.services.dashboard_scope import read_scoped_dashboard
+
+    return await read_scoped_dashboard(app_id, dashboard_id)
 
 
 def _has_overlapping_widgets(widgets: List[Dict[str, Any]]) -> bool:
@@ -302,6 +303,106 @@ def _normalize_widgets(raw: Optional[List[Any]]) -> List[Dict[str, Any]]:
     return widgets
 
 
+async def _qualified_dashboard_query(
+    *, user_id: str, app_id: str, workspace_id: Optional[str], source: Dict[str, Any]
+):
+    from app.services.app_queries.registry import get_app_query
+    from app.services.dashboard_query_adapter import qualify_template
+    from app.services.permissions import can_view_track
+
+    query = get_app_query(
+        workspace_id or "", app_id, str(source.get("query_key") or "")
+    )
+    if query is None:
+        raise ValueError("Dashboard query is not registered for this App")
+    if isinstance(query.get("dashboard"), dict):
+        if source.get("track_id") or source.get("track_ids"):
+            raise ValueError("Use the declared query parameters to select its scope")
+        return query
+    app = await _get_app_or_none(app_id)
+    track_id = str(source.get("track_id") or "")
+    if not app or getattr(app, "workspace_id", None) != workspace_id:
+        raise PermissionError("Dashboard source is unavailable")
+    if not track_id or source.get("track_ids"):
+        raise ValueError(
+            "Template dashboard sources require one explicit track_id; use integral_suggest_dashboard"
+        )
+    await _data_source_track_ids(app, source)
+    if not await can_view_track(user_id, track_id):
+        raise PermissionError("Dashboard source is unavailable")
+    track = await Track.get(track_id)
+    if track is None:
+        raise PermissionError("Dashboard source is unavailable")
+    qualified = qualify_template(
+        query, await _track_dashboard_fields(cast(Track, track))
+    )
+    if not isinstance(qualified.get("dashboard"), dict):
+        raise ValueError("App query cannot supply a bounded dashboard source")
+    return qualified
+
+
+def _validate_declared_dashboard_source(query, source, widget):
+    contract = query.get("dashboard") or {}
+    if (
+        source.get("rows_path") != contract.get("rows_path")
+        or source.get("total_path") != contract.get("total_path")
+        or dict(source.get("query_params") or {}) != dict(contract.get("params") or {})
+    ):
+        raise ValueError(
+            "Dashboard query contract mismatch; use integral_suggest_dashboard"
+        )
+    if any(
+        source.get(key)
+        for key in (
+            "filters",
+            "view_id",
+            "entry_type",
+            "status",
+            "statuses",
+            "tags",
+            "since",
+            "until",
+            "period",
+        )
+    ):
+        raise ValueError("Dashboard query filters must be declared query parameters")
+    paths = _declared_query_output_paths(query, source)
+    if paths is None:
+        raise ValueError("Dashboard query fields or total are not qualified")
+    if source.get("op") in {"sum", "avg", "min", "max"}:
+        item = (_json_schema_path(query["output_schema"], paths[0]) or {}).get(
+            "items", {}
+        )
+        field = str(source.get("field") or "")
+        schema = (
+            _json_schema_path(item, field)
+            or _json_schema_path(item, field.removeprefix("custom_fields."))
+            or {}
+        )
+        kind = schema.get("type")
+        types = set(kind) if isinstance(kind, list) else {kind}
+        if not types - {"null"} or not types <= {"integer", "number", "null"}:
+            raise ValueError(
+                "Dashboard numeric aggregate requires a declared numeric field"
+            )
+    if widget.get("type") == "record_summary":
+        item = (_json_schema_path(query["output_schema"], paths[0]) or {}).get(
+            "items", {}
+        )
+        for field in (widget.get("config") or {}).get("fields", []):
+            schema = _json_schema_path(item, field["field"]) or {}
+            kind = schema.get("type")
+            types = set(kind) if isinstance(kind, list) else {kind}
+            if not types - {"null"} or not types <= {
+                "string",
+                "boolean",
+                "integer",
+                "number",
+                "null",
+            }:
+                raise ValueError("Dashboard summary field is not a declared scalar")
+
+
 async def validate_dashboard_field_bindings(
     *, user_id: str, app_id: str, widgets: List[Dict[str, Any]]
 ) -> None:
@@ -315,8 +416,20 @@ async def validate_dashboard_field_bindings(
     for widget in widgets:
         source = widget.get("data_source") or {}
         if source.get("kind") == "declared_query":
-            # Packaged Apps own their declared query schema and authorization.
+            query = await _qualified_dashboard_query(
+                user_id=user_id,
+                app_id=app_id,
+                workspace_id=getattr(app, "workspace_id", None),
+                source=source,
+            )
+            _validate_declared_dashboard_source(query, source, widget)
             continue
+        from app.services.query_boundary import decide_app
+
+        if not decide_app(app).allowed:
+            raise ValueError(
+                "Packaged App dashboards require declared query sources; use integral_suggest_dashboard"
+            )
         requested: set[str] = set()
         value_field = str(source.get("field") or "")
         if value_field:
@@ -1177,7 +1290,12 @@ def _declared_query_output_paths(
     field = str(data_source.get("field") or "").strip()
     if field.startswith("custom_fields."):
         field = field[len("custom_fields.") :]
-    if field and field not in item_properties:
+    original_field = str(data_source.get("field") or "").strip()
+    if (
+        field
+        and field not in item_properties
+        and _json_schema_path(rows_schema["items"], original_field) is None
+    ):
         return None
     group_by = str(data_source.get("group_by") or "").strip()
     if group_by == "date":
@@ -1190,7 +1308,14 @@ def _declared_query_output_paths(
         group_field = group_by
         if group_field.startswith("custom_fields."):
             group_field = group_field[len("custom_fields.") :]
-    if group_field and group_field not in item_properties:
+    original_group = (
+        group_by.split(":", 1)[1] if group_by.startswith("date:") else group_by
+    )
+    if (
+        group_field
+        and group_field not in item_properties
+        and _json_schema_path(rows_schema["items"], original_group) is None
+    ):
         return None
     return rows_path, total_path
 
@@ -1214,9 +1339,20 @@ async def _resolve_declared_query_data(
     query = get_app_query(workspace_id, app_id, query_key)
     if query is None:
         return {"value": None, "error": "declared_query_not_found"}
-    contract = query.get("dashboard")
-    if not isinstance(contract, dict):
+    try:
+        query = await _qualified_dashboard_query(
+            user_id=user_id,
+            app_id=app_id,
+            workspace_id=workspace_id,
+            source=data_source,
+        )
+    except (ValueError, PermissionError):
         return {"value": None, "error": "declared_query_not_dashboard_enabled"}
+    contract = query.get("dashboard")
+    try:
+        _validate_declared_dashboard_source(query, data_source, {})
+    except ValueError:
+        return {"value": None, "error": "declared_query_contract_mismatch"}
     # Paths and inputs are part of the App declaration. Letting a dashboard
     # editor replace them could turn a bounded preview into a partial KPI.
     if (
@@ -1247,13 +1383,29 @@ async def _resolve_declared_query_data(
 
     base_params = dict(data_source.get("query_params") or {})
     try:
-        invoked = await invoke_app_query(
-            user_id=user_id,
-            workspace_id=workspace_id,
-            app_id=app_id,
-            query_key=query_key,
-            params=base_params,
-        )
+        if query.get("_template_dashboard"):
+            from app.services.dashboard_query_adapter import collect_template_rows
+
+            output = await collect_template_rows(
+                invoke=invoke_app_query,
+                user_id=user_id,
+                workspace_id=workspace_id,
+                app_id=app_id,
+                query_key=query_key,
+                track_id=data_source["track_id"],
+                budget=int(data_source.get("budget", 5000)),
+            )
+            if output.get("error"):
+                return {"value": None, **output}
+            invoked = {"output": output}
+        else:
+            invoked = await invoke_app_query(
+                user_id=user_id,
+                workspace_id=workspace_id,
+                app_id=app_id,
+                query_key=query_key,
+                params=base_params,
+            )
     except Exception:  # noqa: BLE001 — failures are visible, never zero
         _logger.exception(
             "Dashboard declared query failed (app_id=%s, query_key=%s)",
@@ -1287,7 +1439,7 @@ async def _resolve_declared_query_data(
             "title": str(row.get("title") or ""),
             "created_at": row.get("created_at"),
             "updated_at": row.get("updated_at"),
-            "custom_fields": dict(row),
+            "custom_fields": {**dict(row), **dict(row.get("custom_fields") or {})},
         }
         for index, row in enumerate(rows)
     ]
@@ -1490,21 +1642,28 @@ async def resolve_dashboard_data(
     workspace_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Resolve live data for every widget on a dashboard."""
-    out: Dict[str, Any] = {}
-    for widget in dashboard.widgets or []:
-        wid = widget.get("id")
-        if not wid:
-            continue
-        try:
-            out[wid] = await resolve_widget_data(
-                user_id=user_id,
-                app_id=app_id,
-                widget=widget,
-                workspace_id=workspace_id,
-            )
-        except Exception as exc:  # noqa: BLE001
-            out[wid] = {"error": str(exc)}
-    return out
+    # Limit fan-out against the database pool. Each widget still performs its
+    # own scoped read and live authorization; no query or allow result is reused.
+    semaphore = asyncio.Semaphore(3)
+
+    async def resolve(widget: Dict[str, Any]) -> Any:
+        async with semaphore:
+            with isolated_permissions_cache():
+                try:
+                    return await resolve_widget_data(
+                        user_id=user_id,
+                        app_id=app_id,
+                        widget=widget,
+                        workspace_id=workspace_id,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    return {"error": str(exc)}
+
+    widgets = [widget for widget in dashboard.widgets or [] if widget.get("id")]
+    results = await asyncio.gather(*(resolve(widget) for widget in widgets))
+    # Preserve declaration order, including the existing last-value behavior
+    # for duplicate IDs, regardless of which query finishes first.
+    return {widget["id"]: result for widget, result in zip(widgets, results)}
 
 
 async def suggest_dashboard_template(
@@ -1520,6 +1679,7 @@ async def suggest_dashboard_template(
     if not app:
         return {"error": "app_not_found"}
 
+    workspace_id = workspace_id or getattr(app, "workspace_id", None)
     tracks = await app.nodes(edge=[CONTAINS], node=["Track"])
     track_list = [cast(Track, t) for t in tracks]
     primary_track_id = track_list[0].id if track_list else None
@@ -1545,6 +1705,52 @@ async def suggest_dashboard_template(
         )
     )
 
+    sources: List[Dict[str, Any]] = []
+    if app_query_only:
+        from app.services.dashboard_query_adapter import qualify_template
+        from app.services.permissions import can_view_track
+
+        for query in list(declared_queries.values()):
+            if query.get("dashboard"):
+                continue
+            for track in track_list:
+                if not await can_view_track(user_id, track.id):
+                    continue
+                fields = await _track_dashboard_fields(track)
+                qualified = qualify_template(query, fields)
+                if not qualified.get("_template_dashboard"):
+                    continue
+                source: Dict[str, Any] = {
+                    "kind": "declared_query",
+                    "query_key": query.get("key"),
+                    "track_id": track.id,
+                    "rows_path": "items",
+                    "total_path": "total_estimate",
+                    "query_params": {},
+                    "op": "count",
+                    "budget": 5000,
+                }
+                key = f"{query['key']}:{track.id}"
+                declared_queries[key] = {
+                    **qualified,
+                    "dashboard": {**qualified["dashboard"], "title": track.title},
+                    "_dashboard_source": source,
+                    "_dashboard_fields": fields,
+                }
+                sources.append(
+                    {
+                        "title": track.title,
+                        "data_source": source,
+                        "fields": fields,
+                        "supported_widgets": [
+                            "metric_card",
+                            "chart_bar",
+                            "chart_pie",
+                            "chart_line",
+                            "record_summary",
+                        ],
+                    }
+                )
     widgets: List[Dict[str, Any]] = []
     y = 0
 
@@ -1605,6 +1811,7 @@ async def suggest_dashboard_template(
                 "budget": 5000,
                 "op": "count",
             }
+            data_source.update(query.get("_dashboard_source") or {})
             if _declared_query_output_paths(query, data_source) is None:
                 continue
             query_name = str(
@@ -1625,6 +1832,33 @@ async def suggest_dashboard_template(
                     "dashboard-enabled declared query."
                 ),
             )
+            fields = query.get("_dashboard_fields") or []
+            category = next(
+                (
+                    field
+                    for field in fields
+                    if field["type"] == "select"
+                    and _json_schema_path(
+                        query["output_schema"]["properties"]["items"]["items"],
+                        "custom_fields." + field["key"],
+                    )
+                    is not None
+                ),
+                None,
+            )
+            if category:
+                _add(
+                    "chart_bar",
+                    f"{query_name} by {category['name']}",
+                    x=0,
+                    w=6,
+                    h=4,
+                    data_source={
+                        **data_source,
+                        "group_by": "custom_fields." + category["key"],
+                    },
+                    rationale="Groups the complete authorized Track rows by a published categorical field.",
+                )
     else:
         for index, track in enumerate(track_list[:3]):
             _add(
@@ -1682,7 +1916,10 @@ async def suggest_dashboard_template(
     track_fields = (
         []
         if app_query_only
-        else [(track, await _track_dashboard_fields(track)) for track in track_list]
+        else [
+            (track, await _track_dashboard_fields(cast(Track, track)))
+            for track in track_list
+        ]
     )
     candidates_by_track: List[List[Dict[str, Any]]] = []
     for track, fields in track_fields:
@@ -1846,9 +2083,15 @@ async def suggest_dashboard_template(
         f"Suggested layout for **{app.name}** with {len(track_list)} track(s) "
         f"and {total_entries} total entries, led by the app's named operating areas."
     )
+    if app_query_only:
+        rationale = (
+            f"Suggested layout for **{app.name}** with {len(track_list)} track(s). "
+            "Each widget preview reports its authorized query result and completeness."
+        )
     return {
         "name": f"{app.name} Overview",
         "layout": {"columns": 12, "row_height": 80},
         "widgets": _compact_widget_layout(widgets, columns=12),
         "rationale": rationale,
+        "sources": sources,
     }

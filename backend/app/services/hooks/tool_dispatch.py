@@ -67,7 +67,7 @@ def validate_output(payload: Any, schema: Dict[str, Any]) -> None:
         ) from exc
 
 
-async def run_tool(
+async def _run_tool(
     spec: Dict[str, Any],
     payload: Dict[str, Any],
     ctx: ToolContext,
@@ -119,5 +119,30 @@ async def run_tool(
     await ctx.emit_audit(
         action="tool.invoke",
         details={"tool_key": spec.get("key"), "bundle_slug": spec.get("_bundle_slug")},
+    )
+    return result
+
+
+async def run_tool(
+    spec: Dict[str, Any],
+    payload: Dict[str, Any],
+    ctx: ToolContext,
+) -> Any:
+    """Invoke an extension and retain interrupted/failed staging outcomes."""
+    from app.agentive.services.staging_execution import (
+        begin_staging_hook,
+        finish_staging_hook,
+    )
+
+    bound = begin_staging_hook()
+    try:
+        result = await _run_tool(spec, payload, ctx)
+    except BaseException:
+        finish_staging_hook(bound, failed=True)
+        raise
+    finish_staging_hook(
+        bound,
+        failed=isinstance(result, dict)
+        and (result.get("error") is True or result.get("ok") is False),
     )
     return result

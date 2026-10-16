@@ -65,7 +65,7 @@ def test_runtime_uses_zero_cost_compaction_and_session_scoped_search() -> None:
     assert search.effective_scope == "conversation"
     assert search.add_instructions is False
     assert scoped_store._scope == _scope()
-    assert search.source._store is scoped_store
+    assert search.source._source._store is scoped_store
 
 
 def test_runtime_uses_pydantic_tool_search_with_integral_semantic_strategy() -> None:
@@ -112,8 +112,8 @@ def test_conversation_search_store_isolated_by_integral_execution_scope() -> Non
         item for item in _capabilities(agent_b) if isinstance(item, ConversationSearch)
     )
 
-    assert search_a.source._store is store_a
-    assert search_b.source._store is store_b
+    assert search_a.source._source._store is store_a
+    assert search_b.source._source._store is store_b
     assert store_a._prefix != store_b._prefix
 
 

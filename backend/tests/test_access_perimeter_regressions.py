@@ -143,10 +143,10 @@ async def test_policy_event_requires_creator_and_personal_actor_scope():
     )
 
 
-async def rooted_graph():
+async def rooted_graph(reader_user=None):
     owner = await User.create(user_id="perimeter-owner")
     await catalog_user(owner)
-    reader = await User.create(user_id="perimeter-reader")
+    reader = reader_user or await User.create(user_id="perimeter-reader")
     await catalog_user(reader)
     workspace = await Workspace.create(name="Perimeter", kind="organization")
     await catalog_workspace(workspace)
@@ -265,9 +265,10 @@ async def test_stored_event_surfaces_filter_excluded_entry(surface, monkeypatch)
     from starlette.requests import Request
 
     from app.api import audit_log, events_polling
+    from app.services import event_history
     from app.services.change_event_logger import ChangeEventEnvelope
 
-    _, reader, _, _, track, entry = await rooted_graph()
+    _, reader, workspace, _, track, entry = await rooted_graph()
     event = ChangeEventEnvelope(
         id="event-1",
         ts="2026-10-10T00:00:00+00:00",
@@ -280,14 +281,22 @@ async def test_stored_event_surfaces_filter_excluded_entry(surface, monkeypatch)
         after={"title": entry.title},
     )
     module = audit_log if surface == "audit" else events_polling
+
+    async def find_page(**kwargs):
+        return [event] if kwargs.get("cursor") is None else []
+
     monkeypatch.setattr(
         module,
         "get_change_event_logger",
-        lambda: SimpleNamespace(find_all=AsyncMock(return_value=[event])),
+        lambda: SimpleNamespace(find_page=find_page),
     )
-    monkeypatch.setattr(module, "envelope_from_dblog", lambda row: row)
+    monkeypatch.setattr(event_history, "envelope_from_dblog", lambda row: row)
     request = Request(
-        {"type": "http", "headers": [], "state": {"user": {"id": reader.id}}}
+        {
+            "type": "http",
+            "headers": [(b"x-integral-scope", f"ws:{workspace.id}".encode())],
+            "state": {"user": {"id": reader.id}},
+        }
     )
     handler = (
         module.list_audit_log if surface == "audit" else module.list_events_polling
@@ -300,6 +309,7 @@ async def test_stored_event_surfaces_filter_excluded_entry(surface, monkeypatch)
 @pytest.mark.asyncio
 async def test_read_replay_withholds_revoked_record_without_rerunning_handler(
     monkeypatch,
+    test_user,
 ):
     from app.api.errors import InsufficientPermissionsError
     from app.services.app_operations import dispatch, registry
@@ -307,7 +317,10 @@ async def test_read_replay_withholds_revoked_record_without_rerunning_handler(
         clear_idempotency_memory_for_tests,
     )
 
-    _, reader, workspace, app, _, entry = await rooted_graph()
+    profile = await perms.get_user_node(test_user.id)
+    if profile is None:
+        profile = await User.create(user_id=test_user.id)
+    _, reader, workspace, app, _, entry = await rooted_graph(reader_user=profile)
     monkeypatch.setattr(registry, "_OPERATIONS", {})
     registry.register_app_operations(
         workspace.id,

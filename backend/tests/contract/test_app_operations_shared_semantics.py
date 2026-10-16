@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from app.agentive.tooling.dispatch import dispatch_tool
-from app.contracts.runtime import ExecutionScope
 from app.services.app_operations.dispatch import invoke_app_operation
 from app.services.hooks.install_hook import register_bundle_on_install
-from app.services.hooks.registry import clear_workspace_registrations
 from app.services.operational_model_runtime import compile_canonical_manifest
 
 REPO = Path(__file__).resolve().parents[3]
@@ -31,58 +28,12 @@ def reference_root(monkeypatch):
     reset_library_operational_models_cache_for_testing()
     yield REF_APP
     reset_library_operational_models_cache_for_testing()
-    clear_workspace_registrations("ws-op-shared")
-
-
-def _policy_patches(user_id: str):
-    async def _allow(*_a, **_k):
-        from app.schemas.policy import Decision
-
-        return Decision(allowed=True, reason="contract-test")
-
-    app_stub = type(
-        "AppStub",
-        (),
-        {
-            "id": "n.App.contract-shared",
-            "workspace_id": "ws-op-shared",
-            "lifecycle_state": "active",
-        },
-    )()
-    return (
-        patch(
-            "app.services.app_operations.dispatch.policy_evaluate",
-            new=AsyncMock(side_effect=_allow),
-        ),
-        patch(
-            "app.services.app_operations.dispatch.App.get",
-            new=AsyncMock(return_value=app_stub),
-        ),
-        patch(
-            "app.services.app_operations.dispatch.resolve_role",
-            new=AsyncMock(return_value="owner"),
-        ),
-        patch(
-            "app.services.app_operations.dispatch.can_access_workspace",
-            new=AsyncMock(return_value="owner"),
-        ),
-        patch(
-            "app.api.app_extensions.resolve_execution_scope_from_request",
-            new=AsyncMock(
-                return_value=ExecutionScope.create(
-                    principal_id=user_id,
-                    workspace_id="ws-op-shared",
-                    origin="http_extension_operation",
-                )
-            ),
-        ),
-    )
 
 
 @pytest.mark.contract
 @pytest.mark.asyncio
 async def test_direct_http_mcp_echo_operation_same_output(
-    reference_root, test_user, authenticated_client
+    reference_root, test_user, authenticated_client, request
 ):
     from app.services.operational_model_loader import (
         load_library_operational_models_with_issues,
@@ -95,8 +46,10 @@ async def test_direct_http_mcp_echo_operation_same_output(
     )
     spec = next(s for s in specs if s.slug == "reference-hello-app")
     canonical = compile_canonical_manifest(manifest=spec.manifest)
-    ws = "ws-op-shared"
-    app_id = "n.App.contract-shared"
+    from tests.contract.operation_fixtures import owned_operation_app
+
+    workspace, app = await owned_operation_app(test_user, request)
+    ws, app_id = workspace.id, app.id
     user_id = test_user.id
     await register_bundle_on_install(
         workspace_id=ws,
@@ -105,34 +58,32 @@ async def test_direct_http_mcp_echo_operation_same_output(
         app_id=app_id,
     )
 
-    patches = _policy_patches(user_id)
-    with patches[0], patches[1], patches[2], patches[3], patches[4]:
-        direct = await invoke_app_operation(
-            user_id=user_id,
-            workspace_id=ws,
-            app_id=app_id,
-            operation_key="echo",
-            payload=PAYLOAD,
-        )
+    direct = await invoke_app_operation(
+        user_id=user_id,
+        workspace_id=ws,
+        app_id=app_id,
+        operation_key="echo",
+        payload=PAYLOAD,
+    )
 
-        resp = await authenticated_client.post(
-            f"/api/extensions/{app_id}/operations/echo",
-            json={"input": PAYLOAD},
-            headers={"X-Integral-Scope": f"ws:{ws}"},
-        )
-        assert resp.status_code == 200, resp.text
-        http = resp.json()
+    resp = await authenticated_client.post(
+        f"/api/extensions/{app_id}/operations/echo",
+        json={"input": PAYLOAD},
+        headers={"X-Integral-Scope": f"ws:{ws}"},
+    )
+    assert resp.status_code == 200, resp.text
+    http = resp.json()
 
-        mcp = await dispatch_tool(
-            "integral_invoke_app_operation",
-            {
-                "app_id": app_id,
-                "operation_key": "echo",
-                "input": PAYLOAD,
-            },
-            principal_id=user_id,
-            scope=ws,
-        )
+    mcp = await dispatch_tool(
+        "integral_invoke_app_operation",
+        {
+            "app_id": app_id,
+            "operation_key": "echo",
+            "input": PAYLOAD,
+        },
+        principal_id=user_id,
+        scope=ws,
+    )
 
     assert direct["output"]["ok"] is True
     assert direct["output"]["message"] == PAYLOAD["message"]

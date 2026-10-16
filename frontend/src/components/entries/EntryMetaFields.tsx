@@ -5,6 +5,7 @@ import { HtmlSandboxPreview } from './HtmlSandboxPreview';
 import type { OperationalModelFieldSpec, Track } from '../../types';
 import {
   formatCustomFieldValue,
+  isEmptyCustomFieldValue,
   shouldRenderMetaField,
   sortFieldsByOrder,
 } from '../../utils/entryMetaFields';
@@ -123,6 +124,9 @@ export function EntryMetaFields({
     Record<string, SeamlessFieldRelationChoice[]>
   >({});
   const [relationLoading, setRelationLoading] = useState(false);
+  // Detail-only: which clamped (``max_lines``) fields the user has expanded via
+  // the Read more toggle.
+  const [openFields, setOpenFields] = useState<Record<string, boolean>>({});
 
   const tracksQueryEnabled = Boolean(
     relationFieldsSig && activeTrackId && workspaceId
@@ -334,12 +338,26 @@ export function EntryMetaFields({
     group?: string;
     inlineEditable: boolean;
     relationEditable: boolean;
+    selectEditable: boolean;
   };
   const rows: Row[] = [];
 
   for (const field of ordered) {
-    if (field.key.startsWith('_') || field.hidden) continue;
+    if (
+      field.key.startsWith('_') ||
+      field.hidden ||
+      (variant === 'card' && field.hide_on_card)
+    )
+      continue;
     const raw = values[field.key];
+    // Detail-only: optional fields with no value are omitted entirely.
+    if (
+      variant === 'detail' &&
+      field.hide_when_empty &&
+      isEmptyCustomFieldValue(raw)
+    ) {
+      continue;
+    }
     const t = String(field.type || '').toLowerCase();
     const isInlineEditable =
       variant === 'detail' &&
@@ -351,6 +369,15 @@ export function EntryMetaFields({
       !!onCommitField &&
       !readOnly &&
       t === 'relation' &&
+      !field.readonly;
+    // Select / multi-select fields are editable inline (via SeamlessField, like
+    // relations) so values such as Pipeline status can be set from the card
+    // without opening the Edit form.
+    const isSelectEditable =
+      variant === 'detail' &&
+      !!onCommitField &&
+      !readOnly &&
+      (t === 'select' || t === 'multi_select') &&
       !field.readonly;
 
     // Inline-editable fields always appear in the detail panel even when
@@ -364,6 +391,20 @@ export function EntryMetaFields({
         group: (field.group || '').trim() || undefined,
         inlineEditable: true,
         relationEditable: false,
+        selectEditable: false,
+      });
+      continue;
+    }
+
+    if (isSelectEditable) {
+      rows.push({
+        field,
+        text: formatCustomFieldValue(field, raw, workflowEnumLabels?.[field.key]),
+        raw,
+        group: (field.group || '').trim() || undefined,
+        inlineEditable: false,
+        relationEditable: false,
+        selectEditable: true,
       });
       continue;
     }
@@ -379,6 +420,7 @@ export function EntryMetaFields({
         group: (field.group || '').trim() || undefined,
         inlineEditable: false,
         relationEditable: false,
+        selectEditable: false,
       });
       continue;
     }
@@ -395,6 +437,7 @@ export function EntryMetaFields({
         group: (field.group || '').trim() || undefined,
         inlineEditable: false,
         relationEditable: isRelationEditable,
+        selectEditable: false,
       });
       continue;
     }
@@ -408,6 +451,7 @@ export function EntryMetaFields({
       group: (field.group || '').trim() || undefined,
       inlineEditable: false,
       relationEditable: false,
+      selectEditable: false,
     });
   }
 
@@ -424,7 +468,8 @@ export function EntryMetaFields({
       <div className="entry-meta-grid grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
         {rows.map((row, idx) => {
           const prev = idx > 0 ? rows[idx - 1] : undefined;
-          const showGroupHeader = Boolean(row.group && row.group !== prev?.group);
+          const showGroupHeader =
+            variant === 'detail' && Boolean(row.group && row.group !== prev?.group);
           const t = String(row.field.type || '').toLowerCase();
           // Array-of-objects JSON values (rubric_lines, line_items, …)
           // render as a structured read-only table instead of mono JSON.
@@ -432,7 +477,18 @@ export function EntryMetaFields({
           // editor's own ``label`` prop is left undefined.
           const jsonTable = t === 'json' && isJsonTableShape(row.raw);
           const htmlBodyPreview = row.field.key === 'html_body';
-          const fullBleed = t === 'markdown' || t === 'json' || htmlBodyPreview;
+          const fullBleed =
+            t === 'markdown' ||
+            t === 'json' ||
+            htmlBodyPreview ||
+            Boolean(row.field.full_width);
+          const maxLines = Number(row.field.max_lines) || 0;
+          const clampText = String(row.text || '');
+          const canClamp =
+            variant === 'detail' &&
+            maxLines > 0 &&
+            (clampText.split('\n').length > maxLines || clampText.length > 400);
+          const isOpen = Boolean(openFields[row.field.key]);
 
           return (
             <Fragment key={row.field.key}>
@@ -451,6 +507,18 @@ export function EntryMetaFields({
                 <div className="text-[13px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
                   {row.field.name}
                 </div>
+                <div
+                  style={
+                    canClamp && !isOpen && !row.inlineEditable
+                      ? ({
+                          display: '-webkit-box',
+                          WebkitBoxOrient: 'vertical',
+                          WebkitLineClamp: maxLines,
+                          overflow: 'hidden',
+                        } as React.CSSProperties)
+                      : undefined
+                  }
+                >
                 {row.inlineEditable && onCommitField ? (
                   <div className="mt-0.5">
                     <InlineFieldEditor
@@ -458,9 +526,13 @@ export function EntryMetaFields({
                       value={values[row.field.key] ?? null}
                       readOnly={readOnly || readOnlyKeys.includes(row.field.key)}
                       onCommit={newValue => onCommitField(row.field.key, newValue)}
+                      maxLines={maxLines}
+                      expanded={isOpen}
                     />
                   </div>
-                ) : row.relationEditable && onCommitField && !readOnlyKeys.includes(row.field.key) ? (
+                ) : (row.relationEditable || row.selectEditable) &&
+                  onCommitField &&
+                  !readOnlyKeys.includes(row.field.key) ? (
                   <div className="mt-0.5">
                     <SeamlessField
                       externalLabel
@@ -473,6 +545,8 @@ export function EntryMetaFields({
                           /* parent toasts */
                         }
                       }}
+                      enumLabels={workflowEnumLabels?.[row.field.key]}
+                      searchable={row.selectEditable}
                       relationChoices={relationChoices[row.field.key] || []}
                       relationLoading={relationLoading}
                       onNavigate={onNavigate}
@@ -547,6 +621,22 @@ export function EntryMetaFields({
                     {row.text}
                   </div>
                 )}
+                </div>
+                {canClamp ? (
+                  <button
+                    type="button"
+                    onClick={e => {
+                      e.stopPropagation();
+                      setOpenFields(prev => ({
+                        ...prev,
+                        [row.field.key]: !prev[row.field.key],
+                      }));
+                    }}
+                    className="mt-1 text-xs text-[var(--link)] hover:underline"
+                  >
+                    {isOpen ? 'Show less' : 'Read more'}
+                  </button>
+                ) : null}
               </div>
             </Fragment>
           );

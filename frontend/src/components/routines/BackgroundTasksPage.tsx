@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
 import { Button, LINE_ICON_STROKE, PageHeading, PageMeta, PageShell, PageSection } from '../ui';
 import { Select, Surface, Text } from '../../ui';
@@ -16,7 +17,14 @@ type StatusFilter = RoutineStatus | 'all';
 
 export function BackgroundTasksPage() {
   useSetCrumbs([{ label: 'Background Tasks' }]);
+  const { hash } = useLocation();
   const workspaceId = useScopeOptional()?.scope?.workspaceId;
+
+  useEffect(() => {
+    if (hash === '#scheduled-routines') {
+      document.getElementById('scheduled-routines')?.scrollIntoView?.({ block: 'start' });
+    }
+  }, [hash]);
 
   const [rows, setRows] = useState<RoutineResponse[]>([]);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -89,7 +97,7 @@ export function BackgroundTasksPage() {
         <WorkItemsSection key={workspaceId} workspaceId={workspaceId} />
       </PageSection>}
       <PageSection className="mt-8">
-        <Surface as="section" aria-label="Scheduled routines" tone="panel" border="subtle" radius="card" padding="lg">
+        <Surface id="scheduled-routines" as="section" aria-label="Scheduled routines" tone="panel" border="subtle" radius="card" padding="lg">
           <header className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0 flex-1 basis-64">
               <Text as="h2" variant="heading-md">Scheduled routines</Text>
@@ -102,13 +110,13 @@ export function BackgroundTasksPage() {
               size="sm"
               variant="outline"
               loading={loading}
-              aria-label="Refresh routines"
+              aria-label="Refresh"
               aria-busy={loading}
               icon={<RefreshCw size={14} strokeWidth={LINE_ICON_STROKE} aria-hidden />}
               className="shrink-0"
               onClick={() => void refetch()}
             >
-              {loading ? 'Refreshing…' : 'Refresh routines'}
+              {loading ? 'Refreshing…' : 'Refresh'}
             </Button>
           </header>
           <div className="mt-5">

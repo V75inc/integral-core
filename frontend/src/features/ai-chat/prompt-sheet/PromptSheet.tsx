@@ -298,7 +298,7 @@ function WritePage({
             disabled={busy}
             onClick={() => void onApprove()}
           >
-            Approve
+            {item.staged_state === 'blessed' ? 'Retry application' : 'Approve'}
           </Button>
           <Button
             type="button"

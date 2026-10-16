@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { SeamlessField } from '../SeamlessField';
 import type { OperationalModelFieldSpec } from '../../../types';
 
@@ -8,6 +9,44 @@ vi.mock('../relations', () => ({
   RelationValue: () => <a href="/entries/current">Current opportunity</a>,
 }));
 afterEach(cleanup);
+
+describe('optional select clearing', () => {
+  const field: OperationalModelFieldSpec = {
+    key: 'status', name: 'Status', type: 'select', enum: ['new', 'done'],
+  };
+
+  it('clears a selected optional value with the mouse', async () => {
+    const user = userEvent.setup();
+    const change = vi.fn();
+    const view = render(<SeamlessField field={field} value="new" onChange={change} />);
+    await user.click(screen.getByRole('combobox'));
+    await user.click(screen.getByRole('option', { name: 'None' }));
+    expect(change).toHaveBeenCalledWith('');
+    view.rerender(<SeamlessField field={field} value="" onChange={change} />);
+    expect(screen.getByRole('combobox')).toHaveValue('None');
+  });
+
+  it('clears a selected optional value with keyboard search and Enter', async () => {
+    const user = userEvent.setup();
+    const change = vi.fn();
+    render(<SeamlessField field={field} value="done" onChange={change} />);
+    await user.click(screen.getByRole('combobox'));
+    await user.type(screen.getByRole('combobox'), 'None{Enter}');
+    expect(change).toHaveBeenCalledWith('');
+  });
+
+  it('keeps required selects from offering an unset value', async () => {
+    const user = userEvent.setup();
+    render(<SeamlessField field={{ ...field, required: true }} value="new" onChange={vi.fn()} />);
+    await user.click(screen.getByRole('combobox'));
+    expect(screen.queryByRole('option', { name: 'None' })).toBeNull();
+  });
+
+  it('disables clearing for a readonly field', () => {
+    render(<SeamlessField field={{ ...field, readonly: true }} value="new" onChange={vi.fn()} />);
+    expect(screen.getByRole('combobox')).toBeDisabled();
+  });
+});
 
 const field: OperationalModelFieldSpec = {
   key: 'opportunity', name: 'Opportunity', type: 'relation',
@@ -58,5 +97,31 @@ describe('many relation trigger stability', () => {
     fireEvent.click(trigger);
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByLabelText('Next opportunity')).toBeVisible();
+  });
+});
+
+describe('select fields are searchable by default', () => {
+  const selectField: OperationalModelFieldSpec = {
+    key: 'pipeline_status',
+    name: 'Pipeline status',
+    type: 'select',
+    enum: ['new', 'contacted'],
+  };
+
+  it('renders one combobox (no separate search field)', () => {
+    render(<SeamlessField field={selectField} value="new" onChange={vi.fn()} />);
+    const combo = screen.getByRole('combobox', { name: 'Pipeline status' });
+    fireEvent.focus(combo);
+    expect(screen.getByRole('option', { name: 'New' })).toBeTruthy();
+    expect(screen.queryByLabelText('Search options')).toBeNull();
+  });
+
+  it('omits the placeholder option from the list', () => {
+    render(<SeamlessField field={selectField} value="new" onChange={vi.fn()} />);
+    fireEvent.focus(screen.getByRole('combobox', { name: 'Pipeline status' }));
+    expect(screen.getByRole('option', { name: 'Contacted' })).toBeTruthy();
+    expect(
+      screen.queryByRole('option', { name: /Enter Pipeline status/i })
+    ).toBeNull();
   });
 });

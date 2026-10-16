@@ -82,6 +82,10 @@ def _action_matches(policy_actions: List[str], requested_action: str) -> bool:
         _action_matches(["entry.*"], "track.read")     # False
         _action_matches(["track.read"], "track.read")  # True
     """
+    # This new observation grant cannot be inherited from a legacy wildcard.
+    # It exposes only the acting subject's journal status, with exact scope.
+    if requested_action == "operation.history.read_own":
+        return requested_action in policy_actions
     for pa in policy_actions:
         if pa == "*" or pa == requested_action:
             return True
@@ -292,6 +296,29 @@ async def _evaluate_human_default(
     # functions. Non-Core actions require an explicit declaration/grant path.
     if action not in get_args(PolicyAction):
         return False
+
+    if action == "operation.history.read_own":
+        # Only the history service binds the journal principal. This prices
+        # own-status observation/delegation, never App data or another actor's
+        # journal. App-scoped service subjects retain their canonical App root.
+        from app.services.resource_location import (
+            MANAGEMENT_APP_STATES,
+            locate_resource,
+        )
+        from app.services.workspace_permissions import can_access_workspace
+
+        scopes = {f"{rk}:{rid}"}
+        if rk == "workspace":
+            scopes.add(f"ws:{rid}")
+        if rk not in {"workspace", "app"} or not rid or scope_str not in scopes:
+            return False
+        location = await locate_resource(
+            rk, rid, allowed_app_states=MANAGEMENT_APP_STATES
+        )
+        return (
+            location is not None
+            and await can_access_workspace(user_id, location.workspace_id) != "none"
+        )
 
     if rk == "operational_model" and action != "operational_model.author":
         from app.services.model_authority import model_action_authorized
@@ -523,6 +550,73 @@ async def _evaluate_human_default(
             )
         return False
 
+    # Phase 5 Plan 05-05 — connector:<id> scope dispatch for humans.
+    # Owner of the Connector may invoke ``connector.sync`` + read its
+    # audit-trail events; without this branch ``POST /api/connectors/{id}/sync``
+    # is unreachable by any human caller (the per-connector Policy
+    # materialized in Plan 05-01 covers the CONNECTOR subject, not humans).
+    # Owner check uses ``Connector.owner`` scalar (Phase 1 D-07) which carries
+    # the User Node id; the request principal id may be either the User Node
+    # id OR the AuthUser id, so we resolve through ``get_user_node`` to find
+    # the canonical User Node id (matching the pattern used by can_view_*
+    # / can_edit_* helpers elsewhere in this module).
+    if scope_str.startswith("connector:") or (rk == "connector" and rid):
+        connector_id = rid or scope_str.split(":", 1)[1]
+        if (
+            scope_str.startswith("connector:")
+            and scope_str != f"connector:{connector_id}"
+        ):
+            return False
+        try:
+            from app.agentive.nodes import Connector as _Connector
+
+            _connector = await _Connector.get(connector_id)
+            if _connector is None:
+                return False
+            caller_user_node = await get_user_node(user_id)
+            caller_user_node_id = (
+                getattr(caller_user_node, "id", None) if caller_user_node else None
+            )
+            owner = await get_user_node(getattr(_connector, "owner", ""))
+            # Installation may store the login id or the graph profile id.
+            # Compare live canonical users on BOTH sides; delegation evaluates
+            # its issuer by profile id even when the installer used a login id.
+            if owner is not None and owner.id == caller_user_node_id:
+                return True
+            # Connector scoping: a shared row is invocable (and its status
+            # readable) by any member of the mounted workspace. Workspace
+            # admins additionally get update/delete/sync on shared rows so
+            # they can maintain connections they did not install.
+            if (
+                action in ("tool.invoke", "connector.read")
+                and (getattr(_connector, "connection_mode", "") or "per_user")
+                == "shared"
+            ):
+                workspace_id = getattr(_connector, "workspace_id", "") or ""
+                if workspace_id:
+                    from app.services.workspace_permissions import (
+                        user_in_workspace_member_pool,
+                    )
+
+                    if await user_in_workspace_member_pool(user_id, workspace_id):
+                        return True
+            if (
+                action in ("connector.update", "connector.delete", "connector.sync")
+                and (getattr(_connector, "connection_mode", "") or "per_user")
+                == "shared"
+            ):
+                workspace_id = getattr(_connector, "workspace_id", "") or ""
+                if workspace_id:
+                    from app.services.workspace_permissions import (
+                        is_workspace_admin_or_owner,
+                    )
+
+                    if await is_workspace_admin_or_owner(user_id, workspace_id):
+                        return True
+            return False
+        except Exception:  # noqa: BLE001 — defensive: any failure → deny
+            return False
+
     # Resource kinds where read access cascades through scope (tags,
     # operational_models, comments, attachments, entry_types) — humans see
     # anything in a track they can view.
@@ -623,65 +717,6 @@ async def _evaluate_human_default(
     if scope_str.startswith("user:"):
         return scope_str.split(":", 1)[1] == user_id
 
-    # Phase 5 Plan 05-05 — connector:<id> scope dispatch for humans.
-    # Owner of the Connector may invoke ``connector.sync`` + read its
-    # audit-trail events; without this branch ``POST /api/connectors/{id}/sync``
-    # is unreachable by any human caller (the per-connector Policy
-    # materialized in Plan 05-01 covers the CONNECTOR subject, not humans).
-    # Owner check uses ``Connector.owner`` scalar (Phase 1 D-07) which carries
-    # the User Node id; the request principal id may be either the User Node
-    # id OR the AuthUser id, so we resolve through ``get_user_node`` to find
-    # the canonical User Node id (matching the pattern used by can_view_*
-    # / can_edit_* helpers elsewhere in this module).
-    if scope_str.startswith("connector:"):
-        connector_id = scope_str.split(":", 1)[1]
-        try:
-            from app.agentive.nodes import Connector as _Connector
-
-            _connector = await _Connector.get(connector_id)
-            if _connector is None:
-                return False
-            caller_user_node = await get_user_node(user_id)
-            caller_user_node_id = (
-                getattr(caller_user_node, "id", None) if caller_user_node else None
-            )
-            owner = getattr(_connector, "owner", "")
-            if owner and (owner == user_id or owner == caller_user_node_id):
-                return True
-            # Connector scoping: a shared row is invocable (and its status
-            # readable) by any member of the mounted workspace. Workspace
-            # admins additionally get update/delete/sync on shared rows so
-            # they can maintain connections they did not install.
-            if (
-                action in ("tool.invoke", "connector.read")
-                and (getattr(_connector, "connection_mode", "") or "per_user")
-                == "shared"
-            ):
-                workspace_id = getattr(_connector, "workspace_id", "") or ""
-                if workspace_id:
-                    from app.services.workspace_permissions import (
-                        user_in_workspace_member_pool,
-                    )
-
-                    if await user_in_workspace_member_pool(user_id, workspace_id):
-                        return True
-            if (
-                action in ("connector.update", "connector.delete", "connector.sync")
-                and (getattr(_connector, "connection_mode", "") or "per_user")
-                == "shared"
-            ):
-                workspace_id = getattr(_connector, "workspace_id", "") or ""
-                if workspace_id:
-                    from app.services.workspace_permissions import (
-                        is_workspace_admin_or_owner,
-                    )
-
-                    if await is_workspace_admin_or_owner(user_id, workspace_id):
-                        return True
-            return False
-        except Exception:  # noqa: BLE001 — defensive: any failure → deny
-            return False
-
     return False  # defensive deny
 
 
@@ -715,7 +750,7 @@ def _is_write_action(action: str) -> bool:
             return False
     # Gate-only read-class actions (no mutation) — exempt from the write
     # intercept.
-    READ_FULL = ("audit_log.read",)
+    READ_FULL = ("audit_log.read", "operation.history.read_own")
     if action in READ_FULL:
         return False
     return True
@@ -914,6 +949,11 @@ async def evaluate(
             mismatch_reason: str = ""
             for p in policies:
                 policy_chain.append(p.id)
+                if action == "operation.history.read_own" and (
+                    p.scope != resource.scope or p.requires_human_approval
+                ):
+                    mismatch_reason = mismatch_reason or "direct_history_grant_required"
+                    continue
                 if not _scope_matches(p.scope, resource.scope):
                     mismatch_reason = mismatch_reason or "scope_mismatch"
                     continue

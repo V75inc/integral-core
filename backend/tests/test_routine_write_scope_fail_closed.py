@@ -161,8 +161,8 @@ async def test_card_predating_the_turn_is_never_blessed():
 
 
 @pytest.mark.asyncio
-async def test_card_minted_during_the_turn_still_auto_applies():
-    """The new gate must not break the feature it guards."""
+async def test_card_minted_during_turn_without_broker_provenance_stays_pending():
+    """A timestamp cannot identify which actor minted a pending proposal."""
     from app.agentive.staging import create_staged_change, get_token
     from app.services.routine_task_scheduler import _reconcile_write_scope
     from app.utils.time import utc_now
@@ -189,9 +189,9 @@ async def test_card_minted_during_the_turn_still_auto_applies():
     )
 
     after = await get_token(fresh_card.token)
-    assert after.state == "consumed", (
-        "a card minted during the turn and inside write_scope was not "
-        f"auto-applied (state={after.state})"
+    assert after.state == "pending", (
+        "A timestamp-only card was approved without broker provenance: "
+        f"state={after.state}"
     )
 
 

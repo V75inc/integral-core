@@ -945,7 +945,7 @@ export function EntryDetail({
   const primaryRelatedViewsNode =
     user && !parentEntry ? (
       <RelatedViewsSection
-        key={embeddedViewsRevision}
+        key={`primary-related:${entry.id}:${embeddedViewsRevision}`}
         entry={{ id: entry.id, custom_fields: entry.custom_fields }}
         entryTypeSpec={primaryRelatedViewsSchema}
         user={{ id: user.id }}
@@ -968,7 +968,7 @@ export function EntryDetail({
       {editContributionSlot}
       {user && !parentEntry ? (
         <RelatedViewsSection
-          key={embeddedViewsRevision}
+          key={`edit-related:${entry.id}:${embeddedViewsRevision}`}
           entry={{ id: entry.id, custom_fields: editForm.fieldValues }}
           entryTypeSpec={primaryRelatedViewsSchema}
           user={{ id: user.id }}
@@ -1323,7 +1323,7 @@ export function EntryDetail({
           className="text-[var(--text-muted)] hover:text-[var(--text)] transition-colors duration-fast"
           onClick={e => e.stopPropagation()}
         >
-          #{tag.name || tag.id}
+          #{tag.name || 'Untitled tag'}
         </Link>
       ))}
     </div>
@@ -1973,7 +1973,7 @@ export function EntryDetail({
                   entirely when the entry type declares no related_views. */}
               {user && !parentEntry ? (
                 <RelatedViewsSection
-          key={embeddedViewsRevision}
+          key={`secondary-related:${entry.id}:${embeddedViewsRevision}`}
                   entry={{ id: entry.id, custom_fields: entry.custom_fields }}
                   entryTypeSpec={relatedRelatedViewsSchema}
                   user={{ id: user.id }}

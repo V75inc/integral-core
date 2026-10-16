@@ -6,6 +6,38 @@ import pytest
 
 
 @pytest.mark.asyncio
+async def test_disconnect_cancellation_does_not_interrupt_transaction_cleanup(
+    monkeypatch,
+):
+    import anyio
+
+    from app.services.app_operations import transaction_scope as seam
+
+    calls = []
+
+    @asynccontextmanager
+    async def fake(database):
+        class Context:
+            database = "transaction"
+
+        try:
+            yield Context()
+        except BaseException:
+            await anyio.lowlevel.checkpoint()
+            calls.append("rollback")
+            raise
+
+    monkeypatch.setattr(seam, "_jv_graph_transaction", fake)
+    with anyio.CancelScope() as disconnect:
+        async with seam.postgres_graph_transaction(object()):
+            disconnect.cancel()
+            await anyio.lowlevel.checkpoint()
+    assert calls == ["rollback"]
+    with pytest.raises(seam.OperationTransactionUnavailable):
+        seam.current_graph_transaction_database()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("rollback", [False, True])
 async def test_permission_nodes_do_not_cross_transaction_contexts(
     monkeypatch, rollback
@@ -45,15 +77,25 @@ async def test_new_app_ownership_is_visible_before_transaction_commit(
     from app.models.edges import OWNS
     from app.models.nodes import App, User
     from app.services import permissions
+    from app.services.app_graph import catalog_app, ensure_integral_app_graph
     from app.services.app_operations.transaction_scope import postgres_graph_transaction
+    from app.services.personal_workspace import ensure_personal_workspace
 
     monkeypatch.setattr(permissions, "_permission_memo_enabled", lambda: True)
     async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
         user = await User.create(display_name="Transaction QA")
+        await ensure_integral_app_graph(include_library=False)
+        workspace = await ensure_personal_workspace(user)
         # The native chat loads this principal before entering its effect scope.
-        assert await permissions.get_user_node(user.id) is user
+        resolved = await permissions.get_user_node(user.id)
+        assert resolved is not None and resolved.id == user.id
         async with postgres_graph_transaction(postgres_raw_db):
-            app = await App.create(name="Transaction QA", visibility="private")
+            app = await App.create(
+                name="Transaction QA",
+                visibility="private",
+                workspace_id=workspace.id,
+            )
+            await catalog_app(app)
             owner = await permissions.get_user_node(user.id)
             await owner.connect(app, edge=OWNS, role="owner")
             assert await permissions.can_admin_app(user.id, app.id)
@@ -93,122 +135,6 @@ async def test_omitted_database_uses_the_prime_store(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_transaction_handle_serializes_fanout_and_releases_after_error():
-    import asyncio
-
-    from app.services.app_operations.transaction_scope import _SerializedTransaction
-
-    class Connection:
-        active = 0
-        maximum = 0
-
-        async def find(self, value):
-            self.active += 1
-            self.maximum = max(self.maximum, self.active)
-            try:
-                await asyncio.sleep(0)
-                if value == "fail":
-                    raise ValueError("synthetic read failure")
-                return value
-            finally:
-                self.active -= 1
-
-    connection = Connection()
-    transaction = _SerializedTransaction(connection)
-    assert await asyncio.gather(*(transaction.find(i) for i in range(12))) == list(
-        range(12)
-    )
-    assert connection.maximum == 1
-    with pytest.raises(ValueError, match="synthetic read failure"):
-        await transaction.find("fail")
-    assert await transaction.find("after") == "after"
-    assert callable(transaction.count)
-
-
-@pytest.mark.asyncio
-async def test_transaction_find_one_uses_bounded_held_connection_read():
-    from app.services.app_operations.transaction_scope import _SerializedTransaction
-
-    class Connection:
-        calls = []
-
-        async def find(self, collection, query, *, limit=None):
-            self.calls.append((collection, query, limit))
-            return [{"id": "record"}] if query else []
-
-    connection = Connection()
-    transaction = _SerializedTransaction(connection)
-    assert await transaction.find_one("object", {"context.token": "token"}) == {
-        "id": "record"
-    }
-    assert await transaction.find_one("object", {}) is None
-    assert connection.calls == [
-        ("object", {"context.token": "token"}, 1),
-        ("object", {}, 1),
-    ]
-
-
-@pytest.mark.asyncio
-async def test_transaction_count_reads_bounded_pages_without_hydrating_entities():
-    from app.services.app_operations.transaction_scope import _SerializedTransaction
-
-    query = {"entity": "Entry", "context.track_id": "track"}
-
-    class Connection:
-        calls = []
-
-        async def find(self, collection, page_query, *, limit=None, sort=None):
-            self.calls.append((collection, page_query, limit, sort))
-            assert collection == "node"
-            assert limit == 256
-            assert sort == [("id", 1)]
-            after = ""
-            if page_query != query:
-                assert page_query["$and"][0] == query
-                after = page_query["$and"][1]["id"]["$gt"]
-            return [
-                {"id": f"n.Entry.{i:04d}"}
-                for i in range(600)
-                if f"n.Entry.{i:04d}" > after
-            ][:limit]
-
-    connection = Connection()
-    assert await _SerializedTransaction(connection).count("node", query) == 600
-    assert len(connection.calls) == 3
-
-
-@pytest.mark.asyncio
-async def test_transaction_count_prefers_public_native_aggregate():
-    from app.services.app_operations.transaction_scope import _SerializedTransaction
-
-    class Connection:
-        async def count(self, collection, query):
-            assert collection == "node"
-            assert query == {"entity": "Entry"}
-            return 42
-
-        async def find(self, *args, **kwargs):
-            raise AssertionError("native aggregate must not scan records")
-
-    assert (
-        await _SerializedTransaction(Connection()).count("node", {"entity": "Entry"})
-        == 42
-    )
-
-
-@pytest.mark.asyncio
-async def test_transaction_count_refuses_a_nonadvancing_cursor():
-    from app.services.app_operations.transaction_scope import _SerializedTransaction
-
-    class Connection:
-        async def find(self, *args, **kwargs):
-            return [{"id": "same"}] * 256
-
-    with pytest.raises(RuntimeError, match="cursor did not advance"):
-        await _SerializedTransaction(Connection()).count("node", {})
-
-
-@pytest.mark.asyncio
 async def test_nested_transaction_joins_handle_and_caught_failure_requires_rollback(
     monkeypatch,
 ):
@@ -241,7 +167,9 @@ async def test_nested_transaction_joins_handle_and_caught_failure_requires_rollb
             assert explicit is outer
     assert calls == ["begin", "commit"]
     calls.clear()
-    with pytest.raises(seam.OperationTransactionUnavailable, match="requires rollback"):
+    with pytest.raises(
+        seam.OperationTransactionUnavailable, match="requires rollback"
+    ) as failed:
         async with seam.postgres_graph_transaction(database):
             try:
                 async with seam.postgres_graph_transaction():
@@ -249,6 +177,8 @@ async def test_nested_transaction_joins_handle_and_caught_failure_requires_rollb
             except ValueError:
                 pass
     assert calls == ["begin", "rollback"]
+    assert isinstance(failed.value.__cause__, ValueError)
+    assert str(failed.value.__cause__) == "partial write"
 
 
 @pytest.mark.asyncio
@@ -282,48 +212,3 @@ async def test_nested_transaction_cannot_escape_store_or_inherit_into_child_task
             async with seam.postgres_graph_transaction(object()):
                 pass
         await asyncio.create_task(child())
-
-
-@pytest.mark.asyncio
-async def test_transaction_cleanup_waits_for_io_and_refuses_queued_or_late_reads():
-    import asyncio
-
-    from app.services.app_operations.transaction_scope import (
-        OperationTransactionUnavailable,
-        _SerializedTransaction,
-        _SerializedTransactionDatabase,
-    )
-
-    started, release = asyncio.Event(), asyncio.Event()
-    calls = []
-
-    class Connection:
-        async def find(self, value):
-            calls.append(value)
-            started.set()
-            await release.wait()
-            return value
-
-    class Store:
-        async def rollback_transaction(self, connection):
-            assert connection is raw
-            calls.append("rollback")
-
-    raw = Connection()
-    handle = _SerializedTransaction(raw)
-    running = asyncio.create_task(handle.find("inflight"))
-    await started.wait()
-    queued = asyncio.create_task(handle.find("queued"))
-    cleanup = asyncio.create_task(
-        _SerializedTransactionDatabase(Store()).rollback_transaction(handle)
-    )
-    await asyncio.sleep(0)
-    assert not cleanup.done()
-    release.set()
-    assert await running == "inflight"
-    with pytest.raises(OperationTransactionUnavailable, match="closing or closed"):
-        await queued
-    await cleanup
-    with pytest.raises(OperationTransactionUnavailable, match="closing or closed"):
-        await handle.find("late")
-    assert calls == ["inflight", "rollback"]

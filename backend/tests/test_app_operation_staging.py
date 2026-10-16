@@ -196,12 +196,23 @@ async def test_prepare_refuses_before_any_handler(
 
 
 @pytest.mark.asyncio
-async def test_read_executes_immediately_without_staging(operation_contract):
-    spec, handler, _ = operation_contract
-    spec = {**spec, "kind": "read", "policy_action": "app.read"}
-    register_app_operations(WS, APP, "reference-review-app", [spec])
+async def test_read_executes_immediately_without_staging(
+    test_user, request, monkeypatch
+):
+    from tests.contract.operation_fixtures import owned_operation_app
+
+    workspace, app = await owned_operation_app(test_user, request)
+    spec = {
+        "key": "retain_findings",
+        "kind": "read",
+        "policy_action": "app.read",
+        "handler_ref": "test.findings",
+    }
+    handler = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr(operations, "resolve_handler", lambda _ref: handler)
+    register_app_operations(workspace.id, app.id, "reference-review-app", [spec])
     result = await prepare_agent_app_operation(
-        _args(), principal_id="u1", workspace_id=WS
+        _args(app_id=app.id), principal_id=test_user.id, workspace_id=workspace.id
     )
     assert result["_no_stage"] is True
     assert result["data"]["output"] == {"ok": True}
@@ -479,14 +490,24 @@ async def test_proposal_identity_binds_resolved_targets(
 
 @pytest.mark.asyncio
 async def test_changed_definition_at_effect_admission_never_calls_old_handler(
-    operation_contract, monkeypatch
+    test_user, request, monkeypatch
 ):
     from contextlib import asynccontextmanager
 
     from app.api.errors import BadRequestError
     from app.services.app_operations import execution_receipts
+    from tests.contract.operation_fixtures import owned_operation_app
 
-    spec, handler, _ = operation_contract
+    workspace, app = await owned_operation_app(test_user, request)
+    spec = {
+        "key": "retain_findings",
+        "kind": "execute",
+        "handler_ref": "test.findings",
+        "input_schema": {"type": "object"},
+        "output_schema": {"type": "object"},
+    }
+    handler = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr(operations, "resolve_handler", lambda _ref: handler)
     monkeypatch.setattr(
         operations,
         "get_app_operation",
@@ -506,13 +527,13 @@ async def test_changed_definition_at_effect_admission_never_calls_old_handler(
     )
     monkeypatch.setattr(execution_receipts, "execute_operation_once", execute_once)
     staged = await prepare_agent_app_operation(
-        _args(), principal_id="u1", workspace_id=WS
+        _args(app_id=app.id), principal_id=test_user.id, workspace_id=workspace.id
     )
     with pytest.raises(BadRequestError, match="changed since review"):
         await operations.invoke_app_operation(
-            user_id="u1",
-            workspace_id=WS,
-            app_id=APP,
+            user_id=test_user.id,
+            workspace_id=workspace.id,
+            app_id=app.id,
             operation_key="retain_findings",
             payload=staged["payload"]["input"],
             idempotency_key=staged["payload"]["operation_idempotency_key"],

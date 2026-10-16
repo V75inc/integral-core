@@ -5,7 +5,7 @@ manifest, bindings, core skills, and App fixtures under `examples/`. Do
 not edit; `tests/test_capability_map.py` fails when this file is stale.
 The JSON beside it carries every field.
 
-124 of 126 manifest tools are advertised (54 read, 69 propose, 1 execute) across 16 core skills.
+125 of 127 manifest tools are advertised (55 read, 69 propose, 1 execute) across 16 core skills.
 
 ## Skills → tools
 
@@ -13,7 +13,7 @@ The JSON beside it carries every field.
 | --- | --- | --- | --- |
 | `integral-artifacts` | Maintains session working artifacts — upsert, get, and list harness-agnostic blueprints, checklists, and notes keyed on the conversation for multi-turn fidelity without Integral UI cards. | 3 | `integral-scaffold` |
 | `integral-attachments` | Reads and interprets uploaded documents, PDFs and receipts, then files the source attachment with the matching authorized App, Track and record. Use first for a file dropped in chat, including “file this where it belongs”. Also lists, summarizes and delivers existing entry attachments across a track or workspace. Clarify ambiguous destinations before writing. | 20 | `integral-entries`, `integral-filing`, `integral-insights`, `integral-scaffold` |
-| `integral-dashboards` | Compose and customize app-scoped analytics dashboards — create, adjust, add/remove widgets, change layout, rename. Use for bar charts, KPI tiles, edits to an existing board, or vague requests like the best dashboard for this App. | 12 | `integral-insights`, `integral-models` |
+| `integral-dashboards` | Create and edit distinct App Home tabs, and compose app-scoped analytics dashboards — create, adjust, add/remove widgets, change layout, rename. Use for bar charts, KPI tiles, edits to an existing board, or vague requests like the best dashboard for this App. | 14 | `integral-insights`, `integral-models` |
 | `integral-entries` | Handles explicit record requests in an existing Track or list: find records by name, ID, or serial number; answer questions about their status or fields; create, update, delete, tag, comment on, or link entries. Batch compatible records supplied together into one review. Use integral-scaffold for a new App; integral-filing for unstructured content with an unknown destination; integral-organize for bulk reorganization. | 22 | `integral-attachments`, `integral-filing`, `integral-insights`, `integral-models`, `integral-navigation`, `integral-workspace` |
 | `integral-filing` | Files user-typed unstructured facts—notes, observations, pasted email, or meeting summaries—into the best authorized Track and Entry shape. For uploaded files or receipts, use integral-attachments first to read the source. Use integral-entries for a named record or explicit structured CRUD request. Clarify ambiguous destinations and stage filing for approval. | 5 | `integral-attachments`, `integral-entries`, `integral-insights`, `integral-models`, `integral-workspace` |
 | `integral-identity` | Resolves the acting Integral user's identity (id, display name, email). For workspace orientation maps (apps/tracks), activate integral-workspace. | 1 | — |
@@ -33,7 +33,7 @@ The JSON beside it carries every field.
 | Tool | Op class | Dispatch | REST route | Min MCP scope | Skills |
 | --- | --- | --- | --- | --- | --- |
 | `integral_whoami` | read | handler: `app.api.auth.get_current_user` | GET /api/auth/me | `integral:read` | integral-identity, integral-onboard, integral-scaffold, integral-workspace |
-| `integral_get_scope` | read | handler: `app.api.users.get_my_scope` | GET /api/users/me/scope | `integral:read` | integral-workspace |
+| `integral_get_scope` | read | service: `app.services.resident_execution_scope.get_execution_scope_for_dispatch` | — | `integral:read` | integral-workspace |
 | `integral_get_page_context` | read | service: `app.services.chat_page_context.get_page_context_for_dispatch` | — | `integral:read` | integral-entries |
 | `integral_list_workspaces` | read | handler: `app.api.workspaces.list_workspaces` | GET /api/workspaces | `integral:read` | integral-workspace |
 | `integral_list_apps` | read | handler: `app.api.apps.list_apps` | GET /api/apps | `integral:read` | integral-attachments, integral-dashboards, integral-insights, integral-model, integral-onboard, integral-review, integral-scaffold, integral-workspace |
@@ -110,6 +110,7 @@ The JSON beside it carries every field.
 | `integral_save_view` | propose | stager: `app.agentive.tooling.bindings._stage_save_view` | POST /api/tracks/{track_id}/views | `integral:propose` | integral-insights, integral-model, integral-onboard, integral-review, integral-scaffold |
 | `integral_delete_view` | propose | stager: `app.agentive.tooling.bindings._stage_delete_view` | DELETE /api/views/{view_id} | `integral:propose` | integral-review |
 | `integral_describe_dashboard_substrate` | read | handler: `app.api.apps_dashboards.get_dashboard_widget_substrate` | GET /api/dashboard-widget-substrate | `integral:read` | integral-dashboards |
+| `integral_read_app_home` | read | handler: `app.api.apps_dashboards.get_app_home` | GET /api/apps/{app_id}/home | `integral:read` | integral-dashboards |
 | `integral_list_dashboards` | read | handler: `app.api.apps_dashboards.list_app_dashboards` | GET /api/apps/{app_id}/dashboards | `integral:read` | integral-dashboards |
 | `integral_read_dashboard_data` | read | handler: `app.api.apps_dashboards.get_app_dashboard_data` | GET /api/apps/{app_id}/dashboards/{dashboard_id}/data | `integral:read` | integral-dashboards |
 | `integral_suggest_dashboard` | read | handler: `app.api.apps_dashboards.suggest_app_dashboard` | GET /api/apps/{app_id}/dashboards/suggest | `integral:read` | integral-dashboards |
@@ -121,7 +122,7 @@ The JSON beside it carries every field.
 | `integral_create_app_track` | propose | stager: `app.agentive.tooling.bindings._stage_create_app_track_async` | POST /api/tracks (app-scoped) | `integral:propose` | integral-onboard, integral-scaffold, integral-workspace |
 | `integral_update_track` | propose | stager: `app.agentive.tooling.bindings._stage_update_track` | PUT /api/tracks/{track_id} | `integral:propose` | integral-workspace |
 | `integral_delete_track` | propose | stager: `app.agentive.tooling.bindings._stage_delete_track` | DELETE /api/tracks/{track_id} | `integral:propose` | integral-workspace |
-| `integral_update_app` | propose | stager: `app.agentive.tooling.bindings._stage_update_app` | PUT /api/apps/{app_id} | `integral:propose` | integral-workspace |
+| `integral_update_app` | propose | stager: `app.agentive.tooling.bindings._stage_update_app` | PUT /api/apps/{app_id} | `integral:propose` | integral-dashboards, integral-workspace |
 | `integral_delete_app` | propose | stager: `app.agentive.tooling.bindings._stage_delete_app` | DELETE /api/apps/{app_id} | `integral:propose` | integral-workspace |
 | `integral_get_access` | read | handler: `app.api.access.get_entry_access, app.api.access.get_space_access, app.api.access.get_track_access` | GET /api/{apps|tracks|entries}/{id}/access | `integral:read` | integral-workspace |
 | `integral_share` | propose | stager: `app.agentive.tooling.bindings._stage_share` | POST /api/{tracks|apps|entries}/{id}/collaborators | `integral:propose` | integral-workspace |

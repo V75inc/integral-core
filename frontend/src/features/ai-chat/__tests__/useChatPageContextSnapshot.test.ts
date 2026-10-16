@@ -182,3 +182,43 @@ describe("mergeDialogPageContext", () => {
     expect(mergeDialogPageContext(page, null)).toBe(page);
   });
 });
+
+// Existing publishers already carry saved View identity; snapshot it per send.
+describe("selected view and page section context", () => {
+  it.each(["kanban", "table", "calendar", "gallery"])("retains the selected %s View", viewType => {
+    const snapshot = buildChatPageContextSnapshot({
+      pathname: "/tracks/n.Track.1",
+      search: "?view_id=n.View.1",
+      routeParams: {},
+      breadcrumbs: [],
+      published: {
+        pageKind: "track_detail",
+        focusedTrackId: "n.Track.1",
+        focusedViewId: "n.View.1",
+        focusedAppId: "n.WorkspaceApp.1",
+        focusedEntryId: null,
+        visibleData: null,
+        metadata: { view_type: viewType, view_name: "Selected View", group_by: "stage" },
+      },
+    });
+    expect(snapshot.focused_view_id).toBe("n.View.1");
+    expect(snapshot.metadata?.view_type).toBe(viewType);
+    expect(snapshot.metadata?.group_by).toBe("stage");
+  });
+
+  it("reports an App section without inventing a saved View", () => {
+    const snapshot = buildChatPageContextSnapshot({
+      pathname: "/apps/n.WorkspaceApp.1",
+      search: "",
+      routeParams: {},
+      breadcrumbs: [],
+      published: {
+        pageKind: "app_detail", focusedAppId: "n.WorkspaceApp.1",
+        focusedTrackId: null, focusedViewId: null, focusedEntryId: null,
+        visibleData: null, metadata: { app_name: "CRM", app_section: "tracks" },
+      },
+    });
+    expect(snapshot.focused_view_id).toBeUndefined();
+    expect(snapshot.metadata?.app_section).toBe("tracks");
+  });
+});

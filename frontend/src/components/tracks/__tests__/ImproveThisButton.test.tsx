@@ -3,9 +3,12 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import { ImproveThisButton, type ImprovementTarget } from '../ImproveThisButton';
 import {
-  consumePendingChatDraft,
+  consumePendingChatInput,
   OPEN_AI_CHAT_EVENT,
 } from '../../../features/ai-chat/chatHandoff';
+
+vi.mock('../../../context/ScopeContext', () => ({ useScopeOptional: () => ({scope: {workspaceId: 'ws-test'}}) }));
+vi.mock('../../../context/AuthContext', () => ({ useAuthOptional: () => ({user: {id: 'user-test'}}) }));
 
 afterEach(() => {
   sessionStorage.clear();
@@ -13,7 +16,7 @@ afterEach(() => {
 
 describe('ImproveThisButton', () => {
   it.each<ImprovementTarget>(['entry', 'track', 'view'])(
-    'opens chat with a review-only draft for a focused %s',
+    'opens chat with a immediate scoped review request for a focused %s',
     target => {
       const listener = vi.fn();
       window.addEventListener(OPEN_AI_CHAT_EVENT, listener);
@@ -26,24 +29,27 @@ describe('ImproveThisButton', () => {
         />,
       );
 
-      const button = screen.getByRole('button', { name: `Improve this ${target === 'entry' ? 'record' : target}` });
-      expect(button).toHaveAttribute('title', `Improve this ${target === 'entry' ? 'record' : target}`);
-      expect(button).not.toHaveTextContent('Improve this');
+      const button = screen.getByRole('button', { name: `Enhance this ${target === 'entry' ? 'record' : target}` });
+      expect(button).toHaveAttribute('title', `Enhance this ${target === 'entry' ? 'record' : target}`);
+      expect(button).toHaveTextContent('Enhance');
       fireEvent.click(button);
 
       expect(listener).toHaveBeenCalledOnce();
-      const draft = consumePendingChatDraft() ?? '';
+      const input = consumePendingChatInput();
+      expect(input).toMatchObject({submit: true, workspaceId: 'ws-test', principalId: 'user-test'});
+      const draft = input?.text ?? '';
       expect(draft).toMatch(
-        /currently open .*“Customer Reviews” .*Focused .* ID: "n\.Resource\.focused".*existing schema.*integral-model skill.*Do not publish.*I approve/i,
+        /currently open .*“Customer Reviews” .*existing schema.*integral-model skill.*Do not publish.*I approve/i,
       );
+      expect(draft).not.toContain('n.Resource.focused');
       if (target === 'track') {
         expect(draft).toContain(
-          'integral_describe_model for the focused track with track_id="n.Track.customer-reviews"',
+          'integral_describe_model for the focused track',
         );
         expect(draft).toContain('integral_recommend_customizations');
         expect(draft).toContain('Do not call integral_draft_new_model');
       } else {
-        expect(draft).toContain('Parent track ID: "n.Track.customer-reviews"');
+        expect(draft).not.toContain('n.Track.customer-reviews');
       }
       window.removeEventListener(OPEN_AI_CHAT_EVENT, listener);
     },
@@ -59,10 +65,10 @@ describe('ImproveThisButton', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Improve this track' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Enhance this track' }));
 
-    expect(consumePendingChatDraft()).toMatch(
-      /currently open track Focused track ID: "n\.Track\.untitled".*existing schema.*integral_recommend_customizations/i,
+    expect(consumePendingChatInput()?.text).toMatch(
+      /currently open track .*existing schema.*integral_recommend_customizations/i,
     );
   });
 });

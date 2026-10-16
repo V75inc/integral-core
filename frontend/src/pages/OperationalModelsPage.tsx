@@ -307,7 +307,7 @@ export function OperationalModelsPage() {
               disabled={rescanning}
               className="shrink-0 mt-1"
             >
-              {rescanning ? 'Refreshing…' : 'Refresh package catalog'}
+              {rescanning ? 'Refreshing…' : 'Refresh'}
             </Button>
           )}
         </div>

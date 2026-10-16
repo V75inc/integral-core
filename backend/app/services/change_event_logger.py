@@ -68,6 +68,7 @@ class ChangeEventEnvelope:
     snapshot_reclaimed_at: Optional[str] = None
     details: Optional[Dict[str, Any]] = None
     id: str = ""
+    workspace_id: Optional[str] = None
 
     def to_wire(self) -> Dict[str, Any]:
         """Serialize for the WS broadcast — nested ``actor`` shape (ChangeEventResponse)."""
@@ -137,6 +138,7 @@ def envelope_from_dblog(log: Any) -> ChangeEventEnvelope:
         # Phase 3 Plan 03-05 — additive metadata slot. Round-trips through
         # DBLog.log_data["details"]. None on pre-Plan-05 rows.
         details=data.get("details"),
+        workspace_id=data.get("workspace_id"),
     )
 
 
@@ -144,6 +146,7 @@ def _envelope_log_data(envelope: ChangeEventEnvelope) -> Dict[str, Any]:
     """Build the ``log_data`` dict persisted on a DBLog row."""
     return {
         "message": envelope.action,
+        "workspace_id": envelope.workspace_id,
         "log_level": CHANGE_EVENT_LOG_LEVEL,
         "ts": envelope.ts,
         "actor_kind": envelope.actor_kind,
@@ -216,6 +219,35 @@ class ChangeEventLogger:
             return
         try:
             await ctx.ensure_indexes(DBLog)
+            await ctx.database.create_index(
+                "object",
+                [
+                    ("context.log_level", 1),
+                    ("context.log_data.workspace_id", 1),
+                    ("context.logged_at", -1),
+                    ("id", -1),
+                ],
+            )
+            await ctx.database.create_index(
+                "object",
+                [
+                    ("context.log_level", 1),
+                    ("context.path", 1),
+                    ("context.logged_at", -1),
+                    ("id", -1),
+                ],
+            )
+            # Legacy/null attribution has its own ordered stream, instead of
+            # forcing a bitmap OR and sort of every workspace candidate.
+            await ctx.database.create_index(
+                "object",
+                [("context.log_level", 1), ("context.logged_at", -1), ("id", -1)],
+                entity="DBLog",
+                partial_by_entity=True,
+                index_partial_filter_expression={
+                    "context.log_data.workspace_id": {"$exists": False}
+                },
+            )
         except Exception as e:
             logger.warning("change_event_logger: ensure_indexes failed: %s", e)
 
@@ -239,6 +271,17 @@ class ChangeEventLogger:
             ts_dt = datetime.now(timezone.utc)
             envelope.ts = ts_dt.isoformat()
 
+        # Indexed attribution is a candidate filter, never authorization.
+        # Legacy/deleted scope facts remain unattributed and need live read gates.
+        from app.services.event_history import event_workspace_id
+
+        try:
+            envelope.workspace_id = await event_workspace_id(envelope.scope)
+        except Exception:
+            logger.warning(
+                "change_event_logger: workspace attribution unavailable", exc_info=True
+            )
+            envelope.workspace_id = None
         log_entry = DBLog(
             status_code=None,
             event_code=envelope.action,
@@ -252,6 +295,120 @@ class ChangeEventLogger:
         await log_entry.save()
         envelope.id = log_entry.id
         return log_entry
+
+    async def find_page(
+        self,
+        *,
+        cursor: Optional[str],
+        limit: int,
+        descending: bool,
+        scope: Optional[str] = None,
+        actor_kind: Optional[str] = None,
+        workspace_id: Optional[str] = None,
+        event_action: Optional[str] = None,
+        resource_id: Optional[str] = None,
+        resource_type: Optional[str] = None,
+    ) -> List[Any]:
+        """Read a bounded timestamp/id keyset window; never mask a store outage.
+
+        Unattributed legacy rows remain candidates and must pass canonical
+        workspace and resource checks before exposure. New rows are narrowed
+        with an indexed server-derived workspace marker.
+        """
+        from jvspatial.logging.models import DBLog
+
+        from app.api.errors import BadRequestError, QueryUnavailableError
+        from app.services.pagination import _keyset_clause, decode_cursor
+
+        ctx = self._get_log_context()
+        if ctx is None:
+            raise QueryUnavailableError(message="Event history is unavailable")
+        direction = -1 if descending else 1
+        sort = [("context.logged_at", direction), ("id", direction)]
+        query: Dict[str, Any] = {
+            "entity": "DBLog",
+            "context.log_level": CHANGE_EVENT_LOG_LEVEL,
+        }
+        for field, value in (
+            ("context.path", scope),
+            ("context.log_data.actor_kind", actor_kind),
+            ("context.event_code", event_action),
+            ("context.log_data.resource_id", resource_id),
+            ("context.log_data.resource_type", resource_type),
+        ):
+            if value:
+                query[field] = value
+        clauses = [query]
+        if cursor:
+            cursor_id, cursor_ts = decode_cursor(cursor)
+            try:
+                if (
+                    not isinstance(cursor_id, str)
+                    or not cursor_id
+                    or len(cursor_id) > 512
+                    or not isinstance(cursor_ts, str)
+                    or len(cursor_ts) > 64
+                ):
+                    raise ValueError("Invalid cursor values")
+                datetime.fromisoformat(cursor_ts)
+            except (TypeError, ValueError) as exc:
+                raise BadRequestError(message="Invalid event history cursor") from exc
+            after = _keyset_clause(cursor, sort)
+            if after:
+                clauses.append(after)
+        try:
+            page_limit = min(max(1, limit), 200)
+            if workspace_id:
+                rows = []
+                for attribution in (
+                    {"context.log_data.workspace_id": {"$in": [workspace_id]}},
+                    {"context.log_data.workspace_id": {"$exists": False}},
+                ):
+                    stream_query = dict(clauses[0])
+                    if "$in" in attribution["context.log_data.workspace_id"]:
+                        # Singleton membership avoids redundant text/JSONB
+                        # equality predicates in the native query translator.
+                        stream_query["context.log_level"] = {
+                            "$in": [CHANGE_EVENT_LOG_LEVEL]
+                        }
+                    rows.extend(
+                        await ctx.database.find(
+                            "object",
+                            {"$and": [stream_query, attribution, *clauses[1:]]},
+                            limit=page_limit,
+                            sort=sort,
+                        )
+                    )
+                # Each disjoint stream contributes at most one page. Merging
+                # at most 400 rows preserves the database's timestamp/id keyset.
+                # Corrupt timestamps must fail rather than invent continuation.
+                for row in rows:
+                    if not isinstance((row.get("context") or {}).get("logged_at"), str):
+                        raise ValueError("Invalid event timestamp")
+                unique_rows = {row["id"]: row for row in rows}
+                rows = sorted(
+                    unique_rows.values(),
+                    key=lambda row: (row["context"]["logged_at"], row["id"]),
+                    reverse=descending,
+                )[:page_limit]
+            else:
+                rows = await ctx.database.find(
+                    "object",
+                    {"$and": clauses},
+                    limit=page_limit,
+                    sort=sort,
+                )
+            results: List[DBLog] = []
+            for row in rows:
+                fields = dict(row.get("context") or {})
+                # Corruption is not an empty history and cannot invent a cursor.
+                entry = DBLog(id=row["id"], **fields)
+                await entry.set_context(ctx)
+                results.append(entry)
+            return results
+        except Exception as exc:
+            logger.warning("change_event_logger: history read failed", exc_info=True)
+            raise QueryUnavailableError(message="Event history is unavailable") from exc
 
     async def find_all(
         self,

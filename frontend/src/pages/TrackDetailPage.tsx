@@ -41,6 +41,7 @@ import {
 import { useRetrieve } from '../hooks/useRetrieve';
 import { useOpenEntryModalRefetch } from '../hooks/useOpenEntryModalRefetch';
 import { EntryDetail } from '../components/entries/EntryDetail';
+import { diffCustomFields } from '../components/entries/entryFormCustomFields';
 import { TrackModal } from '../components/tracks/TrackModal';
 import { TrackShareModal } from '../components/tracks/TrackShareModal';
 import {
@@ -859,6 +860,7 @@ export function TrackDetailPage() {
       metadata: {
         view_name: activeView?.name,
         view_type: activeView?.type,
+        group_by: typeof activeView?.config?.group_by === 'string' ? activeView.config.group_by : undefined,
         entry_type_filter: filterType || undefined,
         track_title: track?.title
       }
@@ -869,6 +871,7 @@ export function TrackDetailPage() {
     activeView?.id,
     activeView?.name,
     activeView?.type,
+    activeView?.config,
     track?.app?.id,
     filteredEntries,
     filterType,
@@ -1097,7 +1100,17 @@ export function TrackDetailPage() {
         entries: p.entries.map(e => (e.id === u.id ? u : e))
       }));
       const payload: Record<string, unknown> = {};
-      if (u.custom_fields !== undefined) payload.custom_fields = u.custom_fields;
+      // Send only the custom fields the widget actually changed. Re-sending the
+      // whole blob (as the kanban drag's patched entry carries) trips Core's
+      // protected-field guard on any App-protected field it happens to include
+      // (e.g. `owner`), which rejects the entire update.
+      if (u.custom_fields !== undefined) {
+        const changed = diffCustomFields(
+          u.custom_fields as Record<string, unknown>,
+          (previous?.custom_fields || {}) as Record<string, unknown>
+        );
+        if (Object.keys(changed).length > 0) payload.custom_fields = changed;
+      }
       const top = u as unknown as Record<string, unknown>;
       for (const key of ['status', 'priority', 'due_date', 'assignee', 'bucket', 'start_date']) {
         if (top[key] !== undefined) payload[key] = top[key];
@@ -1952,6 +1965,7 @@ export function TrackDetailPage() {
         isOwner={isOwner}
         currentUser={user}
         collaboratorList={collaboratorList}
+        collaboratorCount={track.collaborator_effective_total}
         collabExcludeIds={collabExcludeIds}
         onAdd={addTrackCollaborator}
         onChangeDirectRole={setTrackCollaboratorRole}

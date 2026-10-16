@@ -21,6 +21,8 @@ class InFlightTurn:
     user_id: str
     started_at: float
     origin: str = ""
+    work_item_id: str = ""
+    routine_id: str = ""
     cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
     _cancel_hook: Optional[Callable[[], None]] = None
 
@@ -124,6 +126,18 @@ async def cancel_turn_if_origin(thread_id: str, origin: str) -> bool:
         if handle is None:
             return False
         if (handle.origin or "").strip() != wanted:
+            return False
+        handle.cancel()
+        return True
+
+
+async def cancel_turn_if_work_item(thread_id: str, work_item_id: str) -> bool:
+    """Signal only the exact trusted worker turn observed by a control service."""
+    if not work_item_id:
+        return False
+    async with _registry_lock:
+        handle = _in_flight.get(thread_id)
+        if handle is None or handle.work_item_id != work_item_id:
             return False
         handle.cancel()
         return True

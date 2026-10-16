@@ -117,8 +117,6 @@ export function ProfileSection() {
         </PageMeta>
       </div>
 
-      <TimezoneSetting />
-
       {/* Avatar */}
       <section className="rounded-[var(--radius-card)] border border-[var(--panel-border)] bg-[var(--panel)] p-4">
         <h3 className="text-sm font-medium text-[var(--text)]">Avatar</h3>
@@ -197,48 +195,6 @@ export function ProfileSection() {
         </div>
       </section>
 
-      {/* Bio */}
-      <section className="rounded-[var(--radius-card)] border border-[var(--panel-border)] bg-[var(--panel)] p-4 flex flex-col gap-3">
-        <div>
-          <label
-            htmlFor="profile-bio"
-            className="text-sm font-medium text-[var(--text)] block"
-          >
-            Bio
-          </label>
-          <p className="mt-0.5 text-xs text-[var(--text-muted)]">
-            A short introduction shown on your profile page.
-          </p>
-        </div>
-        <textarea
-          id="profile-bio"
-          value={bio}
-          onChange={e => setBio(e.target.value)}
-          rows={4}
-          placeholder="Tell us about yourself…"
-          className="
-            w-full px-3 py-2 text-sm resize-none
-            rounded-[var(--radius-input)]
-            bg-[var(--panel-2)] border border-[var(--panel-border)]
-            text-[var(--text)] placeholder:text-[var(--text-subtle)]
-            hover:border-[var(--text-subtle)]
-            focus:outline-none focus:border-[var(--text-muted)] focus:bg-[var(--panel)]
-            transition-colors duration-fast
-          "
-        />
-        <div className="flex justify-end">
-          <Button
-            variant="primary"
-            size="sm"
-            disabled={!bioDirty || savingBio}
-            loading={savingBio}
-            onClick={saveBio}
-          >
-            Save bio
-          </Button>
-        </div>
-      </section>
-
       {/* Email — read-only */}
       <section className="rounded-[var(--radius-card)] border border-[var(--panel-border)] bg-[var(--panel)] p-4">
         <label className="text-sm font-medium text-[var(--text)] block">
@@ -282,6 +238,50 @@ export function ProfileSection() {
           </a>{' '}
           on the sign-in page to set a new one.
         </p>
+      </section>
+
+      <TimezoneSetting />
+
+      {/* Bio */}
+      <section className="rounded-[var(--radius-card)] border border-[var(--panel-border)] bg-[var(--panel)] p-4 flex flex-col gap-3">
+        <div>
+          <label
+            htmlFor="profile-bio"
+            className="text-sm font-medium text-[var(--text)] block"
+          >
+            Bio
+          </label>
+          <p className="mt-0.5 text-xs text-[var(--text-muted)]">
+            A short introduction for your Integral profile.
+          </p>
+        </div>
+        <textarea
+          id="profile-bio"
+          value={bio}
+          onChange={e => setBio(e.target.value)}
+          rows={4}
+          placeholder="Tell us about yourself…"
+          className="
+            w-full px-3 py-2 text-sm resize-none
+            rounded-[var(--radius-input)]
+            bg-[var(--panel-2)] border border-[var(--panel-border)]
+            text-[var(--text)] placeholder:text-[var(--text-subtle)]
+            hover:border-[var(--text-subtle)]
+            focus:outline-none focus:border-[var(--text-muted)] focus:bg-[var(--panel)]
+            transition-colors duration-fast
+          "
+        />
+        <div className="flex justify-end">
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={!bioDirty || savingBio}
+            loading={savingBio}
+            onClick={saveBio}
+          >
+            Save bio
+          </Button>
+        </div>
       </section>
 
       {/* Danger zone — permanent account deletion */}

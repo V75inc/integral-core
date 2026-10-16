@@ -332,7 +332,9 @@ async def resolve_cross_app_relation_target(
     allowed_tracks = {
         slug_manifest_key(str(x)) for x in relation_spec.get("target_track_types") or []
     }
-    track_key = slug_manifest_key(str(target_track.template_id or target_track.title))
+    from app.services.track_relation_identity import relation_track_type
+
+    track_key = slug_manifest_key(await relation_track_type(target_track))
     if allowed_tracks and track_key not in allowed_tracks:
         raise BadRequestError(message="Relation target Track type is not allowed")
     allowed_types = {

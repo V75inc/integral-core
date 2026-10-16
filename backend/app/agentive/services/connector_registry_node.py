@@ -485,9 +485,9 @@ async def list_connectors_for_owner(owner_id: str) -> List[Connector]:
     """
     # Edge traversal first.
     try:
-        from app.models.nodes import User  # verified path
+        from app.services.permissions import get_user_node
 
-        user = await User.get(owner_id)
+        user = await get_user_node(owner_id)
         if user is not None:
             connectors = await user.nodes(
                 edge=["Owns"],

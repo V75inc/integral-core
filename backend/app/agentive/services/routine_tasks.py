@@ -111,7 +111,7 @@ def parse_run_at(run_at: str, timezone: str = "UTC") -> str:
 
 
 async def _get_owned_routine(user_id: str, routine_id: str) -> RoutineTask:
-    routine = await RoutineTask.get(routine_id)
+    routine = await RoutineTask.find_one({"id": routine_id})
     if routine is None or routine.user_id != user_id:
         raise ResourceNotFoundError(message="Routine not found")
     return routine
@@ -143,6 +143,8 @@ async def create_routine_task(
     run_at: Optional[str] = None,
     source_app_id: str = "",
     source_schedule_key: str = "",
+    delivery_mode: str = "agent",
+    source_staging_token: str = "",
 ) -> RoutineTask:
     """Create + graph-wire a new ``RoutineTask`` (I-GRAPH-01).
 
@@ -165,6 +167,7 @@ async def create_routine_task(
 
     if not instruction or not instruction.strip():
         raise BadRequestError(message="instruction is required")
+    validate_delivery_mode(delivery_mode, instruction, write_scope)
     if not thread_id:
         raise BadRequestError(message="thread_id is required")
 
@@ -208,6 +211,8 @@ async def create_routine_task(
         thread_id=thread_id,
         agent_id=agent_id,
         instruction=instruction.strip(),
+        delivery_mode=delivery_mode,
+        source_staging_token=source_staging_token,
         cron=cron_s,
         timezone=timezone or "UTC",
         status="active",
@@ -244,11 +249,17 @@ def serialize_routine(r: RoutineTask) -> Dict[str, Any]:
         from app.services.chat_turn_registry import get_turn
 
         handle = get_turn(r.thread_id)
-        if handle is not None and (handle.origin or "").strip() == "routine_task":
+        if (
+            handle is not None
+            and handle.routine_id == r.id
+            and bool(handle.work_item_id)
+            and (handle.origin or "").strip() == "routine_task"
+        ):
             running = True
     return {
         "id": r.id,
         "instruction": r.instruction,
+        "delivery_mode": r.delivery_mode,
         "cron": r.cron,
         "timezone": r.timezone,
         "status": r.status,
@@ -315,6 +326,38 @@ async def update_routine_task(
     write_scope: Optional[List[Dict[str, str]]] = None,
     max_runs: Optional[int] = None,
     clear_max_runs: bool = False,
+    delivery_mode: Optional[str] = None,
+) -> RoutineTask:
+    """Apply an owned delta from the same fresh row used by scheduler writers."""
+    from app.agentive.services.routine_state import locked_routine
+
+    async with locked_routine(routine_id, principal_id=user_id):
+        return await _update_owned_routine_task(
+            user_id=user_id,
+            routine_id=routine_id,
+            status=status,
+            instruction=instruction,
+            cron=cron,
+            timezone=timezone,
+            write_scope=write_scope,
+            max_runs=max_runs,
+            clear_max_runs=clear_max_runs,
+            delivery_mode=delivery_mode,
+        )
+
+
+async def _update_owned_routine_task(
+    *,
+    user_id: str,
+    routine_id: str,
+    status: Optional[str] = None,
+    instruction: Optional[str] = None,
+    cron: Optional[str] = None,
+    timezone: Optional[str] = None,
+    write_scope: Optional[List[Dict[str, str]]] = None,
+    max_runs: Optional[int] = None,
+    clear_max_runs: bool = False,
+    delivery_mode: Optional[str] = None,
 ) -> RoutineTask:
     """Apply an edit to an owned routine. Recomputes ``next_run_at`` if cadence changed.
 
@@ -327,6 +370,13 @@ async def update_routine_task(
     """
     routine = await _get_owned_routine(user_id, routine_id)
 
+    validate_delivery_mode(
+        delivery_mode or routine.delivery_mode,
+        instruction if instruction is not None else routine.instruction,
+        write_scope if write_scope is not None else routine.write_scope,
+    )
+    if delivery_mode is not None:
+        routine.delivery_mode = delivery_mode
     cadence_changed = False
     if status is not None:
         if status not in ("active", "paused"):
@@ -366,56 +416,76 @@ async def update_routine_task(
 
 
 async def abort_routine_run(routine: RoutineTask) -> bool:
-    """Abort an in-flight scheduled run on the routine's thread, if any.
+    """Best-effort local interruption for this exact routine's leased worker."""
+    from app.agentive.services.work_items import _current_work_item
+    from app.services.chat_turn_registry import cancel_turn_if_work_item, get_turn
 
-    Only cancels a turn whose registry ``origin`` is ``routine_task`` — a live
-    human chat on the same thread is left alone.
-    """
-    if not routine.thread_id:
+    handle = get_turn(routine.thread_id) if routine.thread_id else None
+    if handle is None or handle.routine_id != routine.id or not handle.work_item_id:
         return False
-    from app.services.chat_turn_registry import cancel_turn_if_origin
+    item = await _current_work_item(handle.work_item_id)
+    if (
+        item is None
+        or item.kind != "routine_turn"
+        or (item.input_payload or {}).get("routine_id") != routine.id
+        or item.principal_id != routine.user_id
+        or item.workspace_id != routine.workspace_id
+        or item.thread_id != routine.thread_id
+    ):
+        return False
+    return await cancel_turn_if_work_item(routine.thread_id, item.work_item_id)
 
-    return await cancel_turn_if_origin(routine.thread_id, "routine_task")
+
+async def offer_routine_interruption(routine: RoutineTask) -> None:
+    """Offer post-commit local interruption; durable state remains authoritative."""
+    try:
+        await abort_routine_run(routine)
+    except Exception:
+        logger.exception("Routine stop committed; local interruption unavailable")
 
 
-async def cancel_routine_task(*, user_id: str, routine_id: str) -> RoutineTask:
-    """Stop an owned routine — soft tombstone + abort any in-flight run.
+async def _control_owned_routine(
+    user_id: str, routine_id: str, *, purge: bool
+) -> RoutineTask:
+    from jvspatial.core.context import get_default_context
 
-    Sets ``status=cancelled`` so the scheduler stops picking it up. App-bundled
-    schedules keep the tombstone so reinstall does not resurrect them. Aborts
-    an in-flight ``origin=routine_task`` turn when present; does not abort a
-    live human turn on the same thread.
-    """
-    routine = await _get_owned_routine(user_id, routine_id)
-    if routine.status == "cancelled":
-        return routine
-    aborted = await abort_routine_run(routine)
-    routine.status = "cancelled"
-    if aborted:
-        routine.last_run_status = "stopped"
-        routine.last_run_error = None
-    routine.updated_at = utc_now_iso()
-    await routine.save()
+    from app.services.entry_write_scope import (
+        entry_write_scope,
+        is_postgres_entry_transaction,
+    )
+    from app.services.identity_admission import identity_admission
+
+    caller = get_default_context()
+    async with entry_write_scope(routine_id) as graph, identity_admission((user_id,)):
+        row = await graph.database.find_one_and_update(
+            "node",
+            {"id": routine_id, "entity": RoutineTask._entity_name()},
+            {"$set": {}},
+        )
+        if row is None:
+            raise ResourceNotFoundError(message="Routine not found")
+        routine = await _get_owned_routine(user_id, routine_id)
+        if purge:
+            await routine.delete(cascade=False)
+        elif routine.status != "cancelled":
+            routine.status = "cancelled"
+            routine.updated_at = utc_now_iso()
+            await routine.save()
+    # Nested approved commands offer interruption after their own outer commit.
+    # Across workers, every later effect checks this same locked routine state.
+    if not is_postgres_entry_transaction(graph.database) or graph is not caller:
+        await offer_routine_interruption(routine)
     return routine
 
 
-async def delete_routine_task(*, user_id: str, routine_id: str) -> str:
-    """Hard-delete an owned RoutineTask (I-GRAPH-01: cascade=False).
+async def cancel_routine_task(*, user_id: str, routine_id: str) -> RoutineTask:
+    """Commit a stop tombstone before offering exact local worker interruption."""
+    return await _control_owned_routine(user_id, routine_id, purge=False)
 
-    Aborts an in-flight scheduled run first, then deletes the node. Does not
-    delete the bound ChatThread. App-bundled schedules may rematerialize on a
-    later library sync — that is intentional (Remove = this instance).
-    """
-    routine = await _get_owned_routine(user_id, routine_id)
-    workspace_id = routine.workspace_id
-    await abort_routine_run(routine)
-    await routine.delete(cascade=False)
-    logger.info(
-        "delete_routine_task: user=%s routine=%s workspace=%s",
-        user_id,
-        routine_id,
-        workspace_id,
-    )
+
+async def delete_routine_task(*, user_id: str, routine_id: str) -> str:
+    """Remove the owned schedule, preserving its conversation and receipt history."""
+    await _control_owned_routine(user_id, routine_id, purge=True)
     return routine_id
 
 
@@ -434,23 +504,43 @@ async def enqueue_routine_turn_work(
     app_id: str = "",
 ) -> Any:
     """Enqueue a ``kind=routine_turn`` WorkItem for a due fire (idempotent)."""
-    from app.agentive.services import work_items
+    from jvspatial.core.context import get_default_context
 
-    return await work_items.enqueue_work_item(
-        kind="routine_turn",
-        origin="scheduler",
-        principal_id=principal_id,
-        workspace_id=workspace_id or "",
-        idempotency_key=routine_work_idempotency_key(
-            routine_id=routine_id, scheduled_for=scheduled_for
-        ),
-        input_payload={
-            "routine_id": routine_id,
-            "scheduled_for": scheduled_for,
-        },
-        thread_id=thread_id or None,
-        app_id=app_id or None,
-    )
+    from app.agentive.services import work_items
+    from app.agentive.services.routine_mandate import routine_mandate_fingerprint
+    from app.agentive.services.routine_state import locked_routine
+    from app.schemas.agentive.work import WorkError
+    from app.services.entry_write_scope import is_postgres_entry_transaction
+
+    async with locked_routine(routine_id, principal_id=principal_id) as routine:
+        if (
+            routine is None
+            or routine.user_id != principal_id
+            or routine.workspace_id != workspace_id
+            or routine.thread_id != thread_id
+        ):
+            raise WorkError("work.policy_denied", "Routine enqueue binding mismatch")
+        return await work_items.enqueue_work_item(
+            kind="routine_turn",
+            origin="scheduler",
+            principal_id=principal_id,
+            workspace_id=workspace_id or "",
+            idempotency_key=routine_work_idempotency_key(
+                routine_id=routine_id, scheduled_for=scheduled_for
+            ),
+            input_payload={
+                "routine_id": routine_id,
+                "scheduled_for": scheduled_for,
+                "routine_mandate_fingerprint": routine_mandate_fingerprint(routine),
+            },
+            thread_id=thread_id or None,
+            app_id=app_id or None,
+            transaction=(
+                get_default_context().database
+                if is_postgres_entry_transaction(get_default_context().database)
+                else None
+            ),
+        )
 
 
 async def execute_routine_turn_under_lease(item: Any, ctx: Any) -> None:
@@ -491,12 +581,99 @@ async def execute_routine_turn_under_lease(item: Any, ctx: Any) -> None:
     # Permission reads may await I/O while the work lease is cancelled or
     # expires. Recheck the existing effect fence after those reads as well.
     await assert_effect_boundary_allowed(ctx)
+    if task.delivery_mode == "reminder":
+        await _deliver_reminder(task, ctx)
+        return
+    from app.agentive.services.work_execution_binding import bind_work_execution
+
     try:
-        success, error_reason = await _run_agent_turn(task)
+        with bind_work_execution(ctx):
+            success, error_reason = await _run_agent_turn(task)
     except _TurnBusy:
         raise
     if not success:
         raise WorkError(
             "work.permanent",
             error_reason or "routine agent turn failed",
+        )
+
+
+def validate_delivery_mode(mode: str, instruction: str, write_scope: Any) -> None:
+    """Reminder mode posts reviewed literal text; it cannot run tools or writes."""
+    if mode not in {"agent", "reminder"}:
+        raise BadRequestError(message="delivery_mode must be agent or reminder")
+    if mode == "reminder" and (
+        write_scope or not instruction.strip() or len(instruction) > 2000
+    ):
+        raise BadRequestError(
+            message="A reminder requires 1–2000 characters of literal text and no write scope"
+        )
+
+
+async def _deliver_reminder(task: RoutineTask, context: Any) -> None:
+    """Exactly one graph-wired message per durable fire, inside its lease fence."""
+    import hashlib
+
+    from app.agentive.services.work_items import authorized_work_item_effect
+    from app.models.edges import CONTAINS
+    from app.models.nodes import ChatMessage, ChatThread
+    from app.schemas.agentive.work import WorkError
+    from app.services.chat_threads import append_message
+    from app.services.routine_task_scheduler import _permission_gate
+
+    validate_delivery_mode(task.delivery_mode, task.instruction, task.write_scope)
+    async with authorized_work_item_effect(context):
+        # Repeat live admission inside the transaction; a paused/deleted routine
+        # or an archived/wrong-owner thread must not receive a queued reminder.
+        fresh = await RoutineTask.get(task.id)
+        thread = await ChatThread.get(task.thread_id)
+        if (
+            fresh is None
+            or fresh.status != "active"
+            or fresh.delivery_mode != "reminder"
+            or fresh.instruction != task.instruction
+            or fresh.write_scope
+            or fresh.user_id != context.principal_id
+            or fresh.workspace_id != context.workspace_id
+            or fresh.thread_id != context.thread_id
+            or thread is None
+            or thread.user_id != context.principal_id
+            or thread.workspace_id != context.workspace_id
+            or await _permission_gate(fresh) is not None
+        ):
+            raise WorkError("work.policy_denied", "reminder delivery scope changed")
+        message_id = (
+            "n.ChatMessage."
+            + hashlib.sha256(f"{context.work_item_id}:reminder".encode()).hexdigest()
+        )
+        parts = [{"type": "text", "text": fresh.instruction}]
+        metadata = {
+            "origin": "routine_task",
+            "routine_id": fresh.id,
+            "delivery_mode": "reminder",
+            "steps": [],
+        }
+        existing = await ChatMessage.get(message_id)
+        if existing is not None:
+            graph = await thread.get_context()
+            edges = await graph.find_edges_between(
+                thread.id, message_id, edge_class=CONTAINS
+            )
+            if (
+                not edges
+                or existing.thread_id != thread.id
+                or existing.role != "assistant"
+                or existing.parts != parts
+                or existing.provider_metadata != metadata
+            ):
+                raise WorkError(
+                    "work.idempotency_conflict", "reminder delivery differs"
+                )
+            return
+        await append_message(
+            thread=thread,
+            role="assistant",
+            parts=parts,
+            provider_metadata=metadata,
+            message_id=message_id,
         )

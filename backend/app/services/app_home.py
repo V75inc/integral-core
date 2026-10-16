@@ -21,22 +21,27 @@ async def read_app_home(
     app = await App.get(app_id)
     if app is None:
         raise ValueError("App not found")
-    definition_id = str(getattr(app, "active_definition_id", "") or "")
-    definition = (
-        await ApplicationDefinition.get(definition_id) if definition_id else None
-    )
-    if (
-        definition is None
-        or definition.app_id != app_id
-        or definition.status != "active"
-    ):
-        return {"home": None}
-    home = (definition.canonical_manifest.get("app") or {}).get("home")
+    home = getattr(app, "home_composition", None)
+    definition_revision = None
+    if not home:
+        definition_id = str(getattr(app, "active_definition_id", "") or "")
+        definition = (
+            await ApplicationDefinition.get(definition_id) if definition_id else None
+        )
+        if (
+            definition is None
+            or definition.app_id != app_id
+            or definition.status != "active"
+        ):
+            return {"home": None}
+        home = (definition.canonical_manifest.get("app") or {}).get("home")
+        definition_revision = definition.revision
     if not isinstance(home, dict) or not home:
         return {"home": None}
     result = copy.deepcopy(home)
+    result.setdefault("actions", [])
     if not include_data:
-        return {"home": result, "definition_revision": definition.revision}
+        return {"home": result, "definition_revision": definition_revision}
     if not workspace_id or workspace_id != app.workspace_id:
         raise PermissionError("Home workspace is not active")
     deadline = time.monotonic() + 5
@@ -60,4 +65,4 @@ async def read_app_home(
             )
         except Exception:
             widget["data"] = {"error": "home_query_unavailable"}
-    return {"home": result, "definition_revision": definition.revision}
+    return {"home": result, "definition_revision": definition_revision}

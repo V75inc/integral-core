@@ -19,6 +19,7 @@ export interface TrackCollaboratorsModalProps {
   isOwner: boolean;
   currentUser: User | null | undefined;
   collaboratorList: User[];
+  collaboratorCount?: number;
   collabExcludeIds: Set<string>;
   onAdd: (u: User) => void;
   onChangeDirectRole: (
@@ -44,6 +45,7 @@ export function TrackCollaboratorsModal({
   isOwner,
   currentUser,
   collaboratorList,
+  collaboratorCount,
   collabExcludeIds,
   onAdd,
   onChangeDirectRole,
@@ -56,7 +58,7 @@ export function TrackCollaboratorsModal({
   return (
     <Modal open={open} onClose={onClose} title="Collaborators">
       <div className="space-y-5 p-4">
-        {trackId && <ResourceAccessReview resourceType="track" resourceId={trackId} />}
+        {trackId && <ResourceAccessReview resourceType="track" resourceId={trackId} people={collaboratorList} currentUser={currentUser} />}
         {canManageCollaborators ? (
           <div className="space-y-2">
             <h3 className="text-[13px] font-semibold uppercase tracking-[0.12em] text-[color:var(--text-muted)]">
@@ -92,7 +94,9 @@ export function TrackCollaboratorsModal({
           <ul className="max-h-[min(50vh,320px)] space-y-1 overflow-y-auto pr-1">
             {collaboratorList.length === 0 ? (
               <li className="rounded-[var(--radius-input)] border border-dashed border-[var(--panel-border)] px-3 py-6 text-center text-sm text-[color:var(--text-muted)]">
-                No one is listed yet.
+                {!canManageCollaborators && (collaboratorCount ?? 0) > 0
+                  ? 'Collaborator details are visible to the owner and admins.'
+                  : 'No one is listed yet.'}
                 {canManageCollaborators
                   ? ' Use the search above to invite collaborators (added as commenter by default; promote per row).'
                   : ''}

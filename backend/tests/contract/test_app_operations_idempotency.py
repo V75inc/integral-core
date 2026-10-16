@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.schemas.policy import Decision
 from app.services.app_operations.dispatch import invoke_app_operation
 from app.services.hooks.install_hook import register_bundle_on_install
-from app.services.hooks.registry import clear_workspace_registrations
 
 REPO = Path(__file__).resolve().parents[3]
 REF_APP = REPO / "examples" / "reference-hello-app"
@@ -27,12 +24,13 @@ def reference_root(monkeypatch):
     reset_library_operational_models_cache_for_testing()
     yield REF_APP
     reset_library_operational_models_cache_for_testing()
-    clear_workspace_registrations("ws-idem")
 
 
 @pytest.mark.contract
 @pytest.mark.asyncio
-async def test_idempotency_key_returns_cached_result(reference_root):
+async def test_idempotency_key_returns_cached_result(
+    reference_root, test_user, request
+):
     from app.services.operational_model_loader import (
         load_library_operational_models_with_issues,
     )
@@ -45,8 +43,10 @@ async def test_idempotency_key_returns_cached_result(reference_root):
     )
     spec = next(s for s in specs if s.slug == "reference-hello-app")
     canonical = compile_canonical_manifest(manifest=spec.manifest)
-    ws = "ws-idem"
-    app_id = "n.App.idem-hello"
+    from tests.contract.operation_fixtures import owned_operation_app
+
+    workspace, app = await owned_operation_app(test_user, request)
+    ws, app_id = workspace.id, app.id
     await register_bundle_on_install(
         workspace_id=ws,
         canonical=canonical,
@@ -54,48 +54,21 @@ async def test_idempotency_key_returns_cached_result(reference_root):
         app_id=app_id,
     )
 
-    async def _allow(*_a, **_k):
-        return Decision(allowed=True, reason="contract-test")
-
-    app_stub = type(
-        "AppStub",
-        (),
-        {"id": app_id, "workspace_id": ws, "lifecycle_state": "active"},
-    )()
-
-    with (
-        patch(
-            "app.services.app_operations.dispatch.policy_evaluate",
-            new=AsyncMock(side_effect=_allow),
-        ),
-        patch(
-            "app.services.app_operations.dispatch.App.get",
-            new=AsyncMock(return_value=app_stub),
-        ),
-        patch(
-            "app.services.app_operations.dispatch.resolve_role",
-            new=AsyncMock(return_value="owner"),
-        ),
-        patch(
-            "app.services.app_operations.dispatch.can_access_workspace",
-            new=AsyncMock(return_value="owner"),
-        ),
-    ):
-        first = await invoke_app_operation(
-            user_id="u1",
-            workspace_id=ws,
-            app_id=app_id,
-            operation_key="echo",
-            payload={"message": "idem"},
-            idempotency_key="k-1",
-        )
-        second = await invoke_app_operation(
-            user_id="u1",
-            workspace_id=ws,
-            app_id=app_id,
-            operation_key="echo",
-            payload={"message": "idem"},
-            idempotency_key="k-1",
-        )
+    first = await invoke_app_operation(
+        user_id=test_user.id,
+        workspace_id=ws,
+        app_id=app_id,
+        operation_key="echo",
+        payload={"message": "idem"},
+        idempotency_key="k-1",
+    )
+    second = await invoke_app_operation(
+        user_id=test_user.id,
+        workspace_id=ws,
+        app_id=app_id,
+        operation_key="echo",
+        payload={"message": "idem"},
+        idempotency_key="k-1",
+    )
     assert first == second
     assert first["output"]["message"] == "idem"

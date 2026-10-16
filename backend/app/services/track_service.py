@@ -67,7 +67,7 @@ from app.services.workspace_resolver import resolve_workspace_id
 from app.utils.time import utc_now_iso
 
 
-@canonical_creation
+@canonical_creation(kind="create_track")
 async def create_track_in_space(
     user_id: str,
     *,
@@ -178,7 +178,7 @@ async def create_track_in_space(
         )
 
     if explicit_vis is None:
-        resolved_vis = "inherit"
+        resolved_vis = "private"
     else:
         resolved_vis = explicit_vis
 
@@ -241,6 +241,7 @@ async def create_track_in_space(
         accent_color=normalize_track_accent_color(accent_color),
         visibility=resolved_vis,
         template_id=effective_template_ref,
+        relation_type_key=safe_title,
         workspace_id=track_workspace_id,
         created_at=now,
         updated_at=now,

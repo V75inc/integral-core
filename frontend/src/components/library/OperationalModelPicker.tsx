@@ -70,7 +70,7 @@ export function OperationalModelPicker({
         const { entryTypeCount, viewCount } = summarizeLibraryManifest(manifest);
         return {
           value: `library:${pkg.id}`,
-          name: pkg.name || pkg.id,
+          name: pkg.name || 'Untitled model',
           description: pkg.description || undefined,
           entryTypeCount,
           viewCount,
@@ -179,7 +179,7 @@ export function OperationalModelPicker({
           placeholder="Filter operational models…"
           className="
             w-full rounded-[var(--radius-input)] border border-[var(--panel-border)]
-            bg-[var(--panel)] pl-8 pr-3 py-2 text-sm text-[var(--text)]
+            bg-[var(--panel)] pl-9 pr-3 py-2 text-sm text-[var(--text)]
             placeholder:text-[var(--text-subtle)]
             transition-[border-color,box-shadow] duration-fast
             focus:outline-none focus:border-[var(--brand-accent-line)]

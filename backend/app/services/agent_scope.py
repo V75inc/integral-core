@@ -199,3 +199,12 @@ async def check_resource_in_active_scope(
             resource_id, user_id=user_id, workspace_id=workspace_id
         )
     return None
+
+
+# A bound turn with no snapshot must not inherit a mutable historical page.
+current_page_context_bound: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "integral_agent_page_context_bound", default=False
+)
+current_page_context_run_id: contextvars.ContextVar[Optional[str]] = (
+    contextvars.ContextVar("integral_agent_page_context_run_id", default=None)
+)

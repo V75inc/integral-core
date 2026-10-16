@@ -334,7 +334,9 @@ async def test_a_moderated_delete_is_distinguishable_in_the_audit_trail(monkeypa
     async def _capture(**kwargs):
         captured.append(kwargs)
 
-    monkeypatch.setattr(comments_api, "emit_change_event", _capture)
+    from app.services import change_event
+
+    monkeypatch.setattr(change_event, "emit_change_event", _capture)
 
     ws, _app, track, entry, owner_auth, _owner = await _owned_org("audit")
     comment_id = await _post_public_comment(track, entry, owner_auth, "visitor comment")

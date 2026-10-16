@@ -23,7 +23,7 @@ exclude = ["app.packages", "app.packages.*"]
 
 [project]
 name = "integral-core"
-version = "0.1.1rc17"
+version = "0.1.1rc18"
 description = "Integral Foundation (open core) — substrate without commercial Apps"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -48,11 +48,11 @@ dependencies = [
     "filelock>=3.16,<4",
     "psutil>=6,<8",
     "fastapi>=0.100.0",
+    "anyio>=4,<5",
     "uvicorn[standard]>=0.23.0",
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
     "python-multipart>=0.0.6",
-    "python-jose[cryptography]>=3.3.0",
     "passlib[bcrypt]>=1.7.4",
     "python-dotenv>=1.0.0",
     "PyYAML>=6.0.0",
@@ -69,7 +69,7 @@ dependencies = [
     "asyncpg>=0.29.0",
     # IANA tz database for zoneinfo on minimal images.
     "tzdata>=2024.1",
-    "jvspatial==0.2.1",
+    "jvspatial==0.2.2",
     # jvspatial depends on PyJWT without an upper bound; keep the resolved
     # version above releases flagged by the backend dependency audit.
     "PyJWT>=2.14.0",
@@ -87,7 +87,9 @@ dependencies = [
     # and every test erroring with
     # "AttributeError: 'Server' object has no attribute 'list_tools'".
     # Lift the cap only together with a port of build_mcp_server to the 2.x API.
-    "mcp[cli]>=1.27.0,<2",
+    # 1.30 fixes retained Streamable-HTTP session state (CVE-2026-59951).
+    # Keep the 1.x API boundary above; do not suppress the dependency audit.
+    "mcp[cli]>=1.30.0,<2",
     # Phase 4 — Hybrid Retrieval substrate (RET-01..04).
     # fastembed: ONNX-Runtime backend for sentence-transformers/all-MiniLM-L6-v2
     #            (same model, no torch). embedding_model.py defers the import.

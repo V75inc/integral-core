@@ -1,0 +1,26 @@
+[
+  {
+    "path": "/admin/overview",
+    "status": 403
+  },
+  {
+    "path": "/admin/users",
+    "status": 403
+  },
+  {
+    "path": "/admin/workspaces",
+    "status": 403
+  },
+  {
+    "path": "/admin/apps",
+    "status": 403
+  },
+  {
+    "path": "/admin/tracks",
+    "status": 403
+  },
+  {
+    "path": "/entries/n.Entry.92dcbe19c2ea4316ac18e855",
+    "status": 403
+  }
+]

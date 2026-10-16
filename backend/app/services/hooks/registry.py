@@ -208,6 +208,10 @@ class ToolContext:
     actor_kind: str = "human"
     #: Explicit facade enforcement for read-time projections and read operations.
     read_only: bool = False
+    #: Work item id when this tool runs as a background App job (``app_tool``).
+    job_id: str = ""
+    #: Lease the running job holds; progress is accepted only under it.
+    job_lease: tuple = ()
 
     async def _resource_in_scope(self, kind: str, resource_id: str) -> bool:
         """Check canonical execution containment independently of caller grants."""
@@ -319,16 +323,26 @@ class ToolContext:
         Track belongs to this workspace — no cross-workspace leak, and the
         query actually matches.
         """
-        from app.models.nodes import Entry
+        from app.middleware.permissions_cache import isolated_permissions_cache
+        from app.services.entry_access_projection import hydrate_records, iter_records
+        from app.services.resource_location import ACTIVE_APP_STATES
+        from app.services.workspace_governance import ordinary_authority_only
 
-        rows = list(await Entry.find(query))
-        if not rows:
-            return []
+        # Reuse the canonical bounded audience selector instead of performing
+        # a complete ancestry/role cascade for every hydrated candidate. The
+        # facts belong to one fresh window, never an operation-wide allow cache.
+        # Bundle reads retain the point facade's active-App and ordinary-role
+        # rules; protected workspace stewardship must not widen their audience.
         scoped: List[Any] = []
-        for entry in rows:
-            current = await self.get_entry(entry.id)
-            if current is not None:
-                scoped.append(current)
+        with ordinary_authority_only(), isolated_permissions_cache():
+            async for records in iter_records(
+                self.user_id,
+                query,
+                workspace_id=self.workspace_id,
+                app_id=str(getattr(self, "app_id", "") or "") or None,
+                allowed_app_states=ACTIVE_APP_STATES,
+            ):
+                scoped.extend(await hydrate_records(records))
         return scoped
 
     async def _tracks_by_title(self, track_type: str) -> List[Any]:
@@ -396,26 +410,13 @@ class ToolContext:
 
         out: List[Any] = []
         for track in await self._tracks_by_title(track_type):
-            try:
-                entries = await track.nodes(
-                    edge=["CONTAINS"], direction="out", node=["Entry"]
-                )
-            except Exception as exc:
-                from app.exceptions import AuthorizationUnavailableError
-
-                raise AuthorizationUnavailableError() from exc
+            entries = await self.find_entries({"context.track_id": track.id})
             for e in entries:
                 if not isinstance(e, Entry):
                     continue
-                current = await self.get_entry(e.id)
-                if current is None:
+                if wanted_type and await _entry_type_slug(e.type_id) != wanted_type:
                     continue
-                if (
-                    wanted_type
-                    and await _entry_type_slug(current.type_id) != wanted_type
-                ):
-                    continue
-                out.append(current)
+                out.append(e)
         return out
 
     async def find_track_id_by_title(self, track_type: str) -> Optional[str]:
@@ -578,7 +579,7 @@ class ToolContext:
         """
         if getattr(self, "read_only", False):
             return False
-        app = await self._own_bundle_app()
+        app = await self._bundle_app_owning(entry_id) or await self._own_bundle_app()
         if app is None:
             return False
         from app.services.app_operations.context import OperationContext
@@ -634,6 +635,43 @@ class ToolContext:
                 expected_state=expected_state,
                 updates=updates,
             )
+
+    async def _bundle_app_owning(self, entry_id: str) -> Optional[Any]:
+        """This bundle's App when it owns ``entry_id`` in the tool's workspace.
+
+        Lets a tool update its own App's records in the workspace where the
+        App is installed (an organization workspace, say), not only in the
+        caller's personal workspace. The workspace is the dispatcher's, never
+        the tool's choice, and the entry must belong to this bundle's active
+        App there, so a tool still cannot reach another App or tenant.
+        Returns ``None`` on any missing link. Never raises.
+        """
+        from app.models.nodes import App
+        from app.services.resource_location import locate_resource
+
+        slug = (self.bundle_slug or "").strip()
+        if not slug or not (self.workspace_id or "").strip():
+            return None
+        try:
+            location = await locate_resource("entry", entry_id)
+            if (
+                location is None
+                or location.workspace_id != self.workspace_id
+                or not location.app_id
+            ):
+                return None
+            app = await App.get(location.app_id)
+            if (
+                app is None
+                or getattr(app, "workspace_id", "") != self.workspace_id
+                or getattr(app, "source_operational_model_slug", "") != slug
+                or getattr(app, "lifecycle_state", "") != "active"
+            ):
+                return None
+            return app
+        except Exception:  # noqa: BLE001
+            logger.exception("_bundle_app_owning failed (bundle=%s)", slug)
+            return None
 
     async def _own_bundle_app(self) -> Optional[Any]:
         """The calling bundle's App in the caller's OWN personal workspace.
@@ -1033,6 +1071,115 @@ class ToolContext:
             },
         )
         return await run_tool(spec, dict(payload or {}), callee_ctx)
+
+    async def enqueue_job(
+        self,
+        tool_key: str,
+        payload: Optional[Dict[str, Any]] = None,
+        *,
+        idempotency_key: str,
+        label: str = "",
+    ) -> Dict[str, Any]:
+        """Queue one of this App's own tools to run as a background job.
+
+        The job is a durable work item (kind ``app_tool``): it survives
+        restarts, is retried on transient failure, and runs as the same
+        person in the same workspace. An App may only queue its own tools.
+        The same ``idempotency_key`` returns the existing job instead of a
+        new one. Returns ``{job_id, status}``.
+        """
+        caller = (self.bundle_slug or "").strip()
+        if not caller:
+            raise PermissionError(
+                "enqueue_job: only a running app tool may queue a job"
+            )
+        if getattr(self, "read_only", False):
+            raise PermissionError("enqueue_job: read-only context")
+        key = str(tool_key or "").strip()
+        spec = get_workspace_tools(self.workspace_id).get(key)
+        if spec is None or str(spec.get("_bundle_slug") or "") != caller:
+            raise PermissionError(
+                f"enqueue_job: {key!r} is not a tool of this App in this workspace"
+            )
+        idem = str(idempotency_key or "").strip()
+        if not idem:
+            raise ValueError("enqueue_job: idempotency_key is required")
+        from app.agentive.services.work_items import enqueue_work_item
+        from app.services.relation_runtime import resolve_target_app
+        from app.services.workspace_tools import require_workspace_tool_access
+
+        await require_workspace_tool_access(
+            user_id=self.user_id, workspace_id=self.workspace_id, spec=spec
+        )
+
+        app_id = await resolve_target_app(
+            workspace_id=self.workspace_id, target_app_key=caller
+        )
+        item = await enqueue_work_item(
+            kind="app_tool",
+            origin="app_tool",
+            principal_id=self.user_id,
+            workspace_id=self.workspace_id,
+            idempotency_key=f"{caller}:{key}:{idem}",
+            input_payload={
+                "tool_key": key,
+                "bundle_slug": caller,
+                "input": dict(payload or {}),
+                "label": str(label or "")[:200],
+            },
+            app_id=str(app_id or "") or None,
+        )
+        return {"job_id": item.work_item_id, "status": item.status}
+
+    async def report_progress(
+        self,
+        done: Optional[int] = None,
+        total: Optional[int] = None,
+        label: str = "",
+    ) -> bool:
+        """Report progress of the background job this tool is running.
+
+        No-op (False) outside a job or once the job is no longer running.
+        """
+        if not self.job_id:
+            return False
+        from app.agentive.services.work_items import report_work_progress
+
+        progress: Dict[str, Any] = {"label": str(label or "")[:200]}
+        if done is not None:
+            progress["done"] = int(done)
+        if total is not None:
+            progress["total"] = int(total)
+        return await report_work_progress(
+            self.job_id, progress, lease=self.job_lease or None
+        )
+
+    async def job_status(self, job_id: str) -> Optional[Dict[str, Any]]:
+        """Status of this App's job when the caller may observe it, or None."""
+        from app.agentive.services.work_items import _object_id
+        from app.agentive.services.work_visibility import get_visible_work_item
+        from app.agentive.work_models import WorkItem
+        from app.api.errors import InsufficientPermissionsError, ResourceNotFoundError
+
+        jid = str(job_id or "").strip()
+        if not jid:
+            return None
+        item = await WorkItem.get(_object_id(jid))
+        if (
+            item is None
+            or item.kind != "app_tool"
+            or item.workspace_id != self.workspace_id
+            or str((item.input_payload or {}).get("bundle_slug") or "")
+            != (self.bundle_slug or "")
+        ):
+            return None
+        try:
+            visible = await get_visible_work_item(
+                work_item_id=item.work_item_id, principal_id=self.user_id
+            )
+        except (InsufficientPermissionsError, ResourceNotFoundError):
+            return None
+        return visible.model_dump(mode="json")
 
     #: Stamped by ``run_tool`` from the running tool's registered spec.
     connector_writes: tuple = ()

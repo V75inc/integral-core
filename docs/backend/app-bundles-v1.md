@@ -28,7 +28,7 @@ Pause withdraws active behavior as required. Uninstall checks dependencies and r
 
 ## Boundary
 
-Bundles never import private Core services or models into tools. They use ToolContext and published contracts. Tool/hook registrations are workspace/package owned, collision-checked, and removed through lifecycle. Skill overlays include active accessible Apps only.
+Bundles never import private Core services or models into tools. They use ToolContext and published contracts. Tool/hook registrations are workspace/package owned, collision-checked, and removed through lifecycle. Skill overlays include active accessible Apps only. Long work leaves the request through `ctx.enqueue_job`: a durable, resumable background job that runs as the same person in the same workspace; see [Background jobs for Apps](../platform/background-app-jobs.md).
 
 Production admission of Python depends on trust tier and configured signatures. The presence of an allowed manifest cannot exempt code from permission, schema, transaction, or effect controls.
 

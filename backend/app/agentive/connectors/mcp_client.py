@@ -7,8 +7,10 @@ outbound MCP server (``app.agentive.mcp.server``).
 from __future__ import annotations
 
 import logging
+import re
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -263,7 +265,9 @@ async def open_mcp_session(
         env_dict = _build_spawn_env(auth_state)
         params = StdioServerParameters(command=command, args=args, env=env_dict)
         async with stdio_client(params) as (read, write):
-            async with ClientSession(read, write) as session:
+            async with ClientSession(
+                read, write, read_timeout_seconds=timedelta(seconds=timeout)
+            ) as session:
                 await session.initialize()
                 yield session
         return
@@ -296,7 +300,9 @@ async def open_mcp_session(
             write,
             _get_session_id,
         ):
-            async with ClientSession(read, write) as session:
+            async with ClientSession(
+                read, write, read_timeout_seconds=timedelta(seconds=timeout)
+            ) as session:
                 await session.initialize()
                 yield session
 
@@ -331,6 +337,38 @@ async def list_remote_tools(auth_state: Dict[str, Any]) -> List[RemoteTool]:
         return [t for t in tools if t.name]
 
 
+class McpRemoteToolError(RuntimeError):
+    """A failed remote call with a bounded, credential-free classification."""
+
+    def __init__(self, message: str, error_code: str = "remote_error"):
+        super().__init__(message)
+        self.error_code = error_code
+
+
+def _remote_tool_error(result: Any) -> McpRemoteToolError:
+    # MCP tool failures carry arbitrary server text. Extract only a recognized
+    # HTTP status, never release that text (or structured content) to the model.
+    texts = [
+        str(getattr(block, "text", ""))[:4096]
+        for block in (getattr(result, "content", None) or [])[:8]
+    ]
+    status = re.search(
+        r"(?:HTTP(?:/\d(?:\.\d)?)?\s+|[Cc]lient error ['\"]|[Ss]tatus(?:[_ ]code)?[\s:=]+)(401|403|429)\b",
+        "\n".join(texts),
+    )
+    if status and status.group(1) in {"401", "403"}:
+        return McpRemoteToolError(
+            f"The remote service refused authentication (HTTP {status.group(1)}). Check the connector credentials in Settings → Connectors.",
+            "remote_authentication_failed",
+        )
+    if status:
+        return McpRemoteToolError(
+            "The remote service rate-limited the request (HTTP 429). Retry after its limit resets.",
+            "remote_rate_limited",
+        )
+    return McpRemoteToolError("Remote MCP tool reported an error")
+
+
 async def call_remote_tool(
     auth_state: Dict[str, Any],
     tool_name: str,
@@ -339,25 +377,25 @@ async def call_remote_tool(
     """Connect, ``call_tool``, return structured content or text payload."""
     async with open_mcp_session(auth_state) as session:
         result = await session.call_tool(tool_name, arguments=dict(arguments or {}))
-        if bool(getattr(result, "isError", False)):
-            # Protocol failure is authoritative even when the server supplies
-            # structured content or text. Never receipt it as a successful read
-            # or mark connector health OK. Do not echo arbitrary remote error
-            # bodies (which may contain credentials) into logs or model context.
-            raise RuntimeError("Remote MCP tool reported an error")
-        # Prefer structuredContent when present; else flatten text blocks.
-        structured = getattr(result, "structuredContent", None)
-        if structured is not None:
-            return structured
-        content = getattr(result, "content", None) or []
-        texts: List[str] = []
-        for block in content:
-            text = getattr(block, "text", None)
-            if text is not None:
-                texts.append(str(text))
-        if texts:
-            return {"text": "\n".join(texts)} if len(texts) > 1 else {"text": texts[0]}
-        return {"ok": True, "raw": str(result)}
+    if bool(getattr(result, "isError", False)):
+        # Protocol failure is authoritative even when the server supplies
+        # structured content or text. Never receipt it as a successful read
+        # or mark connector health OK. Do not echo arbitrary remote error
+        # bodies (which may contain credentials) into logs or model context.
+        raise _remote_tool_error(result)
+    # Prefer structuredContent when present; else flatten text blocks.
+    structured = getattr(result, "structuredContent", None)
+    if structured is not None:
+        return structured
+    content = getattr(result, "content", None) or []
+    texts: List[str] = []
+    for block in content:
+        text = getattr(block, "text", None)
+        if text is not None:
+            texts.append(str(text))
+    if texts:
+        return {"text": "\n".join(texts)} if len(texts) > 1 else {"text": texts[0]}
+    return {"ok": True, "raw": str(result)}
 
 
 _TASKGROUP_NOISE = (
