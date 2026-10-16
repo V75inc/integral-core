@@ -129,6 +129,41 @@ runtime index change is included here. R5 remains open and requires a qualified
 query/index alignment solution, rather than relaxing the plan assertion to
 accept the full-workspace sort.
 
+## 2026-10-16 history qualification matrix correction
+
+The populated PostgreSQL probe previously timed both directions but explained
+only the final descending page, and all 20,000 fixture events shared a timestamp.
+It now checks exact merged-stream page IDs against an independently ordered
+fixture for both tied and varying (non-ID-monotonic) timestamps. Both directions
+continue correctly after the boundary record is deleted. Every first/continued
+workspace/legacy query is explained, and JUnit stores explicit sort, residual-row
+and workspace-index findings. The original descending/tied no-sort/no-sequence-
+scan assertion is retained; the new diagnostic shapes do not silently expand
+that narrow qualification into an R5 completion claim.
+
+Three independent disposable database runs each passed both fixture shapes
+(six case executions, two distinct cases). Two-page logger timings were:
+
+| Shape | Ascending milliseconds (three runs) | Descending milliseconds (three runs) |
+| --- | --- | --- |
+| Tied timestamps | 1337.49, 1136.75, 694.31 | 27.02, 55.57, 30.44 |
+| Varying timestamps | 58.26, 49.25, 73.81 | 31.17, 37.31, 42.20 |
+
+These include query/hydration/connection effects and must not be attributed solely
+to an EXPLAIN node or reported as a stable latency SLA. Every sampled ascending
+stream plan includes a sort. The tied descending workspace continuation removes
+3,592 rows by filter for a 100-row query; the varying continuation removes 3,489.
+The descending workspace plans lack a workspace index condition. R5 remains
+open: bounded returned rows are not bounded database scan work. No production
+index, adapter monkeypatch or query workaround is included in this increment.
+On the final source, the two expanded probe cases plus eight native audit-tool
+contracts passed **10/10** with zero skips, failures or errors
+(`/tmp/core-history-expanded-final.xml`). EXPLAIN binds the same page-limit
+parameter as the adapter. Configured changed-file formatting, typing and drift
+checks passed. These are test/documentation changes; no runtime behavior changed.
+The probe requires both `INTEGRAL_RUN_SLOW_TESTS=1` and an explicit marker
+selection overriding the default slow exclusion; a skipped run is not evidence.
+
 ## Rules for recording closure
 
 For each row, record the exact source commit or file manifest and the terminal
