@@ -91,6 +91,7 @@ class OperationOutcomeObservation:
     """
 
     identity: OperationIdentity
+    original_decision_fingerprint: str | None = None
 
     def reference(self) -> Dict[str, Any]:
         return receipt_reference(self.identity, replayed=True)
@@ -283,7 +284,7 @@ async def lookup_operation_outcome(
                 raise OperationReceiptIncomplete(
                     "Operation alias receipt requires reconciliation"
                 )
-        return OperationOutcomeObservation(identities[original_id])
+        return OperationOutcomeObservation(identities[original_id], original_decision)
 
 
 async def execute_operation_once(
