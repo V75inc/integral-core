@@ -26,6 +26,9 @@ from app.services.policy_engine import evaluate as policy_evaluate
 from app.services.query_boundary import decide_app, parent_app_for_track
 from app.services.workspace_permissions import user_in_workspace_member_pool
 
+# One host-owned ceiling shared by discovery, schema admission and capture.
+_CAPTURE_TIMEOUT_SECONDS = 3.0
+
 _NODE_FIELDS = {
     "Workspace": ("name", "kind"),
     "Apps": (),
@@ -279,7 +282,7 @@ async def _capture_workspace_graph(
         node_types=tuple(_NODE_FIELDS),
         max_frontier=spec.max_nodes,
         page_size=50,
-        timeout_seconds=3,
+        timeout_seconds=_CAPTURE_TIMEOUT_SECONDS,
         max_string=256,
     )
     fields = tuple(
@@ -340,8 +343,10 @@ async def _capture_workspace_graph(
         )
         _require_projection_root(first.to_dict(), recorded=True)
         remaining = spec.max_candidates - first.statistics["candidate_records"]
-        timeout = 3 - (monotonic() - started)
-        if remaining < 1 or timeout <= 0:
+        timeout = _CAPTURE_TIMEOUT_SECONDS - (monotonic() - started)
+        if timeout <= 0:
+            raise ServiceUnavailableError(message="Graph context capture timed out")
+        if remaining < 1:
             raise BadRequestError(
                 message="Use a narrower graph root for recorded detail"
             )
@@ -381,7 +386,7 @@ async def _capture_workspace_graph(
             node_fields=fields,
             edge_fields=_EDGE_FIELDS,
         )
-        timeout = 3 - (monotonic() - started)
+        timeout = _CAPTURE_TIMEOUT_SECONDS - (monotonic() - started)
         if timeout <= 0:
             raise ServiceUnavailableError(message="Graph context capture timed out")
         request = ProjectionRequest(

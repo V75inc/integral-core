@@ -4,10 +4,13 @@ Source snapshot after Core `07dc7750`, including the qualified standalone View d
 The dispatcher and `CANONICAL_COMMAND_KINDS` are authoritative after this date.
 This is command-integration coverage, not a test pass percentage or goal completion score.
 
-69 registered kinds: 27 in the native command inventory, one separate canonical
-App-operation integration, one conditional batch dispatcher, one retired
-design-card tombstone that refuses effects, and 39 other effectful kinds
-requiring effect/recovery integration. The 2026-10-16 design follow-through below
+Committed baseline `18ea5ef0` has 69 registered kinds: 27 in the native command
+inventory, one separate canonical App-operation integration, one conditional
+batch dispatcher, one retired design-card tombstone that refuses effects, and
+39 other effectful kinds requiring effect/recovery integration. The qualified QA cut has 31 native kinds and 35 other effectful kinds after
+adding four routine commands. Its full, CI-faithful, native and artifact gates
+passed; the receipt inventory remains integration coverage, not whole-goal
+completion. The 2026-10-16 design follow-through below
 supersedes the historical design-executor classification. The App-operation path reuses its existing
 canonical receipt rather than joining `CANONICAL_COMMAND_KINDS`; its local graph
 qualification does not cover arbitrary external handler effects. Final artifact,
@@ -179,3 +182,33 @@ artifact gates passed. See the [filing qualification report](2026-10-16-chat-att
 Arbitrary byte uploads, external effects and mixed batches remain separate
 unqualified families. The index-direction experiment report records a reverted
 performance attempt and makes no production index or latency claim.
+
+
+## Uncommitted four-command routine candidate — 2026-10-16
+
+The current working dispatcher includes all four routine command kinds (31
+native kinds / 35 other effectful kinds). Four of those integrations await final
+aggregate qualification; the committed baseline contains 27 native kinds.
+The combined native routine/tag/release/work-kernel/effect-fence selection
+passed 98 tests (one non-native deselected); the focused default-store selection passed 97 tests
+with one native-only skip. These are separate source/selection proofs, not a
+single aggregate gate or whole-goal completion score.
+
+See the [routine recovery report](2026-10-16-routine-command-recovery-boundary.md)
+for the exact lease handoff, cancellation ordering and remaining contracts.
+The automatic write approval scan has been replaced by exact broker-origin
+execution and a frozen mandate; its focused native proof passed eight cases.
+Broader provenance/recovery qualification and durable fire accounting remain
+open alongside final aggregate qualification. No routine candidate is pushed.
+
+
+## Qualified routine QA cut
+
+The final unchanged source passed 6609 default backend tests (933 skipped),
+1813 CI-faithful tests (22 skipped), 139 native tests (47 non-native deselected)
+and all independent artifact gates. Core-only passed 9/9. All four routine
+commands now have qualified native receipt integration. Scheduled broker
+provenance is qualified for the documented supported commands; unsupported and
+external effects retain review. Durable fire accounting, cross-attempt recovery
+and the remaining 35 effectful kinds/contracts remain open. See the
+[QA handoff](2026-10-16-hardening-qa-handoff.md) for exact scope and limitations.

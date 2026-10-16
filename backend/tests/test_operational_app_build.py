@@ -461,9 +461,12 @@ async def test_car_rental_build_through_tools_and_approval(
     # Staging executors resolve AuthUser by id; Integral User nodes expose that
     # as ``user_id``. Dispatch principal_id accepts either.
     auth_uid = getattr(test_user, "user_id", None) or test_user.id
-    thread = await ChatThread.create(
-        user_id=auth_uid, workspace_id=ws, provider_session_id=sid
+    from app.services.chat_threads import create_thread, update_provider_session
+
+    thread = await create_thread(
+        user_id=auth_uid, workspace_id=ws, provider_id="integral_native"
     )
+    await update_provider_session(thread, sid)
     msg = await ChatMessage.create(
         role="user", thread_id=thread.id, content="Build rental app"
     )

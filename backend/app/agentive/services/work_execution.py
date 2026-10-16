@@ -104,6 +104,9 @@ async def assert_effect_boundary_allowed(ctx: WorkExecutionContext) -> WorkItem:
             raise WorkError("work.deadline_exceeded", "deadline passed")
     if ctx.cancellation_signal or item.cancel_requested_at:
         raise WorkError("work.cancelled", "cancel requested")
+    from app.agentive.services.routine_work_admission import assert_routine_work_current
+
+    await assert_routine_work_current(item)
     if item.app_id and item.definition_id:
         from app.models.nodes import App
 
