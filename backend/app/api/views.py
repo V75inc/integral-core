@@ -570,10 +570,29 @@ async def update_view(
 
 @endpoint("/views/{view_id}", methods=["DELETE"], auth=True, tags=["Views"])
 async def delete_view(request: Request, view_id: str) -> Dict[str, Any]:
-    """Delete a saved view (editor or owner of the track only)."""
+    """Delete a saved View with current Track admin or owner authority."""
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
+    from app.services.view_deletion import delete_saved_view
+
+    outboxes: list[str] = []
+
+    async def execute() -> Dict[str, Any]:
+        return await _delete_view_after_admission(request, user_id, view_id, outboxes)
+
+    result = await delete_saved_view(user_id, {"view_id": view_id}, execute)
+    from app.services.workspace_membership import _deliver
+
+    for outbox in outboxes:
+        await _deliver(outbox)
+    return result
+
+
+async def _delete_view_after_admission(
+    request: Request, user_id: str, view_id: str, outboxes: list[str]
+) -> Dict[str, Any]:
+    """Recheck policy and apply the View mutation inside its admitted fence."""
     _decision = await policy_evaluate(
         subject=Subject(kind="human", id=user_id),
         action="view.delete",
@@ -585,7 +604,7 @@ async def delete_view(request: Request, view_id: str) -> Dict[str, Any]:
     located = await read_scoped_view(view_id, allowed_app_states=MANAGEMENT_APP_STATES)
     if located is None:
         raise ResourceNotFoundError(message="View not found")
-    view, _ = located
+    view, location = located
 
     from app.services.request_scope import require_effect_parent_scope
 
@@ -606,16 +625,30 @@ async def delete_view(request: Request, view_id: str) -> Dict[str, Any]:
     if sync_cp:
         await _maybe_sync_attached_manifest(sync_cp)
 
-    # D-05 single emission path. Sync inline emit before HTTP response (D-06).
-    await emit_change_event(
-        actor_kind="human",
-        actor_id=user_id,
-        action="view.delete",
-        resource_type="View",
-        resource_id=view_id,
-        before=prior_snapshot,
-        after=None,
-        scope=f"track:{track_id_for_scope}",
+    from jvspatial.core.context import get_default_context
+
+    from app.services.app_operations.transaction_scope import (
+        graph_transaction_available,
     )
+    from app.services.resource_events import queue_resource_event
+
+    event = {
+        "actor_kind": "human",
+        "actor_id": user_id,
+        "action": "view.delete",
+        "resource_type": "View",
+        "resource_id": view_id,
+        "before": prior_snapshot,
+        "after": None,
+        "scope": f"track:{track_id_for_scope}",
+    }
+    native = graph_transaction_available(get_default_context().database)
+    outbox = await queue_resource_event(
+        event, location.workspace_id, native, namespace="view-delete-v1"
+    )
+    if outbox is not None:
+        outboxes.append(outbox)
+    if not native:
+        await emit_change_event(**event)
 
     return {"message": "View deleted successfully", "deleted_view_id": view_id}

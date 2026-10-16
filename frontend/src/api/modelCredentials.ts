@@ -35,8 +35,10 @@ export interface ModelCredential {
 export interface ModelCredentialUpsertBody {
   provider: ModelProvider;
   model: string;
-  /** Required on first create; omit on update to keep stored key. */
+  /** Omit to retain only for the same provider and endpoint. */
   api_key?: string;
+  /** Explicitly remove the saved key for a custom endpoint. */
+  clear_api_key?: boolean;
   /** Custom OpenAI-compatible base URL (required for custom_openai). */
   base_url?: string;
   /** Voice input. Empty string turns the slot off. */

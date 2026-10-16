@@ -22,6 +22,7 @@ ERR_RUN_NOT_FOUND = "capability.run_not_found"
 ERR_RUN_TERMINAL = "capability.run_terminal"
 ERR_ADAPTER = "capability.adapter_failed"
 ERR_IN_PROGRESS = "capability.in_progress"
+ERR_IDEMPOTENCY_CONFLICT = "capability.idempotency_conflict"
 ERR_AMBIGUOUS_DECLARATION = "capability.ambiguous_declaration"
 ERR_WORK_BOUNDARY = "work.effect_boundary"
 

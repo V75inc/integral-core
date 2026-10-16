@@ -6,6 +6,8 @@ from typing import FrozenSet, Literal, Optional, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.services.model_provider_endpoints import normalize_custom_base_url
+
 ModelProvider = Literal[
     "openai", "anthropic", "openrouter", "ollama", "ollama_local", "custom_openai"
 ]
@@ -19,8 +21,8 @@ SPEECH_CAPABLE_PROVIDERS: FrozenSet[str] = frozenset(get_args(SpeechProvider))
 class ModelCredentialUpsertRequest(BaseModel):
     """BYOK upsert. The primary provider and model are required.
 
-    ``api_key`` is required on first create; omit or send empty on update to keep
-    the stored default key.
+    Omit ``api_key`` to retain it only for the same provider and endpoint.
+    Custom endpoints support ``clear_api_key`` for an explicit keyless choice.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -28,6 +30,7 @@ class ModelCredentialUpsertRequest(BaseModel):
     provider: ModelProvider
     model: str = Field(..., min_length=1, max_length=128)
     api_key: Optional[str] = Field(default=None, max_length=512)
+    clear_api_key: bool = False
     # Custom OpenAI-compatible endpoint. Required when provider is
     # ``custom_openai``; must be empty otherwise. Stored as plaintext base URL
     # (not a secret) and passed as LiteLLM ``api_base``.
@@ -42,19 +45,16 @@ class ModelCredentialUpsertRequest(BaseModel):
     def _custom_base_url_rules(self) -> "ModelCredentialUpsertRequest":
         base = (self.base_url or "").strip()
         if self.provider == "custom_openai":
-            if not base:
-                raise ValueError("base_url is required for custom_openai")
-            normalized = base.rstrip("/")
-            if len(normalized) > 512:
-                raise ValueError("base_url is too long")
-            lowered = normalized.lower()
-            if not (lowered.startswith("http://") or lowered.startswith("https://")):
-                raise ValueError("base_url must start with http:// or https://")
-            if "@" in normalized.split("://", 1)[-1].split("/", 1)[0]:
-                raise ValueError("base_url must not contain credentials")
-            self.base_url = normalized
+            if base:
+                self.base_url = normalize_custom_base_url(base)
         elif base:
             raise ValueError("base_url is only supported for custom_openai")
+        if self.clear_api_key and (
+            self.provider != "custom_openai" or (self.api_key or "").strip()
+        ):
+            raise ValueError(
+                "clear_api_key is only supported for keyless custom endpoints"
+            )
         return self
 
     @model_validator(mode="after")

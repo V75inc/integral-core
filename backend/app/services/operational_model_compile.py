@@ -204,6 +204,36 @@ def slug_manifest_key(value: str) -> str:
 KANBAN_STAGE_GROUP_BY = "custom_fields._kanban_stage"
 
 
+def _tool_schedule(raw: Any, *, where: str) -> Optional[Dict[str, str]]:
+    """Normalize ``tools[].schedule``: a cron string or ``{cron, timezone}``."""
+    if raw in (None, "", {}):
+        return None
+    if isinstance(raw, str):
+        cron, tz = raw.strip(), "UTC"
+    elif isinstance(raw, dict):
+        cron = str(raw.get("cron") or "").strip()
+        tz = str(raw.get("timezone") or "UTC").strip() or "UTC"
+    else:
+        raise OperationalModelValidationError(
+            message=f"{where} must be a cron string or {{cron, timezone}}"
+        )
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    from croniter import croniter  # type: ignore[import-untyped]
+
+    if not cron or not croniter.is_valid(cron):
+        raise OperationalModelValidationError(
+            message=f"{where} has an invalid cron expression {cron!r}"
+        )
+    try:
+        ZoneInfo(tz)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise OperationalModelValidationError(
+            message=f"{where} has an unknown timezone {tz!r}"
+        ) from None
+    return {"cron": cron, "timezone": tz}
+
+
 def _as_dict(value: Any, *, where: str) -> Dict[str, Any]:
     if value is None:
         return {}
@@ -304,6 +334,20 @@ def _normalize_field_spec(field: Dict[str, Any]) -> Dict[str, Any]:
         # field is also `required: true` elsewhere, can block creation
         # entirely before the hook ever gets a chance to run.
         "hide_on_create": bool(field.get("hide_on_create", False)),
+        # Shared entry-card metadata only; explicitly configured table/view
+        # columns remain independent. Detail and edit forms still show it.
+        "hide_on_card": bool(field.get("hide_on_card", False)),
+        # Entry-detail layout: span the whole field grid (full-width row).
+        "full_width": bool(field.get("full_width", False)),
+        # Entry-detail layout: clamp a long value to this many lines and offer a
+        # Read more toggle (e.g. a conversation log). 0 = no clamp.
+        "max_lines": int(field.get("max_lines") or 0),
+        # Render/edit this text field as multi-line (a textarea) even when the
+        # current value has no newline.
+        "multiline": bool(field.get("multiline", False)),
+        # Entry-detail only: omit the row when the field has no value (keeps the
+        # panel tidy); fields left unset keep showing their "—" placeholder.
+        "hide_when_empty": bool(field.get("hide_when_empty", False)),
         # Never shown in forms or on the entry's field list. For bookkeeping an
         # App's tools and agent write (external ids, hashes, versions) that a
         # person has no reason to see or edit. The value is still stored and
@@ -3084,6 +3128,12 @@ def _parse_manifest_tools(
                 if str(x).strip()
             ],
         }
+        schedule = _tool_schedule(
+            ed.get("schedule"), where=f"{where}[{key!r}].schedule"
+        )
+        if schedule:
+            # Core queues this tool as a background App job on each cron slot.
+            spec["schedule"] = schedule
         out.append(spec)
     return out
 
@@ -4426,6 +4476,33 @@ def normalize_view_config(
             )
         )
     cfg = _as_dict(config or {}, where="view.config")
+    kanban_columns = _as_list(
+        cfg.get("kanban_columns"), where="view.config.kanban_columns"
+    )
+    if vt == "kanban":
+        kanban_columns = [
+            dict(column) if isinstance(column, dict) else column
+            for column in kanban_columns
+        ]
+        seen_column_keys: set[str] = set()
+        for index, column in enumerate(kanban_columns):
+            where = f"view.config.kanban_columns[{index}]"
+            if not isinstance(column, dict):
+                raise BadRequestError(message=f"{where} must be an object")
+            key = column.get("key")
+            if not isinstance(key, str) or not key.strip():
+                raise BadRequestError(message=f"{where}.key must be a non-empty string")
+            label = column.get("label")
+            if label is not None and not isinstance(label, str):
+                raise BadRequestError(message=f"{where}.label must be a string")
+            normalized_key = key.strip()
+            if normalized_key in seen_column_keys:
+                raise BadRequestError(
+                    message=f"view.config.kanban_columns contains duplicate key {normalized_key!r}"
+                )
+            seen_column_keys.add(normalized_key)
+            column["key"] = normalized_key
+
     normalized = {
         "view_type": vt,
         "filters": _normalize_view_filters(
@@ -4437,9 +4514,7 @@ def normalize_view_config(
         "field_visibility": _as_list(
             cfg.get("field_visibility"), where="view.config.field_visibility"
         ),
-        "kanban_columns": _as_list(
-            cfg.get("kanban_columns"), where="view.config.kanban_columns"
-        ),
+        "kanban_columns": kanban_columns,
         "calendar_mapping": _as_dict(
             cfg.get("calendar_mapping"), where="view.config.calendar_mapping"
         ),

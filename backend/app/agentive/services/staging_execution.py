@@ -29,6 +29,14 @@ from app.services.app_operations.transaction_scope import (
 )
 
 
+class UnappliedStagedCommand(Exception):
+    """Carry a local API refusal through rollback, never an external outcome."""
+
+    def __init__(self, result: dict[str, Any]) -> None:
+        super().__init__("Approved graph command was refused")
+        self.result = result
+
+
 class StagingExecutionRecord(Object):
     """Command-shaped receipt, never a resource grant or graph traversal node."""
 
@@ -41,6 +49,8 @@ class StagingExecutionRecord(Object):
     state: str = "ready"
     expires_at: str = ""
     result_ciphertext: str = ""
+    origin_ciphertext: str = ""
+    proposal_ciphertext: str = ""
     local_effect_state: str = ""
     external_outcome: str = "not_dispatched"
 
@@ -77,6 +87,8 @@ class StagingCommandExecution:
     effect_depth: int = 0
     batch_step: BatchStepApproval | None = None
     approved_payload: dict[str, Any] = field(default_factory=dict)
+    proposal_origin: dict[str, Any] | None = None
+    proposal_snapshot: dict[str, Any] | None = None
     creation_setup: dict[str, Any] = field(default_factory=dict)
     event_outboxes: list[Any] = field(default_factory=list)
 
@@ -287,6 +299,8 @@ async def record_staging_execution_result(
     database: Any,
     result: dict[str, Any],
     dispatched: bool = False,
+    origin_proof: dict[str, Any] | None = None,
+    proposal_snapshot: dict[str, Any] | None = None,
 ) -> None:
     """Commit an encrypted result alongside local graph effects, on the same task."""
     from app.services.credential_crypto import encrypt_secret_for_storage
@@ -300,6 +314,25 @@ async def record_staging_execution_result(
         json.dumps(result, sort_keys=True, separators=(",", ":"), allow_nan=False),
         aad=claim.object_id,
     )
+    origin_ciphertext = ""
+    proposal_ciphertext = ""
+    if origin_proof is not None:
+        origin_ciphertext = encrypt_secret_for_storage(
+            json.dumps(
+                origin_proof, sort_keys=True, separators=(",", ":"), allow_nan=False
+            ),
+            aad=claim.object_id + ":proposal-origin",
+        )
+    if origin_proof is not None and proposal_snapshot is not None:
+        proposal_ciphertext = encrypt_secret_for_storage(
+            json.dumps(
+                proposal_snapshot,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ),
+            aad=claim.object_id + ":proposal",
+        )
     await database.find_one_and_update(
         "object",
         {"id": claim.object_id},
@@ -308,6 +341,8 @@ async def record_staging_execution_result(
                 "context.state": "dispatched" if dispatched else "applied",
                 "context.local_effect_state": "applied",
                 "context.result_ciphertext": stored,
+                "context.origin_ciphertext": origin_ciphertext,
+                "context.proposal_ciphertext": proposal_ciphertext,
             }
         },
     )
@@ -592,7 +627,18 @@ async def staged_command_effect(
 
         async def complete(result: dict[str, Any]) -> None:
             await record_staging_execution_result(
-                claim=claim, database=database, result=result, dispatched=bound.external
+                claim=claim,
+                database=database,
+                result=result,
+                dispatched=bound.external,
+                **(
+                    {
+                        "origin_proof": bound.proposal_origin,
+                        "proposal_snapshot": bound.proposal_snapshot,
+                    }
+                    if bound.proposal_origin is not None
+                    else {}
+                ),
             )
             if bound.batch_step is not None:
                 # A child graph commit also leaves durable evidence on its
@@ -607,6 +653,10 @@ async def staged_command_effect(
             bound.completed = True
 
         bound.approved_payload = deepcopy(approved_payload)
+        bound.proposal_origin = deepcopy(decision.get("origin_proof"))
+        bound.proposal_snapshot = (
+            deepcopy(decision) if bound.proposal_origin is not None else None
+        )
         bound.effect_depth += 1
         try:
             yield complete
@@ -669,23 +719,11 @@ async def apply_bound_creation_setup(
 async def capture_staging_change_event(event: dict[str, Any]) -> bool:
     """Commit staged command events on the graph store before network delivery."""
     bound = _command_execution.get()
-    if (
-        bound is None
-        or bound.claim.kind
-        not in {
-            "create_app",
-            "create_track",
-            "update_app",
-            "update_track",
-            "delete_entry",
-            "delete_track",
-            "delete_app",
-            "add_comment",
-            "edit_comment",
-            "delete_comment",
-        }
-        or not bound.effect_depth
-    ):
+    if bound is None or not bound.effect_depth:
+        return False
+    from app.agentive.services.staging_command_apply import CANONICAL_COMMAND_KINDS
+
+    if bound.claim.kind not in CANONICAL_COMMAND_KINDS:
         return False
     if bound.task is not asyncio.current_task():
         raise StagingError(
@@ -700,7 +738,56 @@ async def capture_staging_change_event(event: dict[str, Any]) -> bool:
         if len(scope) == 2
         else None
     )
+    if len(scope) == 2 and scope[0] == "operational_model":
+        # A model event must belong to this command's canonical selected owner.
+        # An arbitrary model id is never evidence of workspace containment.
+        from app.agentive.services.staging_model_commands import MODEL_COMMAND_KINDS
+        from app.services.attached_model_scope import read_attached_model
+
+        if bound.claim.kind in MODEL_COMMAND_KINDS:
+            payload = bound.approved_payload
+            owner_kind = "track" if payload.get("track_id") else "app"
+            owner_id = str(payload.get(f"{owner_kind}_id") or "")
+            attached = await read_attached_model(owner_kind, owner_id)
+            if attached is not None and attached[1].id == scope[1]:
+                location = await locate_resource(
+                    owner_kind, owner_id, allowed_app_states=KNOWN_APP_STATES
+                )
+    routine_witness = False
+    if scope == ["workspace", bound.claim.workspace_id]:
+        from app.agentive.nodes import RoutineTask
+        from app.agentive.services.staging_routine_commands import ROUTINE_COMMAND_KINDS
+
+        if (
+            bound.claim.kind in ROUTINE_COMMAND_KINDS
+            and event.get("resource_type") == "RoutineTask"
+        ):
+            routine = await RoutineTask.find_one({"id": event.get("resource_id")})
+            routine_witness = (
+                routine is not None
+                and routine.user_id == bound.claim.principal_id
+                and routine.workspace_id == bound.claim.workspace_id
+                and event.get("actor_id") == bound.claim.principal_id
+                and event.get("action")
+                == {"routine_task_cancel": "routine_task.delete"}.get(
+                    bound.claim.kind,
+                    bound.claim.kind.replace("routine_task_", "routine_task."),
+                )
+            )
     before = event.get("before")
+    if bound.claim.kind == "routine_task_purge" and scope == [
+        "workspace",
+        bound.claim.workspace_id,
+    ]:
+        routine_witness = (
+            isinstance(before, dict)
+            and before.get("id") == bound.approved_payload.get("routine_id")
+            and before.get("id") == event.get("resource_id")
+            and before.get("workspace_id") == bound.claim.workspace_id
+            and event.get("actor_id") == bound.claim.principal_id
+            and event.get("action") == "routine_task.purge"
+            and event.get("resource_type") == "RoutineTask"
+        )
     deleted_witness = (
         location is None
         and isinstance(before, dict)
@@ -711,8 +798,10 @@ async def capture_staging_change_event(event: dict[str, Any]) -> bool:
         and before.get("id") == event.get("resource_id")
         and before.get("workspace_id") == bound.claim.workspace_id
     )
-    if not deleted_witness and (
-        location is None or location.workspace_id != bound.claim.workspace_id
+    if (
+        not deleted_witness
+        and not routine_witness
+        and (location is None or location.workspace_id != bound.claim.workspace_id)
     ):
         raise StagingError(
             "event_scope_invalid", "Command event is outside its admitted workspace"
@@ -730,7 +819,7 @@ async def capture_staging_change_event(event: dict[str, Any]) -> bool:
 
 
 async def deliver_staging_command_events() -> None:
-    """Offer committed outboxes after the canonical creation transaction exits."""
+    """Offer committed outboxes after the canonical command transaction exits."""
     bound = _command_execution.get()
     if bound is None or not bound.completed:
         return

@@ -21,6 +21,7 @@ from app.services.credential_crypto import (
 from app.services.model_provider_endpoints import (
     OLLAMA_CLOUD_API_BASE,
     OLLAMA_LOCAL_DEFAULT_API_BASE,
+    normalize_custom_base_url,
 )
 from app.utils.time import utc_now_iso
 
@@ -66,23 +67,6 @@ def compute_key_fingerprint(api_key: str) -> str:
     digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
     last4 = key[-4:] if len(key) >= 4 else key
     return f"{digest}...{last4}"
-
-
-def normalize_custom_base_url(base_url: Optional[str]) -> str:
-    """Canonicalize a custom OpenAI-compatible base URL or raise ValueError."""
-    base = (base_url or "").strip()
-    if not base:
-        raise ValueError("base_url is required for custom_openai")
-    normalized = base.rstrip("/")
-    if len(normalized) > 512:
-        raise ValueError("base_url is too long")
-    lowered = normalized.lower()
-    if not (lowered.startswith("http://") or lowered.startswith("https://")):
-        raise ValueError("base_url must start with http:// or https://")
-    host = normalized.split("://", 1)[-1].split("/", 1)[0]
-    if not host or "@" in host:
-        raise ValueError("base_url must include a host without credentials")
-    return normalized
 
 
 def audit_snapshot_credential(record: UserModelCredential) -> Dict[str, Any]:
@@ -156,34 +140,13 @@ async def validate_provider_api_key(
     if slug not in SUPPORTED_PROVIDERS:
         return False, f"Unsupported provider: {provider}"
     if slug == "custom_openai":
+        from app.services.custom_model_transport import probe_custom_model_endpoint
+
         try:
-            normalized = normalize_custom_base_url(base_url)
+            base = normalize_custom_base_url(base_url)
         except ValueError as exc:
             return False, str(exc)
-        key = (api_key or "").strip()
-        headers: Dict[str, str] = {"Authorization": f"Bearer {key}"} if key else {}
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.get(
-                    f"{normalized}/models",
-                    headers=headers,
-                )
-            if resp.status_code == 401 and not key:
-                return False, "endpoint requires an API key"
-            if resp.status_code not in (200, 401, 403, 404):
-                logger.warning(
-                    "validate_provider_api_key %s HTTP %s: %s",
-                    slug,
-                    resp.status_code,
-                    (resp.text or "")[:200],
-                )
-            valid, message = _interpret_auth_status(resp.status_code, slug=slug)
-            if valid and not key:
-                return True, "validated (no API key)"
-            return valid, message
-        except httpx.HTTPError as exc:
-            logger.warning("validate_provider_api_key failed: %s", type(exc).__name__)
-            return False, "could not reach provider"
+        return await probe_custom_model_endpoint(base, (api_key or "").strip())
     key = (api_key or "").strip()
     if slug == "ollama_local":
         if key:
@@ -316,6 +279,7 @@ async def upsert_user_credential(
     model: str,
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
+    clear_api_key: bool = False,
     speech_model: Optional[str] = None,
     speech_provider: Optional[str] = None,
     speech_api_key: Optional[str] = None,
@@ -328,13 +292,15 @@ async def upsert_user_credential(
     if slug not in SUPPORTED_PROVIDERS:
         raise ValueError(f"Unsupported provider: {provider}")
 
+    if clear_api_key and (slug != "custom_openai" or (api_key or "").strip()):
+        raise ValueError("clear_api_key is only supported for keyless custom endpoints")
     local_ollama = slug == "ollama_local"
     existing = await get_credential_for_user(user_id)
     # Encryption is required only when a secret is stored or retained. Keyless
     # custom endpoints persist no secret, so they work without vault config
     # (same exemption local Ollama enjoys).
     stores_secret = bool((api_key or "").strip() or (speech_api_key or "").strip())
-    retains_secret = bool(existing and existing.api_key_enc)
+    retains_secret = bool(existing and existing.api_key_enc and not clear_api_key)
     if (
         not local_ollama
         and not encryption_available()
@@ -360,14 +326,25 @@ async def upsert_user_credential(
     api_key_plain = (api_key or "").strip()
     if local_ollama and api_key_plain:
         raise ValueError("Local Ollama does not use an API key")
-    if not api_key_plain and not local_ollama:
-        if not existing:
-            if slug != "custom_openai":
-                raise ValueError("api_key is required")
-            # Keyless custom endpoint: no secret to validate or store.
-        else:
+    if not api_key_plain and not local_ollama and not clear_api_key:
+        same_endpoint = bool(existing and existing.provider == slug)
+        if custom and same_endpoint:
+            same_endpoint = (
+                normalize_custom_base_url(existing.base_url) == base_normalized
+            )
+        if existing and not same_endpoint:
+            raise ValueError(
+                "Provider or endpoint changed: supply a new API key or explicitly choose no API key"
+            )
+        if existing:
             api_key_plain = decrypt_credential_api_key(existing)
-    elif api_key_plain and len(api_key_plain) < 8:
+            if existing.api_key_enc and not api_key_plain:
+                raise ValueError(
+                    "Stored API key could not be decrypted; replace or explicitly clear it"
+                )
+        if not api_key_plain and not custom:
+            raise ValueError("api_key is required")
+    if api_key_plain and len(api_key_plain) < 8:
         raise ValueError("api_key must be at least 8 characters")
 
     if custom:

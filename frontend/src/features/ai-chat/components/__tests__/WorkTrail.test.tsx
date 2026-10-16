@@ -25,8 +25,9 @@ describe('activity disclosure', () => {
     expect(screen.queryByText('1,250 tokens')).not.toBeInTheDocument();
     fireEvent.click(trigger);
     expect(screen.getAllByRole('button')).toHaveLength(1);
-    expect(screen.getByText('1,250 tokens')).toBeVisible();
-    expect(screen.getByText('Provider cost unavailable for some calls')).toBeVisible();
+    expect(screen.getByText(/Input 1,200 tokens \(1\/1 calls reported\)/)).toBeVisible();
+    expect(screen.getByText(/Output 50 tokens \(1\/1 calls reported\)/)).toBeVisible();
+    expect(screen.getByText(/Cost unavailable for 1\/1 calls/)).toBeVisible();
     expect(screen.getByText('Total: 1.7s')).toBeVisible();
     state.message.parts = [];
     state.message.metadata = {};
@@ -39,7 +40,8 @@ describe('activity disclosure', () => {
     render(<WorkTrail>{null}</WorkTrail>);
     expect(screen.getByRole('button')).toHaveTextContent('Finished · model');
     fireEvent.click(screen.getByRole('button'));
-    expect(screen.getByText('5 tokens')).toBeVisible();
+    expect(screen.getByText(/Input 3 tokens \(1\/1 calls reported\)/)).toBeVisible();
+    expect(screen.getByText(/Output 2 tokens \(1\/1 calls reported\)/)).toBeVisible();
     state.message.metadata = {};
   });
   it('centers the working mark with its label and supports reduced motion', () => {

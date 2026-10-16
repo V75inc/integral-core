@@ -8,7 +8,10 @@ import os
 from typing import Any
 
 from app.agentive.harness.contracts import ResolvedModelRoute
-from app.services.model_provider_endpoints import OLLAMA_CLOUD_API_BASE
+from app.services.model_provider_endpoints import (
+    OLLAMA_CLOUD_API_BASE,
+    normalize_custom_base_url,
+)
 
 
 async def resolve_native_model_route(
@@ -33,20 +36,6 @@ def _provider_for_model(model: str) -> str:
     if not separator or not provider.strip() or not name.strip():
         raise ValueError("configured LiteLLM model must use provider/model form")
     return provider
-
-
-def _normalize_native_api_base(raw: str) -> str:
-    """Canonicalize INTEGRAL_NATIVE_API_BASE or raise ValueError."""
-    normalized = raw.strip().rstrip("/")
-    lowered = normalized.lower()
-    if not (lowered.startswith("http://") or lowered.startswith("https://")):
-        raise ValueError("INTEGRAL_NATIVE_API_BASE must start with http:// or https://")
-    host = normalized.split("://", 1)[-1].split("/", 1)[0]
-    if not host or "@" in host:
-        raise ValueError(
-            "INTEGRAL_NATIVE_API_BASE must include a host without credentials"
-        )
-    return normalized
 
 
 def _local_ollama_num_ctx() -> int:
@@ -175,7 +164,7 @@ async def _resolve_native_model_route(
             # stay governed by OLLAMA_API_BASE / OLLAMA_CLOUD_API_BASE.
             raw_base = os.getenv("INTEGRAL_NATIVE_API_BASE", "").strip()
             if raw_base:
-                api_base = _normalize_native_api_base(raw_base)
+                api_base = normalize_custom_base_url(raw_base)
         from app.services.host_hooks import assert_platform_quota
 
         # Funding follows the selected credential plane, not the transport.
@@ -240,10 +229,7 @@ async def _resolve_native_model_route(
             # override; LiteLLM uses it as ``api_base`` with the openai route.
             raw_base = override.get("api_base")
             if raw_base is not None:
-                custom_base = str(raw_base).strip().rstrip("/")
-                if not custom_base:
-                    raise ValueError("workspace model override has no api base")
-                api_base = custom_base
+                api_base = normalize_custom_base_url(str(raw_base))
     return ResolvedModelRoute(
         provider=resolved_provider,
         model=model,

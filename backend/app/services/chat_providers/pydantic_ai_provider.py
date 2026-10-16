@@ -31,6 +31,12 @@ from app.agentive.harness.contracts import (
     PhysicalModelRequest,
 )
 from app.agentive.harness.disclosure import public_disclosure_response
+from app.agentive.harness.effect_reconciliation import (
+    is_pre_effect_rejection,
+    is_settled_core_receipt,
+    receipt_recovery_result,
+    settled_core_guard_calls,
+)
 from app.agentive.harness.events import PydanticAIEventTranslator, SettledTextBuffer
 from app.agentive.harness.litellm_model import build_litellm_sdk_model
 from app.agentive.harness.model_observations import persist_model_request_observation
@@ -131,6 +137,13 @@ def _scaffold_completion_validator(run_state: dict[str, Any]):
     """Validate scaffold receipts without imposing discovery on plain chat."""
 
     async def validate(ctx: Any, output: str) -> str:
+        build_validation_failure = run_state.get("build_validation_failure")
+        if isinstance(build_validation_failure, str):
+            return (
+                "The approved setup could not be built because the generated "
+                "plan did not match it. No build changes were applied. "
+                + build_validation_failure
+            )
         workflow_attempted = run_state.get(
             "scaffold_coverage_attempted"
         ) or run_state.get("proposal_attempted")
@@ -269,10 +282,20 @@ def _model_observability_events(
         )
         if known_usage:
             call_event["usage"] = {
-                "inputTokens": summary.reported_input_tokens,
-                "outputTokens": summary.reported_output_tokens,
+                **(
+                    {"inputTokens": summary.reported_input_tokens}
+                    if summary.input_token_request_count
+                    else {}
+                ),
+                **(
+                    {"outputTokens": summary.reported_output_tokens}
+                    if summary.output_token_request_count
+                    else {}
+                ),
             }
             call_event["usageComplete"] = summary.token_usage_complete
+            call_event["inputTokensReported"] = summary.input_token_request_count > 0
+            call_event["outputTokensReported"] = summary.output_token_request_count > 0
             call_event["costComplete"] = summary.provider_cost_complete
             if summary.provider_cost_usd is not None:
                 call_event["providerCostUsd"] = float(summary.provider_cost_usd)
@@ -331,6 +354,13 @@ async def _resume_history(
     if not session.last_run_id:
         return []
 
+    # A worker can lose its lease after the provider has started but before
+    # finish_run persists the Harness outcome (for example, process death or
+    # a reclaimed WorkItem). The durable WorkItem is the execution authority:
+    # once a newer attempt owns its lease, the old attempt can no longer make
+    # effects. Reconcile that stale run before the normal receipt checks below.
+    previous_run = await _reconcile_fenced_harness_run(scope, previous_run)
+
     from app.agentive.harness.model_observations import (
         list_model_request_observations,
         unsettled_model_request_ids,
@@ -353,6 +383,11 @@ async def _resume_history(
         )
 
     unresolved = await store.list_unresolved_tool_effects(run_id=session.last_run_id)
+    if unresolved and not terminal_run:
+        raise ResourceConflictError(
+            message="The prior Harness run has an unresolved tool effect",
+            details={"reason": "harness_tool_effect_unresolved"},
+        )
     can_abandon_reads = (
         _terminal_run_matches(scope, previous_run)
         and previous_run.run_id == session.last_run_id
@@ -361,12 +396,6 @@ async def _resume_history(
             for effect in unresolved
         )
     )
-    if unresolved and not can_abandon_reads:
-        raise ResourceConflictError(
-            message="The prior Harness run has an unresolved tool effect",
-            details={"reason": "harness_tool_effect_unresolved"},
-        )
-
     effects_method = getattr(store, "list_tool_effects", None)
     effect_records = (
         await effects_method(run_id=session.last_run_id)
@@ -415,6 +444,7 @@ async def _resume_history(
                 checkpoint_run_id == session.last_run_id
                 and not unsettled_requests
                 and not effect_records
+                and not unresolved
                 and not pending_approvals
             ):
                 return await _continue_from_checkpoint(store, checkpoint_run_id)
@@ -429,6 +459,26 @@ async def _resume_history(
     # A safe completed snapshot may have been persisted immediately before a
     # process died, while the following session-pointer CAS did not run.
     latest = await store.latest_snapshot(run_id=session.last_run_id)
+    if unresolved and not can_abandon_reads:
+        history = (
+            await _settled_terminal_history(
+                scope,
+                previous_run,
+                store,
+                latest,
+                effect_records,
+                recovery_message=recovery_message,
+                checkpoint_run_id=checkpoint_run_id,
+            )
+            if terminal_run and not pending_approvals
+            else None
+        )
+        if history is not None:
+            return history
+        raise ResourceConflictError(
+            message="The prior Harness run has an unresolved tool effect",
+            details={"reason": "harness_tool_effect_unresolved"},
+        )
     if unsettled_requests:
         # Terminal failure or cancellation ends the old run's authority. A model
         # response cannot independently mutate Integral. Reuse only history
@@ -506,6 +556,115 @@ async def _resume_history(
     return history
 
 
+async def _reconcile_fenced_harness_run(scope, run):
+    """Terminalize a stale run only when its WorkItem proves it was fenced.
+
+    The model-run status alone is insufficient after a worker crash. A newer
+    attempt number and deterministic run id, paired with the currently-held
+    WorkItem lease, prove that the old worker has lost effect authority. A
+    terminal WorkItem is also authoritative for the outcome. This changes no
+    tool receipt; checkpoint, request, and effect checks still decide whether
+    any history can safely continue.
+    """
+    if (
+        run is None
+        or getattr(run, "status", None) != "running"
+        or getattr(run, "provider_id", None) != "integral_native"
+        or not getattr(run, "work_item_id", None)
+        or getattr(run, "user_id", None) != scope.principal_id
+        or getattr(run, "workspace_id", None) != scope.workspace_id
+        or getattr(run, "thread_id", None) != scope.thread_id
+    ):
+        return run
+
+    from app.agentive.services.execution_runs import finish_run
+    from app.agentive.services.work_execution import deterministic_run_id
+    from app.agentive.work_models import WorkItem
+
+    matches = await WorkItem.find({"context.work_item_id": run.work_item_id})
+    if len(matches) != 1:
+        return run
+    item = matches[0]
+    if (
+        item.principal_id != scope.principal_id
+        or item.workspace_id != scope.workspace_id
+        or item.thread_id != scope.thread_id
+    ):
+        return run
+
+    terminal_status = {
+        "succeeded": "succeeded",
+        "failed": "failed",
+        "cancelled": "cancelled",
+        "expired": "failed",
+        "dead_letter": "failed",
+    }.get(item.status)
+    if (
+        terminal_status
+        and deterministic_run_id(
+            work_item_id=item.work_item_id, attempt=int(item.attempt or 0)
+        )
+        == run.run_id
+    ):
+        return await finish_run(
+            run.run_id,
+            status=terminal_status,
+            error=(
+                (
+                    dict(item.failure)
+                    if isinstance(item.failure, dict)
+                    else {
+                        "code": "work.item_terminal",
+                        "message": "WorkItem is terminal.",
+                    }
+                )
+                if terminal_status != "succeeded"
+                else None
+            ),
+        )
+
+    # A retry is safe to classify as an interrupted prior attempt only when
+    # the present Harness run is the deterministic run for the currently
+    # claimed WorkItem attempt and the lease is live. The worker created this
+    # run after claiming; the old deterministic run is therefore fenced out.
+    current_attempt = int(item.attempt or 0)
+    lease_expiry = None
+    try:
+        lease_expiry = datetime.fromisoformat(
+            str(item.lease_expires_at or "").replace("Z", "+00:00")
+        )
+    except ValueError:
+        pass
+    if lease_expiry is not None and lease_expiry.tzinfo is None:
+        lease_expiry = lease_expiry.replace(tzinfo=timezone.utc)
+    if (
+        item.status == "running"
+        and item.lease_token
+        and int(item.lease_fence or 0) > 0
+        and lease_expiry is not None
+        and lease_expiry > datetime.now(timezone.utc)
+        and current_attempt > 1
+        and deterministic_run_id(
+            work_item_id=item.work_item_id, attempt=current_attempt
+        )
+        == scope.run_id
+        and any(
+            deterministic_run_id(work_item_id=item.work_item_id, attempt=attempt)
+            == run.run_id
+            for attempt in range(1, current_attempt)
+        )
+    ):
+        return await finish_run(
+            run.run_id,
+            status="failed",
+            error={
+                "code": "work.attempt_superseded",
+                "message": "A newer leased WorkItem attempt superseded this run.",
+            },
+        )
+    return run
+
+
 async def _settled_terminal_history(
     scope,
     run,
@@ -519,7 +678,8 @@ async def _settled_terminal_history(
     """Admit a terminal turn's library history using original Core receipts.
 
     No transcript guesses, model judgment, or new authority are involved.
-    Failed mutations without a successful/denied receipt remain ambiguous.
+    Failed mutations remain ambiguous unless an original, audited Core
+    validation receipt proves rejection before mutation.
     Framework discovery tools only change run-local capability visibility.
     """
     if not _terminal_run_matches(scope, run):
@@ -550,10 +710,21 @@ async def _settled_terminal_history(
             or (
                 step.status == "failed"
                 and operation_classes.get(step.capability_key) != "read"
+                and not is_pre_effect_rejection(step)
             )
         ):
             return None
     read_tools = _read_tools_for_run(run)
+    history = (
+        await _continue_from_checkpoint(store, run.run_id)
+        if snapshot is not None
+        else []
+    )
+    guard_calls = {
+        pair
+        for pair in settled_core_guard_calls(history, effects)
+        if pair[1] in operation_classes
+    }
     for effect in effects:
         if effect.status not in {"started", "completed", "failed"}:
             return None
@@ -562,10 +733,14 @@ async def _settled_terminal_history(
         receipt = receipts.get(
             _idempotency_key(run.run_id, effect.tool_call_id, effect.tool_name)
         )
-        if receipt is None or receipt.status not in {"succeeded", "denied"}:
+        if receipt is None and (effect.tool_call_id, effect.tool_name) in guard_calls:
+            continue
+        if receipt is None or (
+            receipt.status not in {"succeeded", "denied"}
+            and not is_pre_effect_rejection(receipt)
+        ):
             return None
     if snapshot is not None:
-        history = await _continue_from_checkpoint(store, run.run_id)
         resolved_ids = {
             part.tool_call_id
             for message in history
@@ -577,12 +752,51 @@ async def _settled_terminal_history(
         if any(
             effect.tool_call_id not in resolved_ids
             and effect.tool_name not in read_tools
+            and not is_settled_core_receipt(
+                receipts.get(
+                    _idempotency_key(run.run_id, effect.tool_call_id, effect.tool_name)
+                )
+            )
             for effect in effects
         ):
             return None
+        missing_returns = []
+        for message in history:
+            if not isinstance(message, ModelResponse):
+                continue
+            for part in message.parts:
+                if getattr(part, "part_kind", None) != "tool-call":
+                    continue
+                receipt = receipts.get(
+                    _idempotency_key(run.run_id, part.tool_call_id, part.tool_name)
+                )
+                if part.tool_call_id not in resolved_ids and is_settled_core_receipt(
+                    receipt
+                ):
+                    missing_returns.append(
+                        ToolReturnPart(
+                            tool_name=part.tool_name,
+                            tool_call_id=part.tool_call_id,
+                            content=receipt_recovery_result(receipt),
+                        )
+                    )
+                    resolved_ids.add(part.tool_call_id)
+        if missing_returns:
+            history.append(ModelRequest(parts=missing_returns))
     elif (
-        any(effect.tool_name not in read_tools for effect in effects)
-        or any(step.capability_key not in read_tools for step in steps)
+        any(
+            effect.tool_name not in read_tools
+            and not is_pre_effect_rejection(
+                receipts.get(
+                    _idempotency_key(run.run_id, effect.tool_call_id, effect.tool_name)
+                )
+            )
+            for effect in effects
+        )
+        or any(
+            step.capability_key not in read_tools and not is_pre_effect_rejection(step)
+            for step in steps
+        )
         or recovery_message is None
     ):
         return None
@@ -597,22 +811,47 @@ async def _settled_terminal_history(
     for effect in effects:
         latest_effects[effect.tool_call_id] = effect
     for effect in latest_effects.values():
+        receipt = receipts.get(
+            _idempotency_key(run.run_id, effect.tool_call_id, effect.tool_name)
+        )
         if effect.status == "started":
-            # This is an audit transition, not a replay or synthetic result.
-            # Only declared reads can reach this branch. Any unknown mutation
-            # was rejected above; no completed write receipt is changed.
+            # Audit a declared read or an original pre-effect rejection.
+            # Unknown mutations were rejected above. No completed receipt or
+            # execution outcome is changed, and no capability is dispatched.
             await store.record_tool_effect(
                 ToolEffectRecord(
                     run_id=run.run_id,
                     tool_call_id=effect.tool_call_id,
                     tool_name=effect.tool_name,
-                    status="failed",
+                    status=(
+                        "completed"
+                        if is_settled_core_receipt(receipt)
+                        and not is_pre_effect_rejection(receipt)
+                        else "failed"
+                    ),
                     started_at=effect.started_at,
                     ended_at=datetime.now(timezone.utc),
                     idempotency_key=effect.idempotency_key,
-                    effect_summary="Read abandoned after terminal run; result unavailable; no replay.",
+                    effect_summary=(
+                        "Core validation rejected before mutation; not applied; no replay."
+                        if is_pre_effect_rejection(
+                            receipts.get(
+                                _idempotency_key(
+                                    run.run_id, effect.tool_call_id, effect.tool_name
+                                )
+                            )
+                        )
+                        else (
+                            "Original Core receipt confirms a settled outcome; observe current state; no replay."
+                            if is_settled_core_receipt(receipt)
+                            else "Read abandoned after terminal run; result unavailable; no replay."
+                        )
+                    ),
                 )
             )
+    rejected = sorted(
+        {step.adapter_error_code for step in steps if is_pre_effect_rejection(step)}
+    )
     history.append(
         ModelResponse(
             parts=[
@@ -621,6 +860,13 @@ async def _settled_terminal_history(
                         "The previous turn completed. Its "
                         if run.status == "succeeded"
                         else "The previous turn stopped without a final answer. Its "
+                    )
+                    + (
+                        "Build validation was rejected before mutation and changes were not applied ("
+                        + ", ".join(rejected)
+                        + "). "
+                        if rejected
+                        else ""
                     )
                     + "settled tool results are preserved in this conversation; "
                     "applied actions must not be repeated. No interrupted "
@@ -1136,6 +1382,7 @@ class PydanticAIProvider:
             EscalatedTurn,
             LightTurnResult,
             OperationalContextRequest,
+            SimpleReminderRequest,
             build_light_agent,
             public_dialogue,
             recent_public_messages,
@@ -1230,6 +1477,30 @@ class PydanticAIProvider:
             return EscalatedTurn(
                 input_tokens=usage.input_tokens, output_tokens=usage.output_tokens
             )
+        if isinstance(result.output, SimpleReminderRequest):
+            from app.services.simple_reminders import stage_simple_reminder
+
+            if (
+                self._active_tokens.get(ctx.thread_id)
+                and self._active_tokens[ctx.thread_id].cancelled
+            ):
+                raise asyncio.CancelledError
+            await _assert_work_output_authority_current(work_context)
+            text, events = await stage_simple_reminder(
+                proposal=result.output,
+                scope=scope,
+                work_context=work_context,
+                no_workspace_writes=bool(
+                    (ctx.extra_data or {}).get("no_workspace_writes")
+                ),
+            )
+            return LightTurnResult(
+                text=text,
+                scope=scope,
+                work_context=work_context,
+                elapsed_ms=(time.monotonic() - started) * 1000,
+                tool_events=events,
+            )
         from app.agentive.harness.pydantic_ai_compat import AgentRunResultEvent
 
         public_text = ""
@@ -1270,6 +1541,55 @@ class PydanticAIProvider:
                 message="Integral storage encryption requires installation setup",
                 details={"reason": "native_storage_encryption_not_configured"},
             )
+
+        if not ctx.text and (ctx.extra_data or {}).get("staging_outcome_continuation"):
+            from app.agentive.harness.adaptive import LightTurnResult
+            from app.agentive.services.execution_runs import AgentRun
+            from app.services.simple_reminders import current_reminder_confirmation
+
+            run_id = str((ctx.extra_data or {}).get("run_id") or "")
+            current_run = (
+                await AgentRun.find_one({"run_id": run_id}) if run_id else None
+            )
+            if (
+                current_run is None
+                or current_run.user_id != ctx.user_id
+                or current_run.workspace_id != ctx.workspace_id
+                or current_run.thread_id != ctx.thread_id
+                or current_run.provider_id != self.id
+                or current_run.status != "running"
+                or (
+                    work_execution_context is not None
+                    and work_execution_context.run_id != run_id
+                )
+            ):
+                raise InsufficientPermissionsError(
+                    message="Native execution run scope mismatch"
+                )
+            await _assert_work_output_authority_current(work_execution_context)
+            confirmation = await current_reminder_confirmation(thread)
+            if confirmation:
+                return LightTurnResult(
+                    text=confirmation,
+                    scope=HarnessExecutionScope(
+                        tenant_id=ctx.workspace_id,
+                        principal_id=ctx.user_id,
+                        workspace_id=ctx.workspace_id,
+                        thread_id=ctx.thread_id,
+                        session_id=f"reminder-{run_id}",
+                        run_id=run_id,
+                        permission_revision=_digest(
+                            {
+                                "policy": _POLICY_REVISION,
+                                "workspace_role": workspace_role,
+                            }
+                        ),
+                        capability_version=current_run.capability_version
+                        or "reminder-v1",
+                    ),
+                    work_context=work_execution_context,
+                    elapsed_ms=0,
+                )
 
         light = await self._try_light_turn(
             ctx, thread, workspace_role, work_execution_context
@@ -1802,6 +2122,10 @@ class PydanticAIProvider:
                     ctx.is_disconnected and await ctx.is_disconnected()
                 ):
                     raise asyncio.CancelledError
+                for event in prepared.tool_events:
+                    await _assert_work_output_authority_current(prepared.work_context)
+                    yield event
+                await _assert_work_output_authority_current(prepared.work_context)
                 yield {"type": "text-delta", "delta": prepared.text}
                 from app.agentive.harness.model_observations import (
                     list_model_request_observations,
@@ -1923,6 +2247,19 @@ class PydanticAIProvider:
                     and (ctx.extra_data or {}).get("staging_outcome_continuation")
                     else ""
                 )
+                if (
+                    not ctx.text
+                    and not host_outcome
+                    and (ctx.extra_data or {}).get("staging_outcome_continuation")
+                ):
+                    host_outcome = (
+                        "This is a NEW approval-outcome event, not a request to continue "
+                        "an older conversation topic. Report only the current host outcome "
+                        "below. Read back only its affected resource before claiming success. "
+                        "Do not resume an earlier analysis, offer, or task. If the outcome "
+                        "cannot be verified, say so concisely. No new write is authorized.\n\n"
+                        + (ctx.system_context or "")
+                    )
                 if (
                     not ctx.text
                     and (ctx.extra_data or {}).get("origin") == "routine_task"

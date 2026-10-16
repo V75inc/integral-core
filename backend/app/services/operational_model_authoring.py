@@ -706,14 +706,13 @@ async def modify_operational_model(
     """
     from app.api.utils import export_node
     from app.models.edges import CONTAINS
-    from app.models.nodes import App, EntryType, Tag, Track, View
+    from app.models.nodes import EntryType, Tag, Track, View
     from app.services.app_graph import (
         ensure_catalog_edge,
-        get_app_attached_operational_model,
         get_or_create_views_registry_for_operational_model,
-        get_track_attached_operational_model,
     )
     from app.services.change_event import emit_change_event
+    from app.services.model_child_scope import read_model_child
     from app.services.operational_model_runtime import (
         normalize_entry_type_form_schema,
         normalize_view_config,
@@ -736,28 +735,15 @@ async def modify_operational_model(
             "detail": f"action must be one of: {', '.join(_VALID_MODIFY_ACTIONS)}",
         }
 
-    cp = None
-    track_obj: Optional[Track] = None
-    if track_id:
-        track_obj = await Track.get(track_id)
-        if not track_obj:
-            return {"error": "not_found", "detail": "Track not found"}
-        cp = await get_track_attached_operational_model(track_obj)
-        if not cp:
-            return {
-                "error": "not_found",
-                "detail": "Track has no attached operational model",
-            }
-    else:
-        app_node = await App.get(app_id)
-        if not app_node:
-            return {"error": "not_found", "detail": "App not found"}
-        cp = await get_app_attached_operational_model(app_node)
-        if not cp:
-            return {
-                "error": "not_found",
-                "detail": "App has no attached operational model",
-            }
+    from app.services.attached_model_scope import read_attached_model
+
+    selected = await read_attached_model(
+        "track" if track_id else "app", track_id or app_id
+    )
+    if selected is None:
+        return {"error": "not_found", "detail": "Current attached model is unavailable"}
+    owner, cp = selected
+    track_obj = owner if isinstance(owner, Track) else None
 
     if not await _user_can_edit_cp(user_id=user_id, cp=cp):
         return {"error": "forbidden", "detail": "no edit access to operational model"}
@@ -827,7 +813,13 @@ async def modify_operational_model(
     if action == "remove_entry_type":
         if not entry_type_id:
             return {"error": "missing_argument", "detail": "entry_type_id is required"}
-        et = await EntryType.get(entry_type_id)
+        et = await read_model_child(
+            cp.id,
+            entry_type_id,
+            "entry_type",
+            track_id=track_id or "",
+            app_id=app_id or "",
+        )
         if not et:
             return {"error": "not_found", "detail": "Entry type not found"}
         before = await export_node(et)
@@ -905,7 +897,7 @@ async def modify_operational_model(
             resource_id=view.id,
             before=None,
             after=await export_node(view),
-            scope=f"track:{track_id or ''}",
+            scope=f"track:{track_id}" if track_id else f"operational_model:{cp.id}",
         )
         return {
             "action": action,
@@ -944,7 +936,7 @@ async def modify_operational_model(
             resource_id=view_id,
             before=before,
             after=None,
-            scope=f"track:{track_id or ''}",
+            scope=f"track:{track_id}" if track_id else f"operational_model:{cp.id}",
         )
         return {"action": action, "view_id": view_id, "message": "View removed"}
 
@@ -1017,7 +1009,9 @@ async def modify_operational_model(
     if action == "remove_tag":
         if not tag_id:
             return {"error": "missing_argument", "detail": "tag_id is required"}
-        tag = await Tag.get(tag_id)
+        tag = await read_model_child(
+            cp.id, tag_id, "tag", track_id=track_id or "", app_id=app_id or ""
+        )
         if not tag:
             return {"error": "not_found", "detail": "Tag not found"}
         before = await export_node(tag)

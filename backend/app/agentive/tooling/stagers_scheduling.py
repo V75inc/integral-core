@@ -58,6 +58,10 @@ async def stage_schedule_task(args: Dict[str, Any]) -> Dict[str, Any]:
     timezone = (src.get("timezone") or "").strip()
     write_scope = list(src.get("write_scope") or [])
     max_runs = src.get("max_runs")
+    delivery_mode = src.get("delivery_mode", "agent")
+    from app.agentive.services.routine_tasks import validate_delivery_mode
+
+    validate_delivery_mode(delivery_mode, instruction, write_scope)
 
     if not instruction:
         raise ValueError("schedule_task: instruction is required")
@@ -124,6 +128,7 @@ async def stage_schedule_task(args: Dict[str, Any]) -> Dict[str, Any]:
         "thread_id": thread.id,
         "agent_id": thread.agent_id or "",
         "instruction": instruction,
+        "delivery_mode": delivery_mode,
         "cron": "" if run_at else cron,
         "timezone": timezone,
         "write_scope": write_scope,
@@ -146,6 +151,11 @@ async def stage_schedule_task(args: Dict[str, Any]) -> Dict[str, Any]:
         f"Instruction: {instruction}",
         cadence_line,
         "Posts to: this chat",
+        (
+            "Delivery: saved reminder text (no AI call)"
+            if delivery_mode == "reminder"
+            else "Delivery: AI task with fresh context"
+        ),
         f"May auto-apply writes to: {scope_desc}",
         f"Stops: {stop_desc}",
     ]

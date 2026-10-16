@@ -6,6 +6,38 @@ import pytest
 
 
 @pytest.mark.asyncio
+async def test_disconnect_cancellation_does_not_interrupt_transaction_cleanup(
+    monkeypatch,
+):
+    import anyio
+
+    from app.services.app_operations import transaction_scope as seam
+
+    calls = []
+
+    @asynccontextmanager
+    async def fake(database):
+        class Context:
+            database = "transaction"
+
+        try:
+            yield Context()
+        except BaseException:
+            await anyio.lowlevel.checkpoint()
+            calls.append("rollback")
+            raise
+
+    monkeypatch.setattr(seam, "_jv_graph_transaction", fake)
+    with anyio.CancelScope() as disconnect:
+        async with seam.postgres_graph_transaction(object()):
+            disconnect.cancel()
+            await anyio.lowlevel.checkpoint()
+    assert calls == ["rollback"]
+    with pytest.raises(seam.OperationTransactionUnavailable):
+        seam.current_graph_transaction_database()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("rollback", [False, True])
 async def test_permission_nodes_do_not_cross_transaction_contexts(
     monkeypatch, rollback
@@ -135,7 +167,9 @@ async def test_nested_transaction_joins_handle_and_caught_failure_requires_rollb
             assert explicit is outer
     assert calls == ["begin", "commit"]
     calls.clear()
-    with pytest.raises(seam.OperationTransactionUnavailable, match="requires rollback"):
+    with pytest.raises(
+        seam.OperationTransactionUnavailable, match="requires rollback"
+    ) as failed:
         async with seam.postgres_graph_transaction(database):
             try:
                 async with seam.postgres_graph_transaction():
@@ -143,6 +177,8 @@ async def test_nested_transaction_joins_handle_and_caught_failure_requires_rollb
             except ValueError:
                 pass
     assert calls == ["begin", "rollback"]
+    assert isinstance(failed.value.__cause__, ValueError)
+    assert str(failed.value.__cause__) == "partial write"
 
 
 @pytest.mark.asyncio

@@ -2816,37 +2816,96 @@ async def agent_turn(
             message=f"Provider {provider.id!r} is registered but not available"
         )
 
+    from app.agentive.services.work_execution import assert_effect_boundary_allowed
+    from app.agentive.services.work_execution_binding import current_work_execution
+
+    work_context = current_work_execution()
+    bound_work = None
+    if work_context is not None:
+        if (
+            work_context.principal_id != user_id
+            or work_context.workspace_id != (active_workspace_id or "")
+            or work_context.thread_id != thread.id
+        ):
+            raise InsufficientPermissionsError(message="Worker turn scope mismatch")
+        bound_work = await assert_effect_boundary_allowed(work_context)
+
     turn_handle = await chat_turn_registry.acquire_turn(
         thread_id=thread.id, user_id=user_id, origin=origin
     )
+    if bound_work is not None:
+        turn_handle.work_item_id = bound_work.work_item_id
+        turn_handle.routine_id = (
+            str((bound_work.input_payload or {}).get("routine_id") or "")
+            if bound_work.kind == "routine_turn"
+            else ""
+        )
     started = time.monotonic()
     extra_data: Dict[str, Any] = {
         "trigger": "agent_workstream",
         "origin": origin,
     }
+    if work_context is not None:
+        extra_data["work_execution_context"] = work_context.model_dump(mode="json")
     if thread.agent_id:
         extra_data["agent_id"] = thread.agent_id
+
+    from contextlib import nullcontext
 
     from app.agentive.services.execution_runs import (
         finish_run,
         record_provider_event_step,
         start_run,
     )
+    from app.agentive.services.work_items import authorized_work_item_effect
 
     try:
-        run = await start_run(
-            thread_id=thread.id,
-            user_id=user_id,
-            workspace_id=active_workspace_id or "",
-            provider_id=provider.id,
-            agent_id=thread.agent_id or "",
-            origin=origin,
-            metadata=_run_observability_metadata(
-                turn_id=turn_handle.turn_id,
-                provider=provider,
-                agent_id=thread.agent_id or "",
-            ),
-        )
+        async with (
+            authorized_work_item_effect(work_context)
+            if work_context is not None
+            else nullcontext()
+        ):
+            from app.agentive.services.execution_runs import AgentRun
+            from app.schemas.agentive.work import WorkError
+
+            run = (
+                await AgentRun.find_one({"run_id": work_context.run_id})
+                if work_context is not None
+                else None
+            )
+            if run is not None:
+                if (
+                    run.work_item_id != work_context.work_item_id
+                    or run.thread_id != thread.id
+                    or run.user_id != user_id
+                    or run.workspace_id != (active_workspace_id or "")
+                    or run.provider_id != provider.id
+                    or run.origin != origin
+                    or run.status != "running"
+                ):
+                    raise WorkError(
+                        "work.non_replayable_effect",
+                        "Worker turn requires outcome reconciliation",
+                    )
+            else:
+                run = await start_run(
+                    thread_id=thread.id,
+                    user_id=user_id,
+                    workspace_id=active_workspace_id or "",
+                    provider_id=provider.id,
+                    agent_id=thread.agent_id or "",
+                    origin=origin,
+                    run_id=work_context.run_id if work_context else None,
+                    work_item_id=work_context.work_item_id if work_context else "",
+                    deadline_at=(
+                        (work_context.deadline_at or "") if work_context else ""
+                    ),
+                    metadata=_run_observability_metadata(
+                        turn_id=turn_handle.turn_id,
+                        provider=provider,
+                        agent_id=thread.agent_id or "",
+                    ),
+                )
     except Exception:
         await chat_turn_registry.release_turn(thread.id)
         raise

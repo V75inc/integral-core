@@ -342,6 +342,8 @@ def summarize_model_usage(
     unresolved = 0
     input_tokens = 0
     output_tokens = 0
+    input_token_request_count = 0
+    output_token_request_count = 0
     token_complete = True
     cost_complete = True
     known_costs: list[Decimal] = []
@@ -396,8 +398,10 @@ def summarize_model_usage(
         known_cost = known("provider_cost_usd")
         if known_input is not None:
             input_tokens += known_input
+            input_token_request_count += 1
         if known_output is not None:
             output_tokens += known_output
+            output_token_request_count += 1
         if (
             response is None
             or response.usage is None
@@ -430,6 +434,8 @@ def summarize_model_usage(
         unresolved_request_count=unresolved,
         reported_input_tokens=input_tokens,
         reported_output_tokens=output_tokens,
+        input_token_request_count=input_token_request_count,
+        output_token_request_count=output_token_request_count,
         provider_cost_usd=(sum(known_costs, Decimal("0")) if known_costs else None),
         token_usage_complete=token_complete,
         provider_cost_complete=cost_complete,

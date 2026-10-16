@@ -18,6 +18,7 @@ export type ContributionSubmitResult = {
   ok: boolean;
   error?: string;
   value?: unknown;
+  outcomeRecorded?: boolean;
 };
 
 export type ContributionLifecycleHandle = {

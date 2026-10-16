@@ -1,5 +1,8 @@
 """Kanban view config normalization — group_by must not clobber profile status fields."""
 
+import pytest
+
+from app.api.errors import BadRequestError
 from app.services.operational_model_compile import (
     KANBAN_STAGE_GROUP_BY,
     normalize_view_config,
@@ -28,3 +31,25 @@ def test_kanban_defaults_bare_status_to_kanban_stage():
 def test_kanban_defaults_empty_group_by_to_kanban_stage():
     cfg = normalize_view_config("kanban", {})
     assert cfg["group_by"] == KANBAN_STAGE_GROUP_BY
+
+
+@pytest.mark.parametrize(
+    ("columns", "message"),
+    [
+        (["Open"], r"kanban_columns\[0\] must be an object"),
+        ([{"label": "Open"}], r"kanban_columns\[0\]\.key must be a non-empty string"),
+        ([{"key": "open", "label": 1}], r"kanban_columns\[0\]\.label must be a string"),
+        ([{"key": "open"}, {"key": "open"}], "duplicate key"),
+    ],
+)
+def test_kanban_rejects_malformed_columns_before_persistence(columns, message):
+    with pytest.raises(BadRequestError, match=message):
+        normalize_view_config("kanban", {"kanban_columns": columns})
+
+
+def test_kanban_normalization_does_not_mutate_caller_config():
+    columns = [{"key": " open ", "label": "Open"}]
+    normalized = normalize_view_config("kanban", {"kanban_columns": columns})
+
+    assert columns == [{"key": " open ", "label": "Open"}]
+    assert normalized["kanban_columns"] == [{"key": "open", "label": "Open"}]

@@ -26,6 +26,24 @@ from app.agentive.staging import (
 )
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "entity, label", [("dashboard", "name"), ("view", "name"), ("entry", "title")]
+)
+def test_batch_reference_capture_normalizes_approved_name_padding(entity, label):
+    """Private receipt references use the same whitespace rules as token lookup."""
+    from app.agentive.staging_executors import _capture_batch_refs, _resolve_batch_refs
+
+    references = {}
+    _capture_batch_refs(
+        references, 0, {entity: {"id": "fixture-id", label: "  Original name  "}}
+    )
+    assert (
+        _resolve_batch_refs(f"{{{{{entity}.id:Original name}}}}", references)
+        == "fixture-id"
+    )
+
+
 @pytest.fixture(autouse=True)
 def _clean_staging():
     """Reset the in-memory staging store around each test."""

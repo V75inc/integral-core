@@ -72,6 +72,7 @@ export type EntryContributionSlotHandle = {
     ok: boolean;
     error?: string;
     value?: unknown;
+    outcomeRecorded?: boolean;
   }>;
   notifyCommitted: (entryId: string, mode?: 'create' | 'edit') => void;
   hasContribution: boolean;

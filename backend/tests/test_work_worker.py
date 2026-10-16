@@ -10,6 +10,7 @@ import pytest
 from app.agentive.services import work_items, work_worker
 from app.agentive.work_models import WorkItem
 from app.schemas.agentive.work import WorkError
+from tests.support.routine_work import make_routine_work
 
 
 @pytest.fixture(autouse=True)
@@ -108,14 +109,7 @@ async def test_routine_turn_runs_test_handler_under_lease() -> None:
         seen["n"] += 1
         assert ctx.lease_token == item.lease_token
 
-    item = await work_items.enqueue_work_item(
-        kind="routine_turn",
-        origin="scheduler",
-        principal_id="ww-u-3",
-        workspace_id="ww-ws-3",
-        idempotency_key="ww-rt",
-        input_payload={"routine_id": "r1"},
-    )
+    item = await make_routine_work(key="ww-rt")
     work_worker.register_test_handler(item.work_item_id, _handler)
     done = await work_worker.process_one_due_item(
         worker_id="w1", work_item_id=item.work_item_id, lease_seconds=30
@@ -142,14 +136,7 @@ async def test_supervised_heartbeat_during_long_handler(
     async def _slow(item, ctx) -> None:
         await asyncio.wait_for(heartbeat_seen.wait(), timeout=10)
 
-    item = await work_items.enqueue_work_item(
-        kind="routine_turn",
-        origin="scheduler",
-        principal_id="ww-u-4",
-        workspace_id="ww-ws-4",
-        idempotency_key="ww-hb",
-        input_payload={},
-    )
+    item = await make_routine_work(key="ww-hb")
     work_worker.register_test_handler(item.work_item_id, _slow)
     # Observe a completed real heartbeat while the handler is blocked. Keep a
     # normal lease so slow database writes cannot expire it during test setup.
@@ -173,14 +160,7 @@ async def test_lease_loss_blocks_completion() -> None:
             item.work_item_id, worker_id="thief", lease_seconds=30
         )
 
-    item = await work_items.enqueue_work_item(
-        kind="routine_turn",
-        origin="scheduler",
-        principal_id="ww-u-5",
-        workspace_id="ww-ws-5",
-        idempotency_key="ww-steal",
-        input_payload={},
-    )
+    item = await make_routine_work(key="ww-steal")
     work_worker.register_test_handler(item.work_item_id, _steal)
     claimed = await work_items.claim_due_candidate(
         worker_id="victim", work_item_id=item.work_item_id, lease_seconds=30
@@ -212,14 +192,7 @@ async def test_heartbeat_failure_cancels_active_handler(
         finally:
             cancelled.set()
 
-    item = await work_items.enqueue_work_item(
-        kind="routine_turn",
-        origin="scheduler",
-        principal_id="ww-u-heartbeat-loss",
-        workspace_id="ww-ws-heartbeat-loss",
-        idempotency_key="ww-heartbeat-loss-cancels-handler",
-        input_payload={},
-    )
+    item = await make_routine_work(key="ww-heartbeat-loss-cancels-handler")
     work_worker.register_test_handler(item.work_item_id, _long_handler)
     monkeypatch.setattr(work_items, "heartbeat_lease", _heartbeat_lost)
 
@@ -249,14 +222,7 @@ async def test_durable_cancel_cancels_active_handler() -> None:
         finally:
             cancelled.set()
 
-    item = await work_items.enqueue_work_item(
-        kind="routine_turn",
-        origin="scheduler",
-        principal_id="ww-u-durable-cancel",
-        workspace_id="ww-ws-durable-cancel",
-        idempotency_key="ww-durable-cancel-handler",
-        input_payload={},
-    )
+    item = await make_routine_work(key="ww-durable-cancel-handler")
     work_worker.register_test_handler(item.work_item_id, _long_handler)
     task = asyncio.create_task(
         work_worker.process_one_due_item(
@@ -268,14 +234,14 @@ async def test_durable_cancel_cancels_active_handler() -> None:
     await asyncio.wait_for(started.wait(), timeout=2)
     await work_items.cancel_work_item(item.work_item_id)
 
-    with pytest.raises(WorkError) as exc_info:
-        await asyncio.wait_for(task, timeout=2)
-
-    assert exc_info.value.code == "work.cancelled"
+    done = await asyncio.wait_for(task, timeout=2)
+    assert done.status == "cancelled"
+    assert done.failure["code"] == "work.cancelled"
     assert cancelled.is_set()
     loaded = await WorkItem.get(f"o.WorkItem.{item.work_item_id}")
     assert loaded is not None
-    assert loaded.status == "running"
+    assert loaded.status == "cancelled"
+    assert loaded.lease_token == ""
     assert loaded.cancel_requested_at
 
 
@@ -670,3 +636,19 @@ async def test_lifecycle_validation_failure_is_terminal_and_not_reclaimed(
             is None
         )
         handler.assert_awaited_once()
+
+
+def test_chat_stream_event_keys_separate_lease_generations():
+    from types import SimpleNamespace
+
+    first = SimpleNamespace(run_id="same-run", lease_fence=1)
+    resumed = SimpleNamespace(run_id="same-run", lease_fence=2)
+    assert work_worker._chat_stream_event_key(
+        first, 0
+    ) == work_worker._chat_stream_event_key(first, 0)
+    assert work_worker._chat_stream_event_key(
+        first, 0
+    ) != work_worker._chat_stream_event_key(resumed, 0)
+    assert work_worker._chat_stream_event_key(
+        first, 0
+    ) != work_worker._chat_stream_event_key(first, 1)

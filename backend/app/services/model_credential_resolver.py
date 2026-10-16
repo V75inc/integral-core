@@ -17,6 +17,7 @@ from app.services.model_credentials import (
     get_active_credential_for_user,
     touch_credential_last_used,
 )
+from app.services.model_provider_endpoints import KEYLESS_PLACEHOLDER_API_KEY
 from app.services.workspace_permissions import get_workspace_owner_user_id
 
 logger = logging.getLogger(__name__)
@@ -65,14 +66,6 @@ def litellm_model_id(provider: str, model: str) -> str:
     return f"{route}/{model_id}"
 
 
-# Placeholder Bearer value for keyless custom endpoints. LiteLLM falls back to
-# provider env keys when no api_key is passed, which would leak the
-# deployment's key to the user's endpoint (or fail when unset). An explicit
-# inert value keeps unauthenticated servers working and authenticated ones
-# failing closed with a 401. Unauthenticated servers ignore the header.
-KEYLESS_PLACEHOLDER_API_KEY = "integral-keyless-endpoint"
-
-
 def _credential_funds_byok(record: UserModelCredential) -> bool:
     """True when the active credential would drive execution as owner BYOK.
 
@@ -86,6 +79,7 @@ def _credential_funds_byok(record: UserModelCredential) -> bool:
         return True
     if (
         default_provider == "custom_openai"
+        and not record.api_key_enc
         and (getattr(record, "base_url", "") or "").strip()
     ):
         return True
@@ -178,7 +172,11 @@ async def resolve_native_model_override(
 
     default_provider = record.provider
     default_key = decrypt_credential_api_key(record)
-    if not default_key and (default_provider or "").strip().lower() == "custom_openai":
+    if (
+        not default_key
+        and not record.api_key_enc
+        and (default_provider or "").strip().lower() == "custom_openai"
+    ):
         # Keyless custom endpoint: carry the inert placeholder so LiteLLM
         # never falls back to an unrelated provider env key. See
         # KEYLESS_PLACEHOLDER_API_KEY.
@@ -211,6 +209,7 @@ async def resolve_native_model_override(
                 record.id,
                 record.provider,
                 record.model,
+                getattr(record, "base_url", ""),
                 record.api_key_enc,
                 record.updated_at,
             ],

@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { isRecordedOutputWithheld, RECORDED_OUTPUT_WITHHELD_MESSAGE } from '../../api/extensions';
 import {
   EXTENSION_PROTOCOL,
   isExtensionMessage,
   type ExtensionBridgeMessage,
 } from './extensionProtocol';
+
+const UNCONFIRMED_VIEW_RESULT = 'The view changed or closed before its result was received. Check the original record before retrying.';
 
 export type ExtensionBridgeContext = {
   workspaceId: string;
@@ -34,6 +37,7 @@ type QueryHandler = (
 export type ExtensionHostActions = {
   onResize?: (height: number | 'fill') => void;
   onNavigate?: (entryId: string) => void;
+  onOperationResult?: (value: unknown) => void;
 };
 
 export type DraftPatchHandler = (patch: {
@@ -44,6 +48,7 @@ export type DraftPatchHandler = (patch: {
 export type UiResizeHandler = (height: number) => void;
 
 type PendingRequest = {
+  channel: object;
   resolve: (value: {
     ok: boolean;
     error?: string;
@@ -74,7 +79,7 @@ function newRequestId(prefix: string): string {
 }
 
 export function useExtensionBridge(
-  iframeRef: React.RefObject<HTMLIFrameElement | null>,
+  iframeRef: React.MutableRefObject<HTMLIFrameElement | null>,
   bridge: ExtensionBridgeContext | null,
   readHandler?: ReadHandler,
   operationHandler?: OperationHandler,
@@ -83,18 +88,55 @@ export function useExtensionBridge(
   draftPatchHandler?: DraftPatchHandler,
   uiResizeHandler?: UiResizeHandler,
   hostActions?: ExtensionHostActions,
-): ExtensionBridgeApi {
+): ExtensionBridgeApi & { bindFrame: React.RefCallback<HTMLIFrameElement> } {
   const actionsRef = useRef(hostActions);
-  actionsRef.current = hostActions;
   const bridgeRef = useRef(bridge);
-  bridgeRef.current = bridge;
+  // Bind asynchronous replies to the receiving sandbox and security context.
+  // Draft/context edits keep the channel; a scope/token switch replaces it.
+  const signature = bridge ? JSON.stringify([
+    bridge.workspaceId, bridge.appId, bridge.viewKey, bridge.handshakeToken,
+  ]) : '';
+  const channel = useMemo(() => ({ signature }), [signature]);
+  const channelRef = useRef(channel);
+  // Publish only committed scope and handlers. An abandoned concurrent render
+  // must not relabel the active frame or redirect an in-flight reply.
+  useLayoutEffect(() => {
+    actionsRef.current = hostActions;
+    bridgeRef.current = bridge;
+    channelRef.current = channel;
+  }, [hostActions, bridge, channel]);
   const pendingRef = useRef<Map<string, PendingRequest>>(new Map());
+  const frameBindingRef = useRef<{ node: HTMLIFrameElement; channel: object } | null>(null);
+  const bindFrame = useCallback((node: HTMLIFrameElement | null) => {
+    if (!node) {
+      for (const pending of pendingRef.current.values()) {
+        pending.resolve({ ok: false, error: UNCONFIRMED_VIEW_RESULT });
+      }
+      pendingRef.current.clear();
+    }
+    iframeRef.current = node;
+    frameBindingRef.current = node ? { node, channel } : null;
+  }, [iframeRef, channel]);
+
+  useEffect(() => {
+    const pendingRequests = pendingRef.current;
+    return () => {
+      for (const [id, pending] of pendingRequests) {
+        if (pending.channel !== channel) continue;
+        pendingRequests.delete(id);
+        pending.resolve({ ok: false, error: UNCONFIRMED_VIEW_RESULT });
+      }
+    };
+  }, [channel]);
 
   const postToChild = useCallback((message: ExtensionBridgeMessage) => {
+    if (channelRef.current !== channel || frameBindingRef.current?.channel !== channel ||
+      frameBindingRef.current.node !== iframeRef.current) return false;
     const win = iframeRef.current?.contentWindow;
-    if (!win) return;
+    if (!win) return false;
     win.postMessage(message, '*');
-  }, [iframeRef]);
+    return true;
+  }, [iframeRef, channel]);
 
   const sendHandshake = useCallback(() => {
     const current = bridgeRef.current;
@@ -119,6 +161,7 @@ export function useExtensionBridge(
     }>((resolve) => {
       const requestId = newRequestId('validate');
       pendingRef.current.set(requestId, {
+        channel,
         kind: 'validate',
         resolve: (value) =>
           resolve({
@@ -127,11 +170,15 @@ export function useExtensionBridge(
             field_errors: value.field_errors,
           }),
       });
-      postToChild({
+      if (!postToChild({
         protocol: EXTENSION_PROTOCOL,
         type: 'draft.validate',
         requestId,
-      });
+      })) {
+        pendingRef.current.delete(requestId);
+        resolve({ ok: false, error: 'The view is no longer active.' });
+        return;
+      }
       // If the iframe ignores draft messages, do not block forever.
       window.setTimeout(() => {
         const pending = pendingRef.current.get(requestId);
@@ -140,7 +187,7 @@ export function useExtensionBridge(
         resolve({ ok: true });
       }, 4000);
     });
-  }, [postToChild]);
+  }, [postToChild, channel]);
 
   const requestSubmit = useCallback(
     (entryId?: string | null) => {
@@ -151,6 +198,7 @@ export function useExtensionBridge(
       }>((resolve) => {
         const requestId = newRequestId('submit');
         pendingRef.current.set(requestId, {
+          channel,
           kind: 'submit',
           resolve: (value) =>
             resolve({
@@ -159,12 +207,16 @@ export function useExtensionBridge(
               value: value.value,
             }),
         });
-        postToChild({
+        if (!postToChild({
           protocol: EXTENSION_PROTOCOL,
           type: 'draft.submit',
           requestId,
           entry_id: entryId ?? null,
-        });
+        })) {
+          pendingRef.current.delete(requestId);
+          resolve({ ok: false, error: 'The view is no longer active.' });
+          return;
+        }
         window.setTimeout(() => {
           const pending = pendingRef.current.get(requestId);
           if (!pending) return;
@@ -173,7 +225,7 @@ export function useExtensionBridge(
         }, 8000);
       });
     },
-    [postToChild],
+    [postToChild, channel],
   );
 
   const notifyCommitted = useCallback(
@@ -192,10 +244,20 @@ export function useExtensionBridge(
     const onMessage = (event: MessageEvent) => {
       const iframeWin = iframeRef.current?.contentWindow;
       if (!iframeWin || event.source !== iframeWin) return;
+      const frameBinding = frameBindingRef.current;
+      if (!frameBinding || frameBinding.node !== iframeRef.current ||
+        frameBinding.channel !== channelRef.current) return;
       if (!isExtensionMessage(event.data)) return;
       const msg = event.data;
       const current = bridgeRef.current;
       if (!current) return;
+      const channel = channelRef.current;
+      const currentReply = () => channelRef.current === channel &&
+        frameBindingRef.current === frameBinding &&
+        iframeRef.current?.contentWindow === iframeWin;
+      const reply = (message: ExtensionBridgeMessage) => {
+        if (currentReply()) postToChild(message);
+      };
 
       if (msg.type === 'ready') {
         sendHandshake();
@@ -236,7 +298,7 @@ export function useExtensionBridge(
 
       if (msg.type === 'draft.validate.result' || msg.type === 'draft.submit.result') {
         const pending = pendingRef.current.get(msg.requestId);
-        if (!pending) return;
+        if (!pending || pending.channel !== channelRef.current) return;
         pendingRef.current.delete(msg.requestId);
         pending.resolve({
           ok: Boolean(msg.ok),
@@ -258,7 +320,7 @@ export function useExtensionBridge(
           ok = false;
           error = err instanceof Error ? err.message : 'read failed';
         }
-        postToChild({
+        reply({
           protocol: EXTENSION_PROTOCOL,
           type: 'read.result',
           requestId: msg.requestId,
@@ -274,6 +336,7 @@ export function useExtensionBridge(
           let value: unknown;
           let ok = true;
           let error: string | undefined;
+          let withheld = false;
           try {
             value = await operationHandler(
               msg.operationKey,
@@ -281,17 +344,26 @@ export function useExtensionBridge(
               current,
               msg.idempotencyKey,
             );
+            if (!currentReply()) return;
+            withheld = isRecordedOutputWithheld(value);
+            if (withheld) {
+              ok = false;
+              error = RECORDED_OUTPUT_WITHHELD_MESSAGE;
+            }
           } catch (err) {
             ok = false;
             error = err instanceof Error ? err.message : 'operation failed';
           }
-          postToChild({
+          if (!currentReply()) return;
+          actionsRef.current?.onOperationResult?.(value);
+          reply({
             protocol: EXTENSION_PROTOCOL,
             type: 'operation.result',
             requestId: msg.requestId,
             ok,
             value,
             error,
+            ...(withheld ? { error_code: 'operation_output_withheld', retryable: false } : {}),
           });
         })();
         return;
@@ -308,7 +380,7 @@ export function useExtensionBridge(
             ok = false;
             error = err instanceof Error ? err.message : 'capabilities failed';
           }
-          postToChild({
+          reply({
             protocol: EXTENSION_PROTOCOL,
             type: 'capabilities.result',
             requestId: msg.requestId,
@@ -335,7 +407,7 @@ export function useExtensionBridge(
             ok = false;
             error = err instanceof Error ? err.message : 'query failed';
           }
-          postToChild({
+          reply({
             protocol: EXTENSION_PROTOCOL,
             type: 'query.result',
             requestId: msg.requestId,
@@ -362,6 +434,7 @@ export function useExtensionBridge(
   ]);
 
   return {
+    bindFrame,
     sendHandshake,
     postToChild,
     requestValidate,

@@ -31,7 +31,7 @@ Core-only mode and an empty App catalog do not disable agentive boot. `AGENTIVE_
 
 | Setting | Default | Purpose |
 |---|---|---|
-| `INTEGRAL_NATIVE_DURABLE_CHAT_ENABLED` | false | Durable native dispatch/replay/recovery rollout |
+| `INTEGRAL_NATIVE_DURABLE_CHAT_ENABLED` | true | Durable native dispatch/replay/recovery; requires PostgreSQL transaction support. Set false only to opt into legacy request-bound turns. |
 | `INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS` | 900 | Accepted turn deadline |
 | `INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS` | 180 | Individual provider request ceiling, including initial stream output |
 | `INTEGRAL_NATIVE_MODEL_MAX_ATTEMPTS` | 3 | Total model attempts including the initial request (1–3); transient failures before output only |
@@ -119,3 +119,27 @@ cancellation are not retried. Once text, reasoning or tool output has started,
 a later stream failure is surfaced rather than replayed. The existing overall
 turn budget still applies. Set the attempt limit to `1` to disable automatic
 model retries. This mechanism does not resubmit an entire failed chat HTTP turn.
+
+
+### User-configured OpenAI-compatible endpoints
+
+Settings → AI Models supports `custom_openai` with a model ID and base URL.
+Public endpoints require HTTPS. Private services require an exact operator-owned
+`INTEGRAL_OUTBOUND_TRUSTED_HOSTS` entry and, for nonstandard ports, an explicit
+`INTEGRAL_OUTBOUND_EXTRA_PORTS` entry. These are deployment decisions; users
+cannot grant themselves access to the server's internal network. Validation and
+inference both enforce outbound policy, pin checked DNS addresses, disable proxy
+environment fallback and refuse redirects. The `/models` validation probe has a
+10-second total deadline and a 64 KiB response limit.
+
+Saved credentials are bound to their provider and canonical endpoint. Changing
+either requires a new key or the explicit **Use without an API key** option
+(`clear_api_key: true` in the API). Blank key input retains the current key only
+at an unchanged endpoint. Keyless inference does not forward deployment provider
+keys, organization IDs or project IDs. A saved encrypted key that cannot decrypt
+is a credential failure, never an implicit keyless selection. Endpoint URLs may
+not contain credentials, query parameters or fragments because they are stored
+as ordinary metadata.
+
+`INTEGRAL_NATIVE_API_BASE` is a separate operator-owned deployment route; it does
+not grant arbitrary user endpoints permission to reach internal services.

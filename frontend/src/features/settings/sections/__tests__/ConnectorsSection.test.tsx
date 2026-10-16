@@ -136,6 +136,11 @@ function renderPanel(qc = new QueryClient({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Portal placement needs measurable geometry, which jsdom does not lay out.
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    x: 0, y: 0, top: 0, left: 0, right: 240, bottom: 40,
+    width: 240, height: 40, toJSON: () => ({}),
+  });
   mockedScope.mockReturnValue(null);
   // Default: agentive layer ON
   mockedCapability.mockReturnValue({ enabled: true, isLoading: false });
@@ -394,7 +399,8 @@ describe('<ConnectorsSection />', () => {
     })], total: 1 });
     selectWorkspace('personal');
     const panel = renderPanel(qc);
-    fireEvent.click(await screen.findByRole('button', { name: 'Reconnect mcp-old' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage Personal prototype' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Reconnect' }));
     await waitFor(() => expect(connectorsApi.reauthorizeMcp).toHaveBeenCalledOnce());
     mockedList.mockResolvedValueOnce({ connectors: [], total: 0 });
     selectWorkspace('shared');
@@ -606,7 +612,8 @@ describe('<ConnectorsSection />', () => {
     });
     expect(screen.getByText('Gmail')).toBeInTheDocument();
     expect(screen.queryByTestId('gmail-connector-setup')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText('Configure connector g-1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Manage Gmail' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Settings' }));
     expect(screen.getByTestId('gmail-connector-setup')).toBeInTheDocument();
   });
 
@@ -635,8 +642,8 @@ describe('<ConnectorsSection />', () => {
       total: 1,
     });
     renderPanel();
-    const editBtn = await screen.findByLabelText('Edit connector con-1');
-    fireEvent.click(editBtn);
+    fireEvent.click(await screen.findByRole('button', { name: /^Manage /  }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit connection' }));
     // Modal title appears
     await waitFor(() => {
       expect(
@@ -651,8 +658,8 @@ describe('<ConnectorsSection />', () => {
       total: 1,
     });
     renderPanel();
-    const delBtn = await screen.findByLabelText('Delete connector con-1');
-    fireEvent.click(delBtn);
+    fireEvent.click(await screen.findByRole('button', { name: /^Manage /  }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete connection' }));
     const confirmBtn = await screen.findByRole('button', { name: /^Delete$/ });
     fireEvent.click(confirmBtn);
     await waitFor(() => {

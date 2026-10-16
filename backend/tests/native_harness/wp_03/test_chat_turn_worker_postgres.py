@@ -388,10 +388,15 @@ async def test_worker_commits_events_and_one_usage_bearing_transcript(
                 "usage": {"inputTokens": 9, "outputTokens": 2},
                 "requestId": "request-observation-1",
                 "attempt": 1,
+                "usageComplete": False,
+                "inputTokensReported": True,
+                "outputTokensReported": True,
+                "costComplete": False,
             },
             {
                 "type": "message-finish",
-                "timing": {"totalMs": 40.0, "firstTokenMs": 8.0},
+                "timing": {"totalMs": 40.0, "firstTokenMs": 8.0, "modelPassMs": 25.0},
+                "contextMode": "conversation",
             },
         ]
     )
@@ -427,6 +432,10 @@ async def test_worker_commits_events_and_one_usage_bearing_transcript(
         "inputTokens": 9,
         "outputTokens": 2,
     }
+    assert assistant[0].provider_metadata["steps"][0]["usageComplete"] is False
+    assert assistant[0].provider_metadata["steps"][0]["inputTokensReported"] is True
+    assert assistant[0].provider_metadata["steps"][0]["costComplete"] is False
+    assert assistant[0].provider_metadata["timing"]["modelPassMs"] == 25.0
     run = await AgentRun.find_one(
         {
             "run_id": deterministic_run_id(

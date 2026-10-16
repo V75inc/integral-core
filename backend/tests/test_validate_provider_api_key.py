@@ -117,50 +117,27 @@ async def test_local_ollama_rejects_api_keys():
 
 
 @pytest.mark.asyncio
-async def test_custom_openai_validates_with_key():
-    """Custom endpoint probes GET {base}/models with a Bearer key."""
-    client = _mock_client(get_status=200)
+@pytest.mark.parametrize(
+    "key,result",
+    [
+        ("synthetic-custom-key", (True, "validated")),
+        ("", (True, "validated (no API key)")),
+        ("", (False, "endpoint requires an API key")),
+    ],
+)
+async def test_custom_validation_uses_guarded_probe(key, result):
+    """Custom validation delegates the canonical endpoint to its guarded transport."""
     with patch(
-        "app.services.model_credentials.httpx.AsyncClient",
-        return_value=client,
-    ):
-        ok, msg = await validate_provider_api_key(
-            "custom_openai", "sk-custom-key-1234", "https://llm.example.com/v1/"
+        "app.services.custom_model_transport.probe_custom_model_endpoint",
+        new=AsyncMock(return_value=result),
+    ) as probe:
+        assert (
+            await validate_provider_api_key(
+                "custom_openai", key, "https://llm.example.com/v1/"
+            )
+            == result
         )
-    assert (ok, msg) == (True, "validated")
-    _, kwargs = client.get.await_args
-    assert kwargs["headers"] == {"Authorization": "Bearer sk-custom-key-1234"}
-    assert client.get.await_args.args[0] == "https://llm.example.com/v1/models"
-
-
-@pytest.mark.asyncio
-async def test_custom_openai_validates_keyless_without_auth_header():
-    """Unauthenticated custom endpoints probe without an Authorization header."""
-    client = _mock_client(get_status=200)
-    with patch(
-        "app.services.model_credentials.httpx.AsyncClient",
-        return_value=client,
-    ):
-        ok, msg = await validate_provider_api_key(
-            "custom_openai", "", "https://llm.example.com/v1"
-        )
-    assert (ok, msg) == (True, "validated (no API key)")
-    _, kwargs = client.get.await_args
-    assert kwargs["headers"] == {}
-
-
-@pytest.mark.asyncio
-async def test_custom_openai_keyless_rejects_unauthorized():
-    """A keyless probe answered 401 means the endpoint needs an API key."""
-    with patch(
-        "app.services.model_credentials.httpx.AsyncClient",
-        return_value=_mock_client(get_status=401),
-    ):
-        ok, msg = await validate_provider_api_key(
-            "custom_openai", "", "https://llm.example.com/v1"
-        )
-    assert ok is False
-    assert msg == "endpoint requires an API key"
+    probe.assert_awaited_once_with("https://llm.example.com/v1", key)
 
 
 @pytest.mark.asyncio

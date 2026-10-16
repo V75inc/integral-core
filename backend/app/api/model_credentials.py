@@ -99,6 +99,7 @@ async def upsert_my_model_credential(request: Request) -> Dict[str, Any]:
             model=body.model,
             api_key=body.api_key,
             base_url=body.base_url,
+            clear_api_key=body.clear_api_key,
             speech_model=body.speech_model,
             speech_provider=body.speech_provider,
             speech_api_key=body.speech_api_key,

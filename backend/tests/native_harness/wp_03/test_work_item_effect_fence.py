@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from contextvars import Context
 from datetime import datetime, timedelta, timezone, tzinfo
 from decimal import Decimal
 
@@ -79,18 +80,23 @@ async def test_effect_fence_accepts_a_concurrent_same_authority_heartbeat(
     renewed = False
 
     async def renew_before_cas(**kwargs):
-        nonlocal renewed
-        async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
-            current = await work_items.heartbeat_lease(
-                item.work_item_id,
-                lease_token=item.lease_token,
-                lease_fence=item.lease_fence,
-                worker_id=item.lease_owner,
-                lease_seconds=60,
-            )
-            renewed = current.lease_expires_at != item.lease_expires_at
-            assert current.lease_token == item.lease_token
-            assert current.lease_fence == item.lease_fence
+        async def actor():
+            nonlocal renewed
+            async with scoped_default_context_async(
+                GraphContext(database=postgres_raw_db)
+            ):
+                current = await work_items.heartbeat_lease(
+                    item.work_item_id,
+                    lease_token=item.lease_token,
+                    lease_fence=item.lease_fence,
+                    worker_id=item.lease_owner,
+                    lease_seconds=60,
+                )
+                renewed = current.lease_expires_at != item.lease_expires_at
+                assert current.lease_token == item.lease_token
+                assert current.lease_fence == item.lease_fence
+
+        await asyncio.create_task(actor(), context=Context())
         await original(**kwargs)
 
     monkeypatch.setattr(work_items, "_cas_lease_fence_in_transaction", renew_before_cas)
@@ -113,26 +119,31 @@ async def test_heartbeat_retry_does_not_accept_changed_execution_authority(
     original = work_items._cas_lease_fence_in_transaction
 
     async def revoke_before_cas(**kwargs):
-        async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
-            await work_items.heartbeat_lease(
-                item.work_item_id,
-                lease_token=item.lease_token,
-                lease_fence=item.lease_fence,
-                worker_id=item.lease_owner,
-                lease_seconds=60,
-            )
-            changes = {
-                "cancel": {
-                    "cancel_requested_at": datetime.now(timezone.utc).isoformat()
-                },
-                "fence": {"lease_fence": item.lease_fence + 1},
-                "deadline": {"deadline_at": datetime.now(timezone.utc).isoformat()},
-            }
-            await cas_work_item_update(
-                item.work_item_id,
-                expected={"status": "running", "lease_fence": item.lease_fence},
-                updates=changes[revocation],
-            )
+        async def actor():
+            async with scoped_default_context_async(
+                GraphContext(database=postgres_raw_db)
+            ):
+                await work_items.heartbeat_lease(
+                    item.work_item_id,
+                    lease_token=item.lease_token,
+                    lease_fence=item.lease_fence,
+                    worker_id=item.lease_owner,
+                    lease_seconds=60,
+                )
+                changes = {
+                    "cancel": {
+                        "cancel_requested_at": datetime.now(timezone.utc).isoformat()
+                    },
+                    "fence": {"lease_fence": item.lease_fence + 1},
+                    "deadline": {"deadline_at": datetime.now(timezone.utc).isoformat()},
+                }
+                await cas_work_item_update(
+                    item.work_item_id,
+                    expected={"status": "running", "lease_fence": item.lease_fence},
+                    updates=changes[revocation],
+                )
+
+        await asyncio.create_task(actor(), context=Context())
         await original(**kwargs)
 
     monkeypatch.setattr(
@@ -726,3 +737,139 @@ async def test_fenced_effect_serializes_parallel_graph_reads(
             *(graph.database.find("object", {"id": item.id}) for _ in range(12))
         )
         assert all(len(page) == 1 and page[0]["id"] == item.id for page in pages)
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_locked_effect_renews_before_releasing_an_elapsed_lease(
+    postgres_raw_db, postgres_graph_context, monkeypatch
+):
+    item, context = await _claimed_context()
+
+    class Clock(datetime):
+        offset = timedelta()
+
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.now(tz) + cls.offset
+
+    from app.agentive.services import work_execution
+
+    monkeypatch.setattr(work_items, "datetime", Clock)
+    monkeypatch.setattr(work_execution, "datetime", Clock)
+    async with work_items.authorized_work_item_effect(context):
+        # The same transaction holds the row lock, so the independent
+        # heartbeat cannot renew it while this effect is in progress.
+        Clock.offset = timedelta(seconds=65)
+        from app.agentive.services.work_execution import assert_effect_boundary_allowed
+
+        await assert_effect_boundary_allowed(context)
+    await work_items.assert_work_item_execution_current(context)
+    row = await postgres_raw_db.get("object", item.id)
+    assert datetime.fromisoformat(row["context"]["lease_expires_at"]) > Clock.now(
+        timezone.utc
+    )
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_locked_effect_does_not_renew_past_execution_deadline(
+    postgres_raw_db, postgres_graph_context, monkeypatch
+):
+    item, context = await _claimed_context(
+        deadline_at=(datetime.now(timezone.utc) + timedelta(seconds=10)).isoformat()
+    )
+
+    class Clock(datetime):
+        offset = timedelta()
+
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.now(tz) + cls.offset
+
+    monkeypatch.setattr(work_items, "datetime", Clock)
+    with pytest.raises(WorkError) as exc:
+        async with work_items.authorized_work_item_effect(context):
+            Clock.offset = timedelta(seconds=11)
+    assert exc.value.code == "work.deadline_exceeded"
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_authority_and_heartbeat_ignore_expired_identity_cache(
+    postgres_raw_db, postgres_graph_context, monkeypatch
+):
+    from unittest.mock import AsyncMock
+
+    item, context = await _claimed_context()
+    stale = item.model_copy(
+        update={
+            "lease_expires_at": (
+                datetime.now(timezone.utc) - timedelta(seconds=1)
+            ).isoformat()
+        }
+    )
+    monkeypatch.setattr(WorkItem, "get", AsyncMock(return_value=stale))
+    from app.agentive.services.work_execution import assert_effect_boundary_allowed
+
+    async with work_items.authorized_work_item_effect(context):
+        pass
+    await assert_effect_boundary_allowed(context)
+    renewed = await work_items.heartbeat_lease(
+        item.work_item_id,
+        lease_token=item.lease_token,
+        lease_fence=item.lease_fence,
+        worker_id=item.lease_owner,
+        lease_seconds=60,
+    )
+    assert datetime.fromisoformat(renewed.lease_expires_at) > datetime.now(timezone.utc)
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_heartbeat_waits_for_same_fence_effect_before_checking_expiry(
+    postgres_raw_db, postgres_graph_context, monkeypatch
+):
+    from jvspatial.core.context import scoped_default_context_async
+
+    item, context = await _claimed_context()
+    start = asyncio.Event()
+
+    class Clock(datetime):
+        offset = timedelta()
+
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.now(tz) + cls.offset
+
+    monkeypatch.setattr(work_items, "datetime", Clock)
+
+    async def beat():
+        await start.wait()
+        async with scoped_default_context_async(GraphContext(database=postgres_raw_db)):
+            return await work_items.heartbeat_lease(
+                item.work_item_id,
+                lease_token=item.lease_token,
+                lease_fence=item.lease_fence,
+                worker_id=item.lease_owner,
+                lease_seconds=60,
+            )
+
+    heartbeat = asyncio.create_task(beat())
+    try:
+        async with work_items.authorized_work_item_effect(context):
+            Clock.offset = timedelta(seconds=65)
+            start.set()
+            await asyncio.sleep(0.05)
+            assert not heartbeat.done()
+        renewed = await asyncio.wait_for(heartbeat, timeout=5)
+        assert datetime.fromisoformat(renewed.lease_expires_at) > Clock.now(
+            timezone.utc
+        )
+    finally:
+        start.set()
+        await asyncio.gather(heartbeat, return_exceptions=True)

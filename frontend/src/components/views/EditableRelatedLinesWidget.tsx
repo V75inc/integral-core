@@ -25,7 +25,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { entriesApi, tracksApi } from '../../api';
-import { extensionsApi } from '../../api/extensions';
+import { extensionsApi, requireOperationOutput, RecordedOperationOutputWithheld } from '../../api/extensions';
 import { toolsApi } from '../../api/tools';
 import { useContributionLifecycle } from '../entries/contributionLifecycle';
 import { slug } from '../entries/entryFormCustomFields';
@@ -441,7 +441,7 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
         entries.map(async ([col, spec]) => {
           try {
             const res = appId
-              ? await extensionsApi.invokeOperation(appId, spec.tool, spec.input)
+              ? requireOperationOutput(await extensionsApi.invokeOperation(appId, spec.tool, spec.input))
               : await toolsApi.call(spec.tool, spec.input);
             loaded[col] = toColumnChoices(res.output?.[spec.itemsKey], spec.labelFields);
           } catch {
@@ -464,7 +464,7 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
       try {
         if (listCatalogTool) {
           const res = appId
-            ? await extensionsApi.invokeOperation(appId, listCatalogTool, {})
+            ? requireOperationOutput(await extensionsApi.invokeOperation(appId, listCatalogTool, {}))
             : await toolsApi.call(listCatalogTool, {});
           const items: Record<string, unknown>[] = Array.isArray(res.output?.items)
             ? (res.output.items as Record<string, unknown>[])
@@ -576,7 +576,10 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
         try {
           // Replace-by-parent: delete existing related children before recreate
           // so re-save does not append duplicates.
-          if (relation) {
+          // A declared tool owns its entire mutation. Preliminary client-side
+          // deletes would run before its receipt recovery and repeat effects
+          // even when the tool returns an already completed operation.
+          if (relation && persistMode !== 'tool') {
             const existing = await entriesApi.listRelated(parentId, relation, {
               limit: 500,
               entryType: childEntryType || undefined,
@@ -614,7 +617,7 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
             };
             if (documentKind) input.document_kind = documentKind;
             const output = appId
-              ? (await extensionsApi.invokeOperation(appId, persistTool, input)).output
+              ? requireOperationOutput(await extensionsApi.invokeOperation(appId, persistTool, input)).output
               : (await toolsApi.call(persistTool, input)).output;
             if (output?.error) {
               return {
@@ -680,6 +683,7 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
         } catch (e) {
           return {
             ok: false,
+            outcomeRecorded: e instanceof RecordedOperationOutputWithheld,
             error: e instanceof Error ? e.message : 'Failed to persist lines',
           };
         }

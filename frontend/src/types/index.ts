@@ -216,6 +216,20 @@ export interface OperationalModelFieldSpec {
    *  mode, detail page, related_views). For fields a server-side hook
    *  fills in right after creation. */
   hide_on_create?: boolean;
+  /** Excluded from entry cards (feed/kanban/gallery) and the table only; still
+   *  shown on the entry detail and in edit forms. */
+  hide_on_card?: boolean;
+  /** Entry-detail layout: the value spans the full field grid (full-width row). */
+  full_width?: boolean;
+  /** Entry-detail layout: clamp a long value to this many lines and offer a
+   *  Read more toggle (e.g. a conversation log). Omit/0 = no clamp. */
+  max_lines?: number;
+  /** Render/edit this text field as multi-line (a textarea) even when the current
+   *  value has no newline. */
+  multiline?: boolean;
+  /** Entry-detail only: omit the row when the field has no value (keeps the panel
+   *  tidy); unset fields keep showing their "—" placeholder. */
+  hide_when_empty?: boolean;
   /** Never shown in forms or the entry field list; still stored and readable via the API. */
   hidden?: boolean;
   default?: unknown;
