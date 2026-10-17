@@ -43,8 +43,12 @@ User wants a new operational app, an addition to one, or to finish / repair one.
 **discover → design → build → verify → handoff**. Chat affirm of the design
 outline is greenfield approval; the scaffold batch applies on
 `integral_commit_batch` (no second Prompt Sheet bless). An App node alone is
-not a complete app — schema, views, relations, procedures, and acceptance
-evidence must land.
+not a complete operational app — schema, views, relations, procedures, and acceptance
+evidence must land. An explicitly requested **blank App** is a valid exception:
+propose its exact name with `tracks: []`, no views, seeds, dashboard, skills or
+routines, and an acceptance assertion of zero Tracks. After the user approves,
+build only `integral_create_app` through `integral_build_approved_design` and
+verify that empty container. Never invent a minimum Track requirement.
 
 General how-to advice about using an existing workflow is not, by itself, a
 request for new structure. When the current App and its schema cover the stated

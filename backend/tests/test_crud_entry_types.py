@@ -408,3 +408,88 @@ def test_form_schema_from_entry_type_spec_merges_top_level_base_fields():
     assert fs["fields"][0]["key"] == "email"
     assert fs["base_fields"]["title"]["label"] == "Contact name"
     assert fs["base_fields"]["body"]["label"] == "Notes"
+
+
+@pytest.mark.asyncio
+async def test_default_post_entry_type_cannot_be_deleted(authenticated_client):
+    created = await authenticated_client.post(
+        "/api/tracks", json={"title": "Protect default", "visibility": "private"}
+    )
+    track_id = created.json()["track"]["id"]
+    types = await authenticated_client.get(
+        "/api/entry-types", params={"track_id": track_id}
+    )
+    post = next(row for row in types.json()["entry_types"] if row["name"] == "Post")
+    response = await authenticated_client.delete("/api/entry-types/" + post["id"])
+    assert response.status_code == 400
+    assert "default Post" in response.text
+    assert (
+        await authenticated_client.get("/api/entry-types/" + post["id"])
+    ).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_final_custom_entry_type_cannot_be_deleted(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.api.errors import BadRequestError
+    from app.services.entry_type_service import assert_entry_type_deletable
+
+    profile = SimpleNamespace(count_nodes=AsyncMock(return_value=1))
+    with pytest.raises(BadRequestError, match="final entry type"):
+        await assert_entry_type_deletable(
+            SimpleNamespace(name="Task", form_schema={}, track_id=None), profile
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "used,declared", [(True, False), (False, True), (False, False)]
+)
+async def test_track_template_deletion_preserves_used_schema(used, declared):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.exceptions import BadRequestError
+    from app.services.operational_model_merge import assert_track_template_deletable
+
+    template = SimpleNamespace(
+        count_nodes=AsyncMock(return_value=int(used)),
+        manifest=(
+            {"materialization": {"kind": "space_track_template"}} if declared else {}
+        ),
+    )
+    if used or declared:
+        with pytest.raises(BadRequestError):
+            await assert_track_template_deletable(template)
+    else:
+        await assert_track_template_deletable(template)
+
+
+@pytest.mark.asyncio
+async def test_manifest_default_entry_type_cannot_be_deleted(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.api.errors import BadRequestError
+    from app.services.entry_type_service import assert_entry_type_deletable
+
+    monkeypatch.setattr(
+        "app.services.entry_type_service.Track.get", AsyncMock(return_value=object())
+    )
+    monkeypatch.setattr(
+        "app.services.entry_type_service.resolve_track_runtime_profile",
+        AsyncMock(
+            return_value=(None, {"defaults": {"default_entry_type": "task"}}, None)
+        ),
+    )
+    with pytest.raises(BadRequestError, match="default entry type"):
+        await assert_entry_type_deletable(
+            SimpleNamespace(
+                name="Tasks",
+                form_schema={"_manifest_entry_type_key": "task"},
+                track_id="track",
+            ),
+            SimpleNamespace(count_nodes=AsyncMock(return_value=2)),
+        )

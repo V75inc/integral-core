@@ -190,9 +190,7 @@ export function TrackModal({
     }
   }, [editTrack]);
 
-  const inheritHint = appId
-    ? "Matches this App's visibility."
-    : "Applies the active workspace's visibility.";
+  const inheritHint = 'This existing Track uses legacy inherited visibility. It is preserved until you choose Private, Workspace, or Public.';
 
   const applyOperationalModelToBody = (body: CreateTrackBody) => {
     const c = operationalModelChoice;
@@ -217,7 +215,7 @@ export function TrackModal({
         t = await tracksApi.update(editTrack.id, {
           title: title.trim(),
           purpose: purpose.trim(),
-          visibility: visibilityChoice,
+          ...(visibilityChoice !== 'inherit' ? { visibility: visibilityChoice } : {}),
         });
       } else {
         const effectiveAppId = appId || chosenParentAppId || '';
@@ -228,7 +226,7 @@ export function TrackModal({
           ...(effectiveAppId ? { app_id: effectiveAppId } : {}),
         };
         applyOperationalModelToBody(body);
-        body.visibility = visibilityChoice;
+        body.visibility = visibilityChoice === 'inherit' ? 'private' : visibilityChoice;
         t = await tracksApi.create(body);
       }
       void invalidateWorkspaceListCaches(queryClient);
@@ -318,7 +316,6 @@ export function TrackModal({
           onChange={setVisibilityChoice}
           workspaceAvailable={!!scope?.workspaceId}
           inheritHint={inheritHint}
-          showInherit={true}
         />
       </div>
     </>

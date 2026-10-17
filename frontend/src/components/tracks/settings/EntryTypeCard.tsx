@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
 import type { EntryTypeNode, OperationalModelFieldSpec } from '../../../types';
-import { sortFieldsByOrder } from '../../../utils/entryMetaFields';
+import { orderedSchemaFields } from './schemaFieldOrder';
 import { LINE_ICON_STROKE } from '../../ui';
 import { FieldList } from './FieldList';
 
@@ -25,7 +25,7 @@ export function EntryTypeCard({
   disabled,
 }: EntryTypeCardProps) {
   const [open, setOpen] = useState(false);
-  const fields = sortFieldsByOrder(entryType.form_schema?.fields ?? []);
+  const fields = orderedSchemaFields(entryType.form_schema);
 
   return (
     <div className="app-card group/etc">

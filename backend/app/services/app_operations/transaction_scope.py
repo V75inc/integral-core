@@ -25,6 +25,10 @@ class OperationTransactionUnavailable(RuntimeError):
     """Raised when the configured store cannot host a graph transaction."""
 
 
+class OperationTransactionRolledBack(OperationTransactionUnavailable):
+    """A supported transaction was rolled back after a nested failure."""
+
+
 @dataclass
 class _TransactionScope:
     database: Any
@@ -196,7 +200,7 @@ async def postgres_graph_transaction(
             try:
                 yield ctx.database
                 if frame.failed:
-                    raise OperationTransactionUnavailable(
+                    raise OperationTransactionRolledBack(
                         "Nested transaction failure requires rollback"
                     ) from frame.failure
             finally:

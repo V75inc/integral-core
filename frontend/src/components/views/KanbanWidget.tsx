@@ -37,7 +37,8 @@ import {
   X,
   Paperclip,
 } from 'lucide-react';
-import { MarkdownContent } from '../ui';
+import { MarkdownContent, Pill } from '../ui';
+import { tagColorStyle } from '../../utils/tagColor';
 import type { ViewWidgetProps } from './types';
 import type { Entry, SavedView, OperationalModelFieldSpec } from '../../types';
 import { entriesApi } from '../../api/entries';
@@ -431,6 +432,9 @@ function CardBody({
   const showTemplateExtras = density === 'comfy';
 
   const customFields = (entry.custom_fields || {}) as Record<string, unknown>;
+  const tagPills = !!entry.tags?.length && <div className="flex flex-wrap gap-1">
+    {entry.tags.map(tag => <Pill key={tag.id} tone="descriptive" style={tagColorStyle(tag.color)}>#{tag.name || 'Untitled tag'}</Pill>)}
+  </div>;
   const relationLabels = useEntryRelationLabelMap(entry, relationFields);
   const chips = cardFields
     .map(k => {
@@ -484,6 +488,7 @@ function CardBody({
           {excerpt && (
             <p className="text-xs text-[var(--text-subtle)] line-clamp-2">{excerpt}</p>
           )}
+          {tagPills}
           {footerValues.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-0.5">
               {footerValues.map((v, i) => (
@@ -526,6 +531,7 @@ function CardBody({
             })}
           </div>
         )}
+        {tagPills}
         {(entry.attachment_ids?.length ?? 0) > 0 ? (
           <div className={`flex items-center gap-1 text-[10px] text-[var(--text-subtle)] ${chipsMarginCls}`}>
             <Paperclip size={12} aria-hidden />
@@ -1931,10 +1937,16 @@ function KanbanWidgetInner({
     const col = columns.find(c => c.key === colKey);
     const colLabel = col?.label || colKey;
     const cardsInCol = localCols[colKey]?.length || 0;
-    const message =
-      cardsInCol > 0
-        ? `Remove the “${colLabel}” column? Its ${cardsInCol} card${cardsInCol === 1 ? '' : 's'} will stay in the track but won’t appear on the board until you re-add the column.`
-        : `Remove the “${colLabel}” column? You can add it back later from the board.`;
+    if (cardsInCol > 0) {
+      await confirm({
+        title: 'Move cards before removing this column',
+        message: `The “${colLabel}” column contains ${cardsInCol} card${cardsInCol === 1 ? '' : 's'}. Move them to another column first so they remain visible.`,
+        confirmLabel: 'Keep column',
+        cancelLabel: 'Close',
+      });
+      return;
+    }
+    const message = `Remove the “${colLabel}” column from this view? This does not delete the status option. If records use it later, the column will appear again.`;
     const ok = await confirm({
       title: 'Remove column',
       message,

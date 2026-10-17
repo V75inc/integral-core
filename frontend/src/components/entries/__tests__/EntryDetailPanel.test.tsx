@@ -59,7 +59,7 @@ describe('companion panel reachability', () => {
   });
 
   it('defaults pages to a closed panel and offers full-page navigation for saved dialogs', () => {
-    expect(source()).toContain("useState(variant !== 'page')");
+    expect(source()).toContain("settings.appearance.entryDetailsPanelOpen ?? (variant !== 'page')");
     expect(source()).toContain("variant !== 'page' && !isEditing");
     expect(source()).toContain('navigateToEntryPage(entryPagePath(entry.id))');
     expect(source()).toContain('pagePanelTriggerRef.current?.focus()');

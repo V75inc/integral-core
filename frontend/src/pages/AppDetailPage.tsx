@@ -134,8 +134,8 @@ export function AppDetailPage() {
   // Plan 08-04 — derive-library-package modal for SET-05.
   const [deriveModalOpen, setDeriveModalOpen] = useState(false);
   const queryClient = useQueryClient();
-  // Value is unread — only the setter is used, to keep the fetch's shape.
-  const [, setTrackTemplates] = useState<{ id: string; name: string }[]>([]);
+  const [trackTemplates, setTrackTemplates] = useState<{ id: string; name: string }[]>([]);
+  const [deletingTemplate, setDeletingTemplate] = useState<string | null>(null);
   const [trackSearch, setTrackSearch] = useState('');
   const [collaboratorsModalOpen, setCollaboratorsModalOpen] = useState(false);
   const [collaboratorTotal, setCollaboratorTotal] = useState<number | null>(null);
@@ -867,6 +867,21 @@ export function AppDetailPage() {
       </SearchRow>
 
       {/* Track-level "Apply template" lives on the Track page menu (appsApi.applyTrackTemplateToTrack). */}
+      {canAdmin && trackTemplates.length > 0 && <section aria-label="Track templates" className="mb-6 space-y-2">
+        <Text as="h2" variant="heading-sm">Track templates</Text>
+        {trackTemplates.map(template => <div key={template.id} className="flex items-center justify-between gap-3">
+          <Text>{template.name}</Text>
+          <Button size="sm" variant="outline" disabled={deletingTemplate !== null}
+            aria-label={`Delete track template ${template.name}`}
+            onClick={async () => {
+              if (!appId || deletingTemplate !== null || !await confirm({ title: 'Delete track template?', message: `Delete “${template.name}”? Existing Tracks must retain their data and schema. Templates still used by reference cannot be removed.`, confirmLabel: 'Delete template', variant: 'danger' })) return;
+              setDeletingTemplate(template.id);
+              try { await appsApi.deleteTrackTemplate(appId, template.id); await load(); }
+              catch (error) { showToast(errorMessageFromAxios(error, 'Could not delete the track template'), 'error'); }
+              finally { setDeletingTemplate(null); }
+            }}>Delete template</Button>
+        </div>)}
+      </section>}
       <div className="grid grid-cols-1 gap-6">
         <div className="min-w-0">
           {tracks.length === 0 ? (

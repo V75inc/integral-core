@@ -793,6 +793,14 @@ approval timestamp. Design acceptance is not a receipt for the subsequent App
 build. Obsolete staged design cards refuse effects instead of approving a
 replacement design from an old payload.
 
+A Core adapter refusal that rolls back a worker transaction must retain a
+failed capability receipt under the same current worker fence after rollback.
+Receipt retention never reruns the adapter or commits its partial mutations.
+Only audited pre-effect refusals may qualify terminal conversation recovery:
+`integral_propose_design` / `invalid_blueprint` validates before recording a
+proposal; the approved-builder validation errors retain their existing narrow
+contract. Unknown effects and historical missing receipts remain blocked.
+
 **Additional verification:**
 `backend/tests/native_harness/wp_06/test_native_design_approval_postgres.py` and
 `backend/tests/test_legacy_design_approval.py`.
@@ -907,3 +915,7 @@ and dispatcher-level changed-message cases in
 The invariant IDs are stable references. Retired A2A IDs impose no runtime contract and are removed from the active catalog; historical records remain in Git. Active authority and admission clauses are not weakened by removing milestone prose.
 
 Run relevant invariant and behavior tests, the staged guards, and the broad local gate for substrate changes. PostgreSQL transaction/CAS proof, browser readback, artifacts, and deployment qualification remain separate. See [contributing](developer/CONTRIBUTING.md) and [qualification](ops/QUALIFICATION.md).
+
+### Track visibility choices (2026-10-17 policy revision)
+
+Apps and Tracks default to Private. New Track visibility writes permit only `private`, `workspace`, and `public`; `inherit` is a legacy read value, never a new explicit choice. Unrelated edits must preserve legacy visibility unless an owner deliberately chooses a replacement. Empty visibility updates resolve to Private. This retires the visibility selector mode without changing I-ROLE-02 collaborator propagation or exclusions. See `docs/product/ARCHITECTURE.md` for conversion policy.

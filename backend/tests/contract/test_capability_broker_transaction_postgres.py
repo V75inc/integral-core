@@ -152,8 +152,9 @@ async def test_transactional_permission_fanout_preserves_entries_and_denials(
 @pytest.mark.contract
 @pytest.mark.postgres
 @pytest.mark.asyncio
+@pytest.mark.parametrize("refuse", [False, True])
 async def test_native_tool_calls_link_distinct_receipts_to_durable_work(
-    postgres_raw_db, monkeypatch
+    postgres_raw_db, monkeypatch, refuse
 ):
     """Exercise native wrapper, lease fence, broker metadata and actual receipts."""
     from types import SimpleNamespace
@@ -187,10 +188,12 @@ async def test_native_tool_calls_link_distinct_receipts_to_durable_work(
         parent = build_work_execution_context(
             work_item=item, logical_step_key="provider:0"
         )
+        tool_name = "integral_propose_design" if refuse else "integral_list_tracks"
+        op_class = "propose" if refuse else "read"
         snapshot = {
             "manifest_version": "1.0.0",
             "fingerprint": "synthetic",
-            "capabilities": [{"name": "integral_list_tracks", "op_class": "read"}],
+            "capabilities": [{"name": tool_name, "op_class": op_class}],
         }
         run = await AgentRun.create(
             run_id=parent.run_id,
@@ -209,6 +212,20 @@ async def test_native_tool_calls_link_distinct_receipts_to_durable_work(
 
         async def adapter(invocation, declaration):
             calls.append(invocation.work_execution_context)
+            if refuse:
+                from app.agentive.services.capability_adapters import AdapterError
+
+                async with work_items.authorized_work_item_effect(
+                    invocation.work_execution_context
+                ):
+                    changed = await AgentRun.get(run.id)
+                    changed.metadata = {"must_rollback": True}
+                    await changed.save()
+                    raise AdapterError(
+                        "invalid_blueprint",
+                        "Correct the blueprint",
+                        next_tool=tool_name,
+                    )
             return {"tracks": []}
 
         monkeypatch.setattr(
@@ -230,29 +247,44 @@ async def test_native_tool_calls_link_distinct_receipts_to_durable_work(
             work_execution_context=parent,
             catalogue=[
                 {
-                    "name": "integral_list_tracks",
+                    "name": tool_name,
                     "description": "List tracks.",
                     "input_schema": {"type": "object", "properties": {}},
                 }
             ],
         )
-        tool = next(t for t in tools if t.name == "integral_list_tracks")
+        tool = next(t for t in tools if t.name == tool_name)
         for identity in ("call-a", "call-b", "call-a"):
             result = await tool.function_schema.call(
-                {}, SimpleNamespace(tool_call_id=identity, active_capability_ids=set())
+                {},
+                SimpleNamespace(
+                    tool_call_id=identity, active_capability_ids={"integral-scaffold"}
+                ),
             )
-            assert not result.get("error"), result
+            assert bool(result.get("error")) is refuse, result
+            if refuse:
+                assert result["error_code"] == "invalid_blueprint"
+                assert result["_receipt"]["status"] == "failed"
         assert len(calls) == 2
         assert calls[0].effect_key != calls[1].effect_key
         steps = await RunStep.find({"run_id": parent.run_id})
         assert len(steps) == 2
         assert all(
-            s.work_item_id == item.work_item_id and s.status == "succeeded"
+            s.work_item_id == item.work_item_id
+            and s.status == ("failed" if refuse else "succeeded")
             for s in steps
         )
         persisted = await AgentRun.get(run.id)
-        assert set(persisted.metadata["logical_steps"]) == {
-            c.logical_step_key for c in calls
-        }
+        if refuse:
+            from app.agentive.harness.effect_reconciliation import (
+                is_pre_effect_rejection,
+            )
+
+            assert "must_rollback" not in persisted.metadata
+            assert all(is_pre_effect_rejection(step) for step in steps)
+        else:
+            assert set(persisted.metadata["logical_steps"]) == {
+                c.logical_step_key for c in calls
+            }
     finally:
         _default_context_var.reset(token)

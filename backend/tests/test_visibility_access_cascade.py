@@ -372,3 +372,32 @@ async def test_member_list_apps_scoped_to_org_workspace(
     assert resp.status_code == 200
     ids = [a["id"] for a in resp.json()["apps"]]
     assert app.id in ids
+
+
+@pytest.mark.asyncio
+async def test_retired_inherit_write_and_legacy_metadata_edit(
+    authenticated_client: AsyncClient, test_user
+):
+    owner = await User.get(test_user.id)
+    assert owner is not None
+    _ws, _app, legacy, _standalone = await _org_fixture(owner=owner)
+    # Existing stored values retain their ACL semantics on unrelated edits.
+    response = await authenticated_client.put(
+        f"/api/tracks/{legacy.id}", json={"purpose": "Updated purpose"}
+    )
+    assert response.status_code == 200, response.text
+    assert (await Track.get(legacy.id)).visibility == "inherit"
+    response = await authenticated_client.put(
+        f"/api/tracks/{legacy.id}", json={"visibility": "inherit"}
+    )
+    assert response.status_code == 400, response.text
+    assert (await Track.get(legacy.id)).visibility == "inherit"
+    response = await authenticated_client.put(
+        f"/api/tracks/{legacy.id}", json={"visibility": "private"}
+    )
+    assert response.status_code == 200, response.text
+    assert (await Track.get(legacy.id)).visibility == "private"
+    response = await authenticated_client.post(
+        "/api/tracks", json={"title": "Forbidden mode", "visibility": "inherit"}
+    )
+    assert response.status_code == 400, response.text

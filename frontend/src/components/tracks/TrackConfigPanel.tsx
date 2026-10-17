@@ -32,6 +32,7 @@ import { SchemaSection } from './settings/SchemaSection';
 import { ViewSettingsModal } from './ViewSettingsModal';
 import { CreateViewPickerModal } from './CreateViewPickerModal';
 import type { SavedView } from '../../types';
+import { orderSavedViews } from '../../utils/savedViewTabs';
 
 interface TrackConfigPanelProps {
   trackId: string;
@@ -62,7 +63,8 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
     queryKey: viewsForTrackQueryKey(trackId),
     queryFn: () => trackViewsApi.list(trackId)
   });
-  const views = useMemo(() => viewsQuery.data ?? [], [viewsQuery.data]);
+  const views = useMemo(() => orderSavedViews(viewsQuery.data ?? []), [viewsQuery.data]);
+  const [orderingViews, setOrderingViews] = useState(false);
 
   const loading =
     entryTypesQuery.isLoading || tagsQuery.isLoading || viewsQuery.isLoading;
@@ -86,6 +88,26 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
   const designerEnabled = isViewDesignerEnabled();
 
   // --- Actions ---
+
+  const moveView = async (id: string, delta: number) => {
+    if (orderingViews) return;
+    const next = [...views];
+    const index = next.findIndex(view => view.id === id);
+    const target = index + delta;
+    if (index < 0 || target < 0 || target >= next.length) return;
+    [next[index], next[target]] = [next[target], next[index]];
+    setOrderingViews(true);
+    try {
+      for (const [position, view] of next.entries()) {
+        await trackViewsApi.update(view.id, { config: { ...view.config, tab_order: position } });
+      }
+    } catch {
+      showToast('Could not finish reordering views. Check their current order and retry.', 'error');
+    } finally {
+      await queryClient.invalidateQueries({ queryKey: viewsForTrackQueryKey(trackId) });
+      setOrderingViews(false);
+    }
+  };
 
   const addTag = async () => {
     if (!newTag.trim()) return;
@@ -363,6 +385,8 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
                     ),
                     onClick: () => setViewHidden(v.id, !v.hidden)
                   },
+                  { key: 'move-earlier', label: 'Move earlier', disabled: orderingViews || views[0]?.id === v.id, onClick: () => void moveView(v.id, -1) },
+                  { key: 'move-later', label: 'Move later', disabled: orderingViews || views[views.length - 1]?.id === v.id, onClick: () => void moveView(v.id, 1) },
                   ...(isProtected
                     ? []
                     : [
@@ -383,9 +407,7 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
             return (
               <li
                 key={v.id}
-                className={`flex min-w-0 items-center justify-between gap-2 py-1 text-[13px] ${
-                  v.hidden ? 'opacity-55' : ''
-                }`}
+                className="flex min-w-0 items-center justify-between gap-2 py-1 text-[13px]"
               >
                 <span className="min-w-0 truncate">
                   {v.name}{' '}

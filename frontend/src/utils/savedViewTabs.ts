@@ -26,5 +26,15 @@ export function savedViewTabs(views: SavedView[]): SavedView[] {
       byDefinition.set(key, view);
     }
   }
-  return [...byDefinition.values()];
+  return orderSavedViews([...byDefinition.values()]);
+}
+
+export function orderSavedViews(views: SavedView[]): SavedView[] {
+  return views.map((view, index) => ({ view, index }))
+    .sort((a, b) => {
+      const aOrder = a.view.config?.tab_order;
+      const bOrder = b.view.config?.tab_order;
+      return (typeof aOrder === 'number' && Number.isFinite(aOrder) ? aOrder : a.index) -
+        (typeof bOrder === 'number' && Number.isFinite(bOrder) ? bOrder : b.index) || a.index - b.index;
+    }).map(item => item.view);
 }
