@@ -262,14 +262,44 @@ async def test_each_physical_request_has_own_logical_slot(physical_boundary):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "provider,model,source,credential_ref",
+    [
+        ("ollama_chat", "ollama_chat/synthetic", "local", "synthetic-generation"),
+        ("ollama_chat", "ollama_chat/synthetic", "local", None),
+        ("openai", "openai/gpt-4.1-mini", "platform", None),
+    ],
+)
 async def test_ordinary_chat_work_does_not_require_mandate(
-    physical_boundary, monkeypatch
+    physical_boundary, monkeypatch, provider, model, source, credential_ref
 ):
     b = physical_boundary
+    b.route = ResolvedModelRoute(
+        provider=provider,
+        model=model,
+        credential_source=source,
+        credential_ref=credential_ref,
+    )
+    b.transport._route = b.route
     monkeypatch.setattr(admission, "_is_mandate_work", AsyncMock(return_value=False))
     assert (await call(b)).status_code == 200
     assert b.events == ["dispatch_intent", "sdk", "responded"]
     assert b.settlement.await_count == 0
+    assert b.authority.await_count == 2
+    admission.assert_work_item_execution_current.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_unattributed_route_cannot_admit_mandate(physical_boundary):
+    b = physical_boundary
+    b.route = b.route.model_copy(update={"credential_ref": None})
+    b.transport._route = b.route
+    host_hooks.register_model_bounds_resolver(b.bounds)
+    host_hooks.register_model_price_resolver(b.price)
+    with pytest.raises(WorkError) as exc:
+        await call(b)
+    assert exc.value.code == "work.model_bounds_invalid"
+    assert b.events == ["bounds"]
 
 
 @pytest.mark.asyncio
@@ -478,10 +508,13 @@ async def test_missing_readiness_is_not_a_silent_fallback(physical_boundary):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("credential_ref", ["synthetic-generation", None])
 async def test_ordinary_chat_lease_revoked_during_receipt_prevents_sdk(
-    physical_boundary, monkeypatch
+    physical_boundary, monkeypatch, credential_ref
 ):
     b = physical_boundary
+    b.route = b.route.model_copy(update={"credential_ref": credential_ref})
+    b.transport._route = b.route
     monkeypatch.setattr(admission, "_is_mandate_work", AsyncMock(return_value=False))
     current = AsyncMock(side_effect=[None, WorkError("work.lease_lost")])
     monkeypatch.setattr(admission, "assert_work_item_execution_current", current)

@@ -4,11 +4,26 @@ from __future__ import annotations
 
 import hashlib
 from datetime import datetime
+from typing import Literal
 
 from pydantic import Field, model_validator
 
-from app.agentive.harness.contracts import HarnessExecutionScope, ModelRouteIdentity
+from app.agentive.harness.contracts import HarnessExecutionScope
 from app.schemas.agentive.work_mandate import CanonicalKey, MandateContract
+
+
+class ModelDispatchRoute(MandateContract):
+    """Credential-free route facts, including unattributed deployment routes.
+
+    Ordinary chat can use environment credentials without an operator-supplied
+    generation reference. Mandate admission separately validates the stricter
+    MandateModelRoute before pricing or dispatch.
+    """
+
+    provider: CanonicalKey
+    model: CanonicalKey
+    credential_source: Literal["workspace_byok", "platform", "local"]
+    credential_ref: CanonicalKey | None = None
 
 
 class ModelDispatchInput(MandateContract):
@@ -20,7 +35,7 @@ class ModelDispatchInput(MandateContract):
     """
 
     scope: HarnessExecutionScope
-    route: ModelRouteIdentity
+    route: ModelDispatchRoute
     request_id: CanonicalKey
     sdk_payload_json: str = Field(repr=False)
     endpoint_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
