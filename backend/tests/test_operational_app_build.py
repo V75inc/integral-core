@@ -43,6 +43,14 @@ def test_completeness_is_per_track():
     assert len(scaffold_missing(ops, allow_empty=True)) == 1
 
 
+def test_explicitly_blank_app_does_not_require_invented_track():
+    ops = [_op("create_app", name="QATesting")]
+
+    assert scaffold_missing(ops) == ["integral_create_app_track for app 'QATesting'"]
+    assert scaffold_missing(ops, allow_empty=True) == []
+    assert [op["kind"] for op in ops] == ["create_app"]
+
+
 def test_empty_table_does_not_count_as_a_materialized_scaffold_view():
     ops = [
         _op("create_app", name="Operations"),
