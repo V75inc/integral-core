@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 from datetime import date, datetime
 from numbers import Real
 from typing import Any, Awaitable, Callable, Dict, List, Optional
@@ -28,6 +29,8 @@ from app.services.query_boundary import generic_entry_read
 from app.services.query_filters import entry_field_value, filter_matches
 from app.services.workspace_permissions import can_access_workspace
 from app.utils.time import utc_now_iso
+
+logger = logging.getLogger(__name__)
 
 TargetGate = Callable[[str, str], Awaitable[bool]]
 
@@ -490,6 +493,14 @@ async def _run_declared(
                 details={"error_code": "capability_not_found"},
             )
         else:
+            logger.warning(
+                "governed_query: declared query %r exposed by %d app_ids in "
+                "workspace %s: %s (stale bucket if an app_id has no App node)",
+                bare,
+                len(matches),
+                workspace_id,
+                matches,
+            )
             raise BadRequestError(
                 message=f"declared query {key!r} is ambiguous; pass app_id",
                 details={"error_code": "capability_ambiguous", "apps": matches},

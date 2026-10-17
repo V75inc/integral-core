@@ -1906,6 +1906,7 @@ export function EntryDetail({
                     fromTitle: entry.title || 'Untitled',
                   }}
                   onCommitField={canEdit ? commitCustomField : undefined}
+                  entryId={canEdit ? entry.id : undefined}
                 />
               </div>
               ) : null}

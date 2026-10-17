@@ -117,7 +117,10 @@ class TestAttachmentsCRUD:
         filename = att.get("filename") or att.get("context", {}).get("filename")
         assert filename == "doc.pdf"
         assert "download_url" in data
-        assert data["download_url"] == f"/api/attachments/{attachment_id}/download"
+        # Session-free signed URL (local provider) served by Core's own storage.
+        assert data["download_url"].startswith(
+            f"/api/attachments/{attachment_id}/inline?exp="
+        )
 
     async def test_stream_attachment_file(
         self, authenticated_client: AsyncClient, test_user

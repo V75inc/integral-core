@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useContext, useState, type ReactNode } from 'react';
 import { Pencil, X } from 'lucide-react';
 import { AppSelect, DatePicker } from '../ui';
 import type { OperationalModelFieldSpec } from '../../types';
@@ -18,6 +18,7 @@ import {
 } from './fieldLabel';
 import { projectComputedValues } from './computedExpression';
 import type { RelationNavContext } from './relations/routeForRelationTarget';
+import { ExternalLabelContext } from './fieldLabelContext';
 
 /** Resolve a single relation id via the shared cache when the picker's
  *  preloaded opts don't cover it (cross-track relation, late preload, etc.).
@@ -137,6 +138,7 @@ function SeamlessShell({
   className?: string;
 }) {
   const required = isFieldRequired(field);
+  const externalLabel = useContext(ExternalLabelContext);
   return (
     <div
       className={`
@@ -146,7 +148,9 @@ function SeamlessShell({
       `}
       aria-required={required || undefined}
     >
-      {!hideLabel && <FloatingLabel show={showLabel} name={field.name} required={required} />}
+      {!(hideLabel || externalLabel) && (
+        <FloatingLabel show={showLabel} name={field.name} required={required} />
+      )}
       {children}
     </div>
   );
@@ -957,7 +961,7 @@ function SeamlessFallbackTextInner({
   );
 }
 
-export function SeamlessField(props: SeamlessFieldProps) {
+function SeamlessFieldInner(props: SeamlessFieldProps) {
   const {
     field: rawField,
     value,
@@ -1259,5 +1263,20 @@ export function SeamlessField(props: SeamlessFieldProps) {
       placeholder={placeholder}
       readonly={readonly}
     />
+  );
+}
+
+/**
+ * Field renderer. ``externalLabel`` tells the control that the *caller* already
+ * renders the label (the detail grid / card), so no inner control should draw its
+ * own floating label — otherwise the two overlap (e.g. "PIPELINE STATUS" over
+ * "Pipeline status *"). The flag is published via context so every inner honors it
+ * without each one threading the prop.
+ */
+export function SeamlessField(props: SeamlessFieldProps) {
+  return (
+    <ExternalLabelContext.Provider value={Boolean(props.externalLabel)}>
+      <SeamlessFieldInner {...props} />
+    </ExternalLabelContext.Provider>
   );
 }

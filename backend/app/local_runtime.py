@@ -527,9 +527,20 @@ def _environment(
         "INTEGRAL_RECOVERY_MARKER": str(home / "recovery.json"),
         "JVSPATIAL_FILES_ROOT_PATH": str(home / "files"),
         "JVSPATIAL_CORS_ORIGINS": f"http://127.0.0.1:{web_port}",
-        "OAUTH_ISSUER_URL": f"http://127.0.0.1:{api_port}",
+        # The OAuth issuer/resource must be the externally-advertised origin —
+        # the same single origin the UI hands to MCP clients and the web app
+        # serves (mirrors the prod one-origin model). The api_port is internal
+        # (the web app proxies to it), so naming it here made credentialed MCP
+        # clients refuse the cross-origin hop to api_port/api/mcp/.
+        "OAUTH_ISSUER_URL": f"http://127.0.0.1:{web_port}",
         "FRONTEND_ORIGIN": f"http://127.0.0.1:{web_port}",
         "APP_BASE_URL": f"http://127.0.0.1:{web_port}",
+        # Session-free attachment delivery: the jvspatial storage/`/p` routes are
+        # served on the API origin (reachable loopback by local channel adapters),
+        # so attachment URLs can be made public without a Core session. The proxy
+        # manager backs the unauthenticated `/p/{code}` route.
+        "JVSPATIAL_FILE_STORAGE_BASE_URL": f"http://127.0.0.1:{api_port}",
+        "JVSPATIAL_PROXY_ENABLED": "true",
         "EMAIL_PROVIDER": "console",
         "RATE_LIMIT_DISABLED": "0",
         "INTEGRAL_NATIVE_DURABLE_CHAT_ENABLED": "true",
