@@ -1,6 +1,9 @@
 """Named relation seeds survive binding without weakening approved values."""
 
+import json
+from contextlib import AsyncExitStack
 from copy import deepcopy
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -11,6 +14,12 @@ from app.agentive.tooling.dispatch import ToolResult
 from app.services.design_blueprint import plan_fidelity_errors, validate_blueprint
 
 pytestmark = pytest.mark.smoke
+
+REPORTED_PROMPTS = json.loads(
+    (
+        Path(__file__).parent / "fixtures" / "oct14_personal_manager_prompts.json"
+    ).read_text()
+)
 
 
 def scenario():
@@ -267,7 +276,9 @@ async def test_full_approved_plan_reaches_commit(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("legacy", ["new", "before_rename", "already_renamed"])
-async def test_actual_batch_build_and_graph_readback(test_user, legacy):
+async def test_actual_batch_build_and_graph_readback(
+    test_user, legacy, *, held_transaction=False
+):
     """Real staging/executor/permission/readback with a trusted approval fixture."""
     from app.models.edges import CONTAINS, REFERENCES
     from app.models.nodes import Track
@@ -301,7 +312,7 @@ async def test_actual_batch_build_and_graph_readback(test_user, legacy):
     await chat_threads.append_message(
         thread=thread,
         role="user",
-        parts=[{"type": "text", "text": "Create Personal Life Manager"}],
+        parts=[{"type": "text", "text": REPORTED_PROMPTS["create"]}],
     )
     await chat_threads.append_message(
         thread=thread,
@@ -310,13 +321,20 @@ async def test_actual_batch_build_and_graph_readback(test_user, legacy):
     )
     _reset_for_tests()
     try:
-        result = await scaffold_build.build_approved_design(
-            {"operations": plan},
-            principal_id=principal,
-            scope=workspace.id,
-            session_id=session,
-            interaction_id="smoke-build",
-        )
+        async with AsyncExitStack() as stack:
+            if held_transaction:
+                from app.services.app_operations.transaction_scope import (
+                    postgres_graph_transaction,
+                )
+
+                await stack.enter_async_context(postgres_graph_transaction())
+            result = await scaffold_build.build_approved_design(
+                {"operations": plan},
+                principal_id=principal,
+                scope=workspace.id,
+                session_id=session,
+                interaction_id="smoke-build",
+            )
         assert not result.is_error, (result.error_code, result.message, result.data)
         assert result.data["completed"] == 19
         tracks = await Track.find({"context.workspace_id": workspace.id})
@@ -375,6 +393,11 @@ async def test_actual_batch_build_and_graph_readback(test_user, legacy):
             await business_track.save()
         before_track_ids = {t.id for t in tracks}
         before_entry_ids = {e.id for e in entries}
+        await chat_threads.append_message(
+            thread=thread,
+            role="user",
+            parts=[{"type": "text", "text": REPORTED_PROMPTS["update"]}],
+        )
         changes = [
             (
                 "integral_update_app",
@@ -495,3 +518,33 @@ async def test_actual_batch_build_and_graph_readback(test_user, legacy):
         assert (await get_token(token)).last_error is None
     finally:
         _reset_for_tests()
+
+
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_nested_build_does_not_broadcast_to_foreign_subscriber(
+    test_user, second_user, monkeypatch
+):
+    """A foreign subscriber must not poison the worker's App-build transaction."""
+    from unittest.mock import AsyncMock
+
+    from app.services.app_operations.transaction_scope import (
+        graph_transaction_available,
+    )
+    from app.services.event_subscription_registry import (
+        register_subscription,
+        unregister_subscription,
+    )
+
+    if not graph_transaction_available():
+        pytest.skip("Requires PostgreSQL graph transactions")
+    monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "22" * 32)
+    socket = SimpleNamespace(send_text=AsyncMock())
+    await register_subscription(second_user.user_id, socket)
+    try:
+        await test_actual_batch_build_and_graph_readback(
+            test_user, "new", held_transaction=True
+        )
+        socket.send_text.assert_not_awaited()
+    finally:
+        await unregister_subscription(second_user.user_id, socket)
