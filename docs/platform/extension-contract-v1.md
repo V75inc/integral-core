@@ -149,3 +149,7 @@ Changing the declaration between preparation and dispatch rejects the call.
 This flag grants no permission or autonomous-work admission. Installing an App
 with direct operations accepts unattended agent writes for those operations;
 operation discovery exposes the effective `agent_invocation` value.
+
+## App-owned computed relation updates
+
+The owning App mutation facade may maintain readonly relation fields after active-App ownership, workspace, principal, policy, revision and protected-state admission. Readonly continues to block direct record edits. A changed relation target still requires current read access and canonical declared containment; the unchanged-legacy-reference exception does not authorize new bindings.

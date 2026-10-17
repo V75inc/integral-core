@@ -22,4 +22,4 @@ for dated checks against a specific source or artifact.
 | [014](014-app-background-jobs.md) | Background jobs for Apps | Proposed boundary |
 
 Update the relevant ADR when a durable boundary changes. Routine implementation
-and qualification results belong in Git and the dated qualification records.
+and qualification results belong in Git and the maintained release qualification record.

@@ -177,7 +177,7 @@
     ],
     "source": "backend/app/agentive/api/connectors.py",
     "handler": "list_connectors",
-    "line": 560
+    "line": 565
   },
   {
     "path": "/agentive/connectors",
@@ -186,7 +186,7 @@
     ],
     "source": "backend/app/agentive/api/connectors.py",
     "handler": "post_create_connector",
-    "line": 187
+    "line": 190
   },
   {
     "path": "/agentive/connectors/catalog",
@@ -195,7 +195,7 @@
     ],
     "source": "backend/app/agentive/api/connectors.py",
     "handler": "list_connector_catalog_endpoint",
-    "line": 237
+    "line": 240
   },
   {
     "path": "/agentive/connectors/catalog/{slug}",
@@ -204,7 +204,7 @@
     ],
     "source": "backend/app/agentive/api/connectors.py",
     "handler": "get_connector_catalog_entry_endpoint",
-    "line": 263
+    "line": 266
   },
   {
     "path": "/agentive/connectors/catalog/{slug}/install",
@@ -213,7 +213,7 @@
     ],
     "source": "backend/app/agentive/api/connectors.py",
     "handler": "install_connector_from_catalog_endpoint",
-    "line": 289
+    "line": 292
   },
   {
     "path": "/agentive/connectors/gmail/oauth/callback",
@@ -222,7 +222,7 @@
     ],
     "source": "backend/app/agentive/api/connectors.py",
     "handler": "post_gmail_oauth_callback",
-    "line": 2920
+    "line": 2939
   },
   {
     "path": "/agentive/connectors/gmail/oauth/start",
@@ -231,7 +231,7 @@
     ],
     "source": "backend/app/agentive/api/connectors.py",
     "handler": "post_gmail_oauth_start",
-    "line": 2884
+    "line": 2903
   },
   {
     "path": "/agentive/connectors/mcp/mount",
@@ -240,7 +240,7 @@
     ],
     "source": "backend/app/agentive/api/connectors.py",
     "handler": "mount_mcp_connector_endpoint",
-    "line": 842
+    "line": 847
   },
   {
     "path": "/agentive/connectors/mcp/registry/mount",
@@ -249,7 +249,7 @@
     ],
     "source": "backend/app/agentive/api/connectors.py",
     "handler": "mount_mcp_from_registry_endpoint",
-    "line": 2244
+    "line": 2249
   },
   {
     "path": "/agentive/connectors/mcp/registry/preview",
@@ -258,7 +258,7 @@
     ],
     "source": "backend/app/agentive/api/connectors.py",
     "handler": "preview_mcp_registry_mount_endpoint",
-    "line": 2214
+    "line": 2219
   },
   {
     "path": "/agentive/connectors/mcp/registry/search",
@@ -267,7 +267,7 @@
     ],
     "source": "backend/app/agentive/api/connectors.py",
     "handler": "search_mcp_registry_endpoint",
-    "line": 2152
+    "line": 2157
   },
   {
     "path": "/agentive/connectors/mcp/registry/servers",
@@ -276,7 +276,7 @@
     ],
     "source": "backend/app/agentive/api/connectors.py",
     "handler": "get_mcp_registry_server_endpoint",
-    "line": 2190
+    "line": 2195
   },
   {
     "path": "/agentive/connectors/quickbooks/authorize",
@@ -285,7 +285,7 @@
     ],
     "source": "backend/app/agentive/api/connectors.py",
     "handler": "post_quickbooks_authorize",
-    "line": 2649
+    "line": 2666
   },
   {
     "path": "/agentive/connectors/quickbooks/callback",
@@ -294,7 +294,7 @@
     ],
     "source": "backend/app/agentive/api/connectors.py",
     "handler": "post_quickbooks_callback",
-    "line": 2698
+    "line": 2715
   },
   {
     "path": "/agentive/connectors/{connector_id}",
@@ -303,7 +303,7 @@
     ],
     "source": "backend/app/agentive/api/connectors.py",
     "handler": "delete_connector_by_id",
-    "line": 748
+    "line": 753
   },
   {
     "path": "/agentive/connectors/{connector_id}",
@@ -312,7 +312,7 @@
     ],
     "source": "backend/app/agentive/api/connectors.py",
     "handler": "get_connector_by_id",
-    "line": 458
+    "line": 461
   },
   {
     "path": "/agentive/connectors/{connector_id}",
@@ -321,7 +321,7 @@
     ],
     "source": "backend/app/agentive/api/connectors.py",
     "handler": "patch_connector",
-    "line": 639
+    "line": 644
   },
   {
     "path": "/agentive/connectors/{connector_id}/bindings",
@@ -330,7 +330,7 @@
     ],
     "source": "backend/app/agentive/api/connectors.py",
     "handler": "list_bindings",
-    "line": 2499
+    "line": 2515
   },
   {
     "path": "/agentive/connectors/{connector_id}/bindings",
@@ -339,7 +339,7 @@
     ],
     "source": "backend/app/agentive/api/connectors.py",
     "handler": "post_create_binding",
-    "line": 2356
+    "line": 2362
   },
   {
     "path": "/agentive/connectors/{connector_id}/bindings/{track_id}",
@@ -348,7 +348,7 @@
     ],
     "source": "backend/app/agentive/api/connectors.py",
     "handler": "delete_binding",
-    "line": 2561
+    "line": 2578
   },
   {
     "path": "/agentive/connectors/{connector_id}/gmail/labels",
@@ -357,7 +357,7 @@
     ],
     "source": "backend/app/agentive/api/connectors.py",
     "handler": "get_gmail_labels",
-    "line": 3020
+    "line": 3041
   },
   {
     "path": "/agentive/connectors/{connector_id}/gmail/labels",
@@ -366,7 +366,7 @@
     ],
     "source": "backend/app/agentive/api/connectors.py",
     "handler": "post_gmail_set_labels",
-    "line": 3073
+    "line": 3094
   },
   {
     "path": "/agentive/connectors/{connector_id}/health",
@@ -375,7 +375,7 @@
     ],
     "source": "backend/app/agentive/api/connectors.py",
     "handler": "get_mcp_connector_health",
-    "line": 1251
+    "line": 1256
   },
   {
     "path": "/agentive/connectors/{connector_id}/mcp/reauthorize",
@@ -384,7 +384,7 @@
     ],
     "source": "backend/app/agentive/api/connectors.py",
     "handler": "reauthorize_mcp_connector_endpoint",
-    "line": 1087
+    "line": 1092
   },
   {
     "path": "/agentive/connectors/{connector_id}/mcp/refresh",
@@ -393,7 +393,7 @@
     ],
     "source": "backend/app/agentive/api/connectors.py",
     "handler": "refresh_mcp_connector_endpoint",
-    "line": 1017
+    "line": 1022
   },
   {
     "path": "/agentive/connectors/{connector_id}/tools",
@@ -402,7 +402,7 @@
     ],
     "source": "backend/app/agentive/api/connectors.py",
     "handler": "list_connector_tools",
-    "line": 1313
+    "line": 1318
   },
   {
     "path": "/agentive/conversations/context",
@@ -654,7 +654,7 @@
     ],
     "source": "backend/app/agentive/api/staging.py",
     "handler": "render_pending_endpoint",
-    "line": 356
+    "line": 359
   },
   {
     "path": "/agentive/staging/render/{token}",
@@ -663,7 +663,7 @@
     ],
     "source": "backend/app/agentive/api/staging.py",
     "handler": "render_token_endpoint",
-    "line": 313
+    "line": 316
   },
   {
     "path": "/agentive/staging/revoke-token",
@@ -699,7 +699,7 @@
     ],
     "source": "backend/app/agentive/api/staging.py",
     "handler": "text_approve_endpoint",
-    "line": 397
+    "line": 400
   },
   {
     "path": "/agentive/staging/token/{token}",
@@ -855,6 +855,177 @@
     "line": 208
   },
   {
+    "path": "/access-groups/{group_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/access_delegation.py",
+    "handler": "delete_access_group",
+    "line": 237
+  },
+  {
+    "path": "/access-groups/{group_id}/members",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/access_delegation.py",
+    "handler": "list_access_group_members",
+    "line": 223
+  },
+  {
+    "path": "/access-groups/{group_id}/members/{user_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/access_delegation.py",
+    "handler": "remove_access_group_member",
+    "line": 159
+  },
+  {
+    "path": "/access-groups/{group_id}/members/{user_id}",
+    "methods": [
+      "PUT"
+    ],
+    "source": "backend/app/api/access_delegation.py",
+    "handler": "add_access_group_member",
+    "line": 139
+  },
+  {
+    "path": "/action-bindings/{binding_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/access_delegation.py",
+    "handler": "revoke_app_action_binding",
+    "line": 209
+  },
+  {
+    "path": "/apps/{app_id}/action-bindings",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/access_delegation.py",
+    "handler": "list_app_action_bindings",
+    "line": 193
+  },
+  {
+    "path": "/apps/{app_id}/action-bindings",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/access_delegation.py",
+    "handler": "create_app_action_binding",
+    "line": 176
+  },
+  {
+    "path": "/apps/{app_id}/actions/{operation_key}/decision",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/access_delegation.py",
+    "handler": "preview_app_action",
+    "line": 252
+  },
+  {
+    "path": "/workspaces/{workspace_id}/access-groups",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/access_delegation.py",
+    "handler": "list_access_groups",
+    "line": 120
+  },
+  {
+    "path": "/workspaces/{workspace_id}/access-groups",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/access_delegation.py",
+    "handler": "create_access_group",
+    "line": 102
+  },
+  {
+    "path": "/access/{resource_type}/{resource_id}/blocks",
+    "methods": [
+      "PUT"
+    ],
+    "source": "backend/app/api/access_lifecycle.py",
+    "handler": "block_resource_subject",
+    "line": 178
+  },
+  {
+    "path": "/me/ownership-proposals",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/access_lifecycle.py",
+    "handler": "ownership_inbox",
+    "line": 202
+  },
+  {
+    "path": "/ownership-proposals/{proposal_id}/respond",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/access_lifecycle.py",
+    "handler": "respond_ownership",
+    "line": 66
+  },
+  {
+    "path": "/shares/{link_id}/grants/{recipient_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/access_lifecycle.py",
+    "handler": "revoke_share_source",
+    "line": 137
+  },
+  {
+    "path": "/workspaces/{workspace_id}/members/{member_id}/suspension",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/access_lifecycle.py",
+    "handler": "review_member_suspension",
+    "line": 159
+  },
+  {
+    "path": "/workspaces/{workspace_id}/members/{member_id}/suspension",
+    "methods": [
+      "PUT"
+    ],
+    "source": "backend/app/api/access_lifecycle.py",
+    "handler": "suspend_workspace_member",
+    "line": 90
+  },
+  {
+    "path": "/workspaces/{workspace_id}/ownership-proposals",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/access_lifecycle.py",
+    "handler": "workspace_ownership_inventory",
+    "line": 218
+  },
+  {
+    "path": "/workspaces/{workspace_id}/ownership-proposals",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/access_lifecycle.py",
+    "handler": "propose_workspace_ownership",
+    "line": 45
+  },
+  {
+    "path": "/workspaces/{workspace_id}/rehome",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/access_lifecycle.py",
+    "handler": "rehome_workspace",
+    "line": 116
+  },
+  {
     "path": "/admin/packages",
     "methods": [
       "GET"
@@ -888,7 +1059,7 @@
     ],
     "source": "backend/app/api/admin_users.py",
     "handler": "admin_overview",
-    "line": 40
+    "line": 46
   },
   {
     "path": "/admin/users",
@@ -897,7 +1068,7 @@
     ],
     "source": "backend/app/api/admin_users.py",
     "handler": "admin_list_users",
-    "line": 48
+    "line": 55
   },
   {
     "path": "/admin/users",
@@ -906,7 +1077,7 @@
     ],
     "source": "backend/app/api/admin_users.py",
     "handler": "admin_create_user",
-    "line": 69
+    "line": 77
   },
   {
     "path": "/admin/users/{user_id}",
@@ -915,7 +1086,7 @@
     ],
     "source": "backend/app/api/admin_users.py",
     "handler": "admin_get_user",
-    "line": 98
+    "line": 107
   },
   {
     "path": "/admin/users/{user_id}",
@@ -924,7 +1095,7 @@
     ],
     "source": "backend/app/api/admin_users.py",
     "handler": "admin_patch_user",
-    "line": 106
+    "line": 116
   },
   {
     "path": "/admin/users/{user_id}/deactivate",
@@ -933,7 +1104,7 @@
     ],
     "source": "backend/app/api/admin_users.py",
     "handler": "admin_deactivate_user",
-    "line": 145
+    "line": 156
   },
   {
     "path": "/admin/users/{user_id}/delete",
@@ -942,7 +1113,7 @@
     ],
     "source": "backend/app/api/admin_users.py",
     "handler": "admin_delete_user",
-    "line": 284
+    "line": 300
   },
   {
     "path": "/admin/users/{user_id}/deletion-preview",
@@ -951,7 +1122,7 @@
     ],
     "source": "backend/app/api/admin_users.py",
     "handler": "admin_user_deletion_preview",
-    "line": 267
+    "line": 282
   },
   {
     "path": "/admin/users/{user_id}/demote-admin",
@@ -960,7 +1131,7 @@
     ],
     "source": "backend/app/api/admin_users.py",
     "handler": "admin_demote_user",
-    "line": 238
+    "line": 252
   },
   {
     "path": "/admin/users/{user_id}/promote-admin",
@@ -969,7 +1140,7 @@
     ],
     "source": "backend/app/api/admin_users.py",
     "handler": "admin_promote_user",
-    "line": 209
+    "line": 222
   },
   {
     "path": "/admin/users/{user_id}/reactivate",
@@ -978,7 +1149,7 @@
     ],
     "source": "backend/app/api/admin_users.py",
     "handler": "admin_reactivate_user",
-    "line": 180
+    "line": 192
   },
   {
     "path": "/admin/users/{user_id}/send-password-reset",
@@ -987,7 +1158,7 @@
     ],
     "source": "backend/app/api/admin_users.py",
     "handler": "admin_send_password_reset",
-    "line": 328
+    "line": 345
   },
   {
     "path": "/admin/apps",
@@ -996,7 +1167,7 @@
     ],
     "source": "backend/app/api/admin_workspaces.py",
     "handler": "admin_list_apps",
-    "line": 165
+    "line": 176
   },
   {
     "path": "/admin/apps/{app_id}",
@@ -1005,7 +1176,7 @@
     ],
     "source": "backend/app/api/admin_workspaces.py",
     "handler": "admin_get_app",
-    "line": 184
+    "line": 196
   },
   {
     "path": "/admin/tracks",
@@ -1014,7 +1185,7 @@
     ],
     "source": "backend/app/api/admin_workspaces.py",
     "handler": "admin_list_tracks",
-    "line": 200
+    "line": 214
   },
   {
     "path": "/admin/tracks/{track_id}",
@@ -1023,7 +1194,7 @@
     ],
     "source": "backend/app/api/admin_workspaces.py",
     "handler": "admin_get_track",
-    "line": 192
+    "line": 205
   },
   {
     "path": "/admin/workspaces",
@@ -1032,7 +1203,7 @@
     ],
     "source": "backend/app/api/admin_workspaces.py",
     "handler": "admin_list_workspaces",
-    "line": 29
+    "line": 35
   },
   {
     "path": "/admin/workspaces/{workspace_id}",
@@ -1041,7 +1212,7 @@
     ],
     "source": "backend/app/api/admin_workspaces.py",
     "handler": "admin_delete_workspace",
-    "line": 108
+    "line": 117
   },
   {
     "path": "/admin/workspaces/{workspace_id}",
@@ -1050,7 +1221,7 @@
     ],
     "source": "backend/app/api/admin_workspaces.py",
     "handler": "admin_get_workspace",
-    "line": 50
+    "line": 57
   },
   {
     "path": "/admin/workspaces/{workspace_id}",
@@ -1059,7 +1230,7 @@
     ],
     "source": "backend/app/api/admin_workspaces.py",
     "handler": "admin_patch_workspace",
-    "line": 63
+    "line": 71
   },
   {
     "path": "/admin/workspaces/{workspace_id}/members",
@@ -1068,7 +1239,7 @@
     ],
     "source": "backend/app/api/admin_workspaces.py",
     "handler": "admin_list_workspace_members",
-    "line": 146
+    "line": 156
   },
   {
     "path": "/workspaces/{workspace_id}/agent-preference",
@@ -1095,7 +1266,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "list_providers",
-    "line": 833
+    "line": 743
   },
   {
     "path": "/chat/providers/{provider_id}/agents",
@@ -1104,7 +1275,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "list_provider_agents",
-    "line": 919
+    "line": 829
   },
   {
     "path": "/chat/runs/{run_id}/qualification-export",
@@ -1113,7 +1284,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "export_qualification_run",
-    "line": 845
+    "line": 755
   },
   {
     "path": "/chat/threads",
@@ -1122,7 +1293,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "list_threads",
-    "line": 944
+    "line": 854
   },
   {
     "path": "/chat/threads",
@@ -1131,7 +1302,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "create_thread",
-    "line": 1048
+    "line": 958
   },
   {
     "path": "/chat/threads/{thread_id}",
@@ -1140,7 +1311,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "delete_thread",
-    "line": 1120
+    "line": 1030
   },
   {
     "path": "/chat/threads/{thread_id}",
@@ -1149,7 +1320,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "get_thread",
-    "line": 1093
+    "line": 1003
   },
   {
     "path": "/chat/threads/{thread_id}",
@@ -1158,7 +1329,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "rename_thread",
-    "line": 1105
+    "line": 1015
   },
   {
     "path": "/chat/threads/{thread_id}/agent-turn",
@@ -1167,7 +1338,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "agent_turn",
-    "line": 2880
+    "line": 2780
   },
   {
     "path": "/chat/threads/{thread_id}/cancel",
@@ -1176,7 +1347,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "cancel_thread",
-    "line": 3085
+    "line": 3049
   },
   {
     "path": "/chat/threads/{thread_id}/harness-sessions/{session_id}/export",
@@ -1185,7 +1356,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "export_harness_session_for_thread",
-    "line": 877
+    "line": 787
   },
   {
     "path": "/chat/threads/{thread_id}/messages",
@@ -1194,7 +1365,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "send_message",
-    "line": 1858
+    "line": 1795
   },
   {
     "path": "/chat/threads/{thread_id}/system-message",
@@ -1203,7 +1374,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "append_system_message",
-    "line": 3102
+    "line": 3066
   },
   {
     "path": "/chat/threads/{thread_id}/work-items/{work_item_id}/cancel",
@@ -1212,7 +1383,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "cancel_chat_turn",
-    "line": 766
+    "line": 676
   },
   {
     "path": "/chat/threads/{thread_id}/work-items/{work_item_id}/events",
@@ -1221,7 +1392,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "replay_chat_turn_events",
-    "line": 679
+    "line": 586
   },
   {
     "path": "/chat/threads/{thread_id}/work-items/{work_item_id}/stream",
@@ -1230,7 +1401,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "stream_chat_turn_events",
-    "line": 722
+    "line": 629
   },
   {
     "path": "/extension-view-frame",
@@ -1266,7 +1437,7 @@
     ],
     "source": "backend/app/api/app_extensions.py",
     "handler": "list_extension_views_route",
-    "line": 198
+    "line": 240
   },
   {
     "path": "/extensions/{app_id}/views/{view_key}/handshake",
@@ -1275,7 +1446,7 @@
     ],
     "source": "backend/app/api/app_extensions.py",
     "handler": "extension_view_handshake_route",
-    "line": 222
+    "line": 264
   },
   {
     "path": "/extensions/{app_id}/views/{view_key}/{asset_path:path}",
@@ -1284,7 +1455,7 @@
     ],
     "source": "backend/app/api/app_extensions.py",
     "handler": "serve_extension_view_asset_route",
-    "line": 255
+    "line": 297
   },
   {
     "path": "/approvals",
@@ -1320,7 +1491,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "list_apps",
-    "line": 91
+    "line": 83
   },
   {
     "path": "/apps",
@@ -1329,7 +1500,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "create_app",
-    "line": 180
+    "line": 172
   },
   {
     "path": "/apps/{app_id}",
@@ -1338,7 +1509,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "delete_app",
-    "line": 542
+    "line": 478
   },
   {
     "path": "/apps/{app_id}",
@@ -1347,7 +1518,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "get_app",
-    "line": 263
+    "line": 259
   },
   {
     "path": "/apps/{app_id}",
@@ -1356,7 +1527,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "update_app",
-    "line": 448
+    "line": 444
   },
   {
     "path": "/apps/{app_id}/collaborators",
@@ -1365,7 +1536,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "list_app_collaborators",
-    "line": 901
+    "line": 854
   },
   {
     "path": "/apps/{app_id}/collaborators",
@@ -1374,7 +1545,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "add_app_collaborator",
-    "line": 964
+    "line": 933
   },
   {
     "path": "/apps/{app_id}/collaborators/{collaborator_user_id}",
@@ -1383,7 +1554,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "remove_app_collaborator",
-    "line": 994
+    "line": 963
   },
   {
     "path": "/apps/{app_id}/collaborators/{collaborator_user_id}",
@@ -1392,7 +1563,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "update_app_collaborator_role",
-    "line": 1019
+    "line": 988
   },
   {
     "path": "/apps/{app_id}/definition",
@@ -1401,7 +1572,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "get_app_definition",
-    "line": 305
+    "line": 301
   },
   {
     "path": "/apps/{app_id}/definition/preview",
@@ -1410,7 +1581,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "preview_app_definition",
-    "line": 394
+    "line": 390
   },
   {
     "path": "/apps/{app_id}/definition/verify",
@@ -1419,7 +1590,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "verify_app_definition",
-    "line": 338
+    "line": 334
   },
   {
     "path": "/apps/{app_id}/export",
@@ -1428,7 +1599,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "export_app",
-    "line": 430
+    "line": 426
   },
   {
     "path": "/apps/{app_id}/install/settings",
@@ -1437,7 +1608,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "finalize_install_endpoint",
-    "line": 1983
+    "line": 1949
   },
   {
     "path": "/apps/{app_id}/operational-model",
@@ -1446,7 +1617,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "get_app_operational_model",
-    "line": 1255
+    "line": 1220
   },
   {
     "path": "/apps/{app_id}/operational-model",
@@ -1455,7 +1626,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "patch_app_operational_model",
-    "line": 1283
+    "line": 1248
   },
   {
     "path": "/apps/{app_id}/operational-model/apply",
@@ -1464,7 +1635,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "apply_app_operational_model_library",
-    "line": 1480
+    "line": 1444
   },
   {
     "path": "/apps/{app_id}/operational-model/merge-library",
@@ -1473,7 +1644,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "merge_library_into_app_operational_model",
-    "line": 1351
+    "line": 1316
   },
   {
     "path": "/apps/{app_id}/operational-model/preview",
@@ -1482,7 +1653,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "preview_app_operational_model_merge",
-    "line": 1445
+    "line": 1409
   },
   {
     "path": "/apps/{app_id}/operational-model/track-templates",
@@ -1491,7 +1662,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "list_app_track_templates",
-    "line": 1570
+    "line": 1533
   },
   {
     "path": "/apps/{app_id}/operational-model/track-templates",
@@ -1500,7 +1671,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "create_app_track_template",
-    "line": 1599
+    "line": 1562
   },
   {
     "path": "/apps/{app_id}/operational-model/track-templates/{template_id}",
@@ -1509,7 +1680,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "delete_app_track_template",
-    "line": 1653
+    "line": 1616
   },
   {
     "path": "/apps/{app_id}/operational-model/track-templates/{template_id}/apply-to-track",
@@ -1518,7 +1689,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "apply_track_template_to_track",
-    "line": 1700
+    "line": 1666
   },
   {
     "path": "/apps/{app_id}/operational-model/track-templates/{template_id}/entry-types",
@@ -1527,7 +1698,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "create_track_template_entry_type",
-    "line": 1757
+    "line": 1723
   },
   {
     "path": "/apps/{app_id}/operational-model/track-templates/{template_id}/tags",
@@ -1536,7 +1707,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "create_track_template_tag",
-    "line": 1810
+    "line": 1776
   },
   {
     "path": "/apps/{app_id}/operational-model/track-templates/{template_id}/views",
@@ -1545,7 +1716,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "create_track_template_view",
-    "line": 1860
+    "line": 1826
   },
   {
     "path": "/apps/{app_id}/pause",
@@ -1554,7 +1725,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "pause_app_endpoint",
-    "line": 2125
+    "line": 2091
   },
   {
     "path": "/apps/{app_id}/resume",
@@ -1563,7 +1734,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "resume_app_endpoint",
-    "line": 2153
+    "line": 2119
   },
   {
     "path": "/apps/{app_id}/settings",
@@ -1572,7 +1743,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "get_app_settings",
-    "line": 2021
+    "line": 1987
   },
   {
     "path": "/apps/{app_id}/settings",
@@ -1581,7 +1752,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "patch_app_settings",
-    "line": 2055
+    "line": 2021
   },
   {
     "path": "/apps/{app_id}/tracks",
@@ -1590,7 +1761,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "list_app_tracks",
-    "line": 609
+    "line": 556
   },
   {
     "path": "/apps/{app_id}/tracks",
@@ -1599,7 +1770,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "add_track_to_app",
-    "line": 706
+    "line": 659
   },
   {
     "path": "/apps/{app_id}/tracks/order",
@@ -1608,7 +1779,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "reorder_app_tracks",
-    "line": 762
+    "line": 715
   },
   {
     "path": "/apps/{app_id}/tracks/{track_id}",
@@ -1617,7 +1788,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "remove_track_from_app",
-    "line": 845
+    "line": 798
   },
   {
     "path": "/apps/{app_id}/transfer-ownership",
@@ -1626,7 +1797,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "post_transfer_app_ownership",
-    "line": 1051
+    "line": 1020
   },
   {
     "path": "/apps/{app_id}/uninstall",
@@ -1635,7 +1806,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "uninstall_app_endpoint",
-    "line": 2215
+    "line": 2181
   },
   {
     "path": "/apps/{app_id}/uninstall-preflight",
@@ -1644,7 +1815,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "uninstall_preflight_endpoint",
-    "line": 2181
+    "line": 2147
   },
   {
     "path": "/apps/{app_id}/update-from-library",
@@ -1653,7 +1824,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "update_from_library_endpoint",
-    "line": 2091
+    "line": 2057
   },
   {
     "path": "/workspaces/{workspace_id}/apps/install",
@@ -1662,7 +1833,7 @@
     ],
     "source": "backend/app/api/apps.py",
     "handler": "install_app_endpoint",
-    "line": 1943
+    "line": 1909
   },
   {
     "path": "/apps/batch-install",
@@ -1698,7 +1869,7 @@
     ],
     "source": "backend/app/api/apps_dashboards.py",
     "handler": "suggest_app_dashboard",
-    "line": 133
+    "line": 137
   },
   {
     "path": "/apps/{app_id}/dashboards/{dashboard_id}",
@@ -1707,7 +1878,7 @@
     ],
     "source": "backend/app/api/apps_dashboards.py",
     "handler": "delete_app_dashboard",
-    "line": 227
+    "line": 235
   },
   {
     "path": "/apps/{app_id}/dashboards/{dashboard_id}",
@@ -1716,7 +1887,7 @@
     ],
     "source": "backend/app/api/apps_dashboards.py",
     "handler": "get_app_dashboard",
-    "line": 150
+    "line": 154
   },
   {
     "path": "/apps/{app_id}/dashboards/{dashboard_id}",
@@ -1725,7 +1896,7 @@
     ],
     "source": "backend/app/api/apps_dashboards.py",
     "handler": "patch_app_dashboard",
-    "line": 171
+    "line": 175
   },
   {
     "path": "/apps/{app_id}/dashboards/{dashboard_id}/data",
@@ -1734,7 +1905,7 @@
     ],
     "source": "backend/app/api/apps_dashboards.py",
     "handler": "get_app_dashboard_data",
-    "line": 267
+    "line": 275
   },
   {
     "path": "/apps/{app_id}/dashboards/{dashboard_id}/drill-through",
@@ -1743,7 +1914,7 @@
     ],
     "source": "backend/app/api/apps_dashboards.py",
     "handler": "get_dashboard_widget_result_set",
-    "line": 295
+    "line": 303
   },
   {
     "path": "/apps/{app_id}/home",
@@ -1761,7 +1932,7 @@
     ],
     "source": "backend/app/api/apps_dashboards.py",
     "handler": "get_dashboard_widget_substrate",
-    "line": 452
+    "line": 460
   },
   {
     "path": "/apps/{slug}/skills",
@@ -1779,7 +1950,7 @@
     ],
     "source": "backend/app/api/attachments.py",
     "handler": "delete_attachment",
-    "line": 1580
+    "line": 1652
   },
   {
     "path": "/attachments/{attachment_id}",
@@ -1800,13 +1971,22 @@
     "line": 839
   },
   {
+    "path": "/attachments/{attachment_id}/inline",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/attachments.py",
+    "handler": "stream_attachment_inline",
+    "line": 901
+  },
+  {
     "path": "/attachments/{attachment_id}/preview",
     "methods": [
       "GET"
     ],
     "source": "backend/app/api/attachments.py",
     "handler": "stream_attachment_preview",
-    "line": 1014
+    "line": 1086
   },
   {
     "path": "/attachments/{attachment_id}/reprocess",
@@ -1815,7 +1995,7 @@
     ],
     "source": "backend/app/api/attachments.py",
     "handler": "reprocess_attachment_metadata",
-    "line": 901
+    "line": 973
   },
   {
     "path": "/attachments/{attachment_id}/thumb",
@@ -1824,7 +2004,7 @@
     ],
     "source": "backend/app/api/attachments.py",
     "handler": "stream_attachment_thumbnail",
-    "line": 955
+    "line": 1027
   },
   {
     "path": "/chat/threads/{thread_id}/attachments",
@@ -1869,7 +2049,7 @@
     ],
     "source": "backend/app/api/attachments.py",
     "handler": "download_entry_attachments_zip",
-    "line": 1495
+    "line": 1567
   },
   {
     "path": "/entries/{entry_id}/attachments/url",
@@ -1887,7 +2067,7 @@
     ],
     "source": "backend/app/api/attachments.py",
     "handler": "start_chunked_upload",
-    "line": 1091
+    "line": 1163
   },
   {
     "path": "/uploads/{session_id}",
@@ -1896,7 +2076,7 @@
     ],
     "source": "backend/app/api/attachments.py",
     "handler": "cancel_chunked_upload",
-    "line": 1284
+    "line": 1356
   },
   {
     "path": "/uploads/{session_id}",
@@ -1905,7 +2085,7 @@
     ],
     "source": "backend/app/api/attachments.py",
     "handler": "get_chunked_upload_session",
-    "line": 1140
+    "line": 1212
   },
   {
     "path": "/uploads/{session_id}/chunks/{chunk_index}",
@@ -1914,7 +2094,7 @@
     ],
     "source": "backend/app/api/attachments.py",
     "handler": "append_chunked_upload_part",
-    "line": 1171
+    "line": 1243
   },
   {
     "path": "/uploads/{session_id}/complete",
@@ -1923,7 +2103,7 @@
     ],
     "source": "backend/app/api/attachments.py",
     "handler": "complete_chunked_upload",
-    "line": 1210
+    "line": 1282
   },
   {
     "path": "/audit-log",
@@ -1932,7 +2112,7 @@
     ],
     "source": "backend/app/api/audit_log.py",
     "handler": "list_audit_log",
-    "line": 43
+    "line": 42
   },
   {
     "path": "/auth/complete-assigned-form",
@@ -1941,7 +2121,7 @@
     ],
     "source": "backend/app/api/auth.py",
     "handler": "complete_assigned_form",
-    "line": 675
+    "line": 774
   },
   {
     "path": "/auth/complete-onboarding-form",
@@ -1950,7 +2130,25 @@
     ],
     "source": "backend/app/api/auth.py",
     "handler": "complete_onboarding_form",
-    "line": 689
+    "line": 788
+  },
+  {
+    "path": "/auth/credentials-delivery/resend",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/auth.py",
+    "handler": "resend_credentials_delivery",
+    "line": 625
+  },
+  {
+    "path": "/auth/credentials-delivery/verify",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/auth.py",
+    "handler": "verify_credentials_delivery",
+    "line": 566
   },
   {
     "path": "/auth/forgot-password",
@@ -1959,7 +2157,7 @@
     ],
     "source": "backend/app/api/auth.py",
     "handler": "forgot_password",
-    "line": 703
+    "line": 802
   },
   {
     "path": "/auth/me",
@@ -1968,7 +2166,7 @@
     ],
     "source": "backend/app/api/auth.py",
     "handler": "get_current_user",
-    "line": 232
+    "line": 252
   },
   {
     "path": "/auth/resend-verification",
@@ -1977,7 +2175,7 @@
     ],
     "source": "backend/app/api/auth.py",
     "handler": "resend_verification",
-    "line": 541
+    "line": 641
   },
   {
     "path": "/auth/reset-password",
@@ -1986,7 +2184,7 @@
     ],
     "source": "backend/app/api/auth.py",
     "handler": "reset_password",
-    "line": 747
+    "line": 846
   },
   {
     "path": "/auth/signup",
@@ -1995,7 +2193,7 @@
     ],
     "source": "backend/app/api/auth.py",
     "handler": "register_user",
-    "line": 333
+    "line": 353
   },
   {
     "path": "/auth/update-password",
@@ -2004,7 +2202,7 @@
     ],
     "source": "backend/app/api/auth.py",
     "handler": "update_password",
-    "line": 576
+    "line": 675
   },
   {
     "path": "/auth/update-profile",
@@ -2013,7 +2211,7 @@
     ],
     "source": "backend/app/api/auth.py",
     "handler": "update_profile",
-    "line": 285
+    "line": 305
   },
   {
     "path": "/auth/verify-email",
@@ -2022,7 +2220,7 @@
     ],
     "source": "backend/app/api/auth.py",
     "handler": "verify_email",
-    "line": 497
+    "line": 517
   },
   {
     "path": "/auth/ws-ticket",
@@ -2031,7 +2229,7 @@
     ],
     "source": "backend/app/api/auth.py",
     "handler": "mint_websocket_ticket",
-    "line": 266
+    "line": 286
   },
   {
     "path": "/capabilities",
@@ -2076,7 +2274,7 @@
     ],
     "source": "backend/app/api/comments.py",
     "handler": "delete_comment",
-    "line": 317
+    "line": 203
   },
   {
     "path": "/comments/{comment_id}",
@@ -2085,7 +2283,7 @@
     ],
     "source": "backend/app/api/comments.py",
     "handler": "update_comment",
-    "line": 241
+    "line": 183
   },
   {
     "path": "/entries/{entry_id}/comments",
@@ -2094,7 +2292,7 @@
     ],
     "source": "backend/app/api/comments.py",
     "handler": "get_entry_comments",
-    "line": 30
+    "line": 27
   },
   {
     "path": "/entries/{entry_id}/comments",
@@ -2103,7 +2301,7 @@
     ],
     "source": "backend/app/api/comments.py",
     "handler": "create_comment",
-    "line": 94
+    "line": 91
   },
   {
     "path": "/conflicts",
@@ -2175,7 +2373,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "list_entries",
-    "line": 343
+    "line": 332
   },
   {
     "path": "/entries",
@@ -2184,7 +2382,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "create_entry",
-    "line": 388
+    "line": 377
   },
   {
     "path": "/entries/{entry_id}",
@@ -2193,7 +2391,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "delete_entry",
-    "line": 722
+    "line": 711
   },
   {
     "path": "/entries/{entry_id}",
@@ -2202,7 +2400,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "get_entry",
-    "line": 498
+    "line": 487
   },
   {
     "path": "/entries/{entry_id}",
@@ -2211,7 +2409,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "update_entry",
-    "line": 544
+    "line": 533
   },
   {
     "path": "/entries/{entry_id}/reactions",
@@ -2220,7 +2418,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "add_reaction",
-    "line": 921
+    "line": 827
   },
   {
     "path": "/entries/{entry_id}/reactions/{emoji}",
@@ -2229,7 +2427,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "remove_reaction",
-    "line": 984
+    "line": 894
   },
   {
     "path": "/entries/{entry_id}/tags",
@@ -2238,7 +2436,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "add_tag_to_entry",
-    "line": 782
+    "line": 807
   },
   {
     "path": "/entries/{entry_id}/tags/{tag_id}",
@@ -2247,7 +2445,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "remove_tag_from_entry",
-    "line": 855
+    "line": 817
   },
   {
     "path": "/entries/{entry_id}/unwatch",
@@ -2256,7 +2454,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "unwatch_entry",
-    "line": 1120
+    "line": 1030
   },
   {
     "path": "/entries/{entry_id}/watch",
@@ -2265,7 +2463,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "watch_entry",
-    "line": 1090
+    "line": 1000
   },
   {
     "path": "/entries/{entry_id}/watchers",
@@ -2274,7 +2472,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "get_entry_watchers",
-    "line": 1042
+    "line": 952
   },
   {
     "path": "/entries/{entry_id}/precompute",
@@ -2409,7 +2607,7 @@
     ],
     "source": "backend/app/api/events_polling.py",
     "handler": "list_events_polling",
-    "line": 61
+    "line": 58
   },
   {
     "path": "/feed",
@@ -2457,13 +2655,22 @@
     "line": 147
   },
   {
+    "path": "/graph-context",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/graph_context.py",
+    "handler": "get_graph_context",
+    "line": 20
+  },
+  {
     "path": "/apps/{app_id}/invitations",
     "methods": [
       "POST"
     ],
     "source": "backend/app/api/invitations.py",
     "handler": "post_create_space_invitation",
-    "line": 574
+    "line": 650
   },
   {
     "path": "/entries/{entry_id}/invitations",
@@ -2472,7 +2679,7 @@
     ],
     "source": "backend/app/api/invitations.py",
     "handler": "post_create_entry_invitation",
-    "line": 610
+    "line": 686
   },
   {
     "path": "/invitations/{invitation_id}",
@@ -2481,7 +2688,7 @@
     ],
     "source": "backend/app/api/invitations.py",
     "handler": "delete_resource_invitation",
-    "line": 325
+    "line": 397
   },
   {
     "path": "/invitations/{token}",
@@ -2490,7 +2697,7 @@
     ],
     "source": "backend/app/api/invitations.py",
     "handler": "get_invitation_preview",
-    "line": 389
+    "line": 461
   },
   {
     "path": "/invitations/{token}/accept",
@@ -2499,7 +2706,7 @@
     ],
     "source": "backend/app/api/invitations.py",
     "handler": "post_accept_invitation",
-    "line": 419
+    "line": 491
   },
   {
     "path": "/invitations/{token}/decline",
@@ -2508,7 +2715,7 @@
     ],
     "source": "backend/app/api/invitations.py",
     "handler": "post_decline_invitation",
-    "line": 456
+    "line": 532
   },
   {
     "path": "/tracks/{track_id}/invitations",
@@ -2517,7 +2724,7 @@
     ],
     "source": "backend/app/api/invitations.py",
     "handler": "post_create_track_invitation",
-    "line": 591
+    "line": 667
   },
   {
     "path": "/workspaces/{workspace_id}/invitations",
@@ -2526,7 +2733,7 @@
     ],
     "source": "backend/app/api/invitations.py",
     "handler": "list_invitations",
-    "line": 250
+    "line": 322
   },
   {
     "path": "/workspaces/{workspace_id}/invitations",
@@ -2535,7 +2742,7 @@
     ],
     "source": "backend/app/api/invitations.py",
     "handler": "post_create_invitation",
-    "line": 172
+    "line": 244
   },
   {
     "path": "/workspaces/{workspace_id}/invitations/{invitation_id}",
@@ -2544,7 +2751,25 @@
     ],
     "source": "backend/app/api/invitations.py",
     "handler": "delete_invitation",
-    "line": 285
+    "line": 357
+  },
+  {
+    "path": "/workspaces/{workspace_id}/invitations/{invitation_id}/adoption",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/invitations.py",
+    "handler": "get_invitation_adoption",
+    "line": 140
+  },
+  {
+    "path": "/workspaces/{workspace_id}/invitations/{invitation_id}/adoption",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/invitations.py",
+    "handler": "post_invitation_adoption",
+    "line": 165
   },
   {
     "path": "/link-preview",
@@ -2554,150 +2779,6 @@
     "source": "backend/app/api/link_preview.py",
     "handler": "get_link_preview",
     "line": 180
-  },
-  {
-    "path": "/me/assigned-form",
-    "methods": [
-      "GET"
-    ],
-    "source": "backend/app/api/me_assigned_form.py",
-    "handler": "get_me_assigned_form",
-    "line": 20
-  },
-  {
-    "path": "/me/assigned-form",
-    "methods": [
-      "PATCH"
-    ],
-    "source": "backend/app/api/me_assigned_form.py",
-    "handler": "patch_me_assigned_form",
-    "line": 25
-  },
-  {
-    "path": "/me/assigned-form/attachments",
-    "methods": [
-      "POST"
-    ],
-    "source": "backend/app/api/me_assigned_form.py",
-    "handler": "upload_me_assigned_form_attachment",
-    "line": 59
-  },
-  {
-    "path": "/me/assigned-form/contract",
-    "methods": [
-      "GET"
-    ],
-    "source": "backend/app/api/me_assigned_form.py",
-    "handler": "download_me_assigned_form_contract",
-    "line": 79
-  },
-  {
-    "path": "/me/assigned-form/contract/decision",
-    "methods": [
-      "POST"
-    ],
-    "source": "backend/app/api/me_assigned_form.py",
-    "handler": "decide_me_assigned_form_contract",
-    "line": 89
-  },
-  {
-    "path": "/me/assigned-form/contract/generate",
-    "methods": [
-      "POST"
-    ],
-    "source": "backend/app/api/me_assigned_form.py",
-    "handler": "generate_me_assigned_form_contract",
-    "line": 69
-  },
-  {
-    "path": "/me/assigned-form/policies",
-    "methods": [
-      "GET"
-    ],
-    "source": "backend/app/api/me_assigned_form.py",
-    "handler": "list_me_assigned_form_policies",
-    "line": 35
-  },
-  {
-    "path": "/me/assigned-form/policies/{policy_entry_id}/document",
-    "methods": [
-      "GET"
-    ],
-    "source": "backend/app/api/me_assigned_form.py",
-    "handler": "download_me_assigned_form_policy_document",
-    "line": 45
-  },
-  {
-    "path": "/me/onboarding-form",
-    "methods": [
-      "GET"
-    ],
-    "source": "backend/app/api/me_onboarding_form.py",
-    "handler": "get_me_onboarding_form",
-    "line": 120
-  },
-  {
-    "path": "/me/onboarding-form",
-    "methods": [
-      "PATCH"
-    ],
-    "source": "backend/app/api/me_onboarding_form.py",
-    "handler": "patch_me_onboarding_form",
-    "line": 158
-  },
-  {
-    "path": "/me/onboarding-form/attachments",
-    "methods": [
-      "POST"
-    ],
-    "source": "backend/app/api/me_onboarding_form.py",
-    "handler": "upload_me_onboarding_attachment",
-    "line": 432
-  },
-  {
-    "path": "/me/onboarding-form/contract",
-    "methods": [
-      "GET"
-    ],
-    "source": "backend/app/api/me_onboarding_form.py",
-    "handler": "download_me_onboarding_contract",
-    "line": 529
-  },
-  {
-    "path": "/me/onboarding-form/contract/decision",
-    "methods": [
-      "POST"
-    ],
-    "source": "backend/app/api/me_onboarding_form.py",
-    "handler": "decide_me_onboarding_contract",
-    "line": 555
-  },
-  {
-    "path": "/me/onboarding-form/contract/generate",
-    "methods": [
-      "POST"
-    ],
-    "source": "backend/app/api/me_onboarding_form.py",
-    "handler": "generate_me_onboarding_contract",
-    "line": 502
-  },
-  {
-    "path": "/me/onboarding-form/onboarding-policies",
-    "methods": [
-      "GET"
-    ],
-    "source": "backend/app/api/me_onboarding_form.py",
-    "handler": "list_me_onboarding_policies",
-    "line": 316
-  },
-  {
-    "path": "/me/onboarding-form/onboarding-policies/{policy_entry_id}/document",
-    "methods": [
-      "GET"
-    ],
-    "source": "backend/app/api/me_onboarding_form.py",
-    "handler": "download_me_onboarding_policy_document",
-    "line": 387
   },
   {
     "path": "/health/ready",
@@ -2760,7 +2841,7 @@
     ],
     "source": "backend/app/api/model_credentials.py",
     "handler": "delete_my_model_credential",
-    "line": 135
+    "line": 131
   },
   {
     "path": "/users/me/model-credentials",
@@ -2769,7 +2850,7 @@
     ],
     "source": "backend/app/api/model_credentials.py",
     "handler": "get_my_model_credential",
-    "line": 64
+    "line": 57
   },
   {
     "path": "/users/me/model-credentials",
@@ -2778,7 +2859,7 @@
     ],
     "source": "backend/app/api/model_credentials.py",
     "handler": "upsert_my_model_credential",
-    "line": 79
+    "line": 72
   },
   {
     "path": "/users/me/model-credentials/validate",
@@ -2787,7 +2868,7 @@
     ],
     "source": "backend/app/api/model_credentials.py",
     "handler": "validate_my_model_credential",
-    "line": 163
+    "line": 159
   },
   {
     "path": "/users/me/notification-preferences",
@@ -2814,7 +2895,7 @@
     ],
     "source": "backend/app/api/notifications.py",
     "handler": "get_notifications",
-    "line": 37
+    "line": 36
   },
   {
     "path": "/notifications",
@@ -2823,7 +2904,7 @@
     ],
     "source": "backend/app/api/notifications.py",
     "handler": "create_notification",
-    "line": 329
+    "line": 266
   },
   {
     "path": "/notifications/mark-all-read",
@@ -2832,7 +2913,7 @@
     ],
     "source": "backend/app/api/notifications.py",
     "handler": "mark_all_notifications_as_read",
-    "line": 169
+    "line": 168
   },
   {
     "path": "/notifications/{notification_id}",
@@ -2841,7 +2922,7 @@
     ],
     "source": "backend/app/api/notifications.py",
     "handler": "delete_notification",
-    "line": 418
+    "line": 355
   },
   {
     "path": "/notifications/{notification_id}/read",
@@ -2850,7 +2931,7 @@
     ],
     "source": "backend/app/api/notifications.py",
     "handler": "mark_notification_as_read",
-    "line": 111
+    "line": 110
   },
   {
     "path": "/notifications/{notification_id}/respond",
@@ -2859,7 +2940,7 @@
     ],
     "source": "backend/app/api/notifications.py",
     "handler": "respond_to_notification",
-    "line": 237
+    "line": 236
   },
   {
     "path": "/oauth/consent",
@@ -2886,7 +2967,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "detach_library_from_space_profile",
-    "line": 1378
+    "line": 1347
   },
   {
     "path": "/apps/{app_id}/operational-model/revert-customizations",
@@ -2895,7 +2976,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "revert_space_profile_customizations",
-    "line": 1464
+    "line": 1433
   },
   {
     "path": "/operational-model-substrate",
@@ -2904,7 +2985,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "get_operational_model_substrate",
-    "line": 2060
+    "line": 2030
   },
   {
     "path": "/operational-models",
@@ -2913,7 +2994,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "list_library_operational_models",
-    "line": 144
+    "line": 127
   },
   {
     "path": "/operational-models",
@@ -2922,7 +3003,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "publish_operational_model",
-    "line": 248
+    "line": 236
   },
   {
     "path": "/operational-models/author",
@@ -2931,7 +3012,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "author_operational_model",
-    "line": 2257
+    "line": 2228
   },
   {
     "path": "/operational-models/from-app/{app_id}",
@@ -2940,7 +3021,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "derive_library_profile_from_space",
-    "line": 1138
+    "line": 1109
   },
   {
     "path": "/operational-models/from-track/{track_id}",
@@ -2949,7 +3030,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "derive_library_profile_from_track",
-    "line": 1038
+    "line": 1011
   },
   {
     "path": "/operational-models/import",
@@ -2958,7 +3039,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "import_operational_model",
-    "line": 2572
+    "line": 2542
   },
   {
     "path": "/operational-models/validate",
@@ -2967,7 +3048,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "validate_operational_model_manifest",
-    "line": 471
+    "line": 437
   },
   {
     "path": "/operational-models/{operational_model_id}",
@@ -2976,7 +3057,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "deprecate_library_operational_model",
-    "line": 425
+    "line": 395
   },
   {
     "path": "/operational-models/{operational_model_id}",
@@ -2985,7 +3066,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "get_library_operational_model",
-    "line": 198
+    "line": 178
   },
   {
     "path": "/operational-models/{operational_model_id}",
@@ -2994,7 +3075,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "update_library_operational_model",
-    "line": 336
+    "line": 325
   },
   {
     "path": "/operational-models/{operational_model_id}/diff",
@@ -3003,7 +3084,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "diff_operational_model",
-    "line": 1875
+    "line": 1833
   },
   {
     "path": "/operational-models/{operational_model_id}/discard-draft",
@@ -3012,7 +3093,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "discard_operational_model_draft",
-    "line": 2024
+    "line": 2002
   },
   {
     "path": "/operational-models/{operational_model_id}/draft",
@@ -3021,7 +3102,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "fork_operational_model_draft",
-    "line": 1774
+    "line": 1718
   },
   {
     "path": "/operational-models/{operational_model_id}/migration-status",
@@ -3030,7 +3111,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "get_operational_model_migration_status",
-    "line": 1661
+    "line": 1605
   },
   {
     "path": "/operational-models/{operational_model_id}/modify",
@@ -3039,7 +3120,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "modify_operational_model",
-    "line": 2391
+    "line": 2360
   },
   {
     "path": "/operational-models/{operational_model_id}/preview-update",
@@ -3048,7 +3129,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "preview_update_operational_model",
-    "line": 1996
+    "line": 1974
   },
   {
     "path": "/operational-models/{operational_model_id}/publish",
@@ -3057,7 +3138,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "publish_operational_model_draft",
-    "line": 1802
+    "line": 1750
   },
   {
     "path": "/operational-models/{operational_model_id}/retry-migration",
@@ -3066,7 +3147,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "retry_operational_model_migration",
-    "line": 1685
+    "line": 1629
   },
   {
     "path": "/tracks/{track_id}/operational-model/detach-library",
@@ -3075,7 +3156,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "detach_library_from_track_profile",
-    "line": 819
+    "line": 785
   },
   {
     "path": "/tracks/{track_id}/operational-model/entry-types",
@@ -3084,7 +3165,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "add_entry_type_to_track_profile",
-    "line": 505
+    "line": 471
   },
   {
     "path": "/tracks/{track_id}/operational-model/entry-types/{entry_type_id}",
@@ -3093,7 +3174,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "remove_entry_type_from_track_profile",
-    "line": 594
+    "line": 560
   },
   {
     "path": "/tracks/{track_id}/operational-model/revert-customizations",
@@ -3102,7 +3183,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "revert_track_profile_customizations",
-    "line": 900
+    "line": 866
   },
   {
     "path": "/tracks/{track_id}/operational-model/views",
@@ -3111,7 +3192,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "add_view_to_track_profile",
-    "line": 657
+    "line": 623
   },
   {
     "path": "/tracks/{track_id}/operational-model/views/{view_id}",
@@ -3120,7 +3201,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "remove_view_from_track_profile",
-    "line": 756
+    "line": 722
   },
   {
     "path": "/workspaces/{workspace_id}/operational-models",
@@ -3129,7 +3210,7 @@
     ],
     "source": "backend/app/api/operational_models.py",
     "handler": "list_workspace_operational_models",
-    "line": 221
+    "line": 202
   },
   {
     "path": "/policies",
@@ -3138,7 +3219,7 @@
     ],
     "source": "backend/app/api/policies.py",
     "handler": "list_policies",
-    "line": 262
+    "line": 256
   },
   {
     "path": "/policies",
@@ -3147,7 +3228,7 @@
     ],
     "source": "backend/app/api/policies.py",
     "handler": "post_create_policy",
-    "line": 180
+    "line": 164
   },
   {
     "path": "/policies/explain",
@@ -3156,7 +3237,7 @@
     ],
     "source": "backend/app/api/policies.py",
     "handler": "explain_action",
-    "line": 521
+    "line": 534
   },
   {
     "path": "/policies/{policy_id}",
@@ -3165,7 +3246,7 @@
     ],
     "source": "backend/app/api/policies.py",
     "handler": "delete_policy_by_id",
-    "line": 457
+    "line": 468
   },
   {
     "path": "/policies/{policy_id}",
@@ -3174,7 +3255,7 @@
     ],
     "source": "backend/app/api/policies.py",
     "handler": "get_policy_by_id",
-    "line": 319
+    "line": 313
   },
   {
     "path": "/policies/{policy_id}",
@@ -3183,7 +3264,7 @@
     ],
     "source": "backend/app/api/policies.py",
     "handler": "patch_policy",
-    "line": 368
+    "line": 363
   },
   {
     "path": "/query-spec",
@@ -3210,7 +3291,7 @@
     ],
     "source": "backend/app/api/retrieve.py",
     "handler": "retrieve",
-    "line": 107
+    "line": 109
   },
   {
     "path": "/me/invitations",
@@ -3219,7 +3300,7 @@
     ],
     "source": "backend/app/api/shared_with_me.py",
     "handler": "list_my_invitations",
-    "line": 262
+    "line": 267
   },
   {
     "path": "/me/invitations/{invitation_id}/accept",
@@ -3237,7 +3318,7 @@
     ],
     "source": "backend/app/api/shared_with_me.py",
     "handler": "post_decline_my_invitation",
-    "line": 384
+    "line": 395
   },
   {
     "path": "/me/shared",
@@ -3246,7 +3327,7 @@
     ],
     "source": "backend/app/api/shared_with_me.py",
     "handler": "list_shared_with_me",
-    "line": 131
+    "line": 136
   },
   {
     "path": "/me/sharing-overview",
@@ -3255,7 +3336,7 @@
     ],
     "source": "backend/app/api/shared_with_me.py",
     "handler": "get_sharing_overview",
-    "line": 466
+    "line": 477
   },
   {
     "path": "/apps/{app_id}/shares",
@@ -3426,7 +3507,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "list_tracks",
-    "line": 74
+    "line": 69
   },
   {
     "path": "/tracks",
@@ -3435,7 +3516,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "create_track",
-    "line": 186
+    "line": 182
   },
   {
     "path": "/tracks/{target_track_id}/promote-scratch-entry",
@@ -3444,7 +3525,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "post_promote_scratch_entry",
-    "line": 1401
+    "line": 1291
   },
   {
     "path": "/tracks/{track_id}",
@@ -3453,7 +3534,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "delete_track",
-    "line": 608
+    "line": 550
   },
   {
     "path": "/tracks/{track_id}",
@@ -3462,7 +3543,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "get_track",
-    "line": 294
+    "line": 292
   },
   {
     "path": "/tracks/{track_id}",
@@ -3471,7 +3552,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "update_track",
-    "line": 523
+    "line": 521
   },
   {
     "path": "/tracks/{track_id}/collaborators",
@@ -3480,7 +3561,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "list_collaborators",
-    "line": 765
+    "line": 716
   },
   {
     "path": "/tracks/{track_id}/collaborators",
@@ -3489,7 +3570,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "add_collaborator",
-    "line": 739
+    "line": 690
   },
   {
     "path": "/tracks/{track_id}/collaborators/{collaborator_user_id}",
@@ -3498,7 +3579,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "remove_collaborator",
-    "line": 1213
+    "line": 1121
   },
   {
     "path": "/tracks/{track_id}/collaborators/{collaborator_user_id}",
@@ -3507,7 +3588,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "update_collaborator_role",
-    "line": 1238
+    "line": 1146
   },
   {
     "path": "/tracks/{track_id}/detail",
@@ -3516,7 +3597,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "get_track_detail_bundle",
-    "line": 319
+    "line": 317
   },
   {
     "path": "/tracks/{track_id}/entries",
@@ -3525,7 +3606,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "get_track_entries",
-    "line": 657
+    "line": 608
   },
   {
     "path": "/tracks/{track_id}/exclusions",
@@ -3534,7 +3615,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "add_exclusion",
-    "line": 1272
+    "line": 1180
   },
   {
     "path": "/tracks/{track_id}/exclusions/{user_id_to_restore}",
@@ -3543,7 +3624,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "remove_exclusion",
-    "line": 1307
+    "line": 1215
   },
   {
     "path": "/tracks/{track_id}/mention-candidates",
@@ -3552,7 +3633,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "list_mention_candidates",
-    "line": 992
+    "line": 952
   },
   {
     "path": "/tracks/{track_id}/operational-model",
@@ -3561,7 +3642,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "get_track_operational_model",
-    "line": 361
+    "line": 359
   },
   {
     "path": "/tracks/{track_id}/operational-model",
@@ -3570,7 +3651,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "patch_track_operational_model",
-    "line": 395
+    "line": 393
   },
   {
     "path": "/tracks/{track_id}/operational-model/merge-library",
@@ -3579,7 +3660,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "merge_library_into_track_operational_model",
-    "line": 470
+    "line": 468
   },
   {
     "path": "/tracks/{track_id}/transfer-ownership",
@@ -3588,7 +3669,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "post_transfer_track_ownership",
-    "line": 1337
+    "line": 1245
   },
   {
     "path": "/tracks/{track_id}/unwatch",
@@ -3597,7 +3678,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "unwatch_track",
-    "line": 1520
+    "line": 1410
   },
   {
     "path": "/tracks/{track_id}/watch",
@@ -3606,7 +3687,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "watch_track",
-    "line": 1489
+    "line": 1379
   },
   {
     "path": "/tracks/{track_id}/watchers",
@@ -3615,7 +3696,7 @@
     ],
     "source": "backend/app/api/tracks.py",
     "handler": "get_track_watchers",
-    "line": 1438
+    "line": 1328
   },
   {
     "path": "/public-share/track/{token}",
@@ -3624,7 +3705,7 @@
     ],
     "source": "backend/app/api/tracks_public_share.py",
     "handler": "get_public_track",
-    "line": 402
+    "line": 421
   },
   {
     "path": "/public-share/track/{token}/apply",
@@ -3633,7 +3714,7 @@
     ],
     "source": "backend/app/api/tracks_public_share.py",
     "handler": "get_public_track_apply_context",
-    "line": 491
+    "line": 510
   },
   {
     "path": "/public-share/track/{token}/entries",
@@ -3642,7 +3723,7 @@
     ],
     "source": "backend/app/api/tracks_public_share.py",
     "handler": "get_public_track_entries",
-    "line": 530
+    "line": 549
   },
   {
     "path": "/public-share/track/{token}/entries",
@@ -3651,7 +3732,7 @@
     ],
     "source": "backend/app/api/tracks_public_share.py",
     "handler": "create_public_track_entry",
-    "line": 687
+    "line": 707
   },
   {
     "path": "/public-share/track/{token}/entries/{entry_id}",
@@ -3660,7 +3741,7 @@
     ],
     "source": "backend/app/api/tracks_public_share.py",
     "handler": "get_public_track_entry",
-    "line": 774
+    "line": 794
   },
   {
     "path": "/public-share/track/{token}/entries/{entry_id}",
@@ -3669,7 +3750,7 @@
     ],
     "source": "backend/app/api/tracks_public_share.py",
     "handler": "update_public_track_entry",
-    "line": 871
+    "line": 892
   },
   {
     "path": "/public-share/track/{token}/entries/{entry_id}/attachments",
@@ -3678,7 +3759,7 @@
     ],
     "source": "backend/app/api/tracks_public_share.py",
     "handler": "upload_public_track_entry_attachment",
-    "line": 815
+    "line": 835
   },
   {
     "path": "/public-share/track/{token}/entries/{entry_id}/comments",
@@ -3687,7 +3768,7 @@
     ],
     "source": "backend/app/api/tracks_public_share.py",
     "handler": "get_public_track_entry_comments",
-    "line": 1071
+    "line": 1103
   },
   {
     "path": "/public-share/track/{token}/entries/{entry_id}/comments",
@@ -3696,7 +3777,7 @@
     ],
     "source": "backend/app/api/tracks_public_share.py",
     "handler": "create_public_track_entry_comment",
-    "line": 1102
+    "line": 1134
   },
   {
     "path": "/public-share/track/{token}/entries/{entry_id}/reactions",
@@ -3705,7 +3786,7 @@
     ],
     "source": "backend/app/api/tracks_public_share.py",
     "handler": "add_public_track_entry_reaction",
-    "line": 1164
+    "line": 1196
   },
   {
     "path": "/public-share/track/{token}/entries/{entry_id}/reactions/{emoji}",
@@ -3714,7 +3795,7 @@
     ],
     "source": "backend/app/api/tracks_public_share.py",
     "handler": "remove_public_track_entry_reaction",
-    "line": 1227
+    "line": 1259
   },
   {
     "path": "/public-share/track/{token}/relation-options",
@@ -3723,7 +3804,7 @@
     ],
     "source": "backend/app/api/tracks_public_share.py",
     "handler": "get_public_track_relation_options",
-    "line": 592
+    "line": 611
   },
   {
     "path": "/tracks/{track_id}/public-share",
@@ -3732,7 +3813,7 @@
     ],
     "source": "backend/app/api/tracks_public_share.py",
     "handler": "get_public_track_share_settings",
-    "line": 136
+    "line": 155
   },
   {
     "path": "/tracks/{track_id}/public-share",
@@ -3741,7 +3822,7 @@
     ],
     "source": "backend/app/api/tracks_public_share.py",
     "handler": "update_public_track_share_settings",
-    "line": 207
+    "line": 226
   },
   {
     "path": "/tracks/{track_id}/public-share/notify",
@@ -3750,61 +3831,7 @@
     ],
     "source": "backend/app/api/tracks_public_share.py",
     "handler": "notify_public_track_share",
-    "line": 336
-  },
-  {
-    "path": "/public-share/track/{token}/entries/{entry_id}/attachments",
-    "methods": [
-      "GET"
-    ],
-    "source": "backend/app/api/tracks_public_share_onboarding.py",
-    "handler": "list_public_track_entry_attachments",
-    "line": 245
-  },
-  {
-    "path": "/public-share/track/{token}/entries/{entry_id}/contract",
-    "methods": [
-      "GET"
-    ],
-    "source": "backend/app/api/tracks_public_share_onboarding.py",
-    "handler": "download_public_onboarding_contract",
-    "line": 319
-  },
-  {
-    "path": "/public-share/track/{token}/entries/{entry_id}/contract/decision",
-    "methods": [
-      "POST"
-    ],
-    "source": "backend/app/api/tracks_public_share_onboarding.py",
-    "handler": "decide_public_onboarding_contract",
-    "line": 347
-  },
-  {
-    "path": "/public-share/track/{token}/entries/{entry_id}/contract/generate",
-    "methods": [
-      "POST"
-    ],
-    "source": "backend/app/api/tracks_public_share_onboarding.py",
-    "handler": "generate_public_onboarding_contract",
-    "line": 288
-  },
-  {
-    "path": "/public-share/track/{token}/onboarding-policies",
-    "methods": [
-      "GET"
-    ],
-    "source": "backend/app/api/tracks_public_share_onboarding.py",
-    "handler": "list_public_onboarding_policies",
-    "line": 112
-  },
-  {
-    "path": "/public-share/track/{token}/onboarding-policies/{policy_entry_id}/document",
-    "methods": [
-      "GET"
-    ],
-    "source": "backend/app/api/tracks_public_share_onboarding.py",
-    "handler": "download_public_onboarding_policy_document",
-    "line": 191
+    "line": 355
   },
   {
     "path": "/me/signatures",
@@ -3841,6 +3868,24 @@
     "source": "backend/app/api/user_signatures.py",
     "handler": "api_download_my_signature",
     "line": 103
+  },
+  {
+    "path": "/users/me/timezone",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/api/user_timezone.py",
+    "handler": "get_my_timezone",
+    "line": 21
+  },
+  {
+    "path": "/users/me/timezone",
+    "methods": [
+      "PATCH"
+    ],
+    "source": "backend/app/api/user_timezone.py",
+    "handler": "patch_my_timezone",
+    "line": 33
   },
   {
     "path": "/users",
@@ -3975,7 +4020,7 @@
     ],
     "source": "backend/app/api/views.py",
     "handler": "list_track_views",
-    "line": 257
+    "line": 244
   },
   {
     "path": "/tracks/{track_id}/views",
@@ -3984,7 +4029,7 @@
     ],
     "source": "backend/app/api/views.py",
     "handler": "create_view",
-    "line": 291
+    "line": 278
   },
   {
     "path": "/views/{view_id}",
@@ -3993,7 +4038,7 @@
     ],
     "source": "backend/app/api/views.py",
     "handler": "delete_view",
-    "line": 577
+    "line": 572
   },
   {
     "path": "/views/{view_id}",
@@ -4002,7 +4047,7 @@
     ],
     "source": "backend/app/api/views.py",
     "handler": "get_view",
-    "line": 392
+    "line": 380
   },
   {
     "path": "/views/{view_id}",
@@ -4011,7 +4056,7 @@
     ],
     "source": "backend/app/api/views.py",
     "handler": "update_view",
-    "line": 415
+    "line": 404
   },
   {
     "path": "/work-items",
@@ -4032,40 +4077,13 @@
     "line": 36
   },
   {
-    "path": "/workspaces/{workspace_id}/members/provision",
-    "methods": [
-      "POST"
-    ],
-    "source": "backend/app/api/workspace_member_hire.py",
-    "handler": "provision_workspace_member_route",
-    "line": 34
-  },
-  {
-    "path": "/workspaces/{workspace_id}/members/{member_user_id}/assigned-form-prompt",
-    "methods": [
-      "POST"
-    ],
-    "source": "backend/app/api/workspace_member_hire.py",
-    "handler": "set_member_assigned_form_prompt_route",
-    "line": 172
-  },
-  {
-    "path": "/workspaces/{workspace_id}/members/{member_user_id}/onboarding-form-prompt",
-    "methods": [
-      "POST"
-    ],
-    "source": "backend/app/api/workspace_member_hire.py",
-    "handler": "set_member_onboarding_form_prompt_route",
-    "line": 186
-  },
-  {
     "path": "/library/workspace-models",
     "methods": [
       "GET"
     ],
     "source": "backend/app/api/workspaces.py",
     "handler": "list_workspace_operational_models",
-    "line": 238
+    "line": 231
   },
   {
     "path": "/workspaces",
@@ -4074,7 +4092,7 @@
     ],
     "source": "backend/app/api/workspaces.py",
     "handler": "list_workspaces",
-    "line": 216
+    "line": 209
   },
   {
     "path": "/workspaces",
@@ -4083,7 +4101,7 @@
     ],
     "source": "backend/app/api/workspaces.py",
     "handler": "create_workspace",
-    "line": 276
+    "line": 269
   },
   {
     "path": "/workspaces/{workspace_id}",
@@ -4092,7 +4110,7 @@
     ],
     "source": "backend/app/api/workspaces.py",
     "handler": "delete_workspace",
-    "line": 523
+    "line": 516
   },
   {
     "path": "/workspaces/{workspace_id}",
@@ -4101,7 +4119,7 @@
     ],
     "source": "backend/app/api/workspaces.py",
     "handler": "get_workspace",
-    "line": 266
+    "line": 259
   },
   {
     "path": "/workspaces/{workspace_id}",
@@ -4110,7 +4128,7 @@
     ],
     "source": "backend/app/api/workspaces.py",
     "handler": "update_workspace",
-    "line": 471
+    "line": 464
   },
   {
     "path": "/workspaces/{workspace_id}/apps",
@@ -4119,7 +4137,7 @@
     ],
     "source": "backend/app/api/workspaces.py",
     "handler": "list_workspace_spaces",
-    "line": 583
+    "line": 576
   },
   {
     "path": "/workspaces/{workspace_id}/apps/order",
@@ -4128,7 +4146,7 @@
     ],
     "source": "backend/app/api/workspaces.py",
     "handler": "reorder_workspace_apps",
-    "line": 1331
+    "line": 1183
   },
   {
     "path": "/workspaces/{workspace_id}/avatar",
@@ -4137,7 +4155,7 @@
     ],
     "source": "backend/app/api/workspaces.py",
     "handler": "get_workspace_avatar",
-    "line": 1283
+    "line": 1135
   },
   {
     "path": "/workspaces/{workspace_id}/avatar",
@@ -4146,7 +4164,7 @@
     ],
     "source": "backend/app/api/workspaces.py",
     "handler": "upload_workspace_avatar",
-    "line": 1168
+    "line": 1020
   },
   {
     "path": "/workspaces/{workspace_id}/members",
@@ -4155,7 +4173,7 @@
     ],
     "source": "backend/app/api/workspaces.py",
     "handler": "list_workspace_members",
-    "line": 663
+    "line": 656
   },
   {
     "path": "/workspaces/{workspace_id}/members",
@@ -4164,7 +4182,16 @@
     ],
     "source": "backend/app/api/workspaces.py",
     "handler": "add_workspace_member",
-    "line": 720
+    "line": 753
+  },
+  {
+    "path": "/workspaces/{workspace_id}/members/provision",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/workspaces.py",
+    "handler": "provision_workspace_member_route",
+    "line": 706
   },
   {
     "path": "/workspaces/{workspace_id}/members/{member_user_id}",
@@ -4173,7 +4200,7 @@
     ],
     "source": "backend/app/api/workspaces.py",
     "handler": "remove_workspace_member",
-    "line": 909
+    "line": 817
   },
   {
     "path": "/workspaces/{workspace_id}/members/{member_user_id}",
@@ -4182,7 +4209,7 @@
     ],
     "source": "backend/app/api/workspaces.py",
     "handler": "patch_workspace_member",
-    "line": 779
+    "line": 786
   },
   {
     "path": "/workspaces/{workspace_id}/membership",
@@ -4191,7 +4218,7 @@
     ],
     "source": "backend/app/api/workspaces.py",
     "handler": "leave_workspace",
-    "line": 958
+    "line": 839
   },
   {
     "path": "/workspaces/{workspace_id}/storage-usage",
@@ -4200,7 +4227,7 @@
     ],
     "source": "backend/app/api/workspaces.py",
     "handler": "get_workspace_storage_usage",
-    "line": 1010
+    "line": 862
   },
   {
     "path": "/workspaces/{workspace_id}/storage-usage/recalculate",
@@ -4209,7 +4236,7 @@
     ],
     "source": "backend/app/api/workspaces.py",
     "handler": "recalculate_workspace_storage_usage",
-    "line": 1032
+    "line": 884
   },
   {
     "path": "/workspaces/{workspace_id}/tracks",
@@ -4218,6 +4245,6 @@
     ],
     "source": "backend/app/api/workspaces.py",
     "handler": "list_workspace_tracks",
-    "line": 611
+    "line": 604
   }
 ]

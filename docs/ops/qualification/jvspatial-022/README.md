@@ -10,7 +10,7 @@ permissions were used; no test-auth bypass was enabled.
 JV Spatial PR #59 was merged and version 0.2.2 published on 13 October.
 Core 0.1.1rc18 now pins the public package in its metadata, lockfile, and Docker
 build assertion. The record below describes the earlier local candidate; see
-[rc18 release qualification](../core-rc18/2026-10-13.md) for the final combined
+[current qualification guidance](../../QUALIFICATION.md) for the final combined
 source and published dependency checks.
 
 ## Original artifact and source scope

@@ -592,3 +592,71 @@ async def test_failed_source_create_rolls_back_inferred_target_and_retry(
         created.id, inferred.id, edge_class=REFERENCES
     )
     assert len(edges) == 1 and edges[0].target_app_id == provider.id
+
+
+@pytest.mark.parametrize("path", ["facade", "direct", "unreadable", "wrong_app"])
+async def test_readonly_relation_app_write_keeps_target_admission(
+    path, test_user, test_user2
+):
+    """App-owned computed links use the facade; ordinary edits stay readonly."""
+    from app.services.app_operations.context import OperationContext
+    from app.services.entry_create import create_entry_in_track
+    from app.services.entry_update import update_entry_in_track
+
+    ws, source, source_type, target_track, target = await _fixture(
+        test_user, test_user2
+    )
+    app = await App.create(
+        name="Computed relation owner",
+        workspace_id=ws.id,
+        owner_user_id=test_user.user_id,
+    )
+    await catalog_app(app)
+    await ws.connect(app, edge=CONTAINS)
+    await app.connect(source, edge=CONTAINS)
+    if path != "unreadable":
+        await app.connect(target_track, edge=CONTAINS)
+    await test_user.connect(app, edge=OWNS)
+    source_type.form_schema["fields"][0]["readonly"] = True
+    await source_type.save()
+    if path != "unreadable":
+        await test_user.connect(target, edge=COLLABORATES_ON, role="viewer")
+    reset_permissions_cache()
+    entry = await create_entry_in_track(
+        track=source,
+        entry_type=source_type,
+        user_id=test_user.user_id,
+        workspace_id=ws.id,
+        title="Computed link",
+        custom_fields={},
+        skip_profanity=True,
+    )
+    context = OperationContext(
+        user_id=test_user.user_id,
+        workspace_id=ws.id,
+        app_id=app.id,
+        scope=f"app:{app.id}",
+    )
+    if path == "wrong_app":
+        context.app_id = source.id
+        assert not await context.update_entry_fields(entry.id, {"related": target.id})
+    elif path == "direct":
+        with pytest.raises(BadRequestError, match="readonly"):
+            await update_entry_in_track(
+                entry_id=entry.id,
+                user_id=test_user.user_id,
+                workspace_id=ws.id,
+                custom_fields={"related": target.id},
+                expected_record_revision=entry.record_revision,
+            )
+    elif path == "unreadable":
+        with pytest.raises(BadRequestError, match="read|access"):
+            await context.update_entry_fields(entry.id, {"related": target.id})
+    else:
+        assert await context.update_entry_fields(entry.id, {"related": target.id})
+    graph = await entry.get_context()
+    await graph._evict_from_cache(entry.id)
+    saved = await Entry.get(entry.id)
+    assert saved.custom_fields.get("related") == (
+        target.id if path == "facade" else None
+    )

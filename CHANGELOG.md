@@ -4,6 +4,14 @@ This pre-launch change record describes the supported Integral Core runtime.
 Package publication and deployment are separate release gates; a local version
 bump does not establish that a release is available on a package index.
 
+## 0.1.1rc20 — release candidate
+
+- Allows owning App mutation facades to maintain readonly computed relations while retaining direct-edit and target-read restrictions.
+
+- Incorporates PR #145 and the reviewed PR #144 integration: transactional audit delivery, Agent/UI recovery, access-policy and generic extension fixes.
+- Consolidates maintained documentation and retires chronological review reports; preserves outstanding hardening work in a current backlog.
+- Fresh-wheel Business qualification is recorded in `docs/ops/RELEASE_QUALIFICATION.md`.
+
 ## 0.1.1rc19 — 2026-10-16
 
 - Preserve JSON array order and primitive types when saving entry edits, while

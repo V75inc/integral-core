@@ -66,6 +66,7 @@ async def update_entry_in_track(
     expected_record_revision: Optional[int] = None,
     expected_schema_revision: Optional[int] = None,
     replace_custom_fields: bool = False,
+    allow_readonly_relation_updates: bool = False,
     provenance: Optional[Provenance] = None,
     idempotency_key: Optional[str] = None,
     change_event_sink: Optional[Callable[[Dict[str, Any]], None]] = None,
@@ -283,6 +284,7 @@ async def update_entry_in_track(
                         actor_user_id=admitted_principal_id,
                         actor_kind=actor_kind,
                         authorization_subject=authorization_subject,
+                        allow_readonly_relation_updates=allow_readonly_relation_updates,
                         source_entry_title=title if title is not None else entry.title,
                     )
                 )
@@ -340,6 +342,7 @@ async def update_entry_in_track(
                         actor_user_id=admitted_principal_id,
                         actor_kind=actor_kind,
                         authorization_subject=authorization_subject,
+                        allow_readonly_relation_updates=allow_readonly_relation_updates,
                         source_entry_title=title if title is not None else entry.title,
                     )
                 )

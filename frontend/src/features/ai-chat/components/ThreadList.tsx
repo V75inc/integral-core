@@ -176,7 +176,7 @@ function ThreadListItem() {
         "
       >
         <ThreadListItemStreamingSpinner />
-        <ConversationLabel title={title || "New conversation"} lastActivity={lastActivity}
+        <ConversationLabel threadId={threadId} title={title || "New conversation"} lastActivity={lastActivity}
           createdAt={thread?.created_at} messageCount={thread?.message_count} working={isThreadStreaming(threadId)} />
       </ThreadListItemPrimitive.Trigger>
         <ThreadListItemMore />

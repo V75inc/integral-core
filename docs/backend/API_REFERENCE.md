@@ -183,6 +183,35 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 | DELETE | `/entries/{entry_id}/exclusions/{user_id_to_restore}` | [remove_entry_exclusion](../../backend/app/api/access.py) |
 | GET | `/tracks/{track_id}/access` | [get_track_access](../../backend/app/api/access.py) |
 
+## access_delegation
+
+| Methods | Declared path | Handler |
+|---|---|---|
+| DELETE | `/access-groups/{group_id}` | [delete_access_group](../../backend/app/api/access_delegation.py) |
+| GET | `/access-groups/{group_id}/members` | [list_access_group_members](../../backend/app/api/access_delegation.py) |
+| DELETE | `/access-groups/{group_id}/members/{user_id}` | [remove_access_group_member](../../backend/app/api/access_delegation.py) |
+| PUT | `/access-groups/{group_id}/members/{user_id}` | [add_access_group_member](../../backend/app/api/access_delegation.py) |
+| DELETE | `/action-bindings/{binding_id}` | [revoke_app_action_binding](../../backend/app/api/access_delegation.py) |
+| GET | `/apps/{app_id}/action-bindings` | [list_app_action_bindings](../../backend/app/api/access_delegation.py) |
+| POST | `/apps/{app_id}/action-bindings` | [create_app_action_binding](../../backend/app/api/access_delegation.py) |
+| POST | `/apps/{app_id}/actions/{operation_key}/decision` | [preview_app_action](../../backend/app/api/access_delegation.py) |
+| GET | `/workspaces/{workspace_id}/access-groups` | [list_access_groups](../../backend/app/api/access_delegation.py) |
+| POST | `/workspaces/{workspace_id}/access-groups` | [create_access_group](../../backend/app/api/access_delegation.py) |
+
+## access_lifecycle
+
+| Methods | Declared path | Handler |
+|---|---|---|
+| PUT | `/access/{resource_type}/{resource_id}/blocks` | [block_resource_subject](../../backend/app/api/access_lifecycle.py) |
+| GET | `/me/ownership-proposals` | [ownership_inbox](../../backend/app/api/access_lifecycle.py) |
+| POST | `/ownership-proposals/{proposal_id}/respond` | [respond_ownership](../../backend/app/api/access_lifecycle.py) |
+| DELETE | `/shares/{link_id}/grants/{recipient_id}` | [revoke_share_source](../../backend/app/api/access_lifecycle.py) |
+| GET | `/workspaces/{workspace_id}/members/{member_id}/suspension` | [review_member_suspension](../../backend/app/api/access_lifecycle.py) |
+| PUT | `/workspaces/{workspace_id}/members/{member_id}/suspension` | [suspend_workspace_member](../../backend/app/api/access_lifecycle.py) |
+| GET | `/workspaces/{workspace_id}/ownership-proposals` | [workspace_ownership_inventory](../../backend/app/api/access_lifecycle.py) |
+| POST | `/workspaces/{workspace_id}/ownership-proposals` | [propose_workspace_ownership](../../backend/app/api/access_lifecycle.py) |
+| POST | `/workspaces/{workspace_id}/rehome` | [rehome_workspace](../../backend/app/api/access_lifecycle.py) |
+
 ## admin_packages
 
 | Methods | Declared path | Handler |
@@ -347,6 +376,7 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 | DELETE | `/attachments/{attachment_id}` | [delete_attachment](../../backend/app/api/attachments.py) |
 | GET | `/attachments/{attachment_id}` | [download_attachment](../../backend/app/api/attachments.py) |
 | GET | `/attachments/{attachment_id}/download` | [stream_attachment](../../backend/app/api/attachments.py) |
+| GET | `/attachments/{attachment_id}/inline` | [stream_attachment_inline](../../backend/app/api/attachments.py) |
 | GET | `/attachments/{attachment_id}/preview` | [stream_attachment_preview](../../backend/app/api/attachments.py) |
 | POST | `/attachments/{attachment_id}/reprocess` | [reprocess_attachment_metadata](../../backend/app/api/attachments.py) |
 | GET | `/attachments/{attachment_id}/thumb` | [stream_attachment_thumbnail](../../backend/app/api/attachments.py) |
@@ -374,6 +404,8 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 |---|---|---|
 | POST | `/auth/complete-assigned-form` | [complete_assigned_form](../../backend/app/api/auth.py) |
 | POST | `/auth/complete-onboarding-form` | [complete_onboarding_form](../../backend/app/api/auth.py) |
+| POST | `/auth/credentials-delivery/resend` | [resend_credentials_delivery](../../backend/app/api/auth.py) |
+| POST | `/auth/credentials-delivery/verify` | [verify_credentials_delivery](../../backend/app/api/auth.py) |
 | POST | `/auth/forgot-password` | [forgot_password](../../backend/app/api/auth.py) |
 | GET | `/auth/me` | [get_current_user](../../backend/app/api/auth.py) |
 | POST | `/auth/resend-verification` | [resend_verification](../../backend/app/api/auth.py) |
@@ -501,6 +533,12 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 | DELETE | `/feed_entries/{entry_id}` | [delete_feed_entry](../../backend/app/api/feed.py) |
 | PUT | `/feed_entries/{entry_id}` | [update_feed_entry](../../backend/app/api/feed.py) |
 
+## graph_context
+
+| Methods | Declared path | Handler |
+|---|---|---|
+| POST | `/graph-context` | [get_graph_context](../../backend/app/api/graph_context.py) |
+
 ## invitations
 
 | Methods | Declared path | Handler |
@@ -515,38 +553,14 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 | GET | `/workspaces/{workspace_id}/invitations` | [list_invitations](../../backend/app/api/invitations.py) |
 | POST | `/workspaces/{workspace_id}/invitations` | [post_create_invitation](../../backend/app/api/invitations.py) |
 | DELETE | `/workspaces/{workspace_id}/invitations/{invitation_id}` | [delete_invitation](../../backend/app/api/invitations.py) |
+| GET | `/workspaces/{workspace_id}/invitations/{invitation_id}/adoption` | [get_invitation_adoption](../../backend/app/api/invitations.py) |
+| POST | `/workspaces/{workspace_id}/invitations/{invitation_id}/adoption` | [post_invitation_adoption](../../backend/app/api/invitations.py) |
 
 ## link_preview
 
 | Methods | Declared path | Handler |
 |---|---|---|
 | GET | `/link-preview` | [get_link_preview](../../backend/app/api/link_preview.py) |
-
-## me_assigned_form
-
-| Methods | Declared path | Handler |
-|---|---|---|
-| GET | `/me/assigned-form` | [get_me_assigned_form](../../backend/app/api/me_assigned_form.py) |
-| PATCH | `/me/assigned-form` | [patch_me_assigned_form](../../backend/app/api/me_assigned_form.py) |
-| POST | `/me/assigned-form/attachments` | [upload_me_assigned_form_attachment](../../backend/app/api/me_assigned_form.py) |
-| GET | `/me/assigned-form/contract` | [download_me_assigned_form_contract](../../backend/app/api/me_assigned_form.py) |
-| POST | `/me/assigned-form/contract/decision` | [decide_me_assigned_form_contract](../../backend/app/api/me_assigned_form.py) |
-| POST | `/me/assigned-form/contract/generate` | [generate_me_assigned_form_contract](../../backend/app/api/me_assigned_form.py) |
-| GET | `/me/assigned-form/policies` | [list_me_assigned_form_policies](../../backend/app/api/me_assigned_form.py) |
-| GET | `/me/assigned-form/policies/{policy_entry_id}/document` | [download_me_assigned_form_policy_document](../../backend/app/api/me_assigned_form.py) |
-
-## me_onboarding_form
-
-| Methods | Declared path | Handler |
-|---|---|---|
-| GET | `/me/onboarding-form` | [get_me_onboarding_form](../../backend/app/api/me_onboarding_form.py) |
-| PATCH | `/me/onboarding-form` | [patch_me_onboarding_form](../../backend/app/api/me_onboarding_form.py) |
-| POST | `/me/onboarding-form/attachments` | [upload_me_onboarding_attachment](../../backend/app/api/me_onboarding_form.py) |
-| GET | `/me/onboarding-form/contract` | [download_me_onboarding_contract](../../backend/app/api/me_onboarding_form.py) |
-| POST | `/me/onboarding-form/contract/decision` | [decide_me_onboarding_contract](../../backend/app/api/me_onboarding_form.py) |
-| POST | `/me/onboarding-form/contract/generate` | [generate_me_onboarding_contract](../../backend/app/api/me_onboarding_form.py) |
-| GET | `/me/onboarding-form/onboarding-policies` | [list_me_onboarding_policies](../../backend/app/api/me_onboarding_form.py) |
-| GET | `/me/onboarding-form/onboarding-policies/{policy_entry_id}/document` | [download_me_onboarding_policy_document](../../backend/app/api/me_onboarding_form.py) |
 
 ## meta
 
@@ -755,17 +769,6 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 | POST | `/tracks/{track_id}/public-share` | [update_public_track_share_settings](../../backend/app/api/tracks_public_share.py) |
 | POST | `/tracks/{track_id}/public-share/notify` | [notify_public_track_share](../../backend/app/api/tracks_public_share.py) |
 
-## tracks_public_share_onboarding
-
-| Methods | Declared path | Handler |
-|---|---|---|
-| GET | `/public-share/track/{token}/entries/{entry_id}/attachments` | [list_public_track_entry_attachments](../../backend/app/api/tracks_public_share_onboarding.py) |
-| GET | `/public-share/track/{token}/entries/{entry_id}/contract` | [download_public_onboarding_contract](../../backend/app/api/tracks_public_share_onboarding.py) |
-| POST | `/public-share/track/{token}/entries/{entry_id}/contract/decision` | [decide_public_onboarding_contract](../../backend/app/api/tracks_public_share_onboarding.py) |
-| POST | `/public-share/track/{token}/entries/{entry_id}/contract/generate` | [generate_public_onboarding_contract](../../backend/app/api/tracks_public_share_onboarding.py) |
-| GET | `/public-share/track/{token}/onboarding-policies` | [list_public_onboarding_policies](../../backend/app/api/tracks_public_share_onboarding.py) |
-| GET | `/public-share/track/{token}/onboarding-policies/{policy_entry_id}/document` | [download_public_onboarding_policy_document](../../backend/app/api/tracks_public_share_onboarding.py) |
-
 ## user_signatures
 
 | Methods | Declared path | Handler |
@@ -774,6 +777,13 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 | POST | `/me/signatures` | [api_save_my_signature](../../backend/app/api/user_signatures.py) |
 | DELETE | `/me/signatures/{attachment_id}` | [api_delete_my_signature](../../backend/app/api/user_signatures.py) |
 | GET | `/me/signatures/{attachment_id}/download` | [api_download_my_signature](../../backend/app/api/user_signatures.py) |
+
+## user_timezone
+
+| Methods | Declared path | Handler |
+|---|---|---|
+| GET | `/users/me/timezone` | [get_my_timezone](../../backend/app/api/user_timezone.py) |
+| PATCH | `/users/me/timezone` | [patch_my_timezone](../../backend/app/api/user_timezone.py) |
 
 ## users
 
@@ -811,14 +821,6 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 | GET | `/work-items` | [get_work_items](../../backend/app/api/work_items.py) |
 | GET | `/work-items/{work_item_id}` | [get_work_item](../../backend/app/api/work_items.py) |
 
-## workspace_member_hire
-
-| Methods | Declared path | Handler |
-|---|---|---|
-| POST | `/workspaces/{workspace_id}/members/provision` | [provision_workspace_member_route](../../backend/app/api/workspace_member_hire.py) |
-| POST | `/workspaces/{workspace_id}/members/{member_user_id}/assigned-form-prompt` | [set_member_assigned_form_prompt_route](../../backend/app/api/workspace_member_hire.py) |
-| POST | `/workspaces/{workspace_id}/members/{member_user_id}/onboarding-form-prompt` | [set_member_onboarding_form_prompt_route](../../backend/app/api/workspace_member_hire.py) |
-
 ## workspaces
 
 | Methods | Declared path | Handler |
@@ -835,6 +837,7 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 | POST | `/workspaces/{workspace_id}/avatar` | [upload_workspace_avatar](../../backend/app/api/workspaces.py) |
 | GET | `/workspaces/{workspace_id}/members` | [list_workspace_members](../../backend/app/api/workspaces.py) |
 | POST | `/workspaces/{workspace_id}/members` | [add_workspace_member](../../backend/app/api/workspaces.py) |
+| POST | `/workspaces/{workspace_id}/members/provision` | [provision_workspace_member_route](../../backend/app/api/workspaces.py) |
 | DELETE | `/workspaces/{workspace_id}/members/{member_user_id}` | [remove_workspace_member](../../backend/app/api/workspaces.py) |
 | PATCH | `/workspaces/{workspace_id}/members/{member_user_id}` | [patch_workspace_member](../../backend/app/api/workspaces.py) |
 | DELETE | `/workspaces/{workspace_id}/membership` | [leave_workspace](../../backend/app/api/workspaces.py) |

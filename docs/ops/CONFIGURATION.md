@@ -48,7 +48,7 @@ in one chat turn, including repeated/cached context and history-summary calls.
 It is separate from the model's per-request context window, output ceiling,
 request/tool count and turn deadline. A larger allowance permits more aggregate
 work but does not repair repeated queries or oversized tool responses. See the
-[token-budget investigation](qualification/token-budget/2026-10-12.md) for
+[current qualification guidance](QUALIFICATION.md) for
 reproductions, context repairs and workload qualification guidance.
 
 ## Secrets and credentials
