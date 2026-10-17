@@ -61,3 +61,11 @@ repos:
         pass_filenames: false
         always_run: true
         stages: [manual]
+  - repo: local
+    hooks:
+      - id: commit-attribution-tooling-tests
+        name: Commit attribution tooling regressions
+        entry: python3 -m unittest discover -s scripts/tests -v
+        language: system
+        pass_filenames: false
+        always_run: true

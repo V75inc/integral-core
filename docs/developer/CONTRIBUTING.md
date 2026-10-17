@@ -31,3 +31,12 @@ Committing requires a clean applicable gate. Pushing and opening/updating PRs re
 ## Documentation
 
 Update the current reader guide and affected technical contract together. Avoid adding another sprint report to the public documentation journey. Keep generated artifacts generated and machine fixtures clearly identified. Use the [editorial audit](../editorial/README.md) when consolidating old paths.
+
+## Contributor attribution
+
+Keep human authorship and human coauthor credit. Omit Cursor and Claude account
+coauthor trailers from new commit/merge messages. The repository `commit-msg`
+hook checks their exact account email identities when local hooks are enabled.
+It does not remove provider support or change existing history. See the
+[history cutover plan](../ops/CONTRIBUTOR_ATTRIBUTION.md) for the separate GitHub
+Contributors cleanup and verification requirements.
