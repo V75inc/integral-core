@@ -2,7 +2,7 @@
 
 Source: [Integral Google Doc, “Oct 14th testing” onward](https://docs.google.com/document/d/1DNRtiZ2-_D1fYuUGk4JJEutV3d6-IQ9gedRLkqN88ZA/edit?tab=t.0#heading=h.7oyf83ud0ns)
 
-Prepared from the 18 numbered reports in that section. This is a triage and patch-planning artifact; no fixes are implied or marked complete. Each verification target is a proposed acceptance check derived from the reported behavior.
+Prepared from the 18 numbered reports in that section. This is a triage and patch-planning artifact. Each verification target is a proposed acceptance check derived from the reported behavior; implementation status is recorded below.
 
 ## Triage order
 
@@ -28,6 +28,11 @@ Prioritize access and data-integrity risks first, then agent reliability, then i
 | 16 | **#14 Track Templates cannot be deleted** | P3 | Template management, authorization, deletion lifecycle | Authorized users can remove an unused template; unauthorized users cannot. Verify deletion behavior for templates already used by Tracks (block, detach, or preserve provenance according to product policy) and confirm no dependent Track data is removed. |
 | 17 | **#15 Custom view names obscure view type** | P3 | View tab labels and view metadata presentation | Give views custom names and verify their underlying type remains identifiable in the tab strip and relevant menus without changing the custom name. |
 | 18 | **#16 Truncated chat titles and three-dot menus are confusing** | P3 | Chat list layout and action-menu affordance | Long titles may truncate while the action menu remains distinct and discoverable. Verify rename/delete/archive controls are not mistaken for title ellipses at narrow and wide widths; use the cited ChatGPT/DeepSeek references only as visual direction. |
+
+## Progress in PR #145
+
+- **#4 — code fix and regression added.** An explicitly approved `allow_empty` App-only batch no longer requires an invented Track; the default path still requires one. The focused regression and full `make verify` pass. The browser App Manager smoke created `QATesting` and read it back with **0 Tracks** and **0 Dashboards**. The separate Agent chat attempt did not complete because this preview returned `model_unavailable` for its locally configured Ollama model, so the end-to-end Agent tool call remains unverified.
+- **#8 — policy review remains open.** No visibility or inheritance policy change is included.
 
 ## Scope notes
 
