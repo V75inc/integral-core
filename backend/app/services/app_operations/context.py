@@ -430,6 +430,7 @@ class OperationContext(ToolContext):
                 user_id=self.user_id,
                 workspace_id=self.workspace_id,
                 custom_fields=custom_fields or None,
+                allow_readonly_relation_updates=True,
                 title=title,
                 expected_record_revision=(
                     expected_record_revision

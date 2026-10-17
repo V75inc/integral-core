@@ -118,8 +118,8 @@ reports unavailable there. A future release must first qualify and pin the
 published JV Spatial version that supplies this API. The dev source pin is an
 integration lane, not a release or deployment qualification.
 
-Evidence and reproduction: [qualification plan](../ops/qualification/ontology-context/PLAN.md),
-[qualification results](../ops/qualification/ontology-context/RESULTS.md),
+Evidence and reproduction: [current qualification](../ops/QUALIFICATION.md),
+[current qualification](../ops/QUALIFICATION.md),
 [local SQLite probe](../ops/qualification/ontology-context/sqlite-probe.json),
 and `backend/tests/test_graph_context.py`. The probe compares a legacy duplicate
 mapping lookup on 5,000 raw disposable records, plus 200 serial and native batch

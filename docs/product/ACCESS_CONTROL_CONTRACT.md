@@ -215,7 +215,7 @@ principal, verified/unverified invitee and both human ID forms across two
 workspaces. They cover private/public/workspace/inherit resources, standalone
 Tracks, exclusions, overlapping grant sources and active App versions.
 
-The [implementation plan](ACCESS_CONTROL_PLAN.md) and U01–U76 ledger retain
+The [current access contract](ACCESS_CONTROL_CONTRACT.md) and U01–U76 ledger retain
 all required runtime, migration, browser/MCP, independent-worker, artifact and
 operator evidence. A new owner capability does not close its use case before
 those surfaces and allowed/denied outcomes are qualified.

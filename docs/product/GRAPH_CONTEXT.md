@@ -1,9 +1,9 @@
 # Workspace graph context
 
 Feature on `codex/ontology-context`; the current published dependency pin is
-`jvspatial==0.2.2`. The initial [graph dependency qualification](../ops/qualification/ontology-context/PYPI-020.md)
+`jvspatial==0.2.2`. The initial [current qualification](../ops/QUALIFICATION.md)
 covers 0.2.0 and its remaining production limits. The 0.2.2 logging upgrade is
-covered separately by the [logging verification](../ops/qualification/db-logging/2026-10-12.md).
+covered separately by the [current qualification guidance](../ops/QUALIFICATION.md).
 
 Integral's resident can answer ordinary questions about dependencies, blockers,
 and alternatives using the relationships already stored in the selected
@@ -86,5 +86,5 @@ the user's specified minimum. Model-generated hyperlinks also require review.
 
 Implementation: [workspace contract](../backend/workspace-graph-context.md),
 [recorded configuration](../backend/recorded-graph-context.md).
-Evidence: [final realistic acceptance](../ops/qualification/ontology-context/FINAL-ACCEPTANCE.md),
-[full integration qualification](../ops/qualification/ontology-context/RICH-CONTEXT.md).
+Evidence: [current qualification](../ops/QUALIFICATION.md),
+[current qualification](../ops/QUALIFICATION.md).

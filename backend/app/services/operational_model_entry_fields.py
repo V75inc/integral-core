@@ -762,6 +762,7 @@ async def validate_and_materialize_entry_custom_fields(
     source_entry_title: str = "",
     materialize: bool = True,
     authorization_subject: Optional[Subject] = None,
+    allow_readonly_relation_updates: bool = False,
 ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     """Validate custom_fields against entry type spec and extract relation refs.
 
@@ -776,6 +777,10 @@ async def validate_and_materialize_entry_custom_fields(
     retain the authenticated ``actor_user_id`` authority; independent agent,
     connector, and system callers supply an explicit authorization Subject.
     Actorless, non-materializing schema previews do not authorize writes.
+
+    The owning App mutation facade may update computed readonly relations after
+    its scope/policy checks. Changed targets still require current read authority;
+    only unchanged legacy bindings can skip a new target-read admission.
     """
     spec = resolve_entry_type_spec(entry_type, runtime_tier)
     fields = _as_list(spec.get("fields"), where="entry_type.fields")
@@ -1014,8 +1019,9 @@ async def validate_and_materialize_entry_custom_fields(
                 )
                 incoming_ids = _normalized_relation_target_ids(value, many=many)
                 if prior_ids != incoming_ids:
-                    raise BadRequestError(message=f"Field '{key}' is readonly")
-                if prior_ids:
+                    if not allow_readonly_relation_updates:
+                        raise BadRequestError(message=f"Field '{key}' is readonly")
+                elif prior_ids:
                     enforce_target_read = False
             target_apps: Dict[str, str] = {}
             rel_ids = await _validate_relation_values(
