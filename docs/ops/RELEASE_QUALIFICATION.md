@@ -50,3 +50,11 @@ Private raw evidence is under `/Users/eldonmarks/.codex/recovery/rc20-qualificat
 ## Governed AI edit readback
 
 The actual Ollama chat staged a synthetic Finance customer phone update for explicit review. Scoped readback confirmed the field remained empty before approval. The browser review showed the exact `phone = 555-0120` change; after approval, scoped record readback confirmed that value and the pending approval cleared. No unreviewed mutation was applied.
+
+## Chat title popup follow-up
+
+The initial fresh-install wheel digest above remains the historical qualification identity. The subsequent frontend-only fix expands legacy 60-character opening-message labels using a current authorized thread read, without renaming stored conversations. The popup wraps complete text, supports scrolling within the viewport, and removes the duplicate native tooltip. Async results are discarded when the card closes or changes. Unicode titles are handled by code point rather than UTF-16 code unit.
+
+The follow-up frontend suites passed: Core 1,866 tests; Business overlay 1,909 tests. Eight focused popup tests passed on the final source in both builds, including Unicode labels, mismatched opening text, dismissal and scrolling. Both production builds/type checks passed; lint had zero errors (existing warnings remain). Browser readback on port 9018 showed an existing long title in full inside a 560-pixel card, with no vertical clipping.
+
+The rc20 wheel was rebuilt with this UI, installed as an update in the qualification environment, and passed `pip check`. Follow-up wheel SHA-256: `9c66f696c818df1d67e02af0e7b8ef9a42b88d05f984f6a2d1fdd0a0a156021c`. All 754 packaged Python files still match source; backend code is unchanged from the full backend/PostgreSQL qualification above.
