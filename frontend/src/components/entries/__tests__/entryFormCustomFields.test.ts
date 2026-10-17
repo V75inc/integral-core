@@ -103,6 +103,33 @@ describe('buildCustomFieldsForEntryType (changedOnly)', () => {
   });
 });
 
+describe('form write boundaries', () => {
+  const fields: OperationalModelFieldSpec[] = [
+    { key: 'server_reference', name: 'Server reference', type: 'text', readonly: true },
+    { key: 'link_state', name: 'Link state', type: 'text', hide_on_create: true },
+    { key: 'name', name: 'Name', type: 'text' },
+  ];
+
+  it('omits read-only and empty hidden values from create payloads', () => {
+    expect(buildCustomFieldsForEntryType(fields, {
+      server_reference: 'cannot-set', link_state: null, name: 'Example',
+    })).toEqual({ name: 'Example' });
+  });
+
+  it('preserves explicit hidden prefill and editable null values', () => {
+    expect(buildCustomFieldsForEntryType(fields, {
+      link_state: 'prefilled', name: null,
+    })).toEqual({ link_state: 'prefilled', name: null });
+  });
+
+  it('does not resend a read-only value on edit even if local state changed', () => {
+    expect(buildCustomFieldsForEntryType(fields,
+      { server_reference: 'changed', link_state: 'new' },
+      { server_reference: 'stored', link_state: 'old' }, null, { changedOnly: true },
+    )).toEqual({ link_state: 'new' });
+  });
+});
+
 describe('diffCustomFields', () => {
   it('drops unchanged keys (incl. a protected-style owner), keeps changed ones', () => {
     const out = diffCustomFields(

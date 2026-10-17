@@ -91,9 +91,12 @@ def graph_transaction_available(database: Any | None = None) -> bool:
     )
 
 
-def current_graph_transaction_database() -> Any:
-    """Require this task's open transaction for an atomic effect receipt."""
+def current_graph_transaction_database(*, required: bool = True) -> Any:
+    """Return this task's transaction; optional lookup still rejects invalid scopes."""
     active = _active_transaction.get()
+    if active is None and not required:
+        require_outside_graph_transaction()
+        return None
     if active is None or active.owner is not asyncio.current_task() or active.failed:
         raise OperationTransactionUnavailable(
             "A current task-owned transaction is required"

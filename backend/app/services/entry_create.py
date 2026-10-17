@@ -8,7 +8,9 @@ without importing the HTTP layer (I-CRUD-01).
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
+from copy import deepcopy
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
@@ -231,6 +233,10 @@ async def _create_entry_in_track(
         source_entry_title=title,
     )
     ws_id = str(getattr(track, "workspace_id", "") or workspace_id)
+    # Schema materialization may add protected defaults or empty fields. Those
+    # are not caller writes. Snapshot deeply so hooks cannot hide nested edits
+    # by mutating their input in place.
+    before_hook_custom_fields = deepcopy(validated_custom_fields)
     try:
         validated_custom_fields = await run_entry_before_write_hooks(
             workspace_id=ws_id,
@@ -246,13 +252,22 @@ async def _create_entry_in_track(
         from app.api.errors import BadRequestError
 
         raise BadRequestError(message=str(exc)) from exc
+    post_hook_custom_fields = {
+        key: validated_custom_fields.get(key)
+        for key in before_hook_custom_fields.keys() | validated_custom_fields.keys()
+        if key not in before_hook_custom_fields or key not in validated_custom_fields
+        # JSON comparison distinguishes nested booleans/numbers while ignoring
+        # object key order. Presence checks also catch added/removed nulls.
+        or json.dumps(before_hook_custom_fields[key], sort_keys=True)
+        != json.dumps(validated_custom_fields[key], sort_keys=True)
+    }
     await enforce_protected_field_write(
         principal_id=(
             actor_id if actor_id and actor_kind in {"agent", "connector"} else user_id
         ),
         workspace_id=str(track.workspace_id or workspace_id),
         entry_type_key=entry_type_key,
-        proposed_custom_fields=validated_custom_fields,
+        proposed_custom_fields=post_hook_custom_fields,
         track_id=track.id,
         mutation_kind="create",
         proposed_fields={"title": title, "body": body},
