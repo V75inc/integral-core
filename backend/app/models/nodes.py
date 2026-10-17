@@ -543,7 +543,9 @@ class Track(Node):
     # "private" opts out of workspace-wide visibility inheritance from a
     # parent App; direct App OWNS / COLLABORATES_ON still cascade. Per-user
     # EXCLUDED_FROM also blocks inherited paths.
-    visibility: str = "private"  # private | workspace | public | inherit (explicit)
+    visibility: str = (
+        "private"  # private | workspace | public | inherit (legacy read compatibility)
+    )
     template_id: Optional[str] = None
     # Stable relation identity for ad-hoc Tracks. Display renames do not change
     # which Track type a declared relation accepts. Template identity wins.

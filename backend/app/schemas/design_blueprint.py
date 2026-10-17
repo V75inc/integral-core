@@ -273,7 +273,9 @@ class DesignBlueprint(BaseModel):
     app: BlueprintApp
     goals: List[BlueprintGoal] = Field(default_factory=list)
     actors: List[BlueprintActor] = Field(default_factory=list)
-    tracks: List[BlueprintTrack] = Field(min_length=1)
+    # An explicitly reviewed blank App is a valid container. Keep the list
+    # required so an omitted structure cannot silently become a blank design.
+    tracks: List[BlueprintTrack]
     track_templates: List[BlueprintTrackTemplate] = Field(default_factory=list)
     views: List[BlueprintView] = Field(default_factory=list)
     dashboard: Optional[BlueprintDashboard] = None

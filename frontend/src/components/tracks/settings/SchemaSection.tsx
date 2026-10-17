@@ -259,7 +259,8 @@ export function SchemaSection({ trackId, canEdit }: SchemaSectionProps) {
             onAddField={() =>
               setPanel({ open: true, mode: 'create', entryTypeId: et.id, fieldKey: null })
             }
-            onDeleteEntryType={canEdit ? () => handleDeleteEntryType(et) : undefined}
+            onDeleteEntryType={canEdit && entryTypes.length > 1 && et.name.trim().toLowerCase() !== 'post' && et.form_schema?._manifest_entry_type_key !== 'post'
+              ? () => handleDeleteEntryType(et) : undefined}
           />
         ))
       )}

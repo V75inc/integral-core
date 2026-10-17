@@ -51,7 +51,7 @@ describe('SchemaSection', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/note/i)).toBeInTheDocument();
-      expect(screen.getByText(/1 field/i)).toBeInTheDocument();
+      expect(screen.getByText(/3 fields/i)).toBeInTheDocument();
     });
   });
 

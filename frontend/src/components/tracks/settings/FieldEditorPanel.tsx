@@ -12,6 +12,7 @@ import { NumberConfig } from './fieldConfig/NumberConfig';
 import { DateConfig } from './fieldConfig/DateConfig';
 import { RelationConfig } from './fieldConfig/RelationConfig';
 import { Modal } from '../../ui/Modal';
+import { Button } from '../../ui/Button';
 import { Input } from '../../../ui';
 import { Field } from '../../../patterns';
 import apiClient from '../../../api/client';
@@ -322,14 +323,15 @@ export function FieldEditorPanel({
           >
             Cancel
           </button>
-          <button
+          <Button
             type="button"
-            className="text-sm px-3 py-1.5 rounded bg-[var(--link)] text-white disabled:opacity-50"
+            variant="primary"
+            size="sm"
             onClick={handleSave}
             disabled={!canSave}
           >
             {saving ? 'Saving…' : 'Save'}
-          </button>
+          </Button>
         </div>
       </Modal.Footer>
     </Modal>

@@ -38,6 +38,7 @@ export function PendingInvitationsPanel({
   const queryClient = useQueryClient();
   const [invitations, setInvitations] = useState<MyInvitation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [workingId, setWorkingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -45,8 +46,10 @@ export function PendingInvitationsPanel({
     try {
       const rows = await sharingApi.listMyInvitations();
       setInvitations(rows.filter(i => i.status === 'pending'));
+      setLoadError(false);
     } catch {
-      setInvitations([]);
+      // A failed refresh does not mean pending invitations disappeared.
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -116,7 +119,7 @@ export function PendingInvitationsPanel({
     );
   }
 
-  if (invitations.length === 0) {
+  if (invitations.length === 0 && !loadError) {
     return null;
   }
 
@@ -179,8 +182,15 @@ export function PendingInvitationsPanel({
     </Surface>
   );
 
+  const content = <>
+    {loadError && <div role="alert" className="mb-3 flex items-center gap-3">
+      <Text variant="body-sm" tone="danger">Could not refresh invitations. Your last loaded invitations are still shown.</Text>
+      <Button size="sm" variant="outline" onClick={() => void load()}>Retry invitations</Button>
+    </div>}
+    {body}
+  </>;
   if (compact) {
-    return body;
+    return content;
   }
 
   return (
@@ -193,7 +203,7 @@ export function PendingInvitationsPanel({
           {invitations.length} awaiting your response
         </Text>
       </div>
-      {body}
+      {content}
     </section>
   );
 }
