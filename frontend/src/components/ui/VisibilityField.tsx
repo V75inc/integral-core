@@ -1,4 +1,4 @@
-import { Lock, Users, Link2, Globe } from 'lucide-react';
+import { Lock, Users, Globe } from 'lucide-react';
 import { LINE_ICON_STROKE } from './IconWell';
 
 export type VisibilityChoice = 'inherit' | 'private' | 'workspace' | 'public';
@@ -10,8 +10,7 @@ type Props = {
   workspaceAvailable: boolean;
   /** Shown under the group when value is inherit */
   inheritHint: string;
-  /** Hide "Inherit" (e.g. edit track). */
-  showInherit?: boolean;
+
   disabled?: boolean;
 };
 
@@ -27,7 +26,6 @@ export function VisibilityField({
   onChange,
   workspaceAvailable,
   inheritHint,
-  showInherit = true,
   disabled,
 }: Props) {
   const items: {
@@ -37,16 +35,6 @@ export function VisibilityField({
     sub: string;
     disabled?: boolean;
   }[] = [
-    ...(showInherit
-      ? [
-          {
-            key: 'inherit' as const,
-            label: 'Inherit',
-            Icon: Link2,
-            sub: "Default — matches parent's visibility",
-          },
-        ]
-      : []),
     {
       key: 'private',
       label: 'Private',
@@ -73,7 +61,7 @@ export function VisibilityField({
   return (
     <div className="space-y-2">
       <div
-        className={`grid gap-2 auto-rows-fr ${showInherit ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'}`}
+        className="grid gap-2 auto-rows-fr grid-cols-3"
       >
         {items.map(({ key, label, Icon, sub, disabled: itemDis }) => {
           const on = value === key;

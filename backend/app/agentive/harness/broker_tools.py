@@ -393,20 +393,50 @@ def _make_handler(
         if work_execution_context is None:
             result = await dispatch()
         else:
+            from app.agentive.services.capability_adapters import AdapterError
+            from app.agentive.services.capability_broker import (
+                record_rolled_back_refusal,
+            )
             from app.agentive.services.work_items import authorized_work_item_effect
+            from app.services.app_operations.transaction_scope import (
+                OperationTransactionRolledBack,
+            )
 
-            async with authorized_work_item_effect(work_execution_context):
-                if capability_name == "integral_get_attachment_text":
-                    from app.agentive.work_models import WorkItem
-                    from app.services.chat_turn_attachments import (
-                        assert_chat_attachment_read_inputs,
-                    )
+            result = None
+            try:
+                async with authorized_work_item_effect(work_execution_context):
+                    if capability_name == "integral_get_attachment_text":
+                        from app.agentive.work_models import WorkItem
+                        from app.services.chat_turn_attachments import (
+                            assert_chat_attachment_read_inputs,
+                        )
 
-                    item = await WorkItem.get(
-                        f"o.WorkItem.{work_execution_context.work_item_id}"
-                    )
-                    await assert_chat_attachment_read_inputs(item=item)
-                result = await dispatch()
+                        item = await WorkItem.get(
+                            f"o.WorkItem.{work_execution_context.work_item_id}"
+                        )
+                        await assert_chat_attachment_read_inputs(item=item)
+                    result = await dispatch()
+            except OperationTransactionRolledBack as exc:
+                # The broker converted an adapter refusal to a result inside
+                # the now-rolled-back scope. Persist only its failure receipt
+                # after rollback; never retry the adapter or commit partial work.
+                cause = exc.__cause__
+                if (
+                    result is None
+                    or result.ok
+                    or capability_source != "core"
+                    or capability_op_class != "propose"
+                    or not isinstance(cause, AdapterError)
+                    or cause.error_code != result.error_code
+                ):
+                    raise
+                result = await record_rolled_back_refusal(
+                    result=result,
+                    context=tool_work_context,
+                    source=capability_source,
+                    op_class=capability_op_class,
+                    arguments=arguments,
+                )
         model_result = _resource_links_for_model(result.for_model())
         if (
             capability_source == "connector"

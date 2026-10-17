@@ -8,7 +8,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from app.api.errors import InsufficientPermissionsError, ResourceNotFoundError
+from app.api.errors import (
+    BadRequestError,
+    InsufficientPermissionsError,
+    ResourceNotFoundError,
+)
 from app.api.utils import export_node
 from app.api.validators_common import compute_fold
 from app.models.edges import CONTAINS
@@ -31,6 +35,26 @@ from app.services.operational_model_runtime import (
 from app.services.policy_engine import evaluate as policy_evaluate
 from app.services.uniqueness import assert_unique
 from app.utils.time import utc_now_iso
+
+
+async def assert_entry_type_deletable(entry_type: EntryType, profile: Any) -> None:
+    """Keep the platform Post shape and the profile's final type available."""
+    key = str((entry_type.form_schema or {}).get("_manifest_entry_type_key") or "")
+    if entry_type.name.strip().casefold() == "post" or key == "post":
+        raise BadRequestError(message="The default Post entry type cannot be deleted")
+    if entry_type.track_id:
+        track = await Track.get(entry_type.track_id)
+        if track:
+            _, tier, _ = await resolve_track_runtime_profile(track)
+            default_key = str(
+                (tier.get("defaults") or {}).get("default_entry_type") or ""
+            )
+            if default_key and default_key in {key, entry_type.name}:
+                raise BadRequestError(
+                    message="The default entry type cannot be deleted"
+                )
+    if await profile.count_nodes(node=[EntryType], edge=[CONTAINS]) <= 1:
+        raise BadRequestError(message="The final entry type cannot be deleted")
 
 
 async def materialize_entry_types_from_tier(track: Track) -> List[EntryType]:

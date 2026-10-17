@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -19,6 +20,7 @@ function renderFields(
   render(
     <QueryClientProvider client={new QueryClient()}>
       <ToastProvider>
+        <StrictMode>
         <EntryMetaFields
           fields={fields}
           values={values}
@@ -26,6 +28,7 @@ function renderFields(
           onCommitField={onCommitField}
           entryId={entryId}
         />
+        </StrictMode>
       </ToastProvider>
     </QueryClientProvider>
   );
@@ -251,12 +254,17 @@ it('makes a markdown field editable as a textarea in the detail', async () => {
   ] as OperationalModelFieldSpec[];
   renderFields(fields, { description: 'hello' }, onCommit);
 
+  fireEvent.click(screen.getByRole('button', { name: 'Edit Description' }));
   const box = screen.getByRole('textbox');
   expect(box.tagName).toBe('TEXTAREA');
   fireEvent.change(box, { target: { value: 'updated' } });
+  expect(onCommit).not.toHaveBeenCalled();
+  fireEvent.blur(box);
   await waitFor(() =>
     expect(onCommit).toHaveBeenCalledWith('description', 'updated')
   );
+  await waitFor(() => expect(screen.queryByRole('textbox')).toBeNull());
+  expect(screen.getByRole('button', { name: 'Edit Description' })).not.toBeDisabled();
 });
 
 it('renders markdown read-only when the viewer cannot edit', () => {
@@ -299,4 +307,47 @@ it('shows group headers on the detail but not on cards', () => {
     </QueryClientProvider>
   );
   expect(screen.queryByText('Contact')).toBeNull();
+});
+
+
+it.each(['viewer', 'protected', 'field'])('keeps %s file fields read-only despite a commit callback', mode => {
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <ToastProvider>
+        <EntryMetaFields
+          fields={[{ key: 'media', name: 'Media', type: 'files', readonly: mode === 'field' }]}
+          values={{ media: [] }}
+          variant="detail"
+          entryId="n.Entry.readonly"
+          readOnly={mode === 'viewer'}
+          readOnlyKeys={mode === 'protected' ? ['media'] : []}
+          onCommitField={vi.fn()}
+        />
+      </ToastProvider>
+    </QueryClientProvider>
+  );
+  expect(screen.queryByText('Attach file')).toBeNull();
+  expect(document.querySelector('input[type="file"]')).toBeNull();
+});
+
+
+it('keeps card group positions stable when the first group is empty', () => {
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <EntryMetaFields
+        fields={[
+          { key: 'context', name: 'Context', type: 'text', group: 'First' },
+          { key: 'summary', name: 'Summary', type: 'text', group: 'Second' },
+          { key: 'state', name: 'State', type: 'text', group: 'Third' },
+        ]}
+        values={{ summary: 'Visible summary', state: 'Ready' }}
+        variant="card"
+      />
+    </QueryClientProvider>
+  );
+  const columns = document.querySelectorAll('[data-card-column]');
+  expect(columns).toHaveLength(2);
+  expect(columns[0].textContent).not.toContain('Visible summary');
+  expect(columns[1].textContent).toContain('Visible summary');
+  expect(document.querySelector('[data-card-trailing]')?.textContent).toContain('Ready');
 });

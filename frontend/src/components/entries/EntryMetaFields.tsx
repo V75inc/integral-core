@@ -30,7 +30,7 @@ import {
 } from './relationChoiceLoaders';
 
 /** Field types that support hover-to-reveal inline editing in the detail panel. */
-const INLINE_EDITABLE_TYPES = new Set(['text', 'number']);
+const INLINE_EDITABLE_TYPES = new Set(['text', 'number', 'markdown']);
 const RELATION_PICKER_STALE_MS = 60_000;
 const TRACKS_PICKER_STALE_MS = 5 * 60_000;
 
@@ -344,6 +344,7 @@ export function EntryMetaFields({
     group?: string;
     inlineEditable: boolean;
     seamlessEditable: boolean;
+    fileEditable: boolean;
   };
   const rows: Row[] = [];
 
@@ -362,7 +363,7 @@ export function EntryMetaFields({
       INLINE_EDITABLE_TYPES.has(t) &&
       !field.readonly;
     // Fields rendered inline through SeamlessField in the detail — relations,
-    // selects, dates and markdown — so values such as Pipeline status, dates and
+    // selects and dates — so values such as Pipeline status, dates and
     // the description can be edited from the card without opening the Edit form.
     const isSeamlessEditable =
       variant === 'detail' &&
@@ -372,7 +373,6 @@ export function EntryMetaFields({
       (t === 'relation' ||
         t === 'select' ||
         t === 'multi_select' ||
-        t === 'markdown' ||
         t === 'date' ||
         t === 'datetime');
     // File/media fields are editable inline when we have the entry to attach to.
@@ -380,6 +380,8 @@ export function EntryMetaFields({
       variant === 'detail' &&
       !!onCommitField &&
       !!entryId &&
+      !readOnly &&
+      !readOnlyKeys.includes(field.key) &&
       (t === 'file' || t === 'files') &&
       !field.readonly;
 
@@ -407,6 +409,7 @@ export function EntryMetaFields({
         raw,
         group: (field.group || '').trim() || undefined,
         inlineEditable: true,
+        fileEditable: isFileEditable,
         seamlessEditable: false,
       });
       continue;
@@ -419,6 +422,7 @@ export function EntryMetaFields({
         raw,
         group: (field.group || '').trim() || undefined,
         inlineEditable: false,
+        fileEditable: isFileEditable,
         seamlessEditable: true,
       });
       continue;
@@ -434,6 +438,7 @@ export function EntryMetaFields({
         raw,
         group: (field.group || '').trim() || undefined,
         inlineEditable: false,
+        fileEditable: isFileEditable,
         seamlessEditable: false,
       });
       continue;
@@ -450,6 +455,7 @@ export function EntryMetaFields({
         raw,
         group: (field.group || '').trim() || undefined,
         inlineEditable: false,
+        fileEditable: isFileEditable,
         seamlessEditable: isSeamlessEditable,
       });
       continue;
@@ -463,6 +469,7 @@ export function EntryMetaFields({
       raw,
       group: (field.group || '').trim() || undefined,
       inlineEditable: false,
+      fileEditable: isFileEditable,
       seamlessEditable: false,
     });
   }
@@ -478,8 +485,10 @@ export function EntryMetaFields({
   // type has fewer than two groups.
   const cardGroups: string[] = [];
   if (variant === 'card') {
-    for (const row of rows) {
-      if (row.group && !cardGroups.includes(row.group)) cardGroups.push(row.group);
+    for (const field of ordered) {
+      if (field.key.startsWith('_') || field.hide_on_card) continue;
+      const group = (field.group || '').trim();
+      if (group && !cardGroups.includes(group)) cardGroups.push(group);
     }
   }
   const useColumns = variant === 'card' && cardGroups.length >= 2;
@@ -618,7 +627,7 @@ export function EntryMetaFields({
                 }
               />
             </div>
-          ) : (t === 'file' || t === 'files') && !!entryId && !!onCommitField ? (
+          ) : row.fileEditable && onCommitField ? (
             <div className="mt-0.5">
               <SeamlessField
                 externalLabel

@@ -1414,7 +1414,11 @@ async def build_approved_design(
             "invalid_scaffold_plan",
             "Start a new-App plan with integral_create_app, or provide the real app_id on the first integral_create_app_track for an existing App.",
         )
-    if existing_app is None and len(raw_operations) < 2:
+    if (
+        existing_app is None
+        and len(raw_operations) < 2
+        and not (blueprint is not None and not blueprint["tracks"])
+    ):
         return _invalid(
             "invalid_scaffold_plan",
             "A new App plan needs an App and at least one Track.",
@@ -1697,7 +1701,7 @@ async def build_approved_design(
                 operations.append((tool, params))
         except (KeyError, TypeError, ValueError) as exc:
             return _invalid("invalid_scaffold_plan", f"Operation {index + 1}: {exc}")
-    if track_count < 1:
+    if track_count < 1 and not (blueprint is not None and not blueprint["tracks"]):
         return _invalid(
             "invalid_scaffold_plan", "The plan needs at least one shaped Track."
         )

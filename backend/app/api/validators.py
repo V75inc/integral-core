@@ -64,15 +64,15 @@ async def validate_app_visibility_workspace(
 
 
 def normalize_track_visibility_input(visibility: Optional[str]) -> Optional[str]:
-    """Omission defaults privately; explicit inheritance remains supported."""
+    """New Track visibility is explicit; legacy inherited values are read-only."""
     if visibility is None:
         return None
     v = _canonicalize_visibility(visibility)
     if v in ("", None):
         return None
-    if v not in VALID_ENTITY_VISIBILITY and v != "inherit":
+    if v not in VALID_ENTITY_VISIBILITY:
         raise BadRequestError(
-            message="visibility must be private, workspace, public, or inherit",
+            message="visibility must be private, workspace, or public",
         )
     return v
 

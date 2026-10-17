@@ -245,6 +245,71 @@ async def _persist_envelope(step: Any, result: CapabilityResult) -> None:
     await step.save()
 
 
+async def record_rolled_back_refusal(
+    *,
+    result: CapabilityResult,
+    context: Any,
+    source: str,
+    op_class: str,
+    arguments: Dict[str, Any],
+) -> CapabilityResult:
+    """Retain a refusal after its enclosing worker transaction rolled back.
+
+    No adapter is called here. The worker fence and original run identity are
+    checked again; an unknown/partial outcome remains a failed receipt, never
+    a successful effect or permission to replay.
+    """
+    from app.agentive.services.work_items import authorized_work_item_effect
+    from app.services.app_operations.transaction_scope import (
+        require_outside_graph_transaction,
+    )
+
+    require_outside_graph_transaction()
+    ref = result.receipt
+    if result.ok or ref is None or ref.run_id != context.run_id:
+        raise ValueError("A rolled-back refusal requires its original run receipt")
+    async with authorized_work_item_effect(context):
+        run = await AgentRun.find_one({"run_id": ref.run_id})
+        if (
+            run is None
+            or run.user_id != context.principal_id
+            or run.workspace_id != context.workspace_id
+            or run.status != "running"
+        ):
+            raise ValueError("The refusal's original run is no longer current")
+        if await RunStep.find_one(
+            {"run_id": ref.run_id, "idempotency_key": ref.idempotency_key}
+        ):
+            raise ValueError("The rolled-back receipt unexpectedly survived")
+        step = await RunStep.create(
+            run_id=ref.run_id,
+            step_key=ref.step_key,
+            kind="approval",
+            name=ref.capability_key,
+            capability_key=ref.capability_key,
+            capability_source=source,
+            capability_op_class=op_class,
+            origin=ref.origin,
+            principal_id=context.principal_id,
+            workspace_id=context.workspace_id,
+            work_item_id=context.work_item_id,
+            idempotency_key=ref.idempotency_key,
+            input_fingerprint=_fingerprint(arguments),
+            status="failed",
+            error_code=ERR_ADAPTER,
+            adapter_error_code=result.error_code,
+            denial_code=result.error_code,
+            result_class="failed",
+            policy_decision="allow",
+            snapshot_fingerprint=result.snapshot_fingerprint,
+            snapshot_divergence=result.snapshot_divergence,
+            finished_at=utc_now_iso(),
+        )
+        await _persist_envelope(step, result)
+        result.receipt = _receipt_ref(step)
+    return result
+
+
 async def invoke(inv: CapabilityInvocation) -> CapabilityResult:
     """Authorize, receipt, then execute one declared capability."""
     from app.middleware.permissions_cache import isolated_permissions_cache

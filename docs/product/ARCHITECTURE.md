@@ -41,6 +41,8 @@ Explicit request scope is `X-Integral-Scope: ws:<workspace_id>`. A malformed sup
 
 Resource roles are owner > admin > editor > commenter > viewer. Workspace membership roles are separate. Direct grants retain their role; inherited owner/admin authority is capped at editor. Exclusions remove inherited paths, while direct ownership and collaboration win over them.
 
+Apps and Tracks default to Private. Track visibility writes accept only Private, Workspace, or Public; explicit Inherit visibility is retired (approved 2026-10-17). Existing stored `inherit` Tracks retain their current effective visibility for read compatibility. An unrelated metadata edit omits visibility and preserves that value; choosing a supported visibility explicitly replaces it. Blank visibility on an update becomes Private. No automatic ACL migration is implied: resource owners must review legacy Tracks before converting them. Collaborator role propagation, exclusions, and the editor cap remain governed by the rules above.
+
 Workspace membership gates private workspace content. Explicit public-read and sharing paths provide narrow exceptions rather than general write or enumeration authority. Current permission is re-evaluated during tools, approvals, and recovery. A cached result, session ID, or client-selected resource cannot widen authority.
 
 There is no general field-level privacy. Put differently governed information behind separate resources and preserve restricted navigation behavior. Filters and rendering rules are not access controls.

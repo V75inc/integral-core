@@ -2,7 +2,6 @@
 
 import hashlib
 import hmac
-import logging
 import time
 from typing import Any, Dict, Optional
 
@@ -12,8 +11,6 @@ from app.models.nodes import Attachment
 from app.services.attachment_preview import can_preview
 from app.services.attachment_scanner import SCAN_STATUS_BLOCKED
 from app.services.attachment_storage import get_attachment_storage_service
-
-logger = logging.getLogger(__name__)
 
 #: Lifetime of a session-free signed attachment URL (seconds).
 _ATTACHMENT_URL_TTL_SECONDS = 3600
@@ -33,7 +30,7 @@ def _token_secret() -> bytes:
 def _sign_attachment(attachment_id: str, exp: int) -> str:
     return hmac.new(
         _token_secret(),
-        f"{attachment_id}:{exp}".encode("utf-8"),
+        f"integral-attachment-v1:{attachment_id}:{exp}".encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()
 
@@ -54,7 +51,10 @@ def verify_attachment_token(attachment_id: str, exp: Any, sig: Any) -> bool:
         return False
     if exp_int < int(time.time()):
         return False
-    return hmac.compare_digest(_sign_attachment(attachment_id, exp_int), str(sig or ""))
+    return hmac.compare_digest(
+        _sign_attachment(attachment_id, exp_int).encode("ascii"),
+        str(sig or "").encode("utf-8"),
+    )
 
 
 def public_attachment_url(attachment: Attachment) -> str:

@@ -240,7 +240,7 @@ async def update_track_metadata(
         if visibility is not None:
             explicit_vis = normalize_track_visibility_input(visibility)
             if explicit_vis is None:
-                track.visibility = "inherit"
+                track.visibility = "private"
             else:
                 await validate_track_visibility_workspace(
                     explicit_vis, track.workspace_id

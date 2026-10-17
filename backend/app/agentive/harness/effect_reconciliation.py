@@ -19,9 +19,21 @@ def is_pre_effect_rejection(receipt) -> bool:
     """Recognize an original Core validation receipt, including older runs."""
     return (
         getattr(receipt, "capability_source", None) == "core"
-        and getattr(receipt, "capability_key", None) == "integral_build_approved_design"
         and getattr(receipt, "status", None) == "failed"
-        and getattr(receipt, "adapter_error_code", None) in BUILD_PRE_EFFECT_ERRORS
+        and (
+            (
+                getattr(receipt, "capability_key", None)
+                == "integral_build_approved_design"
+                and getattr(receipt, "adapter_error_code", None)
+                in BUILD_PRE_EFFECT_ERRORS
+            )
+            or (
+                # propose_design validates the blueprint before recording a
+                # proposal or artifact. No domain write or approval occurred.
+                getattr(receipt, "capability_key", None) == "integral_propose_design"
+                and getattr(receipt, "adapter_error_code", None) == "invalid_blueprint"
+            )
+        )
     )
 
 

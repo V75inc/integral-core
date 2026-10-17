@@ -132,6 +132,12 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # jvspatial's stricter default does not permit.
         if not _is_docs_path(request.url.path):
             h["Content-Security-Policy"] = _CSP
+        if _is_public_media_path(request.url.path):
+            # A bearer URL must never turn uploaded HTML/SVG into a Core-origin
+            # document, even if a deployment overrides the normal application CSP.
+            h["Content-Security-Policy"] = "sandbox; default-src 'none'"
+            h["Referrer-Policy"] = "no-referrer"
+            h["Cache-Control"] = "no-store"
         # Only the validated frame handler may set this request-state marker.
         # A client header or an arbitrary response cannot relax Core's policy.
         frame_policy = getattr(request.state, "extension_frame_policy", None)

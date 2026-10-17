@@ -4495,6 +4495,10 @@ def normalize_view_config(
             )
         )
     cfg = _as_dict(config or {}, where="view.config")
+    if "tab_order" in cfg and (
+        not isinstance(cfg["tab_order"], int) or isinstance(cfg["tab_order"], bool)
+    ):
+        raise BadRequestError(message="view.config.tab_order must be an integer")
     kanban_columns = _as_list(
         cfg.get("kanban_columns"), where="view.config.kanban_columns"
     )
@@ -4548,6 +4552,8 @@ def normalize_view_config(
         ),
         "default_page_id": cfg.get("default_page_id"),
     }
+    if "tab_order" in cfg:
+        normalized["tab_order"] = cfg["tab_order"]
     if vt == "wiki":
         parent_field = str(normalized.get("parent_field") or "").strip()
         if not parent_field:

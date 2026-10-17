@@ -159,6 +159,11 @@ _ERROR_MESSAGES: Dict[str, str] = {
         "Live chat is unavailable because this installation needs transactional "
         "storage. Ask your administrator to configure PostgreSQL for Integral."
     ),
+    "chat_step_rolled_back": (
+        "This step failed and its database changes were rolled back. "
+        "The assistant could not complete the requested work. Review the failed "
+        "step before retrying; do not assume the requested records were saved."
+    ),
     "internal_error": "Something went wrong on our side. Please try again.",
     "scaffold_plan_invalid": (
         "The approved setup could not be built. Please try again."
@@ -289,9 +294,12 @@ def classify_turn_exception(
         pass
 
     from app.services.app_operations.transaction_scope import (
+        OperationTransactionRolledBack,
         OperationTransactionUnavailable,
     )
 
+    if isinstance(exc, OperationTransactionRolledBack):
+        return "chat_step_rolled_back", _ERROR_MESSAGES["chat_step_rolled_back"]
     if isinstance(exc, OperationTransactionUnavailable):
         return "chat_storage_unavailable", _ERROR_MESSAGES["chat_storage_unavailable"]
 

@@ -1,4 +1,5 @@
 import type { EntryCreateInput } from '../views/types';
+import { TrackTagFilters, entriesMatchingTags } from '../components/tracks/TrackTagFilters';
 /* patch:kanban-hire-intercept */
 import {
   useState,
@@ -154,6 +155,8 @@ export function TrackDetailPage() {
   // query so the new package appears under Settings → Library on next visit.
   const [deriveModalOpen, setDeriveModalOpen] = useState(false);
   const [filterType, setFilterType] = useState('');
+  const [filterTags, setFilterTags] = useState<string[]>([]);
+  useEffect(() => setFilterTags([]), [id]);
   const [trackSearch, setTrackSearch] = useState('');
   // Right rail collapsed by default. Two mutually exclusive modes:
   //   'activity' — ChangeEvent feed for this track
@@ -605,10 +608,13 @@ export function TrackDetailPage() {
     () =>
       dedupedTabViews.map(v => {
         const reg = getWidget(v.type);
+        const Icon = reg?.meta.icon;
         const label = v.name || reg?.meta.label || v.type;
         return {
           value: v.id,
-          label
+          label,
+          icon: Icon ? <Icon size={14} /> : undefined,
+          title: `${label} (${reg?.meta.label || v.type})`,
         };
       }),
     [dedupedTabViews]
@@ -825,9 +831,10 @@ export function TrackDetailPage() {
         });
       }
     }
-    return list;
+    return entriesMatchingTags(list, filterTags);
   }, [
     allEntries,
+    filterTags,
     filterType,
     trackSearch,
     semanticMode,
@@ -1765,6 +1772,7 @@ export function TrackDetailPage() {
         onDeleteTrack={handleDeleteTrack}
       />
 
+      <TrackTagFilters entries={allEntries} selected={filterTags} onChange={setFilterTags} />
       {dashboardFilters ? (
         <div className="flex items-center justify-between gap-3 px-4 py-2">
           <Text variant="meta" tone="muted" as="p">

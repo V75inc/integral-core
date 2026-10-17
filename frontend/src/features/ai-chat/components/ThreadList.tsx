@@ -255,9 +255,9 @@ function ThreadListItemMore() {
       <ThreadListItemMorePrimitive.Trigger
         aria-label={`Options for ${title || "New conversation"}`}
         className="
-          absolute bottom-0 right-1 flex h-6 w-6 items-center justify-center
+          mr-1 flex h-7 w-7 shrink-0 items-center justify-center
           rounded-[var(--radius-input)]
-          text-[var(--text-subtle)] opacity-0
+          text-[var(--text-muted)]
           transition-opacity hover:bg-[var(--panel)]
           hover:text-[var(--text)]
           group-hover:opacity-100

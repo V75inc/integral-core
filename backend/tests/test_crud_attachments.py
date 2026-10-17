@@ -98,6 +98,52 @@ class TestAttachmentsCRUD:
         assert "attachment" in data
         assert data["attachment"]["filename"] == "test.txt"
 
+    async def test_signed_inline_attachment_rechecks_scan_and_downloads_active_content(
+        self, authenticated_client: AsyncClient, client: AsyncClient, test_user
+    ):
+        from app.services.attachment_urls import public_attachment_url
+
+        track_id = await self._create_track(authenticated_client)
+        entry_id = await self._create_entry(authenticated_client, track_id)
+        attachment_id = await self._create_attachment_programmatically(
+            entry_id, test_user.user_id, "unsafe.html", b"<html>fixture</html>", True
+        )
+        attachment = await Attachment.get(attachment_id)
+        attachment.mime_type = "text/html"
+        await attachment.save()
+        url = public_attachment_url(attachment)
+        response = await client.get(url)
+        assert response.status_code == 200, response.text
+        assert response.content == b"<html>fixture</html>"
+        assert response.headers["content-disposition"].startswith("attachment;")
+        assert response.headers["cache-control"] == "no-store"
+        assert "sandbox" in response.headers["content-security-policy"]
+        assert response.headers["referrer-policy"] == "no-referrer"
+        attachment.scan_status = "blocked"
+        await attachment.save()
+        response = await client.get(url)
+        assert response.status_code == 404
+
+    async def test_signed_inline_image_requires_valid_token(
+        self, authenticated_client: AsyncClient, client: AsyncClient, test_user
+    ):
+        from app.services.attachment_urls import public_attachment_url
+
+        track_id = await self._create_track(authenticated_client)
+        entry_id = await self._create_entry(authenticated_client, track_id)
+        attachment_id = await self._create_attachment_programmatically(
+            entry_id, test_user.user_id, "fixture.png", b"image-fixture", True
+        )
+        attachment = await Attachment.get(attachment_id)
+        attachment.mime_type = "image/png"
+        await attachment.save()
+        response = await client.get(public_attachment_url(attachment))
+        assert response.status_code == 200, response.text
+        assert response.headers["content-disposition"].startswith("inline;")
+        assert response.content == b"image-fixture"
+        response = await client.get(f"/api/attachments/{attachment_id}/inline")
+        assert response.status_code == 401
+
     async def test_get_attachment(self, authenticated_client: AsyncClient, test_user):
         """Test getting attachment metadata."""
         track_id = await self._create_track(authenticated_client)

@@ -5,6 +5,7 @@ import {
   trackAttachedOperationalModelQueryKey,
 } from '../../../../queryKeys';
 import type { EntryTypeNode, OperationalModelFieldSpec } from '../../../../types';
+import { withOrderedFields } from '../schemaFieldOrder';
 
 interface SaveFieldsVars {
   entryTypeId: string;
@@ -24,7 +25,7 @@ export function useFieldEdit(trackId: string) {
     if (!snapshot) return snapshot;
     return snapshot.map(et =>
       et.id === entryTypeId
-        ? { ...et, form_schema: { ...(et.form_schema ?? {}), fields } }
+        ? { ...et, form_schema: withOrderedFields(et.form_schema, fields) }
         : et
     );
   };
@@ -39,7 +40,7 @@ export function useFieldEdit(trackId: string) {
       const snapshot = queryClient.getQueryData<EntryTypeNode[]>(etKey);
       const existing = snapshot?.find(et => et.id === entryTypeId);
       return entryTypesApi.update(entryTypeId, {
-        form_schema: { ...(existing?.form_schema ?? {}), fields },
+        form_schema: { ...withOrderedFields(existing?.form_schema, fields) },
       });
     },
     onMutate: async ({ entryTypeId, fields }) => {

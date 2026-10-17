@@ -211,7 +211,6 @@ export function AppModal({ open, onClose, onSaved, editApp, mode }: AppModalProp
           value={visibilityChoice}
           onChange={setVisibilityChoice}
           workspaceAvailable={!!scope?.workspaceId}
-          showInherit={false}
           inheritHint=""
         />
       </div>
