@@ -78,7 +78,9 @@ async def prepare_agent_app_operation(
         operation_key=key,
         payload=body,
     )
-    if prepared["operation_kind"] == "read":
+    spec = prepared["spec"]
+    operation_kind = prepared["operation_kind"]
+    if operation_kind == "read":
         output = await invoke_app_operation(
             user_id=principal_id,
             workspace_id=workspace_id,
@@ -91,10 +93,12 @@ async def prepare_agent_app_operation(
         )
         return {"_no_stage": True, "data": output}
 
-    spec, body = prepared["spec"], prepared["body"]
+    body = prepared["body"]
     declaration = prepared["declaration_fingerprint"]
     # Namespace the proposal identity: the same caller key for another command
-    # or another input must never return an unrelated existing approval card.
+    # or another input must never return an unrelated existing approval card. The
+    # same key also deduplicates a direct command (invoke_app_operation requires
+    # an idempotency_key for a mutating App operation).
     proposal_key = hashlib.sha256(
         json.dumps(
             [
@@ -111,6 +115,25 @@ async def prepare_agent_app_operation(
             separators=(",", ":"),
         ).encode()
     ).hexdigest()
+
+    # A command runs immediately only when its app declaration opts in with
+    # ``agent_invocation: direct`` — the app author has accepted unattended agent
+    # writes for this operation. Everything else is staged for review (the
+    # default); unknown/missing values fall back to staged.
+    if str(spec.get("agent_invocation") or "staged").strip().lower() == "direct":
+        output = await invoke_app_operation(
+            user_id=principal_id,
+            workspace_id=workspace_id,
+            app_id=app_id,
+            operation_key=key,
+            payload=body,
+            idempotency_key="app-direct:" + proposal_key,
+            expected_declaration_fingerprint=declaration,
+            expected_operation_kind=operation_kind,
+            expected_resolved_input=prepared.get("resolved_body"),
+        )
+        return {"_no_stage": True, "data": output}
+
     label = str(spec.get("name") or key)
     payload = {
         "app_id": app_id,

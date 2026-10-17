@@ -124,4 +124,16 @@ describe('select fields are searchable by default', () => {
       screen.queryByRole('option', { name: /Enter Pipeline status/i })
     ).toBeNull();
   });
+
+  it('hides the inner floating label when the caller owns the label', () => {
+    render(
+      <SeamlessField field={selectField} value="new" onChange={vi.fn()} externalLabel />
+    );
+    expect(screen.queryByText('Pipeline status')).toBeNull();
+  });
+
+  it('shows the inner floating label when the caller does not own it', () => {
+    render(<SeamlessField field={selectField} value="new" onChange={vi.fn()} />);
+    expect(screen.getByText('Pipeline status')).toBeTruthy();
+  });
 });

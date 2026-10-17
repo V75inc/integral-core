@@ -132,3 +132,20 @@ Package App Home uses declared queries/actions under the active definition. Dash
 ## Evidence
 
 Use `examples/reference-hello-app/` and `backend/tests/contract/` for executable examples. Test Core-only isolation, input validation, current permissions, stale revisions, capability withdrawal, signature rejection, and browser readback. The [governance guide](extension-contract-governance.md) explains contract changes.
+
+
+## Agent invocation review policy
+
+An operation defaults to `agent_invocation: staged`. Agent mutations then require
+human approval before dispatch. A package author may explicitly opt a specific
+operation into `agent_invocation: direct`; this allows immediate invocation by an
+agent under its current human principal. Reads remain immediate. Unsupported
+values are rejected at compilation.
+
+Direct invocation retains the canonical dispatcher, current workspace/App grants,
+entitlements, policy decisions (including any independent approval requirement),
+validated and resolved input, declaration fingerprint and durable idempotency.
+Changing the declaration between preparation and dispatch rejects the call.
+This flag grants no permission or autonomous-work admission. Installing an App
+with direct operations accepts unattended agent writes for those operations;
+operation discovery exposes the effective `agent_invocation` value.

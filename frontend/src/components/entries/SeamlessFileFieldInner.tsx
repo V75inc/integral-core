@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import { CheckCircle2, Paperclip, X } from 'lucide-react';
 
 import type { OperationalModelFieldSpec } from '../../types';
@@ -10,6 +10,7 @@ import { publicSharingApi } from '../../api/sharing';
 import { memberAssignedFormApi } from '../../features/memberAssignedForm/memberAssignedFormApi';
 import { useToast } from '../../context/ToastContext';
 import { LINE_ICON_STROKE } from '../ui/IconWell';
+import { ExternalLabelContext } from './fieldLabelContext';
 
 interface SeamlessFileFieldInnerProps {
   field: OperationalModelFieldSpec;
@@ -90,6 +91,9 @@ export function SeamlessFileFieldInner({
   memberFormUpload,
 }: SeamlessFileFieldInnerProps) {
   const { showToast } = useToast();
+  // When the caller (entry detail grid / card) renders the field label, don't
+  // repeat it here — otherwise the item shows e.g. "Media" twice.
+  const externalLabel = useContext(ExternalLabelContext);
   const [labels, setLabels] = useState<Record<string, string>>({});
   const [uploading, setUploading] = useState(false);
   const [localFiles, setLocalFiles] = useState<File[]>(() => filesFromValue(value));
@@ -325,10 +329,12 @@ export function SeamlessFileFieldInner({
   };
 
   return (
-    <div className="space-y-1.5 pl-3">
-      <p className="text-[12px] font-medium text-[var(--text-muted)]">
-        {field.name} {field.required && <span className="text-red-500">*</span>}
-      </p>
+    <div className={`space-y-1.5 ${externalLabel ? '' : 'pl-3'}`}>
+      {!externalLabel && (
+        <p className="text-[12px] font-medium text-[var(--text-muted)]">
+          {field.name} {field.required && <span className="text-red-500">*</span>}
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-1.5">
         {items.length === 0 && !readonly && (
           <span className="text-xs italic text-[var(--text-subtle)]">No file selected</span>
