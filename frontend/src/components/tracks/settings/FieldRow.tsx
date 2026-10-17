@@ -1,6 +1,7 @@
 import { GripVertical, Pencil, Trash2 } from 'lucide-react';
 import type { OperationalModelFieldSpec } from '../../../types';
 import { LINE_ICON_STROKE } from '../../ui';
+import { BASE_FIELD_PREFIX } from './schemaFieldOrder';
 
 interface FieldRowProps {
   field: OperationalModelFieldSpec;
@@ -18,6 +19,7 @@ export function FieldRow({ field, dragHandleProps, onEdit, onDelete, disabled }:
           type="button"
           className="cursor-grab active:cursor-grabbing text-[var(--text-muted)] opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus-ring-color)]"
           aria-label={`Drag to reorder ${field.name}`}
+          disabled={disabled}
           {...dragHandleProps}
         >
           <GripVertical size={14} strokeWidth={LINE_ICON_STROKE} />
@@ -38,7 +40,7 @@ export function FieldRow({ field, dragHandleProps, onEdit, onDelete, disabled }:
         type="button"
         className="text-[var(--text-muted)] hover:text-[var(--text)] p-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus-ring-color)]"
         onClick={onEdit}
-        disabled={disabled}
+        disabled={disabled || field.key.startsWith(BASE_FIELD_PREFIX)}
         aria-label={`Edit field ${field.name}`}
       >
         <Pencil size={14} strokeWidth={LINE_ICON_STROKE} />
@@ -47,7 +49,7 @@ export function FieldRow({ field, dragHandleProps, onEdit, onDelete, disabled }:
         type="button"
         className="text-[var(--text-muted)] hover:text-[var(--danger-fg)] p-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus-ring-color)]"
         onClick={onDelete}
-        disabled={disabled}
+        disabled={disabled || field.key.startsWith(BASE_FIELD_PREFIX)}
         aria-label={`Delete field ${field.name}`}
       >
         <Trash2 size={14} strokeWidth={LINE_ICON_STROKE} />

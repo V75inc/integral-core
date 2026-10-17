@@ -2252,7 +2252,7 @@ def _parse_manifest_agents(
         ``declared_skill_keys``; raises OperationalModelValidationError if any
         reference is dangling)
       - ``scope`` (``app|workspace``; default ``app``)
-      - ``default_schedules`` (list of ``{name, cron, skill, params}``)
+      - ``default_schedules`` (list of ``{name, cron, skill, params, description}``)
       - ``staging`` (``required|optional|disabled``; default ``required``)
 
     Skill-reference validation = T-10-03-06 mitigation: agents cannot
@@ -2342,6 +2342,11 @@ def _parse_manifest_agents(
                     "name": str(sd.get("name") or ""),
                     "cron": str(sd.get("cron") or ""),
                     "skill": sched_skill,
+                    # Carried through to ``ScheduledRunSpec.description``: the
+                    # routine's instruction text is built from it
+                    # (uplink_registry._schedule_instruction), so dropping it here
+                    # made every App schedule fire with no task text.
+                    "description": str(sd.get("description") or ""),
                     "params": _as_dict(
                         sd.get("params"),
                         where=(f"{where}[{key!r}].default_schedules[{sidx}].params"),
@@ -2517,6 +2522,19 @@ def _parse_manifest_operations(
                     "supported by the runtime; only 'none' may be compiled"
                 )
             )
+        # Agent-invocation review policy for this operation. "staged" (default)
+        # keeps the review boundary: an agent-origin command mints a StagedChange
+        # the user must bless. "direct" lets an agent run the command immediately
+        # (no review card) — the app author accepts unattended agent writes for
+        # this specific operation. Reads are always immediate regardless.
+        agent_invocation = str(ed.get("agent_invocation") or "staged").strip().lower()
+        if agent_invocation not in {"staged", "direct"}:
+            raise OperationalModelValidationError(
+                message=(
+                    f"{where}[{key!r}].agent_invocation={agent_invocation!r} must be "
+                    "'staged' or 'direct'"
+                )
+            )
         timeout_seconds = ed.get("timeout_seconds")
         if timeout_seconds is not None:
             try:
@@ -2547,6 +2565,7 @@ def _parse_manifest_operations(
                 "authorization": _parse_action_authorization(ed.get("authorization")),
                 "capability": str(ed.get("capability") or "").strip() or None,
                 "staging_level": staging_level,
+                "agent_invocation": agent_invocation,
                 "idempotency_key": str(ed.get("idempotency_key") or "").strip() or None,
                 "timeout_seconds": timeout_seconds,
                 "handler_ref": handler_ref,
@@ -4476,6 +4495,10 @@ def normalize_view_config(
             )
         )
     cfg = _as_dict(config or {}, where="view.config")
+    if "tab_order" in cfg and (
+        not isinstance(cfg["tab_order"], int) or isinstance(cfg["tab_order"], bool)
+    ):
+        raise BadRequestError(message="view.config.tab_order must be an integer")
     kanban_columns = _as_list(
         cfg.get("kanban_columns"), where="view.config.kanban_columns"
     )
@@ -4529,6 +4552,8 @@ def normalize_view_config(
         ),
         "default_page_id": cfg.get("default_page_id"),
     }
+    if "tab_order" in cfg:
+        normalized["tab_order"] = cfg["tab_order"]
     if vt == "wiki":
         parent_field = str(normalized.get("parent_field") or "").strip()
         if not parent_field:

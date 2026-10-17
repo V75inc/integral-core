@@ -893,6 +893,78 @@ async def stream_attachment(
 
 
 @endpoint(
+    "/attachments/{attachment_id}/inline",
+    methods=["GET"],
+    auth=False,
+    tags=["Attachments"],
+)
+async def stream_attachment_inline(
+    request: Request,
+    attachment_id: str,
+):
+    """Session-free attachment stream gated by a signed, expiring token.
+
+    The ``exp``/``sig`` query is minted by ``attachment_urls.public_attachment_url``
+    (HMAC over the attachment id + expiry). The token IS the credential, so the
+    route is unauthenticated; it streams from Core's own attachment storage, so a
+    channel adapter fetching it with no session receives the bytes.
+    """
+    from app.services.attachment_urls import verify_attachment_token
+
+    if not verify_attachment_token(
+        attachment_id,
+        request.query_params.get("exp"),
+        request.query_params.get("sig"),
+    ):
+        raise MissingAuthenticationError(message="Invalid or expired attachment token")
+
+    attachment = await Attachment.get(attachment_id)
+    if not attachment or not is_visible_to_user(attachment):
+        raise ResourceNotFoundError(message="Attachment not found")
+    if attachment.source_type == "url":
+        if not attachment.external_url:
+            raise ResourceNotFoundError(message="Attachment URL is missing")
+        return RedirectResponse(url=attachment.external_url)
+    if not attachment.storage_key:
+        raise ResourceNotFoundError(message="Attachment file is missing")
+
+    storage = get_attachment_storage_service()
+    blob = await storage.read_attachment(attachment.storage_key)
+    if blob is None:
+        raise ResourceNotFoundError(message="Attachment file not found in storage")
+    meta = await storage.get_metadata(attachment.storage_key) or {}
+    media_type = (
+        attachment.mime_type
+        or str(meta.get("content_type") or "").strip()
+        or "application/octet-stream"
+    )
+    headers = {
+        "Cache-Control": "no-store",
+        "Content-Disposition": _content_disposition(
+            (
+                "inline"
+                if media_type.lower().split(";", 1)[0].strip()
+                in {
+                    "image/png",
+                    "image/jpeg",
+                    "image/gif",
+                    "image/webp",
+                    "image/avif",
+                    "audio/mpeg",
+                    "audio/ogg",
+                    "audio/wav",
+                    "video/mp4",
+                    "video/webm",
+                }
+                else "attachment"
+            ),
+            attachment.filename or "attachment",
+        ),
+    }
+    return StreamingResponse(iter([blob]), media_type=media_type, headers=headers)
+
+
+@endpoint(
     "/attachments/{attachment_id}/reprocess",
     methods=["POST"],
     auth=True,

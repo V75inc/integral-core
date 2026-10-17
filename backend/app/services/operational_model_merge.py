@@ -14,6 +14,7 @@ from app.models.edges import (
     CATALOGS,
     CONTAINS,
     DEFINES_TRACK_PROFILE,
+    HAS_OPERATIONAL_MODEL,
     OWNS,
 )
 from app.models.nodes import (
@@ -459,6 +460,21 @@ async def verify_track_template_in_app(
     if not t:
         raise ResourceNotFoundError(message="Template not found")
     return t
+
+
+async def assert_track_template_deletable(template: OperationalModel) -> None:
+    """Do not remove schema still used by reference or declared by an App."""
+    if await template.count_nodes(
+        edge=[HAS_OPERATIONAL_MODEL], node=[Track], direction="in"
+    ):
+        raise BadRequestError(
+            message="This template is used by existing Tracks and cannot be deleted"
+        )
+    materialization = (template.manifest or {}).get("materialization") or {}
+    if materialization.get("kind") == "space_track_template":
+        raise BadRequestError(
+            message="This template belongs to the App's declared model. Remove its references through a reviewed model revision first"
+        )
 
 
 async def merge_template_operational_model_into_track(

@@ -84,6 +84,7 @@ import {
 import { ActivityPanel } from '../activity/ActivityPanel';
 import { firstImageAttachmentFromAttachments, CARD_PREVIEW_ATTACHMENT_FIELD } from '../../utils/entryMedia';
 import { sortFieldsByOrder } from '../../utils/entryMetaFields';
+import { tagColorStyle } from '../../utils/tagColor';
 import type {
   Attachment,
   Comment,
@@ -476,14 +477,20 @@ export function EntryDetail({
   );
   const commentsAnchorRef = useRef<HTMLDivElement>(null);
   const didFocusComments = useRef(false);
-  // Dialogs start with their companion panel; pages start at full reading width.
-  // Comments are part of the dialog, always shown. An earlier version derived
-  // this from the thread length — open when the entry had comments, closed
-  // when it did not — which read as the panel popping open by itself, because
-  // the state flipped after the fetch resolved rather than at open. A column
-  // that is simply always there is predictable; the header toggle is for
-  // hiding it deliberately, and that choice lasts until the dialog closes.
-  const [commentsPanelOpen, setCommentsPanelOpen] = useState(variant !== 'page');
+  // Remember the reader's choice across records and reopenings on this device.
+  // Until they choose, dialogs show discussion and pages retain reading width.
+  const commentsPanelOpen = settings.appearance.entryDetailsPanelOpen ?? (variant !== 'page');
+  const setCommentsPanelOpen = useCallback((next: boolean | ((value: boolean) => boolean)) => {
+    updateSettings(previous => ({
+      ...previous,
+      appearance: {
+        ...previous.appearance,
+        entryDetailsPanelOpen: typeof next === 'function'
+          ? next(previous.appearance.entryDetailsPanelOpen ?? (variant !== 'page'))
+          : next,
+      },
+    }));
+  }, [updateSettings, variant]);
   const pagePanelTriggerRef = useRef<HTMLButtonElement | null>(null);
   const panelRecordRef = useRef({ id: initialEntry.id, variant });
   const [panelTab, setPanelTab] = useState<PanelTabKey>(variant === 'page' ? 'attachments' : 'comments');
@@ -498,7 +505,6 @@ export function EntryDetail({
     if (panelRecordRef.current.id === initialEntry.id && panelRecordRef.current.variant === variant) return;
     panelRecordRef.current = { id: initialEntry.id, variant };
     didFocusComments.current = false;
-    setCommentsPanelOpen(variant !== 'page');
     // Reset utilities for each record: page files, dialog discussion.
     setPanelTab(variant === 'page' ? 'attachments' : 'comments');
   }, [initialEntry.id, variant]);
@@ -1323,7 +1329,7 @@ export function EntryDetail({
           className="text-[var(--text-muted)] hover:text-[var(--text)] transition-colors duration-fast"
           onClick={e => e.stopPropagation()}
         >
-          #{tag.name || 'Untitled tag'}
+          <Pill tone="descriptive" style={tagColorStyle(tag.color)}>#{tag.name || 'Untitled tag'}</Pill>
         </Link>
       ))}
     </div>
@@ -1761,7 +1767,7 @@ export function EntryDetail({
         </IconButton>
       )}
       {secondaryActions.length > 0 ? (
-        <KebabMenu ariaLabel="More entry actions" items={secondaryActions} />
+        <KebabMenu ariaLabel="More entry actions" items={secondaryActions} portal />
       ) : null}
     </div>
   );
@@ -1906,6 +1912,7 @@ export function EntryDetail({
                     fromTitle: entry.title || 'Untitled',
                   }}
                   onCommitField={canEdit ? commitCustomField : undefined}
+                  entryId={canEdit ? entry.id : undefined}
                 />
               </div>
               ) : null}

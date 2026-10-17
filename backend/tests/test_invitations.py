@@ -7,11 +7,16 @@ from httpx import ASGITransport, AsyncClient
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("same_named_workspace", [False, True])
 async def test_owner_creates_and_invitee_accepts(
-    client: AsyncClient, authenticated_client: AsyncClient, monkeypatch
+    client: AsyncClient,
+    authenticated_client: AsyncClient,
+    monkeypatch,
+    same_named_workspace,
 ):
+    workspace_name = f"Invite Org {uuid.uuid4().hex[:8]}"
     org_r = await authenticated_client.post(
-        "/api/workspaces", json={"name": f"Invite Org {uuid.uuid4().hex[:8]}"}
+        "/api/workspaces", json={"name": workspace_name}
     )
     org_id = org_r.json()["workspace"]["id"]
 
@@ -65,6 +70,12 @@ async def test_owner_creates_and_invitee_accepts(
         base_url="http://test",
         headers={"Authorization": f"Bearer {token_jwt}"},
     ) as inv_client:
+        if same_named_workspace:
+            own = await inv_client.post(
+                "/api/workspaces", json={"name": workspace_name}
+            )
+            assert own.status_code == 200, own.text
+            assert own.json()["workspace"]["id"] != org_id
         from app.services import permissions_process_cache as process_cache
 
         process_cache.clear_all()
@@ -89,6 +100,7 @@ async def test_owner_creates_and_invitee_accepts(
                 headers={"X-Integral-Scope": f"ws:{personal_id}"},
             )
             assert accept.status_code == 200, accept.text
+            assert accept.json()["workspace"]["id"] == org_id
             assert accept.json()["role"] == "admin"
             after = await inv_client.get("/api/workspaces")
             assert org_id in {row["id"] for row in after.json()["workspaces"]}

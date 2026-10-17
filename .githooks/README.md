@@ -13,3 +13,20 @@ Most guards scan the staged index. Stage the intended changes before treating th
 Run the relevant tests and clean formatting/types before committing. Bypassing a genuine failure is forbidden; any exceptional bypass must be explicitly justified under repository discipline. Use `make verify` for the broad local gate and `make verify-ci` for CI-faithful smoke testing.
 
 See the [contributor guide](../docs/developer/CONTRIBUTING.md) and [invariants](../docs/INVARIANTS.md).
+
+## Commit attribution
+
+The `commit-msg` hook rejects new `Co-authored-by` trailers for the Cursor and
+Claude account email identities. It leaves human coauthors and ordinary product
+references intact and does not edit messages. It applies to local commits when
+`core.hooksPath` is enabled; GitHub web commits and other clones can bypass local
+hooks. CI runs the tooling regression tests, not a blanket historical audit.
+
+Read-only inventory and rewrite-impact report:
+
+```bash
+python3 scripts/commit_attribution.py audit origin/main HEAD
+```
+
+Existing attribution requires a separate reviewed history cutover; see the
+[cutover plan](../docs/ops/CONTRIBUTOR_ATTRIBUTION.md).

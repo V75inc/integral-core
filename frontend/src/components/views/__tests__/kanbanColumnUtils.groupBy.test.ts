@@ -119,3 +119,11 @@ describe('kanbanColumnUtils group-by helpers', () => {
     ]);
   });
 });
+
+
+it('recovers a removed column when a loaded record still uses its status', () => {
+  const entries = [{ id: 'e1', custom_fields: { status: 'done' } }] as unknown as Entry[];
+  const columns = buildKanbanColumnsForGroupField('custom_fields.status', taskFields,
+    [{ key: 'todo', label: 'To Do' }], entries);
+  expect(columns.map(column => column.key)).toEqual(['todo', 'done']);
+});

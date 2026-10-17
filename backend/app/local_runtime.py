@@ -527,7 +527,12 @@ def _environment(
         "INTEGRAL_RECOVERY_MARKER": str(home / "recovery.json"),
         "JVSPATIAL_FILES_ROOT_PATH": str(home / "files"),
         "JVSPATIAL_CORS_ORIGINS": f"http://127.0.0.1:{web_port}",
-        "OAUTH_ISSUER_URL": f"http://127.0.0.1:{api_port}",
+        # The OAuth issuer/resource must be the externally-advertised origin —
+        # the same single origin the UI hands to MCP clients and the web app
+        # serves (mirrors the prod one-origin model). The api_port is internal
+        # (the web app proxies to it), so naming it here made credentialed MCP
+        # clients refuse the cross-origin hop to api_port/api/mcp/.
+        "OAUTH_ISSUER_URL": f"http://127.0.0.1:{web_port}",
         "FRONTEND_ORIGIN": f"http://127.0.0.1:{web_port}",
         "APP_BASE_URL": f"http://127.0.0.1:{web_port}",
         "EMAIL_PROVIDER": "console",

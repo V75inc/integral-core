@@ -32,7 +32,8 @@ def test_resource_models_start_private():
     assert Track.model_fields["visibility"].default == "private"
 
 
-def test_track_inheritance_is_only_explicit():
+def test_track_inheritance_cannot_be_written():
     assert normalize_track_visibility_input(None) is None
     assert normalize_track_visibility_input("") is None
-    assert normalize_track_visibility_input("inherit") == "inherit"
+    with pytest.raises(BadRequestError):
+        normalize_track_visibility_input("inherit")

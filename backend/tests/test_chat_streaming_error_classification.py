@@ -126,3 +126,17 @@ def test_nontransactional_preview_explains_live_chat_storage_requirement():
     assert code == "chat_storage_unavailable"
     assert "PostgreSQL" in message
     assert "try again" not in message.lower()
+
+
+def test_nested_rollback_does_not_claim_postgres_is_missing():
+    from app.services.app_operations.transaction_scope import (
+        OperationTransactionRolledBack,
+    )
+
+    code, message = classify_turn_exception(
+        OperationTransactionRolledBack("private failure")
+    )
+    assert code == "chat_step_rolled_back"
+    assert "rolled back" in message
+    assert "PostgreSQL" not in message
+    assert "private failure" not in message

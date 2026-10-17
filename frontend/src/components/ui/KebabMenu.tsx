@@ -89,11 +89,31 @@ export function KebabMenu({
 
   useEffect(() => {
     if (!open) return;
+    // A portalled menu is initially hidden until layout determines its position.
+    // Focus only after it is visible; focusing a hidden button is ignored by browsers.
+    if ((!portal || portalPosition) && !menuRef.current?.contains(document.activeElement)) {
+      menuRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+    }
     const onPointer = (e: PointerEvent) => {
       const t = e.target as HTMLElement | null;
       if (!t || (!wrapperRef.current?.contains(t) && !menuRef.current?.contains(t))) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof Node && (menuRef.current?.contains(e.target) || wrapperRef.current?.contains(e.target)) && ['ArrowDown', 'ArrowUp', 'Home', 'End', 'Tab'].includes(e.key)) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (e.key === 'Tab') {
+          setOpen(false);
+          wrapperRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
+          return;
+        }
+        const buttons = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? []);
+        if (!buttons.length) return;
+        const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
+        const next = e.key === 'Home' ? 0 : e.key === 'End' ? buttons.length - 1 :
+          (current + (e.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+        buttons[next]?.focus();
+      }
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -107,7 +127,7 @@ export function KebabMenu({
       document.removeEventListener('pointerdown', onPointer);
       window.removeEventListener('keydown', onKey, true);
     };
-  }, [open]);
+  }, [open, portal, portalPosition]);
 
   // Use the shared Button primitive as the trigger so the kebab inherits
   // the exact same height/padding/border/font model as neighbouring

@@ -221,10 +221,15 @@ export function shouldRenderMetaField(
   // Card/list only: a field may be hidden from cards but shown on the detail.
   if (_variant === 'card' && field.hide_on_card) return false;
   const fieldType = String(field.type || '').toLowerCase();
-  // Detail: always show relation / member rows (incl. empty) so fields like
-  // Task → Sprint are assignable without hunting Edit. Cards stay compact —
-  // only populated relations appear.
-  if (fieldType === 'relation' || fieldType === 'member') {
+  // Detail: always show relation / member / file rows (incl. empty) so fields
+  // like Task → Sprint or Media are settable without hunting Edit. Cards stay
+  // compact — only populated relations and attachments appear.
+  if (
+    fieldType === 'relation' ||
+    fieldType === 'member' ||
+    fieldType === 'file' ||
+    fieldType === 'files'
+  ) {
     if (_variant === 'detail') return true;
     return !isEmptyCustomFieldValue(value);
   }

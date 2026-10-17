@@ -7,7 +7,7 @@ afterEach(cleanup);
 describe('VisibilityField', () => {
   it('offers explicit App choices without inherit', () => {
     const onChange = vi.fn();
-    render(<VisibilityField value="private" onChange={onChange} workspaceAvailable showInherit={false} inheritHint="" />);
+    render(<VisibilityField value="private" onChange={onChange} workspaceAvailable inheritHint="" />);
     expect(screen.queryByRole('button', { name: /Inherit/ })).toBeNull();
     expect(screen.getByRole('button', { name: /Private/ }).getAttribute('aria-pressed')).toBe('true');
     fireEvent.click(screen.getByRole('button', { name: /Workspace/ }));
@@ -18,13 +18,14 @@ describe('VisibilityField', () => {
 
   it('requires workspace context for workspace access', () => {
     const onChange = vi.fn();
-    render(<VisibilityField value="private" onChange={onChange} workspaceAvailable={false} showInherit={false} inheritHint="" />);
+    render(<VisibilityField value="private" onChange={onChange} workspaceAvailable={false} inheritHint="" />);
     fireEvent.click(screen.getByRole('button', { name: /Workspace/ }));
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it('retains explicit Track inheritance', () => {
+  it('explains a legacy Track without offering inheritance', () => {
     render(<VisibilityField value="inherit" onChange={vi.fn()} workspaceAvailable inheritHint="Matches this App" />);
-    expect(screen.getByRole('button', { name: /Inherit/ }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.queryByRole('button', { name: /Inherit/ })).toBeNull();
+    expect(screen.getByText('Matches this App')).toBeTruthy();
   });
 });

@@ -543,20 +543,40 @@ class ToolContext:
         if getattr(self, "read_only", False):
             return
         from typing import cast
+        from uuid import uuid4
 
         from app.schemas.audit import ChangeEventAction
+        from app.services.app_operations.event_outbox import insert_revision_event
+        from app.services.app_operations.transaction_scope import (
+            current_graph_transaction_database,
+        )
         from app.services.change_event import emit_change_event
 
-        await emit_change_event(
-            actor_kind="human",
-            actor_id=self.user_id,
-            action=cast(ChangeEventAction, action),
-            resource_type="Tool",
-            resource_id="",
-            before=None,
-            after={"details": details, "tool_invocation": True},
-            scope=self.scope,
-        )
+        event = {
+            "actor_kind": "human",
+            "actor_id": self.user_id,
+            "action": cast(ChangeEventAction, action),
+            "resource_type": "Tool",
+            "resource_id": "",
+            "before": None,
+            "after": {"details": details, "tool_invocation": True},
+            "scope": self.scope,
+        }
+        transaction = current_graph_transaction_database(required=False)
+        if transaction is not None:
+            # Subscriber authorization may use a different identity. It must
+            # run after commit, outside the writer's admission/transaction.
+            # The existing durable recovery sweep delivers committed facts.
+            await insert_revision_event(
+                transaction=transaction,
+                workspace_id=self.workspace_id,
+                namespace="tool-audit-v1",
+                subject_id=uuid4().hex,
+                revision=1,
+                event=event,
+            )
+            return
+        await emit_change_event(**event)
 
     async def get_entry_system(self, entry_id: str):
         """Fetch Entry by id — trusted bundle tools only; requires explicit principal."""
