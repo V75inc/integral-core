@@ -143,7 +143,11 @@ export function buildCustomFieldsForEntryType(
     if (!key || key.startsWith('_')) continue;
     const v =
       fieldValues[key] !== undefined ? fieldValues[key] : baselineCf[key];
-    if (v === undefined) continue;
+    if (v === undefined || field.readonly) continue;
+    // Hidden create controls may hydrate to null. Sending those empty keys
+    // would turn an untouched App-owned value into a requested mutation.
+    // Explicit hidden prefill remains subject to backend authorization.
+    if (!baseline && field.hide_on_create && (v === null || v === '')) continue;
     if (changedOnly && valuesEqualForDiff(v, baselineCf[key], field)) continue;
     out[key] = v;
   }
