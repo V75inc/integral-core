@@ -46,6 +46,7 @@ def _canonical_creation(function, kind: str):
         user_id = values["user_id"]
         external_sink = values.get("change_event_sink")
         events: list[dict] = []
+        immediate_events: list[dict] = []
         outboxes = []
         async with AsyncExitStack() as transaction:
             database = get_default_context().database
@@ -121,6 +122,8 @@ def _canonical_creation(function, kind: str):
                                         event=event,
                                     )
                                 )
+                            else:
+                                immediate_events.append(event)
                         if complete is not None:
                             await complete(
                                 {
@@ -138,10 +141,12 @@ def _canonical_creation(function, kind: str):
             if outboxes:
                 for outbox in outboxes:
                     await _deliver(outbox)
-            elif events:
+            elif immediate_events:
                 from app.services.change_event import emit_change_event
 
-                for event in events:
+                # Captured command events already have a durable outbox. Do
+                # not emit them again while a caller still owns a transaction.
+                for event in immediate_events:
                     await emit_change_event(**event)
         from app.agentive.services.staging_execution import (
             deliver_staging_command_events,

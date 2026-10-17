@@ -33,12 +33,12 @@ Prioritize access and data-integrity risks first, then agent reliability, then i
 
 Updated 2026-10-17. See [browser qualification and per-report limits](2026-10-17-pr145-browser-qa.md) for fixture IDs, verified outcomes, and remaining coverage boundaries.
 
-- **#2, #4:** Ollama-backed Agent proposal/approval/build and existing-record updates completed in browser. QATesting has zero Tracks/Dashboards; updates retain the original App/Track/Entry IDs. The exact original #2 prompt was unavailable; a synthetic equivalent was verified.
+- **#2, #4:** Ollama-backed Agent proposal/approval/build and existing-record updates completed in browser. QATesting has zero Tracks/Dashboards; updates retain the original App/Track/Entry IDs. Follow-up recovered and replayed the exact original #2 and #17 prompts: 3 Tracks/15 Entries built, then all six updates applied to the same IDs with original business links and no duplicates.
 - **#3, #5–#7, #9–#16:** Implemented fixes and exercised the relevant browser interactions. Additional service/UI regressions cover invitation retries, protected type/template deletion, legacy Kanban statuses, field ordering, and multi-tag matching. The report distinguishes automated coverage from browser coverage.
 - **#8:** User approved removal of explicit Track Inherit visibility on 2026-10-17. Apps/Tracks default Private; new Track writes accept Private/Workspace/Public only. Legacy inherited Tracks retain effective access through read compatibility until deliberately converted. Updated architecture and invariants preserve the separate collaborator cascade.
-- **#17:** New failed proposal receipts survive rollback under the durable work fence, with narrowly audited no-effect classification. Historical missing-receipt runs remain blocked; the original failed conversation is not claimed recovered.
+- **#17:** Original-scenario follow-up also fixed a second emission of already-captured creation events inside the worker transaction. The 15-entry browser build now succeeds with connected subscribers. New failed proposal receipts survive rollback under the durable work fence, with narrowly audited no-effect classification. Browser probe confirmed a real invalid proposal, then a provider timeout, followed by a successful approved blank build in the same conversation. Historical missing-receipt runs remain blocked; the original failed conversation is not claimed recovered.
 - **#18:** Environment-only OpenAI dispatch was verified on the preceding commit; Settings-credential Ollama workflows also succeeded during this qualification.
-- **#1:** Native multiline plaintext paste/replacement/continued typing passed in the in-app browser. Rich-format paste and Safari remain unqualified; no caret implementation change was justified by this reproduction.
+- **#1:** Actual Google Docs formatted-fragment paste, selection/replacement and continued typing passed in the in-app browser and Safari. No caret implementation change was justified by these reproductions.
 
 ## Scope notes
 
