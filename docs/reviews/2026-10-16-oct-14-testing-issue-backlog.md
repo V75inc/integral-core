@@ -31,7 +31,7 @@ Prioritize access and data-integrity risks first, then agent reliability, then i
 
 ## Progress in PR #145
 
-- **#4 — code fix and regression added.** An explicitly approved `allow_empty` App-only batch no longer requires an invented Track; the default path still requires one. The focused regression and full `make verify` pass. The browser App Manager smoke created `QATesting` and read it back with **0 Tracks** and **0 Dashboards**. The separate Agent chat attempt did not complete because this preview returned `model_unavailable` for its locally configured Ollama model, so the end-to-end Agent tool call remains unverified.
+- **#4 — code fix and regression added.** An explicitly approved `allow_empty` App-only batch no longer requires an invented Track; the default path still requires one. The focused regression and full `make verify` pass. A browser smoke against PR #145 at commit `6bfe29b` created `PR145 Blank App Smoke`; the App detail readback showed **0 Tracks** and **0 Dashboards**. The follow-up Agent chat request was blocked because this isolated preview workspace has no model configured; the UI showed the actionable “Choose a model in Settings → AI Models” message, so the Agent tool-call path remains unverified.
 - **#8 — policy review remains open.** No visibility or inheritance policy change is included.
 
 ## Scope notes
