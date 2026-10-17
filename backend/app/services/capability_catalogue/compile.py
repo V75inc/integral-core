@@ -85,6 +85,18 @@ async def compile_workspace_catalogue(
             node = await App.get(app_id)
             if node is not None:
                 app_by_id[app_id] = node
+            else:
+                # Registry (query/operation) holds an app_id with no App node —
+                # the signature of a stale bucket left by an earlier install
+                # whose unregister did not run in this process. This id is
+                # dropped from the catalogue but still counts as a match in
+                # _run_declared, producing "ambiguous; pass app_id".
+                logger.warning(
+                    "catalogue: registry app_id %s in workspace %s has no App node "
+                    "(stale query/operation bucket?)",
+                    app_id,
+                    workspace_id,
+                )
 
     for app in app_by_id.values():
         app_id = app.id

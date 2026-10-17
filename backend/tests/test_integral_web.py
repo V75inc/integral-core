@@ -9,6 +9,7 @@ import httpx
 import pytest
 import uvicorn
 from fastapi import FastAPI, Request, WebSocket
+from fastapi.responses import RedirectResponse
 from fastapi.testclient import TestClient
 
 from app.cli import main
@@ -121,6 +122,40 @@ def test_serves_index_assets_and_spa_fallback(tmp_path: Path) -> None:
         echoed = web.post("/api/echo", content=body)
         assert echoed.status_code == 200
         assert echoed.json()["n"] == len(body)
+
+
+def test_proxies_well_known_and_preserves_public_origin(tmp_path: Path) -> None:
+    """Discovery is proxied and Core's redirects stay on the public origin."""
+    stub = FastAPI()
+    seen: dict[str, str] = {}
+
+    @stub.get("/.well-known/oauth-protected-resource")
+    def protected_resource_metadata(request: Request) -> dict:
+        seen["host"] = request.headers.get("host", "")
+        return {"resource": "http://127.0.0.1:64430"}
+
+    @stub.get("/api/mcp")
+    def mcp(request: Request) -> RedirectResponse:
+        # Mirror Core's trailing-slash redirect, built from the request Host.
+        return RedirectResponse(
+            f"http://{request.headers.get('host')}/api/mcp/", status_code=307
+        )
+
+    transport = httpx.ASGITransport(app=stub)
+    client = httpx.AsyncClient(transport=transport, base_url="http://api")
+    app = create_web_app(_static(tmp_path), "http://api", client=client)
+    with TestClient(
+        app, headers={"host": "127.0.0.1:64430"}, follow_redirects=False
+    ) as web:
+        prm = web.get("/.well-known/oauth-protected-resource")
+        assert prm.status_code == 200
+        assert prm.json()["resource"] == "http://127.0.0.1:64430"
+        # The upstream sees the client-facing authority (not the api host:port),
+        # so Core builds same-origin absolute URLs.
+        assert seen["host"] == "127.0.0.1:64430"
+        redirect = web.get("/api/mcp")
+        assert redirect.status_code == 307
+        assert redirect.headers["location"] == "http://127.0.0.1:64430/api/mcp/"
 
 
 def test_proxies_websocket(tmp_path: Path) -> None:

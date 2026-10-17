@@ -1278,6 +1278,16 @@ server = Server(
             # Service key only (X-Integral-Service-Key); not user JWT
             "/api/agentive/uplink/register-system",
             "/api/agentive/uplink/heartbeat-system",
+            # jvspatial URL-proxy route: an unguessable code IS the credential.
+            # Exposed so channel adapters (e.g. the WhatsApp adapter, which
+            # fetches media with no session) can retrieve a proxied attachment.
+            # Only files explicitly minted a proxy (attachment_urls) are served.
+            "/p/*",
+            # Session-free attachment stream: gated by a signed, expiring token
+            # (exp/sig minted by attachment_urls.public_attachment_url), so the
+            # route itself must not require a bearer. Streams from Core's own
+            # attachment storage for adapters that fetch with no session.
+            "/api/attachments/*/inline",
             *_AUTH_EXEMPT_PATHS_EXTRA,
         ],
     ),

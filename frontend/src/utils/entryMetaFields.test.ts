@@ -107,6 +107,20 @@ describe('entryMetaFields', () => {
     expect(shouldRenderMetaField(f, null, 'detail')).toBe(true);
   });
 
+  it('shouldRenderMetaField shows file/files rows on the detail even when empty', () => {
+    const files = { key: 'media', name: 'Media', type: 'files' } as OperationalModelFieldSpec;
+    expect(shouldRenderMetaField(files, ['att-1'], 'detail')).toBe(true);
+    expect(shouldRenderMetaField(files, ['att-1'], 'card')).toBe(true);
+    // Empty: the detail keeps the row (uploader when editable, "—" otherwise);
+    // cards stay compact.
+    expect(shouldRenderMetaField(files, [], 'detail')).toBe(true);
+    expect(shouldRenderMetaField(files, [], 'card')).toBe(false);
+
+    const single = { key: 'doc', name: 'Document', type: 'file' } as OperationalModelFieldSpec;
+    expect(shouldRenderMetaField(single, null, 'detail')).toBe(true);
+    expect(shouldRenderMetaField(single, null, 'card')).toBe(false);
+  });
+
   it('resolveEntryProfileFields matches by manifest key, not display name', () => {
     const entryTypes = [
       {

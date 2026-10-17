@@ -40,7 +40,9 @@ async def test_enrich_attachment_export_adds_urls_for_file_image():
     )
     item = {"id": att.id, "filename": att.filename}
     await enrich_attachment_export(item, att)
-    assert item["download_url"] == "/api/attachments/att-2/download"
+    # Session-free signed URL served by Core's own storage (local provider).
+    assert item["download_url"].startswith("/api/attachments/att-2/inline?exp=")
+    assert "&sig=" in item["download_url"]
     assert item["thumb_url"] == "/api/attachments/att-2/thumb"
 
 

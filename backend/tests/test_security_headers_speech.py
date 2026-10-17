@@ -79,6 +79,29 @@ def test_nginx_connect_src_carries_speech_origin_before_env_extras(template):
 
 
 @pytest.mark.asyncio
+async def test_inline_attachment_embeddable_cross_origin_others_are_not():
+    """The signed attachment image must embed from a chat page on another origin."""
+    from starlette.requests import Request
+    from starlette.responses import Response
+
+    async def handler(_req):
+        return Response("x")
+
+    async def headers_for(path: str):
+        request = Request({"type": "http", "path": path, "headers": []})
+        response = await sh.SecurityHeadersMiddleware(None).dispatch(request, handler)
+        return response.headers
+
+    media = await headers_for("/api/attachments/abc/inline")
+    assert media["Cross-Origin-Resource-Policy"] == "cross-origin"
+    assert media["Access-Control-Allow-Origin"] == "*"
+
+    other = await headers_for("/api/agentive/status")
+    assert other["Cross-Origin-Resource-Policy"] == "same-site"
+    assert other.get("Access-Control-Allow-Origin") is None
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("validated", [False, True])
 async def test_extension_frame_policy_requires_validated_handler_marker(validated):
     from starlette.requests import Request

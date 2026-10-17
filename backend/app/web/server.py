@@ -144,6 +144,17 @@ def create_web_app(
     async def proxy_api(path: str, request: Request) -> Response:
         return await _proxy_http(request, "api", path)
 
+    @app.api_route(
+        "/.well-known/{path:path}",
+        methods=["GET", "HEAD"],
+    )
+    async def proxy_well_known(path: str, request: Request) -> Response:
+        # RFC 8414 / 9728 discovery (oauth-authorization-server,
+        # oauth-protected-resource) and jwks.json are served at the API root;
+        # proxy them so they resolve at the same public origin the OAuth issuer
+        # names (the web origin), not only on the internal api host:port.
+        return await _proxy_http(request, ".well-known", path)
+
     @app.websocket("/api/{path:path}")
     async def proxy_api_ws(websocket: WebSocket, path: str) -> None:
         target = _upstream_url(
@@ -185,12 +196,23 @@ def create_web_app(
 
 async def _proxy_http(request: Request, prefix: str, path: str) -> Response:
     url = _upstream_url(request.app.state.api_base, prefix, path, request.url.query)
+    headers = _forward_headers(request.headers)
+    # Preserve the client-facing authority: httpx would otherwise set ``Host``
+    # from the upstream api URL, so Core would build absolute URLs (the
+    # slash-less ``/api/mcp`` -> ``/api/mcp/`` redirect, OAuth redirects) on the
+    # internal api host:port. That is a cross-origin redirect, which
+    # credentialed MCP clients (jvagent) refuse by design.
+    client_host = request.headers.get("host")
+    if client_host:
+        headers["Host"] = client_host
+        headers["X-Forwarded-Host"] = client_host
+    headers.setdefault("X-Forwarded-Proto", request.url.scheme)
     try:
         upstream = await request.app.state.client.send(
             request.app.state.client.build_request(
                 request.method,
                 url,
-                headers=_forward_headers(request.headers),
+                headers=headers,
                 content=request.stream(),
             ),
             stream=True,
