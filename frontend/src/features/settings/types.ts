@@ -24,6 +24,8 @@ export interface AppearanceSettings {
    * Appearance settings.
    */
   entryDialogExpanded: boolean;
+  /** Device-local choice shared by entry detail panels; omitted until chosen. */
+  entryDetailsPanelOpen?: boolean;
 }
 
 /** Global retrieval (search) mode applied to every search surface. */

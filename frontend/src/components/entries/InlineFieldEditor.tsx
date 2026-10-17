@@ -40,16 +40,17 @@ export function InlineFieldEditor({
   // A textarea when the field is flagged multi-line, or the value already spans
   // lines (e.g. a conversation history) — otherwise a single-line input.
   const multiline =
+    field.type === 'markdown' ||
     Boolean(field.multiline) ||
     (field.type !== 'number' && valueText.includes('\n'));
   const clamped = maxLines > 0 && !expanded;
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
       mountedRef.current = false;
-    },
-    []
-  );
+    };
+  }, []);
 
   function startEdit() {
     if (readOnly) return;

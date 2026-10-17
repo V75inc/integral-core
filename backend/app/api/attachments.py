@@ -919,7 +919,7 @@ async def stream_attachment_inline(
         raise MissingAuthenticationError(message="Invalid or expired attachment token")
 
     attachment = await Attachment.get(attachment_id)
-    if not attachment:
+    if not attachment or not is_visible_to_user(attachment):
         raise ResourceNotFoundError(message="Attachment not found")
     if attachment.source_type == "url":
         if not attachment.external_url:
@@ -939,9 +939,26 @@ async def stream_attachment_inline(
         or "application/octet-stream"
     )
     headers = {
-        "Cache-Control": "private, max-age=300",
+        "Cache-Control": "no-store",
         "Content-Disposition": _content_disposition(
-            "inline", attachment.filename or "attachment"
+            (
+                "inline"
+                if media_type.lower().split(";", 1)[0].strip()
+                in {
+                    "image/png",
+                    "image/jpeg",
+                    "image/gif",
+                    "image/webp",
+                    "image/avif",
+                    "audio/mpeg",
+                    "audio/ogg",
+                    "audio/wav",
+                    "video/mp4",
+                    "video/webm",
+                }
+                else "attachment"
+            ),
+            attachment.filename or "attachment",
         ),
     }
     return StreamingResponse(iter([blob]), media_type=media_type, headers=headers)

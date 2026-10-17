@@ -30,3 +30,10 @@ describe('saved view tab identity', () => {
     expect(savedViewTabs([first, preferred])).toEqual([preferred]);
   });
 });
+
+it('sorts saved tab positions without mutating the response', () => {
+  const views = [{ id: 'a', name: 'A', type: 'feed', track_id: 't', config: { tab_order: 1 } },
+    { id: 'b', name: 'B', type: 'table', track_id: 't', config: { tab_order: 0 } }];
+  expect(savedViewTabs(views).map(view => view.id)).toEqual(['b', 'a']);
+  expect(views.map(view => view.id)).toEqual(['a', 'b']);
+});

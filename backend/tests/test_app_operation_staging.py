@@ -542,3 +542,157 @@ async def test_changed_definition_at_effect_admission_never_calls_old_handler(
             ],
         )
     handler.assert_not_awaited()
+
+
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_direct_opt_in_uses_authorized_dispatch_and_deduplicates(
+    test_user, request, monkeypatch
+):
+    from tests.contract.operation_fixtures import owned_operation_app
+
+    workspace, app = await owned_operation_app(test_user, request)
+    spec = {
+        "key": "retain_findings",
+        "kind": "execute",
+        "policy_action": "entry.create",
+        "handler_ref": "test.findings",
+        "agent_invocation": "direct",
+    }
+    from app.models.edges import HAS_APPLICATION_DEFINITION
+    from app.models.nodes import ApplicationDefinition
+    from app.services.application_definitions import definition_fingerprint
+
+    manifest = {"app": {"operations": [spec]}}
+    definition = await ApplicationDefinition.create(
+        app_id=app.id,
+        workspace_id=workspace.id,
+        revision=1,
+        status="active",
+        canonical_manifest=manifest,
+        manifest_fingerprint=definition_fingerprint(manifest),
+    )
+    await app.connect(definition, edge=HAS_APPLICATION_DEFINITION)
+    app.active_definition_id, app.active_definition_revision = definition.id, 1
+    await app.save()
+    handler = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr(operations, "resolve_handler", lambda _ref: handler)
+    register_app_operations(workspace.id, app.id, "reference-review-app", [spec])
+    args = _args(app_id=app.id, idempotency_key="direct-attempt")
+    try:
+        for _ in range(2):
+            result = await prepare_agent_app_operation(
+                args, principal_id=test_user.id, workspace_id=workspace.id
+            )
+            assert result["_no_stage"] is True
+            assert result["data"]["output"] == {"ok": True}
+        handler.assert_awaited_once()
+        monkeypatch.setattr(operations, "resolve_role", AsyncMock(return_value=None))
+        with pytest.raises(Exception):
+            await prepare_agent_app_operation(
+                _args(app_id=app.id, idempotency_key="after-revocation"),
+                principal_id=test_user.id,
+                workspace_id=workspace.id,
+            )
+        handler.assert_awaited_once()
+    finally:
+        clear_workspace_operations(workspace.id)
+
+
+@pytest.mark.asyncio
+async def test_direct_opt_in_rechecks_declaration_before_dispatch(
+    operation_contract, monkeypatch
+):
+    from app.agentive.services import app_operation_staging
+
+    spec, handler, _ = operation_contract
+    spec = {**spec, "agent_invocation": "direct"}
+    register_app_operations(WS, APP, "reference-review-app", [spec])
+
+    async def changed_policy(**kwargs):
+        register_app_operations(
+            WS, APP, "reference-review-app", [{**spec, "agent_invocation": "staged"}]
+        )
+        return await operations.invoke_app_operation(**kwargs)
+
+    monkeypatch.setattr(app_operation_staging, "invoke_app_operation", changed_policy)
+    with pytest.raises(Exception, match="changed since review"):
+        await prepare_agent_app_operation(_args(), principal_id="u1", workspace_id=WS)
+    handler.assert_not_awaited()
+
+
+@pytest.mark.parametrize("invocation", [None, "staged", "direct"])
+def test_compile_agent_invocation_policy(invocation):
+    from app.services.operational_model_compile import _parse_manifest_operations
+
+    raw = {"key": "write", "kind": "execute", "handler_ref": "test.write"}
+    if invocation is not None:
+        raw["agent_invocation"] = invocation
+    spec = _parse_manifest_operations([raw])[0]
+    assert spec["agent_invocation"] == (invocation or "staged")
+
+
+def test_compile_rejects_unknown_agent_invocation():
+    from app.services.operational_model_compile import (
+        OperationalModelValidationError,
+        _parse_manifest_operations,
+    )
+
+    with pytest.raises(OperationalModelValidationError):
+        _parse_manifest_operations(
+            [{"key": "write", "kind": "execute", "agent_invocation": "unrestricted"}]
+        )
+
+
+@pytest.mark.asyncio
+async def test_direct_invocation_does_not_override_policy_approval(
+    operation_contract, monkeypatch
+):
+    from app.schemas.policy import Decision
+
+    spec, handler, _ = operation_contract
+    register_app_operations(
+        WS, APP, "reference-review-app", [{**spec, "agent_invocation": "direct"}]
+    )
+    monkeypatch.setattr(
+        operations,
+        "policy_evaluate",
+        AsyncMock(
+            return_value=Decision(allowed=False, reason="requires_human_approval")
+        ),
+    )
+    with pytest.raises(Exception):
+        await prepare_agent_app_operation(_args(), principal_id="u1", workspace_id=WS)
+    handler.assert_not_awaited()
+
+
+def test_operation_discovery_exposes_review_policy():
+    assert operations._public_operation({})["agent_invocation"] == "staged"
+    assert (
+        operations._public_operation({"agent_invocation": "direct"})["agent_invocation"]
+        == "direct"
+    )
+
+
+def test_compile_retains_schedule_instruction_description():
+    from app.services.operational_model_compile import _parse_manifest_agents
+
+    agents = _parse_manifest_agents(
+        [
+            {
+                "key": "review",
+                "persona_ref": "personas/review.md",
+                "skills": ["review"],
+                "default_schedules": [
+                    {
+                        "name": "Daily review",
+                        "cron": "0 8 * * *",
+                        "skill": "review",
+                        "description": "Review pending records",
+                    }
+                ],
+            }
+        ],
+        {"review"},
+    )
+    assert agents[0]["default_schedules"][0]["description"] == "Review pending records"

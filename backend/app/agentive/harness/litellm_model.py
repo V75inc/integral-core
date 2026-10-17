@@ -27,7 +27,6 @@ import httpx
 from app.agentive.harness.contracts import (
     HarnessExecutionScope,
     ModelRequestContextObservation,
-    ModelRouteIdentity,
     ModelUsageObservation,
     PhysicalModelRequest,
     ResolvedModelRoute,
@@ -37,7 +36,7 @@ from app.agentive.harness.model_errors import (
     model_request_error,
 )
 from app.agentive.harness.pydantic_ai_compat import LiteLLMProvider, OpenAIChatModel
-from app.schemas.agentive.model_dispatch import ModelDispatchInput
+from app.schemas.agentive.model_dispatch import ModelDispatchInput, ModelDispatchRoute
 
 logger = logging.getLogger(__name__)
 
@@ -683,7 +682,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
                 readiness = await self._admission(
                     ModelDispatchInput(
                         scope=self._scope,
-                        route=ModelRouteIdentity(
+                        route=ModelDispatchRoute(
                             provider=self._route.provider,
                             model=self._route.model,
                             credential_source=self._route.credential_source,

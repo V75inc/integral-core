@@ -470,7 +470,18 @@ export function buildKanbanColumnsForGroupField(
   }
 
   if (configured && configured.length > 0) {
-    return configured;
+    // Legacy layouts may omit a status that still exists on records. Recover
+    // its column as those records load; a layout change must never hide data.
+    const columns = [...configured];
+    const seen = new Set(columns.map(column => column.key));
+    for (const entry of entries) {
+      const key = getGroupFieldValue(entry, resolvedGroupBy).trim();
+      if (key && !seen.has(key)) {
+        seen.add(key);
+        columns.push({ key, label: key.replace(/_/g, ' ') });
+      }
+    }
+    return columns;
   }
 
   const enumVals = (spec?.enum ?? []) as string[];

@@ -53,3 +53,14 @@ def test_kanban_normalization_does_not_mutate_caller_config():
 
     assert columns == [{"key": " open ", "label": "Open"}]
     assert normalized["kanban_columns"] == [{"key": "open", "label": "Open"}]
+
+
+@pytest.mark.parametrize("view_type", ["feed", "kanban", "table"])
+def test_tab_order_survives_view_config_normalization(view_type):
+    assert normalize_view_config(view_type, {"tab_order": 2})["tab_order"] == 2
+
+
+@pytest.mark.parametrize("position", [True, 2.5, "2"])
+def test_tab_order_rejects_noninteger_values(position):
+    with pytest.raises(BadRequestError, match="tab_order must be an integer"):
+        normalize_view_config("feed", {"tab_order": position})

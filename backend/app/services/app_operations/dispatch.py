@@ -70,6 +70,7 @@ def _public_operation(spec: Dict[str, Any]) -> Dict[str, Any]:
         "policy_action": spec.get("policy_action"),
         "capability": spec.get("capability"),
         "staging_level": spec.get("staging_level"),
+        "agent_invocation": spec.get("agent_invocation") or "staged",
         "idempotency_key": spec.get("idempotency_key"),
         "timeout_seconds": spec.get("timeout_seconds"),
         "input_schema": spec.get("input_schema") or {},

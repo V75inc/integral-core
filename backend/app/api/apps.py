@@ -1633,6 +1633,9 @@ async def delete_app_track_template(
     tpl = await OperationalModel.get(template_id)
     prior_snapshot = await export_node(tpl) if tpl else None  # D-03 before-snapshot
     if tpl:
+        from app.services.operational_model_merge import assert_track_template_deletable
+
+        await assert_track_template_deletable(tpl)
         await tpl.delete()
 
     # D-05 single emission path. Sync inline emit before HTTP response (D-06).

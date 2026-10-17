@@ -88,6 +88,29 @@ def _canonical() -> Dict[str, Any]:
     return blueprint
 
 
+def test_explicit_blank_app_blueprint_has_no_invented_structure():
+    blueprint, error = validate_blueprint(
+        {"app": {"id": "app", "name": "QATesting"}, "tracks": []}
+    )
+    assert error is None
+    assert blueprint["tracks"] == []
+    assert blueprint["views"] == []
+    assert (
+        plan_fidelity_errors(
+            blueprint,
+            [("integral_create_app", {"name": "QATesting"})],
+            new_app=True,
+        )
+        == []
+    )
+
+
+def test_missing_track_list_does_not_silently_propose_a_blank_app():
+    blueprint, error = validate_blueprint({"app": {"id": "app", "name": "QATesting"}})
+    assert blueprint is None
+    assert "tracks" in error
+
+
 def _plan() -> list:
     return [
         {"tool": "integral_create_app", "args": {"name": "Bike Repair"}},
@@ -698,12 +721,18 @@ async def test_build_with_dropped_field_fails_before_staging(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("blank", [False, True])
 async def test_exact_blueprint_plan_builds_without_prose_extras(
-    approved, monkeypatch
+    approved, monkeypatch, blank
 ) -> None:
     """Build exactly the approved blueprint without prose-derived extras."""
     from app.agentive.tooling import dispatch
 
+    if blank:
+        approved.design_proposed["blueprint"], error = validate_blueprint(
+            {"app": {"id": "app", "name": "Bike Repair"}, "tracks": []}
+        )
+        assert error is None
     staged, commits = [], []
 
     async def stage(tool, args, **_):
@@ -724,16 +753,20 @@ async def test_exact_blueprint_plan_builds_without_prose_extras(
     monkeypatch.setattr(dispatch, "dispatch_tool", stage)
     monkeypatch.setattr(dispatch, "_dispatch_batch_control", commit)
     result = await scaffold_build.build_approved_design(
-        {"operations": _plan()}, **_context()
+        {"operations": _plan()[:1] if blank else _plan()}, **_context()
     )
 
     # The prose mentions a table and a dashboard; the blueprint has neither,
     # so neither is invented.
-    assert staged == [
-        "integral_create_app",
-        "integral_create_app_track",
-        "integral_save_view",
-    ]
+    assert staged == (
+        ["integral_create_app"]
+        if blank
+        else [
+            "integral_create_app",
+            "integral_create_app_track",
+            "integral_save_view",
+        ]
+    )
     assert commits[0]["allow_empty"] is True
     assert result.data["blueprint_revision"] == 3
     assert result.data["not_built"] == []

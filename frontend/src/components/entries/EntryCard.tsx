@@ -18,6 +18,7 @@ import {
   ThumbsUp
 } from 'lucide-react';
 import { EntryMetaFields } from './EntryMetaFields';
+import { tagColorStyle } from '../../utils/tagColor';
 import { ProvenanceBadge } from './ProvenanceBadge';
 import { isSamePrincipal, formatStackedDateTime, entryTypeColor } from '../../utils';
 import { useCanEditEntry } from '../../utils/entryEditRights';
@@ -839,6 +840,7 @@ function EntryCardInner({
                     <Pill
                       tone="descriptive"
                       variant="neutral"
+                      style={tagColorStyle(tag.color)}
                       className={
                         isActiveTag ? 'ring-1 ring-[var(--text)]' : ''
                       }

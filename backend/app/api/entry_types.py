@@ -290,6 +290,11 @@ async def delete_entry_type(request: Request, entry_type_id: str) -> Dict[str, A
         if track:
             sync_cp = await get_track_attached_operational_model(track)
 
+    if sync_cp:
+        from app.services.entry_type_service import assert_entry_type_deletable
+
+        await assert_entry_type_deletable(entry_type, sync_cp)
+
     await entry_type.delete()
 
     if sync_cp:

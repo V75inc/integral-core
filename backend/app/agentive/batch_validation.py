@@ -394,7 +394,7 @@ def scaffold_missing(
                 target["seed"] = True
     missing = []
     for app_id, name in apps.items():
-        if not any(t["app_id"] == app_id for t in tracks.values()):
+        if not allow_empty and not any(t["app_id"] == app_id for t in tracks.values()):
             missing.append(f"integral_create_app_track for app {name!r}")
     for track in tracks.values():
         name = track["name"]
