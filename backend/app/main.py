@@ -1278,6 +1278,11 @@ server = Server(
             # Service key only (X-Integral-Service-Key); not user JWT
             "/api/agentive/uplink/register-system",
             "/api/agentive/uplink/heartbeat-system",
+            # Session-free attachment stream: gated by a signed, expiring token
+            # (exp/sig minted by attachment_urls.public_attachment_url), so the
+            # route itself must not require a bearer. Streams from Core's own
+            # attachment storage for adapters that fetch with no session.
+            "/api/attachments/*/inline",
             *_AUTH_EXEMPT_PATHS_EXTRA,
         ],
     ),

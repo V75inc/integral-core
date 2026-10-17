@@ -1147,6 +1147,7 @@ export function useEntryExpandedForm(
         relationChoices={relationChoices[field.key]}
         relationLoading={relationLoading}
         enumLabels={workflowEnumLabels?.[field.key]}
+        entryId={initialEntry?.id || ''}
         onNavigate={extras?.onNavigate}
         navContext={extras?.navContext}
         siblingFields={dynamicFields}

@@ -85,6 +85,18 @@ def _is_docs_path(path: str) -> bool:
     return any(path == p or path.startswith(p + "/") for p in _DOCS_PATH_PREFIXES)
 
 
+def _is_public_media_path(path: str) -> bool:
+    """True for the session-free attachment stream (``…/attachments/{id}/inline``).
+
+    This endpoint is embedded as an ``<img>`` by a chat page that is frequently
+    on a different origin than Core (e.g. ``localhost`` vs ``127.0.0.1``, or a
+    tunnel). The default ``same-site`` CORP would refuse that cross-site load, so
+    this path is served cross-origin — like a product image CDN. The signed
+    ``exp``/``sig`` token remains the credential.
+    """
+    return path.startswith("/api/attachments/") and path.endswith("/inline")
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Append a baseline of production security headers to every response."""
 
@@ -102,7 +114,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         h["Permissions-Policy"] = PERMISSIONS_POLICY
         # Cross-origin isolation. COEP omitted — would break inline images.
         h["Cross-Origin-Opener-Policy"] = "same-origin"
-        h["Cross-Origin-Resource-Policy"] = "same-site"
+        if _is_public_media_path(request.url.path):
+            # Product-photo CDN semantics: the chat page (often on another
+            # origin) must be able to embed the signed attachment image.
+            h["Cross-Origin-Resource-Policy"] = "cross-origin"
+            h["Access-Control-Allow-Origin"] = "*"
+        else:
+            h["Cross-Origin-Resource-Policy"] = "same-site"
         # CSP — the heavyweight one. Apps can override via env.
         # Skip overwriting on docs paths so the relaxed CSP that
         # jvspatial's SecurityHeadersMiddleware sets there (permits the
@@ -114,6 +132,12 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # jvspatial's stricter default does not permit.
         if not _is_docs_path(request.url.path):
             h["Content-Security-Policy"] = _CSP
+        if _is_public_media_path(request.url.path):
+            # A bearer URL must never turn uploaded HTML/SVG into a Core-origin
+            # document, even if a deployment overrides the normal application CSP.
+            h["Content-Security-Policy"] = "sandbox; default-src 'none'"
+            h["Referrer-Policy"] = "no-referrer"
+            h["Cache-Control"] = "no-store"
         # Only the validated frame handler may set this request-state marker.
         # A client header or an arbitrary response cannot relax Core's policy.
         frame_policy = getattr(request.state, "extension_frame_policy", None)

@@ -30,7 +30,7 @@ import {
 } from './relationChoiceLoaders';
 
 /** Field types that support hover-to-reveal inline editing in the detail panel. */
-const INLINE_EDITABLE_TYPES = new Set(['text', 'number']);
+const INLINE_EDITABLE_TYPES = new Set(['text', 'number', 'markdown']);
 const RELATION_PICKER_STALE_MS = 60_000;
 const TRACKS_PICKER_STALE_MS = 5 * 60_000;
 
@@ -73,6 +73,11 @@ export interface EntryMetaFieldsProps {
    * entry id — used to filter Sprint choices to that project's sprints.
    */
   anchorProjectId?: string;
+  /**
+   * Entry id — required to render file/media fields as an uploader (attachments
+   * attach to the entry). Omit for read-only rows or unsaved entries.
+   */
+  entryId?: string;
 }
 
 /**
@@ -96,6 +101,7 @@ export function EntryMetaFields({
   navContext,
   trackId,
   anchorProjectId = '',
+  entryId,
 }: EntryMetaFieldsProps) {
   const ordered = sortFieldsByOrder(fields);
   const activeTrackId = trackId || navContext?.fromTrackId || '';
@@ -337,8 +343,8 @@ export function EntryMetaFields({
     raw: unknown;
     group?: string;
     inlineEditable: boolean;
-    relationEditable: boolean;
-    selectEditable: boolean;
+    seamlessEditable: boolean;
+    fileEditable: boolean;
   };
   const rows: Row[] = [];
 
@@ -350,35 +356,48 @@ export function EntryMetaFields({
     )
       continue;
     const raw = values[field.key];
-    // Detail-only: optional fields with no value are omitted entirely.
-    if (
-      variant === 'detail' &&
-      field.hide_when_empty &&
-      isEmptyCustomFieldValue(raw)
-    ) {
-      continue;
-    }
     const t = String(field.type || '').toLowerCase();
     const isInlineEditable =
       variant === 'detail' &&
       !!onCommitField &&
       INLINE_EDITABLE_TYPES.has(t) &&
       !field.readonly;
-    const isRelationEditable =
+    // Fields rendered inline through SeamlessField in the detail — relations,
+    // selects and dates — so values such as Pipeline status, dates and
+    // the description can be edited from the card without opening the Edit form.
+    const isSeamlessEditable =
       variant === 'detail' &&
       !!onCommitField &&
       !readOnly &&
-      t === 'relation' &&
-      !field.readonly;
-    // Select / multi-select fields are editable inline (via SeamlessField, like
-    // relations) so values such as Pipeline status can be set from the card
-    // without opening the Edit form.
-    const isSelectEditable =
+      !field.readonly &&
+      (t === 'relation' ||
+        t === 'select' ||
+        t === 'multi_select' ||
+        t === 'date' ||
+        t === 'datetime');
+    // File/media fields are editable inline when we have the entry to attach to.
+    const isFileEditable =
       variant === 'detail' &&
       !!onCommitField &&
+      !!entryId &&
       !readOnly &&
-      (t === 'select' || t === 'multi_select') &&
+      !readOnlyKeys.includes(field.key) &&
+      (t === 'file' || t === 'files') &&
       !field.readonly;
+
+    // Detail-only: an empty *optional informational* field is omitted, but an
+    // editable field still renders (as "—"/picker/uploader) so it can be filled
+    // in from the card without opening the Edit form.
+    if (
+      variant === 'detail' &&
+      field.hide_when_empty &&
+      !isInlineEditable &&
+      !isSeamlessEditable &&
+      !isFileEditable &&
+      isEmptyCustomFieldValue(raw)
+    ) {
+      continue;
+    }
 
     // Inline-editable fields always appear in the detail panel even when
     // the current value is empty — the widget itself shows the "—" placeholder.
@@ -390,21 +409,21 @@ export function EntryMetaFields({
         raw,
         group: (field.group || '').trim() || undefined,
         inlineEditable: true,
-        relationEditable: false,
-        selectEditable: false,
+        fileEditable: isFileEditable,
+        seamlessEditable: false,
       });
       continue;
     }
 
-    if (isSelectEditable) {
+    if (isSeamlessEditable) {
       rows.push({
         field,
         text: formatCustomFieldValue(field, raw, workflowEnumLabels?.[field.key]),
         raw,
         group: (field.group || '').trim() || undefined,
         inlineEditable: false,
-        relationEditable: false,
-        selectEditable: true,
+        fileEditable: isFileEditable,
+        seamlessEditable: true,
       });
       continue;
     }
@@ -419,8 +438,8 @@ export function EntryMetaFields({
         raw,
         group: (field.group || '').trim() || undefined,
         inlineEditable: false,
-        relationEditable: false,
-        selectEditable: false,
+        fileEditable: isFileEditable,
+        seamlessEditable: false,
       });
       continue;
     }
@@ -436,8 +455,8 @@ export function EntryMetaFields({
         raw,
         group: (field.group || '').trim() || undefined,
         inlineEditable: false,
-        relationEditable: isRelationEditable,
-        selectEditable: false,
+        fileEditable: isFileEditable,
+        seamlessEditable: isSeamlessEditable,
       });
       continue;
     }
@@ -450,8 +469,8 @@ export function EntryMetaFields({
       raw,
       group: (field.group || '').trim() || undefined,
       inlineEditable: false,
-      relationEditable: false,
-      selectEditable: false,
+      fileEditable: isFileEditable,
+      seamlessEditable: false,
     });
   }
 
@@ -460,188 +479,255 @@ export function EntryMetaFields({
   const valueClampClass =
     variant === 'card' && !expanded ? 'line-clamp-2 overflow-hidden' : '';
 
+  // Cards: derive two columns from the field groups (first group = contact
+  // details, second = the request; any further groups span full width below) so a
+  // detail sits in the same place on every card. Falls back to the grid when a
+  // type has fewer than two groups.
+  const cardGroups: string[] = [];
+  if (variant === 'card') {
+    for (const field of ordered) {
+      if (field.key.startsWith('_') || field.hide_on_card) continue;
+      const group = (field.group || '').trim();
+      if (group && !cardGroups.includes(group)) cardGroups.push(group);
+    }
+  }
+  const useColumns = variant === 'card' && cardGroups.length >= 2;
+  const trailingGroups = cardGroups.slice(2);
+
+  const renderRow = (row: Row, prev?: Row) => {
+    const showGroupHeader =
+      variant === 'detail' && Boolean(row.group && row.group !== prev?.group);
+    const t = String(row.field.type || '').toLowerCase();
+    // Array-of-objects JSON values (rubric_lines, line_items, …)
+    // render as a structured read-only table instead of mono JSON.
+    // Caller already shows ``row.field.name`` above the value, so the
+    // editor's own ``label`` prop is left undefined.
+    const jsonTable = t === 'json' && isJsonTableShape(row.raw);
+    const htmlBodyPreview = row.field.key === 'html_body';
+    const fullBleed =
+      t === 'markdown' ||
+      t === 'json' ||
+      htmlBodyPreview ||
+      Boolean(row.field.full_width);
+    const maxLines = Number(row.field.max_lines) || 0;
+    const clampText = String(row.text || '');
+    const canClamp =
+      variant === 'detail' &&
+      maxLines > 0 &&
+      (clampText.split('\n').length > maxLines || clampText.length > 400);
+    const isOpen = Boolean(openFields[row.field.key]);
+
+    return (
+      <Fragment key={row.field.key}>
+        {showGroupHeader && row.group ? (
+          <div
+            className={`col-span-1 sm:col-span-2 ${
+              prev ? 'border-t border-[var(--panel-border)] pt-3' : ''
+            }`.trim()}
+          >
+            <p className="text-[12px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+              {row.group}
+            </p>
+          </div>
+        ) : null}
+        <div className={`min-w-0 [overflow-wrap:anywhere] ${fullBleed ? 'sm:col-span-2' : ''}`.trim()}>
+          <div className="text-[13px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
+            {row.field.name}
+          </div>
+          <div
+            style={
+              canClamp && !isOpen && !row.inlineEditable
+                ? ({
+                    display: '-webkit-box',
+                    WebkitBoxOrient: 'vertical',
+                    WebkitLineClamp: maxLines,
+                    overflow: 'hidden',
+                  } as React.CSSProperties)
+                : undefined
+            }
+          >
+          {row.inlineEditable && onCommitField ? (
+            <div className="mt-0.5">
+              <InlineFieldEditor
+                field={row.field}
+                value={values[row.field.key] ?? null}
+                readOnly={readOnly || readOnlyKeys.includes(row.field.key)}
+                onCommit={newValue => onCommitField(row.field.key, newValue)}
+                maxLines={maxLines}
+                expanded={isOpen}
+              />
+            </div>
+          ) : row.seamlessEditable &&
+            onCommitField &&
+            !readOnlyKeys.includes(row.field.key) ? (
+            <div className="mt-0.5">
+              <SeamlessField
+                externalLabel
+                field={row.field}
+                value={values[row.field.key] ?? null}
+                onChange={async newValue => {
+                  try {
+                    await onCommitField(row.field.key, newValue);
+                  } catch {
+                    /* parent toasts */
+                  }
+                }}
+                      enumLabels={workflowEnumLabels?.[row.field.key]}
+                      searchable={t === 'select' || t === 'multi_select'}
+                      entryId={entryId}
+                      relationChoices={relationChoices[row.field.key] || []}
+                relationLoading={relationLoading}
+                onNavigate={onNavigate}
+                navContext={navContext}
+              />
+            </div>
+          ) : jsonTable ? (
+            <div className="mt-0.5">
+              <JsonTableEditor
+                value={row.raw}
+                onChange={() => {
+                  /* read-only — caller's commit pipeline is the
+                     InlineFieldEditor / EntryComposer surface. */
+                }}
+                readonly
+              />
+            </div>
+          ) : htmlBodyPreview ? (
+            <div className="mt-0.5 min-w-0">
+              {variant === 'detail' ? (
+                <p className="mb-2 text-xs text-[var(--text-muted)]">
+                  Rendered in a sandboxed frame — scripts cannot run in the app.
+                </p>
+              ) : null}
+              <HtmlSandboxPreview html={String(row.raw ?? '')} />
+            </div>
+          ) : t === 'markdown' ? (
+            <div className={`mt-0.5 break-words text-[var(--text)] ${valueClampClass}`.trim()}>
+              <MarkdownContent compact={variant === 'card'}>{row.text}</MarkdownContent>
+            </div>
+          ) : t === 'relation' ? (
+            // RelationValue resolves ids to labels asynchronously and
+            // hyperlinks each target (chips on cards, inline on detail).
+            <div
+              className={`mt-0.5 text-sm leading-relaxed ${valueClampClass}`.trim()}
+            >
+              <RelationValue
+                value={row.raw}
+                relation={row.field.relation}
+                variant={variant === 'card' ? 'chips' : 'inline'}
+                stopPropagation
+                onNavigate={onNavigate}
+                navContext={navContext}
+                emptyFallback={
+                  <span className="italic opacity-60">
+                    {row.field.key === 'sprint'
+                      ? 'Not assigned to a sprint'
+                      : '—'}
+                  </span>
+                }
+              />
+            </div>
+          ) : row.fileEditable && onCommitField ? (
+            <div className="mt-0.5">
+              <SeamlessField
+                externalLabel
+                field={row.field}
+                value={values[row.field.key] ?? null}
+                onChange={async newValue => {
+                  try {
+                    await onCommitField(row.field.key, newValue);
+                  } catch {
+                    /* parent toasts */
+                  }
+                }}
+                entryId={entryId}
+                onNavigate={onNavigate}
+                navContext={navContext}
+              />
+            </div>
+          ) : t === 'file' || t === 'files' ? (
+            <div className="mt-0.5 min-w-0"><FileValue value={row.raw} /></div>
+          ) : t === 'member' ? (
+            <div
+              className={`mt-0.5 text-sm leading-relaxed ${valueClampClass}`.trim()}
+            >
+              <MemberValue
+                value={row.raw}
+                variant={variant === 'card' ? 'chips' : 'inline'}
+                stopPropagation
+                emptyFallback={
+                  <span className="italic opacity-60">—</span>
+                }
+              />
+            </div>
+          ) : (
+            <div
+              className={`mt-0.5 text-sm leading-relaxed text-[var(--text)] whitespace-pre-wrap break-words ${valueClampClass}`.trim()}
+            >
+              {row.text}
+            </div>
+          )}
+          </div>
+          {canClamp ? (
+            <button
+              type="button"
+              onClick={e => {
+                e.stopPropagation();
+                setOpenFields(prev => ({
+                  ...prev,
+                  [row.field.key]: !prev[row.field.key],
+                }));
+              }}
+              className="mt-1 text-xs text-[var(--link)] hover:underline"
+            >
+              {isOpen ? 'Show less' : 'Read more'}
+            </button>
+          ) : null}
+        </div>
+      </Fragment>
+    );
+  };
+
+  const inGroup = (row: Row, group: string) => (row.group || '') === group;
+  const trailingRows = rows.filter(
+    row => !row.group || trailingGroups.includes(row.group)
+  );
+
   return (
     <section
       className={`${variant === 'card' ? 'mt-2' : 'mt-4'} ${className}`.trim()}
       aria-label={variant === 'card' ? 'Entry details' : 'Entry fields'}
     >
-      <div className="entry-meta-grid grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
-        {rows.map((row, idx) => {
-          const prev = idx > 0 ? rows[idx - 1] : undefined;
-          const showGroupHeader =
-            variant === 'detail' && Boolean(row.group && row.group !== prev?.group);
-          const t = String(row.field.type || '').toLowerCase();
-          // Array-of-objects JSON values (rubric_lines, line_items, …)
-          // render as a structured read-only table instead of mono JSON.
-          // Caller already shows ``row.field.name`` above the value, so the
-          // editor's own ``label`` prop is left undefined.
-          const jsonTable = t === 'json' && isJsonTableShape(row.raw);
-          const htmlBodyPreview = row.field.key === 'html_body';
-          const fullBleed =
-            t === 'markdown' ||
-            t === 'json' ||
-            htmlBodyPreview ||
-            Boolean(row.field.full_width);
-          const maxLines = Number(row.field.max_lines) || 0;
-          const clampText = String(row.text || '');
-          const canClamp =
-            variant === 'detail' &&
-            maxLines > 0 &&
-            (clampText.split('\n').length > maxLines || clampText.length > 400);
-          const isOpen = Boolean(openFields[row.field.key]);
-
-          return (
-            <Fragment key={row.field.key}>
-              {showGroupHeader && row.group ? (
-                <div
-                  className={`col-span-1 sm:col-span-2 ${
-                    idx > 0 ? 'border-t border-[var(--panel-border)] pt-3' : ''
-                  }`.trim()}
-                >
-                  <p className="text-[12px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-                    {row.group}
-                  </p>
-                </div>
-              ) : null}
-              <div className={`min-w-0 [overflow-wrap:anywhere] ${fullBleed ? 'sm:col-span-2' : ''}`.trim()}>
-                <div className="text-[13px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
-                  {row.field.name}
-                </div>
-                <div
-                  style={
-                    canClamp && !isOpen && !row.inlineEditable
-                      ? ({
-                          display: '-webkit-box',
-                          WebkitBoxOrient: 'vertical',
-                          WebkitLineClamp: maxLines,
-                          overflow: 'hidden',
-                        } as React.CSSProperties)
-                      : undefined
-                  }
-                >
-                {row.inlineEditable && onCommitField ? (
-                  <div className="mt-0.5">
-                    <InlineFieldEditor
-                      field={row.field}
-                      value={values[row.field.key] ?? null}
-                      readOnly={readOnly || readOnlyKeys.includes(row.field.key)}
-                      onCommit={newValue => onCommitField(row.field.key, newValue)}
-                      maxLines={maxLines}
-                      expanded={isOpen}
-                    />
-                  </div>
-                ) : (row.relationEditable || row.selectEditable) &&
-                  onCommitField &&
-                  !readOnlyKeys.includes(row.field.key) ? (
-                  <div className="mt-0.5">
-                    <SeamlessField
-                      externalLabel
-                      field={row.field}
-                      value={values[row.field.key] ?? null}
-                      onChange={async newValue => {
-                        try {
-                          await onCommitField(row.field.key, newValue);
-                        } catch {
-                          /* parent toasts */
-                        }
-                      }}
-                      enumLabels={workflowEnumLabels?.[row.field.key]}
-                      searchable={row.selectEditable}
-                      relationChoices={relationChoices[row.field.key] || []}
-                      relationLoading={relationLoading}
-                      onNavigate={onNavigate}
-                      navContext={navContext}
-                    />
-                  </div>
-                ) : jsonTable ? (
-                  <div className="mt-0.5">
-                    <JsonTableEditor
-                      value={row.raw}
-                      onChange={() => {
-                        /* read-only — caller's commit pipeline is the
-                           InlineFieldEditor / EntryComposer surface. */
-                      }}
-                      readonly
-                    />
-                  </div>
-                ) : htmlBodyPreview ? (
-                  <div className="mt-0.5 min-w-0">
-                    {variant === 'detail' ? (
-                      <p className="mb-2 text-xs text-[var(--text-muted)]">
-                        Rendered in a sandboxed frame — scripts cannot run in the app.
-                      </p>
-                    ) : null}
-                    <HtmlSandboxPreview html={String(row.raw ?? '')} />
-                  </div>
-                ) : t === 'markdown' ? (
-                  <div className={`mt-0.5 break-words text-[var(--text)] ${valueClampClass}`.trim()}>
-                    <MarkdownContent compact={variant === 'card'}>{row.text}</MarkdownContent>
-                  </div>
-                ) : t === 'relation' ? (
-                  // RelationValue resolves ids to labels asynchronously and
-                  // hyperlinks each target (chips on cards, inline on detail).
-                  <div
-                    className={`mt-0.5 text-sm leading-relaxed ${valueClampClass}`.trim()}
-                  >
-                    <RelationValue
-                      value={row.raw}
-                      relation={row.field.relation}
-                      variant={variant === 'card' ? 'chips' : 'inline'}
-                      stopPropagation
-                      onNavigate={onNavigate}
-                      navContext={navContext}
-                      emptyFallback={
-                        <span className="italic opacity-60">
-                          {row.field.key === 'sprint'
-                            ? 'Not assigned to a sprint'
-                            : '—'}
-                        </span>
-                      }
-                    />
-                  </div>
-                ) : t === 'file' || t === 'files' ? (
-                  <div className="mt-0.5 min-w-0"><FileValue value={row.raw} /></div>
-                ) : t === 'member' ? (
-                  <div
-                    className={`mt-0.5 text-sm leading-relaxed ${valueClampClass}`.trim()}
-                  >
-                    <MemberValue
-                      value={row.raw}
-                      variant={variant === 'card' ? 'chips' : 'inline'}
-                      stopPropagation
-                      emptyFallback={
-                        <span className="italic opacity-60">—</span>
-                      }
-                    />
-                  </div>
-                ) : (
-                  <div
-                    className={`mt-0.5 text-sm leading-relaxed text-[var(--text)] whitespace-pre-wrap break-words ${valueClampClass}`.trim()}
-                  >
-                    {row.text}
-                  </div>
-                )}
-                </div>
-                {canClamp ? (
-                  <button
-                    type="button"
-                    onClick={e => {
-                      e.stopPropagation();
-                      setOpenFields(prev => ({
-                        ...prev,
-                        [row.field.key]: !prev[row.field.key],
-                      }));
-                    }}
-                    className="mt-1 text-xs text-[var(--link)] hover:underline"
-                  >
-                    {isOpen ? 'Show less' : 'Read more'}
-                  </button>
-                ) : null}
-              </div>
-            </Fragment>
-          );
-        })}
-      </div>
+      {useColumns ? (
+        <>
+          <div className="flex flex-col gap-y-3 sm:flex-row sm:gap-x-8">
+            <div
+              data-card-column="0"
+              className="flex min-w-0 flex-1 flex-col gap-y-3"
+            >
+              {rows.filter(row => inGroup(row, cardGroups[0])).map(row => renderRow(row))}
+            </div>
+            <div
+              data-card-column="1"
+              className="flex min-w-0 flex-1 flex-col gap-y-3"
+            >
+              {rows.filter(row => inGroup(row, cardGroups[1])).map(row => renderRow(row))}
+            </div>
+          </div>
+          {trailingRows.length ? (
+            <div
+              data-card-trailing
+              className="mt-3 flex flex-col gap-y-3"
+            >
+              {trailingRows.map(row => renderRow(row))}
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <div className="entry-meta-grid grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
+          {rows.map((row, idx) => renderRow(row, idx > 0 ? rows[idx - 1] : undefined))}
+        </div>
+      )}
     </section>
   );
 }

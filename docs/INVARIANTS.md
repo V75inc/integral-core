@@ -285,12 +285,17 @@ Every new ChangeEventAction appears in PolicyAction unless the canonical test wh
 ### I-APPROVAL-04 — Agent App commands share the review boundary
 
 An agent invoking a typed App mutation through the generic wrapper or a directly
-materialized App capability stages the command without calling its handler.
+materialized App capability stages the command without calling its handler by
+default. An installed operation may explicitly declare `agent_invocation: direct`
+to opt that operation into immediate agent execution (policy decision approved
+2026-10-17). This exemption changes only the review-card requirement; it confers
+no grant, policy approval, background-work authority, or dispatcher bypass.
 Read declarations execute immediately through the same authorized dispatcher.
 Human HTTP and SDK calls retain their explicit execution semantics. A command's
 declaration, inputs, App, workspace, principal, and idempotency identity are bound
-at preparation; review execution rechecks current permissions and the registered
-declaration. A changed declaration requires a new proposal. Rejection produces
+at preparation; both direct and review execution recheck current permissions and the registered
+declaration. A changed declaration requires fresh preparation and, for staged
+commands, a new proposal. Rejection produces
 no App operation effect. Discovery, an open batch, or a skill's instruction text
 cannot confer an execution exemption. Durable autonomous-work admission remains
 a separate qualification requirement.

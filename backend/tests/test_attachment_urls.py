@@ -1,13 +1,31 @@
 """Tests for shared attachment URL enrichment."""
 
+from urllib.parse import parse_qs
+
 import pytest
 
 from app.models.nodes import Attachment
 from app.services.attachment_urls import (
     enrich_attachment_export,
     is_visible_to_user,
+    mint_attachment_token,
     thumb_url_for,
+    verify_attachment_token,
 )
+
+
+def test_signed_attachment_token_binds_id_expiry_and_signature(monkeypatch):
+    monkeypatch.setattr("app.services.attachment_urls.time.time", lambda: 1000)
+    query = parse_qs(mint_attachment_token("att-token", ttl=60))
+    exp, sig = query["exp"][0], query["sig"][0]
+    assert verify_attachment_token("att-token", exp, sig)
+    assert not verify_attachment_token("other", exp, sig)
+    assert not verify_attachment_token("att-token", "1061", sig)
+    assert not verify_attachment_token("att-token", exp, "0" * 64)
+    assert not verify_attachment_token("att-token", None, sig)
+    assert not verify_attachment_token("att-token", exp, "invalid-✓")
+    monkeypatch.setattr("app.services.attachment_urls.time.time", lambda: 1061)
+    assert not verify_attachment_token("att-token", exp, sig)
 
 
 def test_is_visible_to_user_hides_blocked():
@@ -40,7 +58,9 @@ async def test_enrich_attachment_export_adds_urls_for_file_image():
     )
     item = {"id": att.id, "filename": att.filename}
     await enrich_attachment_export(item, att)
-    assert item["download_url"] == "/api/attachments/att-2/download"
+    # Session-free signed URL served by Core's own storage (local provider).
+    assert item["download_url"].startswith("/api/attachments/att-2/inline?exp=")
+    assert "&sig=" in item["download_url"]
     assert item["thumb_url"] == "/api/attachments/att-2/thumb"
 
 
