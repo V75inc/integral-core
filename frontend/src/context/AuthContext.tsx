@@ -1,3 +1,5 @@
+import { getHostSession } from '../host/session';
+import '../hooks/useDeployment';
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { resetThreadSessions } from '../features/ai-chat/threadSessionStore';
@@ -50,76 +52,96 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
     window.addEventListener('integral:logout', onLogout);
 
-    const t = getAccessToken();
-    if (!t) { setLoading(false); return () => window.removeEventListener('integral:logout', onLogout); }
-    setToken(t);
-    const cached = localStorage.getItem('t75_user');
-    if (cached) {
-      try {
-        setUser(JSON.parse(cached));
-      } catch {
-        // Corrupt cached user JSON — fall through to the network fetch below.
+    let active = true;
+    let cleanupHydration = () => {};
+    const begin = async () => {
+      const hostSession = getHostSession();
+      if (hostSession) {
+        try {
+          const session = await hostSession.session();
+          if (!active) return;
+          setTokens(session);
+        } catch {
+          if (active) setLoading(false);
+          return;
+        }
       }
-    }
-    // Kick off the proactive-refresh timer using whatever TTL was
-    // captured at issuance (session.ts persists it to localStorage).
-    scheduleProactiveRefresh();
-    // Only an authoritative rejection (401/403) means the session is gone.
-    // Anything else — offline, a 5xx, a dropped connection — used to log the
-    // user out too, which threw a signed-in user to /login every time the
-    // backend hiccupped. Keep the cached user and retry once we are back
-    // online or on the next interaction.
-    let retryArmed = false;
-    const retryEvents = ['online', 'focus', 'pointerdown', 'keydown'] as const;
-    let retry: () => void = () => {};
-    const disarmRetry = () => {
-      if (!retryArmed) return;
-      retryArmed = false;
-      for (const ev of retryEvents) window.removeEventListener(ev, retry);
-    };
-    const armRetry = () => {
-      if (retryArmed) return;
-      retryArmed = true;
-      for (const ev of retryEvents) window.addEventListener(ev, retry);
-    };
-    const hydrate = () =>
-      authApi.me()
-        .then(u => {
-          disarmRetry();
-          setUser(u);
-          setProfileVerified(true);
-          localStorage.setItem('t75_user', JSON.stringify(u));
-        })
-        .catch((err: unknown) => {
-          const status = (err as { response?: { status?: number } })?.response?.status;
-          if (status === 401) {
+      const t = getAccessToken();
+      if (!t || !active) { setLoading(false); return; }
+      setToken(t);
+      const cached = localStorage.getItem('t75_user');
+      if (cached) {
+        try {
+          setUser(JSON.parse(cached));
+        } catch {
+          // Corrupt cached user JSON — fall through to the network fetch below.
+        }
+      }
+      // Kick off the proactive-refresh timer using whatever TTL was
+      // captured at issuance (session.ts persists it to localStorage).
+      scheduleProactiveRefresh();
+      // Only an authoritative rejection (401/403) means the session is gone.
+      // Anything else — offline, a 5xx, a dropped connection — used to log the
+      // user out too, which threw a signed-in user to /login every time the
+      // backend hiccupped. Keep the cached user and retry once we are back
+      // online or on the next interaction.
+      let retryArmed = false;
+      const retryEvents = ['online', 'focus', 'pointerdown', 'keydown'] as const;
+      let retry: () => void = () => {};
+      const disarmRetry = () => {
+        if (!retryArmed) return;
+        retryArmed = false;
+        for (const ev of retryEvents) window.removeEventListener(ev, retry);
+      };
+      const armRetry = () => {
+        if (retryArmed) return;
+        retryArmed = true;
+        for (const ev of retryEvents) window.addEventListener(ev, retry);
+      };
+      const hydrate = () =>
+        authApi.me()
+          .then(u => {
+            if (!active) return;
             disarmRetry();
-            // Soft-land on login — do not leave a half-auth shell that
-            // flashes "Something went wrong" over a dead session.
-            // 403 is permission, not expiry — leave that to the caller.
-            redirectToLogin();
-            setToken(null);
-            setUser(null);
-            setProfileVerified(false);
-            return;
-          }
-          if (!getAccessToken()) {
-            // The interceptor already tore the session down (refresh 4xx).
-            disarmRetry();
-            return;
-          }
-          armRetry();
-        })
-        .finally(() => setLoading(false));
-    retry = () => {
-      disarmRetry();
+            setUser(u);
+            setProfileVerified(true);
+            localStorage.setItem('t75_user', JSON.stringify(u));
+          })
+          .catch((err: unknown) => {
+            if (!active) return;
+            const status = (err as { response?: { status?: number } })?.response?.status;
+            if (status === 401) {
+              disarmRetry();
+              // Soft-land on login — do not leave a half-auth shell that
+              // flashes "Something went wrong" over a dead session.
+              // 403 is permission, not expiry — leave that to the caller.
+              redirectToLogin();
+              setToken(null);
+              setUser(null);
+              setProfileVerified(false);
+              return;
+            }
+            if (!getAccessToken()) {
+              // The interceptor already tore the session down (refresh 4xx).
+              disarmRetry();
+              return;
+            }
+            armRetry();
+          })
+          .finally(() => { if (active) setLoading(false); });
+      retry = () => {
+        disarmRetry();
+        void hydrate();
+      };
       void hydrate();
-    };
-    void hydrate();
 
+      cleanupHydration = disarmRetry;
+    };
+    void begin();
     return () => {
+      active = false;
       window.removeEventListener('integral:logout', onLogout);
-      disarmRetry();
+      cleanupHydration();
     };
     // queryClient from useQueryClient is a stable reference — empty
     // dep array is correct.
@@ -181,6 +203,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
+      await getHostSession()?.signOut?.();
       if (getAccessToken()) {
         await authApi.logout();
       }

@@ -29,3 +29,5 @@ The [contributor guide](developer/CONTRIBUTING.md) explains repository disciplin
 The [access contract](product/ACCESS_CONTROL_CONTRACT.md) defines workspace/resource authority and declarative App permissions. [Resource visibility](product/RESOURCE_VISIBILITY.md) covers private defaults and legacy read compatibility. Use [scope migration guidance](ops/qualification/access-control-review/VIEW_SCOPE_MIGRATION.md) before changing existing resource identities.
 
 Use the [current release qualification](ops/RELEASE_QUALIFICATION.md) and [hardening follow-up](product/HARDENING_FOLLOW_UP.md) for candidate results and remaining work. Historical dated reports have been retired; Git history retains them. Maintain one current guide per topic and regenerate source-derived references after route or capability changes.
+
+Runtime hosting: [local/hosted composition contract](platform/runtime-composition-v1.md) and [ADR-015](backend/adr/015-runtime-composition.md).

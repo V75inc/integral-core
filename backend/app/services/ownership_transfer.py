@@ -75,6 +75,9 @@ async def reassign_departing_member_ownership(
     On development stores, create the replacement edge before deleting the old
     one so an interrupted transfer cannot leave an unowned resource.
     """
+    from app.runtime.composition import require_capability
+
+    require_capability("collaboration")
     moved = {"apps": 0, "tracks": 0}
     if not user or not workspace_id:
         return moved

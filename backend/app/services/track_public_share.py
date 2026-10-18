@@ -54,6 +54,10 @@ async def _parent_app_for_track(track: Track) -> Optional[App]:
 
 async def declared_public_share(track: Track) -> Optional[Dict[str, Any]]:
     """Return manifest-declared public-share defaults for a track, if any."""
+    from app.runtime.composition import runtime
+
+    if not runtime().supports("public_sharing"):
+        return None
     template_id = str(getattr(track, "template_id", "") or "").strip()
     title_slug = slug_manifest_key(str(getattr(track, "title", "") or ""))
 

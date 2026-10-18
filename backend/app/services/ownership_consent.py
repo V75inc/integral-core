@@ -101,6 +101,9 @@ async def request_ownership_transfer(
     recipient_id: str,
 ) -> dict:
     """Issue a 24-hour proposal; no owner or ordinary grant changes occur."""
+    from app.runtime.composition import require_capability
+
+    require_capability("collaboration")
     _, workspace_id, preflight_owner = await _target(resource_type, resource_id)
     async with membership_write_scope(
         workspace_id,
@@ -166,6 +169,9 @@ async def respond_ownership_transfer(
     action: str,
 ) -> dict:
     """Commit exact consent, ownership/history and audit together on PostgreSQL."""
+    from app.runtime.composition import require_capability
+
+    require_capability("collaboration")
     if type(revision) is not int or revision < 0 or action not in {"accept", "decline"}:
         raise BadRequestError(message="Invalid ownership response")
     proposal = await _proposal(proposal_id)
@@ -283,6 +289,9 @@ async def respond_ownership_transfer(
 
 async def _apply_transfer(resource, proposal, recipient, membership, owner_row) -> None:
     """Apply a validated transition inside the caller's transaction/fence."""
+    from app.runtime.composition import require_capability
+
+    require_capability("collaboration")
     previous = await User.find_one({"id": owner_row["source"]})
     if previous is None:
         raise AuthorizationUnavailableError()

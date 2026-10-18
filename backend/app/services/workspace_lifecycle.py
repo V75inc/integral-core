@@ -108,6 +108,9 @@ async def delete_workspace_cascade(
     workspace: Workspace, *, cascade: bool = False, actor_id: str = ""
 ) -> Tuple[int, int, int, int]:
     """Current owner-only deletion; nonempty implicit unlink is rejected."""
+    from app.runtime.identity import identity_adapter
+
+    await identity_adapter().preserve_workspace(workspace.id)
     if not actor_id:
         raise InsufficientPermissionsError(
             message="Explicit workspace owner identity required"

@@ -1,3 +1,4 @@
+import { useDeployment } from '../../hooks/useDeployment';
 import { useQuery } from '@tanstack/react-query';
 import { ownershipConsentApi, type OwnershipProposal } from '../../api/accessControl';
 
@@ -11,9 +12,11 @@ export function ownershipRowsForStatus(rows: OwnershipProposal[], status: Owners
 }
 
 export function useOwnershipProposals() {
+  const { collaboration } = useDeployment();
   return useQuery({
-    queryKey: ownershipInboxQueryKey,
+    queryKey: [...ownershipInboxQueryKey, collaboration],
     queryFn: async () => {
+      if (!collaboration) return [];
       const result = await ownershipConsentApi.inbox();
       if (!result.complete) throw new Error('Ownership proposals could not be loaded completely.');
       return result.proposals;

@@ -309,6 +309,12 @@ def main(argv: list[str] | None = None) -> int:
             )
         if command == "up":
             lifecycle.add_argument(
+                "--profile",
+                choices=("server", "desktop_single_user"),
+                default="server",
+                help="Deployment profile for a new installation; existing installations cannot be converted implicitly",
+            )
+            lifecycle.add_argument(
                 "--port",
                 type=int,
                 default=None,
@@ -430,7 +436,11 @@ def main(argv: list[str] | None = None) -> int:
                 if args.apps and not args.apps.is_dir():
                     raise ValueError("--apps must be an existing directory")
                 result = runtime.start(
-                    home, port=args.port, open_browser=not args.no_open, apps=args.apps
+                    home,
+                    profile=args.profile,
+                    port=args.port,
+                    open_browser=not args.no_open,
+                    apps=args.apps,
                 )
             elif args.cmd == "status":
                 result = runtime.status(home)

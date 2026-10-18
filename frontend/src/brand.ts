@@ -4,7 +4,11 @@
  *  is positioned as the "AI-native knowledge platform" — copy should reflect
  *  that, not generic productivity-tool language. */
 
-export const PRODUCT_NAME = 'Integral';
+import { PRODUCT_BRAND } from './host/branding';
+
+export const PRODUCT_NAME = PRODUCT_BRAND.accessibleName;
+export const PRODUCT_WORDMARK = PRODUCT_BRAND.name;
+export const PRODUCT_EDITION = PRODUCT_BRAND.edition;
 
 /** Login hero — returning user. Continuity for all three audiences:
  *  you, your team, and your AIs. Warm, plainspoken. */

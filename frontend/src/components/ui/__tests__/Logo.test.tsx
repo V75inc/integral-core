@@ -3,6 +3,7 @@ import { render } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import logoMaster from '../../../../public/integral-logo.svg?raw';
 import { Logo, LogoMark } from '../Logo';
+import { PRODUCT_NAME } from '../../../brand';
 import { AuthPageLayout } from '../AuthPageLayout';
 import { INTEGRAL_LOGO_HALF_PATH } from '../../../brandLogo';
 
@@ -37,7 +38,7 @@ describe('approved Integral logo', () => {
         <LogoMark />
       </MemoryRouter>,
     );
-    expect(getByRole('link', { name: 'Integral — go to dashboard' }).getAttribute('href')).toBe('/');
+    expect(getByRole('link', { name: `${PRODUCT_NAME} — go to dashboard` }).getAttribute('href')).toBe('/');
     expect(container.querySelectorAll('svg')).toHaveLength(2);
     expect(container.querySelectorAll('path')).toHaveLength(4);
   });

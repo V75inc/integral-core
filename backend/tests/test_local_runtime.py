@@ -16,10 +16,43 @@ from app import cli
 from app import local_runtime as runtime
 
 
-def test_concurrent_initialization_preserves_one_identity(tmp_path):
+def test_desktop_single_user_profile_is_persisted_and_not_implicitly_converted(
+    tmp_path,
+):
+    """Persist the selected profile and reject an implicit conversion."""
+    config = runtime.initialize(tmp_path, profile="desktop_single_user")
+    original = (tmp_path / "installation.json").read_bytes()
+    assert config["deployment_profile"] == "desktop_single_user"
+    assert config["apps_path"] == str(tmp_path / "integral-apps")
+    descriptor = runtime.status(tmp_path)
+    assert descriptor["deployment_profile"] == "desktop_single_user"
+    assert descriptor["desktop_contract_version"] == 1
+    assert "desktop_single_user" in descriptor["supported_deployment_profiles"]
+    assert descriptor["runtime_contract_version"] == 1
+    assert descriptor["supported_runtime_presets"] == ["hosted", "local"]
+    with pytest.raises(runtime.RuntimeErrorDetail, match="explicit reviewed migration"):
+        runtime.initialize(tmp_path, profile="server")
+    assert (tmp_path / "installation.json").read_bytes() == original
+
+
+def test_legacy_installation_keeps_server_profile(tmp_path):
+    """Legacy installs stay server-profile until explicit migration."""
+    config = runtime.initialize(tmp_path)
+    config.pop("deployment_profile")
+    runtime.private_json(tmp_path / "installation.json", config)
+    config = runtime.initialize(tmp_path)
+    assert config["deployment_profile"] == "server"
+    with pytest.raises(runtime.RuntimeErrorDetail, match="explicit reviewed migration"):
+        runtime.initialize(tmp_path, profile="desktop_single_user")
+
+
+@pytest.mark.parametrize("profile", ["server", "desktop_single_user"])
+def test_concurrent_initialization_preserves_one_identity(tmp_path, profile):
     """Concurrent initialization preserves one identity."""
     with ThreadPoolExecutor(max_workers=4) as pool:
-        configs = list(pool.map(lambda _: runtime.initialize(tmp_path), range(8)))
+        configs = list(
+            pool.map(lambda _: runtime.initialize(tmp_path, profile=profile), range(8))
+        )
     assert all(config == configs[0] for config in configs)
     assert runtime.initialize(tmp_path) == configs[0]
     if os.name != "nt":
@@ -213,10 +246,13 @@ def test_managed_environment_excludes_checkout_dotenv(tmp_path):
 
 
 def test_managed_child_keeps_real_auth_and_postgres(tmp_path, monkeypatch):
-    """Managed child keeps real auth and postgres."""
+    """Managed child keeps auth and launcher-controlled profile settings."""
     monkeypatch.setenv("TESTING", "1")
     monkeypatch.setenv("DEBUG", "true")
-    config = runtime.initialize(tmp_path)
+    (tmp_path / "settings.env").write_text(
+        "INTEGRAL_DEPLOYMENT_PROFILE=server\nREGISTRATION_OPEN=true\nWEB_CONCURRENCY=8\n"
+    )
+    config = runtime.initialize(tmp_path, profile="desktop_single_user")
     env = runtime._environment(
         tmp_path, config, "postgresql://private", 4000, 9006, None
     )
@@ -224,7 +260,12 @@ def test_managed_child_keeps_real_auth_and_postgres(tmp_path, monkeypatch):
     assert env["DEBUG"] == "false"
     assert env["RATE_LIMIT_DISABLED"] == "0"
     assert env["JVSPATIAL_DB_TYPE"] == "postgres"
-    assert env["INTEGRAL_CORE_ONLY"] == "1"
+    assert env["INTEGRAL_CORE_ONLY"] == "0"
+    assert env["INTEGRAL_DEPLOYMENT_PROFILE"] == "desktop_single_user"
+    assert env["REGISTRATION_OPEN"] == "false"
+    assert env["JVSPATIAL_DB_LOGGING_ENABLED"] == "true"
+    assert env["WORKERS"] == env["WEB_CONCURRENCY"] == "1"
+    assert env["INTEGRAL_PACKAGE_PATHS"] == str(tmp_path / "integral-apps")
 
 
 def test_backup_preserves_external_apps_and_relocates_the_path(tmp_path):

@@ -4,6 +4,7 @@ import asyncio
 import logging
 from typing import Any, Dict
 
+from fastapi import Request
 from jvspatial.api import endpoint
 
 from app.api.errors import ServiceUnavailableError
@@ -80,6 +81,14 @@ async def build_meta() -> Dict[str, Any]:
     from app.config import settings
 
     return {"asset_version": settings.WEB_ASSET_VERSION}
+
+
+@endpoint("/meta/deployment", methods=["GET"], auth=False, tags=["Meta"])
+async def deployment_meta() -> Dict[str, Any]:
+    """Expose the deployment profile selected by trusted runtime startup."""
+    from app.runtime.composition import capabilities
+
+    return capabilities()
 
 
 @endpoint("/meta/templates", methods=["GET"], tags=["Meta"])
@@ -271,3 +280,32 @@ async def get_color_palettes() -> Dict[str, Any]:
     }
 
     return {"palettes": palettes}
+
+
+@endpoint("/meta/deployment/ready", methods=["GET"], auth=False, tags=["Meta"])
+async def desktop_readiness(request: Request) -> Dict[str, Any]:
+    """Never report a desktop ready after a swallowed startup failure."""
+    from jvspatial.db import get_database_manager
+
+    from app.config import settings
+    from app.runtime.composition import runtime
+
+    if runtime().identity != "installation_owner" or not getattr(
+        request.app.state, "desktop_ready", False
+    ):
+        raise ServiceUnavailableError(message="Desktop startup is incomplete")
+    try:
+        logging_db = get_database_manager().get_database(settings.DB_LOGGING_DB_NAME)
+        await asyncio.wait_for(
+            logging_db.count("__readiness_probe__", {}),
+            timeout=_READINESS_DB_TIMEOUT_SECONDS,
+        )
+    except Exception as exc:
+        raise ServiceUnavailableError(
+            message="Desktop audit storage is unavailable"
+        ) from exc
+    return {
+        "status": "ready",
+        "profile": "desktop_single_user",
+        "desktop_contract_version": 1,
+    }

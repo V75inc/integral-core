@@ -1,3 +1,4 @@
+import { useDeployment } from '../hooks/useDeployment';
 import React, { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
@@ -300,11 +301,13 @@ function sectionFromHash(hash: string): SectionId | null {
 }
 
 export function SettingsPage() {
+  const { singleUser } = useDeployment();
   const location = useLocation();
   const navigate = useNavigate();
   const hashSection = sectionFromHash(location.hash);
   const [activeFallback, setActiveFallback] = useState<SectionId>('profile');
-  const active = hashSection ?? activeFallback;
+  const requestedSection = hashSection ?? activeFallback;
+  const active = singleUser && requestedSection === 'sharing' ? 'profile' : requestedSection;
   const [compactMenuOpen, setCompactMenuOpen] = useState(false);
   const [query, setQuery] = useState('');
   const compactRef = useRef<HTMLDivElement>(null);
@@ -366,7 +369,7 @@ export function SettingsPage() {
     [navigate],
   );
 
-  const sections = allSections();
+  const sections = allSections().filter(section => !singleUser || section.id !== 'sharing');
   const activeLabel = sections.find(section => section.id === active)?.label;
 
   return (

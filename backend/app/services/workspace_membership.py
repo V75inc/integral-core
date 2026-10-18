@@ -184,6 +184,9 @@ async def add_member(
     can_create_tracks: bool = False,
 ) -> dict:
     """Create one membership; duplicate additions never replace existing rights."""
+    from app.runtime.composition import require_capability
+
+    require_capability("collaboration")
     if (
         role is None
         or type(can_create_apps) is not bool
@@ -250,6 +253,9 @@ async def update_member(
     can_create_tracks: bool | None = None,
 ) -> dict:
     """Update rights in place, preserving lifetime and all unrelated edge facts."""
+    from app.runtime.composition import require_capability
+
+    require_capability("collaboration")
     _validate_values(role, can_create_apps, can_create_tracks)
     if role is None and can_create_apps is None and can_create_tracks is None:
         raise BadRequestError(message="No fields to update")
@@ -328,6 +334,9 @@ async def remove_member(
     *, actor_id: str, workspace_id: str, member_id: str, leave: bool = False
 ) -> dict:
     """Fence current removal authority, cleanup and durable audit together."""
+    from app.runtime.composition import require_capability
+
+    require_capability("collaboration")
     from app.services.identity_admission import resolve_current_profile
     from app.services.workspace_departure import _remove_membership
     from app.services.workspace_permissions import get_workspace_owner_user_id

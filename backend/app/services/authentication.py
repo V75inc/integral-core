@@ -199,6 +199,24 @@ class IntegralAuthenticationService(AuthenticationService):
             else AuthenticationContext(context.database)
         )
 
+    async def register_user(self, user_data: Any) -> Any:
+        from app.runtime.composition import require_capability
+
+        require_capability("identity_admission")
+        return await super().register_user(user_data)
+
+    async def create_user_with_roles(self, user_data: Any) -> Any:
+        from app.runtime.composition import require_capability
+
+        require_capability("identity_admission")
+        return await super().create_user_with_roles(user_data)
+
+    async def bootstrap_admin(self, email: str, password: str, name: str = "") -> Any:
+        from app.runtime.composition import require_capability
+
+        require_capability("identity_admission")
+        return await super().bootstrap_admin(email, password, name)
+
     async def _is_token_blacklisted_by_jti(self, token_id: str) -> bool:
         # Presence remains authoritative even if optional audit/expiry metadata
         # cannot hydrate. JWT expiry is checked before blacklist admission.
@@ -233,6 +251,10 @@ class IntegralAuthenticationService(AuthenticationService):
             return None
         # The upstream last_accessed write is best effort. A lost CAS must not
         # authorize the cached account it just failed to update.
+        from app.runtime.composition import admits_human
+
+        if not admits_human(response.id):
+            return None
         current = await self._get_user_by_id(response.id)
         return (
             self._current_response(current)
@@ -241,6 +263,9 @@ class IntegralAuthenticationService(AuthenticationService):
         )
 
     async def login_user(self, login_data: Any, **kwargs: Any) -> Any:
+        from app.runtime.composition import require_capability
+
+        require_capability("identity_admission")
         response = await super().login_user(login_data, **kwargs)
         current = await self._get_user_by_id(response.user.id)
         if current is None or not current.is_active:
@@ -251,7 +276,9 @@ class IntegralAuthenticationService(AuthenticationService):
     async def refresh_access_token(self, refresh_token: str, **kwargs: Any) -> Any:
         response = await super().refresh_access_token(refresh_token, **kwargs)
         current = await self._get_user_by_id(response.user.id)
-        if current is None or not current.is_active:
+        from app.runtime.composition import admits_human
+
+        if current is None or not current.is_active or (not admits_human(current.id)):
             raise AuthenticationStateConflict("User not found or inactive")
         response.user = self._current_response(current)
         return response

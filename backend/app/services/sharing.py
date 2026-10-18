@@ -116,6 +116,9 @@ async def _resource_label(resource_type: ResourceType, resource: Any) -> str:
 async def _materialize_guest_membership(
     collaborator: User, workspace_id: str, inviter_user_id: str, source_label: str = ""
 ) -> bool:
+    from app.runtime.composition import require_capability
+
+    require_capability("collaboration")
     if not workspace_id:
         return False
     async with sharing_write_scope(workspace_id):
@@ -136,6 +139,9 @@ async def _materialize_guest_membership_unlocked(
     source_label: str = "",
 ) -> bool:
     """Core guest-membership materialization — shared by add_collaborator."""
+    from app.runtime.composition import require_capability
+
+    require_capability("collaboration")
     if not workspace_id:
         return False
     ws = await Workspace.find_one({"id": workspace_id})
@@ -205,6 +211,9 @@ async def ensure_guest_membership(
     Thin wrapper over ``_materialize_guest_membership`` for share-link and
     invitation call sites. ``add_collaborator`` inlines the same logic.
     """
+    from app.runtime.composition import require_capability
+
+    require_capability("collaboration")
     return await _materialize_guest_membership(
         collaborator,
         workspace_id,
@@ -501,6 +510,9 @@ async def add_collaborator(
     Auto-creates ``IS_MEMBER_OF{role:"guest"}`` on the resource's workspace
     if the collaborator isn't a member yet. Emits a recipient notification.
     """
+    from app.runtime.composition import require_capability
+
+    require_capability("collaboration")
     from app.api.errors import BadRequestError, ResourceNotFoundError
 
     if role not in VALID_ROLES:
@@ -639,6 +651,9 @@ async def update_collaborator_role(
     upsert-shaped via ``ensure_edge`` for back-compat callers, but the
     intent-specific surface is preferred.
     """
+    from app.runtime.composition import require_capability
+
+    require_capability("collaboration")
     from app.api.errors import BadRequestError, ResourceNotFoundError
 
     if role not in VALID_ROLES:
@@ -777,6 +792,9 @@ async def remove_collaborator(
     collaborator_user_id: str,
 ) -> Dict[str, Any]:
     """Drop the COLLABORATES_ON edge from user → resource (owner-only)."""
+    from app.runtime.composition import require_capability
+
+    require_capability("collaboration")
     from app.api.errors import ResourceNotFoundError
 
     await _require_collaborator_manage_authority(
@@ -894,6 +912,9 @@ async def add_exclusion(
     Direct COLLABORATES_ON / OWNS grants still beat exclusion — to block a
     direct collaborator you remove their edge instead.
     """
+    from app.runtime.composition import require_capability
+
+    require_capability("collaboration")
     from app.api.errors import ResourceNotFoundError
 
     await _require_share_authority(
@@ -953,6 +974,9 @@ async def remove_exclusion(
     user_id_to_restore: str,
 ) -> Dict[str, Any]:
     """Drop EXCLUDED_FROM edge — restore inherited access path."""
+    from app.runtime.composition import require_capability
+
+    require_capability("collaboration")
     from app.api.errors import ResourceNotFoundError
 
     await _require_share_authority(

@@ -1,3 +1,4 @@
+import { useDeployment } from '../hooks/useDeployment';
 import { AppIcon } from '../ui';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { ResourceAccessReview } from '../components/access/ResourceAccessReview';
@@ -107,6 +108,7 @@ interface CollabRow {
 }
 
 export function AppDetailPage() {
+  const { collaboration } = useDeployment();
   const { appId } = useParams<{ appId: string }>();
   const navigate = useNavigate();
   const { user: me } = useAuth();
@@ -627,7 +629,7 @@ export function AppDetailPage() {
                 sidebar's PINNED section actually has an obvious place
                 to fill from. */}
             <PinButton kind="app" id={app.id} label={app.name} size="md" />
-            <Button
+            {collaboration && <Button
               variant="outline"
               size="sm"
               icon={<Users size={14} strokeWidth={LINE_ICON_STROKE} />}
@@ -640,7 +642,7 @@ export function AppDetailPage() {
             >
               {collaboratorCount === null ? 'Collaborators' :
                 `${collaboratorCount} ${collaboratorCount === 1 ? 'collaborator' : 'collaborators'}`}
-            </Button>
+            </Button>}
             {canAdmin ? (
               <Button
                 variant="outline"
@@ -745,7 +747,7 @@ export function AppDetailPage() {
               </span>
             </>
           ) : null}
-          {collaboratorCount !== null && collaboratorCount > 0 ? (
+          {collaboration && collaboratorCount !== null && collaboratorCount > 0 ? (
             <>
               <span aria-hidden>·</span>
               <span>

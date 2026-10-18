@@ -22,6 +22,9 @@ async def remove_workspace_membership(
     actor_id: str = "",
 ) -> bool:
     """Use canonical current actor admission rather than an unauthenticated writer."""
+    from app.runtime.composition import require_capability
+
+    require_capability("collaboration")
     if not actor_id:
         raise InsufficientPermissionsError(
             message="Explicit departing actor identity required"

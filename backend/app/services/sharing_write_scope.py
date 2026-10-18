@@ -93,6 +93,9 @@ def collaboration_mutation(function):
 
     @wraps(function)
     async def invoke(*args: Any, **kwargs):
+        from app.runtime.composition import require_capability
+
+        require_capability("collaboration")
         # Import after the sharing service has finished defining its commands.
         from app.api.errors import BadRequestError, ResourceNotFoundError
 

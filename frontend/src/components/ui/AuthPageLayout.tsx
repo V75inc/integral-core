@@ -28,13 +28,23 @@ interface AuthPageLayoutProps {
   title: ReactNode;
   description: ReactNode;
   children: ReactNode;
+  compact?: boolean;
 }
 
 export function AuthPageLayout({
   title,
   description,
   children,
+  compact = false,
 }: AuthPageLayoutProps) {
+  if (compact) return (
+    <main className="auth-page auth-page--compact">
+      <section className="auth-compact-content" aria-label="Account access">
+        <div className="auth-compact-brand"><Logo size="md" /></div>
+        {children}
+      </section>
+    </main>
+  );
   return (
     <main className="auth-page relative isolate flex min-h-screen items-center justify-center overflow-hidden bg-[var(--section-bg)] px-5 py-10 sm:px-8">
       <div className="auth-content-grid relative z-10 grid w-full max-w-[1120px] items-center gap-8 md:grid-cols-2 lg:gap-12">

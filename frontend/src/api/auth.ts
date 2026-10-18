@@ -1,3 +1,4 @@
+import { getHostSession } from '../host/session';
 import apiClient from './client';
 import { normalizeUserMe } from './helpers';
 import type { User } from '../types';
@@ -36,7 +37,11 @@ export const authApi = {
       })
       .then(r => r.data),
   me: (): Promise<User> =>
-    apiClient.get('/auth/me').then(r => normalizeUserMe(r.data)),
+    apiClient.get('/auth/me').then(async r => {
+      const user = normalizeUserMe(r.data);
+      const profile = await getHostSession()?.profile?.();
+      return profile ? {...user, email: profile.email, display_name: user.display_name && user.display_name !== 'Owner' ? user.display_name : profile.name || profile.email} : user;
+    }),
   /** Blacklists the current JWT on the server (requires Bearer token). */
   logout: () => apiClient.post('/auth/logout').then(r => r.data),
   updateProfile: (data: Record<string, unknown>): Promise<User> =>

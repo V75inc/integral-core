@@ -1,3 +1,4 @@
+import { useDeployment } from '../../../hooks/useDeployment';
 import { TimezoneSetting } from './TimezoneSetting';
 import { PageMeta } from '../../../components/ui';
 import { useEffect, useState } from 'react';
@@ -27,6 +28,7 @@ import { DeleteAccountModal } from '../components/DeleteAccountModal';
  * password-change endpoint.
  */
 export function ProfileSection() {
+  const { singleUser } = useDeployment();
   const { user, refreshUser } = useAuth();
   const { showToast } = useToast();
   const [displayName, setDisplayName] = useState(user?.display_name || '');
@@ -163,7 +165,7 @@ export function ProfileSection() {
             Display name
           </label>
           <p className="mt-0.5 text-xs text-[var(--text-muted)]">
-            How collaborators see you in feeds, mentions, and access lists.
+            {singleUser ? 'The name shown on your local records.' : 'How collaborators see you in feeds, mentions, and access lists.'}
           </p>
         </div>
         <input
@@ -195,6 +197,7 @@ export function ProfileSection() {
         </div>
       </section>
 
+      {!singleUser && <>
       {/* Email — read-only */}
       <section className="rounded-[var(--radius-card)] border border-[var(--panel-border)] bg-[var(--panel)] p-4">
         <label className="text-sm font-medium text-[var(--text)] block">
@@ -240,6 +243,7 @@ export function ProfileSection() {
         </p>
       </section>
 
+      </>}
       <TimezoneSetting />
 
       {/* Bio */}
@@ -284,6 +288,7 @@ export function ProfileSection() {
         </div>
       </section>
 
+      {!singleUser && <>
       {/* Danger zone — permanent account deletion */}
       <section>
         <h3 className="text-[13px] uppercase tracking-[0.16em] text-[var(--text-subtle)] font-medium mb-3">
@@ -318,6 +323,7 @@ export function ProfileSection() {
         accountEmail={user?.email || ''}
         onClose={() => setShowDeleteModal(false)}
       />
+      </>}
     </div>
   );
 }

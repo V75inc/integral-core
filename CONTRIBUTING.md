@@ -103,4 +103,12 @@ Update docs in the same PR when you change behavior users or integrators rely on
 
 ## License
 
-By contributing, you agree that your contributions are licensed under the project MIT license.
+The repository currently declares Apache License 2.0 for Integral Core. Do not treat this statement as a retroactive assignment or as changing terms that applied when earlier contributions were submitted. Future contribution terms must be reviewed and published before they take effect; until then, contributors should submit only work they are authorized to contribute and clearly identify any third-party material and its license.
+
+## Developer and App ecosystem
+
+Core remains public Apache-2.0. See [developers and Apps](docs/community/DEVELOPERS-AND-APPS.md)
+for repository ownership, reference App onboarding, contribution expectations and
+the planned marketplace path. No account is required to clone/build or contribute
+to Core or independently author Apps. One's official signup/service flow does not
+change those Apache source rights.

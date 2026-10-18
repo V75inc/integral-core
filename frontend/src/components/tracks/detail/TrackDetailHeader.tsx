@@ -1,3 +1,4 @@
+import { useDeployment } from '../../../hooks/useDeployment';
 import {
   BookPlus,
   Edit2,
@@ -59,6 +60,7 @@ export function TrackDetailHeader({
   canImprove,
   onDeleteTrack,
 }: TrackDetailHeaderProps) {
+  const { collaboration } = useDeployment();
   return (
     <PageSection>
       <header className="mb-8">
@@ -84,12 +86,12 @@ export function TrackDetailHeader({
               label={track.title}
               size="sm"
             />
-            <WatchersControl
+            {collaboration && <WatchersControl
               watchers={trackWatchers?.watchers ?? []}
               isWatching={Boolean(trackWatchers?.is_watching)}
               onToggle={onToggleTrackWatch}
               scope="track"
-            />
+            />}
             {canViewCollaborators ? (
               <Button
                 variant="outline"

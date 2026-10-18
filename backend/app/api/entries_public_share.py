@@ -112,6 +112,9 @@ async def mint_public_share(request: Request, entry_id: str) -> Dict[str, Any]:
 
 
 async def _redeem(token: str) -> Dict[str, Any]:
+    from app.runtime.composition import require_capability
+
+    require_capability("public_sharing")
     if not token or len(token) < 16:
         raise ResourceNotFoundError(message="Shared entry not found")
     token_hash = _hash_token(token)

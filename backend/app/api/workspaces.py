@@ -105,7 +105,13 @@ def _validate_workspace_type(value: Optional[str]) -> str:
     """Normalize and validate the user-facing workspace_type label."""
     raw = (value or "").strip().lower()
     if not raw:
-        return "collaborative"
+        from app.runtime.composition import runtime
+
+        return (
+            "personal"
+            if "organization" not in runtime().workspace_kinds
+            else "collaborative"
+        )
     if len(raw) > 40:
         raise BadRequestError(message="workspace_type must be 40 characters or fewer")
     if not all(ch.isalnum() or ch in ("-", "_") for ch in raw):
@@ -311,6 +317,10 @@ async def create_workspace(
     safe_accent = validate_hex_color(accent_color, allow_empty=True)
     safe_type = _validate_workspace_type(workspace_type)
     ws_kind = _kind_for_workspace_type(safe_type)
+    if ws_kind != "personal":
+        from app.runtime.composition import require_capability
+
+        require_capability("collaboration")
     await _assert_workspace_name_unique_for_user(user_id, name_fold, safe_name)
     now = utc_now_iso()
     ws = await Workspace.create(

@@ -94,9 +94,17 @@ The [qualification record](docs/ops/QUALIFICATION.md) separates implementation f
 
 Integral Core uses [Apache 2.0](LICENSE). App packages and dependencies have their own licensing and trust requirements.
 
-## Standalone desktop
+## Desktop and hosted products
 
-[Integral Desktop](desktop/README.md) starts a private local Core installation in
-a native window. It includes no commercial Apps and uses Settings for your own
-model/provider key. See the desktop guide for first use, installer builds and
-platform release qualification.
+[Integral One](https://github.com/V75inc/integral-one) owns the desktop application,
+installers and native host package. Core supplies the shared engine and neutral
+[local/hosted runtime contract](docs/platform/runtime-composition-v1.md).
+Core developer/server use and App development remain available independently.
+
+### Developers and App authors
+
+Integral Core is the Apache-2.0 foundation. Contribute to the engine/UI or build
+independent Apps through the public contracts. Start with
+[developers and Apps](docs/community/DEVELOPERS-AND-APPS.md) and
+[CONTRIBUTING.md](CONTRIBUTING.md). The marketplace is planned; local development
+and source contributions do not require a marketplace account or Business plan.

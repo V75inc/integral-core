@@ -69,6 +69,9 @@ ALLOW_LIST: set[tuple[str, str]] = {
     ("backend/app/api/auth.py", "resend_verification"),
     # Short-lived WS ticket mint — no graph mutation; auth handshake only.
     ("backend/app/api/auth.py", "mint_websocket_ticket"),
+    # Controller session exchange delegates to the authenticated identity adapter.
+    # Like other auth/token handshakes it mutates no audited resource graph.
+    ("backend/app/api/auth.py", "local_owner_session"),
     # Voice-input session mint — same shape as the WS ticket: returns a
     # short-lived vendor client secret and mutates no audited resource. Each
     # mint is recorded as a structured audit log line (who, which workspace's

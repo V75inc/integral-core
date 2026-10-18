@@ -1,3 +1,4 @@
+import { useDeployment } from '../hooks/useDeployment';
 import { useCallback, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -21,6 +22,7 @@ import { requestOpenCompanionChat } from '../features/ai-chat/chatHandoff';
 
 /** Home previews readable work across workspaces; AI actions use the active scope. */
 export function MissionControlPage() {
+  const { singleUser } = useDeployment();
   useSetCrumbs([]);
   const auth = useAuthOptional();
   const { workspaces, scope } = useScope();
@@ -84,14 +86,20 @@ export function MissionControlPage() {
             ) : null}
           </PageMeta>
           <PageMeta as="p">
-            Your workspaces and recent activity in one place. Choose a workspace to get started.
+            {singleUser ? 'Your Apps and data are on this computer. Install an App, build your own, or start without AI.' : 'Your workspaces and recent activity in one place. Choose a workspace to get started.'}
           </PageMeta>
         </header>
     </PageSection>
     <PageSection.Separator />
     <PageSection className="mt-8">
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.8fr)_minmax(280px,1fr)]">
-        <Surface as="section" aria-labelledby="home-ai-heading" border="subtle" padding="lg" className="home-widget home-widget--ai min-w-0">
+        {singleUser ? <Surface as="section" border="subtle" padding="lg" className="home-widget min-w-0">
+          <Text as="h2" variant="heading-sm" weight="semibold">Start with an App</Text>
+          <Text as="p" variant="body-sm" tone="muted" className="mt-3">Choose an App from your local library or build one for the way you work. AI setup is optional.</Text>
+          <HomeLink to="/apps">Browse and install Apps</HomeLink>
+          <HomeLink to="/settings#ai-models">Set up a local model or bring an API key</HomeLink>
+          <Text as="p" variant="meta" tone="subtle" className="mt-3">Background tasks run while Integral is open.</Text>
+        </Surface> : <Surface as="section" aria-labelledby="home-ai-heading" border="subtle" padding="lg" className="home-widget home-widget--ai min-w-0">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <Text as="h2" id="home-ai-heading" variant="heading-sm" weight="semibold" className="flex items-center gap-2">
               <LogoMark size="sm" /> Integral AI
@@ -99,13 +107,13 @@ export function MissionControlPage() {
             <span aria-label="Agent workspace" className="max-w-48 truncate"><Text variant="meta" tone="muted">{activeWorkspace ? actionLabel : 'Choose a workspace'}</Text></span>
           </div>
           <HomeChatComposer workspaceId={activeWorkspace?.id ?? null} principalId={auth?.user?.id ?? null} />
-        </Surface>
+        </Surface>}
         <Surface as="section" aria-labelledby="home-attention-heading" tone="panel-2" border="subtle" padding="lg" className="home-widget home-widget--attention min-w-0">
           <Text as="h2" id="home-attention-heading" variant="heading-sm" weight="semibold" className="mb-4">Needs your attention</Text>
           <MissionControlApprovals />
           <HomeLink to="/notifications">{notificationsLoading ? 'Checking notifications…' : notificationsError ? 'Notifications unavailable — open inbox' : `${unreadCount} unread ${unreadCount === 1 ? 'notification' : 'notifications'}`}</HomeLink>
           <HomeLink to="/background-tasks">Background tasks in {actionLabel}</HomeLink>
-          <PendingInvitationsPanel compact />
+          {!singleUser && <PendingInvitationsPanel compact />}
         </Surface>
       </div>
       {snapshot.isError && <div role="status" className="my-4 flex flex-wrap items-center gap-3">

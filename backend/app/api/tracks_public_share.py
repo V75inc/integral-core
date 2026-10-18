@@ -128,6 +128,9 @@ def _public_entry_admission(permission: str):
 
 
 async def _resolve_public_track_link(token: str) -> ShareLink:
+    from app.runtime.composition import require_capability
+
+    require_capability("public_sharing")
     if not token or len(token) < 16:
         raise ResourceNotFoundError(message="Shared track not found")
     token_hash = _hash_token(token)
