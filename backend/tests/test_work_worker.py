@@ -181,12 +181,15 @@ async def test_lease_loss_blocks_completion() -> None:
 async def test_heartbeat_failure_cancels_active_handler(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    started = asyncio.Event()
     cancelled = asyncio.Event()
 
     async def _heartbeat_lost(*args, **kwargs):
+        await asyncio.wait_for(started.wait(), timeout=5)
         raise WorkError("work.lease_lost", "stale lease")
 
     async def _long_handler(item, ctx) -> None:
+        started.set()
         try:
             await asyncio.Future()
         finally:
@@ -195,12 +198,15 @@ async def test_heartbeat_failure_cancels_active_handler(
     item = await make_routine_work(key="ww-heartbeat-loss-cancels-handler")
     work_worker.register_test_handler(item.work_item_id, _long_handler)
     monkeypatch.setattr(work_items, "heartbeat_lease", _heartbeat_lost)
+    # Inject lease loss after handler admission, independent of machine load.
+    # A real 150ms lease could expire during graph setup before it starts.
+    monkeypatch.setattr(work_items, "recommended_heartbeat_interval", lambda _: 0.01)
 
     with pytest.raises(WorkError) as exc_info:
         await work_worker.process_one_due_item(
             worker_id="w-heartbeat-loss",
             work_item_id=item.work_item_id,
-            lease_seconds=0.15,
+            lease_seconds=30,
         )
 
     assert exc_info.value.code == "work.lease_lost"
