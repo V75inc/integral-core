@@ -4,6 +4,13 @@ This pre-launch change record describes the supported Integral Core runtime.
 Package publication and deployment are separate release gates; a local version
 bump does not establish that a release is available on a package index.
 
+## 0.1.1rc21 — release candidate
+
+- Add a standalone desktop launcher with a managed local Core runtime and a shortcut to BYOK model settings. Installer signing and platform release qualification remain separate distribution gates.
+- Preserve workspace App rows during failed background refreshes and distinguish loading from an empty directory.
+- Publish workspace scope before dependent requests, display governed tool summaries and refresh partial batch results.
+- Show provider credential validation messages in model settings.
+
 ## 0.1.1rc20 — release candidate
 
 - Allows owning App mutation facades to maintain readonly computed relations while retaining direct-edit and target-read restrictions.

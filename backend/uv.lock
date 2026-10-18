@@ -1365,7 +1365,7 @@ wheels = [
 
 [[package]]
 name = "integral-core"
-version = "0.1.1rc20"
+version = "0.1.1rc21"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
