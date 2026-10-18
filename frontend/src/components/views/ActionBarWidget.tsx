@@ -272,6 +272,10 @@ export function ActionBarWidget({ view, entries }: ViewWidgetProps) {
       if (output.ok === false) {
         const reason = typeof output.reason === 'string' && output.reason ? output.reason : 'failed';
         showToast(`${button.label}: ${reason}`, 'error');
+        // Some batch tools retain successful writes and report partial failure.
+        if (Array.isArray(output.object_refs) && output.object_refs.length > 0) {
+          onActionComplete?.();
+        }
         return;
       }
       if (button.produces_file && isActionFile(output.file)) {
@@ -328,7 +332,8 @@ export function ActionBarWidget({ view, entries }: ViewWidgetProps) {
         if (created > 0) onActionComplete?.();
         return;
       }
-      showToast(`${button.label} complete`, 'success');
+      const summary = typeof output.summary === 'string' ? output.summary.trim().slice(0, 500) : '';
+      showToast(summary || `${button.label} complete`, 'success');
       onActionComplete?.();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Action failed';

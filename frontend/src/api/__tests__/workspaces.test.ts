@@ -93,3 +93,12 @@ describe('workspace ownership labels', () => {
     expect(workspaceMembershipRoleLabel({ your_role: 'member' })).toBe('Member');
   });
 });
+
+
+describe('workspace list response integrity', () => {
+  it('rejects a malformed success instead of overwriting existing workspaces with an empty list', async () => {
+    const spy = vi.spyOn(client.default, 'get').mockResolvedValue({ data: { detail: 'temporarily unavailable' } });
+    await expect(workspacesApi.list()).rejects.toThrow('Invalid workspace list response');
+    spy.mockRestore();
+  });
+});

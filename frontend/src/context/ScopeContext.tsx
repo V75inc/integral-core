@@ -29,6 +29,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -175,6 +176,7 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
 
   const setScope = useCallback(
     (next: Scope) => {
+      setActiveScopeHeader(`ws:${next.workspaceId}`);
       setScopeState(next);
       writeStoredScope(next);
       // Persist to the server. We don't await — the local cache flip
@@ -199,7 +201,9 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
 
   // Publish header value on every scope change so axios + chat fetch
   // forward ``X-Integral-Scope: ws:<id>`` to the backend.
-  useEffect(() => {
+  // Publish before child passive effects start their new-workspace requests.
+  // https://react.dev/reference/react/useLayoutEffect
+  useLayoutEffect(() => {
     if (!scope) {
       setActiveScopeHeader(null);
       return;

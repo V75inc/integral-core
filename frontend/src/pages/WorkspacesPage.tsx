@@ -52,6 +52,7 @@ export function WorkspacesPage() {
     data: workspaces = [],
     isLoading: loading,
     isError,
+    dataUpdatedAt,
     error,
     refetch,
   } = useQuery({
@@ -81,7 +82,7 @@ export function WorkspacesPage() {
           <div className="min-w-0">
             <PageHeading>Workspaces</PageHeading>
             <PageMeta>
-              <span>{workspaces.length} {workspaces.length === 1 ? 'workspace' : 'workspaces'}</span>
+              <span>{dataUpdatedAt ? `${workspaces.length} ${workspaces.length === 1 ? 'workspace' : 'workspaces'}` : loading ? 'Loading workspaces…' : 'Workspaces unavailable'}</span>
               <span aria-hidden>·</span>
               <span>Your workspaces and shared spaces</span>
             </PageMeta>
@@ -119,7 +120,7 @@ export function WorkspacesPage() {
               <Skeleton key={i} className="h-14" />
             ))}
           </div>
-        ) : workspaces.length === 0 ? (
+        ) : isError && workspaces.length === 0 ? null : workspaces.length === 0 ? (
           <EmptyState
             icon={
               <IconWell size="lg" aria-hidden>

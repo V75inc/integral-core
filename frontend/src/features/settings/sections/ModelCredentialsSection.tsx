@@ -28,6 +28,7 @@ import {
 import { Button } from '../../../components/ui/Button';
 import { Skeleton } from '../../../components/ui/Skeleton';
 import { useToast } from '../../../context/ToastContext';
+import { errorMessageFromAxios } from '../../../api/helpers';
 import { useAgentiveCapability } from '../hooks/useAgentiveCapability';
 import { Input, Select, Stack, Surface, Text } from '../../../ui';
 import { SettingsSection, StatusPill } from '../components/Field';
@@ -502,7 +503,7 @@ export function ModelCredentialsSection() {
       toast.showToast('Models and keys saved', 'success');
     },
     onError: (err: Error) => {
-      toast.showToast(err.message || 'Failed to save credentials', 'error');
+      toast.showToast(errorMessageFromAxios(err, 'Failed to save credentials'), 'error');
     },
   });
 
@@ -532,7 +533,7 @@ export function ModelCredentialsSection() {
       );
     },
     onError: (err: Error) => {
-      toast.showToast(err.message || 'Validation failed', 'error');
+      toast.showToast(errorMessageFromAxios(err, 'Validation failed'), 'error');
     },
   });
 
@@ -544,7 +545,7 @@ export function ModelCredentialsSection() {
       toast.showToast('Models and keys removed', 'success');
     },
     onError: (err: Error) => {
-      toast.showToast(err.message || 'Failed to remove credentials', 'error');
+      toast.showToast(errorMessageFromAxios(err, 'Failed to remove credentials'), 'error');
     },
   });
 
