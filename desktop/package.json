@@ -1,0 +1,78 @@
+{
+  "name": "@integral-core/desktop",
+  "private": true,
+  "version": "0.1.1-rc.20",
+  "description": "Standalone Integral desktop with a private local Core runtime and bring-your-own model credentials.",
+  "homepage": "https://github.com/V75inc/integral-core",
+  "author": "V75 Inc.",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron src/main.js",
+    "test": "node --test scripts/*.test.js",
+    "build:runtime": "node scripts/bundle-runtime.js",
+    "pack": "npm run build:runtime && electron-builder --dir",
+    "dist": "npm run build:runtime && electron-builder"
+  },
+  "devDependencies": {
+    "electron": "44.9.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "ai.integral.desktop",
+    "productName": "Integral",
+    "asar": true,
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/core",
+        "to": "core",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Integral uses your microphone for voice dictation when you start voice input."
+      },
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "binaries": [
+        "Contents/Resources/core/uv"
+      ],
+      "icon": "src/icons/mac/integral-dark.png"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "linux": {
+      "artifactName": "integral-${version}-${arch}.${ext}",
+      "category": "Office",
+      "maintainer": "V75 Inc.",
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    },
+    "deb": {
+      "packageName": "integral"
+    }
+  },
+  "dependencies": {}
+}
