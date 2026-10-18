@@ -93,3 +93,10 @@ The [qualification record](docs/ops/QUALIFICATION.md) separates implementation f
 ## License
 
 Integral Core uses [Apache 2.0](LICENSE). App packages and dependencies have their own licensing and trust requirements.
+
+## Standalone desktop
+
+[Integral Desktop](desktop/README.md) starts a private local Core installation in
+a native window. It includes no commercial Apps and uses Settings for your own
+model/provider key. See the desktop guide for first use, installer builds and
+platform release qualification.
