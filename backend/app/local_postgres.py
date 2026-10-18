@@ -15,6 +15,11 @@ import time
 from pathlib import Path
 from urllib.parse import quote, urlsplit, urlunsplit
 
+if __package__:
+    from app.local_permissions import private_directory
+else:
+    from local_permissions import private_directory  # type: ignore[no-redef]
+
 
 def main() -> None:
     """Run a private database until terminated, or create a logical dump."""
@@ -42,8 +47,8 @@ def main() -> None:
     if not re.fullmatch(r"[0-9a-f]{64}", password):
         raise ValueError("Invalid managed database credential format")
     data = root / "postgres"
-    data.mkdir(mode=0o700, exist_ok=True)
-    data.chmod(0o700)
+    data.mkdir(exist_ok=True)
+    private_directory(data)
     server = pgserver.get_server(data, cleanup_mode="stop")
 
     def terminate(_signum, _frame):

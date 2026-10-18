@@ -31,6 +31,8 @@ from typing import Any
 import psutil
 from filelock import FileLock, Timeout
 
+from app.local_permissions import private_directory
+
 CONTRACT_VERSION = 1
 PGSERVER_VERSION = "0.1.4"
 DEPLOYMENT_PROFILES = {"server", "desktop_single_user"}
@@ -73,7 +75,7 @@ def initialize(home: Path, *, profile: str | None = None) -> dict[str, Any]:
     if profile is not None and profile not in DEPLOYMENT_PROFILES:
         raise RuntimeErrorDetail("Unsupported deployment profile.")
     home.mkdir(parents=True, exist_ok=True)
-    home.chmod(0o700)
+    private_directory(home)
     path = home / "installation.json"
     with FileLock(str(home / "initialize.lock")):
         try:
@@ -865,8 +867,10 @@ def restore(home: Path, source: Path) -> None:
     with tempfile.TemporaryDirectory(
         prefix="integral-restore-", dir=home.parent
     ) as staging:
+        private_directory(Path(staging))
         staged = Path(staging) / "installation"
-        staged.mkdir(mode=0o700)
+        staged.mkdir()
+        private_directory(staged)
         with tarfile.open(source, "r:gz") as archive:
             members = archive.getmembers()
             for member in members:
@@ -880,7 +884,7 @@ def restore(home: Path, source: Path) -> None:
                     raise RuntimeErrorDetail("Backup contains an unsafe path or link.")
             archive.extractall(staged, members=members)
         if (staged / "postgres").is_dir():
-            (staged / "postgres").chmod(0o700)
+            private_directory(staged / "postgres")
         if not read_json(staged / "installation.json"):
             raise RuntimeErrorDetail("Backup contains no installation identity.")
         initialize(staged)

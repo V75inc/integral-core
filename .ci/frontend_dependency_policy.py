@@ -31,6 +31,9 @@ PACKAGES = {
     "postcss-nested": ("6.2.0", "moderate", "boolean"),
     "postcss-selector-parser": ("6.1.4", "moderate", "tailwind-major"),
     "tailwindcss": ("3.4.19", "high", "tailwind-major"),
+    # Reviewed 2026-10-18: same build-only Tailwind peer chain, not a runtime
+    # import. Keep exact node/dev/version/advisory/fix/expiry enforcement.
+    "tailwindcss-animate": ("1.0.7", "high", "tailwind-major"),
 }
 
 
