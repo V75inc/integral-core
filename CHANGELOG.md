@@ -4,6 +4,11 @@ This pre-launch change record describes the supported Integral Core runtime.
 Package publication and deployment are separate release gates; a local version
 bump does not establish that a release is available on a package index.
 
+## 0.1.1rc22 — release candidate
+
+- Extend the finite API deadline to 120 seconds and explain uncertain write outcomes without offering an automatic retry (#150).
+- Continue new interactive chat turns after terminal recovery conflicts without replaying old tool effects or clearing pending approvals (#151).
+
 ## 0.1.1rc21 — release candidate
 
 - Add a standalone desktop launcher with a managed local Core runtime and a shortcut to BYOK model settings. Installer signing and platform release qualification remain separate distribution gates.
