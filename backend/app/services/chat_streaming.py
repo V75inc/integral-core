@@ -127,9 +127,9 @@ _ERROR_MESSAGES: Dict[str, str] = {
         "finish. Start a new conversation with a shorter request and try again."
     ),
     "harness_reconciliation_required": (
-        "This conversation has an earlier assistant run that needs review before "
-        "it can safely continue. Its work was not replayed. Start a new conversation "
-        "for new work, or review the previous run before retrying here."
+        "I couldn't restore the previous assistant state safely, so its work was "
+        "not replayed. Send a new message to continue, and check the current "
+        "workspace state before repeating any earlier change."
     ),
     "model_configuration_invalid": (
         "Integral AI's model configuration is invalid. Check Settings → AI Models. "
@@ -233,9 +233,8 @@ _HARNESS_RECOVERY_REASONS = frozenset(
     }
 )
 _HARNESS_CURRENT_STATE_MESSAGE = (
-    "The assistant could not safely complete this response. Its work was not "
-    "replayed. Start a new conversation for new work, or review this run "
-    "before retrying here."
+    "The assistant could not safely complete this response. "
+    "Please send your message again."
 )
 
 

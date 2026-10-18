@@ -67,6 +67,162 @@ def _receipt(tool, status):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["failed", "cancelled"])
+@pytest.mark.parametrize("reason", ["write", "approval", "model", "missing_message"])
+async def test_new_user_turn_continues_without_replaying_uncertain_terminal_work(
+    monkeypatch, status, reason
+):
+    """New user input uses public text without settling or replaying old work."""
+    from app.agentive.harness import adaptive, model_observations
+    from app.agentive.work_models import WorkApproval
+
+    effect = ToolEffectRecord(
+        run_id="failed-run",
+        tool_name="write_tool",
+        tool_call_id="call-1",
+        status="started",
+    )
+    effects = [effect] if reason == "write" else []
+    approvals = [SimpleNamespace(status="pending")] if reason == "approval" else []
+    now = datetime.now(timezone.utc)
+
+    async def observations(**kwargs):
+        return (
+            [
+                SimpleNamespace(
+                    request_id="unknown",
+                    outcome="dispatch_intent",
+                    observed_at=now,
+                    dispatched_at=now,
+                )
+            ]
+            if reason == "model"
+            else []
+        )
+
+    async def pending(query):
+        return approvals
+
+    async def no_receipts(query):
+        return []
+
+    async def public_messages(thread):
+        assert thread.id == "thread-a"
+        return [
+            SimpleNamespace(
+                id="old",
+                role="assistant",
+                parts=[
+                    {"type": "text", "text": "Earlier reply"},
+                    {"type": "tool-call", "tool_name": "write_tool"},
+                ],
+            ),
+            SimpleNamespace(
+                id="current",
+                role="user",
+                parts=[{"type": "text", "text": "Continue here"}],
+            ),
+        ]
+
+    class Store:
+        async def list_unresolved_tool_effects(self, **kwargs):
+            return effects
+
+        async def list_tool_effects(self, **kwargs):
+            return effects
+
+        async def latest_snapshot(self, **kwargs):
+            return None
+
+    monkeypatch.setattr(
+        model_observations, "list_model_request_observations", observations
+    )
+    monkeypatch.setattr(WorkApproval, "find", pending)
+    monkeypatch.setattr(RunStep, "find", no_receipts)
+    monkeypatch.setattr(adaptive, "recent_public_messages", public_messages)
+    recovery_state = {}
+    history = await _resume_history(
+        _scope("next-run"),
+        SimpleNamespace(last_run_id="failed-run"),
+        Store(),
+        previous_run=_run(status=status),
+        thread=SimpleNamespace(id="thread-a"),
+        current_message_id="current",
+        allow_fresh_turn=True,
+        recovery_state=recovery_state,
+    )
+    assert history[0].parts[0].content == "Earlier reply"
+    assert len(history) == 2
+    assert "Do not replay prior tool calls" in history[-1].parts[0].content
+    assert not any(
+        isinstance(part, (ToolCallPart, ToolReturnPart))
+        for message in history
+        for part in message.parts
+    )
+    assert recovery_state == {"public_dialogue_restored": True}
+    assert effect.status == "started"
+    if approvals:
+        assert approvals[0].status == "pending"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status,workspace,allow_fresh_turn",
+    [
+        ("running", "workspace-a", True),
+        ("failed", "other-workspace", True),
+        ("failed", "workspace-a", False),
+    ],
+)
+async def test_fresh_turn_does_not_bypass_live_scope_or_host_recovery_guards(
+    monkeypatch, status, workspace, allow_fresh_turn
+):
+    """Text fallback cannot authorize overlap, foreign state, or host retries."""
+    from app.agentive.harness import model_observations
+    from app.agentive.work_models import WorkApproval
+    from app.api.errors import ResourceConflictError
+
+    effect = ToolEffectRecord(
+        run_id="failed-run",
+        tool_name="write_tool",
+        tool_call_id="call-1",
+        status="started",
+    )
+
+    async def observations(**kwargs):
+        return []
+
+    async def no_rows(query):
+        return []
+
+    class Store:
+        async def list_unresolved_tool_effects(self, **kwargs):
+            return [effect]
+
+        async def list_tool_effects(self, **kwargs):
+            return [effect]
+
+        async def latest_snapshot(self, **kwargs):
+            return None
+
+    monkeypatch.setattr(
+        model_observations, "list_model_request_observations", observations
+    )
+    monkeypatch.setattr(WorkApproval, "find", no_rows)
+    monkeypatch.setattr(RunStep, "find", no_rows)
+    with pytest.raises(ResourceConflictError):
+        await _resume_history(
+            _scope("next-run"),
+            SimpleNamespace(last_run_id="failed-run"),
+            Store(),
+            previous_run=_run(status=status, workspace_id=workspace),
+            thread=SimpleNamespace(id="thread-a"),
+            current_message_id="current",
+            allow_fresh_turn=allow_fresh_turn,
+        )
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "code",
     [

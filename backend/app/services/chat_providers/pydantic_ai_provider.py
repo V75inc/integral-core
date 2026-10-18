@@ -342,14 +342,26 @@ async def _emit_unreported_model_observations(
 
 
 async def _resume_history(
-    scope, session, store, *, recovery_message=None, previous_run=None
+    scope,
+    session,
+    store,
+    *,
+    recovery_message=None,
+    previous_run=None,
+    thread=None,
+    current_message_id=None,
+    allow_fresh_turn=False,
+    recovery_state=None,
 ):
     """Restore a committed checkpoint or rebuild one interrupted text turn.
 
     Library snapshots retain settled tool results, including failed runs. Core
     checks physical requests and effect receipts independently. A cancelled
     or failed run may retain unknown model billing without replaying its request.
-    Unknown effects remain blocked; continuation never dispatches the old run.
+    Old tool calls are never replayed. If a terminal run cannot be reconciled,
+    a new user-authored turn can continue from public dialogue only; the old
+    tool history is dropped and the new turn still passes through current Core
+    authorization and approval checks. A live, unfenced run remains blocked.
     """
     if not session.last_run_id:
         return []
@@ -373,6 +385,33 @@ async def _resume_history(
         _terminal_run_matches(scope, previous_run)
         and previous_run.run_id == session.last_run_id
     )
+
+    async def fresh_turn_history():
+        if not allow_fresh_turn or thread is None:
+            return None
+        from app.agentive.harness.adaptive import (
+            public_dialogue,
+            recent_public_messages,
+        )
+
+        dialogue = public_dialogue(
+            await recent_public_messages(thread), exclude_id=current_message_id
+        )
+        dialogue.append(
+            build_integral_host_turn(
+                "A previous assistant run ended without a verified outcome. "
+                "This is a new user-authored turn. Do not replay prior tool calls "
+                "or treat prior assistant claims as verified. Handle only the "
+                "latest user request, check current workspace state before any "
+                "change that could duplicate earlier work, and leave any existing "
+                "approval for the user to resolve through the normal approval flow.",
+                run_id=scope.run_id,
+            )
+        )
+        if recovery_state is not None:
+            recovery_state["public_dialogue_restored"] = True
+        return dialogue
+
     if unsettled_requests and not terminal_run:
         raise ResourceConflictError(
             message="The prior Harness run has an unsettled model request",
@@ -475,6 +514,9 @@ async def _resume_history(
         )
         if history is not None:
             return history
+        fresh = await fresh_turn_history() if terminal_run else None
+        if fresh is not None:
+            return fresh
         raise ResourceConflictError(
             message="The prior Harness run has an unresolved tool effect",
             details={"reason": "harness_tool_effect_unresolved"},
@@ -500,6 +542,9 @@ async def _resume_history(
         )
         if history is not None:
             return history
+        fresh = await fresh_turn_history() if terminal_run else None
+        if fresh is not None:
+            return fresh
         raise ResourceConflictError(
             message="The terminal Harness run needs effect reconciliation",
             details={"reason": "harness_recovery_reconciliation_required"},
@@ -540,11 +585,17 @@ async def _resume_history(
             )
             if history is not None:
                 return history
+        fresh = await fresh_turn_history() if terminal_run else None
+        if fresh is not None:
+            return fresh
         raise ResourceConflictError(
             message="The prior Harness run needs outcome reconciliation",
             details={"reason": "harness_recovery_reconciliation_required"},
         )
     if recovery_message is None:
+        fresh = await fresh_turn_history() if terminal_run else None
+        if fresh is not None:
+            return fresh
         raise ResourceConflictError(
             message="The interrupted user turn cannot be reconstructed safely",
             details={"reason": "harness_recovery_message_unavailable"},
@@ -1970,12 +2021,21 @@ class PydanticAIProvider:
                     recovery_message = await _load_recovery_user_message(
                         previous_run, scope
                     )
+            current_message_id = (getattr(core_run, "metadata", {}) or {}).get(
+                "chat_message_id"
+            )
             history = await _resume_history(
                 scope,
                 session,
                 store,
                 recovery_message=recovery_message,
                 previous_run=previous_run,
+                thread=thread,
+                current_message_id=current_message_id,
+                allow_fresh_turn=bool(current_message_id and ctx.text.strip())
+                and (ctx.extra_data or {}).get("origin")
+                in (None, "", "interactive_chat"),
+                recovery_state=run_state,
             )
             history = await _refresh_staged_history(
                 history, scope, conversation_id=ctx.thread_id
@@ -1992,9 +2052,11 @@ class PydanticAIProvider:
             if history and session.last_run_id and previous_run is None:
                 previous_run = await AgentRun.find_one({"run_id": session.last_run_id})
                 cutoff = str(getattr(previous_run, "finished_at", "") or "")
-            if (cutoff or not history) and (
-                getattr(core_run, "metadata", {}) or {}
-            ).get("chat_message_id"):
+            if (
+                not run_state.get("public_dialogue_restored")
+                and (cutoff or not history)
+                and (getattr(core_run, "metadata", {}) or {}).get("chat_message_id")
+            ):
                 public = await recent_public_messages(thread)
                 newer = [
                     m for m in public if not cutoff or (m.created_at or "") > cutoff
