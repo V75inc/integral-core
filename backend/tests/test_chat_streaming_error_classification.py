@@ -15,7 +15,8 @@ def test_unsettled_harness_run_explains_safe_recovery() -> None:
     code, message = classify_turn_exception(exc)
 
     assert code == "harness_reconciliation_required"
-    assert "needs review" in message
+    assert "Send a new message" in message
+    assert "Start a new conversation" not in message
     assert "not replayed" in message
 
 
