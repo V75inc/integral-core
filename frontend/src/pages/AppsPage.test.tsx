@@ -215,4 +215,31 @@ describe('AppsPage creation rights gating', () => {
       expect(screen.getByText('Second Created App')).toBeInTheDocument();
     });
   });
+  it('retains current app rows and their count while a refresh is pending or fails', async () => {
+    const { appsApi } = await import('../api');
+    const current = { id: 'app-visible', name: 'Current App', workspace_id: 'ws-org' };
+    vi.mocked(appsApi.list).mockResolvedValueOnce([current]);
+    mockUseWorkspaceCreationRights.mockReturnValue({ canCreateApps: true });
+    renderPage();
+    expect(await screen.findByText('Current App')).toBeInTheDocument();
+    let rejectRefresh!: (error: Error) => void;
+    vi.mocked(appsApi.list).mockImplementationOnce(() => new Promise((_, reject) => { rejectRefresh = reject; }));
+    act(() => window.dispatchEvent(new CustomEvent(CHANGE_EVENT_APPLIED, { detail: { action: 'app.update' } })));
+    expect(screen.getByText('Current App')).toBeInTheDocument();
+    expect(screen.queryByText('No apps yet')).toBeNull();
+    await act(async () => rejectRefresh(new Error('offline')));
+    expect(await screen.findByText('Failed to load apps')).toBeInTheDocument();
+    expect(screen.getByText('Current App')).toBeInTheDocument();
+  });
+
+  it('does not publish a zero count before the initial request settles', async () => {
+    const { appsApi } = await import('../api');
+    vi.mocked(appsApi.list).mockImplementationOnce(() => new Promise(() => {}));
+    mockUseWorkspaceCreationRights.mockReturnValue({ canCreateApps: true });
+    renderPage();
+    expect(screen.getByText(/Loading apps/)).toBeInTheDocument();
+    expect(screen.queryByText(/0 apps in/)).toBeNull();
+    expect(screen.queryByText('No apps yet')).toBeNull();
+  });
+
 });

@@ -130,4 +130,16 @@ describe('ActionBarWidget — refresh-nonce notification', () => {
       expect(mockShowToast).toHaveBeenCalledWith('Go complete', 'success');
     });
   });
+  it('shows a domain result summary and refreshes partially successful batches', async () => {
+    mockToolsCall.mockResolvedValueOnce({ output: { ok: true, summary: '20 records: 19 created, 1 unchanged' } });
+    const onActionComplete = vi.fn();
+    render(<ActionBarWidget view={view([{ key: 'go', label: 'Go', tool: 'some_tool' }], { onActionComplete })} entries={[]} isLoading={false} onEntryOpen={noop} />);
+    fireEvent.click(screen.getByText('Go'));
+    await waitFor(() => expect(mockShowToast).toHaveBeenCalledWith('20 records: 19 created, 1 unchanged', 'success'));
+    mockToolsCall.mockResolvedValueOnce({ output: { ok: false, reason: '1 record failed', object_refs: [{ kind: 'entry', id: 'own-record' }] } });
+    fireEvent.click(screen.getByText('Go'));
+    await waitFor(() => expect(onActionComplete).toHaveBeenCalledTimes(2));
+    expect(mockShowToast).toHaveBeenLastCalledWith('Go: 1 record failed', 'error');
+  });
+
 });

@@ -11,8 +11,9 @@ vi.mock('../../../api/modelCredentials', async importOriginal => ({
 vi.mock('../hooks/useAgentiveCapability', () => ({
   useAgentiveCapability: () => ({ agentKeyMode: 'hybrid' }),
 }));
+const showToast = vi.hoisted(() => vi.fn());
 vi.mock('../../../context/ToastContext', () => ({
-  useToast: () => ({ showToast: vi.fn() }),
+  useToast: () => ({ showToast }),
 }));
 
 function showSettings() {
@@ -97,4 +98,15 @@ describe('custom endpoint credential boundaries', () => {
     fireEvent.change(screen.getByLabelText('Chat model provider'), { target: { value: 'openai' } });
     expect(document.querySelector('input[type="password"]')).toHaveValue('');
   });
+});
+
+
+it('explains a provider rejection instead of showing only HTTP 400', async () => {
+  vi.mocked(modelCredentialsApi.get).mockResolvedValue(null);
+  vi.mocked(modelCredentialsApi.upsert).mockRejectedValue({ message: 'Request failed with status code 400', response: { data: { message: 'invalid API key' } } });
+  showSettings();
+  await screen.findByRole('button', { name: 'Save' });
+  fireEvent.change(document.querySelector('input[type="password"]')!, { target: { value: 'synthetic-invalid-key' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() => expect(showToast).toHaveBeenCalledWith('invalid API key', 'error'));
 });

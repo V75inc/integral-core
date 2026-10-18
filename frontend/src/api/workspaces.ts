@@ -148,7 +148,8 @@ export const workspacesApi = {
   list: async (): Promise<Workspace[]> => {
     const { data } = await apiClient.get('/workspaces');
     const items = (data as { workspaces?: Workspace[] })?.workspaces;
-    return Array.isArray(items) ? items : [];
+    if (!Array.isArray(items)) throw new Error('Invalid workspace list response');
+    return items;
   },
   get: async (id: string): Promise<Workspace> => {
     const { data } = await apiClient.get(`/workspaces/${id}`);

@@ -52,7 +52,8 @@ import type { ActivityEvent } from '../utils/changeEvent';
 
 export function AppsPage() {
   useSetCrumbs([{ label: 'Apps' }]);
-  const { activeWorkspace } = useScope();
+  const { activeWorkspace, scope, workspaces = [] } = useScope();
+  const workspaceId = scope?.workspaceId ?? activeWorkspace?.id;
   const { showToast } = useToast();
   const { canCreateApps, lacksAppCreationInOrg } = useWorkspaceCreationRights();
   const scopeLabel = activeWorkspace?.name?.trim() || 'Workspace';
@@ -66,15 +67,16 @@ export function AppsPage() {
     (activeWorkspace?.your_role === 'owner' ||
       activeWorkspace?.your_role === 'admin');
   const [apps, setApps] = useState<App[]>([]);
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   usePublishPageContext({
     pageKind: 'apps_list',
     metadata: {
       workspace_name: activeWorkspace?.name,
-      app_count: apps.length,
+      app_count: hasLoaded ? apps.length : undefined,
+      loading: !hasLoaded,
       // `visibleData` models entries and tracks only, so the app names ride
       // in metadata rather than being dropped.
       app_names: apps.map((a) => a.name).filter(Boolean).slice(0, 25),
@@ -86,14 +88,16 @@ export function AppsPage() {
   // Optimistic create can race an in-flight/change-event list that still
   // omits the new App. Keep the server-acked row until a list includes it.
   const pendingCreatedRef = useRef(new Map<string, App>());
-  const workspaceRef = useRef(activeWorkspace?.id);
+  const workspaceRef = useRef(workspaceId);
   const loadSequence = useRef(0);
 
   useLayoutEffect(() => {
-    workspaceRef.current = activeWorkspace?.id;
+    workspaceRef.current = workspaceId;
     pendingCreatedRef.current.clear();
     setApps([]);
-  }, [activeWorkspace?.id]);
+    setHasLoaded(false);
+    setLoading(true);
+  }, [workspaceId]);
 
   const load = useCallback(async () => {
     const workspaceId = workspaceRef.current;
@@ -101,28 +105,25 @@ export function AppsPage() {
     setLoading(true);
     setError(null);
     try {
-      // Fetch independently so a workspace-list failure doesn't blank the apps list.
-      const [appsRes, wsRes] = await Promise.allSettled([
-        appsApi.list(),
-        workspacesApi.list(),
-      ]);
+      // The shared ScopeProvider already owns workspace discovery. Do not
+      // block this list on a duplicate workspace request.
+      const nextApps = await appsApi.list();
       if (workspaceRef.current !== workspaceId || loadSequence.current !== sequence) return;
-      if (appsRes.status === 'fulfilled') {
-        let next = appsRes.value;
-        for (const pending of pendingCreatedRef.current.values()) {
-          if (next.some(a => a.id === pending.id)) {
-            pendingCreatedRef.current.delete(pending.id);
-          } else {
-            next = [pending, ...next];
-          }
+      let next = nextApps;
+      for (const pending of pendingCreatedRef.current.values()) {
+        if (next.some(a => a.id === pending.id)) {
+          pendingCreatedRef.current.delete(pending.id);
+        } else {
+          next = [pending, ...next];
         }
-        setApps(next);
-      } else {
-        const e = appsRes.reason as { response?: { data?: { detail?: string } } };
-        setError(String(e?.response?.data?.detail || 'Failed to load apps'));
-        setApps([]);
       }
-      setWorkspaces(wsRes.status === 'fulfilled' ? wsRes.value : []);
+      setApps(next);
+      setHasLoaded(true);
+    } catch (err) {
+      if (workspaceRef.current !== workspaceId || loadSequence.current !== sequence) return;
+      const e = err as { response?: { data?: { detail?: string } } };
+      setError(String(e?.response?.data?.detail || 'Failed to load apps'));
+      // Preserve this workspace's last successful list during a failed refresh.
     } finally {
       if (workspaceRef.current === workspaceId && loadSequence.current === sequence) {
         setLoading(false);
@@ -135,7 +136,7 @@ export function AppsPage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeWorkspace?.id]);
+  }, [workspaceId]);
 
   // Agent writes are published as governed ChangeEvents. This page keeps its
   // list in local state, so React Query invalidation alone cannot refresh a
@@ -171,8 +172,7 @@ export function AppsPage() {
             <PageHeading>Apps</PageHeading>
             <PageMeta>
               <span>
-                {apps.length}{' '}
-                {apps.length === 1 ? 'app' : 'apps'} in {scopeLabel}
+                {hasLoaded ? `${apps.length} ${apps.length === 1 ? 'app' : 'apps'}` : 'Loading apps…'} in {scopeLabel}
               </span>
               <span aria-hidden>·</span>
               <span>Keep related work together in one app.</span>
@@ -221,13 +221,13 @@ export function AppsPage() {
           </div>
         )}
 
-        {loading ? (
+        {loading && !hasLoaded ? (
           <div className="space-y-1">
             {[1, 2, 3].map(i => (
               <Skeleton key={i} className="h-14" />
             ))}
           </div>
-        ) : filteredApps.length === 0 ? (
+        ) : !hasLoaded ? null : filteredApps.length === 0 ? (
           apps.length === 0 ? (
             <EmptyState
               surface="card"
