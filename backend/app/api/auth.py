@@ -358,6 +358,9 @@ async def register_user(request: Request) -> Dict[str, Any]:
     node / Personal Workspace / verification OTP / per-user context App, then
     immediately logs the user in and returns a JWT token.
     """
+    from app.runtime.composition import require_capability
+
+    require_capability("identity_admission")
     try:
         body = ExtendedUserCreate(**(await request.json()))
     except ValidationError as e:
@@ -894,3 +897,11 @@ def _reset_error_message(error_code: Optional[str]) -> str:
         ),
         ERR_USER_INACTIVE: "This account is inactive. Contact support.",
     }.get(error_code or "", "Unable to reset password. Please try again.")
+
+
+@endpoint("/auth/local-session", methods=["POST"], auth=False, tags=["Auth"])
+async def local_owner_session(request: Request) -> Dict[str, Any]:
+    """Establish a session only for the native installation controller."""
+    from app.runtime.identity import identity_adapter
+
+    return await identity_adapter().controller_session(request)

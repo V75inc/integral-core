@@ -1,3 +1,5 @@
+import { useDeployment } from './hooks/useDeployment';
+import { HostAccessPage } from './host/access';
 import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
@@ -267,6 +269,7 @@ export default function App() {
   // route that threw clears the panel instead of leaving it pinned across the
   // whole app. Found in smoke testing — see AppErrorBoundary.componentDidUpdate.
   const { pathname } = useLocation();
+  const { singleUser } = useDeployment();
   return (
     <AgentiveProvider>
     <SystemNotificationsProvider>
@@ -286,13 +289,13 @@ export default function App() {
     <AppErrorBoundary scope="routes" resetKey={pathname}>
     <Suspense fallback={<PageFallback />}>
     <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/signup" element={<SignupPage />} />
-      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/login" element={singleUser ? <HostAccessPage /> : <LoginPage />} />
+      <Route path="/signup" element={singleUser ? <HostAccessPage /> : <SignupPage />} />
+      <Route path="/forgot-password" element={singleUser ? <HostAccessPage /> : <ForgotPasswordPage />} />
       <Route path="/credentials-delivery-verify" element={<CredentialsDeliveryPage />} />
       <Route path="/credentials-delivery-verify.html" element={<CredentialsDeliveryPage />} />
-      <Route path="/reset-password" element={<ResetPasswordPage />} />
-      <Route path="/verify-email" element={<VerifyEmailPage />} />
+      <Route path="/reset-password" element={singleUser ? <HostAccessPage /> : <ResetPasswordPage />} />
+      <Route path="/verify-email" element={singleUser ? <HostAccessPage /> : <VerifyEmailPage />} />
       <Route
         path="/invitations/received/:invitationId"
         element={

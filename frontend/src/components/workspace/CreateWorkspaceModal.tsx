@@ -1,3 +1,4 @@
+import { useDeployment } from '../../hooks/useDeployment';
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Check, Package, Plus } from 'lucide-react';
@@ -109,6 +110,7 @@ export function CreateWorkspaceModal({
   onClose,
   onCreated,
 }: CreateWorkspaceModalProps) {
+  const { singleUser } = useDeployment();
   const { showToast } = useToast();
   const qc = useQueryClient();
   const [step, setStep] = useState<1 | 2>(1);
@@ -222,7 +224,7 @@ export function CreateWorkspaceModal({
       const created = await createMut.mutateAsync({
         name: name.trim(),
         description: desc.trim() || undefined,
-        workspace_type: workspaceType,
+        workspace_type: singleUser ? 'personal' : workspaceType,
         ...(resolvedAccent ? { accent_color: resolvedAccent } : {}),
         ...(avatarUrl.trim() ? { avatar_url: avatarUrl.trim() } : {}),
         ...(selectedIds.length
@@ -329,8 +331,8 @@ export function CreateWorkspaceModal({
                 Workspace type
               </span>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {SUGGESTED_WORKSPACE_TYPES.map(opt => {
-                  const checked = workspaceType === opt.value;
+                {SUGGESTED_WORKSPACE_TYPES.filter(opt => !singleUser || opt.value === 'personal').map(opt => {
+                  const checked = singleUser ? opt.value === 'personal' : workspaceType === opt.value;
                   const isDisabled = !!opt.disabled;
                   return (
                     <label

@@ -16,7 +16,7 @@
 import { Link } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { INTEGRAL_LOGO_HALF_PATH } from '../../brandLogo';
-import { PRODUCT_NAME } from '../../brand';
+import { PRODUCT_EDITION, PRODUCT_NAME, PRODUCT_WORDMARK } from '../../brand';
 
 type LogoSize = 'xs' | 'sm' | 'md' | 'lg';
 
@@ -82,7 +82,13 @@ export function Logo({
           <span
             className={`${t.word} font-semibold tracking-[-0.02em] text-[var(--text)] truncate`}
           >
-            {PRODUCT_NAME}
+            {PRODUCT_WORDMARK}
+            {PRODUCT_EDITION ? (
+              <span className="font-normal text-[var(--text-muted)] whitespace-nowrap">
+                <span aria-hidden="true" className="mx-2 opacity-50">|</span>
+                <span className="tracking-normal">{PRODUCT_EDITION}</span>
+              </span>
+            ) : null}
           </span>
         ))}
     </>

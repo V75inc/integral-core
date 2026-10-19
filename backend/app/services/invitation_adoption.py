@@ -152,6 +152,9 @@ async def adopt_invitation(
     can_create_tracks: bool,
 ) -> tuple[Invitation, str, str]:
     """Adopt reviewed pending intent with new owner provenance and a fresh token."""
+    from app.runtime.composition import require_capability
+
+    require_capability("collaboration")
     from app.services.invitation_authority import require_resource_invitation_authority
     from app.services.invitations import (
         _build_acceptance_url,

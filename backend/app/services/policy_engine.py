@@ -871,6 +871,29 @@ async def evaluate(
         ``payload=None``; mutation handlers MUST pass the request body so a
         re-run on approve replays the agent's original intent.
     """
+    from app.runtime.composition import admits_human, runtime
+
+    if (
+        subject.kind == "human"
+        and not admits_human(subject.id)
+        and action != "policy.deny"
+    ):
+        return await _observe_decision(
+            subject=subject,
+            action=action,
+            resource=resource,
+            decision=Decision(allowed=False, reason="desktop_owner_required"),
+            _dry_run=_dry_run,
+        )
+    if not runtime().supports_action(action):
+        return await _observe_decision(
+            subject=subject,
+            action=action,
+            resource=resource,
+            decision=Decision(allowed=False, reason="deployment_profile_denied"),
+            _dry_run=_dry_run,
+        )
+
     # Recursion guard (D-10) — the denial-emit path in Plan 05 sets _internal_actor.
     if (
         _internal_actor is not None
@@ -1117,6 +1140,24 @@ async def evaluate(
                     policy_chain=policy_chain,
                 )
 
+    return await _observe_decision(
+        subject=subject,
+        action=action,
+        resource=resource,
+        decision=decision,
+        _dry_run=_dry_run,
+    )
+
+
+async def _observe_decision(
+    *,
+    subject: Subject,
+    action: str,
+    resource: Resource,
+    decision: Decision,
+    _dry_run: bool,
+) -> Decision:
+    """Retain the same audit path for deployment and ordinary policy denials."""
     # POL-04 observability: every denial is structurally logged + audit-emitted
     # via the single emission helper (Phase 2 D-05 path). Allow decisions do
     # NOT emit (CONTEXT D-15 T-04 disposition — denial-only audit at v1 to

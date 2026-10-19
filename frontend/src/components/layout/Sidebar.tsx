@@ -1,3 +1,4 @@
+import { useDeployment } from '../../hooks/useDeployment';
 import { AppIcon } from '../../ui';
 /**
  * Sidebar — application chrome left rail.
@@ -832,7 +833,8 @@ export function Sidebar({
 }: SidebarProps) {
   const railCollapsed = isDesktop && collapsed;
   const { user, logout } = useAuth();
-  const isAdmin = usePlatformAdmin();
+  const { singleUser } = useDeployment();
+  const isAdmin = usePlatformAdmin() && !singleUser;
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -840,8 +842,8 @@ export function Sidebar({
     if (!isDesktop) onMobileOpenChange(false);
   };
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     navigate('/login');
   };
 

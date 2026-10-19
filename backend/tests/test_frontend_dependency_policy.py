@@ -273,3 +273,63 @@ def test_ci_no_automatic_fix_variant_retains_all_other_review_limits(change):
         line.startswith("ACTIONABLE")
         for line in policy.analyze(fixture["audit"], fixture["lock"], today=today)
     )
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "unchanged",
+        "runtime_node",
+        "version",
+        "critical",
+        "new_advisory",
+        "direct_patch",
+        "expired",
+    ],
+)
+def test_reviewed_animation_peer_chain_keeps_all_boundaries(change):
+    import json
+
+    fixture = json.loads(
+        (Path(__file__).parent / "fixtures/frontend-audit-ci-20261015.json").read_text()
+    )
+    name = "tailwindcss-animate"
+    item = {
+        "severity": "high",
+        "fixAvailable": False,
+        "nodes": ["node_modules/" + name],
+        "via": ["tailwindcss"],
+    }
+    row = {"version": "1.0.7", "dev": True}
+    fixture["audit"]["vulnerabilities"][name] = item
+    fixture["lock"]["packages"]["node_modules/" + name] = row
+    today = date(2026, 10, 18)
+    if change == "runtime_node":
+        row["dev"] = False
+    elif change == "version":
+        row["version"] = "1.0.8"
+    elif change == "critical":
+        item["severity"] = "critical"
+    elif change == "new_advisory":
+        item["via"] = [
+            {
+                "name": name,
+                "severity": "high",
+                "range": "*",
+                "url": "https://github.com/advisories/GHSA-unknown",
+            }
+        ]
+    elif change == "direct_patch":
+        item["fixAvailable"] = {
+            "name": name,
+            "version": "1.0.8",
+            "isSemVerMajor": False,
+        }
+    elif change == "expired":
+        today = policy.REVIEW_EXPIRES
+    line = next(
+        line
+        for line in policy.analyze(fixture["audit"], fixture["lock"], today=today)
+        if name in line
+    )
+    assert line.startswith("ACCEPTED") is (change == "unchanged")

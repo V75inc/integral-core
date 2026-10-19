@@ -142,6 +142,9 @@ async def provision_workspace_member(
     actor_id: str,
 ) -> Dict[str, Any]:
     """Provision through current canonical membership admission and audit."""
+    from app.runtime.composition import require_capability
+
+    require_capability("collaboration")
     try:
         body = ProvisionWorkspaceMemberRequest.model_validate(
             {

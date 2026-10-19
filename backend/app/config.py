@@ -183,6 +183,15 @@ class Settings(BaseSettings):
     )
     REGISTRATION_OPEN: bool = True
 
+    # Selected by the local runtime from its private installation record.
+    # This deployment profile is independent of package and license state.
+    INTEGRAL_DEPLOYMENT_PROFILE: Literal["server", "desktop_single_user"] = "server"
+    # Neutral startup presets. Existing installations keep their profile value.
+    INTEGRAL_RUNTIME_PRESET: Optional[Literal["local", "hosted"]] = None
+    INTEGRAL_DESKTOP_INSTALLATION_ID: str = ""
+    INTEGRAL_DESKTOP_CONTROL_TOKEN: str = Field(default="", repr=False, exclude=True)
+    INTEGRAL_DESKTOP_WEB_ORIGIN: str = ""
+
     ADMIN_EMAIL: Optional[str] = None
     ADMIN_PASSWORD: Optional[str] = None
     ADMIN_NAME: str = "Admin"

@@ -924,3 +924,43 @@ Run relevant invariant and behavior tests, the staged guards, and the broad loca
 ### Track visibility choices (2026-10-17 policy revision)
 
 Apps and Tracks default to Private. New Track visibility writes permit only `private`, `workspace`, and `public`; `inherit` is a legacy read value, never a new explicit choice. Unrelated edits must preserve legacy visibility unless an owner deliberately chooses a replacement. Empty visibility updates resolve to Private. This retires the visibility selector mode without changing I-ROLE-02 collaborator propagation or exclusions. See `docs/product/ARCHITECTURE.md` for conversion policy.
+
+### I-DESKTOP-01 — Installation-bound single human owner
+
+The `desktop_single_user` deployment profile comes from the private installation
+record and trusted managed startup. It is independent of package discovery,
+App entitlements and licensing. Desktop requires one authenticated API worker,
+loopback listeners, and a native controller secret. Ordinary signup, password
+login and additional human provisioning cannot claim or expand this identity.
+Startup atomically creates the AuthUser, rooted User, private workspace and
+installation marker on PostgreSQL, and refuses incompatible existing stores.
+
+Only the native main process can request owner sessions. A sandboxed preload
+exposes one session operation to the exact main frame at the current local
+origin; no controller secret enters renderer state, query strings or logs.
+Issued sessions use ordinary signed, revocable Core access and refresh tokens.
+Cross-origin/host requests and public-share routes are closed at both managed
+listeners. Collaboration grants, invitations, public links and ownership
+transfers are denied by canonical policy before human/agent/system bypasses and
+at service mutation boundaries, including worker and MCP invocation paths.
+
+Core extensions retain the published package, policy, entitlement, approval and
+ToolContext contracts. A package cannot choose a deployment profile or acquire
+collaboration authority. Arbitrary trusted Python is privileged code; this
+profile does not turn it into a sandbox or license proprietary Apps.
+
+Gates: `test_desktop_profile.py`, `test_desktop_identity_postgres.py`, native
+session IPC tests, and a clean native install/App/record/restart walkthrough.
+Preserve I-GRAPH-01/02, I-ROLE-01/02 and existing server authority semantics.
+
+
+### I-RUNTIME-01 — Runtime limits precede authorization grants
+
+Trusted startup selects one validated local or hosted composition. Every declared
+policy action has explicit operation metadata. Runtime limits apply before human,
+agent, connector or system authorization grants; unknown operations fail closed.
+They cannot grant workspace or resource authority. Keep command-boundary guards
+for direct calls, jobs and tools. Product signup and receipts are host concerns.
+I-DESKTOP-01's existing identity, storage, recovery and local transport guarantees
+remain binding through the neutral local preset and legacy profile compatibility.
+See [runtime composition](platform/runtime-composition-v1.md).

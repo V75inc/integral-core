@@ -1,3 +1,4 @@
+import { useDeployment } from '../hooks/useDeployment';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
@@ -38,6 +39,7 @@ import { Text } from '../ui';
 import { usePublishPageContext } from '../hooks/usePublishPageContext';
 
 export function WorkspaceDetailPage() {
+  const { collaboration } = useDeployment();
   const { workspaceId } = useParams<{ workspaceId: string }>();
   const { user } = useAuth();
   const { scope, setScope, workspaces: scopeWorkspaces } = useScope();
@@ -320,7 +322,7 @@ export function WorkspaceDetailPage() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2 shrink-0">
-          {!isPersonal ? (
+          {!isPersonal && collaboration ? (
             <Link to={`/workspaces/${workspace.id}/members`}>
               <Button
                 variant="outline"

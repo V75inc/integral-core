@@ -1055,6 +1055,21 @@
   .auth-page {
     --auth-accent: var(--brand-accent);
   }
+  .auth-page--compact {
+    min-height: 100dvh; display: grid; place-items: center;
+    padding: 48px 24px; background: var(--section-bg);
+  }
+  .auth-compact-content { width: 100%; max-width: 384px; }
+  .auth-compact-brand { display: flex; justify-content: center; margin-bottom: 36px; }
+  .auth-compact-heading { text-align: center; margin-bottom: 28px; }
+  .auth-compact-heading > * + * { margin-top: 8px; }
+  .auth-compact-actions { display: flex; flex-direction: column; gap: 12px; }
+  .auth-compact-actions > button { min-height: 44px; }
+  .auth-compact-privacy { text-align: center; margin-top: 28px; }
+  .auth-compact-help { margin-top: 24px; padding-top: 8px; border-top: 1px solid var(--panel-border); }
+  .auth-compact-help summary { cursor: pointer; padding: 12px 0; }
+  .auth-compact-help summary:focus-visible { outline: 2px solid var(--focus-ring-color); outline-offset: 4px; }
+  .auth-compact-help p { margin-top: 4px; }
   .auth-panel-heading {
     display: flex;
     align-items: center;

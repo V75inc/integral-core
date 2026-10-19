@@ -87,6 +87,9 @@ async def _link(token: str) -> dict:
 @asynccontextmanager
 async def public_entry_write_scope(token: str, permission: str):
     """Admit the current issuer and current bearer facts before any effect."""
+    from app.runtime.composition import require_capability
+
+    require_capability("public_sharing")
     from app.api.errors import InsufficientPermissionsError
     from app.schemas.policy import Resource, Subject
     from app.services.policy_engine import evaluate

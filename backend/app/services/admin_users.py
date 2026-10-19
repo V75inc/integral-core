@@ -313,6 +313,9 @@ async def update_admin_user(
 
 async def create_admin_user(body: AdminUserCreate) -> AdminUserDetail:
     """Create AuthUser + graph User + personal workspace."""
+    from app.runtime.composition import require_capability
+
+    require_capability("collaboration")
     from app.api.auth import _get_auth_service
     from app.api.errors import BadRequestError
     from app.services.app_graph import catalog_user

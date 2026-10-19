@@ -86,6 +86,12 @@ def _effective_worker_count() -> int:
     return max(settings.WORKERS, web_concurrency, 1)
 
 
+# Validate the trusted transport adapter before constructing any listener.
+if not _running_under_pytest():
+    from app.runtime.transport import validate_process
+
+    validate_process(_effective_worker_count())
+
 if not _running_under_pytest() and _effective_worker_count() > 1:
     _n = _effective_worker_count()
     print(
@@ -638,6 +644,7 @@ async def _ensure_model_indexes() -> None:
 
 async def _startup() -> None:
     """Configure logging and optional DB logging at server startup."""
+    app.state.desktop_ready = False
     # Database-only recovery does not boot this module. Every API boot checks
     # the independently supplied managed restore marker before starting tasks.
     marker_path = os.environ.get("INTEGRAL_RECOVERY_MARKER")
@@ -689,14 +696,15 @@ async def _startup() -> None:
     # operators can fall back to manual provisioning per DEPLOY.md.
     await _ensure_atlas_search_index()
 
-    from app.bootstrap_admin import bootstrap_admin_if_needed
     from app.services.app_graph import ensure_integral_app_graph
 
     await ensure_integral_app_graph()
     from app.agentive.staging import restore_open_batches
 
     await restore_open_batches()
-    await bootstrap_admin_if_needed()
+    from app.runtime.identity import identity_adapter
+
+    await identity_adapter().bootstrap()
 
     await _bootstrap_resident_harness()
 
@@ -728,6 +736,7 @@ async def _startup() -> None:
         from app.services.change_event_logger import get_change_event_logger
 
         await get_change_event_logger().ensure_indexes()
+        await identity_adapter().audit_ready()
 
     # I-PERF-IDX: materialize jvspatial-default + per-class indexes for
     # every Integral Node/Edge model registered at boot. Class-level
@@ -964,6 +973,8 @@ async def _startup() -> None:
         std_logging.getLogger("app.agentive.services.work_lifecycle").warning(
             "work_kernel: startup skipped in DEBUG: %s", _exc
         )
+
+    app.state.desktop_ready = True
 
 
 async def _unify_request_validation_error(
@@ -1481,6 +1492,9 @@ from app.services.host_hooks import mount_host_middleware
 
 mount_host_middleware(app)
 app.add_middleware(RateLimitMiddleware)
+from app.runtime.transport import LocalTransport
+
+app.add_middleware(LocalTransport)
 
 # ---------------------------------------------------------------------------
 # MCP Streamable-HTTP transport (M2b Task 3)

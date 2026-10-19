@@ -204,6 +204,9 @@ async def mint_share_link(
     max_redemptions: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Owner or admin. Return ``{share_link, token}`` — token shown only once."""
+    from app.runtime.composition import require_capability
+
+    require_capability("collaboration")
     from app.api.errors import (
         BadRequestError,
         InsufficientPermissionsError,
@@ -307,6 +310,9 @@ async def revoke_share_link(actor_user_id: str, share_link_id: str) -> Dict[str,
 
 async def redeem_share_link(actor_user_id: str, plaintext_token: str) -> Dict[str, Any]:
     """Redeem through the canonical atomic source-lifetime service."""
+    from app.runtime.composition import require_capability
+
+    require_capability("collaboration")
     from app.services.share_link_lifecycle import redeem_source_link
 
     return await redeem_source_link(actor_user_id, plaintext_token)

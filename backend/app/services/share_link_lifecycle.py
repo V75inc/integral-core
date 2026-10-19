@@ -123,6 +123,9 @@ async def _event(
 
 async def redeem_source_link(actor_user_id: str, plaintext_token: str) -> dict:
     """Each recipient/link lifetime consumes capacity once; old sources cannot revive."""
+    from app.runtime.composition import require_capability
+
+    require_capability("collaboration")
     from app.services.share_links import _hash_token, _reserve_redemption
     from app.services.sharing import ensure_guest_membership
 

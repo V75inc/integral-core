@@ -1,3 +1,4 @@
+import { useDeployment } from '../hooks/useDeployment';
 import type { EntryCreateInput } from '../views/types';
 import { TrackTagFilters, entriesMatchingTags } from '../components/tracks/TrackTagFilters';
 /* patch:kanban-hire-intercept */
@@ -110,6 +111,7 @@ import { Text } from '../ui';
 import { isViewDesignerEnabled, ViewDesignerShell } from '../features/view-designer';
 
 export function TrackDetailPage() {
+  const { collaboration } = useDeployment();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -383,7 +385,7 @@ export function TrackDetailPage() {
     trackDetailQuery.data?.caller_role || ''
   ).toLowerCase();
   const canFetchPublicShare =
-    publicShareCallerRole === 'owner' || publicShareCallerRole === 'admin';
+    collaboration && (publicShareCallerRole === 'owner' || publicShareCallerRole === 'admin');
 
   const publicShareQuery = useQuery({
     queryKey: ['track', id, 'public-share-settings'],
@@ -1758,8 +1760,8 @@ export function TrackDetailPage() {
         publicShareEnabled={Boolean(publicShareQuery.data?.enabled)}
         trackWatchers={trackWatchersQuery.data}
         onToggleTrackWatch={handleToggleTrackWatch}
-        canViewCollaborators={canViewCollaborators}
-        canManageCollaborators={canManageCollaborators}
+        canViewCollaborators={collaboration && canViewCollaborators}
+        canManageCollaborators={collaboration && canManageCollaborators}
         collaboratorCount={
           track.collaborator_effective_total ?? collaboratorList.length
         }
@@ -1951,7 +1953,7 @@ export function TrackDetailPage() {
         trackId={id}
         open={collaboratorsModalOpen}
         onClose={() => setCollaboratorsModalOpen(false)}
-        canManageCollaborators={canManageCollaborators}
+        canManageCollaborators={collaboration && canManageCollaborators}
         canManageCollabRows={canManageCollabRows}
         isOwner={isOwner}
         currentUser={user}

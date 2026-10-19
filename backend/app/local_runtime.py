@@ -31,8 +31,11 @@ from typing import Any
 import psutil
 from filelock import FileLock, Timeout
 
+from app.local_permissions import private_directory
+
 CONTRACT_VERSION = 1
 PGSERVER_VERSION = "0.1.4"
+DEPLOYMENT_PROFILES = {"server", "desktop_single_user"}
 
 
 class RuntimeErrorDetail(RuntimeError):
@@ -67,10 +70,12 @@ def read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text()) if path.exists() else {}
 
 
-def initialize(home: Path) -> dict[str, Any]:
+def initialize(home: Path, *, profile: str | None = None) -> dict[str, Any]:
     """Create once; reruns preserve keys, identity, and user data."""
+    if profile is not None and profile not in DEPLOYMENT_PROFILES:
+        raise RuntimeErrorDetail("Unsupported deployment profile.")
     home.mkdir(parents=True, exist_ok=True)
-    home.chmod(0o700)
+    private_directory(home)
     path = home / "installation.json"
     with FileLock(str(home / "initialize.lock")):
         try:
@@ -83,6 +88,7 @@ def initialize(home: Path) -> dict[str, Any]:
         if not path.exists():
             config = {
                 "contract_version": CONTRACT_VERSION,
+                "deployment_profile": profile or "server",
                 "installation_id": secrets.token_hex(16),
                 "jwt_key": secrets.token_hex(32),
                 "credential_key": base64.b64encode(secrets.token_bytes(32)).decode(),
@@ -91,50 +97,67 @@ def initialize(home: Path) -> dict[str, Any]:
                 "control_token": secrets.token_hex(32),
             }
             private_json(path, config)
-    if (
-        not isinstance(config, dict)
-        or config.get("contract_version") != CONTRACT_VERSION
-    ):
-        raise RuntimeErrorDetail(
-            "Unsupported installation format; use its matching Core release or "
-            "restore installation.json from this installation's backup."
-        )
-    # Never repair installation secrets by generating replacements: persisted
-    # harness state, provider keys and login sessions depend on this identity.
-    from cryptography.fernet import Fernet
-
-    for key in (
-        "jwt_key",
-        "credential_key",
-        "oauth_key",
-        "database_password",
-        "control_token",
-        "installation_id",
-    ):
-        value = config.get(key)
-        valid = isinstance(value, str) and bool(value.strip())
-        if valid and key in {"jwt_key", "database_password", "control_token"}:
-            valid = len(value) >= 32
-        if valid and key == "credential_key":
-            try:
-                valid = (
-                    len(base64.b64decode(value, altchars=b"-_", validate=True)) == 32
-                )
-            except ValueError:
-                valid = False
-        if valid and key == "oauth_key":
-            try:
-                Fernet(value.encode("ascii"))
-            except ValueError:
-                valid = False
-        if not valid:
+        if (
+            not isinstance(config, dict)
+            or config.get("contract_version") != CONTRACT_VERSION
+        ):
             raise RuntimeErrorDetail(
-                f"Installation {key} is missing or invalid. Existing keys were not changed. "
-                "Restore installation.json from this installation's backup before starting."
+                "Unsupported installation format; use its matching Core release or "
+                "restore installation.json from this installation's backup."
             )
-    for directory in ("files", "logs", "integral-apps"):
-        (home / directory).mkdir(exist_ok=True)
-    return config
+        stored_profile = config.get("deployment_profile", "server")
+        if stored_profile not in DEPLOYMENT_PROFILES:
+            raise RuntimeErrorDetail("Installation deployment profile is invalid.")
+        if profile is not None and stored_profile != profile:
+            raise RuntimeErrorDetail(
+                f"This installation uses the {stored_profile} profile. Changing it to "
+                f"{profile} requires an explicit reviewed migration."
+            )
+        profile_metadata_changed = config.get("deployment_profile") != stored_profile
+        config["deployment_profile"] = stored_profile
+        if stored_profile == "desktop_single_user" and not config.get("apps_path"):
+            config["apps_path"] = str(home / "integral-apps")
+            profile_metadata_changed = True
+        # Never repair installation secrets by generating replacements: persisted
+        # harness state, provider keys and login sessions depend on this identity.
+        from cryptography.fernet import Fernet
+
+        for key in (
+            "jwt_key",
+            "credential_key",
+            "oauth_key",
+            "database_password",
+            "control_token",
+            "installation_id",
+        ):
+            value = config.get(key)
+            valid = isinstance(value, str) and bool(value.strip())
+            if valid and key in {"jwt_key", "database_password", "control_token"}:
+                valid = len(value) >= 32
+            if valid and key == "credential_key":
+                try:
+                    valid = (
+                        len(base64.b64decode(value, altchars=b"-_", validate=True))
+                        == 32
+                    )
+                except ValueError:
+                    valid = False
+            if valid and key == "oauth_key":
+                try:
+                    Fernet(value.encode("ascii"))
+                except ValueError:
+                    valid = False
+            if not valid:
+                raise RuntimeErrorDetail(
+                    f"Installation {key} is missing or invalid. Existing keys were not changed. "
+                    "Restore installation.json from this installation's backup before starting."
+                )
+        # Persist only profile metadata defaults after validating every existing key.
+        if profile_metadata_changed:
+            private_json(path, config)
+        for directory in ("files", "logs", "integral-apps"):
+            (home / directory).mkdir(exist_ok=True)
+        return config
 
 
 def _process(state: dict[str, Any]) -> psutil.Process | None:
@@ -160,8 +183,26 @@ def _identity(home: Path, state: dict[str, Any]) -> bool:
         )
         with urllib.request.urlopen(request, timeout=2) as response:
             payload = json.load(response)
-        return payload.get("installation_id") == config["installation_id"]
+        return (
+            payload.get("installation_id") == config["installation_id"]
+            and payload.get("deployment_profile", "server")
+            == config.get("deployment_profile", "server")
+            and (
+                config.get("deployment_profile") != "desktop_single_user"
+                or payload.get("desktop_contract_version") == 1
+            )
+        )
     except (KeyError, OSError, ValueError):
+        return False
+
+
+def desktop_assets_available() -> bool:
+    """Check portable resident assets without starting the application."""
+    from app.agentive.resident_root import resident_agent_root
+
+    try:
+        return (resident_agent_root() / "skills/integral-scaffold/SKILL.md").is_file()
+    except RuntimeError:
         return False
 
 
@@ -173,9 +214,17 @@ def status(home: Path) -> dict[str, Any]:
     return {
         "contract_version": CONTRACT_VERSION,
         "default_harness_provider_id": "integral_native",
+        "runtime_contract_version": 1,
+        "supported_runtime_presets": ["hosted", "local"],
+        "supported_deployment_profiles": sorted(DEPLOYMENT_PROFILES),
+        "desktop_contract_version": 1,
+        "desktop_assets_available": desktop_assets_available(),
         "installation_id": read_json(home / "installation.json").get("installation_id"),
         "state": "ready" if ready else ("starting" if alive else "stopped"),
         "home": str(home),
+        "deployment_profile": (
+            state if alive else read_json(home / "installation.json")
+        ).get("deployment_profile", "server"),
         "api_url": state.get("api_url"),
         "web_url": state.get("web_url"),
         "version": state.get("version"),
@@ -251,13 +300,14 @@ def free_port(preferred: int) -> int:
 def start(
     home: Path,
     *,
+    profile: str = "server",
     port: int | None = None,
     open_browser: bool = True,
     apps: Path | None = None,
     timeout: float = 180,
 ) -> dict[str, Any]:
     """Start once and wait for actual readiness, or attach to the same instance."""
-    initialize(home)
+    initialize(home, profile=profile)
     _require_recovery_review(home)
     _operator_settings(home)
     lock = FileLock(str(home / "command.lock"))
@@ -274,6 +324,13 @@ def start(
                 )
             launched = current["state"] == "stopped"
             config = read_json(home / "installation.json")
+            if (
+                current["state"] != "stopped"
+                and current.get("deployment_profile", "server") != profile
+            ):
+                raise RuntimeErrorDetail(
+                    "The running deployment profile differs from this installation. Stop it and review the installation identity before restarting."
+                )
             desired_apps = str(apps.resolve()) if apps else config.get("apps_path")
             prior = read_json(home / "runtime.json")
             if current["state"] != "stopped" and prior.get("apps") != desired_apps:
@@ -507,22 +564,51 @@ def _environment(
     """Isolate managed settings from checkout/distro dotenv files and test flags."""
     env = _system_environment()
     env.update(_operator_settings(home))
+    package_path = apps or config.get("apps_path") or str(home / "integral-apps")
+    core_only = (
+        not apps and config.get("deployment_profile", "server") != "desktop_single_user"
+    )
     controlled = {
         "DEBUG": "false",
         "WORKERS": "1",
+        "WEB_CONCURRENCY": "1",
+        "REGISTRATION_OPEN": (
+            "false"
+            if config.get("deployment_profile") == "desktop_single_user"
+            else env.get("REGISTRATION_OPEN", "true")
+        ),
         "JVSPATIAL_DEBUG": "false",
         "JVSPATIAL_AUTH_ENABLED": "true",
         "JVSPATIAL_HOST": "127.0.0.1",
         "JVSPATIAL_PORT": str(api_port),
         "JVSPATIAL_DB_TYPE": "postgres",
         "JVSPATIAL_POSTGRES_DSN": dsn,
+        "JVSPATIAL_DB_LOGGING_ENABLED": (
+            "true"
+            if config.get("deployment_profile") == "desktop_single_user"
+            else env.get("JVSPATIAL_DB_LOGGING_ENABLED", "true")
+        ),
         "JVSPATIAL_LOG_DB_TYPE": "postgres",
         "JVSPATIAL_LOG_POSTGRES_DSN": dsn,
         "JVSPATIAL_JWT_SECRET_KEY": config["jwt_key"],
         "INTEGRAL_CREDENTIAL_ENC_KEY": config["credential_key"],
         "JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY": config["oauth_key"],
-        "INTEGRAL_CORE_ONLY": "0" if apps else "1",
-        "INTEGRAL_PACKAGE_PATHS": apps or str(home / "integral-apps"),
+        "INTEGRAL_CORE_ONLY": "1" if core_only else "0",
+        "INTEGRAL_DEPLOYMENT_PROFILE": config.get("deployment_profile", "server"),
+        "INTEGRAL_RUNTIME_PRESET": (
+            "local"
+            if config.get("deployment_profile") == "desktop_single_user"
+            else "hosted"
+        ),
+        "INTEGRAL_DESKTOP_INSTALLATION_ID": config["installation_id"],
+        "INTEGRAL_DESKTOP_CONTROL_TOKEN": config["control_token"],
+        "INTEGRAL_DESKTOP_WEB_ORIGIN": f"http://127.0.0.1:{web_port}",
+        "INTEGRAL_SERVICE_KEY": (
+            ""
+            if config.get("deployment_profile") == "desktop_single_user"
+            else env.get("INTEGRAL_SERVICE_KEY", "")
+        ),
+        "INTEGRAL_PACKAGE_PATHS": package_path,
         "INTEGRAL_ENV_FILE": str(home / "settings.env"),
         "INTEGRAL_RECOVERY_MARKER": str(home / "recovery.json"),
         "JVSPATIAL_FILES_ROOT_PATH": str(home / "files"),
@@ -576,6 +662,7 @@ def supervise(home: Path, port: int, apps: str | None = None) -> None:
             "pid": process.pid,
             "created": process.create_time(),
             "state": "starting",
+            "deployment_profile": config.get("deployment_profile", "server"),
             "api_url": f"http://127.0.0.1:{api_port}",
             "web_url": f"http://127.0.0.1:{web_port}",
             "version": core_version,
@@ -633,7 +720,14 @@ def supervise(home: Path, port: int, apps: str | None = None) -> None:
                 if state["state"] != "ready":
                     try:
                         with urllib.request.urlopen(
-                            state["api_url"] + "/health", timeout=1
+                            state["api_url"]
+                            + (
+                                "/api/meta/deployment/ready"
+                                if config.get("deployment_profile")
+                                == "desktop_single_user"
+                                else "/health"
+                            ),
+                            timeout=1,
                         ) as response:
                             healthy = response.status == 200
                         if healthy and _identity(home, state):
@@ -690,6 +784,10 @@ def serve_workspace(home: Path) -> None:
                     {
                         "installation_id": config["installation_id"],
                         "contract_version": CONTRACT_VERSION,
+                        "desktop_contract_version": 1,
+                        "deployment_profile": config.get(
+                            "deployment_profile", "server"
+                        ),
                     }
                     if authorized
                     else {"error": "unauthorized"}
@@ -700,8 +798,10 @@ def serve_workspace(home: Path) -> None:
         else:
             await workspace(scope, receive, send)
 
+    from app.runtime.transport import LocalTransport
+
     uvicorn.run(
-        control_app,
+        LocalTransport(control_app),
         host="127.0.0.1",
         port=int(state["web_url"].rsplit(":", 1)[1]),
         log_level="warning",
@@ -767,8 +867,10 @@ def restore(home: Path, source: Path) -> None:
     with tempfile.TemporaryDirectory(
         prefix="integral-restore-", dir=home.parent
     ) as staging:
+        private_directory(Path(staging))
         staged = Path(staging) / "installation"
-        staged.mkdir(mode=0o700)
+        staged.mkdir()
+        private_directory(staged)
         with tarfile.open(source, "r:gz") as archive:
             members = archive.getmembers()
             for member in members:
@@ -782,7 +884,7 @@ def restore(home: Path, source: Path) -> None:
                     raise RuntimeErrorDetail("Backup contains an unsafe path or link.")
             archive.extractall(staged, members=members)
         if (staged / "postgres").is_dir():
-            (staged / "postgres").chmod(0o700)
+            private_directory(staged / "postgres")
         if not read_json(staged / "installation.json"):
             raise RuntimeErrorDetail("Backup contains no installation identity.")
         initialize(staged)
@@ -964,6 +1066,8 @@ def upgrade(
     )
     with FileLock(str(home / "command.lock"), timeout=240):
         prior = read_json(home / "runtime.json")
+        config = read_json(home / "installation.json")
+        profile = config.get("deployment_profile", "server")
         _backup(home, destination)
         config = read_json(home / "installation.json")
         config["runtime_python"] = str(python)
@@ -977,6 +1081,8 @@ def upgrade(
         str(home),
         "--no-open",
         "--json",
+        "--profile",
+        profile,
     ]
     if prior.get("apps"):
         command.extend(["--apps", prior["apps"]])

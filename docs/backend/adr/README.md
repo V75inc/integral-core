@@ -20,6 +20,7 @@ for dated checks against a specific source or artifact.
 | [012](012-intrinsic-agentive-queryability.md) | Queryable App information | Current query contract |
 | [013](013-operational-model-vocabulary.md) | Operational Model vocabulary | Current public terminology |
 | [014](014-app-background-jobs.md) | Background jobs for Apps | Proposed boundary |
+| [015](015-runtime-composition.md) | Neutral local/hosted runtime and host ownership | Accepted; locally implemented and qualified |
 
 Update the relevant ADR when a durable boundary changes. Routine implementation
 and qualification results belong in Git and the maintained release qualification record.

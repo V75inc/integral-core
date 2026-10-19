@@ -5,6 +5,16 @@ from typing import Any, Dict, List, Optional
 from starlette.requests import Request
 
 
+def _admit_desktop_principal(principal: str) -> str:
+    from app.runtime.composition import admits_human
+
+    if not admits_human(principal):
+        from app.api.errors import MissingAuthenticationError
+
+        raise MissingAuthenticationError(message="The local owner session is required")
+    return principal
+
+
 def resolve_principal_id(
     request: Optional[Request],
     *,
@@ -17,9 +27,9 @@ def resolve_principal_id(
     injection is missing (e.g. some GET registrations).
     """
     if user_id:
-        return user_id
+        return _admit_desktop_principal(user_id)
     if current_user_id:
-        return current_user_id
+        return _admit_desktop_principal(current_user_id)
     return get_user_id_from_request(request)
 
 
@@ -31,11 +41,13 @@ def get_user_id_from_request(request: Optional[Request]) -> Optional[str]:
     if not user:
         return None
     if hasattr(user, "id"):
-        return str(user.id)
+        return _admit_desktop_principal(str(user.id))
     if hasattr(user, "user_id"):
-        return str(user.user_id)
+        return _admit_desktop_principal(str(user.user_id))
     if isinstance(user, dict):
-        return str(user.get("id") or user.get("user_id") or "")
+        return _admit_desktop_principal(
+            str(user.get("id") or user.get("user_id") or "")
+        )
     return None
 
 

@@ -122,6 +122,9 @@ async def apply_invitation_grant(
     **metadata: Any,
 ) -> dict:
     """Upgrade only the issuance snapshot; preserve intervening changes."""
+    from app.runtime.composition import require_capability
+
+    require_capability("collaboration")
     edge = IS_MEMBER_OF if workspace_membership else COLLABORATES_ON
     ranks = _MEMBER_ROLES if workspace_membership else _RESOURCE_ROLES
     if role not in ranks or not baseline:

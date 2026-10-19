@@ -1,3 +1,4 @@
+import { useDeployment } from '../../hooks/useDeployment';
 /**
  * EmailVerificationBanner — pushes a system notification when the
  * authenticated user has not verified their email yet.
@@ -30,6 +31,7 @@ function wasDeferred(userId: string): boolean {
 }
 
 export function EmailVerificationBanner() {
+  const { singleUser } = useDeployment();
   const { user } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
@@ -43,7 +45,7 @@ export function EmailVerificationBanner() {
   // ``email_verified`` field (e.g. cached pre-feature user) is treated as
   // unverified so the nudge appears — getting it wrong by under-showing
   // would hide the only path back to verification.
-  const shouldShow = !!user && user.email_verified !== true && !wasDeferred(user.id);
+  const shouldShow = !singleUser && !!user && user.email_verified !== true && !wasDeferred(user.id);
 
   useEffect(() => {
     if (!shouldShow) {

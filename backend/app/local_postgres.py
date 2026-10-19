@@ -11,9 +11,96 @@ import shlex
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from urllib.parse import quote, urlsplit, urlunsplit
+
+if __package__:
+    from app.local_permissions import private_directory
+else:
+    from local_permissions import private_directory  # type: ignore[no-redef]
+
+
+HBA = (
+    "local all all trust\n"
+    "host all all 127.0.0.1/32 scram-sha-256\n"
+    "host all all ::1/128 scram-sha-256\n"
+)
+
+
+def prepare_windows_database(
+    binaries: Path, root: Path, data: Path, password: str
+) -> None:
+    """Install password authentication before the first loopback listener starts."""
+    if not (data / "PG_VERSION").exists():
+        fd, name = tempfile.mkstemp(prefix=".postgres-password-", dir=root)
+        try:
+            with os.fdopen(fd, "w") as handle:
+                handle.write(password + "\n")
+            subprocess.run(
+                [
+                    str(binaries / "initdb.exe"),
+                    "-D",
+                    str(data),
+                    "--auth-host=scram-sha-256",
+                    "--auth-local=trust",
+                    "--encoding=utf8",
+                    "-U",
+                    "postgres",
+                    "--pwfile=" + name,
+                ],
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
+        finally:
+            Path(name).unlink(missing_ok=True)
+    # Existing installations retain their database and password. Fail closed if
+    # an incomplete old initialization never installed its saved password.
+    (data / "pg_hba.conf").write_text(HBA)
+
+
+def passwordless_uri(uri: str) -> str:
+    """Let libpq use PGPASSWORD rather than an explicit empty URI password."""
+    parsed = urlsplit(uri)
+    host = parsed.netloc.rsplit("@", 1)[-1]
+    user = quote(parsed.username or "postgres", safe="")
+    return urlunsplit((parsed.scheme, f"{user}@{host}", parsed.path, parsed.query, ""))
+
+
+def psql_command(binaries: Path, uri: str) -> list[str]:
+    """Use explicit options so Windows getopt never treats flags as arguments."""
+    return [
+        str(binaries / "psql"),
+        "--no-password",
+        "--set=ON_ERROR_STOP=1",
+        "--dbname=" + uri,
+    ]
+
+
+def require_password(binaries: Path, uri: str) -> None:
+    """Refuse readiness if a Windows loopback connection succeeds without a key."""
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in {"PGPASSWORD", "PGSERVICE", "PGSERVICEFILE"}
+    }
+    env.update(PGPASSFILE=os.devnull, PGCONNECT_TIMEOUT="5")
+    result = subprocess.run(
+        [
+            str(binaries / "psql"),
+            "--no-password",
+            "--command=SELECT 1",
+            "--dbname=" + uri,
+        ],
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    if result.returncode == 0:
+        raise RuntimeError(
+            "Managed PostgreSQL accepted a connection without a password"
+        )
 
 
 def main() -> None:
@@ -42,8 +129,10 @@ def main() -> None:
     if not re.fullmatch(r"[0-9a-f]{64}", password):
         raise ValueError("Invalid managed database credential format")
     data = root / "postgres"
-    data.mkdir(mode=0o700, exist_ok=True)
-    data.chmod(0o700)
+    data.mkdir(exist_ok=True)
+    private_directory(data)
+    if os.name == "nt":
+        prepare_windows_database(binaries, root, data, password)
     server = pgserver.get_server(data, cleanup_mode="stop")
 
     def terminate(_signum, _frame):
@@ -53,15 +142,12 @@ def main() -> None:
     signal.signal(signal.SIGINT, terminate)
     try:
         uri = server.get_uri()
+        if os.name == "nt":
+            uri = passwordless_uri(uri)
         parsed = urlsplit(uri)
         # No shell interpolation: both paths and SQL travel as process data.
         env = {**os.environ, "PGPASSWORD": password}
-        command = [
-            str(binaries / "psql"),
-            uri,
-            "-v",
-            "ON_ERROR_STOP=1",
-        ]
+        command = psql_command(binaries, uri)
         subprocess.run(
             command,
             input=f"ALTER USER postgres PASSWORD '{password}';\nSELECT pg_reload_conf();\n",
@@ -73,11 +159,9 @@ def main() -> None:
         # Unix sockets are inside a private directory. Windows uses loopback
         # TCP, where every connection must authenticate even from this host.
         hba = root / "postgres" / "pg_hba.conf"
-        hba.write_text(
-            "local all all trust\n"
-            "host all all 127.0.0.1/32 scram-sha-256\n"
-            "host all all ::1/128 scram-sha-256\n"
-        )
+        if os.name == "nt":
+            require_password(binaries, uri)
+        hba.write_text(HBA)
         subprocess.run(
             command,
             input="SELECT pg_reload_conf();\n",
@@ -110,10 +194,10 @@ def main() -> None:
             subprocess.run(
                 [
                     str(binaries / "pg_dump"),
-                    uri,
                     "-Fc",
                     "-f",
                     sys.argv[2],
+                    "--dbname=" + uri,
                 ],
                 env=env,
                 check=True,

@@ -442,7 +442,9 @@ async def test_engine_recursion_guard_kwarg_short_circuits():
     reset_permissions_cache()
     decision = await pe.evaluate(
         subject=Subject(kind="agent", id="a-guarded"),  # would normally fail-closed
-        action="anything",
+        # The recursion guard skips ordinary subject policy only after the
+        # operation passes the runtime ceiling. Denial logging is admitted.
+        action="policy.deny",
         resource=Resource(kind="change_event", id="*", scope="*"),
         _internal_actor=Subject(kind="system", id="policy_engine"),
     )

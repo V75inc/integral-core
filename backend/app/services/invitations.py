@@ -325,6 +325,9 @@ def _atomic_invitation_issuance(
 
     @wraps(function)
     async def issue(*args: _IssuanceArgs.args, **kwargs: _IssuanceArgs.kwargs):
+        from app.runtime.composition import require_capability
+
+        require_capability("collaboration")
         from jvspatial.core.context import get_default_context
 
         from app.exceptions import AuthorizationUnavailableError
@@ -455,6 +458,9 @@ async def create_invitation(
 
     Raises ValueError with one of the ERR_* codes for create-time failures.
     """
+    from app.runtime.composition import require_capability
+
+    require_capability("collaboration")
     from app.api.validators_common import validate_email
     from app.services.invitation_authority import require_workspace_invitation_authority
 
@@ -557,6 +563,9 @@ async def _materialize_invitation_grants(
     user: User, invitation: Invitation
 ) -> Optional[str]:
     """Create membership/collaboration edges. Returns an ERR_* code on failure."""
+    from app.runtime.composition import require_capability
+
+    require_capability("collaboration")
     from app.services.resource_access_blocks import require_unblocked
     from app.services.workspace_suspension import require_unsuspended
 
@@ -761,6 +770,9 @@ async def consume_invitation_token(
     Returns ``(invitation, error_code)``. Idempotent on a previously-accepted
     invite by the same user.
     """
+    from app.runtime.composition import require_capability
+
+    require_capability("collaboration")
     invitation, err = await preview_invitation(plaintext)
     if err and err != ERR_CONSUMED:
         return invitation, err
@@ -787,6 +799,9 @@ async def accept_invitation_by_id(
     invitation_id: str, accepting_user_id: str
 ) -> Tuple[Optional[Invitation], Optional[str]]:
     """Accept a pending invitation by id for the authenticated invitee."""
+    from app.runtime.composition import require_capability
+
+    require_capability("collaboration")
     invitation = await Invitation.get(invitation_id)
     if not invitation:
         return None, ERR_NOT_FOUND
@@ -834,6 +849,9 @@ async def create_resource_invitation(
     materializes both ``COLLABORATES_ON`` on the resource and (when the
     recipient isn't a workspace member yet) ``IS_MEMBER_OF{role:"guest"}``.
     """
+    from app.runtime.composition import require_capability
+
+    require_capability("collaboration")
     try:
         normalized_email = await _normalize_email(email)
     except Exception:
