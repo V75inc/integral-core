@@ -3,16 +3,15 @@
  *
  * Lives outside React because the axios interceptor calls into it from
  * non-component code and would deadlock against React state. The
- * AuthContext subscribes to the `integral:logout` window event to keep
- * React state aligned when a refresh fails.
+ * AuthContext subscribes to recovery state for in-place renewal and to
+ * `integral:logout` for explicit sign-out.
  *
  * Behavior summary:
  *   - Proactive refresh fires `(expires_in - 120)s` after each token issue.
- *   - On fire, the refresh only runs if the user has been active within
- *     one access-token lifetime; otherwise we let the token expire.
- *   - Idle clients silently log out: the next API call returns 401, the
- *     axios interceptor's retry path also finds no recent activity and
- *     bails to `/login`.
+ *   - On fire, refresh runs only with recent human activity (at most
+ *     five minutes, bounded by the access TTL); otherwise access expires.
+ *   - Expiry pauses an open page behind a renewal dialog. A rejected
+ *     refresh requires credentials; temporary outages remain retryable.
  *   - 401 reactive retry: a single retry per request, gated on a
  *     `__sessionRetried` flag on the axios config.
  *
@@ -23,6 +22,7 @@
 
 import axios, { AxiosError } from 'axios';
 import { getApiBaseURL } from '../config';
+import { isSessionPaused, requestSessionRecovery } from './sessionRecovery';
 
 const ACCESS_TOKEN_KEY = 't75_token';
 const REFRESH_TOKEN_KEY = 't75_refresh_token';
@@ -50,12 +50,10 @@ const REFRESH_LEAD_SECONDS = 120;
 const MIN_REFRESH_INTERVAL_SECONDS = 30;
 /** Activity stamps are throttled to one write per this many ms. */
 const ACTIVITY_THROTTLE_MS = 5_000;
-/**
- * If no activity within this window when the refresh timer fires, we
- * skip the refresh and let the session expire naturally. Falls back to
- * a 30-minute window if the access-token TTL is unknown.
- */
+/** Fallback access TTL when issuance metadata is unavailable. */
 const DEFAULT_ACCESS_TTL_MS = 30 * 60 * 1000;
+/** Only recently interacting users qualify for a silent renewal. */
+const SILENT_REFRESH_ACTIVITY_MS = 5 * 60 * 1000;
 
 export interface TokenPayload {
   access_token: string;
@@ -67,7 +65,11 @@ export interface TokenPayload {
 
 let lastActivityAt = Date.now();
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+let expiryTimer: ReturnType<typeof setTimeout> | null = null;
 let inflightRefresh: Promise<string | null> | null = null;
+let sessionGeneration = 0;
+
+export const getSessionGeneration = (): number => sessionGeneration;
 /** Most recent access-token TTL in ms, captured at issuance. */
 let currentAccessTtlMs = DEFAULT_ACCESS_TTL_MS;
 
@@ -76,6 +78,7 @@ let currentAccessTtlMs = DEFAULT_ACCESS_TTL_MS;
 // ────────────────────────────────────────────────────────────────────
 
 export function getAccessToken(): string | null {
+  if (isSessionPaused()) return null;
   return localStorage.getItem(ACCESS_TOKEN_KEY);
 }
 
@@ -93,6 +96,8 @@ export function setTokens(payload: TokenPayload): void {
     currentAccessTtlMs = payload.expires_in * 1000;
     const expiresAt = Date.now() + currentAccessTtlMs;
     localStorage.setItem(ACCESS_EXPIRES_AT_KEY, String(expiresAt));
+  } else {
+    localStorage.removeItem(ACCESS_EXPIRES_AT_KEY);
   }
   scheduleProactiveRefresh();
 }
@@ -110,6 +115,7 @@ export function setTokens(payload: TokenPayload): void {
  * Device-level prefs (theme) are deliberately preserved.
  */
 export function clearTokens(): void {
+  sessionGeneration += 1;
   localStorage.removeItem(ACCESS_TOKEN_KEY);
   localStorage.removeItem(REFRESH_TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
@@ -126,13 +132,20 @@ export function isRefreshInFlight(): boolean {
 }
 
 /**
- * Tear down the local session and land on /login with a soft reason.
+ * Require reauthentication in place, or land on /login during cold boot.
  *
- * Used by the axios 401 path and AuthContext when the server authoritatively
- * rejects the session. Cold visits (no tokens) should use plain `/login`
- * via RequireAuth — this helper is for "you were signed in; now you're not".
+ * Invalid credentials are removed immediately. A mounted account retains
+ * its page state behind the session lock; it cannot make authenticated calls.
  */
 export function redirectToLogin(reason: 'session_expired' = 'session_expired'): void {
+  if (typeof window !== 'undefined' && !isPublicAuthPath(window.location.pathname)
+      && requestSessionRecovery('signin')) {
+    sessionGeneration += 1;
+    localStorage.removeItem(ACCESS_TOKEN_KEY);
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
+    cancelScheduledRefresh();
+    return;
+  }
   clearTokens();
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent('integral:logout'));
@@ -185,7 +198,7 @@ export function installActivityListeners(): void {
   ];
   events.forEach(name => window.addEventListener(name, markActivity, opts));
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) markActivity();
+    if (!document.hidden) { checkSessionDeadline(); markActivity(); }
   });
 }
 
@@ -198,6 +211,25 @@ export function cancelScheduledRefresh(): void {
     clearTimeout(refreshTimer);
     refreshTimer = null;
   }
+  if (expiryTimer) {
+    clearTimeout(expiryTimer);
+    expiryTimer = null;
+  }
+}
+
+/** Pause in place after expiry or a temporary refresh failure; keep drafts in memory. */
+export function pauseForSessionRenewal(): void {
+  if (requestSessionRecovery(getRefreshToken() ? 'renew' : 'signin')) {
+    cancelScheduledRefresh();
+  } else {
+    redirectToLogin();
+  }
+}
+
+/** Also checked before requests and on tab wake-up, since timers can be throttled. */
+export function checkSessionDeadline(): void {
+  const expiresAt = Number(localStorage.getItem(ACCESS_EXPIRES_AT_KEY));
+  if (!isSessionPaused() && expiresAt > 0 && expiresAt <= Date.now()) pauseForSessionRenewal();
 }
 
 /**
@@ -225,16 +257,20 @@ function computeDelaySeconds(): number {
 
 export function scheduleProactiveRefresh(): void {
   cancelScheduledRefresh();
-  if (!getAccessToken() || !getRefreshToken()) return;
+  if (!getAccessToken()) return;
+  const expiresAt = Number(localStorage.getItem(ACCESS_EXPIRES_AT_KEY));
+  if (expiresAt > 0 && Number.isFinite(expiresAt)) {
+    expiryTimer = setTimeout(pauseForSessionRenewal, Math.max(0, expiresAt - Date.now()));
+  }
+  if (!getRefreshToken()) return;
   const delayMs = computeDelaySeconds() * 1000;
   refreshTimer = setTimeout(() => {
     refreshTimer = null;
-    // Idle path: bail without refreshing. Token will expire; next API
-    // call will 401, the interceptor will see no recent activity, and
-    // the user will be redirected to /login.
-    if (!wasActiveWithin(currentAccessTtlMs)) return;
-    refreshAccessToken().catch(() => {
-      /* error path already cleared tokens & dispatched logout */
+    // Background polling is not human activity. Let idle access expire
+    // and present the renewal prompt rather than refreshing indefinitely.
+    if (!wasActiveWithin(Math.min(currentAccessTtlMs, SILENT_REFRESH_ACTIVITY_MS))) return;
+    refreshAccessToken().then(token => {
+      if (!token && !isSessionPaused()) pauseForSessionRenewal();
     });
   }, delayMs);
 }
@@ -251,7 +287,7 @@ async function callRefreshEndpoint(refreshToken: string): Promise<TokenPayload> 
   const res = await axios.post<TokenPayload>(
     `${getApiBaseURL()}/auth/refresh`,
     { refresh_token: refreshToken },
-    { headers: { 'Content-Type': 'application/json' } },
+    { headers: { 'Content-Type': 'application/json' }, timeout: 20_000 },
   );
   return res.data;
 }
@@ -259,8 +295,7 @@ async function callRefreshEndpoint(refreshToken: string): Promise<TokenPayload> 
 /**
  * Exchange the stored refresh token for a fresh access token. Returns
  * the new access token on success, or `null` on failure. The caller
- * should not retry; this function emits `integral:logout` on failure
- * so React state can react.
+ * should not retry; an authoritative rejection opens the sign-in prompt.
  */
 export function refreshAccessToken(): Promise<string | null> {
   if (inflightRefresh) return inflightRefresh;
@@ -268,10 +303,12 @@ export function refreshAccessToken(): Promise<string | null> {
   if (!refreshToken) {
     return Promise.resolve(null);
   }
+  const generation = sessionGeneration;
 
   inflightRefresh = (async () => {
     try {
       const payload = await callRefreshEndpoint(refreshToken);
+      if (generation !== sessionGeneration || getRefreshToken() !== refreshToken) return null;
       if (!payload?.access_token) {
         throw new Error('Refresh response missing access_token');
       }
@@ -279,14 +316,11 @@ export function refreshAccessToken(): Promise<string | null> {
       return payload.access_token;
     } catch (err) {
       const status = (err as AxiosError | undefined)?.response?.status;
-      // 4xx → refresh token is bad / revoked / expired. Tear down the
-      // session. 5xx / network → leave tokens in place so a retry can
-      // succeed once the server recovers.
-      if (typeof status === 'number' && status >= 400 && status < 500) {
-        clearTokens();
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('integral:logout'));
-        }
+      // Authentication rejection removes invalid credentials. Rate limits,
+      // 5xx and network failures retain credentials for an explicit retry.
+      if (generation === sessionGeneration && getRefreshToken() === refreshToken
+          && (status === 400 || status === 401 || status === 403)) {
+        redirectToLogin();
       }
       return null;
     } finally {

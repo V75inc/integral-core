@@ -1562,3 +1562,20 @@
 .home-overview section.home-widget {
   border-top: 3px solid var(--brand-accent);
 }
+
+/* Native top-layer session lock covers every portal and hides private content.
+   The underlying React tree stays mounted so page inputs survive renewal. */
+.session-renewal-dialog {
+  width: min(var(--dialog-w-confirm), calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+  margin: auto;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-card);
+  background: var(--panel);
+  color: var(--text);
+  overflow-y: auto;
+}
+.session-renewal-dialog::backdrop {
+  background: var(--bg);
+}
