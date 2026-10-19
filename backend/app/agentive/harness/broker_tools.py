@@ -20,6 +20,7 @@ from app.agentive.harness.pydantic_ai_compat import (
     build_integral_json_schema_tool,
 )
 from app.agentive.harness.tool_argument_adapter import normalize_tool_arguments
+from app.agentive.harness.turn_progress import TurnProgress
 from app.schemas.agentive.work import WorkExecutionContext
 from app.services.notification_paths import entry_path
 
@@ -157,6 +158,7 @@ def _make_handler(
 ):
     """Freeze capability identity and host scope into one function tool."""
 
+    call_state.setdefault("turn_progress", TurnProgress())
     build_attempted = False
     build_validation_failures = 0
 
@@ -165,7 +167,14 @@ def _make_handler(
         from app.middleware.permissions_cache import isolated_permissions_cache
 
         with isolated_permissions_cache():
-            return await invoke_current_tool(ctx, **arguments)
+            result = await invoke_current_tool(ctx, **arguments)
+            call_state["turn_progress"].observe(
+                capability_name,
+                normalize_tool_arguments(arguments, input_schema),
+                result,
+                is_read=capability_op_class == "read",
+            )
+            return result
 
     async def invoke_current_tool(
         ctx: RunContext[Any], **arguments: Any
@@ -284,9 +293,9 @@ def _make_handler(
                 ),
                 "retryable": False,
             }
-        # Pydantic AI UsageLimits owns bounded execution. Reads must remain
-        # retryable after a failed attempt and fresh after a mutation; attempt
-        # signatures and per-tool quotas are not a correctness-preserving cache.
+        # Pydantic AI owns execution and accounting. The progress observer sees
+        # the outcome only after this live authorization/dispatch path; it must
+        # never replace a read or effect with a cached earlier result.
         if capability_name == "integral_build_approved_design":
             if not call_state.get("approved_design_ready"):
                 if call_state.get("pending_design"):
@@ -556,6 +565,7 @@ def build_brokered_tools(
     tools: list[Tool[Any, Any]] = []
     seen_names: set[str] = set()
     call_state = run_state if run_state is not None else {}
+    call_state.setdefault("turn_progress", TurnProgress())
     call_state.setdefault("attempted", 0)
     call_state.setdefault("scaffold_coverage_attempted", False)
     call_state.setdefault("proposal_attempted", False)

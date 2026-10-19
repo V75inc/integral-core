@@ -4,6 +4,12 @@ This pre-launch change record describes the supported Integral Core runtime.
 Package publication and deployment are separate release gates; a local version
 bump does not establish that a release is available on a package index.
 
+## 0.1.1rc25 — 2026-10-19
+
+- Recover Home authoring turns and retain tool outcomes without replaying completed effects (#158).
+- Finish stalled native harness turns within request, tool and token budgets, with grounded completion and truthful scaffold outcomes (#158).
+- Brand the session renewal dialog and preserve the workspace behind a translucent blur. Increase default access lifetime to 60 minutes and silent renewal activity eligibility to 15 minutes; expose session timing as deployment configuration (#158).
+
 ## 0.1.1rc24 — 2026-10-19
 
 - Renew expired sessions in place, preserving the open page and drafts, with same-account password reauthentication when refresh is rejected. Keep temporary outages retryable and do not automatically resubmit interrupted actions or chat turns (#156).

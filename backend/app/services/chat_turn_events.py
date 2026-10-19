@@ -45,7 +45,7 @@ _PUBLIC_FIELDS: dict[str, tuple[str, ...]] = {
         "providerCostUsd",
         "durationMs",
     ),
-    "tool-call": ("toolCallId", "name", "status"),
+    "tool-call": ("toolCallId", "name", "status", "diagnostic"),
     "source": ("title", "url"),
     "status": ("status", "text"),
     "error": ("code", "message"),
@@ -88,7 +88,11 @@ def normalize_public_event(
     for key in allowed:
         value = event.get(key)
         if value is not None:
-            if key in {"timing", "usage"}:
+            if event_type == "tool-call" and key == "diagnostic":
+                from app.services.chat_tool_diagnostics import normalize_tool_diagnostic
+
+                value = normalize_tool_diagnostic(value)
+            elif key in {"timing", "usage"}:
                 if not isinstance(value, dict):
                     raise ValueError(f"public event {key} must be an object")
                 fields = _TIMING_FIELDS if key == "timing" else _USAGE_FIELDS

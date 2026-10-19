@@ -123,8 +123,8 @@ _ERROR_MESSAGES: Dict[str, str] = {
         "could answer. Shorten the request or start a new conversation and try again."
     ),
     "harness_usage_limit": (
-        "This turn reached Integral's safe generation limit before it could "
-        "finish. Start a new conversation with a shorter request and try again."
+        "This turn reached Integral's safe generation limit. Continue in this chat; "
+        "check saved changes and pending approvals before retrying unfinished work."
     ),
     "harness_reconciliation_required": (
         "I couldn't restore the previous assistant state safely, so its work was "

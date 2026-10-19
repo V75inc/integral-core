@@ -1563,8 +1563,8 @@
   border-top: 3px solid var(--brand-accent);
 }
 
-/* Native top-layer session lock covers every portal and hides private content.
-   The underlying React tree stays mounted so page inputs survive renewal. */
+/* Native session lock keeps every portal inert while the working view remains
+   recognizable through a translucent blur. Inputs stay mounted during renewal. */
 .session-renewal-dialog {
   width: min(var(--dialog-w-confirm), calc(100vw - 2rem));
   max-height: calc(100dvh - 2rem);
@@ -1577,5 +1577,7 @@
   overflow-y: auto;
 }
 .session-renewal-dialog::backdrop {
-  background: var(--bg);
+  background: color-mix(in srgb, var(--bg) 30%, transparent);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
 }

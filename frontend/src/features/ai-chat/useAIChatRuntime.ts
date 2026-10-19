@@ -114,6 +114,7 @@ type AssistantMessageDraft = {
       name: string;
       args?: unknown;
       result?: unknown;
+      diagnostic?: { code: string; message: string };
       isError?: boolean;
       status: "pending" | "running" | "complete" | "error";
     }
@@ -208,7 +209,7 @@ function draftToMessage(draft: AssistantMessageDraft): ThreadMessageLike {
       toolCallId: callId,
       toolName: call.name,
       args: (call.args ?? {}) as never,
-      result: call.result,
+      result: toolSummaryResult(call),
       isError: call.isError,
     });
   }
@@ -387,6 +388,29 @@ function coalescePersistedReasoning(parts: MutableContent[]): MutableContent[] {
   return out;
 }
 
+export function toolSummaryResult(call: {
+  result?: unknown;
+  diagnostic?: unknown;
+  status?: unknown;
+  isError?: unknown;
+}): unknown {
+  if (call.result !== undefined) return call.result;
+  const diagnostic = call.diagnostic as { code?: unknown; message?: unknown } | undefined;
+  if (diagnostic && typeof diagnostic.message === "string") {
+    return { error: true, error_code: diagnostic.code, message: diagnostic.message };
+  }
+  if (call.status === "error" || call.isError === true) {
+    return { error: true, message: "The tool did not complete. Detailed output is not retained." };
+  }
+  if (call.status === "complete") {
+    // assistant-ui otherwise inherits the parent turn's error when a completed
+    // tool has no retained raw result, blaming every earlier call for one limit.
+    return { message: "Tool completed. Detailed output is not retained." };
+  }
+  return undefined;
+}
+
+
 /**
  * Normalize persisted message parts so that image and file parts conform to
  * assistant-ui's expected shapes.
@@ -414,12 +438,19 @@ export function normalizePersistedParts(rawParts: MutableContent[]): MutableCont
     // Older durable transcripts saved start/result updates as separate parts.
     // Hydrate one resource per call ID, preserving its position and latest state.
     if (p?.type === "tool-call" && typeof p.toolCallId === "string" && p.toolCallId) {
+      const summaryResult = toolSummaryResult(p);
+      const normalized = { ...part, result: summaryResult } as MutableContent;
       const previous = toolPositions.get(p.toolCallId);
       if (previous !== undefined) {
-        out[previous] = { ...out[previous], ...part } as MutableContent;
+        out[previous] = {
+          ...out[previous], ...normalized,
+          result: p.result ?? (p.diagnostic || p.status === "error"
+            ? summaryResult
+            : (out[previous] as Record<string, unknown>).result ?? summaryResult),
+        } as MutableContent;
       } else {
         toolPositions.set(p.toolCallId, out.length);
-        out.push(part);
+        out.push(normalized);
       }
       continue;
     }
@@ -1987,6 +2018,7 @@ function applyEvent(draft: AssistantMessageDraft, ev: NormalizedEvent) {
         name: ev.name,
         args: ev.args ?? existing?.args,
         result: ev.result ?? existing?.result,
+        diagnostic: ev.diagnostic ?? existing?.diagnostic,
         isError: ev.status === "error" || existing?.isError,
         status: ev.status,
       });

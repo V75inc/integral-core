@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import axios from 'axios';
 import { LockKeyhole } from 'lucide-react';
 import { Button } from '../ui/Button';
+import { Logo } from '../ui/Logo';
 import { Input, Surface, Text } from '../../ui';
 import { getHostSession } from '../../host/session';
 import { renewSession } from '../../api/sessionRenewal';
@@ -84,7 +85,10 @@ export function SessionRenewalDialog({ mode, user, onResume, onSignOut }: Props)
       aria-describedby="session-renewal-description" onCancel={event => event.preventDefault()}>
       <Surface padding="lg" elevation="pop">
         <form onSubmit={submit} className="space-y-5">
-          <LockKeyhole aria-hidden="true" size={24} />
+          <div className="flex items-center justify-between gap-4">
+            <Logo size="md" />
+            <Text as="span" tone="muted"><LockKeyhole aria-hidden="true" size={20} /></Text>
+          </div>
           <Text as="h2" variant="heading-md" id="session-renewal-title">
             {needsPassword ? 'Sign in to continue' : 'Renew your session'}
           </Text>

@@ -16,7 +16,9 @@ from app.services.chat_turn_events import normalize_public_event
 
 _PART_FIELDS = {
     "text": frozenset({"type", "text"}),
-    "tool-call": frozenset({"type", "toolCallId", "toolName", "status", "isError"}),
+    "tool-call": frozenset(
+        {"type", "toolCallId", "toolName", "status", "isError", "diagnostic"}
+    ),
     "source": frozenset({"type", "sourceType", "id", "url", "title"}),
     "error": frozenset({"type", "code", "message"}),
 }
@@ -111,6 +113,10 @@ def _public_parts(parts: list[dict[str, Any]]) -> list[dict[str, Any]]:
             for key in ("code", "message")
         ):
             raise ValueError("assistant transcript contains an unsupported value")
+        if kind == "tool-call" and "diagnostic" in part:
+            from app.services.chat_tool_diagnostics import normalize_tool_diagnostic
+
+            normalize_tool_diagnostic(part["diagnostic"])
         result.append(dict(part))
     return result
 

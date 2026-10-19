@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { getApiBaseURL } from '../config';
+import { getSessionPolicy } from './sessionPolicy';
 import { getHostSession } from '../host/session';
 import { normalizeUserMe } from './helpers';
 import { getRefreshToken, getSessionGeneration, isRefreshInFlight, refreshAccessToken, redirectToLogin, type TokenPayload } from './session';
@@ -28,13 +29,13 @@ export async function renewSession(
       const response = await axios.post<TokenPayload>(
         `${getApiBaseURL()}/auth/${credentials ? 'login' : 'refresh'}`,
         credentials ?? { refresh_token: refreshToken },
-        { timeout: 20_000 },
+        { timeout: getSessionPolicy().renewal_request_timeout_seconds * 1000 },
       );
       tokens = response.data;
     }
     if (!tokens.access_token) throw new Error('Session renewal did not complete. Please try again.');
     const response = await axios.get(`${getApiBaseURL()}/auth/me`, {
-      headers: { Authorization: `Bearer ${tokens.access_token}` }, timeout: 20_000,
+      headers: { Authorization: `Bearer ${tokens.access_token}` }, timeout: getSessionPolicy().renewal_request_timeout_seconds * 1000,
     });
     const user = normalizeUserMe(response.data);
     // Never expose retained page inputs/cache to a different authenticated user.

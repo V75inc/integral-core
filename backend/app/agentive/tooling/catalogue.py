@@ -187,6 +187,25 @@ def _build_input_schema(spec: ToolSpec) -> Dict[str, Any]:
         schema["$defs"] = graph_schema.pop("$defs", {})
         properties["spec"] = graph_schema
         schema["additionalProperties"] = False
+    if spec.name == "integral_update_app" and "home" in properties:
+        from app.services.app_home_override import AppHomeComposition
+
+        home_schema = AppHomeComposition.model_json_schema()
+        schema["$defs"] = home_schema.pop("$defs", {})
+        required_home = home_schema.pop("required")
+        # Keep the canonical properties visible to argument normalization and
+        # providers. An empty object is the existing package-Home reset contract.
+        home_schema["anyOf"] = [
+            {"required": required_home},
+            {"maxProperties": 0},
+        ]
+        home_schema["description"] = (
+            "Distinct App Home tab; {} restores package Home. Supply title and "
+            "1-12 widgets with string id/type, nonoverlapping grid and authorized "
+            "data_source. Discover renderer/source contracts with "
+            "integral_describe_dashboard_substrate and integral_suggest_dashboard."
+        )
+        properties["home"] = home_schema
     if spec.name == "integral_query_spec":
         schema["additionalProperties"] = False
     if (

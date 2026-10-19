@@ -107,3 +107,9 @@ Current metadata pins `jvspatial==0.2.2` and `pydantic-ai-harness[skills]==0.36.
 When repairing duplicate UserModelCredential records, query through `GraphContext.find` before creating a unique index. Test with actual duplicates, then verify the repaired index rejects another duplicate. Production OAuth requires `JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY`. `RATE_LIMIT_DISABLED=1` bypass is restricted to pytest or DEBUG; it does not justify removing the production auth cap.
 
 Continue with [configuration](CONFIGURATION.md), [security](SECURITY.md), [signing](OPERATIONAL_MODEL_SIGNING.md), and [qualification](QUALIFICATION.md).
+
+## Session renewal policy
+
+See [Session policy](SESSION_POLICY.md) for deployment timeout settings, longer
+defaults, renewal behavior, and the distinction between the browser idle lock and
+server token validity.
