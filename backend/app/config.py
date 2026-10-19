@@ -161,16 +161,15 @@ class Settings(BaseSettings):
         validation_alias="JVSPATIAL_JWT_ALGORITHM",
     )
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(
-        default=30,
+        default=60,
+        ge=1,
         validation_alias="JVSPATIAL_JWT_EXPIRE_MINUTES",
     )
-    # Refresh tokens are the upper bound on how long an active user can
-    # stay signed in without re-entering credentials. The frontend
-    # extends the session by exchanging this token for a fresh access
-    # token while the user is active; idle clients let the access token
-    # expire and are logged out on next request.
+    # Refresh-token lifetime applies to each issued token. Rotation can issue
+    # a fresh lifetime; this is not an absolute cap on an active login session.
     REFRESH_TOKEN_EXPIRE_DAYS: int = Field(
         default=7,
+        ge=1,
         validation_alias="JVSPATIAL_REFRESH_EXPIRE_DAYS",
     )
     # Rotate refresh tokens on every /auth/refresh call. Each refresh
@@ -180,6 +179,19 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_ROTATION: bool = Field(
         default=True,
         validation_alias="JVSPATIAL_REFRESH_TOKEN_ROTATION",
+    )
+    # Runtime browser policy, published as non-secret deployment metadata.
+    # Idle lock is a UX pause, not a substitute for server token expiration.
+    INTEGRAL_SESSION_IDLE_TIMEOUT_SECONDS: int = Field(default=0, ge=0, le=604800)
+    INTEGRAL_SESSION_SILENT_REFRESH_ACTIVITY_SECONDS: int = Field(
+        default=900, ge=0, le=604800
+    )
+    INTEGRAL_SESSION_REFRESH_LEAD_SECONDS: int = Field(default=120, ge=0, le=3600)
+    INTEGRAL_SESSION_MIN_REFRESH_INTERVAL_SECONDS: int = Field(
+        default=30, ge=1, le=3600
+    )
+    INTEGRAL_SESSION_RENEWAL_REQUEST_TIMEOUT_SECONDS: int = Field(
+        default=20, ge=1, le=300
     )
     REGISTRATION_OPEN: bool = True
 

@@ -86,9 +86,21 @@ async def build_meta() -> Dict[str, Any]:
 @endpoint("/meta/deployment", methods=["GET"], auth=False, tags=["Meta"])
 async def deployment_meta() -> Dict[str, Any]:
     """Expose the deployment profile selected by trusted runtime startup."""
+    from app.config import settings
     from app.runtime.composition import capabilities
 
-    return capabilities()
+    return {
+        **capabilities(),
+        "session_policy": {
+            "idle_timeout_seconds": settings.INTEGRAL_SESSION_IDLE_TIMEOUT_SECONDS,
+            "silent_refresh_activity_seconds": settings.INTEGRAL_SESSION_SILENT_REFRESH_ACTIVITY_SECONDS,
+            "refresh_lead_seconds": settings.INTEGRAL_SESSION_REFRESH_LEAD_SECONDS,
+            "min_refresh_interval_seconds": settings.INTEGRAL_SESSION_MIN_REFRESH_INTERVAL_SECONDS,
+            "renewal_request_timeout_seconds": settings.INTEGRAL_SESSION_RENEWAL_REQUEST_TIMEOUT_SECONDS,
+            "access_token_ttl_seconds": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            "refresh_token_ttl_seconds": settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+        },
+    }
 
 
 @endpoint("/meta/templates", methods=["GET"], tags=["Meta"])

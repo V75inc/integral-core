@@ -42,6 +42,42 @@ class TestDebugDefault:
         # so this asserts the *code* default, not the developer's environment.
         assert Settings.model_fields["DEBUG"].default is False
 
+    def test_session_policy_defaults_and_deployment_overrides(self, monkeypatch):
+        from app.config import Settings
+
+        assert Settings.model_fields["ACCESS_TOKEN_EXPIRE_MINUTES"].default == 60
+        assert (
+            Settings.model_fields[
+                "INTEGRAL_SESSION_SILENT_REFRESH_ACTIVITY_SECONDS"
+            ].default
+            == 900
+        )
+        monkeypatch.setenv("JVSPATIAL_JWT_EXPIRE_MINUTES", "90")
+        monkeypatch.setenv("INTEGRAL_SESSION_IDLE_TIMEOUT_SECONDS", "3600")
+        config = Settings(_env_file=None)
+        assert config.ACCESS_TOKEN_EXPIRE_MINUTES == 90
+        assert config.INTEGRAL_SESSION_IDLE_TIMEOUT_SECONDS == 3600
+
+    @pytest.mark.asyncio
+    async def test_public_metadata_exposes_runtime_session_policy(self, monkeypatch):
+        from app.api.meta import deployment_meta
+        from app.config import settings
+
+        monkeypatch.setattr(settings, "INTEGRAL_SESSION_IDLE_TIMEOUT_SECONDS", 3600)
+        monkeypatch.setattr(settings, "ACCESS_TOKEN_EXPIRE_MINUTES", 90)
+        policy = (await deployment_meta())["session_policy"]
+        assert policy["idle_timeout_seconds"] == 3600
+        assert policy["access_token_ttl_seconds"] == 5400
+        assert set(policy) == {
+            "idle_timeout_seconds",
+            "silent_refresh_activity_seconds",
+            "refresh_lead_seconds",
+            "min_refresh_interval_seconds",
+            "renewal_request_timeout_seconds",
+            "access_token_ttl_seconds",
+            "refresh_token_ttl_seconds",
+        }
+
     def test_native_chat_defaults_to_durable_work_items(self):
         """A missing feature flag must not bind accepted work to an SSE socket."""
         from app.config import Settings

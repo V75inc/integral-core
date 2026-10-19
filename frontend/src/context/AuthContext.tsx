@@ -1,5 +1,6 @@
 import { getHostSession } from '../host/session';
 import '../hooks/useDeployment';
+import { loadSessionPolicy } from '../api/sessionPolicy';
 import React, { createContext, useContext, useState, useEffect, useLayoutEffect, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { SessionRenewalDialog } from '../components/system/SessionRenewalDialog';
 import { enableSessionRecovery, finishSessionRecovery, getSessionRecovery, isSessionPaused, subscribeSessionRecovery } from '../api/sessionRecovery';
@@ -84,6 +85,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let active = true;
     let cleanupHydration = () => {};
     const begin = async () => {
+      await loadSessionPolicy();
+      if (!active) return;
       const hostSession = getHostSession();
       if (hostSession) {
         try {
