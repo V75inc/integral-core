@@ -372,6 +372,19 @@ def translate_event(event: Any) -> Iterator[dict[str, Any]]:
         name = getattr(part, "tool_name", None)
         call_id = getattr(part, "tool_call_id", None)
         if isinstance(name, str) and name and isinstance(call_id, str) and call_id:
+            from app.services.chat_tool_diagnostics import tool_diagnostic
+
+            content = getattr(part, "content", None)
+            failed = isinstance(part, RetryPromptPart) or (
+                isinstance(content, dict) and content.get("error") is True
+            )
+            diagnostic = (
+                tool_diagnostic(
+                    content.get("error_code") if isinstance(content, dict) else None
+                )
+                if failed
+                else None
+            )
             yield {
                 "type": "tool-call",
                 "toolCallId": call_id,
@@ -381,7 +394,8 @@ def translate_event(event: Any) -> Iterator[dict[str, Any]]:
                 # attribute (getattr returned None and hid real results in
                 # Integral's trace UI).
                 "result": getattr(part, "content", None),
-                "status": "error" if isinstance(part, RetryPromptPart) else "complete",
+                "status": "error" if failed else "complete",
+                **({"diagnostic": diagnostic} if diagnostic else {}),
             }
         return
 

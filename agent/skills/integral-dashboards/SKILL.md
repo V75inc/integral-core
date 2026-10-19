@@ -26,6 +26,28 @@ published fields. Home supports up to 12 nonoverlapping widgets, an introduction
 and ordinary approval. Do not create a dashboard named Home or claim a default
 dashboard creates a Home tab. Call `integral_read_app_home` after approval to verify it.
 
+### Home authoring and repair
+
+Use the `home` schema advertised by `integral_update_app`; it is the same
+composition contract the server validates. A minimal shape is:
+
+```json
+{"title":"Home","description":"Start here","widgets":[{"id":"overview","type":"metric_card","grid":{"x":0,"y":0,"w":4,"h":2},"data_source":{"kind":"declared_query","query_key":"<returned source key>","query_params":{},"rows_path":"<returned rows path>","total_path":"<returned total path>"}}]}
+```
+
+The placeholders above are structural examples, never callable source names.
+Copy actual bindings from `integral_suggest_dashboard`. Reuse its returned
+widgets when appropriate; adapt titles and layout to the App's purpose. Read
+current Home once to preserve any existing content. Do not list unrelated
+analytics dashboards or search conversation history to rediscover a known App.
+Use focused schema reads only for fields the chosen composition actually needs.
+
+On `invalid_arguments`, correct the named fields against the disclosed schema
+and retry the proposal. On source denial, use an eligible returned source or
+explain the missing contract. Do not repeat unchanged arguments, re-run broad
+discovery after a shape error, or treat a failed proposal as a pending approval.
+Once a proposal is staged, present it and stop until the user decides.
+
 ## Grounding
 
 - Confirm `app_id` from page focus or `integral_list_apps` before staging.
@@ -135,7 +157,8 @@ space (not a single column at `x: 0` unless intentional).
   dashboard is persisted.
 - Present the approval card and wait; do not claim the dashboard exists until
   `[SYSTEM:STAGING-RESOLVED] … state=consumed`.
-- Surface error envelopes verbatim — never retry blindly.
+- Explain observed errors without echoing private inputs; correct actionable
+  validation errors against the schema and never retry unchanged arguments.
 
 ## Forbidden patterns
 

@@ -72,6 +72,22 @@ from pydantic_ai_harness.step_persistence import (
 from pydantic_core import SchemaValidator, core_schema, to_jsonable_python
 
 
+def final_response_reserved(ctx: RunContext[Any]) -> bool:
+    """Reserve the final permitted model request for a tool-free handoff.
+
+    Read the framework's live allowance, including adaptive-request deductions;
+    never increase the budget or infer intent from the user's words.
+    """
+    limits = getattr(ctx, "usage_limits", None)
+    limit = getattr(limits, "request_limit", None)
+    usage = getattr(ctx, "usage", None)
+    return (
+        isinstance(limit, int)
+        and limit > 1
+        and getattr(usage, "requests", 0) >= limit - 1
+    )
+
+
 @dataclass
 class IntegralToolDisclosure(ToolSearch):
     """Use unified catalog search with framework-owned deferred disclosure.
@@ -103,6 +119,9 @@ class IntegralToolDisclosure(ToolSearch):
         def settings(ctx: RunContext[Any]) -> ModelSettings:
             baseline = inherited(ctx) if callable(inherited) else inherited
             resolved = ModelSettings(**(baseline or {}))
+            if final_response_reserved(ctx):
+                resolved["tool_choice"] = "none"
+                return resolved
             # A scoped pending proposal already supplies its decision tool.
             # Do not force rediscovery of a different workflow before the
             # model can interpret the reply; Core still validates that decision.
@@ -239,6 +258,16 @@ class IntegralToolDisclosure(ToolSearch):
             ctx, request_context=request_context, response=response
         )
         from app.agentive.harness.disclosure import is_public_support_text
+
+        if (
+            final_response_reserved(ctx)
+            and (request_context.model_settings or {}).get("tool_choice") == "none"
+        ):
+            if any(part.part_kind == "tool-call" for part in response.parts):
+                # Even providers ignoring tool_choice cannot dispatch another
+                # effect during the reserved final response.
+                raise UsageLimitExceeded("Final response reserve forbids tool calls")
+            return response
 
         # A fixed host support response carries no current-state assertions.
         # This permits a model-recognized disclosure request to stop without
@@ -440,6 +469,16 @@ def build_integral_run_instructions(
             "query or operation with read effects. If none exists, explain "
             "that the current App exposes no permitted read for this question.",
         ]
+        if final_response_reserved(ctx):
+            blocks.append(
+                "Integral turn budget: this is the final available response. "
+                "Do not call tools or promise further work in this turn. Give a "
+                "concise handoff grounded only in observed receipts: what was "
+                "verified, what is pending approval, and what remains unresolved. "
+                "A staged proposal is not an applied change. Do not claim success "
+                "without readback. Invite the user to continue in this chat; "
+                "never instruct them to restart or repeat already applied work."
+            )
         available = sorted(getattr(ctx, "available_tool_names", ()))
         if available:
             blocks.append(

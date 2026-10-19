@@ -39,6 +39,9 @@ def test_harness_usage_limit_has_an_actionable_message() -> None:
 
     assert code == "harness_usage_limit"
     assert "safe generation limit" in message
+    assert "Continue in this chat" in message
+    assert "pending approvals" in message
+    assert "new conversation" not in message
     assert "80000" not in message
 
 

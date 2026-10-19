@@ -1362,6 +1362,15 @@ async def _dispatch_propose(
         staged = binding.stager(dict(args or {}))
         if inspect.isawaitable(staged):
             staged = await staged
+    except PermissionError:
+        # A source outside current authority is unavailable, not an internal
+        # crash or an invitation to discover private source identifiers.
+        return ToolResult(
+            is_error=True,
+            error_code="permission_denied",
+            message="A proposed source is unavailable in the current scope. "
+            "Use an authorized source returned by the App's read contracts.",
+        )
     except ValueError as exc:
         # Stagers raise ValueError for arguments the agent can correct.
         return ToolResult(

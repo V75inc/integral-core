@@ -111,3 +111,47 @@ async def test_empty_widget_update_clears_board(authenticated_client, test_user)
     assert (await authenticated_client.get(path)).json()["dashboards"][0][
         "widgets"
     ] == []
+
+
+@pytest.mark.asyncio
+async def test_resident_home_proposal_approval_and_readback(
+    authenticated_client, test_user, monkeypatch
+):
+    """The real proposal must leave Home untouched until consent, then read back."""
+    # Transactional staging receipts require an explicit test-only storage key.
+    # Do not depend on a developer .env or weaken encrypted persistence.
+    monkeypatch.setenv("INTEGRAL_CREDENTIAL_ENC_KEY", "ab" * 32)
+    from app.agentive.services.staging_apply import bless_and_execute
+    from app.agentive.staging import StagingError, get_token
+    from app.agentive.tooling.dispatch import dispatch_tool
+
+    created = await authenticated_client.post(
+        "/api/apps", json={"name": "Resident Home qualification"}
+    )
+    assert created.status_code == 200, created.text
+    app = created.json()["app"]
+    app_id = app["id"]
+    me = await authenticated_client.get("/api/auth/me")
+    principal = me.json()["user"]["id"]
+    result = await dispatch_tool(
+        "integral_update_app",
+        {"app_id": app_id, "home": home()},
+        principal_id=principal,
+        scope=app.get("workspace_id"),
+    )
+    assert not result.is_error, result
+    token = result.data["token"]
+    assert (await get_token(token)).state == "pending"
+    before = await authenticated_client.get(f"/api/apps/{app_id}/home")
+    assert before.json()["home"] is None
+    applied = await bless_and_execute(user_id=principal, token=token)
+    assert applied["consumed"] is True, applied
+    read = await authenticated_client.get(f"/api/apps/{app_id}/home")
+    assert read.status_code == 200, read.text
+    assert read.json()["home"]["title"] == "Home"
+    assert read.json()["home"]["widgets"][0]["id"] == "one"
+    assert (await authenticated_client.get(f"/api/apps/{app_id}/dashboards")).json()[
+        "dashboards"
+    ] == []
+    with pytest.raises(StagingError):
+        await bless_and_execute(user_id=principal, token=token)
