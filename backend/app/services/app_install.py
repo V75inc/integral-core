@@ -1016,13 +1016,15 @@ async def plant_seeds_for_install(
     """Plant manifest seeds (+ package ``seeds/post_install``) when install opts in."""
     if not include_seed_data:
         return 0
-    planted = await plant_seeds(app_node, canonical, actor_id)
     from app.services.bundle_post_seed import run_bundle_post_seed
+    from app.services.install_seed_authority import install_seed_read_scope
 
     # Opting into package seed data makes its post-install prerequisites part
     # of the install transaction. A failure must roll the install back rather
     # than report an active App with a partial operational baseline.
-    planted += await run_bundle_post_seed(app_node, actor_id, required=True)
+    with install_seed_read_scope(app_node.id, actor_id):
+        planted = await plant_seeds(app_node, canonical, actor_id)
+        planted += await run_bundle_post_seed(app_node, actor_id, required=True)
     return planted
 
 
