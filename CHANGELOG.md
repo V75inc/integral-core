@@ -4,6 +4,11 @@ This pre-launch change record describes the supported Integral Core runtime.
 Package publication and deployment are separate release gates; a local version
 bump does not establish that a release is available on a package index.
 
+## 0.1.1rc24 — 2026-10-19
+
+- Renew expired sessions in place, preserving the open page and drafts, with same-account password reauthentication when refresh is rejected. Keep temporary outages retryable and do not automatically resubmit interrupted actions or chat turns (#156).
+- Preserve CORS headers on authentication rejections so cross-origin clients can handle session expiry correctly (#155).
+
 ## 0.1.1rc22 — release candidate
 
 - Extend the finite API deadline to 120 seconds and explain uncertain write outcomes without offering an automatic retry (#150).
