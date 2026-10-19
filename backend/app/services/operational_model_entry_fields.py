@@ -643,7 +643,17 @@ async def _validate_relation_values(
                         kind="track", id=tnode.id, scope=f"track:{tnode.id}"
                     ),
                 )
-                if not decision.allowed:
+                from app.services.install_seed_authority import (
+                    may_read_install_seed_relation,
+                )
+
+                if not decision.allowed and not await may_read_install_seed_relation(
+                    decision,
+                    viewer_subject,
+                    source_track_id=source_track.id,
+                    target_kind="track",
+                    target_id=tnode.id,
+                ):
                     raise BadRequestError(
                         message=f"Relation field '{field_key}' requires target read access"
                     )
@@ -713,7 +723,17 @@ async def _validate_relation_values(
                         kind="entry", id=target.id, scope=f"track:{target.track_id}"
                     ),
                 )
-                if not decision.allowed:
+                from app.services.install_seed_authority import (
+                    may_read_install_seed_relation,
+                )
+
+                if not decision.allowed and not await may_read_install_seed_relation(
+                    decision,
+                    viewer_subject,
+                    source_track_id=source_track.id,
+                    target_kind="entry",
+                    target_id=target.id,
+                ):
                     raise BadRequestError(
                         message=f"Relation field '{field_key}' requires target read access"
                     )

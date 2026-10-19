@@ -4,6 +4,10 @@ This pre-launch change record describes the supported Integral Core runtime.
 Package publication and deployment are separate release gates; a local version
 bump does not establish that a release is available on a package index.
 
+## 0.1.1rc26 — 2026-10-19
+
+- Validate same-App seed relations during installation using the current human installer authority. Keep incomplete Apps private, respect live access denials, and preserve required-hook rollback.
+
 ## 0.1.1rc25 — 2026-10-19
 
 - Require aiohttp 3.14.4 or newer and qualify the 3.14.5 patch release to remediate transport dependency advisories blocking publication.
