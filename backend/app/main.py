@@ -1492,6 +1492,20 @@ from app.services.host_hooks import mount_host_middleware
 
 mount_host_middleware(app)
 app.add_middleware(RateLimitMiddleware)
+
+# jvspatial installs CORS before authentication, so auth can return a 401
+# without CORS headers. Cross-origin clients then see a network error instead
+# of the status that triggers session refresh or sign-in. Move the existing
+# configured middleware outside all HTTP gates, preserving its allowlist and
+# disabled state. LocalTransport stays outermost to enforce desktop origins
+# even for preflight requests.
+from starlette.middleware.cors import CORSMiddleware
+
+for middleware in list(app.user_middleware):
+    if middleware.cls is CORSMiddleware:
+        app.user_middleware.remove(middleware)
+        app.user_middleware.insert(0, middleware)
+
 from app.runtime.transport import LocalTransport
 
 app.add_middleware(LocalTransport)
