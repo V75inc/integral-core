@@ -43,3 +43,30 @@ continue to use the ordinary sign-in flow.
 
 Cross-origin deployments require CORS headers on authentication rejections so
 the browser can expose the real HTTP status (Core PR #155).
+
+## Browser smoke qualification — 2026-10-19
+
+Qualified against the actual Vite application and an isolated local API/data
+store using a dedicated Chrome profile. Real signup, login, refresh and profile
+verification were exercised. A test-only ASGI wrapper shortened the UI expiry
+hint and injected refresh 401/503 responses; it is not part of production code.
+Offline mode used browser network emulation. No production data was changed.
+
+| Scenario | Result |
+| --- | --- |
+| Deadline pauses the existing page behind the native modal | Passed |
+| Continue working exchanges refresh credentials and restores the same URL | Passed |
+| Home/chat draft retention across renewal and password reauthentication | Passed |
+| Refresh 503 and offline failures remain retryable without navigation | Passed |
+| Rejected refresh requires a password; wrong password retains the lock | Passed |
+| Correct password verifies the same account and resumes in place | Passed |
+| Cross-tab explicit sign-out removes the old page and both tabs return to login | Passed |
+| 320px viewport, keyboard focus and Escape dismissal protection | Passed |
+| Renewal does not submit a chat message automatically | Passed (zero message submissions) |
+
+Automated regressions cover the pre-polling registration order, expiry timers,
+rate-limit/server failures, cancelled mutations, foreign-account rejection,
+late refresh/verification responses after sign-out, and paused chat submission.
+No external model execution was needed for these session smoke checks. This
+qualification covers local browser behavior; production deployment remains a
+separate action.

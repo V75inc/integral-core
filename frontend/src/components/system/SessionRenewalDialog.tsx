@@ -32,7 +32,10 @@ export function SessionRenewalDialog({ mode, user, onResume, onSignOut }: Props)
     const element = dialog.current;
     const preventDismissal = (event: Event) => event.preventDefault();
     const restoreLock = () => {
-      if (mounted.current && element && !element.open) element.showModal();
+      if (mounted.current && element && !element.open) {
+        element.showModal();
+        element.querySelector<HTMLElement>('input[type="password"]:not(:disabled), button[type="submit"]:not(:disabled)')?.focus();
+      }
     };
     element?.addEventListener('cancel', preventDismissal);
     element?.addEventListener('close', restoreLock);
@@ -47,8 +50,9 @@ export function SessionRenewalDialog({ mode, user, onResume, onSignOut }: Props)
   }, []);
 
   useEffect(() => {
-    if (needsPassword) dialog.current?.querySelector<HTMLInputElement>('input[type="password"]')?.focus();
-  }, [needsPassword]);
+    if (busy) return;
+    dialog.current?.querySelector<HTMLElement>(needsPassword ? 'input[type="password"]' : 'button[type="submit"]')?.focus();
+  }, [needsPassword, busy]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();

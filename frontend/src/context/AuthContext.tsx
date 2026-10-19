@@ -1,6 +1,6 @@
 import { getHostSession } from '../host/session';
 import '../hooks/useDeployment';
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useSyncExternalStore } from 'react';
+import React, { createContext, useContext, useState, useEffect, useLayoutEffect, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { SessionRenewalDialog } from '../components/system/SessionRenewalDialog';
 import { enableSessionRecovery, finishSessionRecovery, getSessionRecovery, isSessionPaused, subscribeSessionRecovery } from '../api/sessionRecovery';
 import { useQueryClient } from '@tanstack/react-query';
@@ -41,7 +41,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
   const recovery = useSyncExternalStore(subscribeSessionRecovery, getSessionRecovery);
 
-  useEffect(() => {
+  // Register before child polling effects can encounter an already-expired
+  // token during a slow sign-in/hydration commit.
+  useLayoutEffect(() => {
     enableSessionRecovery(user?.id ?? null);
     return () => { enableSessionRecovery(null); };
   }, [user?.id]);
