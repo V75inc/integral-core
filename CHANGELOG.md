@@ -4,6 +4,14 @@ This pre-launch change record describes the supported Integral Core runtime.
 Package publication and deployment are separate release gates; a local version
 bump does not establish that a release is available on a package index.
 
+## Unreleased
+
+- Acknowledge chat cancellation only after backend release, retain retryable failures, and fence retries to the observed turn.
+- Apply live tag additions through durable approved command batches, preserve existing tags and colors, and explain invalid or duplicate names.
+- Keep pasted chat drafts editable, reopen tag selection consistently, and render feed action menus outside clipping containers.
+- Remove unused Kanban field options with record/default checks and consistent updates to affected boards; expose authorized library model deletion from the model picker.
+- Show readable App/Entry change reviews, remove the Enhance-view shortcut, keep tag filters compact, and filter the global feed by Track-qualified tag identity before pagination.
+
 ## 0.1.1rc25 — 2026-10-19
 
 - Require aiohttp 3.14.4 or newer and qualify the 3.14.5 patch release to remediate transport dependency advisories blocking publication.

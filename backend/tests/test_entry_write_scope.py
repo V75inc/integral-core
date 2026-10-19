@@ -32,12 +32,12 @@ async def test_local_waiter_keeps_shared_lock_until_both_commands_finish(local_c
     second_entered = asyncio.Event()
 
     async def first():
-        async with module.entry_write_scope("same-entry"):
+        async with module.entry_write_scope("first-entry"):
             first_entered.set()
             await release.wait()
 
     async def second():
-        async with module.entry_write_scope("same-entry"):
+        async with module.entry_write_scope("different-entry"):
             second_entered.set()
 
     owner = asyncio.create_task(first())
@@ -49,4 +49,13 @@ async def test_local_waiter_keeps_shared_lock_until_both_commands_finish(local_c
     release.set()
     await asyncio.gather(owner, waiter)
     assert second_entered.is_set()
+    assert len(module._local_locks) == 0
+
+
+@pytest.mark.asyncio
+async def test_nested_local_commands_for_different_targets_are_reentrant(local_context):
+    async with module.entry_write_scope("schema"):
+        async with module.entry_write_scope("entry") as context:
+            assert context is local_context
+            assert len(module._local_locks) == 1
     assert len(module._local_locks) == 0

@@ -1419,7 +1419,12 @@ domains:
         status: existing
         op_class: propose
         priority: P2
-        summary: "Create a (optionally hierarchical) tag in a scope."
+        summary: >-
+          Add a live tag to an existing Track or App after approval. For multiple
+          tags, begin_batch, create_tag for each missing name/color, then
+          commit_batch for one approval. Preserve existing tags. This requires
+          no model draft or publish; draft-only tags are not live. Read back
+          integral_list_tags after approval before claiming completion.
         http: "POST /api/tags"
         policy_action: tag.create
         staging_kind: create_tag

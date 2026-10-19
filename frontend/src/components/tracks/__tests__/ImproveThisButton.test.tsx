@@ -15,7 +15,7 @@ afterEach(() => {
 });
 
 describe('ImproveThisButton', () => {
-  it.each<ImprovementTarget>(['entry', 'track', 'view'])(
+  it.each<ImprovementTarget>(['entry', 'track'])(
     'opens chat with a immediate scoped review request for a focused %s',
     target => {
       const listener = vi.fn();

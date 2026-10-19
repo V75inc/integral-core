@@ -4,7 +4,7 @@ import { useScopeOptional } from '../../context/ScopeContext';
 import { useAuthOptional } from '../../context/AuthContext';
 import { requestOpenCompanionChat } from '../../features/ai-chat/chatHandoff';
 
-export type ImprovementTarget = 'entry' | 'track' | 'view';
+export type ImprovementTarget = 'entry' | 'track';
 
 /** Open the resident with the already-published page context and submit a review request. */
 export function ImproveThisButton({

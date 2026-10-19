@@ -2364,7 +2364,17 @@ async def _x_create_tag(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]
     for k in ("track_id", "app_id", "color", "parent_tag_id", "group_key"):
         if payload.get(k):
             body[k] = payload[k]
-    return await _call_endpoint(handler, user_id, **body)
+    from app.agentive.services.staging_model_commands import apply_model_command
+
+    async def execute() -> Dict[str, Any]:
+        result = await _call_endpoint(handler, user_id, **body)
+        if not result.get("error") and isinstance(result.get("tag"), dict):
+            result["tag_id"] = result["tag"]["id"]
+        return result
+
+    return await apply_model_command(
+        user_id=user_id, payload=body, kind="create_tag", execute=execute
+    )
 
 
 async def _x_update_tag(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:

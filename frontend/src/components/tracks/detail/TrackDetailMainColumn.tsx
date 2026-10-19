@@ -49,6 +49,7 @@ export interface TrackDetailMainColumnProps {
   onEntryUpdate: NonNullable<ViewWidgetProps['onEntryUpdate']>;
   onEntryPersist: NonNullable<ViewWidgetProps['onEntryPersist']>;
   onViewUpdate: NonNullable<ViewWidgetProps['onViewUpdate']>;
+  onKanbanColumnRemove?: ViewWidgetProps['onKanbanColumnRemove'];
   onKanbanColumnEnumSync: NonNullable<
     ViewWidgetProps['onKanbanColumnEnumSync']
   >;
@@ -95,6 +96,7 @@ export function TrackDetailMainColumn({
   onEntryPersist,
   onViewUpdate,
   onKanbanColumnEnumSync,
+  onKanbanColumnRemove,
   onEntryCreate,
   entryTypes,
   trackEntryTypeFields,
@@ -192,6 +194,7 @@ export function TrackDetailMainColumn({
             onEntryPersist={onEntryPersist}
             onViewUpdate={onViewUpdate}
             onKanbanColumnEnumSync={onKanbanColumnEnumSync}
+            onKanbanColumnRemove={onKanbanColumnRemove}
             onEntryCreate={onEntryCreate}
             entryTypeSlugs={entryTypeSlugs}
             entryTypes={entryTypes}

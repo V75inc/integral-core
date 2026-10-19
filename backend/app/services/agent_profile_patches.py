@@ -495,13 +495,31 @@ def _op_add_tag(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:
     tier, _ = _resolve_track_tier(manifest, op.get("track"))
     group = _ensure_taxonomy_group(tier, group_key)
     tags = group.setdefault("tags", [])
-    new_key = str(spec.get("key") or spec.get("name") or "").lower().replace(" ", "_")
-    for t in tags:
-        if str(t.get("key") or "") == new_key:
-            raise BadRequestError(
-                message=f"tag '{new_key}' already exists in group '{group_key}'"
-            )
-    tags.append(dict(spec))
+    from app.api.validators_common import compute_fold
+    from app.services.operational_model_compile import _slug
+
+    name = str(spec.get("name") or spec.get("key") or "").strip()
+    if not name or len(name) > 80:
+        raise BadRequestError(message="Tag names must be 1 to 80 characters")
+    new_key = _slug(str(spec.get("key") or name))
+    if not new_key:
+        raise BadRequestError(message="Tag requires a non-empty key")
+    for existing_group in (tier.get("taxonomy") or {}).get("tag_groups", []):
+        for tag in existing_group.get("tags", []):
+            if compute_fold(
+                str(tag.get("name") or tag.get("key") or "")
+            ) == compute_fold(name):
+                raise BadRequestError(
+                    message=f"tag '{name}' already exists in this track"
+                )
+            if (
+                existing_group.get("key") == group_key
+                and _slug(str(tag.get("key") or tag.get("name") or "")) == new_key
+            ):
+                raise BadRequestError(
+                    message=f"tag '{new_key}' already exists in group '{group_key}'"
+                )
+    tags.append({**spec, "key": new_key, "name": name})
 
 
 def _op_remove_tag(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:

@@ -1158,6 +1158,21 @@ export function TrackDetailPage() {
     [id, queryClient, invalidateTrackMeta, showToast]
   );
 
+  const handleKanbanColumnRemove = useCallback(async (viewId: string, columnKey: string) => {
+    if (!id) return;
+    try {
+      await trackViewsApi.removeKanbanColumn(viewId, columnKey);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: viewsForTrackQueryKey(id) }),
+        queryClient.invalidateQueries({ queryKey: entryTypesForTrackQueryKey(id) }),
+        queryClient.invalidateQueries({ queryKey: trackAttachedOperationalModelQueryKey(id) }),
+      ]);
+    } catch (error) {
+      showToast(errorMessageFromAxios(error, 'Could not remove this column.'), 'error');
+      throw error;
+    }
+  }, [id, queryClient, showToast]);
+
   /** Append a kanban column key to profile select enums when ``group_by``
    *  targets a schema field (e.g. Pipeline ``stage``). */
   const handleKanbanColumnEnumSync = useCallback(
@@ -1857,6 +1872,7 @@ export function TrackDetailPage() {
           onEntryPersist={handleEntryPersist}
           onViewUpdate={handleViewUpdate}
           onKanbanColumnEnumSync={handleKanbanColumnEnumSync}
+          onKanbanColumnRemove={handleKanbanColumnRemove}
           onEntryCreate={handleEntryCreate}
           entryTypes={(entryTypesQuery.data ?? []) as EntryTypeNode[]}
           trackEntryTypeFields={trackEntryTypeFields}

@@ -652,3 +652,23 @@ async def _delete_view_after_admission(
         await emit_change_event(**event)
 
     return {"message": "View deleted successfully", "deleted_view_id": view_id}
+
+
+@endpoint(
+    "/views/{view_id}/kanban-columns/{column_key}",
+    methods=["DELETE"],
+    auth=True,
+    tags=["Views"],
+)
+async def delete_kanban_column(
+    request: Request, view_id: str, column_key: str
+) -> Dict[str, Any]:
+    """Remove an unused Kanban column and its schema option consistently."""
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    from app.services.kanban_columns import remove_kanban_column
+
+    return await remove_kanban_column(
+        request=request, user_id=user_id, view_id=view_id, column_key=column_key
+    )

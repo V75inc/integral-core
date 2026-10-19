@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState, useRef, useEffect } from 'react';
+import { Fragment, useMemo, useState, useRef, useEffect, useId } from 'react';
 import { X } from 'lucide-react';
 import type { Tag } from '../../types';
 import { LINE_ICON_STROKE } from '../ui';
@@ -22,6 +22,7 @@ export function TagLookupControl({
   onChangeSelected,
   className = '',
 }: TagLookupControlProps) {
+  const listId = useId();
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -61,8 +62,8 @@ export function TagLookupControl({
     if (selectedIds.includes(id)) return;
     onChangeSelected([...selectedIds, id]);
     setQ('');
-    setOpen(false);
     inputRef.current?.focus();
+    setOpen(false);
   };
 
   const remove = (id: string) => {
@@ -72,13 +73,22 @@ export function TagLookupControl({
   if (!selectableTags.length) return null;
 
   return (
-    <div ref={wrapRef} className={`relative min-w-0 ${className}`.trim()}>
+    <div ref={wrapRef} className={`relative min-w-0 ${className}`.trim()}
+      onKeyDown={event => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          event.stopPropagation();
+          inputRef.current?.focus();
+          setOpen(false);
+        }
+      }}>
       <div
         className="flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-[var(--panel-border)] bg-[var(--panel-2)] px-3 py-1.5 pr-2 text-left text-sm text-[var(--text)] outline-none transition focus-within:ring-2 focus-within:ring-[var(--focus-ring-color)]"
         onMouseDown={e => {
           if (e.target === inputRef.current) return;
           if ((e.target as HTMLElement).closest('button')) return;
           inputRef.current?.focus();
+          setOpen(true);
         }}
       >
         <div
@@ -122,16 +132,25 @@ export function TagLookupControl({
             setOpen(true);
           }}
           onFocus={() => setOpen(true)}
+          onClick={() => setOpen(true)}
+          onKeyDown={e => {
+            if (e.key === 'Escape') setOpen(false);
+            if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              setOpen(true);
+              requestAnimationFrame(() => wrapRef.current?.querySelector<HTMLButtonElement>('[role="option"]')?.focus());
+            }
+          }}
           placeholder="Add tags..."
           className="min-h-0 min-w-[4.5rem] flex-1 border-none bg-transparent p-0 text-sm font-normal leading-normal text-[var(--text)] placeholder:text-[var(--text-muted)] outline-none"
           aria-label="Add tags"
           aria-expanded={open}
-          aria-controls="tag-lookup-results"
+          aria-controls={listId}
         />
       </div>
       {open && (
         <div
-          id="tag-lookup-results"
+          id={listId}
           className="absolute left-0 right-0 z-20 mt-0.5 max-h-48 overflow-auto rounded-md border border-[var(--panel-border)] bg-[var(--panel)] py-1 shadow-lg"
           role="listbox"
         >

@@ -80,17 +80,29 @@ export const TaggableComposer = forwardRef<HTMLTextAreaElement, TaggableComposer
     const mirrorRef = useRef<HTMLDivElement | null>(null);
     useImperativeHandle(ref, () => localRef.current as HTMLTextAreaElement, []);
 
-    // Auto-grow the textarea to fit its content. We cap the textarea's own
-    // inline height at MAX_H px so the cap never lands on the mirror div via
-    // a shared CSS class. Past the cap the textarea scrolls internally;
-    // syncMirrorScroll keeps the mirror in sync via programmatic scrollTop.
-    const MAX_H = 160;
+    // Text without entity highlights stays native so clipboard text and the
+    // browser's caret use exactly the same layout. When highlighting, reserve
+    // the textarea's scrollbar width in the mirror and synchronize after resize.
+    const highlightedInput = entityRefs.length > 0;
     useLayoutEffect(() => {
       const el = localRef.current;
+      const mirror = mirrorRef.current;
       if (!el) return;
+      const scrollTop = el.scrollTop;
       el.style.height = 'auto';
-      el.style.height = `${Math.min(el.scrollHeight, MAX_H)}px`;
-    }, [value]);
+      el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+      el.scrollTop = scrollTop;
+      const alignMirror = () => {
+        if (!mirror) return;
+        mirror.style.width = `${el.clientWidth}px`;
+        mirror.scrollTop = el.scrollTop;
+        mirror.scrollLeft = el.scrollLeft;
+      };
+      alignMirror();
+      const observer = new ResizeObserver(alignMirror);
+      observer.observe(el);
+      return () => observer.disconnect();
+    }, [value, highlightedInput]);
 
     const scopeCtx = useScopeOptional();
     const workspaceId = scopeCtx?.scope?.workspaceId ?? null;
@@ -313,12 +325,14 @@ export const TaggableComposer = forwardRef<HTMLTextAreaElement, TaggableComposer
       [value, entityRefs],
     );
 
-    const textareaClass = ['taggable-composer-input', className].filter(Boolean).join(' ');
+    const textareaClass = ['taggable-composer-input', highlightedInput ? '' : 'taggable-composer-native', className].filter(Boolean).join(' ');
 
     return (
       <div className="taggable-composer-host relative min-w-0 flex-1" data-mention-host>
         <div
           ref={mirrorRef}
+          hidden={!highlightedInput}
+          style={style}
           className={`taggable-composer-mirror ${className}`}
           aria-hidden
         >
@@ -333,6 +347,7 @@ export const TaggableComposer = forwardRef<HTMLTextAreaElement, TaggableComposer
           onClick={handleClick}
           onScroll={handleScroll}
           className={textareaClass}
+          style={style}
           {...rest}
           onFocus={handleFocus}
         />

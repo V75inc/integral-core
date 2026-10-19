@@ -1184,12 +1184,29 @@ async def _stage_update_entry(args: Dict[str, Any]) -> Dict[str, Any]:
     if "fields" in payload and isinstance(payload["fields"], dict):
         from app.services.agent_scope import current_scope_workspace_id
 
-        rendered = await _sd.format_fields_patch_for_diff(
-            payload["fields"],
+        # Render each changed field like the scalar Track/App changes, with
+        # scoped relationship labels for both previous and proposed values.
+        old_fields = current.get("custom_fields") or current.get("fields") or {}
+        label_values = {
+            **payload["fields"],
+            "previous": {key: old_fields.get(key) for key in payload["fields"]},
+        }
+        tag_names, entry_names, track_names = await _sd.resolve_node_labels_for_diff(
+            label_values,
             user_id=_bound_propose_principal(),
             workspace_id=current_scope_workspace_id.get(),
         )
-        lines.append(f"- **fields:** {rendered}")
+        for key, value in payload["fields"].items():
+            lines.append(
+                await _sd.format_scalar_change_line(
+                    key,
+                    value,
+                    old_fields.get(key),
+                    tag_names=tag_names,
+                    entry_names=entry_names,
+                    track_names=track_names,
+                )
+            )
 
     return {
         "kind": "update_entry",
@@ -3299,7 +3316,12 @@ def _stage_create_tag(args: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "kind": "create_tag",
         "summary": f"Create tag '{args.get('name')}'",
-        "diff_human": f"Create tag '{args.get('name')}'",
+        "diff_human": (
+            f"**Create tag** *{args.get('name')}*\n\n"
+            f"- **Color:** `{payload.get('color') or '#6b7280'}`\n"
+            f"- **Group:** `{payload.get('group_key') or 'default'}`\n"
+            "Adds this tag to the live container after approval. Existing tags stay unchanged."
+        ),
         "diff_machine": dict(payload),
         "payload": payload,
     }
@@ -3518,10 +3540,19 @@ async def _stage_update_app(args: Dict[str, Any]) -> Dict[str, Any]:
         fields["home"] = await validate_home_composition(
             user_id=principal, app_id=args["app_id"], home=fields["home"]
         )
+    if not fields:
+        raise ValueError("update_app: supply at least one field to change")
+    current = await _sd.load_app_record(args["app_id"])
+    app_label = _sd.app_display_label(current or {}, args["app_id"])
+    lines = [f"**Update app** *{app_label}*", ""]
+    for key, value in fields.items():
+        lines.append(
+            await _sd.format_scalar_change_line(key, value, (current or {}).get(key))
+        )
     return {
         "kind": "update_app",
-        "summary": f"Update app {args.get('app_id')}",
-        "diff_human": f"Update app: {sorted(fields)}",
+        "summary": f"Update app “{app_label}”",
+        "diff_human": "\n".join(lines),
         "diff_machine": {"app_id": args.get("app_id"), **fields},
         "payload": {"app_id": args["app_id"], **fields},
     }

@@ -203,3 +203,40 @@ class TestFeedCRUD:
         entries = response.json()["entries"]
         row = next(e for e in entries if e["id"] == entry_id)
         assert row.get("comment_count") == 1
+
+
+@pytest.mark.asyncio
+async def test_tag_filter_runs_before_pagination_and_keeps_track_tag_identity(
+    authenticated_client,
+):
+    client = authenticated_client
+    track_ids, tag_ids, entry_ids = [], [], []
+    for title in ["First source", "Second source"]:
+        track_response = await client.post(
+            "/api/tracks", json={"title": title, "visibility": "private"}
+        )
+        assert track_response.status_code == 200, track_response.text
+        track_id = track_response.json()["track"]["id"]
+        track_ids.append(track_id)
+        tag_response = await client.post(
+            "/api/tags", json={"track_id": track_id, "name": "Shared label"}
+        )
+        assert tag_response.status_code == 200, tag_response.text
+        tag_id = tag_response.json()["tag"]["id"]
+        tag_ids.append(tag_id)
+        response = await client.post(
+            "/api/entries",
+            json={"track_id": track_id, "title": title, "tags": [tag_id]},
+        )
+        assert response.status_code == 200, response.text
+        entry_ids.append(response.json()["entry"]["id"])
+    # A newer untagged entry would occupy page one in an unfiltered query.
+    response = await client.post(
+        "/api/entries", json={"track_id": track_ids[0], "title": "Recent unrelated"}
+    )
+    assert response.status_code == 200, response.text
+    for path in ["/api/feed", "/api/feed_entries", "/api/entries"]:
+        response = await client.get(path, params={"tag_id": tag_ids[0], "limit": 1})
+        assert response.status_code == 200, response.text
+        assert [entry["id"] for entry in response.json()["entries"]] == [entry_ids[0]]
+        assert response.json()["has_more"] is False

@@ -509,6 +509,10 @@
     },
     {
       "allowed_tools": [
+        "integral_begin_batch",
+        "integral_cancel_batch",
+        "integral_commit_batch",
+        "integral_create_tag",
         "integral_describe_model",
         "integral_describe_substrate",
         "integral_diff_model_draft",
@@ -516,6 +520,7 @@
         "integral_get_track_schema",
         "integral_link_entries",
         "integral_list_apps",
+        "integral_list_tags",
         "integral_list_tracks",
         "integral_list_views",
         "integral_modify_model",
@@ -525,6 +530,9 @@
         "integral_save_view"
       ],
       "body_tools": [
+        "integral_begin_batch",
+        "integral_commit_batch",
+        "integral_create_tag",
         "integral_describe_model",
         "integral_describe_substrate",
         "integral_diff_model_draft",
@@ -532,6 +540,7 @@
         "integral_get_track_schema",
         "integral_link_entries",
         "integral_list_apps",
+        "integral_list_tags",
         "integral_list_tracks",
         "integral_list_views",
         "integral_modify_model",
@@ -556,6 +565,10 @@
       "allowed_tools": [
         "integral_apply_model_to_track",
         "integral_author_model",
+        "integral_begin_batch",
+        "integral_cancel_batch",
+        "integral_commit_batch",
+        "integral_create_tag",
         "integral_describe_model",
         "integral_describe_substrate",
         "integral_diff_model_draft",
@@ -563,6 +576,7 @@
         "integral_draft_new_model",
         "integral_get_model_draft",
         "integral_list_models",
+        "integral_list_tags",
         "integral_modify_model",
         "integral_propose_model_revision",
         "integral_publish_model_draft",
@@ -571,6 +585,9 @@
       "body_tools": [
         "integral_apply_model_to_track",
         "integral_author_model",
+        "integral_begin_batch",
+        "integral_commit_batch",
+        "integral_create_tag",
         "integral_describe_model",
         "integral_describe_substrate",
         "integral_diff_model_draft",
@@ -578,6 +595,7 @@
         "integral_draft_new_model",
         "integral_get_model_draft",
         "integral_list_models",
+        "integral_list_tags",
         "integral_modify_model",
         "integral_propose_model_revision",
         "integral_publish_model_draft",
@@ -1796,6 +1814,8 @@
       "skills": [
         "integral-attachments",
         "integral-entries",
+        "integral-model",
+        "integral-models",
         "integral-onboard",
         "integral-organize",
         "integral-scaffold"
@@ -1838,6 +1858,8 @@
       "skills": [
         "integral-attachments",
         "integral-entries",
+        "integral-model",
+        "integral-models",
         "integral-onboard",
         "integral-organize",
         "integral-scaffold"
@@ -1861,6 +1883,8 @@
       "skills": [
         "integral-attachments",
         "integral-entries",
+        "integral-model",
+        "integral-models",
         "integral-onboard",
         "integral-organize",
         "integral-scaffold"
@@ -2019,7 +2043,9 @@
       "policy_action": "track.read",
       "skills": [
         "integral-entries",
-        "integral-insights"
+        "integral-insights",
+        "integral-model",
+        "integral-models"
       ],
       "status": "existing"
     },
@@ -2039,6 +2065,8 @@
       "policy_action": "tag.create",
       "skills": [
         "integral-entries",
+        "integral-model",
+        "integral-models",
         "integral-organize",
         "integral-scaffold"
       ],

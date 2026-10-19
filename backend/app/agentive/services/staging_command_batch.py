@@ -173,6 +173,7 @@ async def apply_command_batch_once(*, sc: StagedChange, request: Any) -> dict[st
             reference_result = result
             reference_kind = {
                 "create_entry": "entry",
+                "create_tag": "tag",
                 "update_entry": "entry",
                 "create_app": "app",
                 "update_app": "app",
