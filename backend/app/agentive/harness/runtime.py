@@ -22,6 +22,7 @@ from app.agentive.harness.pydantic_ai_compat import (
     ConversationSearch,
     InstructionDisclosureGuard,
     Instrumentation,
+    IntegralLimitWarnings,
     IntegralToolDisclosure,
     PublicConversationHistorySource,
     Skills,
@@ -34,6 +35,7 @@ from app.agentive.harness.pydantic_ai_compat import (
     build_integral_run_instructions,
 )
 from app.agentive.harness.scoped_store import ScopedStepStore
+from app.agentive.harness.turn_progress import TurnProgress
 from app.schemas.agentive.work import WorkExecutionContext
 
 
@@ -48,6 +50,7 @@ def build_native_agent(
     skill_directories: Sequence[Path] = (),
     allowed_skill_names: Collection[str] = (),
     work_execution_context: WorkExecutionContext | None = None,
+    turn_progress: TurnProgress | None = None,
 ) -> Agent:
     """Build a fresh Harness composition for one trusted Integral invocation.
 
@@ -69,6 +72,7 @@ def build_native_agent(
         skill_directories=skill_directories,
         allowed_skill_names=allowed_skill_names,
         work_execution_context=work_execution_context,
+        turn_progress=turn_progress,
     )
     return agent
 
@@ -85,6 +89,7 @@ def build_native_runtime(
     skill_directories: Sequence[Path] = (),
     allowed_skill_names: Collection[str] = (),
     work_execution_context: WorkExecutionContext | None = None,
+    turn_progress: TurnProgress | None = None,
 ) -> tuple[Agent, ScopedStepStore]:
     """Build an Agent and expose its scoped store for conversation resume.
 
@@ -124,12 +129,14 @@ def build_native_runtime(
 
     capabilities: list[Any] = [
         Instrumentation(),
+        IntegralLimitWarnings(),
         # Pydantic AI owns deferred tool discovery; its supported callable
         # strategy uses Integral's tenant-authorized semantic catalog rather
         # than the built-in keyword-only fallback. The matching score affects
         # discovery order only; the broker remains the authorization boundary.
         (
             IntegralToolDisclosure(
+                turn_progress=turn_progress,
                 strategy=pydantic_tool_search_strategy,
                 max_results=8,
                 workflow_skill_ids=selected_skills,
@@ -194,7 +201,7 @@ def build_native_runtime(
     agent = Agent(
         model,
         instructions=build_integral_run_instructions(
-            instructions + "\n\n" + DISCLOSURE_POLICY
+            instructions + "\n\n" + DISCLOSURE_POLICY, turn_progress
         ),
         tools=list(tools),
         retries={"output": 3},

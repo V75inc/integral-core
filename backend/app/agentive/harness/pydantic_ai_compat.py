@@ -49,12 +49,14 @@ from pydantic_ai.messages import (
     UserPromptPart,
     post_compaction_window,
 )
+from pydantic_ai.models import InstructionPart
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.litellm import LiteLLMProvider
 from pydantic_ai_harness import Planning, Skills, StepPersistence
 from pydantic_ai_harness.compaction import (
     ClearToolResults,
     SummarizingCompaction,
+    WarnNearLimits,
 )
 from pydantic_ai_harness.conversation_search import (
     ConversationSearch,
@@ -71,6 +73,8 @@ from pydantic_ai_harness.step_persistence import (
 )
 from pydantic_core import SchemaValidator, core_schema, to_jsonable_python
 
+from app.agentive.harness.turn_progress import FINAL_RESPONSE_FALLBACK, TurnProgress
+
 
 def final_response_reserved(ctx: RunContext[Any]) -> bool:
     """Reserve the final permitted model request for a tool-free handoff.
@@ -81,11 +85,78 @@ def final_response_reserved(ctx: RunContext[Any]) -> bool:
     limits = getattr(ctx, "usage_limits", None)
     limit = getattr(limits, "request_limit", None)
     usage = getattr(ctx, "usage", None)
-    return (
+    if (
         isinstance(limit, int)
         and limit > 1
         and getattr(usage, "requests", 0) >= limit - 1
-    )
+    ):
+        return True
+    tool_limit = getattr(limits, "tool_calls_limit", None)
+    if isinstance(tool_limit, int) and tool_limit > 1:
+        if getattr(usage, "tool_calls", 0) >= max(
+            1, tool_limit - min(4, tool_limit // 4)
+        ):
+            return True
+    token_limit = getattr(limits, "total_tokens_limit", None)
+    if isinstance(token_limit, int):
+        used = getattr(usage, "total_tokens", 0)
+        # Budget for the next prompt grows with history. Reserve the cost of
+        # another response before the framework rejects it after generation.
+        last_input = next(
+            (
+                m.usage.input_tokens
+                for m in reversed(getattr(ctx, "messages", ()))
+                if isinstance(m, ModelResponse)
+            ),
+            0,
+        )
+        if used and used + max(last_input * 2, 2048) >= token_limit:
+            return True
+    return False
+
+
+class IntegralLimitWarnings(AbstractCapability):
+    """Use upstream usage warnings without fabricating a human conversation turn.
+
+    WarnNearLimits normally injects UserPromptPart and strips marker-bearing
+    messages. Generate its usage-only warning on a disposable empty projection,
+    then attach it as a dynamic instruction. Real user messages remain exact;
+    neither warning prose nor model output can establish a new turn boundary.
+    """
+
+    async def before_model_request(self, ctx, request_context):
+        limits = ctx.usage_limits
+        requests = getattr(limits, "request_limit", None)
+        tokens = getattr(limits, "total_tokens_limit", None)
+        requests = requests if isinstance(requests, int) and requests > 0 else None
+        tokens = tokens if isinstance(tokens, int) and tokens > 0 else None
+        if requests is None and tokens is None:
+            return request_context
+        upstream = WarnNearLimits(
+            max_iterations=requests, max_total_tokens=tokens, warning_threshold=0.6
+        )
+        projected = await upstream.before_model_request(
+            ctx, replace(request_context, messages=[])
+        )
+        warning = "\n".join(
+            part.content
+            for message in projected.messages
+            if isinstance(message, ModelRequest)
+            for part in message.parts
+            if isinstance(part, UserPromptPart) and isinstance(part.content, str)
+        )
+        if warning:
+            parameters = request_context.model_request_parameters
+            request_context.model_request_parameters = replace(
+                parameters,
+                instruction_parts=[
+                    *(parameters.instruction_parts or []),
+                    InstructionPart(
+                        warning, dynamic=True, name="integral-limit-warning"
+                    ),
+                ],
+            )
+        return request_context
 
 
 @dataclass
@@ -98,6 +169,7 @@ class IntegralToolDisclosure(ToolSearch):
     loading, history or library code. Used only with search_capabilities.
     """
 
+    turn_progress: TurnProgress | None = None
     require_initial_search: bool = True
     pending_decision_tool: str | None = None
     continuation_tools: frozenset[str] = frozenset()
@@ -119,7 +191,10 @@ class IntegralToolDisclosure(ToolSearch):
         def settings(ctx: RunContext[Any]) -> ModelSettings:
             baseline = inherited(ctx) if callable(inherited) else inherited
             resolved = ModelSettings(**(baseline or {}))
-            if final_response_reserved(ctx):
+            self._observe_discovery(ctx)
+            if final_response_reserved(ctx) or (
+                self.turn_progress and self.turn_progress.should_finalize
+            ):
                 resolved["tool_choice"] = "none"
                 return resolved
             # A scoped pending proposal already supplies its decision tool.
@@ -247,6 +322,27 @@ class IntegralToolDisclosure(ToolSearch):
 
         return settings
 
+    def _observe_discovery(self, ctx):
+        if self.turn_progress is None:
+            return
+        # Inspect only this invocation, never restored public history.
+        start = _active_turn_start(ctx.messages)
+        if start is None:
+            return
+        available = frozenset(getattr(ctx, "available_tool_names", ())) | frozenset(
+            ctx.active_capability_ids
+        )
+        for message in ctx.messages[start:]:
+            if isinstance(message, ModelRequest):
+                for part in message.parts:
+                    if isinstance(part, ToolReturnPart) and part.tool_name in {
+                        "search_capabilities",
+                        "load_capability",
+                    }:
+                        self.turn_progress.observe_discovery(
+                            part.tool_call_id, available
+                        )
+
     async def after_model_request(self, ctx, *, request_context, response):
         """Enforce discovery even when a provider cannot force tool choice.
 
@@ -259,15 +355,41 @@ class IntegralToolDisclosure(ToolSearch):
         )
         from app.agentive.harness.disclosure import is_public_support_text
 
+        calls = [p for p in response.parts if p.part_kind == "tool-call"]
+        finalizing = final_response_reserved(ctx) or bool(
+            self.turn_progress and self.turn_progress.should_finalize
+        )
         if (
-            final_response_reserved(ctx)
+            finalizing
             and (request_context.model_settings or {}).get("tool_choice") == "none"
         ):
-            if any(part.part_kind == "tool-call" for part in response.parts):
-                # Even providers ignoring tool_choice cannot dispatch another
-                # effect during the reserved final response.
-                raise UsageLimitExceeded("Final response reserve forbids tool calls")
+            if calls:
+                # Provider noncompliance must not produce another effect or
+                # replace the conversation with a framework exception.
+                return replace(response, parts=[TextPart(FINAL_RESPONSE_FALLBACK)])
             return response
+        tool_limit = getattr(ctx.usage_limits, "tool_calls_limit", None)
+        if (
+            isinstance(tool_limit, int)
+            and ctx.usage.tool_calls + len(calls) > tool_limit
+        ):
+            request_limit = getattr(ctx.usage_limits, "request_limit", None)
+            if request_limit is None or ctx.usage.requests < request_limit:
+                if self.turn_progress is None:
+                    self.turn_progress = TurnProgress()
+                self.turn_progress.reason = (
+                    "The proposed tool batch exceeds the remaining allowance."
+                )
+                # Use the framework's corrective-request lifecycle once. No
+                # member of the rejected batch has executed. The next request
+                # is tool-free; provider noncompliance takes the fallback above.
+                raise ModelRetry(
+                    "This tool batch was not executed. Give a final answer now "
+                    "using only earlier verified results. Identify any missing "
+                    "evidence or capability precisely; do not call more tools "
+                    "or claim that the rejected actions happened."
+                )
+            return replace(response, parts=[TextPart(FINAL_RESPONSE_FALLBACK)])
 
         # A fixed host support response carries no current-state assertions.
         # This permits a model-recognized disclosure request to stop without
@@ -426,6 +548,7 @@ def build_integral_json_schema_tool(
 
 def build_integral_run_instructions(
     base_instructions: str,
+    turn_progress: TurnProgress | None = None,
 ) -> Callable[[RunContext[Any]], str]:
     """Add current framework-owned capability state to each model request.
 
@@ -469,7 +592,20 @@ def build_integral_run_instructions(
             "query or operation with read effects. If none exists, explain "
             "that the current App exposes no permitted read for this question.",
         ]
-        if final_response_reserved(ctx):
+        blocks.append(
+            "Integral evidence discipline: use the smallest scoped read that answers "
+            "the question. Distinguish a record's modification time from evidence "
+            "of who changed it. Do not infer an actor from recency. If the required "
+            "capability is missing or refused, explain the precise evidence gap; "
+            "do not enumerate unrelated records or keep rediscovering the same tools. "
+            "Use a corrected argument or a genuinely different authorized approach "
+            "after failure. When results suffice, answer immediately."
+        )
+        if final_response_reserved(ctx) or (
+            turn_progress and turn_progress.should_finalize
+        ):
+            if turn_progress and turn_progress.reason:
+                blocks.append("Integral observed progress: " + turn_progress.reason)
             blocks.append(
                 "Integral turn budget: this is the final available response. "
                 "Do not call tools or promise further work in this turn. Give a "

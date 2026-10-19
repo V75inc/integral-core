@@ -55,11 +55,13 @@ from app.agentive.harness.pydantic_ai_compat import (
     build_integral_host_turn,
     classify_integral_harness_exception,
     continue_run,
+    final_response_reserved,
 )
 from app.agentive.harness.runtime import build_native_runtime
 from app.agentive.harness.skill_sources import (
     materialize_standard_skill_library,
 )
+from app.agentive.harness.turn_progress import TurnProgress
 from app.api.errors import (
     InsufficientPermissionsError,
     ResourceConflictError,
@@ -147,6 +149,30 @@ def _scaffold_completion_validator(run_state: dict[str, Any]):
         workflow_attempted = run_state.get(
             "scaffold_coverage_attempted"
         ) or run_state.get("proposal_attempted")
+        progress = run_state.get("turn_progress")
+        finalizing = final_response_reserved(ctx) or bool(
+            progress and progress.should_finalize
+        )
+        if (
+            finalizing
+            and run_state.get("build_succeeded")
+            and not run_state.get("verification_succeeded")
+        ):
+            return (
+                "The setup was applied, but its verification is incomplete. "
+                "Check the saved setup before retrying any changes. "
+                "We can continue verification in this chat."
+            )
+        if (
+            finalizing
+            and workflow_attempted
+            and not run_state.get("proposal_succeeded")
+            and not run_state.get("build_succeeded")
+        ):
+            return (
+                "I couldn't record the proposed setup. It has not been built. "
+                "We can correct the unresolved issue in this chat."
+            )
         if (
             workflow_attempted
             and not run_state.get("proposal_succeeded")
@@ -1951,6 +1977,7 @@ class PydanticAIProvider:
                 },
             )
             run_state: dict[str, Any] = {
+                "turn_progress": TurnProgress(),
                 "adaptive_requests": 1 if isinstance(light, EscalatedTurn) else 0,
                 "adaptive_tokens": (
                     light.input_tokens + light.output_tokens
@@ -2003,6 +2030,7 @@ class PydanticAIProvider:
                 tools=tools,
                 scope=scope,
                 agent_name="integral_core",
+                turn_progress=run_state["turn_progress"],
                 skill_directories=[Path(skill_temp.name)],
                 allowed_skill_names=allowed_skill_names,
                 work_execution_context=work_execution_context,

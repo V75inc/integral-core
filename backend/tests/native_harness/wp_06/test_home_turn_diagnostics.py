@@ -4,7 +4,6 @@ from types import SimpleNamespace
 
 import pytest
 from pydantic_ai import Agent
-from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.usage import UsageLimits
@@ -93,14 +92,8 @@ async def test_final_request_is_reserved_for_handoff_without_another_effect(
         capabilities=[IntegralToolDisclosure(require_initial_search=False)],
         instructions=build_integral_run_instructions("Use observed receipts only."),
     )
-    if ignore_reserve:
-        with pytest.raises(UsageLimitExceeded):
-            await agent.run("Do the work", usage_limits=UsageLimits(request_limit=4))
-    else:
-        result = await agent.run(
-            "Do the work", usage_limits=UsageLimits(request_limit=4)
-        )
-        assert "unfinished" in result.output
+    result = await agent.run("Do the work", usage_limits=UsageLimits(request_limit=4))
+    assert ("couldn't verify" if ignore_reserve else "unfinished") in result.output
     assert calls == 4
     assert effects == ["read"] * 3
 
