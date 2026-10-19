@@ -6,6 +6,8 @@ bump does not establish that a release is available on a package index.
 
 ## 0.1.1rc25 — 2026-10-19
 
+- Require aiohttp 3.14.4 or newer and qualify the 3.14.5 patch release to remediate transport dependency advisories blocking publication.
+
 - Recover Home authoring turns and retain tool outcomes without replaying completed effects (#158).
 - Finish stalled native harness turns within request, tool and token budgets, with grounded completion and truthful scaffold outcomes (#158).
 - Brand the session renewal dialog and preserve the workspace behind a translucent blur. Increase default access lifetime to 60 minutes and silent renewal activity eligibility to 15 minutes; expose session timing as deployment configuration (#158).
