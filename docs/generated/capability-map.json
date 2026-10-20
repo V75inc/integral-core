@@ -526,7 +526,8 @@
         "integral_modify_model",
         "integral_propose_model_revision",
         "integral_publish_model_draft",
-        "integral_save_view"
+        "integral_save_view",
+        "integral_update_app"
       ],
       "body_tools": [
         "integral_begin_batch",
@@ -545,7 +546,8 @@
         "integral_modify_model",
         "integral_propose_model_revision",
         "integral_publish_model_draft",
-        "integral_save_view"
+        "integral_save_view",
+        "integral_update_app"
       ],
       "delegates_to": [
         "integral-entries",
@@ -2788,6 +2790,7 @@
       "policy_action": "app.update",
       "skills": [
         "integral-dashboards",
+        "integral-model",
         "integral-workspace"
       ],
       "status": "existing"

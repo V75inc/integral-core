@@ -251,6 +251,8 @@ def _entry_type_key(value: str) -> str:
 async def _resolve_entry_type_id(
     track_id: str,
     entry_type_name: str,
+    *,
+    exact: bool = False,
 ) -> Optional[str]:
     """Look up an EntryType id by name or key on a track.
 
@@ -278,14 +280,19 @@ async def _resolve_entry_type_id(
             schema = getattr(et, "form_schema", None) or {}
             manifest_key = schema.get("_manifest_entry_type_key")
             if et.id == entry_type_name or (
-                manifest_key and _entry_type_key(str(manifest_key)) == target_key
+                manifest_key
+                and target_key
+                and _entry_type_key(str(manifest_key)) == target_key
             ):
                 return et.id
         for et in types:
             name = (getattr(et, "name", "") or "").casefold()
-            if name == target or _entry_type_key(name) == target_key:
+            if name == target or (target_key and _entry_type_key(name) == target_key):
                 return et.id
-        # Loose match — substring.
+        # Creation retains its legacy hint matching. Type-changing updates
+        # require an exact ID, manifest key or normalized display name.
+        if exact:
+            return None
         for et in types:
             name = (getattr(et, "name", "") or "").casefold()
             if target in name or name in target:
@@ -323,21 +330,22 @@ async def _x_update_entry(user_id: str, payload: Dict[str, Any]) -> Dict[str, An
             body[revision_key] = payload[revision_key]
     entry_type_name = payload.get("entry_type")
     if entry_type_name:
-        # We need the track_id to resolve the entry type. Fetch the
-        # entry to find it.
-        try:
-            from app.models.nodes import Entry
+        from app.models.nodes import Entry
 
-            entry = await Entry.get(entry_id)
-            if entry and getattr(entry, "track_id", ""):
-                type_id = await _resolve_entry_type_id(
-                    entry.track_id,
-                    entry_type_name,
-                )
-                if type_id:
-                    body["type_id"] = type_id
-        except Exception:  # noqa: BLE001
-            pass
+        entry = await Entry.get(entry_id)
+        type_id = (
+            await _resolve_entry_type_id(entry.track_id, entry_type_name, exact=True)
+            if entry is not None and entry.track_id
+            else None
+        )
+        if not type_id:
+            return {
+                "error": True,
+                "status_code": 400,
+                "error_code": "entry_type_unresolved",
+                "message": "That record type is no longer available here. Review the selected records before trying again. Nothing was changed.",
+            }
+        body["type_id"] = type_id
     return await _call_endpoint(handler, user_id, entry_id=entry_id, **body)
 
 

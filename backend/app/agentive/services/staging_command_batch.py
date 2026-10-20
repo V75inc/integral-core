@@ -109,6 +109,69 @@ async def apply_command_batch_once(*, sc: StagedChange, request: Any) -> dict[st
     results: list[dict[str, Any]] = []
     operations = sc.payload["operations"]
     try:
+        # A collection patch should refuse a revoked selection before changing
+        # another record. Completed children are reconciled from their journals;
+        # their current visibility cannot authorize replay or erase prior work.
+        if (
+            operations
+            and all(
+                op.get("kind") == "update_entry"
+                and isinstance((op.get("payload") or {}).get("entry_id"), str)
+                and "{{" not in op["payload"]["entry_id"]
+                for op in operations
+            )
+            and len({op["payload"]["entry_id"] for op in operations}) == len(operations)
+        ):
+            from app.services.bulk_entry_update import admit_update_selection
+
+            pending_ids = []
+            expected_revisions = {}
+            for index, operation in enumerate(operations):
+                child = replace(
+                    sc,
+                    token=f"{sc.token}:step:{index}",
+                    kind="update_entry",
+                    payload=operation["payload"],
+                )
+                if (
+                    await load_staging_execution_result(
+                        **await _identity(child, request)
+                    )
+                    is None
+                ):
+                    pending_ids.append(child.payload["entry_id"])
+                    if child.payload.get("expected_record_revision") is not None:
+                        expected_revisions[child.payload["entry_id"]] = child.payload[
+                            "expected_record_revision"
+                        ]
+            if pending_ids:
+                from jvspatial.api.exceptions import JVSpatialAPIException
+
+                from app.agentive.staging_executors import _envelope_error
+
+                try:
+                    await admit_update_selection(
+                        sc.user_id,
+                        pending_ids,
+                        identity["workspace_id"],
+                        expected_revisions=expected_revisions,
+                    )
+                except JVSpatialAPIException as exc:
+                    if claim is not None:
+                        await release_unapplied_staging_claim(claim)
+                        claim = None
+                    completed = len(operations) - len(pending_ids)
+                    return {
+                        **_envelope_error(exc),
+                        "completed": completed,
+                        "total": len(operations),
+                        "results": [],
+                        **(
+                            {"application_state": "partially_applied"}
+                            if completed
+                            else {}
+                        ),
+                    }
         for index, operation in enumerate(operations):
             await _assert_current(sc, claim, recovery=root_result is not None)
             if claim is not None:

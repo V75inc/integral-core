@@ -64,7 +64,7 @@ first, and confirm its size, before staging anything:
      model field, fetch its exact key with `integral_get_track_schema`, then use
      a filter such as `{ "custom_fields.priority": "High" }`. The workhorse for "all Q3 items",
      "everything older than 6mo". **Raise `limit`** so you cover the *whole* set,
-     not the first page — a bulk op must act on every matching entry.
+     not the first page — a bulk op must act on every matching entry. Follow `offset` pages until the returned `total` is covered; increasing a capped limit alone is not evidence of completeness.
    - **`integral_query`** — only when the selection is concept/meaning-based and
      no structured filter expresses it.
 4. **`integral_count_entries`** — confirm the magnitude ("this matches 47
@@ -79,7 +79,9 @@ For time windows ("older than six months", "this quarter"), compute the ISO-8601
 A bulk reorg is a multi-step workflow; stage it as a **single** card:
 
 1. Ground + select the exact entry id set (above). Hold the ids.
-2. **`integral_begin_batch`** with a short `label` (e.g. "Archive >6mo") — call it
+2. For one shared field/status/tag patch, call **`integral_bulk_update_entries`** directly; it creates one itemized review from ordinary revision-checked record commands. Page the complete selection first. A review supports up to 500 records; for larger collections, explain the count and prepare bounded reviews covering the whole selection. After approval, read back the affected records and report completed and unresolved outcomes briefly.
+
+   For a workflow combining different operations, use **`integral_begin_batch`** with a short `label` (e.g. "Archive >6mo") — call it
    **first**, before any create/tag, so everything collects into one card.
 3. If the change applies a **new tag** that does not exist yet, **`integral_create_tag`**
    as the **first op INSIDE the batch** (right after `begin_batch`). The tag has no

@@ -163,11 +163,12 @@ Implementation: `_cap_inherited_role` in
 `backend/app/services/permissions.py`.
 
 **Rationale.** Track-config authority (schema, views, tags, library,
-anchors, migrations) is a **per-resource curation decision** and MUST
-be granted directly on the resource — never via parent cascade. An App
-owner / admin inheriting onto contained Tracks gets entry-CRUD authority
-(`editor`) but cannot reshape per-Track substrate without an explicit
-direct grant. Deletion and ownership transfer require ownership of the
+anchors, migrations) is a **per-resource curation decision**. Ordinary
+collaborators require a direct grant; App ownership has the separately
+qualified configuration exception below. An App
+owner / admin inheriting onto contained Tracks gets ordinary entry-CRUD
+authority (`editor`). The explicit App-owner configuration exception below
+applies separately; App admins require a direct configuration grant. Deletion and ownership transfer require ownership of the
 specific resource. Sharing management requires a direct owner or admin
 role there, as specified in I-ROLE-01; those rights never cascade.
 
@@ -176,6 +177,17 @@ tier would be meaningless at the App-cascade boundary: anyone added to
 the App at admin (or owner) would silently curate every Track in the
 App, defeating the per-Track delegation model the role split exists to
 support.
+
+**App-owner configuration exception (2026-10-20).** The current owner of
+an App may configure its canonically contained Tracks, including installed
+Apps. `can_admin_track` proves current App ownership, workspace admission,
+containment and absence of Track exclusion or subtree block at the boundary.
+This is a configuration capability, not an inherited admin role:
+`resolve_role` and collaborator displays remain capped at editor. App admins
+and collaborators do not acquire it. Comment moderation, child deletion, ownership transfer and
+sharing retain their existing exact-resource grants. Shared Operational Models
+still require configuration authority over every current parent. Library
+packages are separate from installed copies and retain their publication rules.
 
 **Direct-grant exception.** A direct `OWNS` or `COLLABORATES_ON{role:
 "admin"}` edge on the resource itself ALWAYS resolves to its raw role

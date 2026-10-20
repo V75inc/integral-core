@@ -1392,7 +1392,7 @@ async def _dispatch_propose(
         return ToolResult(data=enrich_filing_tool_result(spec.name, staged.get("data")))
 
     from app.agentive.staging import (
-        append_to_batch,
+        append_operations_to_batch,
         create_staged_change,
         is_batch_open,
         open_batch,
@@ -1438,17 +1438,30 @@ async def _dispatch_propose(
                         "integral_create_app inside the same batch."
                     ),
                 )
-        count = await append_to_batch(
+        # A collection update is already a batch of canonical Entry commands.
+        # Flatten it so a surrounding workflow retains the same durable child
+        # receipts rather than falling back to an unsupported nested batch.
+        operations = (
+            staged["payload"]["operations"] if staged["kind"] == "batch" else [staged]
+        )
+        positions = await append_operations_to_batch(
             user_id=principal_id,
             session_id=session_id,
-            op={
-                "kind": staged["kind"],
-                "summary": staged["summary"],
-                "diff_human": staged["diff_human"],
-                "diff_machine": staged["diff_machine"],
-                "payload": staged["payload"],
-            },
+            operations=[
+                {
+                    key: operation[key]
+                    for key in (
+                        "kind",
+                        "summary",
+                        "diff_human",
+                        "diff_machine",
+                        "payload",
+                    )
+                }
+                for operation in operations
+            ],
         )
+        count = positions[-1]
         batched: Dict[str, Any] = {
             "_kind": "batched_op",
             "batched": True,

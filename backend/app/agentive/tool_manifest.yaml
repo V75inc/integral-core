@@ -1307,13 +1307,33 @@ domains:
         status: existing
         op_class: propose
         priority: P1
-        summary: "Apply the same field/tag/status patch to many entries in one staged change (single approval card shows the full set)."
+        summary: "Batch update a collection of records: apply the same field, tag or status changes to up to 500 selected entries with one itemized review."
         http: "PUT /api/entries/{entry_id}  (fan-out, single envelope)"
         policy_action: entry.update
-        staging_kind: bulk_update_entries   # fan-out under one token; per-entry gate at execute
-        params: { entry_ids: {type: array, required: true, items: {type: string}}, updates: {type: object, required: true} }
-        returns: { staged_token: str, affected_count: integer, diff: object }
-        privacy: "Role checked per-entry; any entry the caller cannot edit aborts the batch (fail-closed, PC-6) — never silently partial."
+        staging_kind: batch   # canonical revision-bound Entry commands and durable receipts
+        params:
+          entry_ids:
+            type: array
+            required: true
+            minItems: 1
+            maxItems: 500
+            items: {type: string}
+            desc: "Exact IDs from the complete selected result. Page through all results before preparing a collection update."
+          updates:
+            type: object
+            required: true
+            minProperties: 1
+            additionalProperties: false
+            desc: "Same patch for every record. Custom values belong under fields, using keys from each record's schema."
+            properties:
+              title: {type: string}
+              body: {type: string}
+              fields: {type: object}
+              tags: {type: array, items: {type: string}}
+              status: {type: string}
+              entry_type: {type: string}
+        returns: { staged_token: str, summary: str, diff_machine: object }
+        privacy: "Admit every selected entry in the active workspace before staging and recheck at execution. Each record retains its own policy, revision fence and durable outcome. Later validation or hook failure stops remaining work; report completed and unresolved steps, never claim atomicity."
       - name: integral_bulk_move_entries
         status: existing
         op_class: propose

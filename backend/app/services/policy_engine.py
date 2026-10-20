@@ -48,6 +48,7 @@ from app.services.permissions import (
     can_edit_entry,
     can_edit_track,
     can_edit_view,
+    can_moderate_track,
     can_view_app,
     can_view_entry,
     can_view_track,
@@ -704,6 +705,8 @@ async def _evaluate_human_default(
             return await _has_comment_rank("track", track_id)
         if _is(_ENTRY_TIER_PREFIXES):
             return await can_edit_track(user_id, track_id)
+        if action in _MODERATION_ACTIONS:
+            return await can_moderate_track(user_id, track_id)
         return await can_admin_track(user_id, track_id)
     if scope_str.startswith("app:"):
         app_id = scope_str.split(":", 1)[1]

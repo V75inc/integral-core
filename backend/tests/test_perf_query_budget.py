@@ -201,3 +201,41 @@ async def test_list_entries_multi_track_query_budget(
     count = int(count_header)
     # Measured 37 on 0.0.18 (2026-09-13); was 39 after nodes_bulk (2026-07-02).
     assert count <= 45, f"multi-track list used {count} DB round-trips (budget 45)"
+
+
+@pytest.mark.asyncio
+async def test_populated_track_counts_share_entry_admission_windows(
+    authenticated_client, monkeypatch
+):
+    """A populated Track page must not start one Entry scan per Track."""
+    track_ids = []
+    for index in range(4):
+        created = await authenticated_client.post(
+            "/api/tracks", json={"title": f"Populated budget {index}"}
+        )
+        assert created.status_code == 200, created.text
+        track_id = created.json()["track"]["id"]
+        track_ids.append(track_id)
+        entry = await authenticated_client.post(
+            "/api/entries", json={"track_id": track_id, "title": "Budget record"}
+        )
+        assert entry.status_code == 200, entry.text
+    from app.services import entry_access_projection
+
+    original = entry_access_projection.admit_records
+    windows = []
+
+    async def observe(user_id, records, **kwargs):
+        windows.append(len(records))
+        return await original(user_id, records, **kwargs)
+
+    monkeypatch.setattr(entry_access_projection, "admit_records", observe)
+    response = await authenticated_client.get("/api/tracks", params={"limit": 20})
+    assert response.status_code == 200, response.text
+    selected = {
+        row["id"]: row["entry_count"]
+        for row in response.json()["tracks"]
+        if row["id"] in track_ids
+    }
+    assert selected == dict.fromkeys(track_ids, 1)
+    assert windows == [4], f"Repeated Entry admission for one Track page: {windows}"

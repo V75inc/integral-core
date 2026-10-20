@@ -1,7 +1,7 @@
 ---
 name: integral-model
 description: 'Owns domain schema design and evolution for an existing App or Track: shape EntryTypes, fields, and reference patterns from the operational need, then propose the corresponding model revision. Advise integral-scaffold during a new-App build without taking over its end-to-end delivery. For direct Operational Model draft, publish, or library lifecycle operations, use integral-models; for record changes, use integral-entries.'
-allowed-tools: integral_list_tags integral_create_tag integral_begin_batch integral_commit_batch integral_cancel_batch integral_describe_substrate integral_describe_model integral_get_track_schema integral_list_apps integral_list_tracks integral_list_views integral_modify_model integral_get_model_draft integral_propose_model_revision integral_diff_model_draft integral_publish_model_draft integral_link_entries integral_save_view
+allowed-tools: integral_list_tags integral_create_tag integral_begin_batch integral_commit_batch integral_cancel_batch integral_describe_substrate integral_describe_model integral_get_track_schema integral_list_apps integral_update_app integral_list_tracks integral_list_views integral_modify_model integral_get_model_draft integral_propose_model_revision integral_diff_model_draft integral_publish_model_draft integral_link_entries integral_save_view
 ---
 
 # Integral model — SOP
@@ -42,6 +42,10 @@ and relation tools; it does not file content or stand up whole new apps.
 
 If the user wants records changed rather than the table's shape, you are in
 `integral-entries`, not here.
+
+## Owner changes to existing Apps
+
+The owner of any installed or custom App can request changes to its structure, including its own Tracks. Use the same introspection, draft, review, publication and readback tools for both. Package provenance is not a read-only restriction on the installed copy; the shared library package remains separate. Current workspace membership, explicit exclusions, protected fields, shared-model parent authority and package validation still apply. An App collaborator or admin does not gain the owner-only Track configuration path. For App name, description or Home changes use `integral_update_app`; for schema changes use the model tools below. Never invent a restriction based on how the App was created.
 
 ## Grounding — read before you propose
 

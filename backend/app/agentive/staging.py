@@ -2252,36 +2252,62 @@ async def append_to_batch(
     ``op`` is the stager's ``{kind, summary, diff_human, diff_machine, payload}``
     dict. Raises ``StagingError('no_open_batch')`` if no batch is open.
     """
+    positions = await append_operations_to_batch(
+        user_id=user_id, session_id=session_id, operations=[op]
+    )
+    return positions[0]
+
+
+async def append_operations_to_batch(
+    *, user_id: str, session_id: Optional[str], operations: list[Dict[str, Any]]
+) -> list[int]:
+    """Save an entire prepared collection under one lock and durable write."""
     async with _lock:
         batch = _open_batches.get((user_id, session_id))
         if batch is None:
             raise StagingError("no_open_batch", "No batch is open for this session")
-        payload = op.get("payload") or {}
-        # A retry of the same revision-bound assignment is one proposed effect.
-        # Do not collapse creates/appends, changed predicates, or A→B→A edits.
-        if (
-            op.get("kind") == "update_entry"
-            and payload.get("entry_id")
-            and payload.get("expected_record_revision") is not None
-        ):
-            for index in range(len(batch["ops"]) - 1, -1, -1):
-                previous = batch["ops"][index]
-                prior_payload = previous.get("payload") or {}
-                if prior_payload.get("entry_id") != payload["entry_id"]:
-                    continue
-                if previous.get("kind") == op["kind"] and prior_payload == payload:
-                    return index + 1
-                break
-        batch["ops"].append(dict(op))
-        if _durable_batches_enabled() and not await staging_store.persist_open_batch(
-            user_id=user_id, session_id=session_id, batch=batch
-        ):
-            batch["ops"].pop()
-            raise StagingError(
-                "durability_unavailable",
-                "Could not safely save this batch step; try again shortly.",
-            )
-        return len(batch["ops"])
+        previous_ops = list(batch["ops"])
+        positions = []
+        try:
+            for op in operations:
+                payload = op.get("payload") or {}
+                position = None
+                # A retry of a revision-bound assignment is one effect.
+                # Preserve creates/appends, changed predicates and A→B→A edits.
+                if (
+                    op.get("kind") == "update_entry"
+                    and payload.get("entry_id")
+                    and payload.get("expected_record_revision") is not None
+                ):
+                    for index in range(len(batch["ops"]) - 1, -1, -1):
+                        previous = batch["ops"][index]
+                        prior_payload = previous.get("payload") or {}
+                        if prior_payload.get("entry_id") != payload["entry_id"]:
+                            continue
+                        if (
+                            previous.get("kind") == op["kind"]
+                            and prior_payload == payload
+                        ):
+                            position = index + 1
+                        break
+                if position is None:
+                    batch["ops"].append(dict(op))
+                    position = len(batch["ops"])
+                positions.append(position)
+            if (
+                _durable_batches_enabled()
+                and not await staging_store.persist_open_batch(
+                    user_id=user_id, session_id=session_id, batch=batch
+                )
+            ):
+                raise StagingError(
+                    "durability_unavailable",
+                    "Could not save this review. Please try again.",
+                )
+        except BaseException:
+            batch["ops"] = previous_ops
+            raise
+        return positions
 
 
 async def cancel_batch(*, user_id: str, session_id: Optional[str]) -> bool:

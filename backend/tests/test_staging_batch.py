@@ -869,3 +869,38 @@ async def test_pending_entry_target_uses_existing_backward_reference_contract(
             session_id="chat",
             reference="{{step_2.id}}",
         )
+
+
+@pytest.mark.asyncio
+async def test_collection_append_is_one_durable_write_or_no_in_memory_change(
+    monkeypatch,
+):
+    """A failed collection append cannot leave half a selection to approve."""
+    await open_batch(user_id="collection-user", session_id="collection-session")
+    monkeypatch.setattr(staging, "_durable_batches_enabled", lambda: True)
+    saved = []
+
+    async def unavailable(**kwargs):
+        saved.append(len(kwargs["batch"]["ops"]))
+        return False
+
+    monkeypatch.setattr(staging.staging_store, "persist_open_batch", unavailable)
+    operations = [
+        {
+            "kind": "update_entry",
+            "payload": {
+                "entry_id": value,
+                "body": "Change",
+                "expected_record_revision": 1,
+            },
+        }
+        for value in ("one", "two")
+    ]
+    with pytest.raises(StagingError, match="Could not save"):
+        await staging.append_operations_to_batch(
+            user_id="collection-user",
+            session_id="collection-session",
+            operations=operations,
+        )
+    assert saved == [2]
+    assert peek_open_batch("collection-user", "collection-session")["op_count"] == 0
