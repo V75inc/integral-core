@@ -1846,6 +1846,10 @@ async def _catalog_install_microsoft_mail_oauth(
         raise BadRequestError(
             message="Microsoft 365 mail requires a tenant id and client id"
         )
+    try:
+        callback = redirect_uri()
+    except ValueError as exc:
+        raise BadRequestError(message=str(exc)) from exc
     auth_state: Dict[str, Any] = {
         "catalog_slug": entry["slug"],
         "display_name": entry["display_name"],
@@ -1853,7 +1857,7 @@ async def _catalog_install_microsoft_mail_oauth(
         "command": entry.get("command") or "",
         "args": list(entry.get("args") or []),
         "env_defaults": dict(entry.get("env_defaults") or {}),
-        "redirect_uri": redirect_uri(),
+        "redirect_uri": callback,
         **collected,
     }
     connector = await create_connector(

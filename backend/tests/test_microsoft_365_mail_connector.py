@@ -11,7 +11,12 @@ from app.agentive.api.connectors import (
 from app.agentive.connectors.mcp_client import _allowed_spawn_env_keys
 from app.api.errors import BadRequestError
 from app.connectors.catalog_loader import get_catalog_entry
-from app.services.connectors.microsoft_mail_oauth import SCOPES, consent_url, spawn_env
+from app.services.connectors.microsoft_mail_oauth import (
+    SCOPES,
+    absolute_redirect,
+    consent_url,
+    spawn_env,
+)
 
 _WRITE_MARKERS = ("send", "reply", "draft", "delete", "move", "update", "create")
 
@@ -47,6 +52,19 @@ def test_consent_url_is_tenant_scoped_and_read_only():
     assert "Mail.Read" in url
     assert "Mail.Read.Shared" in url
     assert "Mail.Send" not in url
+
+
+def test_blank_redirect_is_rejected_before_entra():
+    """An empty redirect is not an absolute URI and must not be sent to Entra."""
+    with pytest.raises(ValueError, match="absolute"):
+        absolute_redirect("")
+    with pytest.raises(ValueError):
+        consent_url(
+            tenant="tenant-1",
+            client_id="client-1",
+            redirect_uri="",
+            state="signed-state",
+        )
 
 
 def test_spawn_env_carries_the_access_token_and_not_the_refresh_token():

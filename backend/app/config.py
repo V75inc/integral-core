@@ -403,6 +403,12 @@ class Settings(BaseSettings):
     GMAIL_OAUTH_REDIRECT_URI: str = (
         "http://localhost:9006/connectors/gmail/oauth/callback"
     )
+    # Browser landing for the Microsoft 365 mail catalog connector. Entra
+    # redirects the popup here; the page posts the code to the API. Must be
+    # registered as a Web redirect URI on the Entra app, character for character.
+    MICROSOFT_MAIL_REDIRECT_URI: str = (
+        "http://localhost:9006/connectors/microsoft-mail/callback"
+    )
     # Optional aliases for Google MCP connectors (Drive). Fall back to the
     # Gmail client when unset. Drive consent uses MCP_OAUTH_REDIRECT_URI,
     # not GMAIL_OAUTH_REDIRECT_URI — register both URIs on the Google app.
