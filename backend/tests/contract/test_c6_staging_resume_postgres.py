@@ -143,6 +143,9 @@ asyncio.run(main())
 """
     child_env = {
         **os.environ,
+        # The in-memory test driver is registered only in this interpreter.
+        # Child approval recovery uses the real graph, without vector I/O.
+        "EMBEDDING_STORE_DRIVER": "null",
         "C6_A08_TOKEN": staged.token,
         "C6_A08_USER": user_id,
     }
@@ -157,7 +160,7 @@ asyncio.run(main())
     child_result = json.loads(child.stdout.strip().splitlines()[-1])
     assert child_result["pid"] != os.getpid()
     resumed = child_result["result"]
-    assert resumed["consumed"] is True
+    assert resumed["consumed"] is True, resumed
     assert resumed["execute_result"]["completed"] == 3
     apps = await App.find({"context.name": "C6 restart app"})
     tracks = await Track.find({"context.title": "C6 restart track"})

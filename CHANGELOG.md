@@ -6,6 +6,8 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc28 — 2026-10-20
+
 - Keep current-origin and recognized placeholder record citations inside the active installation and tab; preserve external website links.
 
 - Let App owners edit their installed Apps and current Tracks through the same permission and approval contracts; retain separate package publication authority.

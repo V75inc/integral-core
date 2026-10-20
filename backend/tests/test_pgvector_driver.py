@@ -1,7 +1,8 @@
 """Integration tests for ``PgVectorEmbeddingStore`` (pgvector driver).
 
 These exercise the real ``vector`` extension on a live Postgres, so the
-whole module is skipped unless ``JVSPATIAL_POSTGRES_DSN`` points at a
+whole module is skipped unless ``SEMANTIC_TEST_DSN`` (preferred) or
+``JVSPATIAL_POSTGRES_DSN`` points at a
 reachable Postgres with the ``vector`` extension available. Local
 ``pytest`` and CI without a database remain green via the module-level
 skip.
@@ -23,7 +24,9 @@ import pytest
 pytestmark = [pytest.mark.integration]
 
 
-_PG_DSN = os.environ.get(
+# Use the provisioned vector database during collection: the graph fixture's
+# integral_test database is created later, at session setup, on a fresh runner.
+_PG_DSN = os.environ.get("SEMANTIC_TEST_DSN") or os.environ.get(
     "JVSPATIAL_POSTGRES_DSN",
     "postgresql://integral:integral@localhost:5433/integral",
 )
@@ -56,7 +59,11 @@ def _pg_available() -> bool:
         return asyncio.run(_probe())
 
 
-if not _pg_available():  # pragma: no cover — skip path is the no-op success
+if not _pg_available():  # pragma: no cover — no optional database locally
+    if os.environ.get("SEMANTIC_TEST_DSN"):
+        raise RuntimeError(
+            "Configured SEMANTIC_TEST_DSN is unavailable or lacks pgvector"
+        )
     pytest.skip(
         "JVSPATIAL_POSTGRES_DSN not reachable / vector ext unavailable; "
         "pgvector driver tests skipped",

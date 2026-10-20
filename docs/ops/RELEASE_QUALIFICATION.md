@@ -6,10 +6,10 @@ from `backend/pyproject.toml`; verify the release index and deployment separatel
 
 ## Work under review
 
-- **PR #162 — App ownership, durable collection updates, Track loading and
+- **rc28 / PR #162 — App ownership, durable collection updates, Track loading and
   semantic retrieval.** [Owner/batch/performance evidence](../qa/2026-10-20-owner-batch-performance.md)
   and [semantic indexing evidence](qualification/semantic-search-2026-10-20/REPORT.md)
-  record the local checks and limits. Semantic evidence includes the labelled
+  record the local checks and limits. The [rc28 release update](qualification/release-rc28.md) records version consistency, artifact identity and CI findings. Semantic evidence includes the labelled
   corpus, real encoder/pgvector, browser source readback, latency and actual
   provider token observations. It does not qualify a production deployment.
 - **rc27 / PR #160 — chat, authoring and usability.** The
