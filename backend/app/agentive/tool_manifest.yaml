@@ -1749,24 +1749,6 @@ domains:
           track_id: {type: string, required: true, desc: "Identifier of the track to merge the library Operational Model onto."}
           model_template_id: {type: string, required: true, desc: "Identifier of the library Operational Model package to apply (from integral_list_models)."}
         returns: { staged_token: str }
-      - name: integral_recommend_customizations
-        status: existing
-        op_class: read
-        priority: P2
-        summary: >-
-          Analyze a track's existing entries and suggest concrete model patches.
-          Repeated labelled body values can imply text/select fields; repeated
-          names that match existing same-type entries can imply relations; date
-          and select fields can imply calendar and board views. Read-only: it
-          RECOMMENDS and never changes anything. Use for "Improve this" requests,
-          inspect the model, then stage each accepted suggestion through the draft
-          lifecycle and show its diff before publishing.
-        http: "(agentive service)"
-        policy_action: operational_model.author
-        params:
-          track_id: {type: string, required: true, desc: "Identifier of the track to analyze for profile improvement suggestions."}
-          entry_sample_limit: {type: integer, optional: true, default: 20, desc: "Maximum number of recent entries to sample when inferring patterns (default 20)."}
-        returns: { recommendations: list }
       - name: integral_author_model
         status: existing
         op_class: propose
@@ -2610,11 +2592,11 @@ domains:
 # SUMMARY COUNTS (for review convenience; keep in sync)
 # =============================================================================
 summary:
-  total_tools: 127
-  existing_tools: 125    # status: existing
+  total_tools: 126
+  existing_tools: 124    # status: existing
   gap_tools_proposed: 2  # status: gap (workspace_setup, onboard_user deferred)
-  by_op_class: { read: 55, propose: 71, execute: 1 }
-  by_priority: { P0: 16, P1: 41, P2: 70 }
+  by_op_class: { read: 54, propose: 71, execute: 1 }
+  by_priority: { P0: 16, P1: 41, P2: 69 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
   policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)

@@ -90,3 +90,21 @@ describe('acknowledged thread cancellation', () => {
     expect(client.post).not.toHaveBeenCalled();
   });
 });
+
+it('backs off polling while waiting for durable cancellation', async () => {
+  vi.useFakeTimers();
+  client.post.mockResolvedValue({
+    data: { cancelled: true, work_item_id: 'old' },
+  });
+  client.get.mockResolvedValue({
+    data: { running: true, work_item_id: 'old' },
+  });
+  const pending = expect(aiChatApi.cancelThread('thread')).rejects.toThrow(
+    'Stopping is taking longer',
+  );
+  await vi.advanceTimersByTimeAsync(30_000);
+  await pending;
+  // One target read plus at most 18 completion reads, including the deadline.
+  expect(client.get.mock.calls.length).toBeLessThanOrEqual(19);
+  expect(client.post).toHaveBeenCalledOnce();
+});

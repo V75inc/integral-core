@@ -1,7 +1,7 @@
 ---
 name: integral-model
 description: 'Owns domain schema design and evolution for an existing App or Track: shape EntryTypes, fields, and reference patterns from the operational need, then propose the corresponding model revision. Advise integral-scaffold during a new-App build without taking over its end-to-end delivery. For direct Operational Model draft, publish, or library lifecycle operations, use integral-models; for record changes, use integral-entries.'
-allowed-tools: integral_list_tags integral_create_tag integral_begin_batch integral_commit_batch integral_cancel_batch integral_describe_substrate integral_describe_model integral_get_track_schema integral_list_apps integral_list_tracks integral_list_views integral_modify_model integral_recommend_customizations integral_get_model_draft integral_propose_model_revision integral_diff_model_draft integral_publish_model_draft integral_link_entries integral_save_view
+allowed-tools: integral_list_tags integral_create_tag integral_begin_batch integral_commit_batch integral_cancel_batch integral_describe_substrate integral_describe_model integral_get_track_schema integral_list_apps integral_list_tracks integral_list_views integral_modify_model integral_get_model_draft integral_propose_model_revision integral_diff_model_draft integral_publish_model_draft integral_link_entries integral_save_view
 ---
 
 # Integral model — SOP
@@ -122,16 +122,6 @@ After approval, read `integral_list_tags` again and verify every requested name
 and color, plus preservation of the existing tags, before reporting completion.
 
 ## Procedure
-
-When the user chooses **Improve this** on an Entry, Track, or View, the page
-context identifies that object and the composer contains a review-only request.
-For a Track or View, call `integral_recommend_customizations` before proposing
-changes. It analyzes repeated labelled body values, existing record names, and
-the field palette to return concrete patch suggestions. Inspect the current
-model before using a suggestion; treat each accepted suggestion as one draft
-revision, show its diff, and wait for approval before publishing. Suggestions
-are evidence to review, not permission to change the model. For an Entry,
-inspect its Track's model and the focused record before proposing any change.
 
 `integral_modify_model` has no field actions. Any field edit, including one
 field addition, uses the draft lifecycle with an `operations` list. Use

@@ -1,7 +1,7 @@
 ---
 name: integral-models
 description: 'Handles direct Operational Model operations: inspect a profile, author or edit its EntryTypes, Tags, and Views, manage draft/publish lifecycle, or merge a library model. Use when the user names the model/profile mechanics; use integral-model to decide what domain schema should exist, and integral-scaffold to deliver a new App.'
-allowed-tools: integral_list_tags integral_create_tag integral_begin_batch integral_commit_batch integral_cancel_batch integral_list_models integral_describe_model integral_describe_substrate integral_recommend_customizations integral_author_model integral_modify_model integral_apply_model_to_track integral_get_model_draft integral_diff_model_draft integral_propose_model_revision integral_publish_model_draft integral_discard_model_draft integral_draft_new_model
+allowed-tools: integral_list_tags integral_create_tag integral_begin_batch integral_commit_batch integral_cancel_batch integral_list_models integral_describe_model integral_describe_substrate integral_author_model integral_modify_model integral_apply_model_to_track integral_get_model_draft integral_diff_model_draft integral_propose_model_revision integral_publish_model_draft integral_discard_model_draft integral_draft_new_model
 ---
 
 # Integral operational models — SOP
@@ -95,10 +95,6 @@ and color, plus preservation of the existing tags, before reporting completion.
 - `integral_describe_substrate` — the substrate's available building
   blocks: the field-type and view-type palette plus any signed code
   plugins.
-- `integral_recommend_customizations` — suggested profile tweaks for a
-  track, derived from its entries and usage. A starting point for a
-  `modify`/`author` proposal; still inspect with `describe_operational_model` and
-  let the user bless the resulting staged change.
 
 ### Authoring & modifying (propose, the user blesses)
 

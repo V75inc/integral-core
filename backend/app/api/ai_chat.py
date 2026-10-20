@@ -572,12 +572,17 @@ async def _resolve_owned_chat_work_item(
 
     canonical_id = work_item_id.removeprefix("o.WorkItem.")
     item = (
-        await WorkItem.find_one({"id": f"o.WorkItem.{canonical_id}"})
+        # Object.find_one rewrites an unqualified `id` to `context.id`.
+        # WorkItem's indexed stored key gives a current read without relying
+        # on the GraphContext identity cache; verify the canonical object ID
+        # below as well as the full chat authority tuple.
+        await WorkItem.find_one({"context.work_item_id": canonical_id})
         if fresh
         else await WorkItem.get(f"o.WorkItem.{canonical_id}")
     )
     if (
         item is None
+        or item.id != f"o.WorkItem.{canonical_id}"
         or item.work_item_id != canonical_id
         or item.kind != "chat_turn"
         or item.principal_id != principal_id

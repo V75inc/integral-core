@@ -19,6 +19,9 @@ export interface TrackDetailMainColumnProps {
   filterType: string;
   setFilterType: (v: string) => void;
   entryTypeSlugs: string[];
+  tagFilterEntries?: Entry[];
+  filterTags?: string[];
+  setFilterTags?: (value: string[]) => void;
   trackSearch: string;
   setTrackSearch: (v: string) => void;
   retrievalMode: string;
@@ -69,6 +72,9 @@ export function TrackDetailMainColumn({
   filterType,
   setFilterType,
   entryTypeSlugs,
+  tagFilterEntries,
+  filterTags,
+  setFilterTags,
   trackSearch,
   setTrackSearch,
   retrievalMode,
@@ -126,6 +132,9 @@ export function TrackDetailMainColumn({
                 filterType={filterType}
                 setFilterType={setFilterType}
                 entryTypeSlugs={entryTypeSlugs}
+                tagEntries={tagFilterEntries}
+                selectedTags={filterTags}
+                onTagsChange={setFilterTags}
                 search={trackSearch}
                 setSearch={setTrackSearch}
                 retrievalActive={retrievalMode !== 'graph'}

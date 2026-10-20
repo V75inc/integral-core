@@ -211,6 +211,7 @@ export const aiChatApi = {
     );
     if (!res.data.cancelled) return res.data;
     const deadline = Date.now() + 30_000;
+    let pollDelay = 500;
     while (true) {
       const { data } = await apiClient.get<{
         running: boolean;
@@ -236,7 +237,10 @@ export const aiChatApi = {
           'Stopping is taking longer than expected. Try Stop again to check cancellation.',
         );
       }
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.min(pollDelay, deadline - Date.now())),
+      );
+      pollDelay = Math.min(pollDelay * 2, 2000);
     }
   },
 };

@@ -176,7 +176,7 @@ test-postgres-ci:
 		JVSPATIAL_POSTGRES_DSN=$${JVSPATIAL_POSTGRES_DSN:-postgresql://integral:integral@localhost:5432/integral_core} \
 		$(PY) -m pytest -q --tb=short \
 		tests/test_credentials_delivery.py tests/test_member_provision_authority.py \
-		tests/test_entry_relation_admission_regressions.py tests/test_entry_template_resolve.py
+		tests/test_entry_relation_admission_regressions.py tests/test_entry_template_resolve.py tests/test_install_seed_authority.py
 
 ## Reproduce backend test lanes, frontend tests and Postgres before pushing.
 ## Artifact CI checks have separate targets above. Catches black/isort

@@ -568,7 +568,9 @@ async def test_worker_times_out_and_cancels_a_stalled_provider_stream(
 
     item, principal_id = await _submitted_claimed_turn()
     provider = _HangingProvider()
-    monkeypatch.setattr(settings, "INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS", 0.05)
+    # Leave time for the real PostgreSQL delta commit before timing out the
+    # deliberately stalled provider, including under concurrent suite load.
+    monkeypatch.setattr(settings, "INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS", 1.0)
     monkeypatch.setattr(chat_providers, "get_registry", lambda: _Registry(provider))
     monkeypatch.setattr(execution_runs, "start_run", _fake_start_run)
 
@@ -1025,7 +1027,8 @@ async def test_cancelled_worker_persists_committed_partial_output(
         thread_id=item.thread_id,
         work_item_id=item.work_item_id,
     )
-    assert [event["type"] for event in page.events] == ["text-delta", "error"]
+    # Cancellation is emitted by replay as turn-settled, outside normal effects.
+    assert [event["type"] for event in page.events] == ["text-delta"]
     thread = await ChatThread.get(item.thread_id)
     assert thread is not None
     messages = await thread.nodes(
@@ -1038,7 +1041,7 @@ async def test_cancelled_worker_persists_committed_partial_output(
         {
             "type": "error",
             "code": "work.cancelled",
-            "message": "durable cancellation stopped the handler",
+            "message": "Turn stopped.",
         },
     ]
     assert provider.calls == 1
@@ -1144,3 +1147,108 @@ async def test_retry_after_terminal_event_does_not_repeat_model_request(
     assert finished.status == "succeeded"
     assert provider.calls == 1
     assert persist_attempts == 2
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["before_input", "mid_stream", "final_write"])
+async def test_cancelled_chat_preserves_committed_output_and_releases_admission(
+    postgres_graph_context, monkeypatch, phase
+) -> None:
+    """Stop is control-plane cleanup, never an ordinary post-cancel effect."""
+    from app.agentive.services.work_execution import build_work_execution_context
+    from app.models.harness_records import HarnessTurnAdmissionSlot
+    from app.services import chat_providers, chat_turn_transcript
+    from app.services.chat_turn_transcript import load_work_item_assistant_result
+
+    item, _ = await _submitted_claimed_turn()
+
+    class CancelProvider(_Provider):
+        async def stream_turn(self, _turn):
+            self.calls += 1
+            yield {"type": "text-delta", "delta": "Committed partial reply."}
+            if phase == "mid_stream":
+                await work_items.cancel_work_item(item.work_item_id)
+            yield {"type": "message-finish"}
+
+    provider = CancelProvider([])
+    monkeypatch.setattr(chat_providers, "get_registry", lambda: _Registry(provider))
+    monkeypatch.setattr(execution_runs, "start_run", _fake_start_run)
+    if phase == "before_input":
+        await work_items.cancel_work_item(item.work_item_id)
+    elif phase == "final_write":
+        persist = chat_turn_transcript.persist_work_item_assistant_result
+
+        async def cancel_before_write(**kwargs):
+            await work_items.cancel_work_item(item.work_item_id)
+            return await persist(**kwargs)
+
+        monkeypatch.setattr(
+            chat_turn_transcript,
+            "persist_work_item_assistant_result",
+            cancel_before_write,
+        )
+
+    finished = await work_worker.execute_claimed_work(
+        item, worker_id="cancel-contract", lease_seconds=120
+    )
+    assert finished.status == "cancelled"
+    assert finished.failure["code"] == "work.cancelled"
+    assert provider.calls == (0 if phase == "before_input" else 1)
+    persisted = await WorkItem.get(item.id)
+    assert persisted.status == "cancelled" and not persisted.lease_token
+    thread = await ChatThread.get(item.thread_id)
+    assert thread.active_work_item_id == ""
+    assert not await HarnessTurnAdmissionSlot.find({"work_item_id": item.work_item_id})
+    context = build_work_execution_context(
+        work_item=item, logical_step_key="provider:0"
+    )
+    result = await load_work_item_assistant_result(context=context)
+    assert result is not None
+    text = [part["text"] for part in result.parts if part["type"] == "text"]
+    assert text == ([] if phase == "before_input" else ["Committed partial reply."])
+    assert result.provider_metadata["error"]["code"] == "work.cancelled"
+    from app.services.chat_turn_worker import terminalize_chat_turn
+
+    await terminalize_chat_turn(context, status="cancelled")
+    assert (await load_work_item_assistant_result(context=context)).id == result.id
+    next_turn = await submit_chat_turn(
+        ChatTurnSubmissionRequest(
+            principal_id=item.principal_id,
+            workspace_id=item.workspace_id,
+            thread_id=item.thread_id,
+            client_request_id=f"after-stop-{uuid.uuid4().hex}",
+            parts=[{"type": "text", "text": "Continue with a new request."}],
+        )
+    )
+    assert next_turn.status == "queued"
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid", ["principal", "workspace", "thread", "lease"])
+async def test_cancel_terminalization_rejects_foreign_scope_or_stale_lease(
+    postgres_graph_context, invalid
+) -> None:
+    from app.agentive.services.work_execution import build_work_execution_context
+    from app.services.chat_turn_transcript import load_work_item_assistant_result
+    from app.services.chat_turn_worker import terminalize_chat_turn
+
+    item, _ = await _submitted_claimed_turn()
+    await work_items.cancel_work_item(item.work_item_id)
+    context = build_work_execution_context(
+        work_item=item, logical_step_key="provider:0"
+    )
+    updates = (
+        {f"{invalid}_id": "foreign"} if invalid != "lease" else {"lease_token": "stale"}
+    )
+    forged = context.model_copy(update=updates)
+    with pytest.raises(WorkError):
+        await terminalize_chat_turn(forged, status="cancelled")
+    assert (await WorkItem.get(item.id)).status == "running"
+    assert (
+        await ChatThread.get(item.thread_id)
+    ).active_work_item_id == item.work_item_id
+    assert await load_work_item_assistant_result(context=context) is None

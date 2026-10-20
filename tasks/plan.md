@@ -21,3 +21,12 @@ Checkpoints: focused regressions after each slice, production build after UI gro
 - I-APPROVAL-01/02/05: each live tag creation binds exact approved fields to its durable receipt, retains actor/outcome and returns current authorized readback after retry.
 - I-CHAT-01: readable App/Entry summaries and before/after values replace machine field lists. Internal IDs stay in API/receipt data.
 - Migration barriers remain enforced before schema edits; removing an enum value checks stored records and configured defaults before the write.
+
+## October 19 complete follow-up
+
+The original rc25 qualification above is historical. The follow-up integrates
+main's rc26 installer fix, reconciles all 26 October 14/19 items from the live
+QA document, retires all Enhance surfaces and functions, delays conversation
+previews, and uses the actual local frontend/API/PostgreSQL/provider runtime.
+See tasks/qa-followup.md for the current acceptance inventory and evidence.
+No additional version bump or deployment is implied by the source update.

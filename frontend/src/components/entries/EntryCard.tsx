@@ -17,7 +17,7 @@ import {
   ThumbsUp
 } from 'lucide-react';
 import { EntryMetaFields } from './EntryMetaFields';
-import { tagColorStyle } from '../../utils/tagColor';
+import { TagChip } from '../../ui';
 import { ProvenanceBadge } from './ProvenanceBadge';
 import { isSamePrincipal, formatStackedDateTime, entryTypeColor } from '../../utils';
 import { useCanEditEntry } from '../../utils/entryEditRights';
@@ -671,7 +671,7 @@ function EntryCardInner({
                         onTypeClick(slugEntryTypeName(entry.type));
                       }}
                       aria-pressed={isActive}
-                      className="inline-flex shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)] rounded-full"
+                      className="inline-flex shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)] rounded-[var(--radius-input)] transition-opacity hover:opacity-80"
                       title={
                         isActive
                           ? `Clear filter (currently: ${label})`
@@ -809,23 +809,14 @@ function EntryCardInner({
                       onTagClick?.(tag.id);
                     }}
                     aria-pressed={isActiveTag}
-                    className="inline-flex shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)] rounded-full"
+                    className="inline-flex shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)] rounded-[var(--radius-input)] transition-opacity hover:opacity-80"
                     title={
                       isActiveTag
                         ? `Clear tag filter (${label})`
                         : `Filter feed by ${label}`
                     }
                   >
-                    <Pill
-                      tone="descriptive"
-                      variant="neutral"
-                      style={tagColorStyle(tag.color)}
-                      className={
-                        isActiveTag ? 'ring-1 ring-[var(--text)]' : ''
-                      }
-                    >
-                      #{label}
-                    </Pill>
+                    <TagChip label={label} color={tag.color} selected={isActiveTag} />
                   </Link>
                 );
               })}

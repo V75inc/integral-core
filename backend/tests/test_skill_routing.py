@@ -2,7 +2,6 @@
 
 from app.services.skill_routing import ROUTING, owner_for
 from app.services.turn_binding import (
-    is_improve_this,
     is_rate_dashboard,
     rename_tag_pair,
 )
@@ -37,6 +36,4 @@ def test_user_sentence_ignores_the_host_note():
         "Improve this"
     )
     assert user_sentence(wrapped) == "Improve this"
-    assert is_improve_this(user_sentence(wrapped))
-    assert is_improve_this("Improve this")
     assert is_rate_dashboard("Show a dashboard of the vehicle daily rates")

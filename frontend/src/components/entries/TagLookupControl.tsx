@@ -1,3 +1,4 @@
+import { TagChip } from '../../ui';
 import { Fragment, useMemo, useState, useRef, useEffect, useId } from 'react';
 import { X } from 'lucide-react';
 import type { Tag } from '../../types';
@@ -100,19 +101,12 @@ export function TagLookupControl({
             <span
               key={t.id}
               role="listitem"
-              className="inline-flex h-4 max-w-full items-center gap-0.5 rounded border border-[var(--panel-border)] bg-[var(--panel)] pl-1 pr-0.5 text-[var(--text)] leading-none"
+              className="inline-flex min-w-0 max-w-full"
             >
-              {t.color ? (
-                <span
-                  className="h-1.5 w-1.5 shrink-0 rounded-full"
-                  style={{ background: t.color }}
-                  aria-hidden
-                />
-              ) : null}
-              <span className="max-w-[9rem] truncate text-sm leading-none">{t.name}</span>
+              <TagChip label={t.name} color={t.color}>
               <button
                 type="button"
-                className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-[var(--text-muted)] hover:bg-[var(--panel-2)] hover:text-[var(--text)]"
+                className="-mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--text-muted)] hover:bg-[var(--panel-2)] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]"
                 aria-label={`Remove ${t.name}`}
                 onClick={e => {
                   e.stopPropagation();
@@ -121,6 +115,7 @@ export function TagLookupControl({
               >
                 <X size={11} strokeWidth={LINE_ICON_STROKE} />
               </button>
+              </TagChip>
             </span>
           ))}
         </div>

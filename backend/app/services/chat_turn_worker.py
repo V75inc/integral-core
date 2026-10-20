@@ -102,6 +102,11 @@ async def terminalize_chat_turn(
                 transaction=transaction,
             )
 
+        if status == "cancelled":
+            from app.services.chat_turn_transcript import persist_cancelled_chat_result
+
+            await persist_cancelled_chat_result(context=context)
+
         thread = None
         if item.thread_id:
             from app.models.nodes import ChatThread

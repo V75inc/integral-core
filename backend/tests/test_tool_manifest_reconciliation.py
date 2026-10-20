@@ -69,3 +69,11 @@ def test_staging_exempt_and_batch_tools_documented():
 def test_catalogue_count_after_stale_gap_relabel():
     catalogue = build_tool_catalogue()
     assert len(catalogue) >= _catalogue_before_a1_baseline()
+
+
+def test_removed_enhance_tool_is_not_discoverable_or_dispatchable():
+    """Retired enhancement functionality cannot be invoked through MCP or chat."""
+    name = "integral_recommend_customizations"
+    assert name not in load_manifest()
+    assert name not in TOOL_BINDINGS
+    assert name not in {tool["name"] for tool in build_tool_catalogue()}

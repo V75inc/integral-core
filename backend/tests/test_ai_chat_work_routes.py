@@ -39,6 +39,7 @@ def _install_work_item(
     thread_id: str,
 ) -> None:
     item = SimpleNamespace(
+        id=f"o.WorkItem.{work_item_id.removeprefix('o.WorkItem.')}",
         work_item_id=work_item_id,
         kind="chat_turn",
         principal_id=principal_id,
@@ -674,6 +675,7 @@ async def test_cancellation_activity_uses_fresh_thread_and_work_reads(monkeypatc
     )
     monkeypatch.setattr(ai_chat.chat_turn_registry, "get_turn", lambda _: None)
     item = SimpleNamespace(
+        id="o.WorkItem.work",
         work_item_id="work",
         kind="chat_turn",
         principal_id="owner",
@@ -688,5 +690,67 @@ async def test_cancellation_activity_uses_fresh_thread_and_work_reads(monkeypatc
     result = await ai_chat.thread_activity(None, "thread")
     assert result["running"] is False
     thread_read.assert_awaited_once_with({"id": "thread"})
-    work_read.assert_awaited_once_with({"id": "o.WorkItem.work"})
+    work_read.assert_awaited_once_with({"context.work_item_id": "work"})
     cached.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_activity_reads_persisted_work_item_and_releases_terminal_turn(
+    authenticated_client: AsyncClient,
+) -> None:
+    """Exercise Object query mapping against storage, not a mocked find_one."""
+    from app.models.nodes import ChatThread
+
+    workspace_id, thread_id = await _owned_native_thread(authenticated_client)
+    thread = await ChatThread.get(thread_id)
+    assert thread is not None
+    item = await WorkItem.create(
+        id="o.WorkItem.persisted-activity",
+        work_item_id="persisted-activity",
+        kind="chat_turn",
+        principal_id=thread.user_id,
+        workspace_id=workspace_id,
+        thread_id=thread_id,
+        status="running",
+    )
+    thread.provider_id = "integral_native"
+    thread.active_work_item_id = item.work_item_id
+    await thread.save()
+    headers = {"X-Integral-Scope": f"ws:{workspace_id}"}
+    response = await authenticated_client.get(
+        f"/api/chat/threads/{thread_id}/activity", headers=headers
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["running"] is True
+    assert response.json()["work_item_id"] == item.work_item_id
+    item.status = "cancelled"
+    await item.save()
+    response = await authenticated_client.get(
+        f"/api/chat/threads/{thread_id}/activity", headers=headers
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["running"] is False
+
+
+@pytest.mark.asyncio
+async def test_fresh_work_item_refuses_noncanonical_object_identity(monkeypatch):
+    from app.api import ai_chat
+    from app.api.errors import ResourceNotFoundError
+
+    item = SimpleNamespace(
+        id="o.WorkItem.other",
+        work_item_id="work",
+        kind="chat_turn",
+        principal_id="owner",
+        workspace_id="workspace",
+        thread_id="thread",
+    )
+    monkeypatch.setattr(WorkItem, "find_one", AsyncMock(return_value=item))
+    with pytest.raises(ResourceNotFoundError):
+        await ai_chat._resolve_owned_chat_work_item(
+            work_item_id="work",
+            principal_id="owner",
+            workspace_id="workspace",
+            thread_id="thread",
+            fresh=True,
+        )

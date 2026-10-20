@@ -1,7 +1,6 @@
 import type { Entry } from '../../types';
-import { Pill } from '../ui';
+import { TagChip } from '../../ui';
 import { Text } from '../../ui';
-import { tagColorStyle } from '../../utils/tagColor';
 
 export function entriesMatchingTags(
   entries: Entry[],
@@ -32,11 +31,8 @@ export function TrackTagFilters({
     <div
       role="group"
       aria-label="Filter by tags"
-      className="flex min-w-0 items-center gap-2 px-4 py-2"
+      className="flex min-w-0 items-center gap-2 py-2"
     >
-      <Text className="shrink-0 whitespace-nowrap" variant="meta" tone="muted">
-        Tags{selected.length ? ` (${selected.length})` : ''}:
-      </Text>
       <div
         className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto py-1"
         aria-label="Tag choices (match all)"
@@ -47,7 +43,7 @@ export function TrackTagFilters({
             type="button"
             aria-pressed={selected.includes(tag.id)}
             aria-label={`Filter by tag ${tag.name}`}
-            className="shrink-0 whitespace-nowrap rounded-full focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]"
+            className="inline-flex shrink-0 items-center whitespace-nowrap rounded-[var(--radius-input)] transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]"
             onClick={() =>
               onChange(
                 selected.includes(tag.id)
@@ -56,25 +52,24 @@ export function TrackTagFilters({
               )
             }
           >
-            <Pill
-              tone="descriptive"
-              style={tagColorStyle(tag.color)}
-              className={
-                selected.includes(tag.id) ? 'ring-2 ring-[var(--text)]' : ''
-              }
-            >
-              #{tag.name}
-            </Pill>
+            <TagChip
+              label={tag.name}
+              color={tag.color}
+              selected={selected.includes(tag.id)}
+            />
           </button>
         ))}
       </div>
       {!!selected.length && (
         <button
           type="button"
-          className="shrink-0 whitespace-nowrap text-xs text-[var(--link)]"
+          aria-label="Clear tag filters"
+          className="shrink-0 whitespace-nowrap rounded-[var(--radius-input)] px-2 py-1 transition-opacity hover:opacity-75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]"
           onClick={() => onChange([])}
         >
-          Clear tag filters
+          <Text variant="meta" tone="muted">
+            Clear ({selected.length})
+          </Text>
         </button>
       )}
     </div>

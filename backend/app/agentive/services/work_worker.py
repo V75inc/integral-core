@@ -13,6 +13,9 @@ from app.agentive.services import work_execution, work_items
 from app.agentive.work_models import WorkItem
 from app.exceptions import BadRequestError
 from app.schemas.agentive.work import WorkError, WorkFailure
+from app.services.chat_turn_transcript import (
+    fold_chat_transcript as _native_chat_transcript,
+)
 
 log = logging.getLogger(__name__)
 
@@ -413,92 +416,39 @@ async def _handle_routine_turn_safe(
         raise
 
 
-def _native_chat_transcript(
-    events: list[dict[str, Any]], *, error: dict[str, str] | None = None
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Fold normalized provider events into the single durable chat result.
-
-    Raw provider payloads and reasoning are deliberately not accepted here.
-    Reuse the event store's projection so new public usage fields survive
-    both live replay and a subsequent transcript reload.
-    """
-    from app.services.chat_turn_events import normalize_public_event
-
-    text = ""
-    parts: list[dict[str, Any]] = []
-    tool_positions: dict[str, int] = {}
-    steps: list[dict[str, Any]] = []
-    timing: dict[str, Any] = {}
-    for event in events:
-        kind = event.get("type")
-        if kind == "text-delta":
-            text += str(event.get("delta") or "")
-        elif kind == "text-replace":
-            text = str(event.get("content") or "")
-        elif kind == "tool-call":
-            call_id = str(event.get("toolCallId") or "")
-            if not call_id:
-                continue
-            summary = {
-                "type": "tool-call",
-                "toolCallId": call_id,
-                "toolName": str(event.get("name") or ""),
-                "status": str(event.get("status") or "complete"),
-                "isError": event.get("status") == "error",
-            }
-            if event.get("diagnostic") is not None:
-                summary["diagnostic"] = normalize_public_event(event)["diagnostic"]
-            # Start/result events describe one call, not two transcript parts.
-            # Keep the first position and update it with the final receipt state.
-            if call_id in tool_positions:
-                parts[tool_positions[call_id]] = summary
-            else:
-                tool_positions[call_id] = len(parts)
-                parts.append(summary)
-        elif kind == "source":
-            parts.append(
-                {
-                    "type": "source",
-                    "sourceType": "url",
-                    "url": event.get("url"),
-                    "title": event.get("title"),
-                }
-            )
-        elif kind == "step":
-            steps.append(
-                {
-                    key: value
-                    for key, value in normalize_public_event(event).items()
-                    if key not in {"type", "name", "status"}
-                }
-            )
-        elif kind == "message-finish" and isinstance(event.get("timing"), dict):
-            timing = dict(normalize_public_event(event)["timing"])
-        elif kind == "error":
-            error = {
-                "code": str(event.get("code") or "internal_error"),
-                "message": str(event.get("message") or "The assistant turn failed."),
-            }
-    if text:
-        parts.insert(0, {"type": "text", "text": text})
-    if error:
-        parts.append({"type": "error", **error})
-    if not parts:
-        parts.append({"type": "text", "text": ""})
-    metadata: dict[str, Any] = {"steps": steps}
-    if timing:
-        metadata["timing"] = timing
-    if error:
-        metadata["error"] = error
-    return parts, metadata
-
-
 def _chat_stream_event_key(context, ordinal: int) -> str:
     """Namespace producer-local ordinals by the authoritative lease generation."""
     return f"{context.run_id}:lease-{context.lease_fence}:{ordinal}"
 
 
 async def _handle_chat_turn(
+    item: WorkItem,
+    *,
+    worker_id: str,
+    lease_seconds: float,
+) -> WorkItem:
+    """Settle cancellation even when it races with a final public output write."""
+    from app.services.chat_turn_worker import terminalize_chat_turn
+
+    try:
+        return await _execute_chat_turn(
+            item, worker_id=worker_id, lease_seconds=lease_seconds
+        )
+    except WorkError as exc:
+        if exc.code != "work.cancelled":
+            raise
+        context = work_execution.build_work_execution_context(
+            work_item=item,
+            logical_step_key=work_execution.logical_step_key_for(kind="chat_turn"),
+        )
+        return await terminalize_chat_turn(
+            context,
+            status="cancelled",
+            failure={"code": exc.code, "message": exc.message},
+        )
+
+
+async def _execute_chat_turn(
     item: WorkItem,
     *,
     worker_id: str,
@@ -565,6 +515,8 @@ async def _handle_chat_turn(
     async def _terminalize_pre_stream_failure(
         failure: dict[str, str], *, status: ChatTerminalStatus = "failed"
     ) -> WorkItem:
+        if status == "cancelled":
+            return await terminalize_chat_turn(ctx, status="cancelled", failure=failure)
         await append_work_item_chat_event(
             context=ctx,
             event_key=f"{ctx.run_id}:terminal-error",
@@ -826,6 +778,9 @@ async def _handle_chat_turn(
         failure = {"code": code, "message": message}
         log.exception("Native chat worker stream failed work_item=%s", ctx.work_item_id)
 
+    if status == "cancelled":
+        return await terminalize_chat_turn(ctx, status="cancelled", failure=failure)
+
     events = await _committed_events()
     if status == "succeeded" and any(event.get("type") == "error" for event in events):
         status = "failed"
@@ -866,16 +821,23 @@ async def _handle_chat_turn(
             events.append(
                 {key: value for key, value in persisted.items() if key != "sequence"}
             )
-    parts, metadata = _native_chat_transcript(events, error=failure)
-    await persist_work_item_assistant_result(
-        context=ctx, parts=parts, provider_metadata=metadata
-    )
-    return await terminalize_chat_turn(
-        ctx,
-        status=status,
-        failure=failure,
-        result_fingerprint=ctx.effect_key,
-    )
+    try:
+        parts, metadata = _native_chat_transcript(events, error=failure)
+        await persist_work_item_assistant_result(
+            context=ctx, parts=parts, provider_metadata=metadata
+        )
+        return await terminalize_chat_turn(
+            ctx,
+            status=status,
+            failure=failure,
+            result_fingerprint=ctx.effect_key,
+        )
+    except WorkError as exc:
+        if exc.code != "work.cancelled":
+            raise
+        return await terminalize_chat_turn(
+            ctx, status="cancelled", failure={"code": exc.code, "message": exc.message}
+        )
 
 
 async def _handle_approval_resume(

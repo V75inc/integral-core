@@ -30,3 +30,11 @@
 ## Validation limits
 
 Browser checks used isolated components with stubbed API data; HTTP/command checks used real isolated JSON/PostgreSQL stores. Provider-backed production conversations, Google Docs clipboard integration and deployed acceptance remain separate checks. No named QA prompt or live business records were used in regression fixtures.
+
+## Complete follow-up
+
+The results above describe the first #160 head. See `tasks/qa-followup.md` for
+the complete current-document reconciliation, real provider-backed browser
+acceptance, cancellation failures found by that acceptance and current gates.
+The new head includes current main's rc26 installer fix and removes Enhance
+from all surfaces and active runtime tools, not only the View shortcut.

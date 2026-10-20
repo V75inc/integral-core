@@ -3882,13 +3882,6 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
         service_ref=_h("app.services.operational_model_authoring", "diff_draft"),
         service_param_map=_pick("draft_id", "include_entry_impact", "sample_limit"),
     ),
-    "integral_recommend_customizations": ToolBinding(
-        service_ref=_h(
-            "app.services.operational_model_authoring",
-            "recommend_profile_customizations",
-        ),
-        service_param_map=_pick("track_id", "entry_sample_limit"),
-    ),
     # ``count_entries_grouped`` / ``activity_digest`` (agent_insights) take a
     # ``workspace_id`` and apply the B-AGENT-03 workspace gate when it is set;
     # the dispatcher injects the BOUND SCOPE as ``workspace_id`` (signature

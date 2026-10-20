@@ -6,11 +6,20 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Polish tag chips across filters, records and editors; remove the redundant Tags prefix and keep entry-tag filters inside Filters instead of the Track header.
+
+- Delay full conversation-title previews until 700 ms of sustained hover/focus, and cancel pending previews during navigation and dismissal.
+- Resolve durable chat cancellation from the stored WorkItem key rather than an Object query that incorrectly targets a nested ID.
+
 - Acknowledge chat cancellation only after backend release, retain retryable failures, and fence retries to the observed turn.
 - Apply live tag additions through durable approved command batches, preserve existing tags and colors, and explain invalid or duplicate names.
 - Keep pasted chat drafts editable, reopen tag selection consistently, and render feed action menus outside clipping containers.
 - Remove unused Kanban field options with record/default checks and consistent updates to affected boards; expose authorized library model deletion from the model picker.
-- Show readable App/Entry change reviews, remove the Enhance-view shortcut, keep tag filters compact, and filter the global feed by Track-qualified tag identity before pagination.
+- Show readable App/Entry change reviews, retire all Enhance actions and their recommendation service/tool, keep tag filters compact, and filter the global feed by Track-qualified tag identity before pagination.
+
+## 0.1.1rc26 — 2026-10-19
+
+- Validate same-App seed relations during installation using the current human installer authority. Keep incomplete Apps private, respect live access denials, and preserve required-hook rollback.
 
 ## 0.1.1rc25 — 2026-10-19
 
