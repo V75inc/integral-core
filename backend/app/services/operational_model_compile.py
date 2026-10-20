@@ -658,6 +658,17 @@ def _normalize_entry_type_base_fields(base_fields: Any) -> Dict[str, Any]:
     return {"title": title_out, "body": body_out, "attachments": attachments_out}
 
 
+def _normalize_search_index(raw):
+    from pydantic import ValidationError
+
+    from app.services.retrieval.index_definition import IndexDefinition
+
+    try:
+        return IndexDefinition.model_validate(raw).model_dump()
+    except ValidationError as exc:
+        raise BadRequestError(message="Invalid search_index declaration") from exc
+
+
 def _normalize_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
     name = str(spec.get("name") or "").strip()
     key = str(spec.get("key") or _slug(name)).strip()
@@ -736,6 +747,11 @@ def _normalize_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
         # check's own comment for how readers of an already-non-singleton
         # track should degrade gracefully).
         "singleton": bool(spec.get("singleton", False)),
+        **(
+            {"search_index": _normalize_search_index(spec["search_index"])}
+            if "search_index" in spec
+            else {}
+        ),
         # Opt-in: a multi-step create flow (region_system's create_wizard
         # primitive) replaces the default single-form create dialog for
         # this entry type. None when unset — every existing entry type's
@@ -4424,6 +4440,8 @@ def normalize_entry_type_form_schema(
         "open_as_page": bool(raw.get("open_as_page", False)),
         "singleton": bool(raw.get("singleton", False)),
     }
+    if "search_index" in raw:
+        out["search_index"] = _normalize_search_index(raw["search_index"])
     if "graph_context" in raw:
         from app.schemas.graph_context import validate_entry_graph_context
 

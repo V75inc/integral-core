@@ -44,6 +44,7 @@ for _mod in (
     "query_spec",
     "graph_context",
     "retrieve",  # Phase 4 — POST /api/retrieve (RET-03)
+    "search_indexes",
     "retrieval_config",  # Phase 8 Plan 08-04 — GET /api/retrieval/config (SET-06)
     "shared_with_me",  # Phase 5 — /me/shared and /me/invitations
     "shares",  # Phase 4 — signed-in share-link endpoints

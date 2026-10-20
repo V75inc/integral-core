@@ -107,6 +107,8 @@ receipt = ReceiptRef(
 assert receipt.step_id == "o.RunStep.example"
 with zipfile.ZipFile(wheel) as archive:
     assert not any(name.startswith("app/packages/") for name in archive.namelist())
+    for module in ("index_definition", "indexing", "index_management", "search_service", "passage_store"):
+        assert f"app/services/retrieval/{module}.py" in archive.namelist()
     # AC-19: unsupported legacy list/generation paths must not ship in Core.
     for retired in ("generate", "template_lifecycle", "document_type_lifecycle"):
         assert f"app/services/documents/{retired}.py" not in archive.namelist()
@@ -126,8 +128,8 @@ with zipfile.ZipFile(wheel) as archive:
         and name.endswith("/SKILL.md")
         and Path(name).parent.name.startswith("integral-")
     )
-    assert len(skill_names) == 16, skill_names
-    from app.services.skill_compliance import check_skill_file
+    from app.services.skill_compliance import CORE_INTEGRAL_SKILL_NAMES, check_skill_file
+    assert {Path(name).parent.name for name in skill_names} == set(CORE_INTEGRAL_SKILL_NAMES), skill_names
 
     for index, member in enumerate(skill_names):
         extracted = Path(sys.argv[3]) / Path(member).parent.name / "SKILL.md"

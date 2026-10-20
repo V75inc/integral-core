@@ -235,6 +235,9 @@ async def _seed_owned_track(test_user: Any) -> Any:
     )
     await test_user.connect(track, edge=OWNS, owned_at=datetime.now().isoformat())
     await workspace.connect(track, edge=CONTAINS)
+    from app.services.app_graph import catalog_track
+
+    await catalog_track(track)
     return track
 
 

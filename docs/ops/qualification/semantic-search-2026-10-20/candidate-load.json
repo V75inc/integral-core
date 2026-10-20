@@ -1,0 +1,11 @@
+{
+  "rows": 1000,
+  "encoder_threads": 1,
+  "encode_corpus_seconds": 17.022751874756068,
+  "publish_seconds": 10.49421012494713,
+  "query_encode_p50_ms": 48.680812353268266,
+  "query_encode_p95_ms": 207.47395791113377,
+  "candidate_sql_p50_ms": 36.180458730086684,
+  "candidate_sql_p95_ms": 111.49220820516348,
+  "method": "actual MiniLM/pgvector, scoped exact hybrid candidate SQL only; excludes graph authorization/HTTP and LLM"
+}

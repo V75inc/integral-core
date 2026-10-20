@@ -68,6 +68,7 @@ async def retrieve_context(
     mode: Literal["graph", "semantic", "hybrid"] = "hybrid",
     k: Optional[int] = None,
     top_n: Optional[int] = None,
+    context_tokens: int = 1200,
 ) -> RetrieveResponse:
     """Agent-invoked retrieval — wraps ``POST /api/retrieve``.
 
@@ -87,7 +88,7 @@ async def retrieve_context(
     scope
         Optional scope string. Shapes per ``RetrieveRequest.scope``:
         ``"track:<id>"`` enables an SQL pre-filter in the embedding store;
-        ``"workspace:<id>"`` or ``None`` runs universe-wide search.
+        ``"workspace:<id>"`` or ``None`` searches the host-bound workspace.
     filters
         Optional ``RetrieveFilters`` projection (entry_types + tags),
         applied AFTER the permission filter.
@@ -118,6 +119,34 @@ async def retrieve_context(
     if not agent_id:
         raise ValueError("retrieve_context requires a non-empty agent_id")
 
+    from app.api.errors import InsufficientPermissionsError
+    from app.services.agent_scope import active_workspace_id
+    from app.services.resource_location import DATA_APP_STATES, locate_resource
+
+    workspace_id = active_workspace_id()
+    if not workspace_id:
+        raise InsufficientPermissionsError(
+            message="Choose a workspace before searching"
+        )
+    if scope is None:
+        scope = f"workspace:{workspace_id}"
+    elif scope.startswith("workspace:"):
+        if scope.split(":", 1)[1] != workspace_id:
+            raise InsufficientPermissionsError(
+                message="Search target is outside this workspace"
+            )
+    elif scope.startswith(("app:", "track:")):
+        kind, identity = scope.split(":", 1)
+        location = await locate_resource(
+            kind, identity, allowed_app_states=DATA_APP_STATES
+        )
+        if location is None or location.workspace_id != workspace_id:
+            raise InsufficientPermissionsError(
+                message="Search target is outside this workspace"
+            )
+    else:
+        raise ValueError("Invalid retrieval scope")
+
     subject = Subject(kind="agent", id=agent_id)
 
     resolved_k = k if (k is not None and k > 0) else _default_k()
@@ -130,6 +159,7 @@ async def retrieve_context(
         mode=mode,
         k=resolved_k,
         top_n=resolved_top_n,
+        context_tokens=context_tokens,
     )
 
     logger.debug(
@@ -169,13 +199,16 @@ async def retrieve_context(
         top_n=resolved_top_n,
     )
 
-    return RetrieveResponse(
-        results=results,
-        dropped_for_permission=dropped,
-        mode=effective_mode,
+    from app.api.retrieve import finalize_retrieval
+
+    return await finalize_retrieval(
+        payload,
+        results,
+        dropped=dropped,
+        examined=examined,
+        effective_mode=effective_mode,
         requested_mode=requested_mode,
         degraded=degraded,
-        candidates_examined=examined,
     )
 
 

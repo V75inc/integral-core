@@ -50,6 +50,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from app.agentive.tooling import staging_display as _sd
 from app.agentive.tooling.stagers_filing import stage_file_content
+from app.agentive.tooling.stagers_indexing import stage_configure_index, stage_reindex
 from app.agentive.tooling.stagers_scheduling import (
     stage_cancel_routine,
     stage_delete_routine,
@@ -3721,6 +3722,12 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     # POST /api/retrieve: the ``retrieve`` handler parses its body via
     # ``await request.json()`` -> ``RetrieveRequest.model_validate``. body_map
     # passes the tool args through as that JSON body; param_map stays None.
+    "integral_get_index_status": ToolBinding(
+        service_ref=_h("app.services.retrieval.index_management", "index_status"),
+        service_param_map=_pick("track_id"),
+    ),
+    "integral_configure_search_index": ToolBinding(stager=stage_configure_index),
+    "integral_reindex_track": ToolBinding(stager=stage_reindex),
     "integral_query": ToolBinding(
         handler_ref=_h("app.api.retrieve", "retrieve"),
         body_map=_retrieve_body_map,

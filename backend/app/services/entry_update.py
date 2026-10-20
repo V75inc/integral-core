@@ -436,6 +436,9 @@ async def update_entry_in_track(
                         message="Entry not found after save hooks"
                     )
                 entry = refreshed
+            from app.services.retrieval.indexing import enqueue_entry
+
+            await enqueue_entry(entry)
             event = {
                 "actor_kind": actor_kind,
                 "actor_id": actor_id or user_id,

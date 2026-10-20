@@ -494,6 +494,8 @@ async def _sync_entry_type_form_schemas(
             "base_fields": dict(spec.get("base_fields") or {}),
             "required_tag_groups": list(spec.get("required_tag_groups") or []),
         }
+        if "search_index" in spec:
+            new_form_schema["search_index"] = spec["search_index"]
         if et.form_schema != new_form_schema:
             et.form_schema = new_form_schema
             await et.save()

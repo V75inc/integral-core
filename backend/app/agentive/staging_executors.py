@@ -1716,6 +1716,8 @@ _RESOURCE_RULE = _ScopeRule(_SCOPE_RESOURCE, keys=("resource_id", "app_id"))
 # ``resolve_role`` still applies, so this is a scope leak, not a privilege
 # escalation — but the active workspace is meant to be a hard boundary.
 _KIND_SCOPE_RULES: Dict[str, _ScopeRule] = {
+    "configure_search_index": _TRACK_RULE,
+    "reindex_track": _TRACK_RULE,
     # --- track-scoped -----------------------------------------------------
     "create_entry": _TRACK_RULE,
     "file_content": _TRACK_RULE,
@@ -2632,7 +2634,28 @@ async def _x_design_proposal(user_id: str, payload: Dict[str, Any]) -> Dict[str,
     }
 
 
+async def _x_configure_search_index(
+    user_id: str, payload: Dict[str, Any]
+) -> Dict[str, Any]:
+    from app.services.retrieval.index_management import configure_index
+
+    return await configure_index(
+        user_id,
+        payload["track_id"],
+        payload["definition"],
+        expected_revision=payload.get("expected_revision"),
+    )
+
+
+async def _x_reindex_track(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    from app.services.retrieval.index_management import request_reindex
+
+    return await request_reindex(user_id, payload["track_id"])
+
+
 _EXECUTORS: Dict[str, Callable[[str, Dict[str, Any]], Awaitable[Dict[str, Any]]]] = {
+    "configure_search_index": _x_configure_search_index,
+    "reindex_track": _x_reindex_track,
     "batch": _x_batch,
     "bulk_update_entries": _x_bulk_update_entries,
     "bulk_move_entries": _x_bulk_move_entries,

@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from typing import Dict
 
 from .embedding_store import EmbeddingStore
@@ -55,25 +56,27 @@ logger = logging.getLogger(__name__)
 _REGISTRY: Dict[str, EmbeddingStore] = {}
 
 # Set when Atlas ``$vectorSearch`` / ``$search`` fails at runtime (e.g. local
-# Mongo without Atlas Search). Cleared only on process restart — mirrors the
-# one-shot degrade warning in ``app.api.retrieve``.
+# Mongo without Atlas Search). Retry after a bounded cooldown so a temporary
+# outage cannot permanently disable semantic retrieval until process restart.
 _SEMANTIC_RUNTIME_DISABLED = False
+_SEMANTIC_DISABLED_UNTIL = 0.0
 
 
 def disable_semantic_retrieval_runtime(reason: str) -> None:
-    """Mark semantic retrieval unavailable for the remainder of this process.
+    """Temporarily cool down an unavailable semantic backend.
 
     Invoked when the atlas driver is registered (URI present) but the
     deployment cannot execute vector-search aggregation stages — typical
     for docker-compose Mongo without Atlas CLI local search.
     """
 
-    global _SEMANTIC_RUNTIME_DISABLED
+    global _SEMANTIC_RUNTIME_DISABLED, _SEMANTIC_DISABLED_UNTIL
     if _SEMANTIC_RUNTIME_DISABLED:
         return
     _SEMANTIC_RUNTIME_DISABLED = True
+    _SEMANTIC_DISABLED_UNTIL = time.monotonic() + 60
     logger.warning(
-        "retrieval: semantic vector search disabled for remainder of process "
+        "retrieval: semantic vector search temporarily unavailable; retrying after 60 seconds "
         "(future semantic/hybrid requests degrade to graph): %s",
         reason,
     )
@@ -103,11 +106,22 @@ def _resolve_driver_name() -> str:
     through unchanged.
     """
 
-    name = os.environ.get("EMBEDDING_STORE_DRIVER", "auto")
+    # main composes POSTGRES_* after API imports. Retry lazy registration once
+    # final configuration exists; import order must never select graph-only mode.
+    if (
+        "pgvector" not in _REGISTRY
+        and (os.environ.get("JVSPATIAL_DB_TYPE") or "").strip().lower()
+        in {"postgres", "postgresql"}
+        and os.environ.get("JVSPATIAL_POSTGRES_DSN")
+    ):
+        from .pgvector_driver import PgVectorEmbeddingStore
+
+        _REGISTRY["pgvector"] = PgVectorEmbeddingStore()
+    name = os.environ.get("EMBEDDING_STORE_DRIVER", "auto").strip().lower()
     if name != "auto":
         return name
     db_type = (os.environ.get("JVSPATIAL_DB_TYPE") or "").strip().lower()
-    if db_type == "postgres":
+    if db_type in {"postgres", "postgresql"}:
         # pgvector driver — the Postgres-deployment default. If it is not
         # yet registered (e.g. DSN missing, or asyncpg import failed) we
         # fall back to ``null`` so the deployment still boots; the read
@@ -162,8 +176,10 @@ def semantic_retrieval_available() -> bool:
     ``_reembed_*`` helpers, and by the eager-load gate in ``main.py``.
     """
 
-    if _SEMANTIC_RUNTIME_DISABLED:
+    global _SEMANTIC_RUNTIME_DISABLED
+    if _SEMANTIC_RUNTIME_DISABLED and time.monotonic() < _SEMANTIC_DISABLED_UNTIL:
         return False
+    _SEMANTIC_RUNTIME_DISABLED = False
     try:
         name = _resolve_driver_name()
     except Exception:  # noqa: BLE001 — defensive: env state must never raise

@@ -435,7 +435,8 @@ async def test_mcp_tools_list_authenticated(
     # W4.4: integral_merge_tracks + integral_split_track.
     # 124 -> 125: distinct App Home read capability.
     # 125 -> 124: retire the Enhance recommendation tool.
-    assert len(tools) == 124, len(tools)
+    # 124 -> 127: index status and two approval-gated maintenance capabilities.
+    assert len(tools) == 127, len(tools)
 
 
 @pytest.mark.parametrize("auth_mode", ["session", "service"])

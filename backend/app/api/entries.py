@@ -169,6 +169,12 @@ async def _reembed_entry(entry: Entry) -> None:
     if not semantic_retrieval_available():
         return
 
+    from app.services.retrieval.pgvector_driver import PgVectorEmbeddingStore
+
+    if isinstance(get_embedding_store(), PgVectorEmbeddingStore):
+        # Canonical commands persist durable work inside their transaction.
+        # Never block this HTTP write on model loading or vector availability.
+        return
     try:
         vector = await embed_entry_text(entry)
         await get_embedding_store().upsert(

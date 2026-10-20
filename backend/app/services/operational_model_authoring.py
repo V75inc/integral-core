@@ -520,7 +520,13 @@ async def apply_entry_types_to_track(
             if (f or {}).get("name") or (f or {}).get("key")
         ]
         form_schema = normalize_entry_type_form_schema(
-            {"fields": normalized_fields, "base_fields": et.get("base_fields")}
+            {
+                "fields": normalized_fields,
+                "base_fields": et.get("base_fields"),
+                **(
+                    {"search_index": et["search_index"]} if "search_index" in et else {}
+                ),
+            }
         )
         node = await EntryType.create(
             name=et_name,
