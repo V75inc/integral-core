@@ -60,6 +60,11 @@ def unregister_protected_fields(workspace_id: str, app_id: str) -> None:
         _PROTECTED.pop(workspace_id, None)
 
 
+def _blank_protected_value(value: Any) -> bool:
+    """True when a create form included a protected field without a value."""
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
 def protected_fields_for_entry_type(workspace_id: str, entry_type_key: str) -> Set[str]:
     """Union of protected custom-field keys for an entry type in a workspace."""
     want = str(entry_type_key or "").strip()
@@ -97,7 +102,14 @@ async def enforce_protected_field_write(
     if current_state is not None:
         details = [current_state.get(entry_type_key, {})]
     protected_top = {key for body in details for key in body.get("top_level", [])}
-    touched = sorted(k for k in (proposed_custom_fields or {}) if k in protected)
+    # The generic create form sends every field, including an empty protected
+    # cursor. An empty value is not a write. A supplied value still is.
+    touched = sorted(
+        key
+        for key, value in (proposed_custom_fields or {}).items()
+        if key in protected
+        and not (mutation_kind == "create" and _blank_protected_value(value))
+    )
     top_touched = set(proposed_fields or {}) & protected_top
     destructive = mutation_kind in {"delete", "type_change"} and (
         bool(protected or protected_top)

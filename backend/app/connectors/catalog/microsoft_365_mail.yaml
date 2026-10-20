@@ -20,8 +20,11 @@ args:
   - "@softeria/ms-365-mcp-server@0.170.2"
   - "--org-mode"
   - "--read-only"
-  - "--preset"
-  - "mail"
+  # The mail preset is personal mail only. Shared mailbox reads live in the
+  # work preset, which also exposes Teams and SharePoint. Name the read tools
+  # instead so a shared mailbox mounts without that wider surface.
+  - "--enabled-tools"
+  - "^(?:get-mail-message|list-mail-messages|list-mail-folder-messages|list-mail-folder-messages-delta|list-mail-folders|list-mail-child-folders|list-mail-attachments|get-shared-mailbox-message|list-shared-mailbox-messages|list-shared-mailbox-folder-messages|list-shared-mailbox-folders|list-shared-mailbox-child-folders|list-shared-mailbox-attachments)$"
   - "--allowed-scopes"
   - "offline_access User.Read Mail.Read Mail.Read.Shared"
 auth:

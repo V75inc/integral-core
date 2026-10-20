@@ -30,6 +30,9 @@ def test_catalog_loads_read_only_mail_tools():
     assert "@softeria/ms-365-mcp-server@0.170.2" in entry["args"]
     assert "--read-only" in entry["args"]
     assert "--org-mode" in entry["args"]
+    assert "--preset" not in entry["args"]
+    enabled = entry["args"][entry["args"].index("--enabled-tools") + 1]
+    assert "list-shared-mailbox-messages" in enabled
     names = set(entry["read_only_tools"])
     assert "list-shared-mailbox-messages" in names
     assert "get-shared-mailbox-message" in names
