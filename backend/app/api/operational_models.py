@@ -2070,6 +2070,7 @@ async def get_operational_model_substrate(request: Request) -> Dict[str, Any]:
         "true",
     }
     from app.services import operational_model_field_types as ftr
+    from app.services.operational_model_authoring import FIELD_FLAGS
     from app.services.operational_model_plugins import discovered_plugins
     from app.services.retrieval import semantic_retrieval_available
     from app.services.template_var_resolvers import get_registered_tokens
@@ -2129,6 +2130,7 @@ async def get_operational_model_substrate(request: Request) -> Dict[str, Any]:
                 for spec in vtr.iter_specs()
             ],
             "retrieval": {"semantic_available": sem},
+            "field_flags": dict(FIELD_FLAGS),
         }
 
     return {
@@ -2143,6 +2145,7 @@ async def get_operational_model_substrate(request: Request) -> Dict[str, Any]:
         # surfaced to non-agent introspection callers (frontend manifest UI,
         # docs tooling). Mirrors the same key in ``describe_substrate``.
         "template_var_resolvers": get_registered_tokens(),
+        "field_flags": dict(FIELD_FLAGS),
         "retrieval": {
             "semantic_available": sem,
             "modes": (["graph", "semantic", "hybrid"] if sem else ["graph"]),

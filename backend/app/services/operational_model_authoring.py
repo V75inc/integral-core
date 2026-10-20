@@ -1165,6 +1165,21 @@ async def apply_library_operational_model(
 # and the staging executors registered for the corresponding kinds.
 
 
+# Flags the model-authoring agent must use for values a person does not type.
+FIELD_FLAGS: Dict[str, str] = {
+    "hidden": (
+        "Omit the field from create, edit, and the entry field list. "
+        "Use it for a value a tool or operation writes. Table columns can still show it."
+    ),
+    "readonly": "Show the value and reject a direct edit.",
+    "hide_on_create": "Skip the field on the create form only.",
+    "protected_state": (
+        "App map of custom fields a generic create or edit must not set. "
+        "A declared operation can still update a listed field."
+    ),
+}
+
+
 async def describe_substrate() -> Dict[str, Any]:
     """Return the full catalogue of registered field/view types + plugins.
 
@@ -1256,6 +1271,7 @@ async def describe_substrate() -> Dict[str, Any]:
         "governance_actions": [
             a for a in get_args(PolicyAction) if a.startswith("anchor.")
         ],
+        "field_flags": dict(FIELD_FLAGS),
     }
 
 
