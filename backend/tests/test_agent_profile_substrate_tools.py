@@ -75,6 +75,12 @@ async def test_describe_substrate_returns_catalogue(test_user):
     view_keys = {v["type"] for v in data["view_types"]}
     assert {"text", "number", "select"}.issubset(field_keys)
     assert {"feed", "kanban", "wiki", "composable_board"}.issubset(view_keys)
+    assert set(data["field_flags"]) == {
+        "hidden",
+        "readonly",
+        "hide_on_create",
+        "protected_state",
+    }
 
 
 @pytest.mark.asyncio
