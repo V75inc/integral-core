@@ -3099,25 +3099,14 @@ async def agent_turn(
 )
 async def cancel_thread(request: Request, thread_id: str) -> Dict[str, Any]:
     """Request cancellation of the observed turn while preserving empty-body clients."""
-    # Preserve the existing empty-body endpoint while accepting a fenced target.
-    import json
+    from app.schemas.api.ai_chat import CancelThreadRequest
 
     raw = await request.body()
     try:
-        payload = json.loads(raw) if raw else {}
+        payload = CancelThreadRequest.model_validate(json.loads(raw) if raw else {})
     except (ValueError, TypeError):
-        raise BadRequestError(message="Cancellation target must be a JSON object")
-    if not isinstance(payload, dict):
-        raise BadRequestError(message="Cancellation target must be a JSON object")
-    target = {}
-    for key in ("expected_work_item_id", "expected_turn_id"):
-        value = payload.get(key)
-        if value is not None and (
-            not isinstance(value, str) or not value or len(value) > 256
-        ):
-            raise BadRequestError(message="Invalid cancellation target")
-        target[key] = value
-    return await _cancel_observed_thread(request, thread_id, **target)
+        raise BadRequestError(message="Invalid cancellation target") from None
+    return await _cancel_observed_thread(request, thread_id, **payload.model_dump())
 
 
 async def _cancel_observed_thread(

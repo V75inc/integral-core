@@ -37,7 +37,23 @@ def validate_blueprint(raw: Any) -> Tuple[Optional[Dict[str, Any]], Optional[str
             for err in exc.errors()[:8]
         ]
         return None, "; ".join(problems)
-    return blueprint.model_dump(mode="json"), None
+    from app.exceptions import BadRequestError
+    from app.services.operational_model_compile import normalize_view_config
+    from app.services.view_authoring_config import adapt_view_config
+    from app.views import operational_model_view_types as view_type_registry
+
+    canonical = blueprint.model_dump(mode="json")
+    for view in canonical["views"]:
+        kind = _canonical_view_type(view["type"])
+        view["config"] = adapt_view_config(kind, view["config"])
+        # Unknown types belong to the coverage check, which explains supported
+        # alternatives. Known types must be buildable before user approval.
+        if kind in view_type_registry.allowed_keys():
+            try:
+                normalize_view_config(kind, view["config"])
+            except BadRequestError as exc:
+                return None, f"View {view['name']!r}: {exc.message}"
+    return canonical, None
 
 
 def blueprint_digest(blueprint: Dict[str, Any]) -> str:
@@ -243,6 +259,33 @@ def plan_fidelity_errors(
                 "which is not in the design."
             )
 
+    def compare_entry_types(
+        label: str, approved: List[Dict[str, Any]], params: Dict[str, Any]
+    ) -> None:
+        planned = params.get("entry_types") or []
+        expected = {item["name"].casefold(): item for item in approved}
+        actual = {
+            str(item.get("name") or "").casefold(): item
+            for item in planned
+            if isinstance(item, dict)
+        }
+        if set(expected) != set(actual) or len(actual) != len(planned):
+            errors.append(
+                f"{label} entry types must retain the approved names: "
+                + ", ".join(repr(item["name"]) for item in approved)
+                + ". Copy the saved blueprint names exactly."
+            )
+        for name in expected.keys() & actual.keys():
+            compare_fields(
+                (
+                    label
+                    if len(expected) == 1
+                    else f"{label} entry type {expected[name]['name']!r}"
+                ),
+                expected[name]["fields"],
+                {"entry_types": [actual[name]]},
+            )
+
     approved_templates = {t["name"].casefold(): t for t in templates}
     planned_templates = {
         str(p.get("name") or "").casefold(): p
@@ -255,9 +298,9 @@ def plan_fidelity_errors(
     for name in sorted(set(planned_templates) - set(approved_templates)):
         errors.append(f"The plan adds track template {name!r}, not in the design.")
     for name in sorted(set(approved_templates) & set(planned_templates)):
-        compare_fields(
+        compare_entry_types(
             f"Track template {approved_templates[name]['name']!r}",
-            [f for et in approved_templates[name]["entry_types"] for f in et["fields"]],
+            approved_templates[name]["entry_types"],
             planned_templates[name],
         )
 
@@ -285,9 +328,9 @@ def plan_fidelity_errors(
 
     for name in sorted(set(track_names) & set(planned_tracks)):
         label = track_names[name]["name"]
-        compare_fields(
+        compare_entry_types(
             f"Track {label!r}",
-            [f for et in track_names[name]["entry_types"] for f in et["fields"]],
+            track_names[name]["entry_types"],
             planned_tracks[name],
         )
         approved_tags = {

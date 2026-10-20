@@ -510,7 +510,7 @@ def test_unconfigured_native_model_has_actionable_chat_error():
     )
     code, message = classify_turn_exception(error)
     assert code == "model_setup_required"
-    assert "Settings" in message and "Ollama" in message
+    assert "Settings" in message and "workspace administrator" in message
     assert "private debug detail" not in message
 
 

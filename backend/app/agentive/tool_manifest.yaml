@@ -1202,12 +1202,17 @@ domains:
         status: existing
         op_class: read
         priority: P2
-        summary: Fetch one session artifact by key (full body). Does not stage a write.
+        summary: >-
+          Fetch one session artifact by key. app_design_blueprint also returns
+          the current typed blueprint, design_id, blueprint_revision and
+          blueprint_digest from saved design authority. Build from those exact
+          entry-type names and field keys; never reconstruct them from prose.
+          Does not stage a write.
         http: "(conversation context)"
         policy_action: null
         params:
           key: {type: string, required: true, desc: "Artifact key."}
-        returns: { ok: bool, key: str, kind: str, title: str, body: str, version: int }
+        returns: { ok: bool, key: str, kind: str, title: str, body: str, version: int, blueprint: object, design_id: str, blueprint_revision: int, blueprint_digest: str }
       - name: integral_list_artifacts
         status: existing
         op_class: read
@@ -1859,7 +1864,7 @@ domains:
           view_id: {type: string, required: false, desc: "Existing view id from integral_list_views when editing that view in place. Omit only when creating a new view."}
           name: {type: string, required: true, desc: "Display name for the saved view."}
           view_type: {type: string, required: true, enum: [feed, kanban, table, calendar, gallery, wiki], desc: "The view shape to materialize (defaults to 'feed' if unset)."}
-          config: {type: object, required: true, desc: "View configuration — filters, sort, group_by, entry_type_keys, etc. Wiki requires parent_field naming a relation field on the page entry type. The exact schema varies by view_type."}
+          config: {type: object, required: true, desc: "View configuration. sort is an array of {field, direction: asc|desc}. Kanban: group_by is custom_fields.<select key>; kanban_columns is [{key: '<exact select value>', label: '<display label>'}]. Calendar: calendar_mapping is {dateField: 'custom_fields.<date key>', endDateField: 'custom_fields.<end key>'} (endDateField optional). Table: columns lists field paths. Wiki requires parent_field naming a relation field. Preserve all approved field keys exactly."}
           is_default: {type: boolean, required: false, desc: "Open the track on this view instead of its Feed. In an approved build the most useful specific view per new track is made default automatically; set it to choose which."}
         returns: { staged_token: str }
       - name: integral_delete_view
@@ -1918,11 +1923,11 @@ domains:
         status: existing
         op_class: read
         priority: P2
-        summary: "Recommend a starter dashboard layout for an app (does not persist)."
+        summary: "Recommend an analytics layout and a validated Home starter for an App (does not persist). Use the returned home object with integral_update_app; null means no eligible Home starter is available."
         http: "GET /api/apps/{app_id}/dashboards/suggest"
         policy_action: app.read
         params: { app_id: {type: string, required: true} }
-        returns: { name: str, widgets: list, rationale: str }
+        returns: { name: str, widgets: list, rationale: str, home: "object|null" }
       - name: integral_create_dashboard
         status: existing
         op_class: propose

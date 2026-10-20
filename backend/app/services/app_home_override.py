@@ -110,3 +110,43 @@ def _home_schema_fields() -> set[str]:
 
     visit(AppHomeComposition.model_json_schema())
     return names
+
+
+async def prepare_suggested_home(
+    *, user_id: str, app_id: str, widgets: List[Dict[str, Any]]
+) -> Dict[str, Any] | None:
+    """Offer only a bounded, valid starter; no write, fallback scan or consent.
+
+    Omit unsupported suggestions rather than handing the model an invalid
+    composition. Repack a single column to keep layout deterministic even when
+    optional candidate widgets are dropped. Titles remain the App's own labels.
+    """
+    selected: List[Dict[str, Any]] = []
+    y = 0
+    seen: set[str] = set()
+    fields = set(DashboardWidgetSpec.model_fields)
+    for widget in widgets:
+        candidate = {key: value for key, value in widget.items() if key in fields}
+        grid = dict(candidate.get("grid") or {})
+        height = grid.get("h", 2)
+        if not isinstance(height, int) or not 1 <= height <= 12 or y > 100:
+            continue
+        candidate["grid"] = {"x": 0, "y": y, "w": 12, "h": height}
+        proposed = {"title": "Home", "widgets": [candidate]}
+        try:
+            normalized = await validate_home_composition(
+                user_id=user_id, app_id=app_id, home=proposed
+            )
+        except (ValueError, PermissionError):
+            continue
+        normalized_widget = normalized["widgets"][0]
+        if normalized_widget["id"] in seen:
+            continue
+        seen.add(normalized_widget["id"])
+        selected.append(normalized_widget)
+        y += height
+        if len(selected) == 12:
+            break
+    return (
+        {"title": "Home", "description": "", "widgets": selected} if selected else None
+    )

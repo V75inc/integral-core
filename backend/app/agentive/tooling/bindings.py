@@ -2732,16 +2732,14 @@ async def _stage_save_view(args: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("save_view: a view name is required")
     view_type = src.get("view_type") or "feed"
     config = src.get("config") or {}
-    # A single sort object has exactly the semantics of a one-item sort list.
-    # Adapt that model representation here; the canonical compiler still
-    # validates the field, direction, and every other config property below.
-    if isinstance(config, dict) and isinstance(config.get("sort"), dict):
-        config = {**config, "sort": [config["sort"]]}
     from app.exceptions import BadRequestError
     from app.services.operational_model_compile import normalize_view_config
+    from app.services.view_authoring_config import adapt_view_config
 
     try:
-        config = normalize_view_config(str(view_type), config)
+        config = normalize_view_config(
+            str(view_type), adapt_view_config(str(view_type), config)
+        )
     except BadRequestError as exc:
         raise ValueError(f"save_view: {exc.message}") from exc
 

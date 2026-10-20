@@ -1575,6 +1575,57 @@ async def test_save_view_normalizes_single_sort_object_before_canonical_validati
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "columns",
+    [
+        ["Queued", "Done"],
+        [{"value": "Queued", "label": "Waiting"}, {"value": "Done"}],
+        [{"key": "Queued", "label": "Waiting"}, {"key": "Done"}],
+    ],
+)
+async def test_save_view_adapts_equivalent_board_columns_without_changing_values(
+    columns,
+):
+    """Planner shorthand preserves labels and exact persisted values."""
+    from copy import deepcopy
+
+    from app.agentive.tooling.bindings import _stage_save_view
+
+    original = deepcopy(columns)
+    staged = await _stage_save_view(
+        {
+            "track_id": "track",
+            "name": "Work board",
+            "view_type": "kanban",
+            "config": {"group_by": "custom_fields.status", "kanban_columns": columns},
+        }
+    )
+    actual = staged["payload"]["config"]["kanban_columns"]
+    assert [column["key"] for column in actual] == ["Queued", "Done"]
+    assert columns == original
+    assert actual[0]["label"] == (
+        "Queued" if isinstance(columns[0], str) else "Waiting"
+    )
+
+
+@pytest.mark.asyncio
+async def test_save_view_keeps_invalid_board_columns_fail_closed():
+    """Adaptation cannot invent a missing value or deduplicate lanes."""
+    from app.agentive.tooling.bindings import _stage_save_view
+
+    for columns in [["Done", "Done"], [{"label": "Missing value"}], [None]]:
+        with pytest.raises(ValueError, match="kanban_columns"):
+            await _stage_save_view(
+                {
+                    "track_id": "track",
+                    "name": "Board",
+                    "view_type": "kanban",
+                    "config": {"kanban_columns": columns},
+                }
+            )
+
+
+@pytest.mark.asyncio
 async def test_save_view_defaults_view_type_feed(
     bind_fresh_graph_context_for_async_tests,
 ):

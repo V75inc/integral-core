@@ -376,8 +376,8 @@ async def test_final_validator_never_claims_an_unsaved_proposal_succeeded(stalle
     claimed = "Success: the setup is saved, built, verified and ready."
     output = await validator(ctx, claimed)
     assert output != claimed
-    assert "couldn't record" in output
-    assert "has not been built" in output
+    assert "couldn't save" in output
+    assert "hasn't been built" in output
     assert "this chat" in output
 
 
@@ -411,9 +411,9 @@ async def test_final_validator_reports_applied_but_unverified_work_without_retry
     claimed = "Success: the setup is verified and ready."
     output = await validator(ctx, claimed)
     assert output != claimed
-    assert "was applied" in output
-    assert "verification is incomplete" in output
-    assert "before retrying any changes" in output
+    assert "was saved" in output
+    assert "couldn't check" in output
+    assert "before making the same changes again" in output
     assert "this chat" in output
 
 

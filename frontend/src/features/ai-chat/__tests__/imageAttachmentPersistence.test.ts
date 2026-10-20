@@ -91,7 +91,7 @@ describe('normalizePersistedParts', () => {
   it('uses a safe fallback for persisted errors without a message', () => {
     expect(
       persistedAssistantErrorMessage([{ type: 'error', code: 'unknown' }] as any),
-    ).toBe('The assistant could not complete this step.');
+    ).toBe("I couldn't finish this step. Please try again.");
   });
 
   it('reads the first persisted error message for MessageError status', () => {
@@ -146,7 +146,7 @@ describe('durable tool diagnostics', () => {
       { type: 'error', code: 'harness_usage_limit', message: 'Turn exhausted' },
     ] as any) as any[];
     expect(parts[0].result).toMatchObject({ error: true, error_code: 'invalid_arguments' });
-    expect(parts[1].result.message).toContain('Tool completed');
+    expect(parts[1].result.message).toContain('This step finished');
     expect(JSON.stringify(parts)).not.toContain('Turn exhausted');
   });
 

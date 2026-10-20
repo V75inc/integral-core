@@ -480,6 +480,13 @@ async def test_packaged_app_dashboard_suggests_only_declared_query_sources(monke
         lambda workspace_id, app_id: {"list_records": query},
     )
 
+    monkeypatch.setattr(
+        "app.services.app_queries.registry.get_app_query",
+        lambda workspace_id, app_id, query_key: (
+            query if query_key == "list_records" else None
+        ),
+    )
+
     suggestion = await ds.suggest_dashboard_template(
         user_id="u1", app_id="app-1", workspace_id="ws1"
     )
@@ -489,6 +496,12 @@ async def test_packaged_app_dashboard_suggests_only_declared_query_sources(monke
     ]
     assert suggestion["widgets"][0]["data_source"]["kind"] == "declared_query"
     assert suggestion["widgets"][0]["preview"]["value"] == 3
+
+    assert suggestion["home"] is not None
+    starter = suggestion["home"]["widgets"][0]
+    assert starter["data_source"]["query_key"] == "list_records"
+    assert starter["data_source"]["rows_path"] == "records"
+    assert "preview" not in starter
 
 
 @pytest.mark.asyncio
@@ -542,6 +555,10 @@ async def test_dashboard_suggestion_uses_schema_and_exact_preview(monkeypatch):
     from unittest.mock import AsyncMock
 
     from app.services import dashboard_service as ds
+
+    monkeypatch.setattr(
+        "app.services.app_home_override.validate_dashboard_field_bindings", AsyncMock()
+    )
 
     track = SimpleNamespace(id="track-1", title="Invoices")
     app = SimpleNamespace(
@@ -607,6 +624,10 @@ async def test_dashboard_suggestions_skip_configuration_and_non_additive_numbers
     from unittest.mock import AsyncMock
 
     from app.services import dashboard_service as ds
+
+    monkeypatch.setattr(
+        "app.services.app_home_override.validate_dashboard_field_bindings", AsyncMock()
+    )
 
     settings = SimpleNamespace(id="settings", title="Payroll Settings")
     employees = SimpleNamespace(id="employees", title="Payroll Employees")
@@ -693,6 +714,10 @@ async def test_dashboard_suggestion_interleaves_schema_field_families(monkeypatc
     from unittest.mock import AsyncMock
 
     from app.services import dashboard_service as ds
+
+    monkeypatch.setattr(
+        "app.services.app_home_override.validate_dashboard_field_bindings", AsyncMock()
+    )
 
     track = SimpleNamespace(id="track-1", title="Work items")
     app = SimpleNamespace(

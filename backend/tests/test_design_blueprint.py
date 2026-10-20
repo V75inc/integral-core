@@ -111,6 +111,34 @@ def test_missing_track_list_does_not_silently_propose_a_blank_app():
     assert "tracks" in error
 
 
+def test_design_capture_canonicalizes_view_shorthand_before_approval():
+    """Equivalent planner representations retain stored values and sorting."""
+    raw = _blueprint()
+    raw["views"][0]["config"] = {
+        "group_by": "custom_fields.status",
+        "kanban_columns": ["Queued", {"label": "Completed", "value": "Done"}],
+        "sort": {"field": "custom_fields.due_date", "direction": "asc"},
+    }
+    canonical, error = validate_blueprint(raw)
+    assert error is None, error
+    config = canonical["views"][0]["config"]
+    assert config["kanban_columns"] == [
+        {"key": "Queued", "label": "Queued"},
+        {"key": "Done", "label": "Completed"},
+    ]
+    assert config["sort"] == [{"field": "custom_fields.due_date", "direction": "asc"}]
+    assert raw["views"][0]["config"]["kanban_columns"][0] == "Queued"
+
+
+def test_design_capture_rejects_unbuildable_view_config_before_approval():
+    """A malformed board cannot reach the user's approval step."""
+    raw = _blueprint()
+    raw["views"][0]["config"]["kanban_columns"] = [{"label": "No key or value"}]
+    canonical, error = validate_blueprint(raw)
+    assert canonical is None
+    assert "Jobs board" in error and "key must be" in error
+
+
 def _plan() -> list:
     return [
         {"tool": "integral_create_app", "args": {"name": "Bike Repair"}},
@@ -146,6 +174,50 @@ def _plan() -> list:
             },
         },
     ]
+
+
+def test_plan_cannot_rename_an_approved_entry_type_before_build():
+    """A complete field list cannot disguise a type-name mismatch."""
+    plan = _plan()
+    plan[1]["args"]["entry_types"][0]["name"] = "Renamed item"
+    errors = plan_fidelity_errors(
+        _canonical(), [(item["tool"], item["args"]) for item in plan], new_app=True
+    )
+    assert any(
+        "entry types must retain" in error and "Job" in error for error in errors
+    )
+
+
+def test_plan_fields_must_remain_on_their_approved_entry_type():
+    """Moving fields between types cannot pass a track-wide comparison."""
+    raw = _blueprint()
+    raw["tracks"][0]["entry_types"].append(
+        {
+            "id": "type.note",
+            "name": "Note",
+            "fields": [
+                {"id": "f.note_body", "key": "notes", "name": "Notes", "type": "text"}
+            ],
+        }
+    )
+    canonical, error = validate_blueprint(raw)
+    assert error is None
+    plan = _plan()
+    moved = plan[1]["args"]["entry_types"][0]["fields"].pop()
+    plan[1]["args"]["entry_types"][0]["fields"].append(
+        {"key": "notes", "name": "Notes", "type": "text"}
+    )
+    plan[1]["args"]["entry_types"].append(
+        {
+            "name": "Note",
+            "fields": [moved],
+        }
+    )
+    errors = plan_fidelity_errors(
+        canonical, [(item["tool"], item["args"]) for item in plan], new_app=True
+    )
+    assert any("omits approved field due_date" in error for error in errors)
+    assert any("omits approved field notes" in error for error in errors)
 
 
 def test_schema_rejects_dangling_references_and_ambiguous_shapes() -> None:

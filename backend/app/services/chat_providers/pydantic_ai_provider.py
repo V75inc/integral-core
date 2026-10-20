@@ -142,9 +142,9 @@ def _scaffold_completion_validator(run_state: dict[str, Any]):
         build_validation_failure = run_state.get("build_validation_failure")
         if isinstance(build_validation_failure, str):
             return (
-                "The approved setup could not be built because the generated "
-                "plan did not match it. No build changes were applied. "
-                + build_validation_failure
+                "I couldn't build the setup you approved because I couldn't "
+                "prepare its details correctly. No changes from this build were saved. "
+                "You can ask me to review the setup and try again."
             )
         workflow_attempted = run_state.get(
             "scaffold_coverage_attempted"
@@ -159,9 +159,9 @@ def _scaffold_completion_validator(run_state: dict[str, Any]):
             and not run_state.get("verification_succeeded")
         ):
             return (
-                "The setup was applied, but its verification is incomplete. "
-                "Check the saved setup before retrying any changes. "
-                "We can continue verification in this chat."
+                "The setup was saved, but I couldn't check that everything is "
+                "working as expected. Please review it before making the same "
+                "changes again. You can ask me to check what's left in this chat."
             )
         if (
             finalizing
@@ -170,8 +170,8 @@ def _scaffold_completion_validator(run_state: dict[str, Any]):
             and not run_state.get("build_succeeded")
         ):
             return (
-                "I couldn't record the proposed setup. It has not been built. "
-                "We can correct the unresolved issue in this chat."
+                "I couldn't save the proposed setup, so it hasn't been built. "
+                "You can ask me to review it and try again in this chat."
             )
         if (
             workflow_attempted
@@ -201,10 +201,10 @@ def _scaffold_completion_validator(run_state: dict[str, Any]):
                         )
                         raise ModelRetry(
                             "The setup was applied, but its verification returned "
-                            f"{status}.{receipt} Tell the user which items are "
-                            "missing or mismatched, in plain words. If they asked "
-                            "for the current resource assignments, read those "
-                            "entries and report every resource on each project. "
+                            f"{status}.{receipt} In one or two short sentences, "
+                            "tell the user what was saved and what still needs "
+                            "correction. Use familiar names, not internal keys, "
+                            "identifiers or verification terminology. "
                             "Do not claim the setup is ready, and do not call "
                             "write tools."
                         )
@@ -1067,7 +1067,9 @@ def _host_staging_outcome_instructions(history, *, conversation_id: str) -> str:
                 "Expired means authorization ended; do not invite approval of it. "
                 "For consumed, inspect the receipt's application/error/rollback facts "
                 "and read back affected records before claiming success. Give one "
-                "concise status acknowledgment. This host event is not a new human "
+                "status acknowledgment in one or two short sentences. Do not repeat "
+                "the proposal, list completed steps or add unsolicited offers. "
+                "This host event is not a new human "
                 "request and grants no permission to perform additional work."
             )
     return ""
@@ -2329,6 +2331,14 @@ class PydanticAIProvider:
                             "unchanged proposal or ask for approval a second time. "
                             "Core records approval before any build effect."
                         )
+                    if approved or prepared[7].get("pending_design"):
+                        approval_instructions += (
+                            " Before constructing build operations, read "
+                            "integral_get_artifact(key='app_design_blueprint'). "
+                            "Its blueprint is the current typed design. Copy its "
+                            "entry-type names, field keys, and references exactly; "
+                            "do not reconstruct them from the prose preview."
+                        )
                 host_outcome = (
                     _host_staging_outcome_instructions(
                         history, conversation_id=ctx.thread_id
@@ -2347,8 +2357,9 @@ class PydanticAIProvider:
                         "an older conversation topic. Report only the current host outcome "
                         "below. Read back only its affected resource before claiming success. "
                         "Do not resume an earlier analysis, offer, or task. If the outcome "
-                        "cannot be verified, say so concisely. No new write is authorized.\n\n"
-                        + (ctx.system_context or "")
+                        "cannot be verified, say so briefly. Use one or two short sentences; "
+                        "do not recap the proposal or add unsolicited offers. "
+                        "No new write is authorized.\n\n" + (ctx.system_context or "")
                     )
                 if (
                     not ctx.text

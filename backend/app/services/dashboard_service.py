@@ -2088,10 +2088,21 @@ async def suggest_dashboard_template(
             f"Suggested layout for **{app.name}** with {len(track_list)} track(s). "
             "Each widget preview reports its authorized query result and completeness."
         )
+    compact_widgets = _compact_widget_layout(widgets, columns=12)
+    # Home has a smaller bounded composition contract. Return an exact payload
+    # as well as the richer analytics suggestions, so the model need not copy
+    # preview/rationale metadata or invent a second layout. Approval still
+    # revalidates all bindings against current authority.
+    from app.services.app_home_override import prepare_suggested_home
+
+    home = await prepare_suggested_home(
+        user_id=user_id, app_id=app_id, widgets=compact_widgets
+    )
     return {
+        "home": home,
         "name": f"{app.name} Overview",
         "layout": {"columns": 12, "row_height": 80},
-        "widgets": _compact_widget_layout(widgets, columns=12),
+        "widgets": compact_widgets,
         "rationale": rationale,
         "sources": sources,
     }

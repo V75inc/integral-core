@@ -29,6 +29,8 @@ def test_host_task_uses_latest_reconciled_outcome_without_proposal_prose(state):
     instructions = _host_staging_outcome_instructions(history, conversation_id="thread")
     assert f'"state": "{state}"' in instructions
     assert "Untrusted proposal prose" not in instructions
+    assert "one or two short sentences" in instructions
+    assert "Do not repeat the proposal" in instructions
     assert "not a new human request" in instructions
     assert "do not invite approval or restage it" in instructions
 

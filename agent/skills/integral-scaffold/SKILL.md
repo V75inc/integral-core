@@ -160,8 +160,8 @@ fields already on the track.
 |-------------|------------|----------------|
 | `table` | Sortable/filterable grid; `config.columns` optional | Working surface. **Add one when the design names it**; the builder does not add one otherwise. |
 | `feed` | Chronological stream (`default_always_on`) | Activity / update-shaped tracks. Do not add for “completeness” on every table. |
-| `kanban` | Column board; `group_by` and/or `kanban_columns` | Needs a `select` (or equivalent discrete field) whose values are columns. |
-| `calendar` | Month/week/day; `calendar_mapping: { date_field, end_date_field? }` | Needs `date` / `datetime` fields. |
+| `kanban` | Column board; `group_by: custom_fields.<field>`, `kanban_columns: [{key: "<exact select value>", label: "<display label>"}]` | Needs a `select` (or equivalent discrete field) whose values are columns. |
+| `calendar` | Month/week/day; `calendar_mapping: { dateField: "custom_fields.<date>", endDateField: "custom_fields.<end>" }` | Needs `date` / `datetime` fields; endDateField is optional. |
 | `gallery` | Card grid with image preview | Needs `file`/`files` (or image URL field); else do not promise gallery. |
 | `wiki` | Hierarchical pages (UI label **Wiki**); `parent_field`, `body_field`, `title_field` | Needs parent `relation` → entry + markdown body. |
 
@@ -401,6 +401,11 @@ real ID, pass `target_app_id`, and make the first operation
 `integral_create_app_track` with that same real `app_id`. Never create the App
 again. Then add the requested views, records, dashboard, skills and routines.
 App and Track names must match the approved proposal. Use the published
+field keys from the saved blueprint verbatim, including every view reference;
+do not regenerate keys from the prose labels. View `sort` is an array of
+`{field: "custom_fields.<key>", direction: "asc" | "desc"}`. Each board
+column uses `key` equal to the exact approved select value and an optional
+`label`; a label is not a substitute for the stored value. Use the published
 argument names `name` and `description` on track creation and `name`,
 `view_type`, `track_id`, `config` on view creation. Keep the view name, type,
 and track reference at the top level of `integral_save_view.args`, not inside
@@ -413,8 +418,9 @@ allow_cross_track: false, many: false}`. Do not use `relation.track`,
 "All {Track}" table or a calendar unless that design asked for one. The
 platform Feed is already on every Track. If the approved
 design says no demo entries, add none; the builder honors that choice.
-After `applied: true`, finish the same turn with a plain readback naming the
-App, Track, fields, Wiki view mapping, and whether any demo entries exist.
+After `applied: true`, verify the saved result, then finish the same turn with
+one or two short sentences linking the App and confirming the outcome.
+Mention sample entries only when relevant; do not repeat the schema or views.
 Do not ask for another approval and do not end on the system marker alone.
 Copy the approved App and Track names exactly; do not rename the App at build
 time. This operation commits its own batch: do not put `integral_begin_batch`
@@ -518,8 +524,10 @@ before telling the user anything was built. The call only reads the objects
 from that apply. Calling it again does not build again. A later amendment or
 a later change to those objects needs a new apply and a new verification.
 
-`verified` — then hand off: what the App is for, how to start, whether sample
-records were added, reminder cadence, and plain limitations.
+`verified` — confirm in one or two short sentences with the App link. For a
+new build, include one useful starting action only if needed. A recheck needs
+only the outcome. Do not repeat fields, views, the design, or internal checks.
+Give a full inventory or operating guide only if the user asks for it.
 `partial` — say what is missing in plain words and repair only that.
 `blocked` or `failed` — say you could not check. Do not claim it is ready.
 A rejected revision or receipt means you passed the wrong ids; do not rebuild

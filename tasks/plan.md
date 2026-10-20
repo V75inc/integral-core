@@ -30,3 +30,24 @@ QA document, retires all Enhance surfaces and functions, delays conversation
 previews, and uses the actual local frontend/API/PostgreSQL/provider runtime.
 See tasks/qa-followup.md for the current acceptance inventory and evidence.
 No additional version bump or deployment is implied by the source update.
+
+## Chat recovery and everyday language follow-up
+
+Investigate the reported production failure, repair Home authoring and workflow
+starter disclosure, and review host/model failure communication for everyday
+users. Preserve current authorization, approval and private-diagnostic boundaries.
+Qualify the actual local provider path through saved Home readback and run the
+Core gates before pushing the PR update. Evidence and limits:
+`docs/qa/2026-10-19-chat-recovery-copy.md`.
+
+- Follow-up steering: replace the hardcoded starter-read disclosure list with
+  active skill declarations for reads and proposals; preserve current broker
+  and approval authority. Verify generic unrelated skills and history restoration.
+- Keep post-approval/rejection replies to one or two short sentences after
+  verified readback, without repeating proposals or adding unsolicited offers.
+
+- Local provider acceptance passed for two independent skills in one chat; both
+  approval confirmations were one sentence and saved results appeared in the UI.
+- Release/commit blocked by a cold-worker PostgreSQL DDL deadlock, reproduced on
+  both the candidate and isolated fb0db8be baseline. Preserve the failing contract
+  test; follow AGENTS.md stop-before-commit rule for an out-of-scope failure.

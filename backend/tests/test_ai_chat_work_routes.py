@@ -754,3 +754,42 @@ async def test_fresh_work_item_refuses_noncanonical_object_identity(monkeypatch)
             thread_id="thread",
             fresh=True,
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "body",
+    [
+        b"[]",
+        b"null",
+        b"bad json",
+        b'{"expected_turn_id": 123}',
+        b'{"expected_turn_id": ""}',
+        b'{"unexpected": "turn"}',
+    ],
+)
+async def test_cancel_rejects_invalid_target_before_dispatch(monkeypatch, body):
+    from app.api import ai_chat
+    from app.api.errors import BadRequestError
+
+    dispatch = AsyncMock()
+    monkeypatch.setattr(ai_chat, "_cancel_observed_thread", dispatch)
+    with pytest.raises(BadRequestError):
+        await ai_chat.cancel_thread(
+            SimpleNamespace(body=AsyncMock(return_value=body)), "thread"
+        )
+    dispatch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", [b"", b"{}"])
+async def test_cancel_accepts_legacy_empty_target(monkeypatch, body):
+    from app.api import ai_chat
+
+    dispatch = AsyncMock(return_value={"cancelled": False})
+    monkeypatch.setattr(ai_chat, "_cancel_observed_thread", dispatch)
+    request = SimpleNamespace(body=AsyncMock(return_value=body))
+    await ai_chat.cancel_thread(request, "thread")
+    dispatch.assert_awaited_once_with(
+        request, "thread", expected_work_item_id=None, expected_turn_id=None
+    )

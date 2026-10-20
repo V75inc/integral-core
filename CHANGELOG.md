@@ -6,6 +6,14 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc27 — 2026-10-20
+
+- Preserve common clipboard formatting as editable Markdown, including nested lists and document inline styles; retain visual-editor limitations explicitly in release qualification. Validate cancellation targets through the typed API contract.
+
+- Read back the current typed App design before building, preserve entry-type identities and fields, validate View configurations before approval, and adapt equivalent board/sort shorthand without relaxing persisted validation. Keep failed-step details readable and typed record links local.
+
+- Give chat failures and recovery everyday wording; bind active skills to their declared workflow tools, expose validated Home starters, and keep approval replies brief while preserving authorization and source checks.
+
 - Polish tag chips across filters, records and editors; remove the redundant Tags prefix and keep entry-tag filters inside Filters instead of the Track header.
 
 - Delay full conversation-title previews until 700 ms of sustained hover/focus, and cancel pending previews during navigation and dismissal.

@@ -59,14 +59,6 @@ _REQUIRED_SKILLS_BY_TOOL = {
     "integral_verify_build": "integral-scaffold",
 }
 
-# These three read instruments cover subject discovery and relationship
-# capture. Disclose them only after an owning workflow is loaded; the rest of
-# the catalogue stays deferred. This avoids repeated unknown-tool turns while
-# preserving model selection, host scope and broker authorization.
-_PRIMARY_INSIGHT_READS = frozenset(
-    {"integral_query", "integral_query_entries", "integral_get_graph_context"}
-)
-
 
 def _resource_links_for_model(payload: dict[str, Any]) -> dict[str, Any]:
     """Supply canonical navigation URLs on Core resource read results.
@@ -741,11 +733,7 @@ def build_brokered_tools(
                         else frozenset()
                     ),
                     call_state,
-                    eager_read_owners=(
-                        frozenset(skill_owners.get(name, ()))
-                        if op_class == "read" and name in _PRIMARY_INSIGHT_READS
-                        else frozenset()
-                    ),
+                    workflow_tool_owners=frozenset(skill_owners.get(name, ())),
                 ),
                 defer_loading=name not in immediately_available,
                 # Public Pydantic barriers preserve model-emitted order for
@@ -777,7 +765,7 @@ def _prepare_capability_tool(
     skill_owners: frozenset[str] = frozenset(),
     call_state: dict[str, Any] | None = None,
     *,
-    eager_read_owners: frozenset[str] = frozenset(),
+    workflow_tool_owners: frozenset[str] = frozenset(),
 ):
     """Disclose skill tools while preserving the build authority boundary."""
 
@@ -797,26 +785,17 @@ def _prepare_capability_tool(
             # design decision point. Its handler persists approval against the
             # exact current turn before any build effect.
             return replace(tool_def, defer_loading=False)
-        if eager_read_owners.intersection(ctx.active_capability_ids):
+        # Skills supplies instructions; Core binds its standard allowed-tools
+        # declarations to the already authorized catalogue. Reveal the complete
+        # workflow on activation, including schemas needed to propose changes.
+        # Shared tools may belong to several procedures. This is presentation,
+        # never permission: dispatch still rechecks scope, policy and approval.
+        if workflow_tool_owners.intersection(ctx.active_capability_ids):
             return replace(tool_def, defer_loading=False)
-        # Core validates the typed blueprint and live coverage on proposal
-        # dispatch. Hiding the proposal here would break amendments because
-        # coverage state is local to a run, while skills survive in history.
-        # Likewise, build authority is enforced by the handler and broker;
-        # keeping the schema disclosed lets a stale call receive that precise
-        # rejection instead of consuming unknown-tool validation retries.
-        # Standard allowed-tools metadata binds a skill to its Core tools.
-        # Loading that skill permits discovery of its protected writes; it
-        # does not eagerly disclose every schema or bypass the broker. Framework
-        # capability state is restored from its own conversation history.
-        if skill_owners:
-            if not skill_owners.intersection(ctx.active_capability_ids):
-                return None
-            # Loading a procedure must not eagerly inject its entire schema
-            # catalog into every later request. Unified search records the
-            # matching tools in framework-owned disclosure history. Keep the
-            # others deferred; their procedure and broker authority stay intact.
-            return tool_def
+        # Unloaded procedures retain the existing protected-write boundary;
+        # unowned and independently searchable reads remain deferred.
+        if skill_owners and not skill_owners.intersection(ctx.active_capability_ids):
+            return None
         return tool_def
 
     return prepare

@@ -434,14 +434,17 @@ class IntegralToolDisclosure(ToolSearch):
             if part.tool_name == "search_capabilities"
             and not (isinstance(part.content, dict) and part.content.get("error"))
         ]
-        only_page_reads = bool(outcomes) and all(
-            part.tool_name == "integral_get_page_context" for part in outcomes
-        )
-        if only_page_reads:
-            return response
-        if not searches and not any(
-            name.startswith("integral_") and name != "integral_get_page_context"
-            for name in ctx.available_tool_names
+        # Page orientation identifies the target; it is not workflow discovery.
+        # Merely exposing other schemas also does not prove they were used.
+        # Keep restored active procedures and actual operational reads usable.
+        if (
+            not searches
+            and not self.workflow_skill_ids.intersection(ctx.active_capability_ids)
+            and not any(
+                part.tool_name.startswith("integral_")
+                and part.tool_name != "integral_get_page_context"
+                for part in outcomes
+            )
         ):
             raise ModelRetry(
                 "This turn has not searched Integral's authorized capabilities. "
@@ -566,6 +569,23 @@ def build_integral_run_instructions(
         active_ids = sorted(ctx.active_capability_ids)
         blocks = [
             base_instructions,
+            "Integral conversation style: write for everyday people. Explain what "
+            "happened, what is finished or still needs approval, and one useful "
+            "next step. Say 'I couldn't finish' rather than describing tool calls, "
+            "turns, receipts, contracts, scope, tokens or generation limits. "
+            "Keep technical details in diagnostics unless the user asks for them. "
+            "Do not blame the user for a generated request that failed validation. "
+            "Never promise background work, saved changes or success without "
+            "evidence. If only part is done, name that part plainly. Complete "
+            "requested actions in this response using the authorized procedure; "
+            "a final reply saying you will prepare a proposal later does not "
+            "do the work. Present a saved approval card, the verified result, "
+            "a necessary question, or a concrete reason you couldn't finish. "
+            "After an approval, rejection, or simple status recheck, keep the reply to one or two short "
+            "sentences: confirm only the verified outcome and any unresolved "
+            "problem. Do not repeat the proposal, list completed steps, recap "
+            "the workflow, or add unsolicited offers. Give more detail only "
+            "when the user asks or needs it to resolve a problem.",
             "Integral callable-tool contract: skill identifiers name instructions, "
             "not functions. Never invoke a skill name as a tool or convert its "
             "hyphens to underscores. Activate a chosen skill with load_capability "

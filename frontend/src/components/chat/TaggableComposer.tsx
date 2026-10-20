@@ -32,6 +32,7 @@ import {
 } from './ResourceTagPopover';
 import { CHAT_TAG_POPOVER_Z_INDEX, renderTaggedText } from './renderTaggedText';
 import { syncEntityRefsFromText } from './syncEntityRefsFromText';
+import { clipboardHtmlToMarkdown } from './clipboardHtmlToMarkdown';
 
 type ActiveTrigger = '@' | '#' | null;
 
@@ -189,6 +190,27 @@ export const TaggableComposer = forwardRef<HTMLTextAreaElement, TaggableComposer
       [entityRefs, onChange, onEntityRefsChange],
     );
 
+    const handlePaste = useCallback((event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      const html = event.clipboardData.getData('text/html');
+      if (!html.trim()) return;
+      const formatted = clipboardHtmlToMarkdown(html);
+      if (!formatted) return;
+      event.preventDefault();
+      const input = localRef.current;
+      if (!input) return;
+      const start = input.selectionStart ?? value.length;
+      const end = input.selectionEnd ?? start;
+      const before = value.slice(0, start);
+      const after = value.slice(end);
+      const next = `${before}${formatted}${after}`;
+      handleValueChange(next);
+      const caret = before.length + formatted.length;
+      requestAnimationFrame(() => {
+        input.focus();
+        input.setSelectionRange(caret, caret);
+      });
+    }, [handleValueChange, value]);
+
     const syncMirrorScroll = useCallback(() => {
       const ta = localRef.current;
       const mirror = mirrorRef.current;
@@ -342,6 +364,7 @@ export const TaggableComposer = forwardRef<HTMLTextAreaElement, TaggableComposer
           ref={localRef}
           value={value}
           onChange={e => handleValueChange(e.target.value)}
+          onPaste={handlePaste}
           onKeyDown={handleKeyDown}
           onKeyUp={handleKeyUp}
           onClick={handleClick}

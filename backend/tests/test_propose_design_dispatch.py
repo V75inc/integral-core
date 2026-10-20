@@ -90,6 +90,28 @@ async def test_dispatch_propose_design_records_marker(
     assert "app_design_blueprint" in arts
     assert arts["app_design_blueprint"]["body"].startswith("**Demo**")
     assert "Contacts" in arts["app_design_blueprint"]["body"]
+    # A resumed model needs the typed revision, not only the readable preview.
+    # Even older or overwritten scratch metadata is not design authority.
+    arts["app_design_blueprint"]["metadata"]["blueprint"] = {"app": {"name": "Stale"}}
+    arts["app_design_blueprint"]["body"] = "Stale scratch preview"
+    reloaded.artifacts = arts
+    await reloaded.save()
+    from app.agentive.artifacts import get_artifact
+
+    got = await get_artifact(
+        user_id="u1", session_id="sess-PD", key="app_design_blueprint"
+    )
+    assert got["blueprint"] == reloaded.design_proposed["blueprint"]
+    assert "Stale" not in str(got)
+    assert got["blueprint_revision"] == reloaded.design_proposed["blueprint_revision"]
+    assert got["blueprint_digest"] == reloaded.design_proposed["blueprint_digest"]
+    assert got["body"] == reloaded.design_proposed["proposal"]
+
+    denied = await get_artifact(
+        user_id="other", session_id="sess-PD", key="app_design_blueprint"
+    )
+    assert denied["error"] == "forbidden"
+    assert "blueprint" not in denied
     # No Prompt Sheet / staged design card.
     from app.services.prompt_queue import get_queue, queue_is_open
 

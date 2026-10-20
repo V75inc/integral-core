@@ -1,3 +1,4 @@
+import { friendlyAssistantText, friendlyChatFailure, friendlyToolFailure } from "./components/assistantMessagePresentation";
 import {
   useCallback,
   useEffect,
@@ -397,15 +398,15 @@ export function toolSummaryResult(call: {
   if (call.result !== undefined) return call.result;
   const diagnostic = call.diagnostic as { code?: unknown; message?: unknown } | undefined;
   if (diagnostic && typeof diagnostic.message === "string") {
-    return { error: true, error_code: diagnostic.code, message: diagnostic.message };
+    return { error: true, error_code: diagnostic.code, message: friendlyToolFailure({ error_code: diagnostic.code }) };
   }
   if (call.status === "error" || call.isError === true) {
-    return { error: true, message: "The tool did not complete. Detailed output is not retained." };
+    return { error: true, message: "I couldn't finish this step. Check anything already saved before trying again." };
   }
   if (call.status === "complete") {
     // assistant-ui otherwise inherits the parent turn's error when a completed
     // tool has no retained raw result, blaming every earlier call for one limit.
-    return { message: "Tool completed. Detailed output is not retained." };
+    return { message: "This step finished." };
   }
   return undefined;
 }
@@ -480,10 +481,7 @@ export function persistedAssistantErrorMessage(
   for (const part of rawParts) {
     const p = part as Record<string, unknown>;
     if (!p || p.type !== "error") continue;
-    if (typeof p.message === "string" && p.message.trim()) {
-      return p.message.trim();
-    }
-    return "The assistant could not complete this step.";
+    return friendlyChatFailure(p.code, p.message);
   }
   return null;
 }
@@ -522,7 +520,11 @@ function persistedToMessage(m: AIChatPersistedMessage): ThreadMessageLike {
   const rawParts = (m.parts ?? []) as MutableContent[];
   const turnError =
     role === "assistant" ? persistedAssistantErrorMessage(rawParts) : null;
-  const normalizedParts = normalizePersistedParts(rawParts);
+  const normalizedParts = normalizePersistedParts(rawParts).map((part) =>
+    role === "assistant" && part.type === "text"
+      ? { ...part, text: friendlyAssistantText(part.text) }
+      : part,
+  );
   const parts = repairCutDesignInvitation(
     coalescePersistedReasoning(normalizedParts),
   );
@@ -564,7 +566,7 @@ function persistedToMessage(m: AIChatPersistedMessage): ThreadMessageLike {
     // rows that only stamped metadata still show MessageError once.
     const metaError =
       typeof pm?.error?.message === "string" && pm.error.message.trim()
-        ? pm.error.message.trim()
+        ? friendlyChatFailure(pm.error.code, pm.error.message)
         : null;
     const errorMessage = turnError ?? metaError;
 
@@ -1792,7 +1794,7 @@ export function useAIChatRuntime(
     } catch (error) {
       if (!stillCurrent()) return;
       updateSession(threadId, { cancellation: "failed", activityText: null,
-        streamError: error instanceof Error ? error.message : "Could not stop this turn. Try Stop again." });
+        streamError: error instanceof Error ? error.message : "I couldn't stop this request. Please try Stop again." });
     }
   }, [activeThreadId, provider.serverPersisted, updateSession, nextId, refreshThreads]);
 
@@ -2142,7 +2144,7 @@ function applyEvent(draft: AssistantMessageDraft, ev: NormalizedEvent) {
       draft.status = {
         type: "incomplete",
         reason: "error",
-        error: ev.message,
+        error: friendlyChatFailure(ev.code, ev.message),
       };
       return;
     default: {

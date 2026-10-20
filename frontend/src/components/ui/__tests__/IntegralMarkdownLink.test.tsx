@@ -83,4 +83,18 @@ describe('IntegralMarkdownLink', () => {
     expect(html).toContain('href="/tracks/t-1?entry=e-1"');
     expect(html).not.toContain('target="_blank"');
   });
+
+  it('keeps typed legacy placeholder links local without rewriting ordinary external URLs', () => {
+    const html = renderLink('https://integral.app/tracks/n.Track.saved?entry=n.Entry.saved');
+    expect(html).toContain('href="/tracks/n.Track.saved?entry=n.Entry.saved"');
+    expect(html).not.toContain('target="_blank"');
+    for (const href of [
+      'https://integral.app/help',
+      'https://integral.app/tracks/arbitrary',
+      'https://integral.app.example.com/tracks/n.Track.saved',
+      'https://integral.app:444/tracks/n.Track.saved',
+    ]) {
+      expect(renderLink(href)).toContain('target="_blank"');
+    }
+  });
 });

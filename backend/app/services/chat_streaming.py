@@ -92,82 +92,28 @@ class _DeltaHumanizer:
 # never leaves the process — it is logged with the stack; the browser gets a
 # stable code plus a sentence a person can act on.
 _ERROR_MESSAGES: Dict[str, str] = {
-    "storage_setup_required": (
-        "Integral's storage encryption is not configured correctly. Ask the "
-        "installation owner to check setup and the original storage encryption "
-        "key, then restart Integral. Existing keys must be preserved."
-    ),
-    "harness_storage_unreadable": (
-        "Integral could not read its saved AI state. Ask the installation owner "
-        "to verify the original storage encryption key and restore from a backup "
-        "if needed. No saved work was replayed."
-    ),
-    "model_setup_required": (
-        "Choose a model in Settings → AI Models to start using Integral AI. "
-        "You can connect a cloud provider or a local Ollama model."
-    ),
-    "model_key_required": (
-        "No model API key is configured for this workspace. "
-        "Add one in Settings and try again."
-    ),
-    "ai_quota_exceeded": (
-        "This workspace has reached its AI usage limit. Add your own model "
-        "API key in Settings → Agents, or try again later."
-    ),
-    "walker_failed": (
-        "The assistant hit an internal error before it could finish. "
-        "Please try again."
-    ),
-    "model_context_limit": (
-        "This request exceeded the selected model's context limit before it "
-        "could answer. Shorten the request or start a new conversation and try again."
-    ),
-    "harness_usage_limit": (
-        "This turn reached Integral's safe generation limit. Continue in this chat; "
-        "check saved changes and pending approvals before retrying unfinished work."
-    ),
-    "harness_reconciliation_required": (
-        "I couldn't restore the previous assistant state safely, so its work was "
-        "not replayed. Send a new message to continue, and check the current "
-        "workspace state before repeating any earlier change."
-    ),
-    "model_configuration_invalid": (
-        "Integral AI's model configuration is invalid. Check Settings → AI Models. "
-        "For a server model, ask the administrator to review INTEGRAL_NATIVE_MODEL "
-        "and the Ollama settings in the active installation configuration, then restart."
-    ),
-    "model_authentication_failed": (
-        "The model provider rejected its credentials. Update the API key or model "
-        "access in Settings → AI Models. For a server model, ask the administrator "
-        "to check the provider credentials and restart."
-    ),
-    "model_endpoint_unreachable": (
-        "Integral AI could not reach the model provider. Check the connection. "
-        "For local Ollama, ensure it is running and the server's OLLAMA_API_BASE "
-        "points to a reachable address."
-    ),
-    "model_empty_response": "The model did not return a reply after the available attempts. Please try again shortly.",
-    "model_request_timeout": "The model provider took too long to respond. Check its availability before trying again.",
-    "model_rate_limited": "The model provider's usage limit was reached. Check the provider's quota or try again later.",
-    "model_unavailable": "The selected model is unavailable. Choose an available model in Settings → AI Models.",
-    "model_provider_unavailable": "The model provider is temporarily unavailable. Check its status before trying again.",
-    "model_request_rejected": (
-        "The model provider rejected this step. Try again in this conversation. "
-        "If it keeps happening, review the selected model in Settings → AI Models."
-    ),
-    "chat_storage_unavailable": (
-        "Live chat is unavailable because this installation needs transactional "
-        "storage. Ask your administrator to configure PostgreSQL for Integral."
-    ),
-    "chat_step_rolled_back": (
-        "This step failed and its database changes were rolled back. "
-        "The assistant could not complete the requested work. Review the failed "
-        "step before retrying; do not assume the requested records were saved."
-    ),
+    "storage_setup_required": "Chat needs attention from your workspace administrator before it can continue. Ask them to check the storage setup and keep the existing encryption key.",
+    "harness_storage_unreadable": "I couldn't reopen the saved chat. Ask your workspace administrator to check it. Your earlier actions have not been repeated.",
+    "model_setup_required": "Choose an AI model in Settings → AI Models to start chatting. Your workspace administrator can help with setup.",
+    "model_key_required": "AI access hasn't been set up for this workspace. Ask your workspace administrator to connect it in Settings → AI Models.",
+    "ai_quota_exceeded": "This workspace has used its AI allowance. Ask your workspace administrator about adding more, or try again when the allowance renews.",
+    "walker_failed": "I ran into a problem and couldn't finish. Please try again.",
+    "model_context_limit": "There's more information here than I can work with at once. Try a shorter request, or start a new chat with just the details you need.",
+    "harness_usage_limit": "I couldn't finish everything in one go. Check any saved changes and approvals in this chat, then ask me to continue with what's left.",
+    "harness_reconciliation_required": "I couldn't pick up the earlier request reliably. Its actions haven't been repeated. Check what was already saved, then tell me what you'd like to do next in this chat.",
+    "model_configuration_invalid": "The AI connection needs attention. Ask your workspace administrator to check Settings → AI Models.",
+    "model_authentication_failed": "The AI service wouldn't let Integral connect. Ask your workspace administrator to check the connection in Settings → AI Models.",
+    "model_endpoint_unreachable": "I couldn't connect to the AI service. Please try again shortly. If this continues, ask your workspace administrator to check the connection.",
+    "model_empty_response": "I didn't receive an answer from the AI service. Please try again shortly.",
+    "model_request_timeout": "The AI service took too long to reply. Please try again shortly.",
+    "model_rate_limited": "The AI service is at its usage limit. Please try again later, or ask your workspace administrator to check the allowance.",
+    "model_unavailable": "The selected AI model isn't available. Choose another in Settings → AI Models, or ask your workspace administrator for help.",
+    "model_provider_unavailable": "The AI service is temporarily unavailable. Please try again shortly.",
+    "model_request_rejected": "The AI service couldn't handle this request. Please try again. If this continues, ask your workspace administrator to check the AI connection.",
+    "chat_storage_unavailable": "Chat isn't ready on this installation. Ask your workspace administrator to finish setting it up.",
+    "chat_step_rolled_back": "I couldn't finish this step, so its changes weren't saved. Earlier completed steps may still be saved; check those before trying again.",
     "internal_error": "Something went wrong on our side. Please try again.",
-    "scaffold_plan_invalid": (
-        "The approved setup could not be built. Please try again."
-    ),
+    "scaffold_plan_invalid": "I couldn't finish setting this up. Please ask me to review the setup and try again.",
 }
 
 _SCAFFOLD_PLAN_COACHING = " Correct the generated operation plan"
@@ -203,7 +149,11 @@ def _scaffold_plan_failure_message(exc: BaseException) -> Optional[str]:
         current = current.__cause__ or current.__context__
     lead = "The approved setup could not be built."
     if detail:
-        return f"{lead} {detail}"
+        return (
+            "I couldn't build the setup you approved because some of its details "
+            "didn't fit together. Ask me to review the setup and try again. "
+            "Check anything already saved before repeating changes."
+        )
     return lead
 
 
@@ -233,8 +183,7 @@ _HARNESS_RECOVERY_REASONS = frozenset(
     }
 )
 _HARNESS_CURRENT_STATE_MESSAGE = (
-    "The assistant could not safely complete this response. "
-    "Please send your message again."
+    "I couldn't finish this reply. Please send your message again."
 )
 
 

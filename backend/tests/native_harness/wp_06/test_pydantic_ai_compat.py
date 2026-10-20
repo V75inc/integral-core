@@ -379,6 +379,9 @@ def test_run_instructions_expose_active_capabilities_to_the_model() -> None:
         )
     )
     assert base.startswith("Integral resident agent.")
+    assert "After an approval, rejection, or simple status recheck" in base
+    assert "one or two short sentences" in base
+    assert "Do not repeat the proposal" in base
     assert "copy the canonical url returned by Core tools exactly" in base
     assert "replace its dots with slashes" in base
     assert "plain record label instead of a guessed link" in base

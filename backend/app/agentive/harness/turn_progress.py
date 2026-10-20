@@ -75,7 +75,7 @@ class TurnProgress:
 
 
 FINAL_RESPONSE_FALLBACK = (
-    "I couldn't verify a complete answer from the available results. "
-    "I stopped further tool use for this turn. We can continue in this chat "
-    "using the results already obtained."
+    "I ran into a problem and couldn't finish your request. "
+    "Before trying again, check this chat for any changes awaiting your approval "
+    "and review anything already saved. You can ask me to pick up where we left off."
 )

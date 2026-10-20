@@ -162,7 +162,7 @@ async def test_resource_metadata_is_authorized_before_hydration(monkeypatch, den
 async def test_page_capability_is_available_before_discovery_and_uses_bound_scope(
     tmp_path, monkeypatch, question
 ):
-    """The recorded examples can obtain orientation without unrelated discovery or writes."""
+    """Orientation stays scoped and cannot bypass subsequent workflow discovery."""
     calls = []
 
     async def invoke(**kwargs):
@@ -212,6 +212,12 @@ async def test_page_capability_is_available_before_discovery_and_uses_bound_scop
                         "integral_get_page_context", {"include": "stub"}, "read-page"
                     )
                 ]
+            )
+        if len(requests) == 2:
+            # Discovery is still required after orientation, even though the
+            # current page can already be described. No mutation is forced.
+            return ModelResponse(
+                parts=[ToolCallPart("search_capabilities", {"query": "current page"})]
             )
         assert any(
             isinstance(p, ToolReturnPart) and "Marketing" in str(p.content)
