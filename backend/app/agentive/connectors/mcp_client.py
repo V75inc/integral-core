@@ -113,6 +113,14 @@ _SERVER_GENERATED_ENV_KEYS: frozenset[str] = frozenset(
         # discovery still had the provisional env — and then start every later
         # spawn (health, refresh, and EVERY tool call) with no credentials.
         "QUICKBOOKS_TOKEN_STORE_PATH",
+        # Written by the Microsoft 365 mail OAuth finish path. The Softeria
+        # server reads the access token from MS365_MCP_OAUTH_TOKEN and does
+        # not refresh it. Catalog env_defaults names the same keys; this set
+        # keeps a later spawn from dropping them if defaults are normalized away.
+        "MS365_MCP_CLIENT_ID",
+        "MS365_MCP_CLIENT_SECRET",
+        "MS365_MCP_TENANT_ID",
+        "MS365_MCP_OAUTH_TOKEN",
     }
 )
 
