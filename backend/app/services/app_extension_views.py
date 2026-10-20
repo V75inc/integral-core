@@ -329,6 +329,28 @@ class _InlineScriptHashes(HTMLParser):
             self.current = None
 
 
+def extension_frame_ancestors(*raw_origins: str) -> str:
+    """Origins allowed to embed a package view frame.
+
+    ``'self'`` covers the API origin. Each configured SPA origin is added
+    once, without a path, so a public web host and the local dev server can
+    both be parents.
+    """
+    ancestors = ["'self'"]
+    seen: set[str] = set()
+    for raw in raw_origins:
+        origin = urlsplit(str(raw or "").strip())
+        if origin.scheme not in ("http", "https") or not origin.hostname:
+            continue
+        port = f":{origin.port}" if origin.port else ""
+        value = f"{origin.scheme}://{origin.hostname}{port}"
+        if value in seen:
+            continue
+        seen.add(value)
+        ancestors.append(value)
+    return " ".join(ancestors)
+
+
 async def render_extension_view_frame(token: str) -> Tuple[str, str]:
     """Serve a sandbox document using a scoped grant, never a user JWT.
 
@@ -354,11 +376,13 @@ async def render_extension_view_frame(token: str) -> Tuple[str, str]:
     parser = _InlineScriptHashes()
     parser.feed(html)
     scripts = " ".join(parser.scripts) or "'none'"
-    origin = urlsplit(settings.FRONTEND_ORIGIN)
-    ancestors = "'self'"
-    if origin.scheme in ("http", "https") and origin.hostname:
-        port = f":{origin.port}" if origin.port else ""
-        ancestors += f" {origin.scheme}://{origin.hostname}{port}"
+    # FRONTEND_ORIGIN is the OAuth consent host. Hosted deploys also set
+    # APP_BASE_URL to the public SPA and can leave FRONTEND_ORIGIN at the
+    # localhost default, which blocks that SPA from embedding this frame.
+    ancestors = extension_frame_ancestors(
+        settings.FRONTEND_ORIGIN,
+        settings.APP_BASE_URL,
+    )
     policy = (
         "sandbox allow-scripts; default-src 'none'; base-uri 'none'; "
         f"form-action 'none'; frame-ancestors {ancestors}; object-src 'none'; "
