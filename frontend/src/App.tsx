@@ -219,6 +219,11 @@ const QuickBooksOAuthCallbackPage = lazy(() =>
     default: m.QuickBooksOAuthCallbackPage,
   })),
 );
+const MicrosoftMailOAuthCallbackPage = lazy(() =>
+  import('./pages/MicrosoftMailOAuthCallbackPage').then((m) => ({
+    default: m.MicrosoftMailOAuthCallbackPage,
+  })),
+);
 
 function FullScreenLoading() {
   return (
@@ -334,6 +339,14 @@ export default function App() {
         element={
           <RequireAuth>
             <QuickBooksOAuthCallbackPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/connectors/microsoft-mail/callback"
+        element={
+          <RequireAuth>
+            <MicrosoftMailOAuthCallbackPage />
           </RequireAuth>
         }
       />

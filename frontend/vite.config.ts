@@ -54,6 +54,9 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 9006,
       host: '0.0.0.0',
+      // ngrok free tunnels send a rotating *.ngrok-free.app Host header.
+      // A leading dot allows that host and every subdomain under it.
+      allowedHosts: ['.ngrok-free.app'],
       proxy: {
         // /api/events is the Phase 2 Plan 02-03 events WebSocket. Vite
         // matches proxy rules first-rule-wins, so this MUST come before

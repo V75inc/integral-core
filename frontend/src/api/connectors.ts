@@ -275,6 +275,19 @@ export interface QuickBooksCallbackResponse {
   auth_state: Record<string, unknown>;
 }
 
+export interface MicrosoftMailCallbackRequest {
+  code: string;
+  state: string;
+  connector_id?: string;
+  redirect_uri?: string;
+}
+
+export interface MicrosoftMailCallbackResponse {
+  connector_id: string;
+  connected: boolean;
+  reauth_required: boolean;
+}
+
 export type McpInstallTier =
   | 'direct_http'
   | 'http_with_auth'
@@ -621,6 +634,15 @@ export const connectorsApi = {
   ): Promise<QuickBooksCallbackResponse> {
     const { data } = await api.post<QuickBooksCallbackResponse>(
       '/agentive/connectors/quickbooks/callback',
+      body,
+    );
+    return data;
+  },
+  async microsoftMailCallback(
+    body: MicrosoftMailCallbackRequest,
+  ): Promise<MicrosoftMailCallbackResponse> {
+    const { data } = await api.post<MicrosoftMailCallbackResponse>(
+      '/agentive/connectors/microsoft-mail/callback',
       body,
     );
     return data;
