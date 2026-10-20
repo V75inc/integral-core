@@ -869,7 +869,9 @@ async def test_completed_build_requires_readback_before_final_answer():
     assert "verification returned partial" in message
     assert "Do not claim the setup is ready" in message
     assert "do not call write tools" in message
-    assert "report every resource on each project" in message
+    assert "In one or two short sentences" in message
+    assert "what was saved and what still needs correction" in message
+    assert "Use familiar names, not internal keys" in message
     assert state["verification_narrated"] is True
 
     explained = await validate(

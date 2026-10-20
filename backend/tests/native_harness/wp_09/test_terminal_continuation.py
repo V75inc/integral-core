@@ -731,8 +731,8 @@ async def test_exhausted_plan_corrections_produce_truthful_final_answer():
         }
     )
     answer = await validator(None, "Everything is ready!")
-    assert "No build changes were applied" in answer
-    assert "Date Spent" in answer
+    assert "No changes from this build were saved" in answer
+    assert "Date Spent" not in answer
     assert "Everything is ready" not in answer
 
 

@@ -36,8 +36,11 @@ composition contract the server validates. A minimal shape is:
 ```
 
 The placeholders above are structural examples, never callable source names.
-Copy actual bindings from `integral_suggest_dashboard`. Reuse its returned
-widgets when appropriate; adapt titles and layout to the App's purpose. Read
+Copy actual bindings from `integral_suggest_dashboard`. Prefer its `home` object
+as the starting composition: it is already checked against Home rules and excludes
+analytics-only preview metadata. If `home` is null, there is no eligible starter;
+explain what is missing instead of repeatedly submitting the same invalid layout.
+Reuse its returned widgets when appropriate; adapt titles and layout to the App's purpose. Read
 current Home once to preserve any existing content. Do not list unrelated
 analytics dashboards or search conversation history to rediscover a known App.
 Use focused schema reads only for fields the chosen composition actually needs.

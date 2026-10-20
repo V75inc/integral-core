@@ -136,12 +136,6 @@ def user_asked_for_another_record(sentence: str) -> bool:
     return _ANOTHER_RECORD.search(sentence or "") is not None
 
 
-def is_improve_this(user_text: str) -> bool:
-    """True when the user asked to improve the focused object."""
-    folded = (user_text or "").strip().casefold()
-    return folded == "improve this" or folded.startswith("improve this")
-
-
 def is_rate_dashboard(user_text: str) -> bool:
     """True when the user asked for the vehicle daily-rate dashboard."""
     folded = (user_text or "").casefold()

@@ -138,7 +138,8 @@ async def test_list_tools_returns_catalogue():
     # 115 -> 116: integral_aggregate (W3.1).
     # W4.4: integral_merge_tracks + integral_split_track.
     # 124 -> 125: distinct App Home read capability.
-    assert len(tools) == 125, len(tools)
+    # 125 -> 124: retire the Enhance recommendation tool.
+    assert len(tools) == 124, len(tools)
     assert all(isinstance(t, types.Tool) for t in tools)
 
     names = {t.name for t in tools}

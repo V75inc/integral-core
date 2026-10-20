@@ -18,17 +18,16 @@ pytestmark = pytest.mark.smoke
 
 
 @pytest.mark.asyncio
-async def test_loading_lookup_skill_does_not_disclose_unsearched_mutation_schemas(
+async def test_read_only_skill_does_not_disclose_undeclared_mutation_schemas(
     tmp_path: Path, monkeypatch
 ):
-    """Skill procedure and exact discovered read survive without a write catalog."""
+    """A focused read-only procedure does not disclose unrelated write schemas."""
     folder = tmp_path / "record-lookup"
     folder.mkdir()
     (folder / "SKILL.md").write_text(
         "---\nname: record-lookup\ndescription: Find records by exact title.\n"
-        "allowed-tools: integral_query_entries integral_delete_entry\n---\n"
-        "Use integral_query_entries to find records by exact title. "
-        "Delete only when explicitly requested and approved.\n"
+        "allowed-tools: integral_query_entries\n---\n"
+        "Use integral_query_entries to find records by exact title.\n"
     )
     scope = HarnessExecutionScope(
         tenant_id="ws",

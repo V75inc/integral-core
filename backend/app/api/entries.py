@@ -338,6 +338,7 @@ async def list_entries(
     limit: int = 20,
     q: Optional[str] = None,
     include_total: bool = True,
+    tag_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """List all entries accessible to the current user (cursor pagination).
 
@@ -368,6 +369,9 @@ async def list_entries(
         cursor=cursor,
         limit=limit,
         include_total=include_total,
+        filters=(
+            [{"field": "tags", "operator": "eq", "value": tag_id}] if tag_id else None
+        ),
     )
     response["entries"] = await enrich_entry_page_for_response(page_entries)
     return response

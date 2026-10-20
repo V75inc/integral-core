@@ -90,11 +90,11 @@ export function SessionRenewalDialog({ mode, user, onResume, onSignOut }: Props)
             <Text as="span" tone="muted"><LockKeyhole aria-hidden="true" size={20} /></Text>
           </div>
           <Text as="h2" variant="heading-md" id="session-renewal-title">
-            {needsPassword ? 'Sign in to continue' : 'Renew your session'}
+            {needsPassword ? 'Sign in to continue' : 'Are you still working?'}
           </Text>
           <Text as="p" tone="muted" id="session-renewal-description">
-            Your session has paused. This page and its inputs are kept open in this tab.
-            {needsPassword ? ' Confirm your password to return to your work.' : ' Renew your session to continue working.'}
+            Your work is still open.
+            {needsPassword ? ' Confirm your password to continue.' : ' Continue when you’re ready.'}
           </Text>
           {needsPassword && <div className="space-y-3">
             <Text as="label" variant="label" htmlFor="session-renewal-email">Email</Text>
@@ -104,9 +104,6 @@ export function SessionRenewalDialog({ mode, user, onResume, onSignOut }: Props)
               value={password} onChange={event => setPassword(event.target.value)} required disabled={busy} />
           </div>}
           {error && <div role="alert"><Text as="p" tone="danger">{error}</Text></div>}
-          <Text as="p" variant="body-sm" tone="muted">
-            Interrupted actions will not be submitted again automatically. Check their status before retrying.
-          </Text>
           <div className="flex flex-wrap justify-end gap-3">
             <Button type="button" variant="secondary" disabled={busy} onClick={onSignOut}>Sign out</Button>
             <Button type="submit" autoFocus={!needsPassword} loading={busy}>{needsPassword ? 'Sign in and continue' : 'Continue working'}</Button>

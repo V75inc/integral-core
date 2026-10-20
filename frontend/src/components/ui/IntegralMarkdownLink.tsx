@@ -29,6 +29,15 @@ function internalAppHref(href: string | undefined): string | undefined {
     if (url.protocol === 'https:' && url.hostname === 'integral.ai') {
       return `${url.pathname}${url.search}${url.hash}`;
     }
+    // Older assistant replies sometimes used this placeholder host. A typed
+    // Core record route is still local navigation. Ordinary links to that
+    // domain, credentials, and lookalike domains retain external semantics.
+    if (
+      url.origin === 'https://integral.app' && !url.username && !url.password &&
+      /^\/(?:entries\/n\.Entry\.|tracks\/n\.Track\.|apps\/n\.WorkspaceApp\.)[^/\s?#]+$/.test(url.pathname)
+    ) {
+      return `${url.pathname}${url.search}${url.hash}`;
+    }
   } catch {
     // isSafeHref already rejected malformed URLs. Keep this defensive guard
     // so a future validator change cannot turn a malformed external link into

@@ -1,7 +1,7 @@
 ---
 name: integral-model
 description: 'Owns domain schema design and evolution for an existing App or Track: shape EntryTypes, fields, and reference patterns from the operational need, then propose the corresponding model revision. Advise integral-scaffold during a new-App build without taking over its end-to-end delivery. For direct Operational Model draft, publish, or library lifecycle operations, use integral-models; for record changes, use integral-entries.'
-allowed-tools: integral_describe_substrate integral_describe_model integral_get_track_schema integral_list_apps integral_list_tracks integral_list_views integral_modify_model integral_recommend_customizations integral_get_model_draft integral_propose_model_revision integral_diff_model_draft integral_publish_model_draft integral_link_entries integral_save_view
+allowed-tools: integral_list_tags integral_create_tag integral_begin_batch integral_commit_batch integral_cancel_batch integral_describe_substrate integral_describe_model integral_get_track_schema integral_list_apps integral_list_tracks integral_list_views integral_modify_model integral_get_model_draft integral_propose_model_revision integral_diff_model_draft integral_publish_model_draft integral_link_entries integral_save_view
 ---
 
 # Integral model — SOP
@@ -101,17 +101,27 @@ several kinds of child (tasks *and* activities *and* updates), declare **multipl
   the app; the anchor is an additional pointer, not containment.
 - Use both a lookup and an anchor for the same relationship.
 
-## Procedure
+## Live tag additions
 
-When the user chooses **Improve this** on an Entry, Track, or View, the page
-context identifies that object and the composer contains a review-only request.
-For a Track or View, call `integral_recommend_customizations` before proposing
-changes. It analyzes repeated labelled body values, existing record names, and
-the field palette to return concrete patch suggestions. Inspect the current
-model before using a suggestion; treat each accepted suggestion as one draft
-revision, show its diff, and wait for approval before publishing. Suggestions
-are evidence to review, not permission to change the model. For an Entry,
-inspect its Track's model and the focused record before proposing any change.
+For a request to add tags to an existing Track or App, use the live tag CRUD
+workflow. Read `integral_list_tags` for that exact container, open
+`integral_begin_batch`, stage each missing tag with `integral_create_tag`
+(including its approved name, color, and group), then `integral_commit_batch`.
+Approval applies the whole batch to the live container; no model publication
+is needed. Preserve existing tags, colors, IDs, and assignments. A matching
+name already live is not a new tag; explain it and keep it unchanged unless
+an update was requested. A tag present only in an unpublished draft is not live.
+
+Do not route ordinary tag additions through a model draft or reuse an earlier
+draft containing unrelated edits. Use the draft lifecycle only when the user
+explicitly asks for a draft/model revision or combines tags with other schema
+changes that require publication. In that case, show the complete diff, explain
+any unrelated pending edits, and stage publication for separate approval after
+revision succeeds. Do not report a draft revision as the completed live change.
+After approval, read `integral_list_tags` again and verify every requested name
+and color, plus preservation of the existing tags, before reporting completion.
+
+## Procedure
 
 `integral_modify_model` has no field actions. Any field edit, including one
 field addition, uses the draft lifecycle with an `operations` list. Use

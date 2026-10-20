@@ -39,6 +39,7 @@ def _install_work_item(
     thread_id: str,
 ) -> None:
     item = SimpleNamespace(
+        id=f"o.WorkItem.{work_item_id.removeprefix('o.WorkItem.')}",
         work_item_id=work_item_id,
         kind="chat_turn",
         principal_id=principal_id,
@@ -561,3 +562,234 @@ async def test_durable_message_rejects_unqualified_input_before_acceptance(
     )
     assert response.status_code == 400, response.text
     submit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_activity_reports_registry_cleanup_before_releasing_composer(monkeypatch):
+    from app.api import ai_chat
+
+    thread = SimpleNamespace(
+        id="thread", provider_id="test-provider", active_work_item_id=""
+    )
+    monkeypatch.setattr(ai_chat, "_resolve_principal", lambda request: ("owner", None))
+    monkeypatch.setattr(
+        ai_chat, "_resolve_owned_thread", AsyncMock(return_value=thread)
+    )
+    monkeypatch.setattr(
+        ai_chat.chat_turn_registry, "get_turn", lambda _: SimpleNamespace(turn_id="old")
+    )
+    assert await ai_chat.thread_activity(None, "thread") == {
+        "running": True,
+        "work_item_id": None,
+        "turn_id": "old",
+    }
+    monkeypatch.setattr(ai_chat.chat_turn_registry, "get_turn", lambda _: None)
+    assert (await ai_chat.thread_activity(None, "thread"))["running"] is False
+
+
+@pytest.mark.asyncio
+async def test_activity_requires_owned_thread_before_reading_turn(monkeypatch):
+    from app.api import ai_chat
+    from app.api.errors import ResourceNotFoundError
+
+    monkeypatch.setattr(
+        ai_chat, "_resolve_principal", lambda request: ("outsider", None)
+    )
+    monkeypatch.setattr(
+        ai_chat,
+        "_resolve_owned_thread",
+        AsyncMock(side_effect=ResourceNotFoundError(message="Chat thread not found")),
+    )
+    with pytest.raises(ResourceNotFoundError):
+        await ai_chat.thread_activity(None, "private-thread")
+
+
+@pytest.mark.asyncio
+async def test_conditional_cancel_never_targets_a_newer_work_item(monkeypatch):
+    from app.api import ai_chat
+
+    monkeypatch.setattr(ai_chat, "_resolve_principal", lambda request: ("owner", None))
+    monkeypatch.setattr(
+        ai_chat,
+        "_resolve_owned_thread",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                id="thread",
+                provider_id="integral_native",
+                active_work_item_id="new-work",
+            )
+        ),
+    )
+    monkeypatch.setattr(ai_chat.chat_turn_registry, "get_turn", lambda _: None)
+    cancel = AsyncMock()
+    monkeypatch.setattr(ai_chat, "cancel_chat_turn", cancel)
+    result = await ai_chat._cancel_observed_thread(
+        None, "thread", expected_work_item_id="old-work"
+    )
+    assert result["cancelled"] is False
+    cancel.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_conditional_cancel_never_targets_a_newer_legacy_turn(monkeypatch):
+    from app.api import ai_chat
+
+    monkeypatch.setattr(ai_chat, "_resolve_principal", lambda request: ("owner", None))
+    monkeypatch.setattr(
+        ai_chat,
+        "_resolve_owned_thread",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                id="thread", provider_id="test-provider", active_work_item_id=""
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        ai_chat.chat_turn_registry, "get_turn", lambda _: SimpleNamespace(turn_id="new")
+    )
+    cancel = AsyncMock()
+    monkeypatch.setattr(ai_chat.chat_turn_registry, "cancel_turn", cancel)
+    result = await ai_chat._cancel_observed_thread(
+        None, "thread", expected_turn_id="old"
+    )
+    assert result["cancelled"] is False
+    cancel.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cancellation_activity_uses_fresh_thread_and_work_reads(monkeypatch):
+    from app.api import ai_chat
+    from app.models.nodes import ChatThread
+
+    thread = SimpleNamespace(
+        id="thread",
+        user_id="owner",
+        provider_id="integral_native",
+        active_work_item_id="work",
+    )
+    thread_read = AsyncMock(return_value=thread)
+    monkeypatch.setattr(ChatThread, "find_one", thread_read)
+    monkeypatch.setattr(ai_chat, "_resolve_principal", lambda _: ("owner", None))
+    monkeypatch.setattr(
+        ai_chat, "_resolve_turn_workspace", AsyncMock(return_value="workspace")
+    )
+    monkeypatch.setattr(ai_chat.chat_turn_registry, "get_turn", lambda _: None)
+    item = SimpleNamespace(
+        id="o.WorkItem.work",
+        work_item_id="work",
+        kind="chat_turn",
+        principal_id="owner",
+        workspace_id="workspace",
+        thread_id="thread",
+        status="cancelled",
+    )
+    work_read = AsyncMock(return_value=item)
+    monkeypatch.setattr(WorkItem, "find_one", work_read)
+    cached = AsyncMock(side_effect=AssertionError("Cached WorkItem read"))
+    monkeypatch.setattr(WorkItem, "get", cached)
+    result = await ai_chat.thread_activity(None, "thread")
+    assert result["running"] is False
+    thread_read.assert_awaited_once_with({"id": "thread"})
+    work_read.assert_awaited_once_with({"context.work_item_id": "work"})
+    cached.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_activity_reads_persisted_work_item_and_releases_terminal_turn(
+    authenticated_client: AsyncClient,
+) -> None:
+    """Exercise Object query mapping against storage, not a mocked find_one."""
+    from app.models.nodes import ChatThread
+
+    workspace_id, thread_id = await _owned_native_thread(authenticated_client)
+    thread = await ChatThread.get(thread_id)
+    assert thread is not None
+    item = await WorkItem.create(
+        id="o.WorkItem.persisted-activity",
+        work_item_id="persisted-activity",
+        kind="chat_turn",
+        principal_id=thread.user_id,
+        workspace_id=workspace_id,
+        thread_id=thread_id,
+        status="running",
+    )
+    thread.provider_id = "integral_native"
+    thread.active_work_item_id = item.work_item_id
+    await thread.save()
+    headers = {"X-Integral-Scope": f"ws:{workspace_id}"}
+    response = await authenticated_client.get(
+        f"/api/chat/threads/{thread_id}/activity", headers=headers
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["running"] is True
+    assert response.json()["work_item_id"] == item.work_item_id
+    item.status = "cancelled"
+    await item.save()
+    response = await authenticated_client.get(
+        f"/api/chat/threads/{thread_id}/activity", headers=headers
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["running"] is False
+
+
+@pytest.mark.asyncio
+async def test_fresh_work_item_refuses_noncanonical_object_identity(monkeypatch):
+    from app.api import ai_chat
+    from app.api.errors import ResourceNotFoundError
+
+    item = SimpleNamespace(
+        id="o.WorkItem.other",
+        work_item_id="work",
+        kind="chat_turn",
+        principal_id="owner",
+        workspace_id="workspace",
+        thread_id="thread",
+    )
+    monkeypatch.setattr(WorkItem, "find_one", AsyncMock(return_value=item))
+    with pytest.raises(ResourceNotFoundError):
+        await ai_chat._resolve_owned_chat_work_item(
+            work_item_id="work",
+            principal_id="owner",
+            workspace_id="workspace",
+            thread_id="thread",
+            fresh=True,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "body",
+    [
+        b"[]",
+        b"null",
+        b"bad json",
+        b'{"expected_turn_id": 123}',
+        b'{"expected_turn_id": ""}',
+        b'{"unexpected": "turn"}',
+    ],
+)
+async def test_cancel_rejects_invalid_target_before_dispatch(monkeypatch, body):
+    from app.api import ai_chat
+    from app.api.errors import BadRequestError
+
+    dispatch = AsyncMock()
+    monkeypatch.setattr(ai_chat, "_cancel_observed_thread", dispatch)
+    with pytest.raises(BadRequestError):
+        await ai_chat.cancel_thread(
+            SimpleNamespace(body=AsyncMock(return_value=body)), "thread"
+        )
+    dispatch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", [b"", b"{}"])
+async def test_cancel_accepts_legacy_empty_target(monkeypatch, body):
+    from app.api import ai_chat
+
+    dispatch = AsyncMock(return_value={"cancelled": False})
+    monkeypatch.setattr(ai_chat, "_cancel_observed_thread", dispatch)
+    request = SimpleNamespace(body=AsyncMock(return_value=body))
+    await ai_chat.cancel_thread(request, "thread")
+    dispatch.assert_awaited_once_with(
+        request, "thread", expected_work_item_id=None, expected_turn_id=None
+    )

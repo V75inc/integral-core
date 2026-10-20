@@ -28,8 +28,7 @@ from app.services.change_event import emit_change_event
 from app.services.operational_model_runtime import sync_attached_manifest
 from app.services.policy_engine import evaluate as policy_evaluate
 from app.services.request_scope import resolve_workspace_id_from_request
-from app.services.tag_service import create_tag_for_scope
-from app.services.uniqueness import assert_unique
+from app.services.tag_service import assert_unique_tag_name, create_tag_for_scope
 
 logger = logging.getLogger(__name__)
 
@@ -323,19 +322,10 @@ async def update_tag(
             raise BadRequestError(message="name must be 80 characters or fewer")
         new_fold = compute_fold(safe_name)
         if new_fold != (getattr(tag, "name_fold", "") or ""):
-            scope_query = (
-                {"context.track_id": tag.track_id}
-                if tag.track_id
-                else {"context.app_id": tag.app_id}
-            )
-            scope_query["context.name_fold"] = new_fold
-            await assert_unique(
-                Tag,
-                scope_query,
-                entity="tag",
-                field_label="name",
-                value=safe_name,
-                scope_label="in this " + ("track" if tag.track_id else "app"),
+            await assert_unique_tag_name(
+                name=safe_name,
+                track_id=tag.track_id,
+                app_id=tag.app_id,
                 exclude_id=tag.id,
             )
         tag.name = safe_name

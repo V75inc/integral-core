@@ -50,7 +50,7 @@ async def test_unconfigured_storage_fails_before_catalogue_or_provider_dispatch(
         )
     code, message = classify_turn_exception(error.value)
     assert code == "storage_setup_required"
-    assert "original storage encryption" in message
+    assert "workspace administrator" in message
 
 
 def test_unreadable_checkpoint_reports_safe_recovery_and_never_raw_exception():
@@ -61,6 +61,6 @@ def test_unreadable_checkpoint_reports_safe_recovery_and_never_raw_exception():
     )
     code, message = classify_turn_exception(error, provider=PydanticAIProvider())
     assert code == "harness_storage_unreadable"
-    assert "original storage encryption" in message
+    assert "workspace administrator" in message
     assert "private payload" not in message
     assert "secret-key" not in message

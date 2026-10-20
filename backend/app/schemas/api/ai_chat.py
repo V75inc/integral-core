@@ -62,6 +62,18 @@ class RenameThreadRequest(BaseModel):
     model_config = {"extra": "forbid"}
 
 
+class CancelThreadRequest(BaseModel):
+    """Optional observed-turn fence; an empty body retains legacy behavior."""
+
+    expected_work_item_id: Optional[str] = Field(
+        default=None, strict=True, min_length=1, max_length=256
+    )
+    expected_turn_id: Optional[str] = Field(
+        default=None, strict=True, min_length=1, max_length=256
+    )
+    model_config = {"extra": "forbid"}
+
+
 MAX_ATTACHMENTS_PER_MESSAGE = 10
 MAX_VISIBLE_CONTEXT_ITEMS = 25
 

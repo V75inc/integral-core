@@ -4,6 +4,27 @@ This pre-launch change record describes the supported Integral Core runtime.
 Package publication and deployment are separate release gates; a local version
 bump does not establish that a release is available on a package index.
 
+## Unreleased
+
+## 0.1.1rc27 — 2026-10-20
+
+- Preserve common clipboard formatting as editable Markdown, including nested lists and document inline styles; retain visual-editor limitations explicitly in release qualification. Validate cancellation targets through the typed API contract.
+
+- Read back the current typed App design before building, preserve entry-type identities and fields, validate View configurations before approval, and adapt equivalent board/sort shorthand without relaxing persisted validation. Keep failed-step details readable and typed record links local.
+
+- Give chat failures and recovery everyday wording; bind active skills to their declared workflow tools, expose validated Home starters, and keep approval replies brief while preserving authorization and source checks.
+
+- Polish tag chips across filters, records and editors; remove the redundant Tags prefix and keep entry-tag filters inside Filters instead of the Track header.
+
+- Delay full conversation-title previews until 700 ms of sustained hover/focus, and cancel pending previews during navigation and dismissal.
+- Resolve durable chat cancellation from the stored WorkItem key rather than an Object query that incorrectly targets a nested ID.
+
+- Acknowledge chat cancellation only after backend release, retain retryable failures, and fence retries to the observed turn.
+- Apply live tag additions through durable approved command batches, preserve existing tags and colors, and explain invalid or duplicate names.
+- Keep pasted chat drafts editable, reopen tag selection consistently, and render feed action menus outside clipping containers.
+- Remove unused Kanban field options with record/default checks and consistent updates to affected boards; expose authorized library model deletion from the model picker.
+- Show readable App/Entry change reviews, retire all Enhance actions and their recommendation service/tool, keep tag filters compact, and filter the global feed by Track-qualified tag identity before pagination.
+
 ## 0.1.1rc26 — 2026-10-19
 
 - Validate same-App seed relations during installation using the current human installer authority. Keep incomplete Apps private, respect live access denials, and preserve required-hook rollback.

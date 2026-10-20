@@ -9,3 +9,13 @@ Resolution checks definition ownership, active pointer, and status. Sources shar
 Record summaries expose selected typed scalar fields and validated Entry identity. They cannot turn arbitrary query rows into unrestricted drill-through links. Actions prepare an editable chat draft rather than sending it to the model.
 
 Test definition rejection, permission denial, total/row consistency, unavailable sources, time budget, browser rendering, and action draft behavior. See the [extension contract](../platform/extension-contract-v1.md).
+
+
+### Resident starter payload
+
+`integral_suggest_dashboard` returns `home` separately from its rich analytics
+`widgets`. The Home starter contains only supported composition fields, at most
+12 unique widgets with nonoverlapping placement, and currently authorized
+sources. A null starter means none could be prepared. Suggestion does not save
+anything: `integral_update_app` stages the composition for ordinary approval and
+rechecks bindings, and `integral_read_app_home` verifies the saved result.

@@ -1202,12 +1202,17 @@ domains:
         status: existing
         op_class: read
         priority: P2
-        summary: Fetch one session artifact by key (full body). Does not stage a write.
+        summary: >-
+          Fetch one session artifact by key. app_design_blueprint also returns
+          the current typed blueprint, design_id, blueprint_revision and
+          blueprint_digest from saved design authority. Build from those exact
+          entry-type names and field keys; never reconstruct them from prose.
+          Does not stage a write.
         http: "(conversation context)"
         policy_action: null
         params:
           key: {type: string, required: true, desc: "Artifact key."}
-        returns: { ok: bool, key: str, kind: str, title: str, body: str, version: int }
+        returns: { ok: bool, key: str, kind: str, title: str, body: str, version: int, blueprint: object, design_id: str, blueprint_revision: int, blueprint_digest: str }
       - name: integral_list_artifacts
         status: existing
         op_class: read
@@ -1419,7 +1424,12 @@ domains:
         status: existing
         op_class: propose
         priority: P2
-        summary: "Create a (optionally hierarchical) tag in a scope."
+        summary: >-
+          Add a live tag to an existing Track or App after approval. For multiple
+          tags, begin_batch, create_tag for each missing name/color, then
+          commit_batch for one approval. Preserve existing tags. This requires
+          no model draft or publish; draft-only tags are not live. Read back
+          integral_list_tags after approval before claiming completion.
         http: "POST /api/tags"
         policy_action: tag.create
         staging_kind: create_tag
@@ -1744,24 +1754,6 @@ domains:
           track_id: {type: string, required: true, desc: "Identifier of the track to merge the library Operational Model onto."}
           model_template_id: {type: string, required: true, desc: "Identifier of the library Operational Model package to apply (from integral_list_models)."}
         returns: { staged_token: str }
-      - name: integral_recommend_customizations
-        status: existing
-        op_class: read
-        priority: P2
-        summary: >-
-          Analyze a track's existing entries and suggest concrete model patches.
-          Repeated labelled body values can imply text/select fields; repeated
-          names that match existing same-type entries can imply relations; date
-          and select fields can imply calendar and board views. Read-only: it
-          RECOMMENDS and never changes anything. Use for "Improve this" requests,
-          inspect the model, then stage each accepted suggestion through the draft
-          lifecycle and show its diff before publishing.
-        http: "(agentive service)"
-        policy_action: operational_model.author
-        params:
-          track_id: {type: string, required: true, desc: "Identifier of the track to analyze for profile improvement suggestions."}
-          entry_sample_limit: {type: integer, optional: true, default: 20, desc: "Maximum number of recent entries to sample when inferring patterns (default 20)."}
-        returns: { recommendations: list }
       - name: integral_author_model
         status: existing
         op_class: propose
@@ -1872,7 +1864,7 @@ domains:
           view_id: {type: string, required: false, desc: "Existing view id from integral_list_views when editing that view in place. Omit only when creating a new view."}
           name: {type: string, required: true, desc: "Display name for the saved view."}
           view_type: {type: string, required: true, enum: [feed, kanban, table, calendar, gallery, wiki], desc: "The view shape to materialize (defaults to 'feed' if unset)."}
-          config: {type: object, required: true, desc: "View configuration — filters, sort, group_by, entry_type_keys, etc. Wiki requires parent_field naming a relation field on the page entry type. The exact schema varies by view_type."}
+          config: {type: object, required: true, desc: "View configuration. sort is an array of {field, direction: asc|desc}. Kanban: group_by is custom_fields.<select key>; kanban_columns is [{key: '<exact select value>', label: '<display label>'}]. Calendar: calendar_mapping is {dateField: 'custom_fields.<date key>', endDateField: 'custom_fields.<end key>'} (endDateField optional). Table: columns lists field paths. Wiki requires parent_field naming a relation field. Preserve all approved field keys exactly."}
           is_default: {type: boolean, required: false, desc: "Open the track on this view instead of its Feed. In an approved build the most useful specific view per new track is made default automatically; set it to choose which."}
         returns: { staged_token: str }
       - name: integral_delete_view
@@ -1931,11 +1923,11 @@ domains:
         status: existing
         op_class: read
         priority: P2
-        summary: "Recommend a starter dashboard layout for an app (does not persist)."
+        summary: "Recommend an analytics layout and a validated Home starter for an App (does not persist). Use the returned home object with integral_update_app; null means no eligible Home starter is available."
         http: "GET /api/apps/{app_id}/dashboards/suggest"
         policy_action: app.read
         params: { app_id: {type: string, required: true} }
-        returns: { name: str, widgets: list, rationale: str }
+        returns: { name: str, widgets: list, rationale: str, home: "object|null" }
       - name: integral_create_dashboard
         status: existing
         op_class: propose
@@ -2605,11 +2597,11 @@ domains:
 # SUMMARY COUNTS (for review convenience; keep in sync)
 # =============================================================================
 summary:
-  total_tools: 127
-  existing_tools: 125    # status: existing
+  total_tools: 126
+  existing_tools: 124    # status: existing
   gap_tools_proposed: 2  # status: gap (workspace_setup, onboard_user deferred)
-  by_op_class: { read: 55, propose: 71, execute: 1 }
-  by_priority: { P0: 16, P1: 41, P2: 70 }
+  by_op_class: { read: 54, propose: 71, execute: 1 }
+  by_priority: { P0: 16, P1: 41, P2: 69 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
   policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)

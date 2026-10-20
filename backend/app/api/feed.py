@@ -30,6 +30,7 @@ async def get_feed(
     limit: int = 20,
     cross_workspace: bool = False,
     include_total: bool = True,
+    tag_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Get aggregated feed of entries across accessible tracks (cursor pagination).
 
@@ -86,6 +87,9 @@ async def get_feed(
         cursor=cursor,
         limit=limit,
         include_total=include_total,
+        filters=(
+            [{"field": "tags", "operator": "eq", "value": tag_id}] if tag_id else None
+        ),
     )
     page_entries, excluded_tracks = await keep_open_entries(page_entries)
     if excluded_tracks:
@@ -108,6 +112,7 @@ async def get_feed_entries(
     limit: int = 20,
     cross_workspace: bool = False,
     include_total: bool = True,
+    tag_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Get feed entries for a user (alias of /feed)."""
     return await get_feed(
@@ -118,6 +123,7 @@ async def get_feed_entries(
         limit,
         cross_workspace,
         include_total,
+        tag_id,
     )
 
 

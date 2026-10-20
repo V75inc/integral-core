@@ -15,9 +15,9 @@ def test_unsettled_harness_run_explains_safe_recovery() -> None:
     code, message = classify_turn_exception(exc)
 
     assert code == "harness_reconciliation_required"
-    assert "Send a new message" in message
+    assert "in this chat" in message
     assert "Start a new conversation" not in message
-    assert "not replayed" in message
+    assert "haven't been repeated" in message
 
 
 def test_model_context_limit_is_actionable_without_leaking_provider_error() -> None:
@@ -27,7 +27,7 @@ def test_model_context_limit_is_actionable_without_leaking_provider_error() -> N
     )
 
     assert code == "model_context_limit"
-    assert "Shorten the request" in message
+    assert "shorter request" in message
     assert "provider default" not in message
 
 
@@ -38,15 +38,17 @@ def test_harness_usage_limit_has_an_actionable_message() -> None:
     )
 
     assert code == "harness_usage_limit"
-    assert "safe generation limit" in message
-    assert "Continue in this chat" in message
-    assert "pending approvals" in message
+    assert "couldn't finish everything" in message
+    assert "in this chat" in message
+    assert "saved changes and approvals" in message
     assert "new conversation" not in message
     assert "80000" not in message
 
 
-def test_exhausted_scaffold_retry_shows_seed_reason() -> None:
-    """A spent build retry shows the seed reason, not a generic platform error."""
+def test_exhausted_scaffold_retry_explains_problem_without_internal_seed_detail() -> (
+    None
+):
+    """A spent build retry explains the next step without exposing internal input."""
     cause = RuntimeError(
         "Operation 8: Seed line 'Berghotel Grosse Scheidegg' does not match "
         "a declared field. Correct the generated operation plan to match the "
@@ -61,8 +63,8 @@ def test_exhausted_scaffold_retry_shows_seed_reason() -> None:
     code, message = classify_turn_exception(exc)
 
     assert code == "scaffold_plan_invalid"
-    assert "Berghotel Grosse Scheidegg" in message
-    assert "does not match a declared field" in message
+    assert "Berghotel Grosse Scheidegg" not in message
+    assert "details didn't fit together" in message
     assert "Correct the generated operation plan" not in message
     assert "Something went wrong on our side" not in message
 
@@ -86,7 +88,7 @@ def test_first_conversation_state_conflict_is_not_described_as_prior_work(
     )
     code, message = classify_turn_exception(exc)
     assert code == "harness_reconciliation_required"
-    assert "could not safely complete" in message
+    assert "couldn't finish" in message
     assert "earlier" not in message
     assert "harness_checkpoint_manifest_unavailable" in caplog.text
     assert "private" not in caplog.text
@@ -113,7 +115,7 @@ def test_invalid_operator_config_has_a_safe_setup_message():
     code, message = classify_turn_exception(exc)
     assert code == "model_configuration_invalid"
     assert "Settings" in message
-    assert "INTEGRAL_NATIVE_MODEL" in message
+    assert "INTEGRAL_NATIVE_MODEL" not in message
     assert "private-config" not in message
 
 
@@ -128,7 +130,7 @@ def test_nontransactional_preview_explains_live_chat_storage_requirement():
         )
     )
     assert code == "chat_storage_unavailable"
-    assert "PostgreSQL" in message
+    assert "workspace administrator" in message
     assert "try again" not in message.lower()
 
 
@@ -141,6 +143,24 @@ def test_nested_rollback_does_not_claim_postgres_is_missing():
         OperationTransactionRolledBack("private failure")
     )
     assert code == "chat_step_rolled_back"
-    assert "rolled back" in message
+    assert "changes weren't saved" in message
     assert "PostgreSQL" not in message
     assert "private failure" not in message
+
+
+def test_all_host_failure_messages_use_everyday_language():
+    from app.services.chat_streaming import _ERROR_MESSAGES
+
+    forbidden = (
+        "INTEGRAL_",
+        "OLLAMA_",
+        "PostgreSQL",
+        "tool use",
+        "generation limit",
+        "rolled back",
+        "checkpoint",
+        "receipts",
+    )
+    for code, message in _ERROR_MESSAGES.items():
+        assert message, code
+        assert not any(word in message for word in forbidden), code

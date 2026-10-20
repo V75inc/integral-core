@@ -50,19 +50,15 @@ async def entry_write_scope(identity: str):
             yield get_default_context()
     elif type(concrete).__module__ in {"jvspatial.db.jsondb", "jvspatial.memory"}:
         # Single-process stores cannot promise transaction rollback or worker
-        # fencing. This only serializes local entry commands; connector sync
+        # fencing. Serialize graph writes, including schema edits, across
+        # identities so a record cannot race a field-option removal; connector sync
         # separately refuses these stores outside testing/development.
         active = _active_local.get()
         task = asyncio.current_task()
-        if (
-            active is not None
-            and active[0] is task
-            and active[1] is concrete
-            and identity in active[2]
-        ):
+        if active is not None and active[0] is task and active[1] is concrete:
             yield get_default_context()
             return
-        key = (id(concrete), id(asyncio.get_running_loop()), identity)
+        key = (id(concrete), id(asyncio.get_running_loop()), "local-graph-writes")
         # Hold a strong reference for owners/waiters, but release idle entry
         # identities so a long-lived local store cannot grow this map forever.
         lock = _local_locks.setdefault(key, asyncio.Lock())

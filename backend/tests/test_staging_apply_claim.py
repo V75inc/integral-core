@@ -83,13 +83,34 @@ def _fake_executor(monkeypatch, *, result=None, delay: float = 0.0):
 async def test_two_concurrent_approves_run_the_executor_once(monkeypatch):
     """Concurrent approval attempts execute a write only once."""
     sc = await _mint()
-    calls = _fake_executor(monkeypatch, delay=0.05)
+    calls = []
+    entered = asyncio.Event()
+    release = asyncio.Event()
 
-    outcomes = await asyncio.gather(
-        staging_apply.bless_and_execute(user_id="u1", token=sc.token),
-        staging_apply.bless_and_execute(user_id="u1", token=sc.token),
-        return_exceptions=True,
+    async def paused_executor(**kwargs):
+        calls.append(kwargs)
+        entered.set()
+        await release.wait()
+        return {"ok": True}
+
+    monkeypatch.setattr(staging_apply, "_dispatch_kind", paused_executor)
+    first = asyncio.create_task(
+        staging_apply.bless_and_execute(user_id="u1", token=sc.token)
     )
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=10)
+        # Keep the first write in flight until the competing approval settles.
+        competing = await asyncio.wait_for(
+            asyncio.gather(
+                staging_apply.bless_and_execute(user_id="u1", token=sc.token),
+                return_exceptions=True,
+            ),
+            timeout=10,
+        )
+    finally:
+        release.set()
+        completed = await first
+    outcomes = [completed, *competing]
 
     assert len(calls) == 1, calls
     errors = [o for o in outcomes if isinstance(o, StagingError)]

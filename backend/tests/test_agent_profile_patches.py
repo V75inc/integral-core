@@ -427,3 +427,36 @@ def test_add_relation_only_in_space_scope():
                 }
             ],
         )
+
+
+def test_batch_tag_additions_preserve_existing_identity_color_and_unique_keys():
+    manifest = _empty_track_manifest()
+    original = {
+        "key": "kept",
+        "name": "Existing",
+        "color": "#123456",
+        "aliases": ["Original"],
+    }
+    manifest["track"]["taxonomy"]["tag_groups"] = [
+        {"key": "default", "tags": [original]}
+    ]
+    updated = apply_operations(
+        manifest,
+        [
+            {"op": "add_tag", "spec": {"name": name, "color": color}}
+            for name, color in [
+                ("Alpha", "#112233"),
+                ("Beta", "#445566"),
+                ("Gamma", "#778899"),
+            ]
+        ],
+    )
+    tags = updated["track"]["taxonomy"]["tag_groups"][0]["tags"]
+    assert tags[0] == original
+    assert [tag["key"] for tag in tags] == ["kept", "alpha", "beta", "gamma"]
+    assert len(manifest["track"]["taxonomy"]["tag_groups"][0]["tags"]) == 1
+    with pytest.raises(BadRequestError, match="already exists"):
+        apply_operations(
+            updated,
+            [{"op": "add_tag", "spec": {"name": " ALPHA ", "color": "#ffffff"}}],
+        )

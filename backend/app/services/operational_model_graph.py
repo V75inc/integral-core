@@ -797,6 +797,12 @@ async def seed_taxonomy_for_track(
     """Seed hierarchical taxonomy tag library into track scope."""
     taxonomy = _as_dict(runtime_tier.get("taxonomy"), where="taxonomy")
     groups = _as_list(taxonomy.get("tag_groups"), where="taxonomy.tag_groups")
+    from app.api.validators_common import compute_fold
+
+    existing_by_name = {
+        compute_fold(tag.name): tag
+        for tag in await Tag.find({"context.track_id": track.id})
+    }
     created: Dict[str, Tag] = {}
     for g in groups:
         gd = _as_dict(g, where="taxonomy.group")
@@ -806,18 +812,13 @@ async def seed_taxonomy_for_track(
             tname = str(td.get("name") or "").strip()
             if not tname:
                 continue
-            existing = await Tag.find(
-                {
-                    "context.track_id": track.id,
-                    "context.name": tname,
-                    "context.group_key": gkey,
-                }
-            )
-            if existing:
-                created[f"{gkey}:{td.get('key') or _slug(tname)}"] = existing[0]
+            existing = existing_by_name.get(compute_fold(tname))
+            if existing is not None:
+                created[f"{gkey}:{td.get('key') or _slug(tname)}"] = existing
                 continue
             tag = await Tag.create(
                 name=tname,
+                name_fold=compute_fold(tname),
                 color=str(td.get("color") or "#6B7280"),
                 track_id=track.id,
                 group_key=gkey,
@@ -827,6 +828,7 @@ async def seed_taxonomy_for_track(
                 ],
                 is_template=False,
             )
+            existing_by_name[compute_fold(tname)] = tag
             await operational_model.connect(tag, edge=CONTAINS)
             created[f"{gkey}:{td.get('key') or _slug(tname)}"] = tag
 

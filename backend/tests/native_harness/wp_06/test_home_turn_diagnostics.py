@@ -93,7 +93,7 @@ async def test_final_request_is_reserved_for_handoff_without_another_effect(
         instructions=build_integral_run_instructions("Use observed receipts only."),
     )
     result = await agent.run("Do the work", usage_limits=UsageLimits(request_limit=4))
-    assert ("couldn't verify" if ignore_reserve else "unfinished") in result.output
+    assert ("couldn't finish" if ignore_reserve else "unfinished") in result.output
     assert calls == 4
     assert effects == ["read"] * 3
 

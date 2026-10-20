@@ -114,8 +114,9 @@ async def test_empty_widget_update_clears_board(authenticated_client, test_user)
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("use_suggestion", [False, True])
 async def test_resident_home_proposal_approval_and_readback(
-    authenticated_client, test_user, monkeypatch
+    authenticated_client, test_user, monkeypatch, use_suggestion
 ):
     """The real proposal must leave Home untouched until consent, then read back."""
     # Transactional staging receipts require an explicit test-only storage key.
@@ -133,9 +134,17 @@ async def test_resident_home_proposal_approval_and_readback(
     app_id = app["id"]
     me = await authenticated_client.get("/api/auth/me")
     principal = me.json()["user"]["id"]
+    proposed_home = home()
+    if use_suggestion:
+        suggestion = await authenticated_client.get(
+            f"/api/apps/{app_id}/dashboards/suggest"
+        )
+        assert suggestion.status_code == 200, suggestion.text
+        proposed_home = suggestion.json()["home"]
+        assert proposed_home is not None
     result = await dispatch_tool(
         "integral_update_app",
-        {"app_id": app_id, "home": home()},
+        {"app_id": app_id, "home": proposed_home},
         principal_id=principal,
         scope=app.get("workspace_id"),
     )
@@ -149,9 +158,53 @@ async def test_resident_home_proposal_approval_and_readback(
     read = await authenticated_client.get(f"/api/apps/{app_id}/home")
     assert read.status_code == 200, read.text
     assert read.json()["home"]["title"] == "Home"
-    assert read.json()["home"]["widgets"][0]["id"] == "one"
+    assert read.json()["home"]["widgets"][0]["id"] == proposed_home["widgets"][0]["id"]
     assert (await authenticated_client.get(f"/api/apps/{app_id}/dashboards")).json()[
         "dashboards"
     ] == []
     with pytest.raises(StagingError):
         await bless_and_execute(user_id=principal, token=token)
+
+
+@pytest.mark.asyncio
+async def test_suggested_home_is_bounded_valid_and_does_not_mutate_preview(monkeypatch):
+    import copy
+
+    monkeypatch.setattr(service, "validate_dashboard_field_bindings", AsyncMock())
+    widgets = []
+    for index in range(16):
+        widget = copy.deepcopy(home()["widgets"][0])
+        widget.update(
+            id=f"widget-{index}", preview={"value": 7}, rationale="Suggestion"
+        )
+        widgets.append(widget)
+    widgets.insert(0, {"id": "bad", "type": "unsupported"})
+    widgets.insert(2, copy.deepcopy(widgets[1]))
+    before = copy.deepcopy(widgets)
+    result = await service.prepare_suggested_home(
+        user_id="u", app_id="a", widgets=widgets
+    )
+    assert result is not None
+    assert len(result["widgets"]) == 12
+    assert len({widget["id"] for widget in result["widgets"]}) == 12
+    assert all(
+        "preview" not in widget and "rationale" not in widget
+        for widget in result["widgets"]
+    )
+    assert (
+        await service.validate_home_composition(user_id="u", app_id="a", home=result)
+        == result
+    )
+    assert widgets == before
+
+
+@pytest.mark.asyncio
+async def test_suggested_home_does_not_offer_denied_sources(monkeypatch):
+    validate = AsyncMock(side_effect=PermissionError("private-source-sentinel"))
+    monkeypatch.setattr(service, "validate_dashboard_field_bindings", validate)
+    assert (
+        await service.prepare_suggested_home(
+            user_id="u", app_id="a", widgets=home()["widgets"]
+        )
+        is None
+    )

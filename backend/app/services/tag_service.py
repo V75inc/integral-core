@@ -8,12 +8,9 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from app.api.errors import (
-    BadRequestError,
-    InsufficientPermissionsError,
-    ResourceNotFoundError,
-)
-from app.api.utils import export_node
+from jvspatial.api.exceptions import InsufficientPermissionsError, ResourceNotFoundError
+
+from app.exceptions import BadRequestError
 from app.models.edges import CONTAINS
 from app.models.nodes import App, Tag, Track
 from app.schemas.policy import Resource, Subject
@@ -28,6 +25,34 @@ from app.services.operational_model_runtime import sync_attached_manifest
 from app.services.policy_engine import evaluate as policy_evaluate
 from app.services.uniqueness import assert_unique
 from app.utils.time import utc_now_iso
+
+
+async def assert_unique_tag_name(
+    *, name: str, track_id: str = "", app_id: str = "", exclude_id: Optional[str] = None
+) -> None:
+    """Check normalized names, including tags seeded before fold keys existed."""
+    from app.api.errors import ResourceConflictError
+    from app.api.validators_common import compute_fold
+
+    scope = {"context.track_id": track_id} if track_id else {"context.app_id": app_id}
+    scope_label = "in this track" if track_id else "in this app"
+    folded = compute_fold(name)
+    await assert_unique(
+        Tag,
+        {**scope, "context.name_fold": folded},
+        entity="tag",
+        field_label="name",
+        value=name,
+        scope_label=scope_label,
+        exclude_id=exclude_id,
+    )
+    legacy = await Tag.find({**scope, "context.name_fold": {"$in": ["", None]}})
+    if any(tag.id != exclude_id and compute_fold(tag.name) == folded for tag in legacy):
+        error = ResourceConflictError(
+            message=f"Tag with name '{name}' already exists {scope_label}"
+        )
+        error.error_code = "resource.duplicate_tag"
+        raise error
 
 
 async def create_tag_for_scope(
@@ -50,6 +75,8 @@ async def create_tag_for_scope(
     Caller must enforce ``track_id`` xor ``app_id`` and run parent-cycle
     checks before invoking.
     """
+    from app.api.utils import export_node
+
     tid = str(track_id or "").strip()
     sid = str(app_id or "").strip()
     if bool(tid) == bool(sid):
@@ -65,14 +92,7 @@ async def create_tag_for_scope(
         )
         if not _decision.allowed:
             raise InsufficientPermissionsError(message="Access denied")
-        await assert_unique(
-            Tag,
-            {"context.track_id": tid, "context.name_fold": name_fold},
-            entity="tag",
-            field_label="name",
-            value=name,
-            scope_label="in this track",
-        )
+        await assert_unique_tag_name(name=name, track_id=tid)
         # Resolve the attachment point BEFORE creating the Tag. Creating first
         # and connecting conditionally leaves an orphan Node whenever the
         # lookup misses, which I-GRAPH-01 admits no exception for.
@@ -120,14 +140,7 @@ async def create_tag_for_scope(
     )
     if not _decision.allowed:
         raise InsufficientPermissionsError(message="Access denied")
-    await assert_unique(
-        Tag,
-        {"context.app_id": sid, "context.name_fold": name_fold},
-        entity="tag",
-        field_label="name",
-        value=name,
-        scope_label="in this app",
-    )
+    await assert_unique_tag_name(name=name, app_id=sid)
     sp = await App.get(sid)
     if not sp:
         raise ResourceNotFoundError(message="App not found")

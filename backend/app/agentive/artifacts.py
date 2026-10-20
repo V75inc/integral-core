@@ -7,6 +7,7 @@ binding can upsert/get without Integral-specific UI cards.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any, Dict, List, Optional
 
 from app.utils.time import utc_now_iso
@@ -124,7 +125,28 @@ async def get_artifact(
             "error": "not_found",
             "detail": f"No artifact with key {art_key!r}.",
         }
-    return {"ok": True, "_kind": "artifact", **entry}
+    result = {"ok": True, "_kind": "artifact", **entry}
+    marker = getattr(thread, "design_proposed", None) or {}
+    if (
+        art_key == "app_design_blueprint"
+        and marker.get("artifact_key") == art_key
+        and isinstance(marker.get("blueprint"), dict)
+    ):
+        # The preview alone cannot reproduce stable field keys or entry-type
+        # names. Read the current typed revision from design authority, not
+        # editable scratch metadata or an older conversation message. This
+        # also repairs readback of artifacts saved before typed projection.
+        result.update(
+            kind="app_design_blueprint",
+            metadata={"source": "saved_design"},
+            body=str(marker.get("proposal") or ""),
+            title=str(marker.get("summary") or entry.get("title") or "App design"),
+            blueprint=deepcopy(marker["blueprint"]),
+            design_id=marker.get("design_id"),
+            blueprint_revision=marker.get("blueprint_revision"),
+            blueprint_digest=marker.get("blueprint_digest"),
+        )
+    return result
 
 
 async def list_artifacts(

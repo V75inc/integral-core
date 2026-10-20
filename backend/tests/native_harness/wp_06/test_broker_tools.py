@@ -26,83 +26,139 @@ from app.schemas.capability_broker import CapabilityResult
 
 @pytest.mark.asyncio
 @pytest.mark.smoke
-async def test_loaded_insights_discloses_primary_reads_and_keeps_durable_history(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize("skill", ["sample-workflow-alpha", "sample-workflow-beta"])
+async def test_skill_declared_tools_load_together_and_restore_from_history(
+    tmp_path, monkeypatch, skill
 ):
-    """Loading instructions exposes only starter reads, with valid checkpoints."""
+    """Authored tool bundles work without function-specific harness changes."""
     from pydantic_ai_harness.step_persistence import InMemoryStepStore
 
-    folder = tmp_path / "integral-insights"
+    read, write = "integral_sample_read", "integral_sample_write"
+    owned = {read, write}
+    unavailable = "integral_not_in_authorized_catalogue"
+    unrelated = "integral_unrelated_read"
+    folder = tmp_path / skill
     folder.mkdir()
-    primary = {"integral_query_entries", "integral_query", "integral_get_graph_context"}
-    other = {"integral_list_tracks", "integral_update_entry"}
     (folder / "SKILL.md").write_text(
-        "---\nname: integral-insights\ndescription: Read stored dependencies.\n"
-        f"allowed-tools: {' '.join(sorted(primary | other))}\n"
-        "---\nFind the subject, then read its stored relationships.\n"
+        f"---\nname: {skill}\ndescription: Inspect and update a sample.\n"
+        f"allowed-tools: {' '.join(sorted(owned | {unavailable}))}\n"
+        "---\nRead the sample and propose the requested update.\n"
     )
     calls = []
 
     async def invoke(**kwargs):
         calls.append(kwargs)
-        return CapabilityResult(ok=True, data={"id": "readable-subject"})
+        return CapabilityResult(ok=True, data={"id": "sample"})
 
     monkeypatch.setattr(
         "app.agentive.services.capability_broker.invoke_declared_capability", invoke
     )
-    tools = build_brokered_tools(
-        scope=_scope(),
-        skill_library=tmp_path,
-        catalogue=[
-            {
-                "name": name,
-                "description": name,
-                "input_schema": {"type": "object", "properties": {}},
-            }
-            for name in sorted(primary | other)
-        ],
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda name: ("core", "write" if name == write else "read"),
     )
+    catalogue = [
+        {
+            "name": name,
+            "description": name,
+            "input_schema": {"type": "object", "properties": {}},
+        }
+        for name in sorted(owned | {unrelated})
+    ]
     requests = 0
 
     def respond(messages, info):
         nonlocal requests
         requests += 1
         visible = {tool.name for tool in info.function_tools}
+        assert unavailable not in visible
+        assert unrelated not in visible
         if requests == 1:
-            assert not primary.intersection(visible)
-            return ModelResponse(
-                parts=[ToolCallPart("load_capability", {"id": "integral-insights"})]
-            )
-        assert primary.issubset(visible)
-        assert not other.intersection(visible)
-        if requests == 2:
-            return ModelResponse(parts=[ToolCallPart("integral_query_entries", {})])
-        if requests == 3:
-            return ModelResponse(parts=[ToolCallPart("integral_get_graph_context", {})])
-        return ModelResponse(parts=[TextPart("The stored dependency was read.")])
+            assert not owned.intersection(visible)
+            return ModelResponse(parts=[ToolCallPart("load_capability", {"id": skill})])
+        assert owned.issubset(visible)
+        if requests in {2, 4}:
+            return ModelResponse(parts=[ToolCallPart(read, {})])
+        return ModelResponse(parts=[TextPart("The sample was checked.")])
 
-    agent, store = build_native_runtime(
-        model=FunctionModel(respond),
-        instructions="Read workspace evidence.",
-        tools=tools,
-        scope=_scope(),
-        agent_name="insight-test",
-        skill_directories=[tmp_path],
-        allowed_skill_names={"integral-insights"},
-        step_store_backend=InMemoryStepStore(),
-    )
-    result = await agent.run(
-        "What could delay our next delivery?",
+    store = InMemoryStepStore()
+
+    def runtime(scope):
+        return build_native_runtime(
+            model=FunctionModel(respond),
+            instructions="Use the selected sample workflow.",
+            tools=build_brokered_tools(
+                scope=scope, skill_library=tmp_path, catalogue=catalogue
+            ),
+            scope=scope,
+            agent_name="sample-test",
+            skill_directories=[tmp_path],
+            allowed_skill_names={skill},
+            step_store_backend=store,
+        )
+
+    agent, scoped_store = runtime(_scope())
+    first = await agent.run(
+        "Check the sample.",
         conversation_id=_scope().framework_conversation_id,
+        run_id=_scope().framework_run_id,
     )
-    assert result.output == "The stored dependency was read."
-    assert [call["capability_key"] for call in calls] == [
-        "integral_query_entries",
-        "integral_get_graph_context",
-    ]
-    assert all(call["workspace_id"] == _scope().workspace_id for call in calls)
-    snapshot = await store.latest_snapshot(run_id=_scope().run_id)
+    assert first.output == "The sample was checked."
+    snapshot = await scoped_store.latest_snapshot(run_id=_scope().run_id)
     assert snapshot is not None and snapshot.state == "complete"
+    next_scope = _scope().model_copy(update={"run_id": "run-2"})
+    second = await runtime(next_scope)[0].run(
+        "Check it again.",
+        message_history=first.all_messages(),
+        conversation_id=next_scope.framework_conversation_id,
+        run_id=next_scope.framework_run_id,
+    )
+    assert second.output == first.output
+    assert requests == 5
+    assert [call["capability_key"] for call in calls] == [read, read]
+    assert all(call["workspace_id"] == _scope().workspace_id for call in calls)
+
+
+@pytest.mark.asyncio
+async def test_loaded_skill_disclosure_does_not_override_write_policy(
+    tmp_path, monkeypatch
+):
+    """A visible write schema never grants permission to execute it."""
+    folder = tmp_path / "sample-workflow"
+    folder.mkdir()
+    (folder / "SKILL.md").write_text(
+        "---\nname: sample-workflow\ndescription: Update a sample.\n"
+        "allowed-tools: integral_sample_write\n---\nPropose a change.\n"
+    )
+    calls = []
+
+    async def invoke(**kwargs):
+        calls.append(kwargs)
+        return CapabilityResult(ok=True, data={})
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda name: ("core", "write"),
+    )
+    tool = build_brokered_tools(
+        scope=_scope(),
+        skill_library=tmp_path,
+        no_workspace_writes=True,
+        catalogue=[
+            {"name": "integral_sample_write", "input_schema": {"type": "object"}}
+        ],
+    )[0]
+    ctx = SimpleNamespace(
+        active_capability_ids={"sample-workflow"}, tool_call_id="write"
+    )
+    definition = await tool.prepare_tool_def(ctx)
+    assert definition is not None and definition.defer_loading is False
+    result = await tool.function_schema.call({}, ctx)
+    assert result["error_code"] == "user_no_workspace_writes"
+    assert calls == []
 
 
 def _scope() -> HarnessExecutionScope:

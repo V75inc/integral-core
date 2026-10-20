@@ -24,7 +24,7 @@ from app.api.validators_common import (
     non_empty_after_strip,
     validate_semver_ish,
 )
-from app.models.edges import CATALOGS, CONTAINS
+from app.models.edges import CATALOGS, CONTAINS, HAS_OPERATIONAL_MODEL
 from app.models.nodes import (
     OPERATIONAL_MODELS_REGISTRY_ID,
     App,
@@ -190,7 +190,15 @@ async def get_library_operational_model(
     if cp is None:
         raise ResourceNotFoundError(message="Operational Model not found")
     await _require_operational_model_scope(request, user_id, cp)
-    return {"operational_model": await export_node(cp)}
+    record = await export_node(cp)
+    record["can_delete"] = await _resolve_cp_edit_permission(
+        user_id=user_id,
+        cp=cp,
+        request=request,
+        action="operational_model.delete",
+        dry_run=True,
+    )
+    return {"operational_model": record}
 
 
 @endpoint(
@@ -407,6 +415,12 @@ async def deprecate_library_operational_model(
         user_id=user_id, cp=cp, request=request, action="operational_model.delete"
     ):
         raise InsufficientPermissionsError(message="Access denied")
+    if await cp.nodes(
+        edge=[HAS_OPERATIONAL_MODEL], direction="in", node=["Track", "App"]
+    ):
+        raise BadRequestError(
+            message="This model is attached by reference. Detach or copy it before deleting the library model."
+        )
     prior_snapshot = await export_node(cp)  # D-03 before-snapshot
     await cp.delete()
 
@@ -1576,6 +1590,7 @@ async def _resolve_cp_edit_permission(
     cp: OperationalModel,
     request: Optional[Request] = None,
     action: str = "operational_model.update",
+    dry_run: bool = False,
 ) -> bool:
     """Require configuration rights on the exact Model and every affected parent."""
     from app.middleware.permissions_cache import isolated_permissions_cache
@@ -1587,6 +1602,7 @@ async def _resolve_cp_edit_permission(
             await policy_evaluate(
                 subject=Subject(kind="human", id=user_id),
                 action=action,
+                _dry_run=dry_run,
                 resource=Resource(
                     kind="operational_model",
                     id=cp.id,

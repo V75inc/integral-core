@@ -430,3 +430,48 @@ async def test_date_guard_does_not_infer_dates_from_note_provenance(
     finally:
         current_user_sentence.reset(token)
     assert bool(result) is blocked
+
+
+@pytest.mark.asyncio
+async def test_app_update_review_matches_track_scalar_before_after(monkeypatch):
+    monkeypatch.setattr(
+        bindings._sd,
+        "load_app_record",
+        AsyncMock(return_value={"name": "Original App"}),
+    )
+    staged = await bindings._stage_update_app(
+        {"app_id": "app-id", "name": "Revised App"}
+    )
+    assert staged["summary"] == "Update app “Original App”"
+    assert "**name:** `Original App` → `Revised App`" in staged["diff_human"]
+    assert "['name']" not in staged["diff_human"]
+    assert staged["payload"] == {"app_id": "app-id", "name": "Revised App"}
+
+
+@pytest.mark.asyncio
+async def test_entry_field_review_shows_each_previous_and_proposed_value(monkeypatch):
+    monkeypatch.setattr(
+        bindings._sd,
+        "load_entry_record",
+        AsyncMock(
+            return_value={
+                "title": "Existing record",
+                "custom_fields": {"score": 4, "note": "Kept"},
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        bindings._sd,
+        "resolve_node_labels_for_diff",
+        AsyncMock(return_value=({}, {}, {})),
+    )
+    token = bindings._propose_principal.set("user")
+    try:
+        staged = await bindings._stage_update_entry(
+            {"entry_id": "record-id", "fields": {"score": 7}}
+        )
+    finally:
+        bindings._propose_principal.reset(token)
+    assert "**score:** `4` → `7`" in staged["diff_human"]
+    assert "**fields:**" not in staged["diff_human"]
+    assert "Kept" not in staged["diff_human"]

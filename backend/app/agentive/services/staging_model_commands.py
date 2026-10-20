@@ -18,7 +18,7 @@ MODEL_COMMAND_KINDS = frozenset(
         "add_tag",
         "remove_tag",
     )
-)
+) | frozenset({"create_tag"})
 
 
 async def apply_model_command(
@@ -60,12 +60,12 @@ async def apply_model_command(
                 owner_kind, owner_id, allowed_app_states=MANAGEMENT_APP_STATES
             )
             attached = await read_attached_model(owner_kind, owner_id)
-            if current != location or attached is None:
+            if current != location or (attached is None and kind != "create_tag"):
                 return {
                     "error": "not_found",
                     "detail": "Current attached model is unavailable",
                 }
-            action = str(payload["action"])
+            action = "add_tag" if kind == "create_tag" else str(payload["action"])
             targets = dict(payload)
             if "app_id" in targets:
                 targets["app_id"] = targets["app_id"] or None
@@ -79,6 +79,15 @@ async def apply_model_command(
                 if result.get("error") or result.get("ok") is False:
                     raise UnappliedStagedCommand(result)
                 if complete is not None:
+                    if attached is None:
+                        attached = await read_attached_model(owner_kind, owner_id)
+                    if attached is None:
+                        raise UnappliedStagedCommand(
+                            {
+                                "error": "model_unavailable",
+                                "detail": "Tag model is unavailable",
+                            }
+                        )
                     child_kind = (
                         action.removeprefix("add_")
                         .removeprefix("remove_")
@@ -142,11 +151,32 @@ async def readback(
                         ),
                     )
                     if decision.allowed:
-                        result.update(
-                            operational_model=await export_node(attached[1]),
-                            result_access="current",
-                            message="This approved model edit already applied. Current configuration returned.",
-                        )
+                        if sc.kind == "create_tag":
+                            from app.agentive.staging_executors import _call_endpoint
+                            from app.api.tags import get_tag
+
+                            observed = await _call_endpoint(
+                                get_tag, sc.user_id, tag_id=evidence["tag_id"]
+                            )
+                            tag = observed.get("tag") or {}
+                            if (
+                                not observed.get("error")
+                                and tag.get(f"{owner_kind}_id") == owner_id
+                            ):
+                                result.update(
+                                    {
+                                        **observed,
+                                        "tag_id": evidence["tag_id"],
+                                        "result_access": "current",
+                                        "message": "This approved tag creation already applied. Current tag returned.",
+                                    }
+                                )
+                        else:
+                            result.update(
+                                operational_model=await export_node(attached[1]),
+                                result_access="current",
+                                message="This approved model edit already applied. Current configuration returned.",
+                            )
     except (InsufficientPermissionsError, ResourceNotFoundError):
         pass
     finally:

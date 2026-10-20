@@ -487,8 +487,15 @@ def _resolve_principal(request: Request) -> tuple[str, str]:
     return user_id, email
 
 
-async def _resolve_owned_thread(thread_id: str, user_id: str) -> Any:
-    thread = await chat_store.get_thread(thread_id)
+async def _resolve_owned_thread(
+    thread_id: str, user_id: str, *, fresh: bool = False
+) -> Any:
+    if fresh:
+        from app.models.nodes import ChatThread
+
+        thread = await ChatThread.find_one({"id": thread_id})
+    else:
+        thread = await chat_store.get_thread(thread_id)
     if thread is None or thread.user_id != user_id:
         raise ResourceNotFoundError(message="Thread not found")
     return thread
@@ -558,14 +565,24 @@ async def _resolve_owned_chat_work_item(
     principal_id: str,
     workspace_id: str,
     thread_id: str,
+    fresh: bool = False,
 ) -> Any:
     """Resolve only a native chat WorkItem bound to this owned thread."""
     from app.agentive.work_models import WorkItem
 
     canonical_id = work_item_id.removeprefix("o.WorkItem.")
-    item = await WorkItem.get(f"o.WorkItem.{canonical_id}")
+    item = (
+        # Object.find_one rewrites an unqualified `id` to `context.id`.
+        # WorkItem's indexed stored key gives a current read without relying
+        # on the GraphContext identity cache; verify the canonical object ID
+        # below as well as the full chat authority tuple.
+        await WorkItem.find_one({"context.work_item_id": canonical_id})
+        if fresh
+        else await WorkItem.get(f"o.WorkItem.{canonical_id}")
+    )
     if (
         item is None
+        or item.id != f"o.WorkItem.{canonical_id}"
         or item.work_item_id != canonical_id
         or item.kind != "chat_turn"
         or item.principal_id != principal_id
@@ -710,6 +727,9 @@ async def cancel_chat_turn(
             ) from exc
         logger.exception("Failed to cancel chat WorkItem %s", item.work_item_id)
         raise InternalServerError(message="Could not cancel chat turn") from exc
+    # Wake the local provider immediately; the persisted request remains the
+    # cross-worker authority and is also observed by the lease supervisor.
+    await chat_turn_registry.cancel_turn_if_work_item(thread.id, cancelled.work_item_id)
     from app.services.change_event import emit_change_event
 
     await emit_change_event(
@@ -1008,6 +1028,37 @@ async def get_thread(request: Request, thread_id: str) -> Dict[str, Any]:
     return {
         **chat_store.thread_to_dict(thread, message_count=len(messages)),
         "messages": [chat_store.message_to_dict(m) for m in messages],
+    }
+
+
+@endpoint(
+    "/chat/threads/{thread_id}/activity", methods=["GET"], auth=True, tags=["AI Chat"]
+)
+async def thread_activity(request: Request, thread_id: str) -> Dict[str, Any]:
+    """Small authoritative cancellation/reconnect status without transcript bytes."""
+    from app.schemas.agentive.work import TERMINAL_WORK_STATUSES
+
+    user_id, _ = _resolve_principal(request)
+    thread = await _resolve_owned_thread(thread_id, user_id, fresh=True)
+    handle = chat_turn_registry.get_turn(thread.id)
+    work_item_id = str(thread.active_work_item_id or "")
+    running_work = False
+    if thread.provider_id == "integral_native" and work_item_id:
+        workspace_id = await _resolve_turn_workspace(request, user_id, thread)
+        if not workspace_id:
+            raise ResourceNotFoundError(message="Chat turn not found")
+        item = await _resolve_owned_chat_work_item(
+            work_item_id=work_item_id,
+            principal_id=user_id,
+            workspace_id=workspace_id,
+            thread_id=thread.id,
+            fresh=True,
+        )
+        running_work = item.status not in TERMINAL_WORK_STATUSES
+    return {
+        "running": running_work or handle is not None,
+        "work_item_id": work_item_id if running_work else None,
+        "turn_id": handle.turn_id if handle else None,
     }
 
 
@@ -3047,14 +3098,48 @@ async def agent_turn(
     tags=["AI Chat"],
 )
 async def cancel_thread(request: Request, thread_id: str) -> Dict[str, Any]:
+    """Request cancellation of the observed turn while preserving empty-body clients."""
+    from app.schemas.api.ai_chat import CancelThreadRequest
+
+    raw = await request.body()
+    try:
+        payload = CancelThreadRequest.model_validate(json.loads(raw) if raw else {})
+    except (ValueError, TypeError):
+        raise BadRequestError(message="Invalid cancellation target") from None
+    return await _cancel_observed_thread(request, thread_id, **payload.model_dump())
+
+
+async def _cancel_observed_thread(
+    request: Request,
+    thread_id: str,
+    expected_work_item_id: Optional[str] = None,
+    expected_turn_id: Optional[str] = None,
+) -> Dict[str, Any]:
     """Best-effort cancel for an in-flight assistant turn on this thread."""
     user_id, _ = _resolve_principal(request)
-    thread = await _resolve_owned_thread(thread_id, user_id)
+    thread = await _resolve_owned_thread(thread_id, user_id, fresh=True)
+    handle = chat_turn_registry.get_turn(thread_id)
+    if (
+        expected_work_item_id and thread.active_work_item_id != expected_work_item_id
+    ) or (
+        expected_turn_id
+        and (handle is None or handle.turn_id != expected_turn_id)
+        and not expected_work_item_id
+    ):
+        return {"thread_id": thread_id, "cancelled": False}
     if thread.provider_id == "integral_native" and thread.active_work_item_id:
+        handle = chat_turn_registry.get_turn(thread_id)
         receipt = await cancel_chat_turn(request, thread_id, thread.active_work_item_id)
-        return {"thread_id": thread_id, "cancelled": True, **receipt}
+        return {
+            "thread_id": thread_id,
+            "cancelled": True,
+            "turn_id": handle.turn_id if handle else None,
+            **receipt,
+        }
+    handle = chat_turn_registry.get_turn(thread_id)
+    turn_id = handle.turn_id if handle else None
     cancelled = await chat_turn_registry.cancel_turn(thread_id)
-    return {"thread_id": thread_id, "cancelled": cancelled}
+    return {"thread_id": thread_id, "cancelled": cancelled, "turn_id": turn_id}
 
 
 @endpoint(
