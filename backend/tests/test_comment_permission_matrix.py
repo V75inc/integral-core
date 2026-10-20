@@ -480,7 +480,7 @@ async def test_whoever_can_open_public_commenting_can_moderate_it():
     ws, app, track, entry = await _org_fixture("gatepair")
 
     # An App owner: inherits `editor` on the child track (roles above editor
-    # are capped on cascade), so they administer neither — same answer to both
+    # are capped on cascade); configuration does not grant sharing or moderation
     # questions, which is the point.
     app_owner = await _member(ws, "gatepairapp", "member")
     await app_owner.connect(app, edge=OWNS)

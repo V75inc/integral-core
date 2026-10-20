@@ -1,0 +1,16 @@
+{
+  "browser": "Chrome, isolated semantic-search-qa context",
+  "base_url": "http://127.0.0.1:19010",
+  "readiness_question": "Are all six pages in QA Lantern Wiki ready for search? Check that and tell me briefly. Do not change anything.",
+  "readiness_result": "Agent called integral_get_index_status; confirmed 6/6 current, no pending or failed jobs, coverage complete.",
+  "follow_up_question": "What has to happen before someone new can help fix things? Answer briefly using the saved wiki and link the source.",
+  "retrieval_result": "Agent called integral_query; correctly answered 30-minute induction with Priya, age 18+, buddy for the first two sessions.",
+  "citation_title": "Volunteer Onboarding",
+  "citation_path": "/tracks/n.Track.ec71815ba0e94ea1b8f4d184?entry=n.Entry.cb4dd9c45c1d49e2b8a0f214",
+  "citation_readback": "Clicked source link; correct entry dialog rendered the saved headings and all three facts.",
+  "chat_requests": "HTTP 200 for both streamed sends; no chat/index errors or conversation review blocker.",
+  "console_errors": 0,
+  "console_warnings": [
+    "One development startup WebSocket closed-before-open warning. Subsequent user/agent WebSocket connections were healthy; polling and chat requests succeeded."
+  ]
+}

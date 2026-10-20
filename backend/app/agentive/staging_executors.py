@@ -251,6 +251,8 @@ def _entry_type_key(value: str) -> str:
 async def _resolve_entry_type_id(
     track_id: str,
     entry_type_name: str,
+    *,
+    exact: bool = False,
 ) -> Optional[str]:
     """Look up an EntryType id by name or key on a track.
 
@@ -278,14 +280,19 @@ async def _resolve_entry_type_id(
             schema = getattr(et, "form_schema", None) or {}
             manifest_key = schema.get("_manifest_entry_type_key")
             if et.id == entry_type_name or (
-                manifest_key and _entry_type_key(str(manifest_key)) == target_key
+                manifest_key
+                and target_key
+                and _entry_type_key(str(manifest_key)) == target_key
             ):
                 return et.id
         for et in types:
             name = (getattr(et, "name", "") or "").casefold()
-            if name == target or _entry_type_key(name) == target_key:
+            if name == target or (target_key and _entry_type_key(name) == target_key):
                 return et.id
-        # Loose match — substring.
+        # Creation retains its legacy hint matching. Type-changing updates
+        # require an exact ID, manifest key or normalized display name.
+        if exact:
+            return None
         for et in types:
             name = (getattr(et, "name", "") or "").casefold()
             if target in name or name in target:
@@ -323,21 +330,22 @@ async def _x_update_entry(user_id: str, payload: Dict[str, Any]) -> Dict[str, An
             body[revision_key] = payload[revision_key]
     entry_type_name = payload.get("entry_type")
     if entry_type_name:
-        # We need the track_id to resolve the entry type. Fetch the
-        # entry to find it.
-        try:
-            from app.models.nodes import Entry
+        from app.models.nodes import Entry
 
-            entry = await Entry.get(entry_id)
-            if entry and getattr(entry, "track_id", ""):
-                type_id = await _resolve_entry_type_id(
-                    entry.track_id,
-                    entry_type_name,
-                )
-                if type_id:
-                    body["type_id"] = type_id
-        except Exception:  # noqa: BLE001
-            pass
+        entry = await Entry.get(entry_id)
+        type_id = (
+            await _resolve_entry_type_id(entry.track_id, entry_type_name, exact=True)
+            if entry is not None and entry.track_id
+            else None
+        )
+        if not type_id:
+            return {
+                "error": True,
+                "status_code": 400,
+                "error_code": "entry_type_unresolved",
+                "message": "That record type is no longer available here. Review the selected records before trying again. Nothing was changed.",
+            }
+        body["type_id"] = type_id
     return await _call_endpoint(handler, user_id, entry_id=entry_id, **body)
 
 
@@ -1708,6 +1716,8 @@ _RESOURCE_RULE = _ScopeRule(_SCOPE_RESOURCE, keys=("resource_id", "app_id"))
 # ``resolve_role`` still applies, so this is a scope leak, not a privilege
 # escalation — but the active workspace is meant to be a hard boundary.
 _KIND_SCOPE_RULES: Dict[str, _ScopeRule] = {
+    "configure_search_index": _TRACK_RULE,
+    "reindex_track": _TRACK_RULE,
     # --- track-scoped -----------------------------------------------------
     "create_entry": _TRACK_RULE,
     "file_content": _TRACK_RULE,
@@ -2624,7 +2634,28 @@ async def _x_design_proposal(user_id: str, payload: Dict[str, Any]) -> Dict[str,
     }
 
 
+async def _x_configure_search_index(
+    user_id: str, payload: Dict[str, Any]
+) -> Dict[str, Any]:
+    from app.services.retrieval.index_management import configure_index
+
+    return await configure_index(
+        user_id,
+        payload["track_id"],
+        payload["definition"],
+        expected_revision=payload.get("expected_revision"),
+    )
+
+
+async def _x_reindex_track(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    from app.services.retrieval.index_management import request_reindex
+
+    return await request_reindex(user_id, payload["track_id"])
+
+
 _EXECUTORS: Dict[str, Callable[[str, Dict[str, Any]], Awaitable[Dict[str, Any]]]] = {
+    "configure_search_index": _x_configure_search_index,
+    "reindex_track": _x_reindex_track,
     "batch": _x_batch,
     "bulk_update_entries": _x_bulk_update_entries,
     "bulk_move_entries": _x_bulk_move_entries,

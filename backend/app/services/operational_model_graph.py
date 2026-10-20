@@ -944,6 +944,7 @@ async def sync_attached_manifest(operational_model: OperationalModel) -> None:
                 "required_tag_groups": rtg,
             }
             for chrome_key in (
+                "search_index",
                 "ui_contributions",
                 "related_views",
                 "open_as_page",

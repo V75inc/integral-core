@@ -124,10 +124,14 @@ def _form_schema_from_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
             merged["canvas"] = spec.get("canvas")
         if "create_wizard" not in merged and spec.get("create_wizard") is not None:
             merged["create_wizard"] = spec.get("create_wizard")
+        if "search_index" in spec:
+            merged["search_index"] = spec["search_index"]
         if spec.get("key") and "_manifest_entry_type_key" not in merged:
             merged["_manifest_entry_type_key"] = str(spec.get("key") or "")
         return normalize_entry_type_form_schema(merged)
     out: Dict[str, Any] = {"fields": list(spec.get("fields") or [])}
+    if "search_index" in spec:
+        out["search_index"] = spec["search_index"]
     if spec.get("key"):
         out["_manifest_entry_type_key"] = str(spec.get("key") or "")
     if spec.get("base_fields") is not None:

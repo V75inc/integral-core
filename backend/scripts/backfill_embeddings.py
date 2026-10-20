@@ -1,13 +1,19 @@
 """Re-embed every Entry into the active embedding store.
 
+Legacy single-vector adapter utility. PostgreSQL passage retrieval uses durable
+jobs and automatic reconciliation instead; use the authorized Track reindex
+API to force a rebuild. This script does not populate versioned passages or
+establish their coverage. See docs/backend/semantic-indexing.md.
+
+
 Use cases:
 
 1. **Cold seed / store cutover.** A fresh deployment (or a deployment
    switching its embedding store — e.g. the Postgres + pgvector driver
    landing on an existing graph) needs to hydrate the vector index before
-   semantic / hybrid retrieval returns useful results. The write hook
+   semantic / hybrid retrieval returns useful results. The legacy adapter write hook
    (``app/api/entries.py:_reembed_entry``) embeds NEW / updated entries
-   automatically, but pre-existing entries were never embedded — this
+   automatically outside the PostgreSQL passage path; older entries may not be embedded — this
    script backfills them.
 2. **Backend swap.** The runtime moved from sentence-transformers/torch
    to fastembed/ONNX. Vectors are dimension-compatible (384) but not

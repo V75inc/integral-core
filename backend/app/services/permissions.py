@@ -606,7 +606,7 @@ async def can_edit_track(user_id: str, track_id: str) -> bool:
 
 
 async def can_admin_track(user_id: str, track_id: str) -> bool:
-    """True if the user is owner or admin on the track.
+    """Current Track curators and its containing App's owner may configure it.
 
     Gates track-config authority (schema, views, tags, library, anchors,
     migrations, default view, detach/revert). Editors do NOT pass — they
@@ -618,6 +618,42 @@ async def can_admin_track(user_id: str, track_id: str) -> bool:
             "owner",
             "admin",
         )
+        or await _direct_management_role(user_id, "track", track_id)
+        in ("owner", "admin")
+        or await _app_owner_can_configure_track(user_id, track_id)
+        or await _governs(user_id, "track", track_id, "resource.configure")
+    )
+
+
+async def _app_owner_can_configure_track(user_id: str, track_id: str) -> bool:
+    """App ownership covers its own structure, never sharing or child deletion.
+
+    Keep the ordinary inherited-role cap. This explicit configuration rule
+    proves current containment and ownership rather than granting an inherited
+    admin role, and does not extend to App admins or other collaborators.
+    """
+    from app.services.resource_location import MANAGEMENT_APP_STATES, locate_resource
+
+    with isolated_permissions_cache():
+        location = await locate_resource(
+            "track", track_id, allowed_app_states=MANAGEMENT_APP_STATES
+        )
+        if location is None or not location.app_id:
+            return False
+        if await _direct_management_role(user_id, "app", location.app_id) != "owner":
+            return False
+        user = await get_user_node(user_id)
+        if user is None or await _is_excluded_from_resource(user, track_id):
+            return False
+        from app.services.resource_access_blocks import resource_blocked
+
+        return not await resource_blocked(user.id, "track", track_id, location=location)
+
+
+async def can_moderate_track(user_id: str, track_id: str) -> bool:
+    """Comment moderation retains exact-resource curation authority."""
+    return (
+        await resolve_role(user_id, "track", track_id) in ("owner", "admin")
         or await _direct_management_role(user_id, "track", track_id)
         in ("owner", "admin")
         or await _governs(user_id, "track", track_id, "resource.configure")
@@ -838,23 +874,10 @@ async def _visibility_grant_role(
 
 
 def _cap_inherited_role(role: str) -> str:
-    """Cascade demotion: any inherited role above "editor" caps to "editor".
+    """Cap ordinary inherited roles; App-owner configuration is a separate gate.
 
-    Track-config authority (schema, views, tags, library) is a per-resource
-    decision and MUST be granted directly on the resource — never via
-    parent cascade. App owners / admins inheriting onto contained Tracks
-    get entry-CRUD authority ("editor") but cannot curate per-track
-    substrate; an App owner who wants to reshape a specific Track's
-    schema must add themselves (or a delegate) as a direct admin on that
-    Track via the collaborators surface.
-
-    Rationale (I-ROLE-02): inherited owner / admin would silently grant
-    schema-mutation authority across every Track in an App, making the
-    admin tier meaningless at the App-cascade boundary. Capping at
-    "editor" preserves the cascade as a productivity affordance
-    (collaborators added at the App level can still create / edit entries
-    everywhere) without leaking curation authority. Owner-only carve-outs
-    (delete / collab mgmt / share-link mint) are likewise never inherited.
+    See I-ROLE-02. Sharing, ownership and deletion remain exact-resource
+    decisions; the configuration exception never produces an admin role.
     """
     return "editor" if role in ("owner", "admin") else role
 
@@ -1672,24 +1695,23 @@ async def get_user_accessible_entries(
 async def count_user_accessible_entries_for_tracks(
     user_id: str, tracks: list[Track]
 ) -> dict[str, int]:
-    """Batch admission and the empty-collection probe for a response page."""
+    """Count a page's Entries in shared bounded admission windows.
+
+    Each row still passes the canonical audience projection. Scanning once
+    avoids repeating candidate discovery and parent-graph admission per Track.
+    """
+    from app.services.entry_access_projection import iter_records
+
     result = {track.id: 0 for track in tracks}
     admitted = await _filter_canonical_resource_inventory(user_id, "track", tracks)
     if not admitted:
         return result
     ids = [track.id for track in admitted]
-    context = await admitted[0].get_context()
-    candidates = await context.database.find(
-        "node",
-        {"entity": Entry._entity_name(), "context.track_id": {"$in": ids}},
-        limit=1,
-    )
-    if not candidates:
-        return result
-    counts = await asyncio.gather(
-        *(count_user_accessible_entries(user_id, track.id) for track in admitted)
-    )
-    result.update({track.id: count for track, count in zip(admitted, counts)})
+    async for records in iter_records(user_id, {"context.track_id": {"$in": ids}}):
+        for record in records:
+            track_id = record["context"]["track_id"]
+            if track_id in result:
+                result[track_id] += 1
     return result
 
 

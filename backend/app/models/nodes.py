@@ -536,6 +536,9 @@ class Track(Node):
     title_fold: str = ""  # casefold(title.strip()) for fuzzy index-friendly lookup
     owner_id: Optional[str] = None
     purpose: str = ""
+    # Declarative derived-index selection; never grants access to its content.
+    search_index: Dict[str, Any] = Field(default_factory=dict)
+    search_index_revision: int = Field(default=0, ge=0)
     icon: str = ""
     accent_color: str = ""  # #RGB / #RRGGBB; empty = client theme default
     # Effective visibility resolves via parent App when "inherit" (ARCHITECTURE

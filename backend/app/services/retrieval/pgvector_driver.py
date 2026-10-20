@@ -86,7 +86,12 @@ class PgVectorEmbeddingStore:
         table: str = DEFAULT_TABLE,
         dim: int = EMBEDDING_DIM,
     ) -> None:
+        self._explicit_dsn = dsn
         self._dsn = dsn or os.environ.get("JVSPATIAL_POSTGRES_DSN", "")
+        import re
+
+        if not re.fullmatch(r"[a-z][a-z0-9_]{0,46}", table):
+            raise ValueError("Invalid internal embedding table name")
         self._table = table
         self._dim = dim
         self._pool: Any = None
@@ -106,6 +111,8 @@ class PgVectorEmbeddingStore:
     # ------------------------------------------------------------------
 
     async def _get_pool(self) -> Any:
+        if self._pool is None and self._explicit_dsn is None:
+            self._dsn = os.environ.get("JVSPATIAL_POSTGRES_DSN", self._dsn)
         if self._pool is not None and self._schema_ready:
             return self._pool
         async with self._lock:
@@ -130,7 +137,10 @@ class PgVectorEmbeddingStore:
         # gets its own (distinct) index names without colliding.
         track_idx = f"{self._table}_track_idx"
         hnsw_idx = f"{self._table}_hnsw"
-        async with pool.acquire() as conn:
+        async with pool.acquire() as conn, conn.transaction():
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtext($1))", "integral-vector-schema"
+            )
             try:
                 await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
             except Exception as exc:
@@ -237,6 +247,12 @@ class PgVectorEmbeddingStore:
     async def soft_delete(self, entry_id: str) -> None:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
+            passage_table = self._table + "_passage"
+            if await conn.fetchval("SELECT to_regclass($1)", passage_table):
+                await conn.execute(
+                    f"UPDATE {passage_table} SET deleted_at=now() WHERE entry_id=$1",
+                    str(entry_id),
+                )
             # Idempotent — a non-existent / already-soft-deleted row simply
             # matches zero/one rows; UPDATE never raises on no match.
             await conn.execute(

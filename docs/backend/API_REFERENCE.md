@@ -270,6 +270,7 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 | DELETE | `/chat/threads/{thread_id}` | [delete_thread](../../backend/app/api/ai_chat.py) |
 | GET | `/chat/threads/{thread_id}` | [get_thread](../../backend/app/api/ai_chat.py) |
 | PATCH | `/chat/threads/{thread_id}` | [rename_thread](../../backend/app/api/ai_chat.py) |
+| GET | `/chat/threads/{thread_id}/activity` | [thread_activity](../../backend/app/api/ai_chat.py) |
 | POST | `/chat/threads/{thread_id}/agent-turn` | [agent_turn](../../backend/app/api/ai_chat.py) |
 | POST | `/chat/threads/{thread_id}/cancel` | [cancel_thread](../../backend/app/api/ai_chat.py) |
 | GET | `/chat/threads/{thread_id}/harness-sessions/{session_id}/export` | [export_harness_session_for_thread](../../backend/app/api/ai_chat.py) |
@@ -407,6 +408,7 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 | POST | `/auth/credentials-delivery/resend` | [resend_credentials_delivery](../../backend/app/api/auth.py) |
 | POST | `/auth/credentials-delivery/verify` | [verify_credentials_delivery](../../backend/app/api/auth.py) |
 | POST | `/auth/forgot-password` | [forgot_password](../../backend/app/api/auth.py) |
+| POST | `/auth/local-session` | [local_owner_session](../../backend/app/api/auth.py) |
 | GET | `/auth/me` | [get_current_user](../../backend/app/api/auth.py) |
 | POST | `/auth/resend-verification` | [resend_verification](../../backend/app/api/auth.py) |
 | POST | `/auth/reset-password` | [reset_password](../../backend/app/api/auth.py) |
@@ -569,6 +571,8 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 | GET | `/health/ready` | [readiness](../../backend/app/api/meta.py) |
 | GET | `/meta/build` | [build_meta](../../backend/app/api/meta.py) |
 | GET | `/meta/colors` | [get_color_palettes](../../backend/app/api/meta.py) |
+| GET | `/meta/deployment` | [deployment_meta](../../backend/app/api/meta.py) |
+| GET | `/meta/deployment/ready` | [desktop_readiness](../../backend/app/api/meta.py) |
 | GET | `/meta/entry-type-icons` | [get_entry_type_icons](../../backend/app/api/meta.py) |
 | GET | `/meta/templates` | [get_templates](../../backend/app/api/meta.py) |
 
@@ -673,6 +677,14 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 | Methods | Declared path | Handler |
 |---|---|---|
 | POST | `/retrieve` | [retrieve](../../backend/app/api/retrieve.py) |
+
+## search_indexes
+
+| Methods | Declared path | Handler |
+|---|---|---|
+| GET | `/tracks/{track_id}/search-index` | [get_search_index](../../backend/app/api/search_indexes.py) |
+| PUT | `/tracks/{track_id}/search-index` | [configure_search_index](../../backend/app/api/search_indexes.py) |
+| POST | `/tracks/{track_id}/search-index/reindex` | [reindex_track](../../backend/app/api/search_indexes.py) |
 
 ## shared_with_me
 
@@ -813,6 +825,7 @@ Regenerate with `backend/.venv/bin/python scripts/build_documentation.py --inven
 | DELETE | `/views/{view_id}` | [delete_view](../../backend/app/api/views.py) |
 | GET | `/views/{view_id}` | [get_view](../../backend/app/api/views.py) |
 | PUT | `/views/{view_id}` | [update_view](../../backend/app/api/views.py) |
+| DELETE | `/views/{view_id}/kanban-columns/{column_key}` | [delete_kanban_column](../../backend/app/api/views.py) |
 
 ## work_items
 

@@ -12,7 +12,13 @@ class _Connection:
     def __init__(self, error: Exception) -> None:
         self.error = error
 
-    async def execute(self, _query: str) -> None:
+    @asynccontextmanager
+    async def transaction(self):
+        yield self
+
+    async def execute(self, query: str, *args) -> None:
+        if query.startswith("SELECT pg_advisory_xact_lock"):
+            return
         raise self.error
 
 
@@ -99,4 +105,4 @@ async def test_known_store_unavailability_degrades_to_graph(monkeypatch):
     )
 
     assert result == ([], 0, 0, "graph", True)
-    assert disabled == ["pgvector extension is unavailable"]
+    assert disabled == ["EmbeddingStoreUnavailable"]

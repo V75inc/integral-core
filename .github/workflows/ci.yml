@@ -211,7 +211,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U integral -d integral_core"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -233,6 +233,26 @@ jobs:
           uv export --frozen --no-hashes --extra dev --extra test \
             --format requirements-txt -o /tmp/ci-requirements.txt
           uv pip install --system -r /tmp/ci-requirements.txt
+
+      - name: Cache local semantic encoder
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/integral-fastembed
+          key: ${{ runner.os }}-semantic-minilm-${{ hashFiles('backend/uv.lock') }}
+
+      - name: Real semantic indexing and retrieval
+        env:
+          TESTING: "1"
+          INTEGRAL_TEST_DB: postgres
+          INTEGRAL_RUN_SLOW_TESTS: "1"
+          JVSPATIAL_DB_TYPE: postgres
+          JVSPATIAL_POSTGRES_DSN: postgresql://integral:integral@localhost:5432/integral_core
+          SEMANTIC_TEST_DSN: postgresql://integral:integral@localhost:5432/integral_core
+          FASTEMBED_CACHE_PATH: ${{ runner.temp }}/integral-fastembed
+        run: |
+          pytest -q --tb=short -o addopts='' \
+            tests/test_semantic_index_definitions.py tests/test_semantic_indexing_pg.py \
+            tests/test_pgvector_driver.py tests/test_pgvector_unavailable_fallback.py
 
       - name: Postgres spike, contract and App job authorization lane
         env:

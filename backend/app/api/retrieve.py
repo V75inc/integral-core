@@ -1,27 +1,13 @@
-"""POST /api/retrieve — unified hybrid retrieval endpoint (RET-03).
+"""POST /api/retrieve — scoped graph, semantic and hybrid retrieval.
 
-Per CONTEXT §'Locked: permission filter at retrieval time': every result
-returned from semantic / hybrid mode is permission-checked via
-``policy_engine.evaluate(action='entry.read')`` BEFORE inclusion. Graph
-mode reuses the existing ``services/permissions.py`` traversal which is
-already permission-gated (POL-03 parity).
+The request's validated workspace bounds every mode. PostgreSQL uses versioned
+passages with authorized candidate prefilters, current-source/policy checks and
+exact cosine/lexical RRF. Legacy adapters retain their own retrieval path.
+Unavailable semantic infrastructure temporarily falls back to canonical graph
+reads; index coverage is never inferred from an empty result.
 
-Per CONTEXT lock #5: ``K=150`` over-fetch + ``top_n=20`` return defaults.
-Both surface via env vars (``RETRIEVE_K_DEFAULT`` /
-``RETRIEVE_TOP_N_DEFAULT``) and accept per-request body overrides.
-
-Per CONTEXT lock #6: ``scope='track:<id>'`` enables an SQL pre-filter on
-Plan 04-01's ``track_id`` column on ``entry_embedding_meta``. The
-pre-filter is a PERF optimization; the per-candidate policy filter is
-ALWAYS applied (invariant I-RET-01 — no-index-bypass).
-
-Per CONTEXT lock #12: ZERO new PolicyAction members — ``entry.read``
-already covers every retrieval path.
-
-This endpoint is auto-discovered by Phase 3's
-``mcp_adapter.build_tool_catalogue`` walk and surfaces in
-``GET /api/mcp/tools`` as ``integral_create_retrieve`` by default. Plan
-04-03 will register the ``integral_query`` tool-name override.
+The public tool is integral_query. Request limits and passage budgets live in
+app.schemas.retrieve. See docs/backend/semantic-indexing.md and I-RET-01..07.
 """
 
 from __future__ import annotations
@@ -80,7 +66,7 @@ def _warn_degraded_once(requested: str) -> None:
         return
     logger.warning(
         "retrieval: semantic store unavailable; degrading mode=%s to mode=graph "
-        "for the remainder of this process. Future fallback events are not logged.",
+        "during the retry cooldown. Future fallback events are not logged.",
         requested,
     )
     _DEGRADED_WARNED = True
@@ -92,12 +78,12 @@ def _default_k() -> int:
     Per-call read so tests can monkeypatch ``os.environ`` without having
     to re-import the module.
     """
-    return int(os.environ.get("RETRIEVE_K_DEFAULT", "150"))
+    return min(500, max(1, int(os.environ.get("RETRIEVE_K_DEFAULT", "150"))))
 
 
 def _default_top_n() -> int:
     """Read default ``top_n`` from env at call time. See ``_default_k``."""
-    return int(os.environ.get("RETRIEVE_TOP_N_DEFAULT", "20"))
+    return min(50, max(1, int(os.environ.get("RETRIEVE_TOP_N_DEFAULT", "20"))))
 
 
 # ---------------------------------------------------------------------------
@@ -157,6 +143,14 @@ async def retrieve(request: Request) -> Any:
             raise InsufficientPermissionsError(
                 message="Retrieval target is outside the requested workspace scope"
             )
+    elif payload.scope.startswith("app:"):
+        from app.services.resource_location import locate_resource
+
+        location = await locate_resource("app", payload.scope.split(":", 1)[1])
+        if location is None or location.workspace_id != workspace_id:
+            raise InsufficientPermissionsError(
+                message="Search target is outside this workspace"
+            )
     elif payload.scope.startswith("track:"):
         track = await Track.get(_scope_to_track_id(payload.scope))
         if not track or track.workspace_id != workspace_id:
@@ -209,6 +203,22 @@ async def retrieve(request: Request) -> Any:
         top_n=top_n,
     )
 
+    response = await finalize_retrieval(
+        payload,
+        results,
+        dropped=dropped,
+        examined=examined,
+        effective_mode=effective_mode,
+        requested_mode=requested_mode,
+        degraded=degraded,
+    )
+    return response.model_dump(mode="json")
+
+
+async def finalize_retrieval(
+    payload, results, *, dropped, examined, effective_mode, requested_mode, degraded
+) -> RetrieveResponse:
+    """One governed read boundary and context envelope for REST and agent actions."""
     from app.services.query_boundary import keep_open_entries
 
     results, excluded_tracks = await keep_open_entries(results)
@@ -218,6 +228,23 @@ async def retrieve(request: Request) -> Any:
             "excluded_tracks": excluded_tracks,
             "declared_query_required": True,
         }
+    index = None
+    if not degraded and effective_mode in {"semantic", "hybrid"}:
+        from app.services.retrieval.pgvector_driver import PgVectorEmbeddingStore
+
+        if isinstance(get_embedding_store(), PgVectorEmbeddingStore):
+            from app.services.retrieval.index_definition import embedding_profile
+
+            index = {
+                "profile_id": embedding_profile().id,
+                "coverage": "not_asserted",
+                "passage_tokens": sum(
+                    p.tokens for result in results for p in result.passages
+                ),
+                "context_budget": payload.context_tokens,
+                "candidate_limit_reached": examined >= (payload.k or _default_k()),
+                "message": "Results reflect current indexed sources; an empty search does not prove absence.",
+            }
     response = RetrieveResponse(
         results=results,
         dropped_for_permission=dropped,
@@ -227,8 +254,9 @@ async def retrieve(request: Request) -> Any:
         requested_mode=requested_mode,
         degraded=degraded,
         candidates_examined=examined,
+        index=index,
     )
-    return response.model_dump(mode="json")
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -241,8 +269,24 @@ def _is_vector_store_unavailable(exc: BaseException) -> bool:
 
     from app.services.retrieval.embedding_store import EmbeddingStoreUnavailable
 
-    if isinstance(exc, EmbeddingStoreUnavailable):
+    if isinstance(exc, (EmbeddingStoreUnavailable, ConnectionError, TimeoutError)):
         return True
+    # Operational vector-store outages recover after cooldown. Contract/query
+    # errors still surface: do not hide programming defects as empty matches.
+    try:
+        import asyncpg
+
+        if isinstance(
+            exc,
+            (
+                asyncpg.PostgresConnectionError,
+                asyncpg.CannotConnectNowError,
+                asyncpg.InsufficientPrivilegeError,
+            ),
+        ):
+            return True
+    except ImportError:
+        pass
 
     try:
         from pymongo.errors import OperationFailure
@@ -270,6 +314,27 @@ async def _dispatch_retrieve_modes(
     """Run the requested retrieval channel with runtime vector-search fallback."""
 
     try:
+        from app.services.retrieval.pgvector_driver import PgVectorEmbeddingStore
+
+        driver = get_embedding_store()
+        if (
+            isinstance(driver, PgVectorEmbeddingStore)
+            and not degraded
+            and effective_mode != "graph"
+        ):
+            from app.services.retrieval.embedding_store import EmbeddingStoreUnavailable
+            from app.services.retrieval.index_definition import embedding_profile
+            from app.services.retrieval.search_service import retrieve_passages
+
+            try:
+                embedding_profile()
+            except ValueError as exc:
+                raise EmbeddingStoreUnavailable(
+                    "The search profile needs a configuration update"
+                ) from exc
+            return await retrieve_passages(
+                subject, payload, driver=driver, k=k, top_n=top_n
+            )
         if effective_mode == "graph":
             results, dropped, examined = await _retrieve_graph(
                 subject, payload, k=k, top_n=top_n
@@ -289,7 +354,7 @@ async def _dispatch_retrieve_modes(
             "hybrid",
         ) or not _is_vector_store_unavailable(exc):
             raise
-        disable_semantic_retrieval_runtime(str(exc)[:240])
+        disable_semantic_retrieval_runtime(type(exc).__name__)
         _warn_degraded_once(requested_mode)
         results, dropped, examined = await _retrieve_graph(
             subject, payload, k=k, top_n=top_n
@@ -318,6 +383,44 @@ async def _retrieve_graph(
 
     track_id = _scope_to_track_id(payload.scope)
     workspace_id = _scope_to_workspace_id(payload.scope)
+    if payload.scope and payload.scope.startswith("app:"):
+        from app.services.resource_location import locate_resource
+        from app.services.retrieval.search_service import scoped_tracks
+
+        location = await locate_resource("app", payload.scope.split(":", 1)[1])
+        if location is None:
+            return [], 0, 0
+        entries = []
+        for tid in await scoped_tracks(subject, location.workspace_id, payload.scope):
+            page, _ = await fetch_accessible_entries_page(
+                subject.id,
+                track_id=tid,
+                workspace_id=location.workspace_id,
+                q=payload.query,
+                limit=max(k, top_n),
+                include_total=False,
+            )
+            entries.extend(page)
+        entries = _apply_filters(entries, payload.filters)
+        terms = tokenize(payload.query or "")
+        entries.sort(
+            key=lambda e: keyword_overlap(_entry_search_text(e), terms), reverse=True
+        )
+        return (
+            [
+                RetrievedEntry(
+                    entry_id=e.id,
+                    track_id=e.track_id,
+                    score=1.0 / (i + 1),
+                    mode_origin=["graph"],
+                    snippet=(e.body or e.title)[:600],
+                    provenance=getattr(e, "provenance", None),
+                )
+                for i, e in enumerate(entries[:top_n])
+            ],
+            0,
+            len(entries),
+        )
     fetch_limit = max(k, top_n)
 
     entries, _ = await fetch_accessible_entries_page(

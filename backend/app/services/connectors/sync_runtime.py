@@ -229,6 +229,13 @@ async def _reembed_synced_entry(entry: Entry) -> None:
         if not semantic_retrieval_available():
             return
 
+        from app.services.retrieval.pgvector_driver import PgVectorEmbeddingStore
+
+        if isinstance(get_embedding_store(), PgVectorEmbeddingStore):
+            from app.services.retrieval.indexing import enqueue_entry
+
+            await enqueue_entry(entry)
+            return
         vector = await embed_entry_text(entry)
         await get_embedding_store().upsert(
             entry_id=entry.id,

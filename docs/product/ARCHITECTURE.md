@@ -87,7 +87,7 @@ Bounded WorkMandate review is not a runnable public admission route. Approved ph
 
 Attachments have structural ownership, server-validated media type, content identity, authorized reads, and bounded extraction. The default scanner is `noop`; operators must configure and qualify a real scanner to claim malware screening.
 
-Retrieval filters permissions and scope before exposing records. Semantic behavior depends on the configured backend and index; the presence of pgvector in a container does not establish that every retrieval path uses it. Native connectors and external MCP connectors retain explicit source and lifecycle boundaries.
+PostgreSQL retrieval uses [declarative, versioned passage indexing](../backend/semantic-indexing.md). Canonical writes retain durable index intent; workers reconcile and publish derived passages separately. Workspace/App scope and readable Tracks or direct Entry grants narrow candidates before ranking; current per-entry authority, canonical source hashes and governed App contracts are rechecked before exposure. Hybrid combines exact cosine and lexical ranks with a bounded passage budget. Graph-only fallback remains available. Coverage and actual encoder/store readiness must be inspected; a running pgvector container alone is insufficient. Atlas retains its separate adapter semantics. See [ADR-016](../backend/adr/016-declarative-semantic-indexing.md). Native connectors and external MCP connectors retain explicit source and lifecycle boundaries.
 
 ## Vision-aligned architectural directions
 

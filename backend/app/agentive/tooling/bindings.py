@@ -50,6 +50,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from app.agentive.tooling import staging_display as _sd
 from app.agentive.tooling.stagers_filing import stage_file_content
+from app.agentive.tooling.stagers_indexing import stage_configure_index, stage_reindex
 from app.agentive.tooling.stagers_scheduling import (
     stage_cancel_routine,
     stage_delete_routine,
@@ -1093,6 +1094,16 @@ async def _stage_update_entry(args: Dict[str, Any]) -> Dict[str, Any]:
             f"{entry_id!r}. Find it with integral_query_entries and call "
             "integral_update_entry with that entry_id. Nothing was staged."
         )
+    if payload.get("entry_type"):
+        from app.agentive.staging_executors import _resolve_entry_type_id
+        from app.api.errors import BadRequestError
+
+        if not await _resolve_entry_type_id(
+            str(current.get("track_id") or ""), payload["entry_type"], exact=True
+        ):
+            raise BadRequestError(
+                message="That record type isn't available here. Choose one from this list's current setup."
+            )
     record_revision = current.get("record_revision")
     if isinstance(record_revision, int) and record_revision >= 1:
         payload["expected_record_revision"] = record_revision
@@ -3158,41 +3169,39 @@ def _require(args: Dict[str, Any], *keys: str) -> None:
         raise ValueError(f"missing required argument(s): {', '.join(missing)}")
 
 
-def _stage_bulk_update_entries(args: Dict[str, Any]) -> Dict[str, Any]:
-    ids = [str(x) for x in (args.get("entry_ids") or [])]
-    requested = args.get("updates") or {}
-    updates = {k: v for k, v in requested.items() if k in _BULK_UPDATE_KEYS}
-    if not ids:
-        raise ValueError("bulk_update_entries: entry_ids is required")
-    # Unknown keys are dropped silently on purpose -- the allowlist is what
-    # stops a smuggled ``user_id`` from riding along in a patch. But dropping
-    # every key the caller sent is not a patch, it is a no-op, and staging it
-    # anyway produced a card that read "Update 2 entries", reported "Done", and
-    # changed nothing -- leaving the observations it claimed to mark still
-    # pending, ready to be promoted a second time.
-    #
-    # Custom fields are the common way to land here: they belong under
-    # ``fields``, so ``{"handled": "promoted"}`` filters away to nothing while
-    # ``{"fields": {"handled": "promoted"}}`` is what the caller meant. Name the
-    # allowed keys so the agent can recover instead of re-staging the same
-    # empty patch.
-    if not updates:
-        allowed = ", ".join(sorted(_BULK_UPDATE_KEYS))
-        if requested:
-            raise ValueError(
-                "bulk_update_entries: none of the supplied keys "
-                f"({', '.join(sorted(map(str, requested)))}) can be patched; "
-                f"allowed keys are {allowed}. Custom fields go under 'fields'."
-            )
-        raise ValueError(
-            f"bulk_update_entries: supply at least one field to change ({allowed})"
+async def _stage_bulk_update_entries(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Use ordinary Entry commands under one review and durable batch journal."""
+    from app.exceptions import BadRequestError
+    from app.services.agent_scope import current_scope_workspace_id
+    from app.services.bulk_entry_update import (
+        admit_update_selection,
+        selected_entry_ids,
+    )
+
+    ids = selected_entry_ids(args.get("entry_ids"))
+    requested = args.get("updates")
+    if not isinstance(requested, dict):
+        raise BadRequestError(message="Supply the fields to change under 'updates'.")
+    updates = {
+        key: value for key, value in requested.items() if key in _BULK_UPDATE_KEYS
+    }
+    if not updates or all(value is None for value in updates.values()):
+        raise BadRequestError(
+            message="Supply at least one field to change. Custom fields go under 'fields'."
         )
+    await admit_update_selection(
+        _bound_propose_principal(), ids, current_scope_workspace_id.get() or ""
+    )
+    operations = [
+        await _stage_update_entry({"entry_id": entry_id, "updates": updates})
+        for entry_id in ids
+    ]
     return {
-        "kind": "bulk_update_entries",
-        "summary": f"Update {len(ids)} entr{'y' if len(ids) == 1 else 'ies'}",
-        "diff_human": f"Apply {sorted(updates)} to {len(ids)} entries",
-        "diff_machine": {"entry_ids": ids, "updates": updates},
-        "payload": {"entry_ids": ids, "updates": updates},
+        "kind": "batch",
+        "summary": f"Update {len(ids)} records",
+        "diff_human": "\n\n".join(operation["diff_human"] for operation in operations),
+        "diff_machine": {"operations": operations},
+        "payload": {"operations": operations},
     }
 
 
@@ -3713,6 +3722,12 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     # POST /api/retrieve: the ``retrieve`` handler parses its body via
     # ``await request.json()`` -> ``RetrieveRequest.model_validate``. body_map
     # passes the tool args through as that JSON body; param_map stays None.
+    "integral_get_index_status": ToolBinding(
+        service_ref=_h("app.services.retrieval.index_management", "index_status"),
+        service_param_map=_pick("track_id"),
+    ),
+    "integral_configure_search_index": ToolBinding(stager=stage_configure_index),
+    "integral_reindex_track": ToolBinding(stager=stage_reindex),
     "integral_query": ToolBinding(
         handler_ref=_h("app.api.retrieve", "retrieve"),
         body_map=_retrieve_body_map,

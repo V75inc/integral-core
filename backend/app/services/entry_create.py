@@ -401,6 +401,9 @@ async def _create_entry_in_track(
             after=event["after"],
             scope=f"track:{track.id}",
         )
+    from app.services.retrieval.indexing import enqueue_entry
+
+    await enqueue_entry(entry)
     return entry
 
 

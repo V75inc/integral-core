@@ -737,6 +737,61 @@ domains:
           result_set_id: {type: string, optional: true, desc: "Prior result_set_id. Membership stays that set. Values are read again. Omit to scan the workspace."}
         returns: {items: list, result_set_id: str, normalized_plan: object, graph_revision: str, item_provenance: list, receipt: object, scope: object}
         privacy: "Workspace-bound authorized roots and traversals only; durable storage retains metadata, never result rows."
+      - name: integral_get_index_status
+        status: existing
+        op_class: read
+        priority: P1
+        summary: "Inspect search storage readiness, current-profile jobs and source coverage for a list you manage. Readiness alone does not prove full coverage."
+        http: "SERVICE (retrieval.index_management.index_status)"
+        policy_action: track.read
+        params:
+          track_id: {type: string, required: true}
+        returns: {track_id: str, profile_id: str, store_ready: bool, jobs: object, coverage_complete: bool}
+        privacy: "Current list administrator in the host-bound workspace only. No copied content or credentials."
+      - name: integral_configure_search_index
+        status: existing
+        op_class: propose
+        priority: P1
+        summary: "Propose a complete declarative search configuration for a list you manage. Requires approval. Does not grant access."
+        http: "STAGED (configure_search_index)"
+        staging_kind: configure_search_index
+        policy_action: track.update
+        params:
+          track_id: {type: string, required: true}
+          definition:
+            type: object
+            required: true
+            additionalProperties: false
+            desc: "Complete replacement. Read the existing definition first and preserve exclusions unless the user asks to change them. Omitted properties use defaults."
+            properties:
+              enabled: {type: boolean, default: true}
+              fields:
+                type: array
+                maxItems: 64
+                items: {type: string, pattern: '^(title|body|custom_fields\.(\*|[A-Za-z0-9_-]{1,128}))$'}
+              exclude_fields:
+                type: array
+                maxItems: 64
+                items: {type: string, pattern: '^(title|body|custom_fields\.(\*|[A-Za-z0-9_-]{1,128}))$'}
+              entry_type_ids: {type: array, maxItems: 64, items: {type: string}}
+              metadata_fields:
+                type: array
+                maxItems: 32
+                items: {type: string, pattern: '^custom_fields\.[A-Za-z0-9_-]{1,128}$'}
+        returns: {kind: str, summary: str, payload: object}
+        privacy: "Current list administrator and workspace rechecked on execution; ordinary approval required."
+      - name: integral_reindex_track
+        status: existing
+        op_class: propose
+        priority: P1
+        summary: "Propose a durable search rebuild for a list you manage. Requires approval; returns a queued request rather than claiming completion."
+        http: "STAGED (reindex_track)"
+        staging_kind: reindex_track
+        policy_action: track.update
+        params:
+          track_id: {type: string, required: true}
+        returns: {kind: str, summary: str, payload: object}
+        privacy: "Current list administrator and workspace rechecked on execution; ordinary approval required."
       - name: integral_query
         status: existing   # alias/override of /api/retrieve POST
         op_class: read
@@ -761,14 +816,18 @@ domains:
           expect concept-level recall. Check
           integral_describe_substrate.retrieval.semantic_available up front to know
           which modes are live.
+          With pgvector, results include current-source passages and action_url citations.
+          Answer from those passages when sufficient; avoid fetching whole records again.
+          Empty results do not prove absence while indexing is pending.
         http: "POST /api/retrieve"
         policy_action: entry.read
         params:
           query: {type: string, required: true, desc: "Natural-language search text describing the concept or thing to find. Matched semantically — phrase it as what the content is about, not as a field comparison."}
           mode: {type: string, enum: [graph, semantic, hybrid], default: hybrid, desc: "Retrieval strategy: 'semantic' = embedding similarity, 'graph' = relationship/keyword traversal, 'hybrid' = both (default, recommended)."}
-          scope: {type: string, optional: true, desc: "Optional narrowing to 'track:<track_id>' inside the active workspace. Omit to search readable tracks in that workspace. A different workspace or foreign track is refused."}
+          scope: {type: string, optional: true, desc: "Optional narrowing to 'track:<track_id>' or 'app:<app_id>' inside the active workspace. Omit to search readable tracks in that workspace. A different workspace or foreign track is refused."}
           top_n: {type: integer, default: 20, desc: "Maximum number of results to return (default 20). Raise it when you need broad recall before reasoning over the set."}
-          filters: {type: object, optional: true, desc: "Optional custom-field equality constraints applied to candidates (a dict of field_key -> value). This is an exact match filter, not a ranking — it cannot sort by a value."}
+          context_tokens: {type: integer, default: 1200, desc: "Passage context budget, 64–8192 embedding tokens. Use small budgets for focused RAG; titles and response metadata are additional."}
+          filters: {type: object, optional: true, desc: "Optional entry_types and tags arrays. These narrow candidates; they do not rank by a value."}
         returns: { results: [{entry_id: str, title: str, snippet: str, track_id: str, score: number}], mode: str, requested_mode: str, degraded: bool }
         privacy: "Host-bound workspace membership and current per-entry policy checked before return, independently of vector-store pre-filters (I-RET-01). PC-4, PC-5 (restricted-stub honored)."
       - name: integral_plan_query
@@ -1307,13 +1366,33 @@ domains:
         status: existing
         op_class: propose
         priority: P1
-        summary: "Apply the same field/tag/status patch to many entries in one staged change (single approval card shows the full set)."
+        summary: "Batch update a collection of records: apply the same field, tag or status changes to up to 500 selected entries with one itemized review."
         http: "PUT /api/entries/{entry_id}  (fan-out, single envelope)"
         policy_action: entry.update
-        staging_kind: bulk_update_entries   # fan-out under one token; per-entry gate at execute
-        params: { entry_ids: {type: array, required: true, items: {type: string}}, updates: {type: object, required: true} }
-        returns: { staged_token: str, affected_count: integer, diff: object }
-        privacy: "Role checked per-entry; any entry the caller cannot edit aborts the batch (fail-closed, PC-6) — never silently partial."
+        staging_kind: batch   # canonical revision-bound Entry commands and durable receipts
+        params:
+          entry_ids:
+            type: array
+            required: true
+            minItems: 1
+            maxItems: 500
+            items: {type: string}
+            desc: "Exact IDs from the complete selected result. Page through all results before preparing a collection update."
+          updates:
+            type: object
+            required: true
+            minProperties: 1
+            additionalProperties: false
+            desc: "Same patch for every record. Custom values belong under fields, using keys from each record's schema."
+            properties:
+              title: {type: string}
+              body: {type: string}
+              fields: {type: object}
+              tags: {type: array, items: {type: string}}
+              status: {type: string}
+              entry_type: {type: string}
+        returns: { staged_token: str, summary: str, diff_machine: object }
+        privacy: "Admit every selected entry in the active workspace before staging and recheck at execution. Each record retains its own policy, revision fence and durable outcome. Later validation or hook failure stops remaining work; report completed and unresolved steps, never claim atomicity."
       - name: integral_bulk_move_entries
         status: existing
         op_class: propose
@@ -2597,11 +2676,11 @@ domains:
 # SUMMARY COUNTS (for review convenience; keep in sync)
 # =============================================================================
 summary:
-  total_tools: 126
-  existing_tools: 124    # status: existing
+  total_tools: 129
+  existing_tools: 127    # status: existing
   gap_tools_proposed: 2  # status: gap (workspace_setup, onboard_user deferred)
-  by_op_class: { read: 54, propose: 71, execute: 1 }
-  by_priority: { P0: 16, P1: 41, P2: 69 }
+  by_op_class: { read: 55, propose: 73, execute: 1 }
+  by_priority: { P0: 16, P1: 44, P2: 69 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
   policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)

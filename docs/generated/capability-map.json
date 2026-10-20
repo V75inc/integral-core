@@ -457,6 +457,25 @@
     },
     {
       "allowed_tools": [
+        "integral_configure_search_index",
+        "integral_get_index_status",
+        "integral_get_track_schema",
+        "integral_list_tracks",
+        "integral_reindex_track"
+      ],
+      "body_tools": [
+        "integral_configure_search_index",
+        "integral_get_index_status",
+        "integral_reindex_track"
+      ],
+      "delegates_to": [],
+      "intent": "Inspect search-index readiness and maintain the index of an existing list. Configure which canonical text fields are searchable, exclude fields, select entry types, request a rebuild and inspect progress. Indexing never grants access. Use integral-insights to answer questions from existing content.",
+      "name": "integral-indexing",
+      "source": "agent/skills/integral-indexing/SKILL.md",
+      "unresolved_refs": []
+    },
+    {
+      "allowed_tools": [
         "integral_activity_digest",
         "integral_aggregate",
         "integral_count_entries",
@@ -465,6 +484,7 @@
         "integral_get_digest",
         "integral_get_feed",
         "integral_get_graph_context",
+        "integral_get_index_status",
         "integral_get_track_schema",
         "integral_governed_query",
         "integral_list_apps",
@@ -526,7 +546,8 @@
         "integral_modify_model",
         "integral_propose_model_revision",
         "integral_publish_model_draft",
-        "integral_save_view"
+        "integral_save_view",
+        "integral_update_app"
       ],
       "body_tools": [
         "integral_begin_batch",
@@ -545,7 +566,8 @@
         "integral_modify_model",
         "integral_propose_model_revision",
         "integral_publish_model_draft",
-        "integral_save_view"
+        "integral_save_view",
+        "integral_update_app"
       ],
       "delegates_to": [
         "integral-entries",
@@ -938,15 +960,15 @@
     }
   ],
   "counts": {
-    "advertised": 124,
+    "advertised": 127,
     "apps": 5,
     "by_op_class": {
       "execute": 1,
-      "propose": 69,
-      "read": 54
+      "propose": 71,
+      "read": 55
     },
-    "core_skills": 16,
-    "tools": 126
+    "core_skills": 17,
+    "tools": 129
   },
   "diagnostics": {
     "advertised_tools_without_skill": [
@@ -1129,6 +1151,7 @@
         "integral-dashboards",
         "integral-entries",
         "integral-filing",
+        "integral-indexing",
         "integral-insights",
         "integral-model",
         "integral-onboard",
@@ -1157,6 +1180,7 @@
         "integral-attachments",
         "integral-entries",
         "integral-filing",
+        "integral-indexing",
         "integral-insights",
         "integral-model",
         "integral-organize",
@@ -1344,6 +1368,64 @@
       "policy_action": null,
       "skills": [
         "integral-insights"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.services.retrieval.index_management.index_status"
+        ]
+      },
+      "domain": "B_retrieval",
+      "http": null,
+      "mcp_min_scope": "integral:read",
+      "name": "integral_get_index_status",
+      "op_class": "read",
+      "policy_action": "track.read",
+      "skills": [
+        "integral-indexing",
+        "integral-insights"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.stagers_indexing.stage_configure_index"
+        ]
+      },
+      "domain": "B_retrieval",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_configure_search_index",
+      "op_class": "propose",
+      "policy_action": "track.update",
+      "skills": [
+        "integral-indexing"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.stagers_indexing.stage_reindex"
+        ]
+      },
+      "domain": "B_retrieval",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_reindex_track",
+      "op_class": "propose",
+      "policy_action": "track.update",
+      "skills": [
+        "integral-indexing"
       ],
       "status": "existing"
     },
@@ -2788,6 +2870,7 @@
       "policy_action": "app.update",
       "skills": [
         "integral-dashboards",
+        "integral-model",
         "integral-workspace"
       ],
       "status": "existing"

@@ -55,7 +55,15 @@ does not itself create that ownership relationship or authorize a transfer.
 Every allowed path must be satisfied as one complete grant. Among ordinary
 direct and inherited roles, the strongest complete role wins. Inherited
 `owner/admin` caps at `editor`; ordinary sharing/configuration rights require
-a direct grant. Scoped governance can be delegated separately.
+a direct grant. The explicit configuration exception lets an App's current
+owner configure its canonically contained Tracks, including an installed App's
+copy. It requires current workspace admission and honors exclusions/subtree
+blocks. It does not grant App admins inherited configuration rights or expand
+sharing, moderation, child deletion or ownership-transfer authority. Shared model
+changes still require configuration authority over every current parent;
+installed copies do not grant edits to library sources. See
+[I-ROLE-02](../INVARIANTS.md#i-role-02--inherited-role-cap-at-editor-inherited-role-caps-to-editor).
+Scoped governance can be delegated separately.
 
 `EXCLUDED_FROM` removes inherited paths only. It does not override a direct
 grant, and the UI must explain remaining access. Absolute resource blocks and

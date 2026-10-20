@@ -6,6 +6,14 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc28 — 2026-10-20
+
+- Keep current-origin and recognized placeholder record citations inside the active installation and tab; preserve external website links.
+
+- Let App owners edit their installed Apps and current Tracks through the same permission and approval contracts; retain separate package publication authority.
+- Add durable, itemized collection updates with current-permission/revision checks, partial-result receipts and interrupted-work reconciliation; reduce repeated Track-list permission scans.
+- Add declarative Track/EntryType search policies, durable passage indexing and rebuild/status capabilities. Use local versioned FastEmbed/pgvector embeddings, hybrid retrieval, current-source/permission checks, bounded cited context and recoverable keyword fallback.
+
 ## 0.1.1rc27 — 2026-10-20
 
 - Preserve common clipboard formatting as editable Markdown, including nested lists and document inline styles; retain visual-editor limitations explicitly in release qualification. Validate cancellation targets through the typed API contract.

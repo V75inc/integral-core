@@ -931,6 +931,12 @@ async def _startup() -> None:
             "app_install_reaper: loop spawn failed: %s", _exc
         )
 
+    # Derived search work uses the same bounded, cancellable lifecycle as the
+    # existing maintenance loops; primary Entry commands only retain intent.
+    from app.services.retrieval.indexing import indexing_loop
+
+    _background_tasks.append(asyncio.create_task(indexing_loop()))
+
     # Routine Tasks — user-issued recurring chat instructions, replayed as an
     # agent turn on a cron cadence (app/services/routine_task_scheduler.py).
     # Fourth instance of the ttl_reclaim_loop / sync_loop / approval_ttl_loop /

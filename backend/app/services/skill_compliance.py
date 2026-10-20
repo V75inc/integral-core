@@ -35,6 +35,7 @@ CORE_INTEGRAL_SKILL_NAMES: Tuple[str, ...] = (
     "integral-filing",
     "integral-identity",
     "integral-insights",
+    "integral-indexing",
     "integral-model",
     "integral-navigation",
     "integral-onboard",

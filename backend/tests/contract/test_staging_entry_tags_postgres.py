@@ -436,7 +436,8 @@ async def main():
                     user_id=sys.argv[1], token=sys.argv[2]
                 )
                 print(json.dumps({"consumed": bool(result.get("consumed")),
-                                  "state": result.get("application_state")}), flush=True)
+                                  "state": result.get("application_state"),
+                                  "execute_result": result.get("execute_result")}), flush=True)
             except StagingError as exc:
                 print(json.dumps({"refused": exc.code}), flush=True)
     finally:
@@ -455,7 +456,13 @@ asyncio.run(main())
                     worker,
                     auth.id,
                     change.token,
-                    env={**os.environ, "TESTING": "1"},
+                    # The parent's test_in_memory vector driver cannot cross a
+                    # process boundary. This probe owns only approval effects.
+                    env={
+                        **os.environ,
+                        "TESTING": "1",
+                        "EMBEDDING_STORE_DRIVER": "null",
+                    },
                     stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,

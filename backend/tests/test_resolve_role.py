@@ -113,11 +113,9 @@ async def test_no_grant_no_role_on_track(rooted_access_graph):
 async def test_space_owner_cascades_to_track_as_editor(rooted_access_graph):
     """Inherited 'owner' is capped to 'editor' on children (I-ROLE-02).
 
-    Track-config authority NEVER cascades — must be granted directly
-    per-resource. App owner inheriting onto a contained Track gets
-    entry-CRUD authority ('editor') but cannot reshape the Track's
-    schema/views/tags without an explicit direct 'admin' or 'owner'
-    grant on that specific Track. Owner-only carve-outs (delete /
+    Ordinary role inheritance stays capped at editor. App-owner
+    configuration is evaluated separately and never produces an admin role.
+    Owner-only carve-outs (delete /
     collab mgmt / share-link mint) likewise never cascade.
     """
     sp_owner = await _mk_user(rooted_access_graph, "sp_owner_1")

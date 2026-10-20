@@ -10,20 +10,6 @@ import pytest
 from app.agentive.tooling import bindings
 
 
-def test_bulk_update_stager_allowlists_keys():
-    """Bulk-update stager keeps only known patch keys (drops smuggled args)."""
-    staged = bindings._stage_bulk_update_entries(
-        {
-            "entry_ids": ["e1", "e2"],
-            "updates": {"status": "done", "user_id": "evil", "title": "x"},
-        }
-    )
-    assert staged["kind"] == "bulk_update_entries"
-    assert staged["payload"]["entry_ids"] == ["e1", "e2"]
-    assert "user_id" not in staged["payload"]["updates"]
-    assert staged["payload"]["updates"] == {"status": "done", "title": "x"}
-
-
 def test_link_entries_stager_shape():
     """Link stager carries source/field/target into a link_entries kind."""
     staged = bindings._stage_link_entries(
@@ -182,58 +168,3 @@ def test_enabler_kinds_have_executors():
         "link_entries",
     ):
         assert staging_executors.supports(kind)
-
-
-def test_bulk_update_stager_rejects_patch_that_filters_to_nothing():
-    """A patch whose every key is unknown is refused, not staged as a no-op.
-
-    Regression from the Personal Context end-to-end walk: the agent sent
-    ``{"handled": "promoted"}`` to mark two observations promoted. ``handled``
-    is a custom field, so the allowlist filtered it away and the empty patch was
-    staged as a card reading "Update 2 entries" that reported "Done" and changed
-    nothing -- leaving both observations pending and re-promotable.
-    """
-    with pytest.raises(ValueError) as exc:
-        bindings._stage_bulk_update_entries(
-            {"entry_ids": ["e1", "e2"], "updates": {"handled": "promoted"}}
-        )
-    msg = str(exc.value)
-    assert "handled" in msg
-    # The message has to be recoverable: name the allowed keys and point at the
-    # wrapper the caller actually needed.
-    assert "fields" in msg
-
-
-def test_bulk_update_stager_rejects_empty_updates():
-    """No keys at all is refused with the allowed set named."""
-    with pytest.raises(ValueError) as exc:
-        bindings._stage_bulk_update_entries({"entry_ids": ["e1"], "updates": {}})
-    assert "at least one field" in str(exc.value)
-    assert "status" in str(exc.value)
-
-
-def test_bulk_update_stager_requires_entry_ids():
-    """An empty target list is refused rather than staged as "Update 0 entries"."""
-    with pytest.raises(ValueError, match="entry_ids is required"):
-        bindings._stage_bulk_update_entries(
-            {"entry_ids": [], "updates": {"status": "done"}}
-        )
-
-
-def test_bulk_update_stager_still_drops_smuggled_keys_alongside_valid_ones():
-    """The allowlist keeps protecting a mixed patch -- the guard is not a bypass."""
-    staged = bindings._stage_bulk_update_entries(
-        {
-            "entry_ids": ["e1"],
-            "updates": {"fields": {"handled": "promoted"}, "user_id": "evil"},
-        }
-    )
-    assert staged["payload"]["updates"] == {"fields": {"handled": "promoted"}}
-
-
-def test_bulk_update_diff_human_names_the_keys_it_will_apply():
-    """The card text lists real keys, so an empty bracket can't reach a reviewer."""
-    staged = bindings._stage_bulk_update_entries(
-        {"entry_ids": ["e1", "e2"], "updates": {"status": "done"}}
-    )
-    assert staged["diff_human"] == "Apply ['status'] to 2 entries"

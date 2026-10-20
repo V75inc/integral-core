@@ -74,6 +74,37 @@ Full reference: [`docs/backend/workspace-agent-profile.md`](../../../docs/backen
 
 **When touching install/uninstall/settings paths** that affect App skills, call `invalidate_workspace_profile(workspace_id)` from `workspace_agent_profile.py`.
 
+## Collection update capabilities
+
+`integral_bulk_update_entries` needs complete paged selection and explicit IDs
+(up to 500 per review), not the first search page. Stage one itemized review;
+retain canonical field/type validation, workspace admission, live policy and
+revision checks. Report completed and unresolved commands after a late failure;
+use durable receipts on retry rather than replaying completed mutations. App-owner
+Track configuration is an explicit capability exception, not inherited admin
+or package publication authority. See [chat contracts](../../../docs/backend/ai-chat.md).
+
+## Retrieval and index capabilities
+
+Use `integral_query` for bounded prose/RAG evidence in the host-validated
+workspace; narrow to the relevant App/Track and cite returned source links.
+Use structured queries/aggregations for complete collections, exact totals and
+rankings. Sparse retrieval is not proof that no matching record exists.
+
+`integral-indexing` exposes `integral_get_index_status`,
+`integral_configure_search_index` and `integral_reindex_track`. Status requires
+current configuration authority; mutating tools stage review and recheck that
+authority at execution. Bind configuration proposals to the observed
+`search_index_revision`; stale approvals need fresh review. Show the actual
+selection change in the preview. Do not alter deployment models/credentials
+through these tools or imply that approving/queuing a rebuild completes it.
+
+The legacy `retrieve_context` action also requires the host workspace and the
+shared governed App boundary; caller-supplied scope cannot widen it. Preserve
+current-source/permission checks and passage budgets across every resident/MCP
+path. See [indexing and retrieval](../../../docs/backend/semantic-indexing.md)
+and the root AGENTS.md for worker, audit and qualification requirements.
+
 ## Why the Drift Existed (historical)
 
 The agentive layer was prototyped quickly against raw FastAPI patterns when bootstrapping the 06-01 milestone. Tactical velocity-over-consistency trade made under time pressure. Not an approved exception — debt was unwound in Plan 06-05 (Wave 4 directive-plan remediation).

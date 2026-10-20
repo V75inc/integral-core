@@ -163,11 +163,12 @@ Implementation: `_cap_inherited_role` in
 `backend/app/services/permissions.py`.
 
 **Rationale.** Track-config authority (schema, views, tags, library,
-anchors, migrations) is a **per-resource curation decision** and MUST
-be granted directly on the resource — never via parent cascade. An App
-owner / admin inheriting onto contained Tracks gets entry-CRUD authority
-(`editor`) but cannot reshape per-Track substrate without an explicit
-direct grant. Deletion and ownership transfer require ownership of the
+anchors, migrations) is a **per-resource curation decision**. Ordinary
+collaborators require a direct grant; App ownership has the separately
+qualified configuration exception below. An App
+owner / admin inheriting onto contained Tracks gets ordinary entry-CRUD
+authority (`editor`). The explicit App-owner configuration exception below
+applies separately; App admins require a direct configuration grant. Deletion and ownership transfer require ownership of the
 specific resource. Sharing management requires a direct owner or admin
 role there, as specified in I-ROLE-01; those rights never cascade.
 
@@ -176,6 +177,17 @@ tier would be meaningless at the App-cascade boundary: anyone added to
 the App at admin (or owner) would silently curate every Track in the
 App, defeating the per-Track delegation model the role split exists to
 support.
+
+**App-owner configuration exception (2026-10-20).** The current owner of
+an App may configure its canonically contained Tracks, including installed
+Apps. `can_admin_track` proves current App ownership, workspace admission,
+containment and absence of Track exclusion or subtree block at the boundary.
+This is a configuration capability, not an inherited admin role:
+`resolve_role` and collaborator displays remain capped at editor. App admins
+and collaborators do not acquire it. Comment moderation, child deletion, ownership transfer and
+sharing retain their existing exact-resource grants. Shared Operational Models
+still require configuration authority over every current parent. Library
+packages are separate from installed copies and retain their publication rules.
 
 **Direct-grant exception.** A direct `OWNS` or `COLLABORATES_ON{role:
 "admin"}` edge on the resource itself ALWAYS resolves to its raw role
@@ -568,7 +580,7 @@ Bundle manifest descriptions match disk frontmatter after the canonical synchron
 
 ### I-RET-01 — Permission-Filter-At-Retrieval (`permission-filter-at-retrieval`)
 
-Every indexed candidate passes current entry.read policy before exposure. Retrieval is a projection, not another authority store.
+Every indexed candidate passes current entry.read policy, canonical workspace/containment and the governed App query boundary before any title, passage, metadata or citation is exposed. Current source hashes and passage offsets must agree with the canonical record; stale derived content is excluded. Retrieval is a projection, not another authority store.
 
 ### I-CONTEXT-01 — Intra-workspace insight evidence
 
@@ -595,19 +607,44 @@ permission revocation between captures, installed-App boundaries and HTTP scope.
 
 ### I-RET-02 — No-Index-Bypass (`no-index-bypass`)
 
-Index/Track prefilters supplement rather than replace per-candidate authorization. Preserve sharing and guest semantics.
+Index/Track prefilters supplement rather than replace per-candidate authorization. Preserve supported sharing and guest semantics. A direct Entry grant can admit that Entry without granting its whole Track. A declaration never grants access or widens host-validated workspace scope.
 
 ### I-RET-03 — Soft-Delete-Not-Hard-Delete (`soft-delete-not-hard-delete`)
 
-Hard-deleting an Entry soft-deletes its embedding with deleted_at and excludes it from search. Embedding hard deletion is reserved for offline/retention work, not the normal record-delete path.
+Hard-deleting an Entry excludes it from retrieval immediately through canonical-source checks, even if derived cleanup fails. The legacy adapter uses embedding soft deletion; PostgreSQL passage cleanup soft-deletes the derived rows through reconciliation/guarded delivery. Hard deletion of derived rows is reserved for offline/retention work, not the normal record-delete path.
 
 ### I-RET-04 — Track scope index prefilter
 
-A vector driver exposes track_id as a queryable filter and pushes supported Track scope into search. Mock and actual backend tests verify propagation. Prefilter does not replace policy.
+PostgreSQL passage queries constrain workspace, current profile and readable Tracks or independently authorized Entry grants before the candidate cap; narrower App/Track requests remain inside the bound workspace. Legacy adapters push supported Track filters into their search. Actual backend tests verify behavior; prefilters never replace current-source and policy checks.
 
 ### I-RET-05 — No tag-only reembedding
 
-Reembed content changes and relevant text changes, not tag-only edits. Maintain the canonical reembedding hooks and scope/index contract.
+Reencode selected text/metadata or effective selection changes, not tag-only or other nonselected edits. The current canonical revision is returned even when its selected-content hash is unchanged. Keep legacy adapter hooks separate from PostgreSQL durable passage jobs.
+
+### I-RET-06 — Durable index intent and profile isolation
+
+Canonical PostgreSQL writes retain index intent in the same graph transaction;
+model/vector calls run outside the primary write. Delivery requires a current
+generation and lease, fresh source and atomic guarded publication. Retain retry
+and reconciliation paths for malformed sources, unavailable encoders and lost
+workers. Model/revision/dimension/chunk/format profiles never mix vectors.
+EntryType declarations can narrow but never widen the Track selection.
+
+### I-RET-07 — Reviewed configuration and truthful coverage
+
+Index configuration requires current Track configuration authority. Agent
+mutations require review, revision-bound proposals and authority rechecks at
+execution. Configuration, rebuild request and audit intent commit together;
+audit delivery occurs after commit. Status distinguishes real encoder/store
+readiness, queued/failed work and bounded point-in-time source coverage.
+A queued rebuild, no matches or unasserted/truncated coverage cannot establish
+completion or absence. Passage-token budgets exclude the surrounding model
+prompt and do not establish total provider token use.
+
+Contract and qualification: [semantic indexing](backend/semantic-indexing.md),
+`backend/tests/test_semantic_index_definitions.py`,
+`backend/tests/test_semantic_indexing_pg.py` and
+`backend/tests/contract/test_semantic_index_transactions_postgres.py`.
 
 ### I-SCRATCH-01 — Scratch-Track-In-Personal-Workspace
 

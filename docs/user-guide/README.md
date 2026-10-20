@@ -36,6 +36,8 @@ For a first AI request, be concrete:
 
 For dependency questions, ask in ordinary language: “What could hold up this launch, and how would a backup supplier help?” Where recorded graph context is configured, the resident follows stored workspace relationships and explains the selected dates, states and evidence. See [workspace graph context](../product/GRAPH_CONTEXT.md) for setup, privacy and limits.
 
+For a change across many records, ask the AI to identify the full set and prepare one itemized review. Large sets may need several reviews. If some changes fail, check which records were updated before retrying; completed changes are retained.
+
 The model and tools available to your installation determine what can be completed. A useful answer should preserve uncertainty rather than supply missing facts by guesswork.
 
 ## 3. Workspaces and teams
@@ -49,6 +51,8 @@ Keep a workspace for a coherent working boundary. Use resource sharing to narrow
 ## 4. Apps and Tracks
 
 An App gives a purpose a home. It can bring together Tracks, useful views, actions, skills, and summaries. Its Home presents package-defined information where configured; dashboards provide additional instance-level projections.
+
+If you own an App, you can ask the AI to change its record types and views, including those in an installed App. You still review proposed changes, and shared definitions may need additional permission. This changes your installed copy, not the original library package.
 
 A Track is a collection of Entries. A record type supplies its fields and validation. Some Apps define several Track types; others provide one simple collection. Choose the type that represents the work rather than putting every kind of information into one general-purpose record.
 
@@ -84,7 +88,9 @@ Use the views declared by your Track or App. Feeds suit reading and recent activ
 
 A view may define its own filters, sorting, grouping, and record-type selection. If a record appears missing, clear the applicable filters and check your access. Changing a view does not change the security boundary.
 
-Search and queries operate within authorized scope. Semantic search depends on the installation's retrieval backend. An App's declared query can provide a purpose-specific result rather than a general search.
+Search only uses information you can currently access. On installations with semantic search enabled, you can ask in everyday words and follow the source links to check the answer. New or changed records may take a little time to become searchable. A missing result does not always mean the information is absent.
+
+You can ask the AI whether a list is ready for search. Changing which fields are searched or requesting a rebuild requires permission to manage that list, and AI-proposed changes go through review. Queuing a rebuild does not mean it has finished. An App's declared query can provide a purpose-specific result rather than a general search.
 
 Empty and unavailable are different states. If a widget reports an unavailable data source, do not interpret it as a count of zero. When a result matters, open the source records or inspect the relevant query result.
 

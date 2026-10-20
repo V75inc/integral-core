@@ -54,9 +54,9 @@ def test_skill_allowed_tools_exist_in_catalogue():
     """Every SKILL.md allowed-tool resolves to a tool in the manifest catalogue."""
     catalogue = {t["name"] for t in build_tool_catalogue()}
     skill_paths = sorted(glob.glob(_SKILLS_GLOB))
-    assert (
-        len(skill_paths) == 16
-    ), f"expected 16 integral skills, found {len(skill_paths)}"
+    from app.services.skill_compliance import CORE_INTEGRAL_SKILL_NAMES
+
+    assert len(skill_paths) == len(CORE_INTEGRAL_SKILL_NAMES)
     for path in skill_paths:
         fm = _parse_frontmatter(path)
         for tool in (fm.get("allowed-tools") or "").split():
