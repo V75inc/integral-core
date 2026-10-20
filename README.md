@@ -25,6 +25,8 @@ The result is software that can grow around the work it serves.
 
 **Work with a resident AI.** Ask questions grounded in accessible information, prepare changes, and review proposed actions. The default resident uses Integral's Pydantic AI harness. Core governs identity, access, execution, approvals, transcripts, and receipts around that harness.
 
+**Find relevant knowledge.** PostgreSQL deployments can index selected record fields and retrieve short, cited passages through semantic and keyword search. Current access rules apply to every result. See [indexing and retrieval](docs/backend/semantic-indexing.md) for setup, coverage and limits.
+
 **Connect agents and systems.** External agents use Integral's MCP surface. Connectors provide declared integration paths. Both remain subject to the relevant scope and policy; instructions alone cannot grant access.
 
 **Keep applications separate from the foundation.** Core provides the domain-neutral substrate and extension contracts. Domain Apps, commercial packaging, pricing, checkout, and hosted offerings belong outside Core.
@@ -41,7 +43,7 @@ It starts a private PostgreSQL database, the API and the web interface, then ope
 
 ## Run from source
 
-Integral is pre-1.0. The checked-in backend version is `0.1.1rc25`; a repository version does not establish that a matching package has been published. Use the frozen lock for source development.
+Integral is pre-1.0. Read the source version from `backend/pyproject.toml`; a repository version does not establish that a matching package has been published. Use the frozen lock for source development.
 
 Prerequisites: Python 3.11 or later, [uv](https://docs.astral.sh/uv/), and a Node.js version supported by the checked-in Vite release. Use the project lockfiles.
 

@@ -23,6 +23,16 @@ The agentive layer always loads. Default resident binding is Integral AI through
 
 Use the [backend reference](../docs/backend/README.md), [architecture](../docs/product/ARCHITECTURE.md), [invariants](../docs/INVARIANTS.md), and [deployment guide](../docs/ops/DEPLOY.md).
 
+## Search and indexing
+
+PostgreSQL uses durable indexing jobs and local FastEmbed/pgvector passages.
+Canonical writes enqueue work; readiness includes the actual encoder, store and
+current-source coverage. `EMBEDDING_STORE_DRIVER=null` selects graph-only reads.
+See [declarative indexing and retrieval](../docs/backend/semantic-indexing.md)
+for deployment settings, rebuilds, API scope and real-database qualification.
+The legacy `backfill_embeddings.py` script fills the older single-vector
+adapter and does not populate the passage index.
+
 ## jvspatial security compatibility
 
 Metadata pins jvspatial 0.2.2 and pydantic-ai-harness 0.36.0. Runtime dependencies resolve from PyPI. Production OAuth requires its encryption key, and production auth rate limits stay active. Repair duplicate model credentials before creating their unique index and test actual PostgreSQL duplicates.

@@ -16,7 +16,7 @@ Understand dependencies and decision evidence with [workspace graph context](pro
 
 ## Build on it
 
-Follow the [App quickstart](developer/quickstart.md), then use the [extension contract](platform/extension-contract-v1.md), [background jobs for Apps](platform/background-app-jobs.md), [Operational Model guide](operational-models/README.md), and [backend reference](backend/README.md). The [generated capability map](generated/capability-map.md) derives from source and must be regenerated rather than edited by hand.
+Follow the [App quickstart](developer/quickstart.md), then use the [extension contract](platform/extension-contract-v1.md), [background jobs for Apps](platform/background-app-jobs.md), [Operational Model guide](operational-models/README.md), and [backend reference](backend/README.md). Use [declarative indexing and retrieval](backend/semantic-indexing.md) for searchable fields, agent capabilities and permission-aware passages. [Model discovery](backend/operational-model-search-index.md) covers the separate package catalog. The [generated capability map](generated/capability-map.md) derives from source and must be regenerated rather than edited by hand.
 
 ## Operate it
 
@@ -28,6 +28,6 @@ The [contributor guide](developer/CONTRIBUTING.md) explains repository disciplin
 
 The [access contract](product/ACCESS_CONTROL_CONTRACT.md) defines workspace/resource authority and declarative App permissions. [Resource visibility](product/RESOURCE_VISIBILITY.md) covers private defaults and legacy read compatibility. Use [scope migration guidance](ops/qualification/access-control-review/VIEW_SCOPE_MIGRATION.md) before changing existing resource identities.
 
-Use the [current release qualification](ops/RELEASE_QUALIFICATION.md) and [hardening follow-up](product/HARDENING_FOLLOW_UP.md) for candidate results and remaining work. Historical dated reports have been retired; Git history retains them. Maintain one current guide per topic and regenerate source-derived references after route or capability changes.
+Use the [current release qualification](ops/RELEASE_QUALIFICATION.md) and [hardening follow-up](product/HARDENING_FOLLOW_UP.md) for candidate results and remaining work. Retired reports remain in Git history; retained candidate-specific evidence is linked from its current topic guide and does not establish release acceptance. Maintain one current guide per topic and regenerate source-derived references after route or capability changes.
 
 Runtime hosting: [local/hosted composition contract](platform/runtime-composition-v1.md) and [ADR-015](backend/adr/015-runtime-composition.md).

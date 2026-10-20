@@ -1,18 +1,9 @@
-"""POST /api/retrieve Pydantic boundary types — RET-03 wire shape.
+"""Typed POST /api/retrieve boundary and bounded passage response.
 
-Per CONTEXT lock #5: defaults K=150 (over-fetch), top_n=20 (returned after
-permission filter). Per CONTEXT §'Locked: permission filter at retrieval
-time': ZERO new PolicyAction members (``entry.read`` already covers the path).
-
-Boundary discipline mirrors Phase 3 ``schemas/policy.py`` — every model
-uses ``model_config = {'extra': 'forbid'}`` so a request body with unknown
-fields fails 422 at the Pydantic boundary.
-
-Wave 2 contract (locked for Plan 04-03):
-  from app.schemas.retrieve import (
-      RetrieveRequest, RetrieveResponse, RetrievedEntry, RetrieveFilters,
-      RetrieveMode,
-  )
+Unknown request fields are refused. Deployment defaults supply k/top_n when
+omitted; context_tokens bounds passage text using the embedding tokenizer, not
+the full provider prompt. See docs/backend/semantic-indexing.md for scope,
+backend-specific ranking, fallback and coverage semantics.
 """
 
 from __future__ import annotations
@@ -41,33 +32,17 @@ class RetrieveFilters(BaseModel):
 
 
 class RetrieveRequest(BaseModel):
-    """Request body for ``POST /api/retrieve``.
+    """Request scoped to the host-validated workspace.
 
-    ``scope`` shapes:
-      * ``"track:<id>"`` — enables SQL pre-filter on Plan 04-01's
-        ``track_id`` column (perf optimization; the per-candidate policy
-        filter ALWAYS still applies).
-      * ``"workspace:<id>"`` — must match the request's validated workspace;
-        graph membership and current permissions filter every candidate.
-      * ``None`` — defaults to the request's validated workspace. It never
-        widens retrieval to all workspaces the principal can read.
+    scope accepts workspace:<id>, app:<id> or track:<id>; omission selects the
+    active workspace. Narrower scopes must belong to it. Current membership,
+    source and policy checks apply independently of vector prefilters.
 
-    A track scope must also belong to that validated workspace. Vector-store
-    pre-filtering is advisory; candidate membership is checked independently.
-
-    ``mode`` dispatches to the three retrieval channels:
-      * ``"graph"`` — existing ``get_user_accessible_entries`` traversal
-        (already permission-gated; no parallel filter needed).
-      * ``"semantic"`` — vector lookup + per-candidate policy filter.
-      * ``"hybrid"`` — both channels + RRF combine, then the union is
-        still permission-safe (graph is already gated; semantic
-        permission-gates inline).
-
-    ``k`` is the vector-store over-fetch budget (default 150 — CONTEXT
-    lock #5); ``top_n`` is the returned-to-caller cap (default 20 —
-    CONTEXT lock #5). Both surface via env vars
-    ``RETRIEVE_K_DEFAULT`` / ``RETRIEVE_TOP_N_DEFAULT`` and may be
-    overridden on a per-request basis.
+    graph uses canonical keyword reads; PostgreSQL semantic uses exact cosine
+    over profile-isolated passages and hybrid adds lexical reciprocal ranks.
+    Other adapters retain their own channel semantics. k bounds candidates and
+    top_n bounds returned records. Both honor deployment defaults; the passage
+    text context_tokens budget excludes envelope, schemas and model history.
     """
 
     query: str = Field(max_length=8192)

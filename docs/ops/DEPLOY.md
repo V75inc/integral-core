@@ -62,6 +62,34 @@ The durable work runtime fails closed when required transaction/CAS APIs or inde
 
 Review App trust tiers and signature policy before loading packages with Python. Configure host extensions deliberately; do not import commercial App logic into Core.
 
+## Search rollout and recovery
+
+For pgvector retrieval, provision the `vector` extension and a deployment role
+allowed to create the passage table and profile indexes. Bake or persist the
+configured local ONNX model cache; a chat provider credential does not configure
+embeddings. Apply the [retrieval settings](CONFIGURATION.md#indexing-and-retrieval)
+and restart. Primary writes queue durable work while bounded reconciliation
+covers existing records; the legacy single-vector backfill script is not a
+passage migration.
+
+For a representative authorized Track, inspect
+`GET /api/tracks/{id}/search-index` in its bound workspace. Verify encoder and
+store readiness, pending/failed work and current-source coverage. Coverage over
+1000 sources/jobs is explicitly truncated; do not treat it as proof of whole-site
+completion. Request `POST /api/tracks/{id}/search-index/reindex` to repair or force
+a rebuild, then inspect status and retrieve a saved paraphrase plus an exact
+identifier. Check the cited record and test revoked access separately.
+
+A model/profile change starts a separate space and backfill. Old profile rows
+are retained and are not a fallback for a different model. Track their storage
+cost; no automatic old-profile pruning is promised. Semantic outages fall back
+to canonical keyword reads with a retry cooldown. Failed indexing jobs retry;
+correct the deployment or source error and inspect coverage again. Keep the
+canonical graph and its index intent in backups. Restored or missing derived
+passages can be rebuilt from that graph. See the
+[indexing guide](../backend/semantic-indexing.md) for lifecycle details and the
+[qualification procedure](QUALIFICATION.md#retrieval-qualification) before promotion.
+
 ## Backup and restore
 
 Back up the graph database and attachment bytes as one recoverable deployment. Preserve encryption keys securely; database backups alone cannot decrypt records if their keys are lost. Treat session retention, product transcripts, audit records, and commercial usage retention separately.

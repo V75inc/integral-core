@@ -6,6 +6,12 @@ registry resolves lazily after `POSTGRES_*` has become
 `EMBEDDING_STORE_DRIVER=null` remains an explicit graph-only deployment choice.
 Atlas retains its existing adapter path; passage indexing is PostgreSQL specific.
 
+The [configuration guide](../ops/CONFIGURATION.md#indexing-and-retrieval)
+collects deployment defaults; the [rollout runbook](../ops/DEPLOY.md#search-rollout-and-recovery)
+covers readiness and recovery. [ADR-016](adr/016-declarative-semantic-indexing.md)
+records the storage and ranking decision. Package catalog discovery has its own
+[guide](operational-model-search-index.md).
+
 ## Selection
 
 Track `search_index` is a complete declaration:
@@ -24,9 +30,30 @@ Defaults select title, body and string custom fields. Non-text values are not
 embedded. Metadata fields name explicit `custom_fields.<key>` scalar paths. Choose fields appropriate to the information; never declare secrets.
 Paths are canonical, not arbitrary object traversal or SQL. EntryType
 `search_index` in an operational-model manifest (persisted in `form_schema`)
-can narrow the Track selection and disable a type. It cannot re-enable content
+can narrow the Track selection and disable a type. An omitted declaration uses
+the defaults above. An empty `entry_type_ids` includes all types; a nonempty list
+restricts it to those canonical type IDs. It cannot re-enable content
 excluded at Track level. This works for App-owned and workspace-authored lists.
 The OM compiler, materialization, merges and manifest readback preserve it.
+For example, a Track-scoped manifest can narrow one type:
+
+```yaml
+scope: track
+entry_types:
+  - key: article
+    name: Article
+    fields:
+      - key: summary
+        label: Summary
+        type: text
+    search_index:
+      fields: [title, custom_fields.summary]
+```
+
+`metadata_fields` stores selected scalar values as derived metadata. It does
+not create a new public metadata-filter API. Text selection does not
+implicitly include attachment bytes/extracted text, comments or linked records;
+those need an explicit supported canonical text field or future adapter.
 
 ## Delivery and recovery
 
@@ -99,11 +126,32 @@ qualification requirement; do not infer it from a small wiki smoke.
 settings. `context_tokens` bounds returned passage text (default 1200,
 64..8192), counted using the embedding tokenizer. Titles, citations, envelope
 and tool schemas are additional; this is not a promise about total model input
-tokens. Results include passages, current title/revision/profile and action_url.
+tokens. Results include passages, current title/revision/profile and `action_url`.
+Use that source path as returned; never prepend an invented deployment host.
+Markdown source links resolve within the current installation and tab. Absolute
+current-origin links also use the router; recognized legacy placeholder record
+links are repaired, while unrelated external websites retain external behavior.
 An optional `index` envelope reports passage tokens, candidate-limit state and
 unasserted coverage. No matches does not prove absence while coverage is unknown.
 
 ## Management
+
+All routes use authenticated identity and the host-validated workspace;
+`X-Integral-Scope: ws:<workspace_id>` selects that workspace. It is separate from
+the narrower `scope` in a retrieval request. All three management routes require
+current Track configuration authority; reading records alone is insufficient.
+
+Example passage request:
+
+```json
+{
+  "query": "What should a new volunteer do first?",
+  "scope": "app:<app-id>",
+  "mode": "hybrid",
+  "top_n": 3,
+  "context_tokens": 600
+}
+```
 
 Current Track configuration authority in the bound workspace is required:
 
@@ -136,12 +184,18 @@ TESTING=1 INTEGRAL_RUN_SLOW_TESTS=1 backend/.venv/bin/python -m pytest \
   backend/tests/test_semantic_indexing_pg.py -o addopts='' -q
 ```
 
+For parity with the PostgreSQL CI lane, also set `INTEGRAL_TEST_DB=postgres`
+and `INTEGRAL_TEST_POSTGRES_DSN` to a disposable graph cluster and include
+`backend/tests/test_pgvector_driver.py` and
+`backend/tests/test_pgvector_unavailable_fallback.py` in that explicit run.
+Do not point graph contract fixtures at a development or production database.
+
 Each vector test owns/drops unique tables. The canonical graph fixture remains
 isolated. Transaction qualification uses `INTEGRAL_TEST_DB=postgres` and
 `INTEGRAL_TEST_POSTGRES_DSN`, and
 `tests/contract/test_semantic_index_transactions_postgres.py`; that test fixture
 creates/resets its own `integral_test` database, so use an isolated cluster.
 
-See the accompanying qualification report for actual accuracy, latency and
+See the [PR #162 qualification report](../ops/qualification/semantic-search-2026-10-20/REPORT.md) for actual accuracy, latency and
 provider-reported token observations. A synthetic corpus is not a production
 recall or scale guarantee.

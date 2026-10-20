@@ -1,45 +1,17 @@
-"""RET-01 — pluggable embedding-store driver registry.
+"""Pluggable embedding-store registry and temporary semantic fallback.
 
-Registry idiom mirrors Phase 3.1 ``template_var_resolvers``: a
-module-level mapping driver-name → instantiated driver, a
-``register_driver(name, driver)`` registrar that rejects duplicates, and
-a ``get_embedding_store()`` factory keyed on ``EMBEDDING_STORE_DRIVER``.
+Keep the public get_embedding_store import path stable. Driver registration is
+lazy so main can compose POSTGRES_* into JVSPATIAL_POSTGRES_DSN before selection.
+EMBEDDING_STORE_DRIVER=auto resolves configured PostgreSQL to pgvector, configured
+MongoDB to Atlas, otherwise null; explicit pgvector/atlas/null overrides it.
+Connections open on demand. An unavailable semantic backend enters a 60-second
+cooldown; availability here is driver selection, not a coverage/readiness proof.
 
-**Driver resolution.**
-
-* ``EMBEDDING_STORE_DRIVER`` default is ``"auto"``.
-* ``auto`` resolves to ``"pgvector"`` when ``JVSPATIAL_DB_TYPE ==
-  "postgres"`` AND ``JVSPATIAL_POSTGRES_DSN`` is set (the pgvector driver
-  must be registered); to ``"atlas"`` when ``JVSPATIAL_DB_TYPE ==
-  "mongodb"`` AND ``JVSPATIAL_MONGODB_URI`` is set; otherwise to
-  ``"null"`` — graph-only deployments do not need a vector store, and the
-  read path degrades semantic / hybrid → graph transparently.
-* Explicit values (``pgvector`` / ``atlas`` / ``null``) override
-  resolution.
-
-Auto-registered drivers:
-
-* ``pgvector`` — Postgres + pgvector backend (default on Postgres
-  deployments). Registered when ``JVSPATIAL_DB_TYPE == "postgres"`` and
-  ``JVSPATIAL_POSTGRES_DSN`` is set; the underlying asyncpg pool is lazily
-  opened on first use. Existing entries need a one-time backfill (see
-  ``backend/scripts/backfill_embeddings.py``); NEW / updated entries embed
-  automatically via the ``_reembed_entry`` write hook.
-* ``atlas`` — MongoDB Atlas Vector Search backend (Wave 3 default on Mongo
-  deployments). Registered when ``JVSPATIAL_MONGODB_URI`` is set; the
-  underlying motor connection is lazily established on first use.
-* ``null`` — no-op store used by the ``auto`` fallback path and by every
-  graph-only deployment.
-
-``semantic_retrieval_available()`` returns ``True`` iff the *resolved*
-driver is a real vector store (i.e. not ``null``). The ``POST
-/api/retrieve`` handler consults it to decide whether to honour
-``mode=semantic`` / ``mode=hybrid`` or degrade them to ``mode=graph``.
-Write hooks (``_reembed_entry``, ``_reembed_synced_entry``) gate on it
-to skip the embedding-model load entirely in graph-only deployments.
-
-The import path ``from app.services.retrieval import get_embedding_store``
-is locked — downstream code MUST NOT relocate it.
+PostgreSQL canonical writes retain durable indexing intent; the worker reconciles
+existing sources and publishes profile-isolated passages. The older one-vector
+adapter API remains for compatibility and Atlas; its backfill script does not
+populate the passage index. Use the Track status/reindex API and see
+docs/backend/semantic-indexing.md for the current contract.
 """
 
 from __future__ import annotations
@@ -65,9 +37,9 @@ _SEMANTIC_DISABLED_UNTIL = 0.0
 def disable_semantic_retrieval_runtime(reason: str) -> None:
     """Temporarily cool down an unavailable semantic backend.
 
-    Invoked when the atlas driver is registered (URI present) but the
-    deployment cannot execute vector-search aggregation stages — typical
-    for docker-compose Mongo without Atlas CLI local search.
+    Used for runtime store/model failures on semantic paths, including Atlas
+    deployments without vector-search aggregation support. Canonical graph
+    reads remain available during the cooldown.
     """
 
     global _SEMANTIC_RUNTIME_DISABLED, _SEMANTIC_DISABLED_UNTIL
@@ -169,8 +141,8 @@ def get_embedding_store() -> EmbeddingStore:
 def semantic_retrieval_available() -> bool:
     """Return True iff the resolved driver backs real semantic retrieval.
 
-    False = the ``null`` driver is active (or the registry resolves to
-    one), so ``mode=semantic`` / ``mode=hybrid`` MUST degrade to
+    False means a null driver or a temporary runtime cooldown, so
+    ``mode=semantic`` / ``mode=hybrid`` MUST degrade to
     ``mode=graph`` at the dispatch layer and write hooks MUST skip the
     embedding-model load. Read by ``POST /api/retrieve``, by the
     ``_reembed_*`` helpers, and by the eager-load gate in ``main.py``.

@@ -1,27 +1,13 @@
-"""POST /api/retrieve — unified hybrid retrieval endpoint (RET-03).
+"""POST /api/retrieve — scoped graph, semantic and hybrid retrieval.
 
-Per CONTEXT §'Locked: permission filter at retrieval time': every result
-returned from semantic / hybrid mode is permission-checked via
-``policy_engine.evaluate(action='entry.read')`` BEFORE inclusion. Graph
-mode reuses the existing ``services/permissions.py`` traversal which is
-already permission-gated (POL-03 parity).
+The request's validated workspace bounds every mode. PostgreSQL uses versioned
+passages with authorized candidate prefilters, current-source/policy checks and
+exact cosine/lexical RRF. Legacy adapters retain their own retrieval path.
+Unavailable semantic infrastructure temporarily falls back to canonical graph
+reads; index coverage is never inferred from an empty result.
 
-Per CONTEXT lock #5: ``K=150`` over-fetch + ``top_n=20`` return defaults.
-Both surface via env vars (``RETRIEVE_K_DEFAULT`` /
-``RETRIEVE_TOP_N_DEFAULT``) and accept per-request body overrides.
-
-Per CONTEXT lock #6: ``scope='track:<id>'`` enables an SQL pre-filter on
-Plan 04-01's ``track_id`` column on ``entry_embedding_meta``. The
-pre-filter is a PERF optimization; the per-candidate policy filter is
-ALWAYS applied (invariant I-RET-01 — no-index-bypass).
-
-Per CONTEXT lock #12: ZERO new PolicyAction members — ``entry.read``
-already covers every retrieval path.
-
-This endpoint is auto-discovered by Phase 3's
-``mcp_adapter.build_tool_catalogue`` walk and surfaces in
-``GET /api/mcp/tools`` as ``integral_create_retrieve`` by default. Plan
-04-03 will register the ``integral_query`` tool-name override.
+The public tool is integral_query. Request limits and passage budgets live in
+app.schemas.retrieve. See docs/backend/semantic-indexing.md and I-RET-01..07.
 """
 
 from __future__ import annotations

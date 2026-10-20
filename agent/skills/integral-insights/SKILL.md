@@ -11,7 +11,9 @@ allowed-tools: integral_get_index_status integral_get_graph_context integral_des
 For a question about saved prose, wiki pages or guidance, use `integral_query`
 with `mode="hybrid"` (or semantic for paraphrases), `top_n=3` and
 `context_tokens=600`. Narrow to the known `app:<id>` or `track:<id>`.
-Read its returned `passages`, answer briefly and cite `action_url`. When the
+Read its returned `passages`, answer briefly and cite `action_url` exactly as
+returned. Keep relative paths relative; never invent or prepend a deployment
+host (including placeholder domains). When the
 passages answer the question, stop reading; do not fetch whole records again.
 Use structured reads for exact fields, rankings or record relationships.
 An empty or limited index is not proof that information does not exist. If

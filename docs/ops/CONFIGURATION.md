@@ -51,6 +51,36 @@ work but does not repair repeated queries or oversized tool responses. See the
 [current qualification guidance](QUALIFICATION.md) for
 reproductions, context repairs and workload qualification guidance.
 
+## Indexing and retrieval
+
+These settings are read by the retrieval services from the process environment;
+they are not all fields in `app/config.py`. The chat model configured in Settings
+is separate from the local embedding encoder.
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `EMBEDDING_STORE_DRIVER` | auto | Resolve PostgreSQL to pgvector, configured MongoDB to Atlas, otherwise null; explicit null selects graph-only reads |
+| `EMBEDDING_MODEL_NAME` | sentence-transformers/all-MiniLM-L6-v2 | Local FastEmbed ONNX model |
+| `EMBEDDING_MODEL_REVISION` | bundled-v1 | Operator-declared immutable weight/image revision; change when weights change |
+| `EMBEDDING_MODEL_DIMENSIONS` | 384 | Must match the actual encoder output |
+| `EMBEDDING_MODEL_EAGER_LOAD` | 1 in runtime; 0 in `.env.example` | Warm weights at startup or load lazily |
+| `FASTEMBED_CACHE_PATH` | FastEmbed default | Persistent/prebaked local model cache; container image uses `/opt/fastembed_cache` |
+| `EMBEDDING_MODEL_THREADS` | 1 | ONNX threads per process, bounded 1–16 |
+| `INDEX_CHUNK_TOKENS` | 160 | Passage size; must fit the encoder's actual token limit |
+| `INDEX_OVERLAP_TOKENS` | 24 | Passage overlap, less than half the chunk size |
+| `INDEX_WORKER_INTERVAL_SECONDS` | 10 | Index worker interval, bounded 1–3600 seconds |
+| `INDEX_WORKER_BATCH_SIZE` | 16 | Delivery batch, bounded 1–128; source sweep scans at most 100 per cycle |
+| `RETRIEVE_K_DEFAULT` | 150 | Candidate budget, capped at 500 |
+| `RETRIEVE_TOP_N_DEFAULT` | 20 | Result cap, capped at 50 |
+
+Restart after deployment changes. Model/revision/dimension/chunk/overlap changes
+create a new profile and require backfill; old vectors are never used with a new
+profile. Configuration does not prove coverage. Inspect the actual Track status
+before declaring readiness. The per-request `context_tokens` bounds passage text
+(default 1200, range 64–8192); it excludes envelope and provider prompt overhead.
+See [indexing and retrieval](../backend/semantic-indexing.md) for selection,
+permissions, failure recovery and rebuilding.
+
 ## Secrets and credentials
 
 `JVSPATIAL_JWT_SECRET_KEY` is the signing authority. OAuth uses `JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY`. Model credentials use `INTEGRAL_CREDENTIAL_ENC_KEY`, with `INTEGRAL_CREDENTIAL_ENC_KEY_PREVIOUS` supporting the documented rotation path. Keep these stable, private, and recoverable with backups.

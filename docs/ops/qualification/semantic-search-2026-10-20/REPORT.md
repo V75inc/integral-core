@@ -149,3 +149,33 @@ Provide the token through the environment; do not commit it. The benchmark
 refuses redirects so bearer credentials cannot be forwarded to another origin.
 See `docs/backend/semantic-indexing.md` for configuration, lifecycle and the
 explicit real-pgvector/transaction test commands.
+
+
+## Documentation and local citation follow-up
+
+The full backend, PostgreSQL and wheel evidence above describes the semantic
+implementation committed as `8d5cfef8`. The following documentation/frontend
+follow-up does not rerun or reattribute those measurements to a different wheel.
+
+Updated both tracked AGENTS.md files, invariants, architecture, deployment and
+configuration guides, user guidance, changelog and generated route inventory.
+Consolidated the release qualification entry point and preserved rc20 evidence
+under an explicitly historical path. The documentation reader builds 109 pages;
+all 122 maintained Markdown/README/AGENTS files pass local link/anchor checks,
+and the active-doc check passes 764 relative targets.
+
+Chrome reproduced a saved chat citation pointing to `https://integral.local` and
+opening a new tab. The shared Markdown link component now routes known typed
+placeholder citations and current-origin links within the active installation;
+the insights skill preserves returned relative source paths. Unrelated external
+sites retain external-link semantics. Negative regressions cover lookalike
+hosts, other installations, credentials, ports and protocol-relative paths.
+
+The same existing reply was reloaded at `http://127.0.0.1:19009`. Both citation
+anchors became relative paths without a new-tab target. Clicking Tool Safety
+opened the saved Tool Safety record in the same tab at that local origin; no
+additional tab or console error appeared. This frontend smoke used the existing
+QA API on port 19040, not the isolated semantic benchmark API. The local frontend
+on 19009 now serves this follow-up source. Four shared/streamed Markdown test
+files pass (17 tests), and TypeScript passes. These are additional frontend checks;
+production smoke and remote CI for the final commit remain separate gates.

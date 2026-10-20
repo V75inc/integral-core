@@ -4,4 +4,7 @@ Catalog discovery uses package name, description, and discovery tags within the 
 
 Update indexes and fingerprints through the canonical library loader/sync path. Search results should distinguish a reusable catalog artifact from an installed App and its attached schema. Resolve ambiguous type hints explicitly rather than choosing an arbitrary tied package.
 
-Retrieval and vector configuration are separate from package discovery. Test scope prefiltering, index updates, deleted records, and backend-specific semantics before claiming equivalent results across stores.
+Record indexing and retrieval are separate from package discovery. Use the
+[declarative indexing guide](semantic-indexing.md) for Track/EntryType policies,
+pgvector passages, agent capabilities, coverage and rebuilding. Catalog tags
+never select record fields or grant retrieval access.

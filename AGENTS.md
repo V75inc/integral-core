@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Guidance for coding agents (claude.ai/code) working in this repo.
+Guidance for coding agents working in this repository.
 
 ## Project Overview
 
@@ -457,7 +457,49 @@ Full rationale and pattern catalogue: [docs/operational-models/README.md](docs/o
 
 **Agent contract:** introspection-first MCP tools — `integral_describe_substrate`, `integral_describe_model`, `integral_get_model_draft`, `integral_propose_model_revision`, `integral_diff_model_draft`, `integral_publish_model_draft`, `integral_discard_model_draft`. Patch DSL at `app/services/agent_profile_patches.py`. See [docs/platform/operational-model.md](docs/platform/operational-model.md) and [docs/operational-models/](docs/operational-models/) for full contract.
 
-**Per-entry `visibility_rule`** not used; access follows track/app permissions only. Upgrading from older DB layouts: delete or re-seed jvspatial database for dev/staging.
+**Per-entry `visibility_rule`** is not an authority mechanism. Use current canonical policy, including supported direct Entry grants and Track/App access. Preserve existing data and identities during upgrades; use a reviewed migration and verified backup rather than deleting or reseeding an active database.
+
+### App configuration and collection changes
+
+Preserve the explicit [App-owner configuration exception](docs/INVARIANTS.md#i-role-02--inherited-role-cap-at-editor-inherited-role-caps-to-editor)
+without raising inherited collaborator roles or granting library publication.
+Current membership, canonical containment, exclusions and all affected model
+parents still govern configuration. For collection changes, select every page,
+stage at most 500 explicit Entries per review, preserve per-record live policy
+and revisions, and reconcile durable receipts. A late failure can leave partial
+completion; never describe the collection command as atomic. See
+[chat contracts](docs/backend/ai-chat.md#collection-changes-and-retrieved-evidence).
+
+### Search and indexing
+
+Canonical contract: [declarative indexing and retrieval](docs/backend/semantic-indexing.md);
+selection/storage decision: [ADR-016](docs/backend/adr/016-declarative-semantic-indexing.md).
+
+- Keep the graph authoritative. Index declarations select content, never its
+  audience. Narrow workspace/App/Track candidates before ranking and recheck
+  current entry.read, canonical containment/source hash and governed App queries
+  before exposing titles, passages, metadata or citations. Preserve direct Entry
+  grants without implicitly granting Track access.
+- On PostgreSQL, canonical writes retain durable index intent in the graph
+  transaction; model/vector calls belong in the worker. Preserve generation/lease
+  fencing, atomic guarded publication and malformed-source isolation. Do not
+  reinstate synchronous reembedding or use `backfill_embeddings.py` to populate
+  the versioned passage index; use reconciliation and the authorized reindex API.
+- Preserve Track policies and EntryType narrowing through OM compilation,
+  materialization, merges and readback. Profile changes require a separate
+  backfill; matching dimensions alone never make old vectors compatible.
+- Index configuration/rebuild tools use ordinary staged approval and recheck
+  current configuration authority. Configuration revision, rebuild request and
+  audit intent commit together; deliver audit after commit. A queued rebuild is
+  not completed indexing. Coverage is bounded and point-in-time.
+- Retrieval changes need the explicit real encoder/pgvector and PostgreSQL
+  rollback lanes in the guide, plus the default backend and CI-faithful gates.
+  Measure labelled evidence, HTTP latency and actual provider token use
+  separately; passage tokens and a healthy database do not prove those outcomes.
+- Keep [API inventory](docs/backend/API_REFERENCE.md) source-derived:
+  `python3 scripts/build_documentation.py --inventory-only`. Regenerate the
+  capability map after changing tools/skills; retain one current topic guide and
+  link candidate evidence without presenting it as deployment qualification.
 
 ### System Notification Bar (frontend)
 
