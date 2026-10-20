@@ -196,6 +196,7 @@ def test_usage_preserves_explicit_provider_zero_cost(
 def test_usage_keeps_sdk_zero_without_claiming_an_unpriced_route_is_free(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Preserve provider accounting without claiming an unpriced route is free."""
     import litellm
 
     class Response:
@@ -1101,6 +1102,7 @@ async def test_interrupted_stream_records_one_unknown_outcome() -> None:
 
 
 def test_request_context_dimensions_are_content_free() -> None:
+    """Record context sizes without persisting user or tool content."""
     from app.agentive.harness.litellm_model import _request_context
 
     body = {
@@ -1145,6 +1147,7 @@ def test_request_context_dimensions_are_content_free() -> None:
 async def test_sdk_failures_survive_client_wrapping_without_private_details(
     monkeypatch, failure, code, stream
 ):
+    """Classify provider failures without copying private exception details."""
     monkeypatch.setenv("LITELLM_MODE", "PRODUCTION")
     monkeypatch.setenv("TIKTOKEN_CACHE_DIR", "/tmp/integral-litellm-test-cache")
     from types import SimpleNamespace
@@ -1241,3 +1244,100 @@ async def test_custom_workspace_route_enters_guarded_sdk_boundary(monkeypatch, k
     assert await transport._sdk_completion(**kwargs) == {"guarded": True}
     guarded.assert_awaited_once_with(completion, kwargs, keyless_endpoint=keyless)
     completion.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("budget", ["idle", "total"])
+async def test_stalled_stream_is_bounded_and_keeps_unknown_accounting(budget):
+    """Bound silent and productive streams without inventing settled usage."""
+    from app.agentive.harness.model_errors import NativeModelRequestError
+
+    outcomes = []
+    closed = []
+
+    async def chunks():
+        try:
+            yield {"choices": [{"delta": {"content": "partial"}}]}
+            if budget == "total":
+                while True:
+                    await asyncio.sleep(0.002)
+                    yield {"choices": [{"delta": {"content": "."}}]}
+            await asyncio.Event().wait()
+        finally:
+            closed.append(True)
+
+    async def finish(last, outcome):
+        outcomes.append(outcome.value)
+
+    stream = _LiteLLMStream(
+        chunks=chunks(),
+        finish=finish,
+        deadline=asyncio.get_running_loop().time() + (0.15 if budget == "total" else 1),
+        idle_timeout_seconds=0.05 if budget == "idle" else 1,
+    )
+    with pytest.raises(NativeModelRequestError) as failure:
+        async with asyncio.timeout(1):
+            async for _ in stream:
+                pass
+    assert failure.value.code == "model_request_timeout"
+    await stream.aclose()
+    assert outcomes == ["outcome_unknown"]
+    assert closed == [True]
+
+
+@pytest.mark.asyncio
+async def test_silent_prefetch_closes_and_retries_before_any_output():
+    """Retry bounded silence before output with a distinct accounted attempt."""
+    calls = []
+    closed = []
+    observations = []
+
+    async def completion(**kwargs):
+        attempt = len(calls)
+        calls.append(kwargs)
+
+        async def chunks():
+            try:
+                if attempt == 0:
+                    yield {"choices": [{"delta": {"role": "assistant"}}]}
+                    await asyncio.Event().wait()
+                else:
+                    yield {"choices": [{"delta": {"content": "Ready"}}]}
+            finally:
+                closed.append(attempt)
+
+        return chunks()
+
+    async def observe(observation):
+        observations.append(observation)
+
+    transport = LiteLLMSDKTransport(
+        route=_route(),
+        scope=_scope(),
+        observer=observe,
+        completion=completion,
+        timeout_seconds=1,
+        idle_timeout_seconds=0.05,
+        max_attempts=2,
+    )
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://bridge.invalid"
+    ) as client:
+        response = await client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "anthropic/claude-sonnet",
+                "stream": True,
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+        )
+    assert "Ready" in response.text
+    assert len(calls) == 2
+    assert closed == [0, 1]
+    assert [o.outcome for o in observations] == [
+        "dispatch_intent",
+        "outcome_unknown",
+        "dispatch_intent",
+        "responded",
+    ]
+    assert observations[0].request_id != observations[2].request_id

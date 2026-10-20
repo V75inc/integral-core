@@ -1456,6 +1456,16 @@ export function useAIChatRuntime(
               );
             }
           }
+          if (ev.type === "tool-call" || ev.type === "text-delta" || ev.type === "text-replace") {
+            // A retry notice describes a temporary pause. Once work resumes,
+            // let the trail describe the current operation again. Preserve an
+            // outstanding user cancellation until its acknowledgement arrives.
+            updateSession(threadId, (session) =>
+              session.activityText && session.cancellation !== "pending"
+                ? { ...session, activityText: null }
+                : session,
+            );
+          }
           if (ev.type === "error") {
             // MessageError (draft status incomplete) is the single surface for
             // turn failures. Do not also stamp streamError — ActivityStrip was

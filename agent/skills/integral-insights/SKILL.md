@@ -1,12 +1,21 @@
 ---
 name: integral-insights
 description: Read workflow instructions. Load with load_capability; this skill name is never a callable tool. Search existing Integral records and current workspace state to answer one-time questions. Find whether information is already filed, search entries by meaning, explain what could hold up work, dependencies, risks, fallback options and stored intra-workspace relationships; summarize, count, rank, compare, or break down current data; optionally save a query as a View. For a new operational app, use integral-scaffold. For periodic or recurring review deliverables, use integral-review.
-allowed-tools: integral_get_index_status integral_get_graph_context integral_describe_capabilities integral_governed_query integral_query_spec integral_plan_query integral_query integral_query_entries integral_count_entries integral_aggregate integral_activity_digest integral_get_digest integral_save_view integral_list_apps integral_list_tracks integral_get_track_schema integral_resolve_entry integral_describe_substrate integral_get_feed integral_list_notifications integral_mark_notification_read integral_search_cross_track integral_list_tags
+allowed-tools: integral_list_workspace_tools integral_call_workspace_tool integral_get_index_status integral_get_graph_context integral_describe_capabilities integral_governed_query integral_query_spec integral_plan_query integral_query integral_query_entries integral_count_entries integral_aggregate integral_activity_digest integral_get_digest integral_save_view integral_list_apps integral_list_tracks integral_get_track_schema integral_resolve_entry integral_describe_substrate integral_get_feed integral_list_notifications integral_mark_notification_read integral_search_cross_track integral_list_tags
 ---
 
 # Integral insights — SOP
 
 ## Start after loading
+
+For records in an installed App, call `integral_list_workspace_tools` and use
+the matching read-only tool via `integral_call_workspace_tool`, with the exact
+returned key and input schema. If none fits, inspect
+`integral_describe_capabilities` for that App's declared queries. Never invent
+a key or use another App's query. A generic read refused with `app_domain`
+did not read records: follow this discovery path once rather than repeating
+generic reads. If neither route is available, explain the limitation briefly
+and answer any other parts already supported by the results.
 
 For a question about saved prose, wiki pages or guidance, use `integral_query`
 with `mode="hybrid"` (or semantic for paraphrases), `top_n=3` and
@@ -18,6 +27,10 @@ passages answer the question, stop reading; do not fetch whole records again.
 Use structured reads for exact fields, rankings or record relationships.
 An empty or limited index is not proof that information does not exist. If
 needed, use a focused keyword fallback and describe the remaining gap.
+
+Explain search readiness in everyday language: whether search is ready and
+how many records are up to date or still waiting. Keep this brief. Include
+model names, vector dimensions or internal identifiers only when requested.
 
 
 Read native format v2 correctly before composing an answer:

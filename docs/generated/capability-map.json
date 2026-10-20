@@ -478,6 +478,7 @@
       "allowed_tools": [
         "integral_activity_digest",
         "integral_aggregate",
+        "integral_call_workspace_tool",
         "integral_count_entries",
         "integral_describe_capabilities",
         "integral_describe_substrate",
@@ -491,6 +492,7 @@
         "integral_list_notifications",
         "integral_list_tags",
         "integral_list_tracks",
+        "integral_list_workspace_tools",
         "integral_mark_notification_read",
         "integral_plan_query",
         "integral_query",
@@ -503,13 +505,16 @@
       "body_tools": [
         "integral_activity_digest",
         "integral_aggregate",
+        "integral_call_workspace_tool",
         "integral_count_entries",
+        "integral_describe_capabilities",
         "integral_get_digest",
         "integral_get_feed",
         "integral_get_graph_context",
         "integral_get_track_schema",
         "integral_list_notifications",
         "integral_list_tracks",
+        "integral_list_workspace_tools",
         "integral_mark_notification_read",
         "integral_query",
         "integral_query_entries",
@@ -2260,6 +2265,7 @@
       "op_class": "read",
       "policy_action": "tool.invoke",
       "skills": [
+        "integral-insights",
         "integral-workspace"
       ],
       "status": "existing"
@@ -2279,6 +2285,7 @@
       "op_class": "propose",
       "policy_action": "tool.invoke",
       "skills": [
+        "integral-insights",
         "integral-workspace"
       ],
       "status": "existing"

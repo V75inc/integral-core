@@ -16,6 +16,18 @@ Durable admission records accepted identity and content. Workers verify canonica
 
 The durable event contract accepts completion timing from both conversational and operational execution, including `modelPassMs`. Usage completeness flags and content-free request dimensions survive event replay and saved transcript projection under the same public-field allowlist. Provider contract tests normalize actual emitted events; PostgreSQL acceptance verifies atomic completion and exactly one saved assistant response. Worker failures retain server-side exception diagnostics while public errors exclude private exception details.
 
+The collapsed work trail shows one short line based on observable activity:
+preparing a response, reading information, checking search readiness, reviewing
+results, or writing the answer. Cancellation and retry notices take priority.
+Tool arguments and private model reasoning never supply this label.
+
+Model streams have both a total request deadline and a configurable silence
+limit (see [configuration](../ops/CONFIGURATION.md)). A timeout before output
+uses the existing bounded model retry policy; a timeout after output preserves
+an uncertain outcome and does not replay tool effects. Neither deadline is
+extended by browser reconnects; the total request deadline also bounds streams
+that keep sending chunks without finishing.
+
 Graph transaction bodies remain cancellable on disconnect. Their acquisition and commit/rollback cleanup are shielded from ASGI cancellation in the owning task, so rollback completes before returning the connection to its pool. Disconnecting an SSE reader does not cancel the separate durable worker.
 
 ## Collection changes and retrieved evidence

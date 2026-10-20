@@ -6,6 +6,10 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Describe live chat activity in one short line, including reading, search checks and answer preparation; keep retry and cancellation notices current.
+- Reuse repeated parent-App checks during Track discovery while retaining fresh canonical admission; route installed-App record questions through their registered read tools or declared queries.
+- Bound silent model streams and enforce their full request deadline, preserving uncertain usage and effect receipts during interruption.
+
 ## 0.1.1rc28 — 2026-10-20
 
 - Keep current-origin and recognized placeholder record citations inside the active installation and tab; preserve external website links.

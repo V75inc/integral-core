@@ -91,6 +91,12 @@ workspace; narrow to the relevant App/Track and cite returned source links.
 Use structured queries/aggregations for complete collections, exact totals and
 rankings. Sparse retrieval is not proof that no matching record exists.
 
+For installed Apps, the insights skill also exposes registered workspace read
+tools. Discover their keys and schemas before calling them; use a matching
+declared query when needed. An `app_domain` refusal is not an empty result.
+Keep this recovery route aligned with the dispatch hint, and explain unavailable
+reads briefly rather than repeating generic queries.
+
 `integral-indexing` exposes `integral_get_index_status`,
 `integral_configure_search_index` and `integral_reindex_track`. Status requires
 current configuration authority; mutating tools stage review and recheck that

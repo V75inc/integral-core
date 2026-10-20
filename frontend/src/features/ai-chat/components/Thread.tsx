@@ -350,11 +350,39 @@ function clipStatus(text: string): string {
 export function liveWorkSynopsis(
   activity: string | undefined,
   latestTool: string | undefined,
+  completedTools = 0,
+  hasAnswerText = false,
 ): string {
   const activityLine = activity?.replace(/\s+/g, " ").trim();
-  if (activityLine && !/^working[.…]*$/i.test(activityLine)) return clipStatus(activityLine);
-  if (latestTool?.trim()) return "Using tools";
-  return "Thinking";
+  if (activityLine && !/^(working|thinking)[.…]*$/i.test(activityLine)) return clipStatus(activityLine);
+  if (latestTool?.trim()) return toolWorkSynopsis(latestTool);
+  if (hasAnswerText) return "Writing your answer";
+  if (completedTools > 0) return "Reviewing the results";
+  return "Preparing your response";
+}
+
+/** Describe observable operations, never model reasoning or tool arguments. */
+function toolWorkSynopsis(name: string): string {
+  if (name === "integral_call_workspace_tool") return "Working in your App";
+  if (name === "integral_get_index_status") return "Checking search readiness";
+  if (name === "integral_reindex_track") return "Preparing a search refresh for review";
+  if (name === "integral_configure_search_index") return "Preparing search settings for review";
+  if (name === "integral_get_page_context" || name === "integral_get_scope") return "Checking your workspace";
+  if (/^(search_capabilities|load_capability|load_skill|search_tools)$/.test(name)) return "Finding the right way to help";
+  if (/query|search|retrieve|find/.test(name)) return "Finding relevant information";
+  if (/list|describe|inspect|get|read/.test(name)) return "Reading the information you can access";
+  if (/verify|validate|check/.test(name)) return "Checking the results";
+  if (/create|update|delete|remove|configure|propose|build/.test(name)) return "Preparing your changes";
+  return "Working on the next step";
+}
+
+export function latestActiveTool(parts: readonly {
+  type: string; toolName?: string; result?: unknown; status?: { type?: string };
+}[]): string {
+  return [...parts].reverse().find((part) =>
+    part.type === "tool-call" && part.result === undefined &&
+    part.status?.type !== "complete" && part.status?.type !== "incomplete",
+  )?.toolName ?? "";
 }
 
 /**
@@ -379,12 +407,10 @@ export function WorkTrail({ children }: { children: ReactNode }) {
   const toolCount = useAuiState(
     (s) => (s.message.parts ?? []).filter((p) => p.type === "tool-call").length,
   );
-  const latestTool = useAuiState((s) => {
-    const tools = (s.message.parts ?? []).filter((p) => p.type === "tool-call");
-    const last = tools[tools.length - 1] as { toolName?: string; result?: unknown; status?: { type?: string } } | undefined;
-    if (last?.result !== undefined || last?.status?.type === "complete" || last?.status?.type === "incomplete") return "";
-    return last?.toolName ?? "";
-  });
+  const latestTool = useAuiState((s) => latestActiveTool(s.message.parts ?? []));
+  const hasAnswerText = useAuiState((s) =>
+    (s.message.parts ?? []).some((p) => p.type === "text" && Boolean(p.text?.trim())),
+  );
   const toolFailed = useAuiState((s) =>
     (s.message.parts ?? []).some((p) => {
       if (p.type !== "tool-call") return false;
@@ -397,6 +423,8 @@ export function WorkTrail({ children }: { children: ReactNode }) {
   const live = liveWorkSynopsis(
     activityText ?? statusLabel,
     latestTool,
+    latestTool ? 0 : toolCount,
+    hasAnswerText,
   );
   const done = [
     interruptedReason === "cancelled" ? "Stopped" : interruptedReason ? "Interrupted" : "Finished",

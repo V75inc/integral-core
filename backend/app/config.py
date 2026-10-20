@@ -138,6 +138,8 @@ class Settings(BaseSettings):
     INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS: int = Field(
         default=180, ge=10, le=900
     )
+    # Bound silence independently of a productive stream's total runtime.
+    INTEGRAL_NATIVE_MODEL_IDLE_TIMEOUT_SECONDS: int = Field(default=30, ge=5, le=180)
     INTEGRAL_NATIVE_MODEL_MAX_ATTEMPTS: int = Field(default=3, ge=1, le=3)
     # Aggregate input and output tokens across the native agent's model calls
     # in one turn; independent from any provider's per-request output limit.

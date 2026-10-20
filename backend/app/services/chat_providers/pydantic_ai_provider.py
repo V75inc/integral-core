@@ -1452,6 +1452,7 @@ class PydanticAIProvider:
             observer=model_observer,
             admission=model_admission,
             timeout_seconds=settings.INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS,
+            idle_timeout_seconds=settings.INTEGRAL_NATIVE_MODEL_IDLE_TIMEOUT_SECONDS,
             max_attempts=settings.INTEGRAL_NATIVE_MODEL_MAX_ATTEMPTS,
             retry_status=emit_model_retry_status,
         )

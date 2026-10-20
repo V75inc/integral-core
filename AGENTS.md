@@ -472,6 +472,12 @@ completion; never describe the collection command as atomic. See
 
 ### Search and indexing
 
+Installed-App record questions must discover the App's registered read tools
+or declared queries. Keep the insights skill and refusal recovery hints aligned;
+do not bypass the governed query boundary. Chat progress uses a single short
+line derived from observable operations, never private reasoning. Preserve both
+stream inactivity and total request deadlines and uncertain-outcome accounting.
+
 Canonical contract: [declarative indexing and retrieval](docs/backend/semantic-indexing.md);
 selection/storage decision: [ADR-016](docs/backend/adr/016-declarative-semantic-indexing.md).
 
