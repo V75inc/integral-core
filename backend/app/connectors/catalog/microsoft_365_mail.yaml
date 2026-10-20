@@ -1,0 +1,63 @@
+# Microsoft 365 mail through the Softeria stdio MCP server. Generic connector
+# configuration: no mailbox UI and no app field keys. Delegated scopes are
+# Mail.Read and Mail.Read.Shared only. Mail.Send is not requested.
+#
+# read_only_tools is transcribed from @softeria/ms-365-mcp-server@0.170.2
+# package docs (list and get mail tools). A live tools/list against a tenant
+# still has to confirm the names. Create, reply, send, move, update, and
+# delete tools are absent on purpose. A name that is not listed here stays a
+# write and needs an approval card.
+slug: microsoft_365_mail
+display_name: Microsoft 365 Mail
+description: Read personal and shared mailbox messages through the Microsoft Graph MCP server. Read-only. Requires Node/npx on the API host and an Entra app registration.
+category: mcp_package
+kind: mcp
+icon: mail
+transport: stdio
+command: npx
+args:
+  - "-y"
+  - "@softeria/ms-365-mcp-server@0.170.2"
+  - "--org-mode"
+  - "--read-only"
+  - "--preset"
+  - "mail"
+  - "--allowed-scopes"
+  - "offline_access User.Read Mail.Read Mail.Read.Shared"
+auth:
+  type: oauth2
+  fields:
+    - name: client_id
+      label: Application (client) ID
+      secret: false
+      required: true
+    - name: client_secret
+      label: Client secret
+      secret: true
+      required: true
+    - name: tenant_id
+      label: Directory (tenant) ID
+      secret: false
+      required: true
+# Spawn allowlist is env_defaults keys plus auth field names. The access
+# token is passed as MS365_MCP_OAUTH_TOKEN (bring-your-own-token). The
+# refresh token stays on auth_state and is not an environment variable.
+env_defaults:
+  MS365_MCP_CLIENT_ID: unset
+  MS365_MCP_CLIENT_SECRET: unset
+  MS365_MCP_TENANT_ID: unset
+  MS365_MCP_OAUTH_TOKEN: unset
+read_only_tools:
+  - get-mail-message
+  - list-mail-messages
+  - list-mail-folder-messages
+  - list-mail-folder-messages-delta
+  - list-mail-folders
+  - list-mail-child-folders
+  - list-mail-attachments
+  - get-shared-mailbox-message
+  - list-shared-mailbox-messages
+  - list-shared-mailbox-folder-messages
+  - list-shared-mailbox-folders
+  - list-shared-mailbox-child-folders
+  - list-shared-mailbox-attachments

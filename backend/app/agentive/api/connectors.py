@@ -392,6 +392,15 @@ async def install_connector_from_catalog_endpoint(
             **install_kwargs,
         )
 
+    if entry["slug"] == "microsoft_365_mail":
+        return await _catalog_install_microsoft_mail_oauth(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            entry=entry,
+            secrets=secrets,
+            **install_kwargs,
+        )
+
     if auth_type == "oauth2" and entry["kind"] == "mcp":
         return await _catalog_install_mcp_oauth(
             user_id=user_id,
@@ -1812,6 +1821,125 @@ async def _finish_quickbooks_mcp_oauth(
     return connector
 
 
+async def _catalog_install_microsoft_mail_oauth(
+    *,
+    user_id: str,
+    workspace_id: str,
+    entry: Dict[str, Any],
+    secrets: Dict[str, str],
+    label: str = "",
+    connection_mode: str = "per_user",
+) -> CatalogInstallResponse:
+    """Start Entra consent, then spawn the mail MCP server after callback."""
+    from app.services.connectors.microsoft_mail_oauth import (
+        build_consent_url,
+        redirect_uri,
+    )
+
+    try:
+        collected = _collect_catalog_secrets(entry, secrets)
+    except ValueError as exc:
+        raise BadRequestError(message=str(exc)) from exc
+    tenant = (collected.get("tenant_id") or "").strip()
+    client_id = (collected.get("client_id") or "").strip()
+    if not tenant or not client_id:
+        raise BadRequestError(
+            message="Microsoft 365 mail requires a tenant id and client id"
+        )
+    auth_state: Dict[str, Any] = {
+        "catalog_slug": entry["slug"],
+        "display_name": entry["display_name"],
+        "transport": "stdio",
+        "command": entry.get("command") or "",
+        "args": list(entry.get("args") or []),
+        "env_defaults": dict(entry.get("env_defaults") or {}),
+        "redirect_uri": redirect_uri(),
+        **collected,
+    }
+    connector = await create_connector(
+        owner=user_id,
+        kind="mcp",
+        auth_state=auth_state,
+        capabilities=["mcp.client"],
+        skip_default_policy=True,
+        workspace_id=workspace_id,
+    )
+    connector.subclass_slug = "mcp"
+    connector.workspace_id = workspace_id
+    connector.health_status = "unknown"
+    _apply_install_identity(connector, label=label, connection_mode=connection_mode)
+    await connector.save()
+    url, state = build_consent_url(
+        user_id,
+        tenant=tenant,
+        client_id=client_id,
+        connector_id=connector.id,
+        redirect=auth_state["redirect_uri"],
+    )
+    await emit_change_event(
+        actor_kind="human",
+        actor_id=user_id,
+        action="connector.create",
+        resource_type="Connector",
+        resource_id=connector.id,
+        before=None,
+        after=_audit_snapshot(connector),
+        scope=f"user:{user_id}",
+        details={"via": "catalog_install", "slug": entry["slug"]},
+    )
+    return CatalogInstallResponse(
+        action="oauth",
+        slug=entry["slug"],
+        consent_url=url,
+        state=state,
+        connector=_to_response(connector),
+    )
+
+
+async def _finish_microsoft_mail_oauth(
+    connector: Any,
+    *,
+    access_token: str,
+    refresh_token: str,
+) -> Any:
+    """Store the refresh token and discover tools with a bring-your-own access token."""
+    from app.agentive.connectors.mcp_mount import complete_stdio_mount
+    from app.connectors.catalog_loader import get_catalog_entry
+    from app.services.connectors.microsoft_mail_oauth import CATALOG_SLUG, spawn_env
+
+    auth_state = decrypt_auth_state(getattr(connector, "auth_state", None) or {})
+    auth_state["refresh_token"] = refresh_token
+    connector.auth_state = encrypt_auth_state(auth_state)
+    await connector.save()
+    try:
+        entry = get_catalog_entry(CATALOG_SLUG)
+    except KeyError:
+        entry = {}
+    env = spawn_env(
+        access_token=access_token,
+        client_id=str(auth_state.get("client_id") or ""),
+        client_secret=str(auth_state.get("client_secret") or ""),
+        tenant_id=str(auth_state.get("tenant_id") or ""),
+    )
+    command = str(auth_state.get("command") or entry.get("command") or "").strip()
+    args = list(auth_state.get("args") or entry.get("args") or [])
+    connector = await complete_stdio_mount(
+        connector,
+        command=command,
+        args=args,
+        env=env,
+        display_name=str(
+            auth_state.get("display_name") or entry.get("display_name") or ""
+        ),
+        catalog_slug=CATALOG_SLUG,
+    )
+    mounted = decrypt_auth_state(getattr(connector, "auth_state", None) or {})
+    mounted["refresh_token"] = refresh_token
+    connector.auth_state = encrypt_auth_state(mounted)
+    await connector.save()
+    return connector
+
+
 async def _catalog_install_mcp_oauth(
     *,
     user_id: str,
@@ -3150,4 +3278,91 @@ async def post_gmail_set_labels(
         label_ids=list(label_ids),
         consent_acknowledged=bool(consent_acknowledged),
         auth_state=gmail_safe_auth_state(c.auth_state or {}),
+    )
+
+
+@endpoint(
+    "/agentive/connectors/microsoft-mail/callback",
+    methods=["POST"],
+    auth=True,
+    tags=["Agentive", "Connectors"],
+)
+async def post_microsoft_mail_callback(
+    request: Request,
+    code: str,
+    state: str,
+    connector_id: Optional[str] = None,
+    redirect_uri: Optional[str] = None,
+):
+    """Validate state, exchange the code, and mount the read-only mail server.
+
+    The response has no token fields. The refresh token stays on the connector.
+    """
+    from app.schemas.agentive.microsoft_mail import MicrosoftMailCallbackResponse
+    from app.services.connectors.microsoft_mail_oauth import (
+        CATALOG_SLUG,
+        exchange_code,
+    )
+    from app.services.connectors.quickbooks_oauth import (
+        connector_id_from_state,
+        verify_state,
+    )
+
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    if not verify_state(state, user_id):
+        raise BadRequestError(message="Microsoft sign-in state was not valid")
+    resolved_id = (connector_id or connector_id_from_state(state) or "").strip()
+    if not resolved_id:
+        raise BadRequestError(message="Microsoft sign-in is missing its connector")
+    connector = await get_connector(resolved_id)
+    if connector is None or not await connector_owner_is(connector, user_id):
+        raise ResourceNotFoundError(
+            message=f"Connector {resolved_id!r} not found",
+            details={"connector_id": resolved_id},
+        )
+    auth_state = decrypt_auth_state(getattr(connector, "auth_state", None) or {})
+    if auth_state.get("catalog_slug") != CATALOG_SLUG:
+        raise BadRequestError(message="That connector is not Microsoft 365 mail")
+    token_response = await exchange_code(
+        code,
+        tenant=str(auth_state.get("tenant_id") or ""),
+        client_id=str(auth_state.get("client_id") or ""),
+        client_secret=str(auth_state.get("client_secret") or ""),
+        redirect=redirect_uri or str(auth_state.get("redirect_uri") or ""),
+    )
+    try:
+        connector = await _finish_microsoft_mail_oauth(
+            connector,
+            access_token=str(token_response.get("access_token") or ""),
+            refresh_token=str(token_response.get("refresh_token") or ""),
+        )
+    except Exception as exc:  # noqa: BLE001
+        from app.utils.time import utc_now_iso
+
+        connector.health_status = "error"
+        detail = describe_mcp_failure(exc)
+        connector.last_error = detail
+        connector.updated_at = utc_now_iso()
+        await connector.save()
+        raise BadRequestError(
+            message=f"Microsoft 365 mail mount failed: {detail}",
+            details={"reason": detail},
+        )
+    await emit_change_event(
+        actor_kind="human",
+        actor_id=user_id,
+        action="connector.update",
+        resource_type="Connector",
+        resource_id=connector.id,
+        before=None,
+        after=_audit_snapshot(connector),
+        scope=f"user:{user_id}",
+        details={"via": "microsoft_mail_callback", "slug": CATALOG_SLUG},
+    )
+    return MicrosoftMailCallbackResponse(
+        connector_id=connector.id,
+        connected=True,
+        reauth_required=False,
     )
