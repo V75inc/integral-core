@@ -1307,6 +1307,12 @@ async def _get_current_accessible_tracks(user_id: str) -> List[Track]:
     try:
         seen: set = set()
         result: List[Track] = []
+        # Candidate discovery only: share in-flight parent checks within this
+        # inventory. The final fresh canonical admission below still decides
+        # access. Do not retain these tasks across calls or reuse them as grants.
+        # Measured dev inventory: 79 Tracks repeatedly resolve the same 10 Apps.
+        listability_tasks: dict[str, asyncio.Task] = {}
+        app_visibility_tasks: dict[str, asyncio.Task] = {}
 
         def _add(track: Track) -> None:
             if track.id not in seen:
@@ -1314,6 +1320,13 @@ async def _get_current_accessible_tracks(user_id: str) -> List[Track]:
                 result.append(track)
 
         async def _track_listable(track: Track) -> bool:
+            task = listability_tasks.get(track.id)
+            if task is None:
+                task = asyncio.create_task(_check_track_listable(track))
+                listability_tasks[track.id] = task
+            return await task
+
+        async def _check_track_listable(track: Track) -> bool:
             """App-scoped tracks require a visible, non-uninstalled parent App."""
             template_id = str(getattr(track, "template_id", "") or "").strip()
             if not template_id:
@@ -1327,7 +1340,11 @@ async def _get_current_accessible_tracks(user_id: str) -> List[Track]:
                 lifecycle = str(getattr(app_node, "lifecycle_state", "") or "")
                 if lifecycle == "uninstalled":
                     continue
-                if await can_view_app(user_id, app_node.id):
+                task = app_visibility_tasks.get(app_node.id)
+                if task is None:
+                    task = asyncio.create_task(can_view_app(user_id, app_node.id))
+                    app_visibility_tasks[app_node.id] = task
+                if await task:
                     return True
             return False
 

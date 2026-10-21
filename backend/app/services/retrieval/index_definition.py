@@ -63,7 +63,8 @@ class EmbeddingProfile:
     dimensions: int
     chunk_tokens: int
     overlap_tokens: int
-    format_version: int = 1
+    format_version: int = 2
+    encoder_artifact: str = ""
 
     @property
     def id(self) -> str:
@@ -73,9 +74,11 @@ class EmbeddingProfile:
 def embedding_profile() -> EmbeddingProfile:
     """Resolve and validate deployment embedding settings."""
     from .embedding_model import DEFAULT_MODEL_NAME
+    from .onnx_text_encoder import encoder_artifact
 
     profile = EmbeddingProfile(
         model=DEFAULT_MODEL_NAME,
+        encoder_artifact=encoder_artifact(DEFAULT_MODEL_NAME).fingerprint,
         revision=os.getenv("EMBEDDING_MODEL_REVISION", "bundled-v1"),
         dimensions=int(os.getenv("EMBEDDING_MODEL_DIMENSIONS", "384")),
         chunk_tokens=int(os.getenv("INDEX_CHUNK_TOKENS", "160")),

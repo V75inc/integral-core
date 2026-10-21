@@ -14,7 +14,7 @@ import hashlib
 import json
 import logging
 from collections import defaultdict
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from copy import deepcopy
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -244,7 +244,7 @@ def _calculate_litellm_cost(
         import litellm
 
         model_info = litellm.get_model_info(model=model, custom_llm_provider=provider)
-        rates = (
+        rates: Iterable[Decimal | None] = (
             (
                 _cost_value(model_info.get(rate))
                 for rate in ("input_cost_per_token", "output_cost_per_token")
@@ -357,8 +357,12 @@ class _LiteLLMStream(httpx.AsyncByteStream):
         chunks: AsyncIterator[Any],
         finish: Callable[[Any | None, _ModelStreamOutcome], Awaitable[None]],
         response: Any = None,
+        deadline: float | None = None,
+        idle_timeout_seconds: float = 30.0,
     ) -> None:
         self._chunks = chunks
+        self._deadline = deadline
+        self._idle_timeout_seconds = idle_timeout_seconds
         self._finish = finish
         self._last: Any | None = None
         self._usage: dict[str, Any] = {}
@@ -433,7 +437,20 @@ class _LiteLLMStream(httpx.AsyncByteStream):
 
     async def __aiter__(self) -> AsyncIterator[bytes]:
         try:
-            async for chunk in self._chunks:
+            iterator = self._chunks.__aiter__()
+            while True:
+                remaining = (
+                    self._deadline - asyncio.get_running_loop().time()
+                    if self._deadline is not None
+                    else self._idle_timeout_seconds
+                )
+                try:
+                    chunk = await asyncio.wait_for(
+                        anext(iterator),
+                        timeout=max(0, min(self._idle_timeout_seconds, remaining)),
+                    )
+                except StopAsyncIteration:
+                    break
                 self._last = chunk
                 self._capture(chunk)
                 payload = _plain(chunk)
@@ -495,12 +512,16 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         observer: AttemptObserver | None = None,
         completion: Callable[..., Awaitable[Any]] | None = None,
         timeout_seconds: float = 180.0,
+        idle_timeout_seconds: float = 30.0,
         admission: ModelAdmission | None = None,
+        request_validator: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
         max_attempts: int = 1,
         retry_status: Callable[[int, int], Awaitable[None]] | None = None,
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("model request timeout must be positive")
+        if idle_timeout_seconds <= 0:
+            raise ValueError("model idle timeout must be positive")
         if not 1 <= max_attempts <= 3:
             raise ValueError("model attempts must be between one and three")
         self._max_attempts = max_attempts
@@ -510,7 +531,9 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         self._observer = observer
         self._completion = completion
         self._timeout_seconds = timeout_seconds
+        self._idle_timeout_seconds = min(idle_timeout_seconds, timeout_seconds)
         self._admission = admission
+        self._request_validator = request_validator
 
     async def _sdk_completion(self, **kwargs: Any) -> Any:
         completion = self._completion
@@ -720,10 +743,35 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
                 # conservatively for the separate no-dispatch recovery path.
                 await readiness()
 
+            if self._request_validator is not None:
+                try:
+                    await self._request_validator(body)
+                except BaseException as exc:
+                    # The SDK was never entered. Settle the dispatch intent as
+                    # a known refusal so revoked uploads cannot leave an
+                    # unknown request that blocks durable chat continuation.
+                    await self._observe(
+                        request_id=request_id,
+                        request_context=request_context,
+                        attempt=attempt,
+                        started_at=started_at,
+                        outcome=(
+                            "cancelled"
+                            if isinstance(exc, asyncio.CancelledError)
+                            else "failed"
+                        ),
+                    )
+                    raise
+
             try:
                 deadline = asyncio.get_running_loop().time() + self._timeout_seconds
                 response = await asyncio.wait_for(
-                    self._sdk_completion(**kwargs), timeout=self._timeout_seconds
+                    self._sdk_completion(**kwargs),
+                    timeout=(
+                        self._idle_timeout_seconds
+                        if body.get("stream") is True
+                        else self._timeout_seconds
+                    ),
                 )
                 if self._max_attempts > 1:
                     if body.get("stream") is True and hasattr(response, "__aiter__"):
@@ -735,7 +783,17 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
                                 max(0, deadline - asyncio.get_running_loop().time())
                             ):
                                 for _ in range(64):
-                                    chunk = await anext(iterator)
+                                    chunk = await asyncio.wait_for(
+                                        anext(iterator),
+                                        timeout=min(
+                                            self._idle_timeout_seconds,
+                                            max(
+                                                0,
+                                                deadline
+                                                - asyncio.get_running_loop().time(),
+                                            ),
+                                        ),
+                                    )
                                     buffered.append(chunk)
                                     choices = _plain(chunk).get("choices") or []
                                     if any(
@@ -816,6 +874,19 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
                     if isinstance(exc, StopAsyncIteration)
                     else model_request_error(exc)
                 )
+                if (
+                    classified is not None
+                    and classified.code == "model_request_rejected"
+                    and any(
+                        isinstance(m.get("content"), list)
+                        and any(
+                            isinstance(p, dict) and p.get("type") == "image_url"
+                            for p in m["content"]
+                        )
+                        for m in body.get("messages") or []
+                    )
+                ):
+                    classified = NativeModelRequestError("model_image_request_rejected")
                 # Explicit rejection before a response is a failed attempt. Network
                 # loss/timeouts still retain unknown outcome and billing; each
                 # retry retains this evidence and obtains fresh admission.
@@ -825,6 +896,7 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
                     "model_rate_limited",
                     "model_unavailable",
                     "model_request_rejected",
+                    "model_image_request_rejected",
                 }
                 await self._observe(
                     request_id=request_id,
@@ -887,7 +959,11 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
                 200,
                 headers={"content-type": "text/event-stream"},
                 stream=_LiteLLMStream(
-                    chunks=response, response=response, finish=finish
+                    chunks=response,
+                    response=response,
+                    finish=finish,
+                    deadline=deadline,
+                    idle_timeout_seconds=self._idle_timeout_seconds,
                 ),
                 request=request,
             )
@@ -933,7 +1009,9 @@ def build_litellm_sdk_model(
     observer: AttemptObserver,
     completion: Callable[..., Awaitable[Any]] | None = None,
     timeout_seconds: float = 180.0,
+    idle_timeout_seconds: float = 30.0,
     admission: ModelAdmission | None = None,
+    request_validator: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     max_attempts: int = 1,
     retry_status: Callable[[int, int], Awaitable[None]] | None = None,
 ) -> OpenAIChatModel:
@@ -944,7 +1022,9 @@ def build_litellm_sdk_model(
         observer=observer,
         completion=completion,
         timeout_seconds=timeout_seconds,
+        idle_timeout_seconds=idle_timeout_seconds,
         admission=admission,
+        request_validator=request_validator,
         max_attempts=max_attempts,
         retry_status=retry_status,
     )

@@ -376,3 +376,50 @@ async def test_background_and_child_work_cannot_take_conversational_shortcut(
         SimpleNamespace(run_id=run.run_id, work_item_id=item.work_item_id),
     )
     assert result is None and calls == []
+
+
+@pytest.mark.asyncio
+async def test_upload_context_survives_recent_text_window(monkeypatch):
+    """An old canonical upload keeps later questions on the resumable path."""
+    from app.models.edges import HAS_ATTACHMENT
+    from app.models.nodes import Attachment
+
+    ctx, thread, _, calls = await setup_turn(monkeypatch)
+    attachment = Attachment(
+        filename="photo.png",
+        mime_type="image/png",
+        uploaded_by=ctx.user_id,
+        owner_kind="chat",
+        storage_key="fixture",
+        size=1,
+    )
+    await attachment.save()
+    await thread.connect(attachment, edge=HAS_ATTACHMENT)
+    assert (
+        await PydanticAIProvider()._try_light_turn(ctx, thread, "owner", None) is None
+    )
+    assert calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text",
+    [
+        "<function=request_operational_context></function>",
+        '<tool_call>{"name":"some_tool","arguments":{"ignored":true}}</tool_call>',
+        '{"function_call":{"name":"some_tool","arguments":{}}}',
+    ],
+)
+async def test_printed_routing_protocol_escalates_without_becoming_an_answer(
+    monkeypatch, text
+):
+    """A provider formatting failure requests real governed context, not execution."""
+    ctx, thread, _, _ = await setup_turn(monkeypatch)
+    monkeypatch.setattr(
+        "app.services.chat_providers.pydantic_ai_provider.build_litellm_sdk_model",
+        lambda **kwargs: FunctionModel(
+            lambda m, i: ModelResponse(parts=[TextPart(text)])
+        ),
+    )
+    result = await PydanticAIProvider()._try_light_turn(ctx, thread, "owner", None)
+    assert isinstance(result, EscalatedTurn)

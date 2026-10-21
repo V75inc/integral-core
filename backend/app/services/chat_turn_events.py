@@ -46,6 +46,7 @@ _PUBLIC_FIELDS: dict[str, tuple[str, ...]] = {
         "durationMs",
     ),
     "tool-call": ("toolCallId", "name", "status", "diagnostic"),
+    "navigation": ("path", "thread_id", "workspace_id"),
     "source": ("title", "url"),
     "status": ("status", "text"),
     "error": ("code", "message"),

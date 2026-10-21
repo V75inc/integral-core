@@ -244,3 +244,21 @@ async def test_session_close_clears_pointer_and_retains_graph_session(
     assert calls[1][1][2]["$set"]["context.active_harness_session_id"] is None
     assert calls[2] == ("save", "closed")
     assert calls[-1] == ("commit",)
+
+
+def test_binary_checkpoint_export_preserves_image_bytes():
+    """Image-bearing diagnostic exports cannot decode pixels as UTF-8."""
+    import base64
+    from dataclasses import dataclass
+
+    from app.services.harness_sessions import _export_value
+
+    @dataclass
+    class ImageSnapshot:
+        image: bytes
+        media_type: str = "image/png"
+
+    pixels = b"\x89PNG\r\n\x1a\n\xff\x00"
+    exported = _export_value(ImageSnapshot(pixels))
+    assert base64.urlsafe_b64decode(exported["image"]) == pixels
+    assert exported["media_type"] == "image/png"

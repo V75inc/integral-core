@@ -3669,6 +3669,10 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
         ),
         service_param_map=_pick("include"),
     ),
+    "integral_open_view": ToolBinding(
+        service_ref=_h("app.services.agent_navigation", "open_view_for_dispatch"),
+        service_param_map=_pick("target_kind", "target_id", "view_id"),
+    ),
     "integral_list_workspaces": ToolBinding(
         _h("app.api.workspaces", "list_workspaces")
     ),

@@ -576,7 +576,7 @@ def test_large_broker_catalogue_defers_nonessential_tools() -> None:
         "integral_verify_build",
     }
     assert {name for name, tool in by_name.items() if not tool.defer_loading} == (
-        always_available | {"integral_get_page_context"}
+        always_available | {"integral_get_page_context", "integral_open_view"}
     )
     assert len(by_name) > 100
 
@@ -2044,3 +2044,59 @@ def test_tool_effect_identity_survives_new_attempt_but_keeps_current_lease():
     assert first.effect_key == replay.effect_key
     assert replay.attempt == 2 and replay.lease_fence == 2
     assert replay.run_id == "run-2" and replay.lease_token == "lease-2"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("write", [False, True])
+async def test_registered_tool_classification_preserves_read_only_turn(
+    monkeypatch, write
+):
+    """Only a live registered read may use the mixed invocation wrapper."""
+    calls = []
+
+    async def invoke(**kwargs):
+        calls.append(kwargs)
+        return CapabilityResult(ok=True, data={"rows": []})
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class",
+        lambda _: ("core", "propose"),
+    )
+    monkeypatch.setattr(
+        "app.services.workspace_tools.lookup_workspace_tool",
+        lambda _workspace, _key: {
+            "side_effects": "write" if write else "read_only",
+            "agent_callable": True,
+        },
+    )
+    tool = build_brokered_tools(
+        scope=_scope(),
+        catalogue=[
+            {
+                "name": "integral_call_workspace_tool",
+                "description": "Invoke a registered tool",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "tool_key": {"type": "string"},
+                        "input": {"type": "object"},
+                    },
+                    "required": ["tool_key"],
+                },
+            }
+        ],
+        no_workspace_writes=True,
+    )[0]
+    result = await tool.function_schema.call(
+        {"tool_key": "sample_read", "input": {}},
+        SimpleNamespace(tool_call_id="read", active_capability_ids=set()),
+    )
+    if write:
+        assert result["error_code"] == "user_no_workspace_writes"
+        assert calls == []
+    else:
+        assert not result.get("error")
+        assert len(calls) == 1
