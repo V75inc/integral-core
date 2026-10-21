@@ -44,7 +44,6 @@ import {
   useState,
 } from "react";
 import type { PartState } from "@assistant-ui/react";
-import { Link } from "react-router-dom";
 import { useScope } from "../../../context/ScopeContext";
 import { getComposerAccessory } from "../../../host/registry";
 import { sanitizeMarkdownHref } from "../../../utils/safeHref";
@@ -79,7 +78,8 @@ import { MessageUndoActions } from "./MessageUndoActions";
 import { ComposerAttachmentErrorToast } from "./ComposerAttachmentErrorToast";
 import { ComposerMicButton } from "./ComposerMicButton";
 import { ComposerDictationProvider } from "../../speech/ComposerDictationContext";
-import { hasAssistantDebugPayload } from "./assistantMessagePresentation";
+import { hasAssistantDebugPayload, isModelSetupFailure } from "./assistantMessagePresentation";
+import { ModelSetupNotice } from "./ModelSetupNotice";
 import {
   CHAT_SURFACE_ATTR,
   useTypeAnywhereComposer,
@@ -405,6 +405,9 @@ export function WorkTrail({ children }: { children: ReactNode }) {
       (s.message.metadata?.custom as { statusLabel?: string } | undefined)
         ?.statusLabel,
   );
+  const setupNeeded = useAuiState((s) => isModelSetupFailure(
+    (s.message.metadata?.custom as { errorCode?: string } | undefined)?.errorCode,
+  ));
   const modelLabel = useMessageModelLabel();
   const toolCount = useAuiState(
     (s) => (s.message.parts ?? []).filter((p) => p.type === "tool-call").length,
@@ -429,7 +432,7 @@ export function WorkTrail({ children }: { children: ReactNode }) {
     hasAnswerText,
   );
   const done = [
-    interruptedReason === "cancelled" ? "Stopped" : interruptedReason ? "Interrupted" : "Finished",
+    setupNeeded ? "Setup needed" : interruptedReason === "cancelled" ? "Stopped" : interruptedReason ? "Interrupted" : "Finished",
     toolCount > 0 ? `${toolCount} ${toolCount === 1 ? "tool call" : "tool calls"}` : "",
     modelLabel,
     toolFailed ? "a step failed" : "",
@@ -742,6 +745,12 @@ function InlineAttachmentLists() {
 // ---------------------------------------------------------------------------
 
 function MessageError() {
+  const code = useAuiState((s) =>
+    (s.message.metadata?.custom as { errorCode?: string } | undefined)?.errorCode,
+  );
+  if (isModelSetupFailure(code)) {
+    return <MessagePrimitive.Error><ModelSetupNotice code={code} /></MessagePrimitive.Error>;
+  }
   return (
     <MessagePrimitive.Error>
       <ErrorPrimitive.Root
@@ -1256,26 +1265,8 @@ export function Composer({ locked = false, home = false, onSendAttempt }: { lock
     return <div role="status" className="px-3 py-3 text-sm text-[var(--text-muted)]">Loading conversation…</div>;
   }
 
-  if (blockedReason === "model_key_required") {
-    return (
-      <div
-        className="
-          flex w-full flex-col gap-2 rounded-[var(--radius-card)]
-          border border-[var(--border-subtle)] bg-[var(--panel)] p-4 text-sm
-        "
-      >
-        <p className="text-[var(--text)]">
-          This deployment requires primary and secondary model API keys before
-          chat can run.
-        </p>
-        <Link
-          to="/settings#agents"
-          className="font-medium text-[var(--accent)] hover:underline"
-        >
-          Configure model credentials in Settings → Agents
-        </Link>
-      </div>
-    );
+  if (isModelSetupFailure(blockedReason)) {
+    return <ModelSetupNotice code={blockedReason} />;
   }
 
   if (locked) {

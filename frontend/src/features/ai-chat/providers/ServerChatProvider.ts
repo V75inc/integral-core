@@ -1,3 +1,4 @@
+import { isModelSetupFailure } from "../components/assistantMessagePresentation";
 import { aiChatApi } from "../../../api/aiChat";
 import { getActiveScopeHeader } from "../../../api/client";
 import { checkSessionDeadline, getAccessToken, pauseForSessionRenewal, redirectToLogin, refreshAccessToken } from "../../../api/session";
@@ -267,15 +268,19 @@ export function createServerChatProvider({
       // envelope carries one, otherwise a human line with the status. The raw
       // JSON envelope used to be rendered verbatim as the assistant's reply.
       let serverMessage = "";
+      let setupCode: string | undefined;
       try {
-        const parsed = JSON.parse(body) as { message?: unknown };
+        const parsed = JSON.parse(body) as { message?: unknown; error_code?: unknown; details?: { reason?: unknown } };
+        const reason = parsed?.details?.reason;
+        const code = isModelSetupFailure(reason) ? reason : parsed?.error_code;
+        if (isModelSetupFailure(code)) setupCode = code as string;
         if (typeof parsed?.message === "string") serverMessage = parsed.message.trim();
       } catch {
         /* non-JSON body — use the generic sentence */
       }
       yield {
         type: "error",
-        code: `http_${response.status}`,
+        code: setupCode ?? `http_${response.status}`,
         message:
           serverMessage ||
           `The assistant could not process this request (HTTP ${response.status}). Please try again.`,

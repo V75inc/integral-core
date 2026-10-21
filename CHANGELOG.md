@@ -6,6 +6,8 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Guide unconfigured chat to Settings → AI Models with a friendly setup notice and an in-app link, including after reopening a saved conversation; offer the same help for a model connection that needs attention.
+
 - Let the agent open permitted Apps, collections, records and saved views in the current tab through `integral_open_view`, preserving chat and suppressing navigation from history, background or interrupted turns.
 
 - End completed write approvals, denials and cancellations with the host review receipt; reserve agent continuation for answered questions, approved designs and unpublished profile revisions that need further work.

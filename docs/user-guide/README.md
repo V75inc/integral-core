@@ -142,6 +142,12 @@ Useful examples:
 
 The resident uses available capabilities and current permissions. It may need clarification, approval, credentials, or a capability your installation does not expose. A skill describes a procedure; it cannot grant the resident access to restricted data.
 
+If chat needs an AI model, choose **Open AI Models** in the setup notice. It
+opens **Settings → AI Models**, where you can connect your provider or choose a
+local model. Return to the conversation and send your message again once setup
+is complete. Your workspace administrator can help if the connection is managed
+for you. The same link is available when an existing connection needs attention.
+
 You can also ask it to take you to the relevant place:
 
 > “Take me to Internal Projects.”

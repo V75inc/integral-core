@@ -133,6 +133,7 @@ type AssistantMessageDraft = {
   // source-of-truth.
   finalContent?: string;
   finalPayload?: Record<string, unknown>;
+  errorCode?: string;
 };
 
 function freshDraft(id: string): AssistantMessageDraft {
@@ -241,8 +242,10 @@ function draftToMessage(draft: AssistantMessageDraft): ThreadMessageLike {
         draft.customSteps?.length ||
         draft.interactPayload ||
         draft.finalContent ||
-        draft.finalPayload
+        draft.finalPayload ||
+        draft.errorCode
           ? {
+              ...(draft.errorCode ? { errorCode: draft.errorCode } : undefined),
               ...(draft.customSteps?.length
                 ? { steps: draft.customSteps }
                 : undefined),
@@ -575,14 +578,16 @@ function persistedToMessage(m: AIChatPersistedMessage): ThreadMessageLike {
     const persistedError = rawParts.find(
       (part) => (part as { type?: string }).type === "error",
     ) as { code?: string } | undefined;
-    const isCancelled = (persistedError ?? pm?.error)?.code === "work.cancelled";
+    const errorCode = persistedError?.code ?? pm?.error?.code;
+    const isCancelled = errorCode === "work.cancelled";
 
     const hasMetadata =
       pmSteps.length > 0 ||
       !!pmTiming ||
       !!pmInteract ||
       !!pmFinalContent ||
-      !!pmFinalPayload;
+      !!pmFinalPayload ||
+      !!errorCode;
     return {
       id: m.id,
       role: "assistant",
@@ -618,6 +623,7 @@ function persistedToMessage(m: AIChatPersistedMessage): ThreadMessageLike {
                 }
               : undefined,
             custom: {
+              ...(errorCode ? { errorCode } : undefined),
               ...(pmSteps.length > 0 ? { steps: pmSteps } : undefined),
               ...(pmInteract ? { interactPayload: pmInteract } : undefined),
               ...(pmFinalContent
@@ -2219,6 +2225,7 @@ function applyEvent(draft: AssistantMessageDraft, ev: NormalizedEvent) {
       // through to the unknown-type warning.
       return;
     case "error":
+      draft.errorCode = ev.code;
       draft.status = ev.code === "work.cancelled"
         ? { type: "incomplete", reason: "cancelled" }
         : {

@@ -73,7 +73,30 @@ export function friendlyToolFailure(value: unknown): string {
 }
 
 
+/** Stable server codes only: ordinary provider outages are not setup prompts. */
+export function isModelSetupFailure(code: unknown): boolean {
+  return typeof code === "string" && [
+    "model_setup_required", "model_key_required", "native_model_not_configured",
+    "model_configuration_invalid", "native_model_configuration_invalid",
+    "model_authentication_failed", "model_unavailable",
+  ].includes(code);
+}
+
+export function modelSetupMessage(code: unknown): string {
+  if (code === "model_authentication_failed") {
+    return "Your AI connection needs attention. Review the connection in AI Models, then try again.";
+  }
+  if (code === "model_unavailable") {
+    return "Your selected AI model isn't available. Choose another in AI Models, then try again.";
+  }
+  if (code === "model_configuration_invalid" || code === "native_model_configuration_invalid") {
+    return "Review your AI model settings, then return to this chat and try again.";
+  }
+  return "Choose an AI model in Settings to start chatting. Once it's connected, return here and send your message again.";
+}
+
 export function friendlyChatFailure(code: unknown, message: unknown): string {
+  if (isModelSetupFailure(code)) return modelSetupMessage(code);
   if (code === "work.cancelled") return "You stopped this request.";
   if (code === "work.deadline_exceeded") {
     return "This request took too long to finish. Check anything already saved, then ask me to continue.";
