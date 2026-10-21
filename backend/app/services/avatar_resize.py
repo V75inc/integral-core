@@ -48,8 +48,12 @@ def resize_avatar(
     """
     try:
         # ``verify()`` consumes the stream — must reopen for processing.
-        Image.open(BytesIO(image_bytes)).verify()
-        img = Image.open(BytesIO(image_bytes)).convert("RGBA")
+        # Enforce the upload contract using decoded format, not a spoofable MIME
+        # label. In particular, never dispatch TIFF/EPS/PPM Pillow decoders here.
+        with Image.open(BytesIO(image_bytes), formats=("PNG", "JPEG", "WEBP")) as src:
+            src.verify()
+        with Image.open(BytesIO(image_bytes), formats=("PNG", "JPEG", "WEBP")) as src:
+            img = src.convert("RGBA")
     except (
         UnidentifiedImageError,
         OSError,

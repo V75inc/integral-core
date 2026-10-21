@@ -257,6 +257,9 @@ async def test_emit_is_noop_when_disabled(monkeypatch):
     """CHANGE_EVENT_ENABLED=False: emit returns unpersisted envelope."""
     from app.config import settings
 
+    # The shared graph-shell fixture may already contain bootstrap events.
+    # Disabling emission must leave those records intact and add no new row.
+    existing_ids = {row.id for row in await get_change_event_logger().find_all()}
     monkeypatch.setattr(settings, "CHANGE_EVENT_ENABLED", False)
     envelope = await emit_change_event(
         actor_kind="human",
@@ -274,4 +277,5 @@ async def test_emit_is_noop_when_disabled(monkeypatch):
 
     # Confirm no DBLog row was written.
     rows = await get_change_event_logger().find_all()
-    assert rows == []
+    assert {row.id for row in rows} == existing_ids
+    assert await get_change_event_logger().find_all(scope="track:t-off") == []

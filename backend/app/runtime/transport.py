@@ -71,7 +71,24 @@ def blocked_path(path: str, method: str) -> bool:
     if parts[0] == "admin" and len(parts) > 1 and parts[1] in {"users", "workspaces"}:
         return True
     if parts[0] == "users" and method not in {"GET", "HEAD", "OPTIONS"}:
-        return True
+        # Local settings still use authenticated, caller-bound /users/me routes.
+        # Keep identity/provisioning and unknown user mutations closed; this
+        # transport exception grants no principal or resource authority.
+        local_settings = {
+            ("pinned", "POST"),
+            ("scope", "PUT"),
+            ("timezone", "PATCH"),
+            ("notification-preferences", "PATCH"),
+            ("speech-preferences", "PATCH"),
+            ("model-credentials", "POST"),
+            ("model-credentials", "DELETE"),
+            ("model-credentials/validate", "POST"),
+        }
+        return (
+            len(parts) < 3
+            or parts[1] != "me"
+            or ("/".join(parts[2:]), method) not in local_settings
+        )
     if method in {"GET", "HEAD", "OPTIONS"}:
         return any(
             part in {"public-share", "invitations", "ownership-proposals", "shared"}

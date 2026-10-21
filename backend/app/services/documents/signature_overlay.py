@@ -11,18 +11,27 @@ if TYPE_CHECKING:
     import fitz
 
 logger = logging.getLogger(__name__)
+_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+
+def _require_png_bytes(data: bytes) -> None:
+    if not data.startswith(_PNG_MAGIC):
+        raise ValueError("Signature must be a PNG image")
 
 
 def normalize_signature_png_alpha(png_bytes: bytes) -> bytes:
     """Treat near-white canvas pixels as transparent before PDF compositing."""
+    _require_png_bytes(png_bytes)
     try:
         from PIL import Image
     except ImportError:
         return png_bytes
     try:
-        img = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
-    except Exception:  # noqa: BLE001
-        return png_bytes
+        with Image.open(io.BytesIO(png_bytes), formats=("PNG",)) as src:
+            img = src.convert("RGBA")
+    except Exception as exc:  # noqa: BLE001
+        # Never pass a rejected image to another backend for a second decode.
+        raise ValueError("Signature must be a valid PNG image") from exc
     pixels = img.load()
     width, height = img.size
     changed = False
@@ -54,6 +63,14 @@ def decode_signature_png(signature_png: str) -> bytes:
         raise ValueError("Invalid signature image encoding") from exc
     if not data:
         raise ValueError("Signature image is empty")
+    _require_png_bytes(data)
+    from PIL import Image
+
+    try:
+        with Image.open(io.BytesIO(data), formats=("PNG",)) as image:
+            image.verify()
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError("Signature must be a valid PNG image") from exc
     return data
 
 
@@ -92,13 +109,14 @@ def _fit_png_in_place(
     y = float(place.get("y") or 72.0)
     max_w = float(place.get("width") or 220.0)
     max_h = float(place.get("height") or 48.0)
+    _require_png_bytes(png_bytes)
     try:
         from PIL import Image
     except ImportError:
         return x, y, max_w, max_h
     try:
-        img = Image.open(io.BytesIO(png_bytes))
-        img_w, img_h = img.size
+        with Image.open(io.BytesIO(png_bytes), formats=("PNG",)) as img:
+            img_w, img_h = img.size
     except Exception:  # noqa: BLE001
         return x, y, max_w, max_h
     if img_w <= 0 or img_h <= 0:
