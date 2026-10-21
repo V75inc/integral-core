@@ -30,6 +30,7 @@ import { memo, useCallback, useRef, useState } from "react";
 import {
   AlertCircleIcon,
   CheckIcon,
+  StopCircleIcon,
   ChevronDownIcon,
   LoaderIcon,
   XCircleIcon,
@@ -139,8 +140,8 @@ function ToolFallbackTrigger({
   const isCancelled =
     status?.type === "incomplete" && status.reason === "cancelled";
 
-  const Icon = statusIconMap[statusType];
-  const label = isCancelled ? "Cancelled tool" : "Used tool";
+  const Icon = isCancelled ? StopCircleIcon : statusIconMap[statusType];
+  const label = isCancelled ? "Stopped step" : "Used tool";
 
   return (
     <CollapsibleTrigger
@@ -163,7 +164,7 @@ function ToolFallbackTrigger({
         data-slot="tool-fallback-trigger-label"
         className={cn(
           "aui-tool-fallback-trigger-label-wrapper relative inline-block grow text-start leading-none",
-          isCancelled && "text-[var(--text-muted)] line-through",
+          isCancelled && "text-[var(--text-muted)]",
         )}
       >
         <span>
@@ -284,7 +285,7 @@ function ToolFallbackError({
 }) {
   if (status?.type !== "incomplete") return null;
 
-  if (!status.error) return null;
+  if (!status.error && status.reason !== "cancelled") return null;
   const isCancelled = status.reason === "cancelled";
   const errorText = isCancelled ? "You stopped this request." : friendlyToolFailure(status.error);
   const headerText = isCancelled ? "Stopped" : "This step couldn't be finished";
@@ -295,10 +296,10 @@ function ToolFallbackError({
       className={cn("aui-tool-fallback-error px-4", className)}
       {...props}
     >
-      <p className="aui-tool-fallback-error-header text-[var(--danger-fg)] font-semibold">
+      <p className={cn("aui-tool-fallback-error-header font-semibold", isCancelled ? "text-[var(--text-muted)]" : "text-[var(--danger-fg)]")}>
         {headerText}
       </p>
-      <p className="aui-tool-fallback-error-reason whitespace-pre-wrap text-[var(--danger-fg)]">
+      <p className={cn("aui-tool-fallback-error-reason whitespace-pre-wrap", isCancelled ? "text-[var(--text-muted)]" : "text-[var(--danger-fg)]")}>
         {errorText}
       </p>
     </div>

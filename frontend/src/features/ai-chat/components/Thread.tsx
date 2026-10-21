@@ -33,6 +33,7 @@ import {
   RefreshCwIcon,
   Sparkles,
   SquareIcon,
+  StopCircleIcon,
   XIcon,
 } from "lucide-react";
 import {
@@ -61,6 +62,7 @@ import type { ChatEntityRef } from "../../../types/chatEntityRefs";
 import { AuiTaggableComposer } from "./AuiTaggableComposer";
 import { ComposerSendWithRefs } from "./ComposerSendWithRefs";
 import { MarkdownText } from "./MarkdownText";
+import { MarkdownContent } from "../../../components/ui/MarkdownContent";
 import { ChatAttachmentList } from "./ChatAttachmentList";
 import { extractAttachmentListsFromParts } from "./extractAttachmentListsFromParts";
 import { MessageObservability, useMessageModelLabel } from "./MessageObservability";
@@ -514,7 +516,6 @@ function AssistantMessage() {
   const isCancelled = useAuiState(
     (s) => s.message.status?.type === "incomplete" && s.message.status.reason === "cancelled",
   );
-  const hasParts = useAuiState((s) => s.message.parts.length > 0);
   // Empty boundary artifacts stay action-free. Metadata-only final payloads
   // retain a debug-only action so diagnostics remain reachable without
   // rendering copy/regenerate controls for blank text.
@@ -622,10 +623,13 @@ function AssistantMessage() {
     >
       <div className="[overflow-wrap:anywhere] px-2 leading-relaxed text-[var(--text)]">
         <RoutineRunBadge />
-        {isCancelled && !hasParts && (
-          <span role="status" className="text-xs text-[var(--text-muted)]">Stopped</span>
-        )}
         {renderParts(false)}
+        {isCancelled && (
+          <div role="status" className="my-2 flex items-center gap-2 text-xs text-[var(--text-muted)]">
+            <StopCircleIcon aria-hidden="true" className="size-3.5 shrink-0" />
+            <span>You stopped this request.</span>
+          </div>
+        )}
         {/* Prompt Sheet (composer) owns live sequester for questions +
             staged writes. Inline attachment lists stay as transcript
             artifacts when already in message parts. */}
@@ -653,7 +657,7 @@ export function PromptSheetResumeNote({ text }: { text: string }) {
         <ul className="list-disc space-y-1 pl-4">
           {view.items.map((item, index) => (
             <li key={`${index}:${item}`}>
-              <Text as="span" variant="body" tone="muted">{item}</Text>
+              <MarkdownContent compact>{item}</MarkdownContent>
             </li>
           ))}
         </ul>

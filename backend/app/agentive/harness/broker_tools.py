@@ -187,6 +187,29 @@ def _make_handler(
                 arguments=arguments,
             ):
                 effective_op_class = "read"
+        elif capability_name == "integral_call_workspace_tool":
+            from app.api.errors import ResourceNotFoundError
+            from app.services.workspace_tools import (
+                is_agent_callable,
+                is_write_tool,
+                lookup_workspace_tool,
+            )
+
+            try:
+                registered = lookup_workspace_tool(
+                    scope.workspace_id, str(arguments.get("tool_key") or "")
+                )
+            except ResourceNotFoundError:
+                registered = None
+            if (
+                registered is not None
+                and is_agent_callable(registered)
+                and not is_write_tool(registered)
+            ):
+                # The wrapper also supports staged writes, but a currently
+                # registered read tool is valid in a read-only turn. Dispatch
+                # still rechecks membership, privilege and owning-App access.
+                effective_op_class = "read"
         if no_workspace_writes and effective_op_class != "read":
             return {
                 "error": True,
@@ -244,6 +267,17 @@ def _make_handler(
             call_state["proposal_attempted"] = True
         if capability_name == "integral_check_design_coverage":
             call_state["scaffold_coverage_attempted"] = True
+        if capability_name == "integral_build_approved_design" and build_attempted:
+            return {
+                "error": True,
+                "error_code": "build_already_attempted",
+                "message": (
+                    "The approved build was already attempted in this turn. "
+                    "Do not call the build tool again or claim success. "
+                    "Report the first build result to the user."
+                ),
+                "retryable": False,
+            }
         required_skill = _REQUIRED_SKILLS_BY_TOOL.get(capability_name)
         saved_design_build = (
             capability_name == "integral_build_approved_design"
@@ -325,17 +359,6 @@ def _make_handler(
                         ),
                         "retryable": False,
                     }
-            if build_attempted:
-                return {
-                    "error": True,
-                    "error_code": "build_already_attempted",
-                    "message": (
-                        "The approved build was already attempted in this turn. "
-                        "Do not call the build tool again or claim success. "
-                        "Report the first build result to the user."
-                    ),
-                    "retryable": False,
-                }
             # This macro may create a complete multi-node App. Permit one
             # dispatch per model turn so a rejected result cannot trigger a
             # repeated batch (and repeated full-plan context) in the same run.
@@ -457,6 +480,11 @@ def _make_handler(
                 }
         if capability_name == "integral_build_approved_design":
             call_state["build_succeeded"] = bool(result.ok)
+            if result.ok:
+                # The approved design is now applied. Do not keep rejecting
+                # subsequent actions as if its original proposal were pending.
+                call_state["pending_design"] = False
+                call_state["approved_design_ready"] = False
             if not result.ok and result.error_code in BUILD_PRE_EFFECT_ERRORS:
                 build_validation_failures += 1
                 if (
@@ -504,6 +532,20 @@ def _make_handler(
             reply = model_result.get("reply")
             if isinstance(reply, str) and reply.strip():
                 call_state["verification_reply"] = reply.strip()
+            if (
+                call_state.get("build_succeeded")
+                and call_state["verification_succeeded"]
+            ):
+                # This workflow has reached its declared readback boundary.
+                # Reserve one tool-free closing answer instead of reopening
+                # batches or rediscovering capabilities after a completed build.
+                call_state["turn_progress"].reason = (
+                    "The approved setup has been applied and verified. Report "
+                    "the result using its verified resource links; do not build again."
+                )
+                call_state["verified_build_resources"] = (
+                    model_result.get("resources") or []
+                )
         if capability_name == "integral_propose_design" and result.ok:
             call_state["proposal_succeeded"] = True
             call_state["approved_design_ready"] = bool(model_result.get("approved"))
@@ -528,7 +570,7 @@ def build_brokered_tools(
     conversation_id: str | None = None,
     no_workspace_writes: bool = False,
     design_only: bool = False,
-) -> list[Tool[Any, Any]]:
+) -> list[Tool[Any]]:
     """Build Pydantic function tools backed by Core's live authorization gate.
 
     The supplied catalogue controls only which names and schemas the model can
@@ -554,7 +596,7 @@ def build_brokered_tools(
         invoke_declared_capability,
     )
 
-    tools: list[Tool[Any, Any]] = []
+    tools: list[Tool[Any]] = []
     seen_names: set[str] = set()
     call_state = run_state if run_state is not None else {}
     call_state.setdefault("turn_progress", TurnProgress())
@@ -576,7 +618,9 @@ def build_brokered_tools(
     if always_available_tools is None:
         # Schema exposure only: the original run snapshot and live broker still
         # authorize dispatch. Never synthesize a missing catalogue declaration.
-        immediately_available |= frozenset({"integral_get_page_context"})
+        immediately_available |= frozenset(
+            {"integral_get_page_context", "integral_open_view"}
+        )
     if call_state.get("approved_design_ready") or call_state.get("pending_design"):
         # A saved design reply is a semantic decision point for the primary
         # model. Expose only its server-owned build macro for that turn; when

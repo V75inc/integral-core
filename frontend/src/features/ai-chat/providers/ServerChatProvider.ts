@@ -143,6 +143,11 @@ export function createServerChatProvider({
       };
       return;
     }
+    if (id === "integral_native" && (ctx.images?.length ?? 0) > (ctx.attachmentIds?.length ?? 0)) {
+      yield { type: "error", code: "image_upload_required",
+        message: "The image upload didn't finish. Please attach the image again." };
+      return;
+    }
     const resumeWorkItemId = id === "integral_native" ? ctx.resumeWorkItemId : undefined;
 
     // This stream is a raw fetch (SSE), so it does NOT pass through the axios
@@ -174,7 +179,9 @@ export function createServerChatProvider({
             text: ctx.userMessageText,
             agent_id: ctx.agentId ?? null,
             entity_refs: ctx.entityRefs?.length ? ctx.entityRefs : undefined,
-            images: ctx.images?.length ? ctx.images : undefined,
+            // Native image pixels come from the canonical uploaded attachment.
+            // Sending a second inline copy breaks durable admission and its binding.
+            images: id !== "integral_native" && ctx.images?.length ? ctx.images : undefined,
             attachment_ids: ctx.attachmentIds?.length ? ctx.attachmentIds : undefined,
             focused_track_id: ctx.focusedTrackId ?? undefined,
             focused_view_id: ctx.focusedViewId ?? undefined,

@@ -1161,6 +1161,17 @@ async def persist_consumed_nav_in_transcript(
                 )
             return
         for thread in threads:
+            # Keep the host's closing receipt navigable too, including when
+            # the browser learns of completion through queue reconciliation.
+            from app.services.prompt_queue import get_queue
+
+            queue = get_queue(thread)
+            for item in queue.get("items") or []:
+                if item.get("token") == sc.token:
+                    item["consumed_nav"] = consumed_nav
+                    thread.prompt_queue = queue
+                    await thread.save()
+                    break
             messages = await chat_threads.list_messages(thread)
             for message in messages:
                 new_parts, changed = _rewrite_staged_envelope_in_parts(

@@ -1341,3 +1341,89 @@ async def test_silent_prefetch_closes_and_retries_before_any_output():
         "responded",
     ]
     assert observations[0].request_id != observations[2].request_id
+
+
+@pytest.mark.asyncio
+async def test_native_binary_image_reaches_sdk_after_live_validation():
+    import base64
+
+    from pydantic_ai import BinaryContent
+
+    captured = []
+    checked = []
+
+    async def validate(payload):
+        checked.append(payload)
+
+    async def completion(**kwargs):
+        captured.append(kwargs)
+        assert len(checked) == 1
+        return {
+            "id": "image-response",
+            "object": "chat.completion",
+            "created": 1,
+            "model": _route().model,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "An orange triangle."},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 20, "completion_tokens": 5, "total_tokens": 25},
+        }
+
+    model = build_litellm_sdk_model(
+        route=_route(),
+        scope=_scope(),
+        observer=_ignore_observation,
+        completion=completion,
+        request_validator=validate,
+    )
+    result = await Agent(model).run(
+        [
+            "Describe the image",
+            BinaryContent(data=b"fixture-image-bytes", media_type="image/png"),
+        ]
+    )
+    assert result.output == "An orange triangle."
+    image = captured[0]["messages"][-1]["content"][-1]
+    assert image["type"] == "image_url"
+    assert (
+        image["image_url"]["url"]
+        == "data:image/png;base64," + base64.b64encode(b"fixture-image-bytes").decode()
+    )
+
+
+@pytest.mark.asyncio
+async def test_image_revocation_blocks_sdk_dispatch():
+    from pydantic_ai import BinaryContent
+
+    from app.schemas.agentive.work import WorkError
+
+    calls = []
+    observations = []
+
+    async def observe(event):
+        observations.append(event)
+
+    async def validate(_payload):
+        raise WorkError("work.policy_denied")
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+        raise AssertionError("revoked image must never be sent")
+
+    model = build_litellm_sdk_model(
+        route=_route(),
+        scope=_scope(),
+        observer=observe,
+        completion=completion,
+        request_validator=validate,
+    )
+    with pytest.raises(Exception):
+        await Agent(model).run(
+            ["Describe", BinaryContent(data=b"fixture", media_type="image/png")]
+        )
+    assert calls == []
+    assert [event.outcome for event in observations] == ["dispatch_intent", "failed"]

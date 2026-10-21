@@ -135,6 +135,7 @@ async def resolve_question_endpoint(request: Request) -> Dict[str, Any]:
         "item": result.get("item"),
         "queue": result.get("queue"),
         "resume_text": result.get("resume_text"),
+        "resume_required": bool(result.get("resume_required", True)),
         "closed": bool(result.get("closed")),
     }
 
@@ -173,6 +174,7 @@ async def mark_write_endpoint(request: Request) -> Dict[str, Any]:
         "matched": bool(result.get("matched")),
         "queue": result.get("queue"),
         "resume_text": result.get("resume_text"),
+        "resume_required": bool(result.get("resume_required", True)),
         "closed": bool(result.get("closed")),
     }
 
@@ -207,5 +209,6 @@ async def cancel_all_endpoint(request: Request) -> Dict[str, Any]:
         "revoked_tokens": result.get("revoked_tokens") or [],
         "queue": result.get("queue"),
         "resume_text": result.get("resume_text"),
+        "resume_required": bool(result.get("resume_required", False)),
         "closed": bool(result.get("closed")),
     }

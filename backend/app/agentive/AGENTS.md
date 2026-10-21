@@ -114,3 +114,11 @@ and the root AGENTS.md for worker, audit and qualification requirements.
 ## Why the Drift Existed (historical)
 
 The agentive layer was prototyped quickly against raw FastAPI patterns when bootstrapping the 06-01 milestone. Tactical velocity-over-consistency trade made under time pressure. Not an approved exception — debt was unwound in Plan 06-05 (Wave 4 directive-plan remediation).
+
+## Agent-directed navigation
+
+`integral_open_view` changes only the live browser view. Keep principal, owned
+thread, workspace, resource and saved-View checks in the service; never accept
+model-supplied URLs or scope. Consume navigation only from live foreground tool
+results, after successful completion, preserving the chat. Reload/history and
+background or recovered work must never replay UI navigation.

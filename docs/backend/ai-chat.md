@@ -8,6 +8,33 @@ Core derives principal, workspace, binding, and route authority. ChatThread and 
 
 One thread's active binding and session generation determine continuation. Changing a binding preserves historical sessions but cannot silently execute under a mismatched scope. The product transcript remains distinct from private model history, traces, checkpoints, and effect receipts.
 
+## Image input
+
+Native chat accepts PNG, JPEG, WebP and GIF through the ordinary persisted
+chat-upload endpoint and `attachment_ids` (up to four images per turn, 5 MB and
+25 million pixels per image). It does not send a duplicate inline `images`
+payload. Current accepted message parts are converted to Pydantic AI
+`BinaryContent`; the model receives pixels alongside the exact authored text.
+The selected model must support image input. Images are untrusted evidence,
+never approval or host instructions. Filing remains a separate reviewed action.
+
+Image preparation also accepts text-only durable system messages for approval
+outcomes and other host continuations; only user messages may introduce new
+image pixels. These internal receipts remain in storage and audit but do not
+render as conversation bubbles after reload. Current image history is still
+revalidated at dispatch. Approval readback uses exact resource IDs from scoped
+receipts, never the proposal's prose as proof that a change succeeded.
+
+Before every physical model attempt, including retries and restored-history
+requests, Core checks workspace membership, thread ownership, canonical upload
+attachment, scanner visibility, current owning-entry read access and canonical
+workspace, stored MIME/size and SHA256, and actual image format/dimensions.
+Remote image URLs are not fetched. Changed, detached or revoked files fail
+closed before SDK dispatch. Image-bearing history retains its encrypted native
+checkpoint for follow-up questions after reload, rather than using the text-only
+conversational shortcut. The existing WorkItem, lease, replay, admission and
+usage-accounting contracts remain in force.
+
 ## Ordinary and durable turns
 
 Native chat uses durable WorkItems by default on the supported PostgreSQL store. An accepted turn is independent of its SSE connection: closing or refreshing the browser only ends event delivery, and the transcript can reattach to the accepted WorkItem. If a worker lease is reclaimed, Core reconciles the prior deterministic run against the WorkItem's terminal status or newer leased attempt before applying the usual checkpoint and receipt checks. This closes only a run proven to have lost its execution fence; it does not replay uncertain tool effects. Unverified mutations still require outcome reconciliation. Set `INTEGRAL_NATIVE_DURABLE_CHAT_ENABLED=false` only to opt into legacy request-bound execution; that mode does not provide process-restart recovery.
@@ -20,6 +47,15 @@ The collapsed work trail shows one short line based on observable activity:
 preparing a response, reading information, checking search readiness, reviewing
 results, or writing the answer. Cancellation and retry notices take priority.
 Tool arguments and private model reasoning never supply this label.
+
+A successful approved build clears its pending-design state. Once the same
+turn's permission-checked verification confirms the build, the setup workflow
+reserves a tool-free closing response with links from that readback. It must not
+reopen a batch or rediscover capabilities after completing the approved setup.
+Partial, denied and failed verification retain their qualified outcomes.
+History summaries operate on completed turns only; unchanged retained history
+is not summarized again while the active turn grows, and summarization does not
+consume the final response reservation. Request and token limits remain enforced.
 
 Model streams have both a total request deadline and a configurable silence
 limit (see [configuration](../ops/CONFIGURATION.md)). A timeout before output
@@ -61,3 +97,24 @@ Streaming deltas, tool results, review state, final answer, and cancellation hav
 Human-facing text resolves opaque IDs to readable names. Machine arguments retain canonical identity. Review cards should accurately distinguish proposed, approved, applied, failed, canceled, and uncertain states.
 
 See [resident harness](../product/RESIDENT_HARNESS.md), [prompt queue](prompt-queue.md), and [qualification](../ops/QUALIFICATION.md).
+
+
+## Agent navigation
+
+`integral_open_view(target_kind, target_id, view_id?)` prepares a local App,
+collection or record destination; a collection may name an existing saved View.
+This is an ephemeral presentation request, classified as a read because it
+changes no stored data. Current resource and optional saved-view permissions,
+structural workspace membership, and the owned browser chat are checked before
+returning the destination. It cannot navigate to arbitrary URLs or change scope.
+
+The public stream projects a dedicated `navigation` event containing only the
+local path, owned thread and workspace IDs; raw tool arguments/results stay
+private. Only the originating visible tab's live navigation event is consumed, after a
+successful turn. History, recovered work, canceled/failed turns, other threads,
+changed workspaces/routes, and a nonempty composer do not trigger navigation.
+The browser uses the ordinary router and keeps the conversation available in the
+companion panel. Opening a page does not prove that a mutation succeeded.
+
+Local candidate evidence for images, approvals, navigation and their validation
+limits is recorded in the [October 20 chat qualification](../ops/qualification/2026-10-20-native-image-input-smoke.md).

@@ -6,6 +6,22 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Let the agent open permitted Apps, collections, records and saved views in the current tab through `integral_open_view`, preserving chat and suppressing navigation from history, background or interrupted turns.
+
+- End completed write approvals, denials and cancellations with the host review receipt; reserve agent continuation for answered questions, approved designs and unpublished profile revisions that need further work.
+- Expose registered App tool discovery and invocation together in record and attachment skills, distinguish registered tool keys from declared queries, and encode binary checkpoint data safely in session exports.
+
+- Refresh chat approvals at committed staging results, reply start and turn completion; retain refresh signals arriving during an active status check so new cards do not wait for idle polling.
+- Use contrasting toast surfaces in both themes, vertically centre messages and controls, and allow up to three message lines with status-coloured left borders.
+
+- Preserve approval and other server continuations through native image-input preparation; keep internal host receipts out of chat bubbles after reload and carry exact receipt IDs into scoped readback.
+
+- Add native image understanding from persisted chat uploads, with live image-access and content checks before every model attempt, durable reload/follow-up support, and clear image-format/model errors.
+
+- Close verified setup workflows with a brief result and current resource links; clear applied design state and avoid repeated summaries of unchanged history consuming the response allowance.
+
+- Highlight short chat invitations to confirm or reply; show stopped requests as neutral status notes in live chat and saved history.
+
 - Describe live chat activity in one short line, including reading, search checks and answer preparation; keep retry and cancellation notices current.
 - Reuse repeated parent-App checks during Track discovery while retaining fresh canonical admission; route installed-App record questions through their registered read tools or declared queries.
 - Bound silent model streams and enforce their full request deadline, preserving uncertain usage and effect receipts during interruption.
