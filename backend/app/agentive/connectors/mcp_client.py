@@ -360,9 +360,15 @@ def _remote_tool_error(result: Any) -> McpRemoteToolError:
         str(getattr(block, "text", ""))[:4096]
         for block in (getattr(result, "content", None) or [])[:8]
     ]
+    blob = "\n".join(texts)
+    if re.search(r"InvalidAuthenticationToken|invalid_grant", blob):
+        return McpRemoteToolError(
+            "The remote service refused authentication (HTTP 401). Check the connector credentials in Settings → Connectors.",
+            "remote_authentication_failed",
+        )
     status = re.search(
-        r"(?:HTTP(?:/\d(?:\.\d)?)?\s+|[Cc]lient error ['\"]|[Ss]tatus(?:[_ ]code)?[\s:=]+)(401|403|429)\b",
-        "\n".join(texts),
+        r"(?:HTTP(?:/\d(?:\.\d)?)?\s+|[Cc]lient error ['\"]|[Ss]tatus(?:[_ ]code)?[\s:=]+|\"http_status\"\s*:\s*)(401|403|429)\b",
+        blob,
     )
     if status and status.group(1) in {"401", "403"}:
         return McpRemoteToolError(

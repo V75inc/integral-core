@@ -1905,6 +1905,7 @@ async def _finish_microsoft_mail_oauth(
     *,
     access_token: str,
     refresh_token: str,
+    expires_in: int = 3600,
 ) -> Any:
     """Store the refresh token and discover tools with a bring-your-own access token."""
     from app.agentive.connectors.mcp_mount import complete_stdio_mount
@@ -1937,8 +1938,13 @@ async def _finish_microsoft_mail_oauth(
         ),
         catalog_slug=CATALOG_SLUG,
     )
+    from datetime import datetime, timedelta, timezone
+
     mounted = decrypt_auth_state(getattr(connector, "auth_state", None) or {})
     mounted["refresh_token"] = refresh_token
+    mounted["access_token_expires_at"] = (
+        datetime.now(timezone.utc) + timedelta(seconds=max(int(expires_in or 0), 60))
+    ).isoformat()
     connector.auth_state = encrypt_auth_state(mounted)
     await connector.save()
     return connector
@@ -3341,6 +3347,7 @@ async def post_microsoft_mail_callback(
             connector,
             access_token=str(token_response.get("access_token") or ""),
             refresh_token=str(token_response.get("refresh_token") or ""),
+            expires_in=int(token_response.get("expires_in") or 3600),
         )
     except Exception as exc:  # noqa: BLE001
         from app.utils.time import utc_now_iso

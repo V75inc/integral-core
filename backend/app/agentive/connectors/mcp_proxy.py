@@ -95,6 +95,38 @@ async def _enforce_invoke_policy(
         )
 
 
+def _proxy_error(exc: BaseException) -> McpProxyError:
+    detail = describe_mcp_failure(exc)
+    return McpProxyError(
+        f"remote MCP call failed: {detail}",
+        exc.error_code if isinstance(exc, McpRemoteToolError) else "remote_error",
+    )
+
+
+async def _fail_remote(
+    connector: Any,
+    exc: BaseException,
+    *,
+    connector_id: str,
+    remote_name: str,
+) -> None:
+    detail = describe_mcp_failure(exc)
+    logger.warning(
+        "mcp_proxy: remote call failed connector=%s tool=%s: %s",
+        connector_id,
+        remote_name,
+        detail,
+    )
+    await _record_invoke_health(connector, status=HEALTH_ERROR, error=detail)
+
+
+def _reauth_proxy_error() -> McpProxyError:
+    return McpProxyError(
+        "remote MCP call failed: The remote service refused authentication (HTTP 401). Check the connector credentials in Settings → Connectors.",
+        "remote_authentication_failed",
+    )
+
+
 async def _record_invoke_health(
     connector: Any, *, status: str, error: Optional[str]
 ) -> None:
@@ -187,22 +219,58 @@ async def invoke(
     )
 
     auth_state = dict(getattr(connector, "auth_state", None) or {})
+    from app.agentive.connectors.mcp_adapter import plain_auth_state
+    from app.agentive.connectors.microsoft_mail import ensure_fresh_access_token
+    from app.api.errors import ConnectorAuthError
+    from app.services.connectors.microsoft_mail_oauth import CATALOG_SLUG
+
+    mail = str(plain_auth_state(connector).get("catalog_slug") or "") == CATALOG_SLUG
+    if mail:
+        try:
+            auth_state = await ensure_fresh_access_token(connector)
+        except ConnectorAuthError as exc:
+            if (getattr(exc, "details", None) or {}).get("reauth_required"):
+                await _record_invoke_health(
+                    connector,
+                    status=HEALTH_ERROR,
+                    error="Outlook needs to be connected again",
+                )
+                raise _reauth_proxy_error() from exc
+            raise
 
     try:
         result = await call_remote_tool(auth_state, remote_name, payload)
+    except McpRemoteToolError as exc:
+        if not (mail and exc.error_code == "remote_authentication_failed"):
+            await _fail_remote(
+                connector, exc, connector_id=connector_id, remote_name=remote_name
+            )
+            raise _proxy_error(exc) from exc
+        try:
+            auth_state = await ensure_fresh_access_token(connector, force=True)
+            result = await call_remote_tool(auth_state, remote_name, payload)
+        except ConnectorAuthError as refresh_exc:
+            if (getattr(refresh_exc, "details", None) or {}).get("reauth_required"):
+                await _record_invoke_health(
+                    connector,
+                    status=HEALTH_ERROR,
+                    error="Outlook needs to be connected again",
+                )
+                raise _reauth_proxy_error() from refresh_exc
+            raise
+        except Exception as retry_exc:  # noqa: BLE001
+            await _fail_remote(
+                connector,
+                retry_exc,
+                connector_id=connector_id,
+                remote_name=remote_name,
+            )
+            raise _proxy_error(retry_exc) from retry_exc
     except Exception as exc:  # noqa: BLE001
-        detail = describe_mcp_failure(exc)
-        logger.warning(
-            "mcp_proxy: remote call failed connector=%s tool=%s: %s",
-            connector_id,
-            remote_name,
-            detail,
+        await _fail_remote(
+            connector, exc, connector_id=connector_id, remote_name=remote_name
         )
-        await _record_invoke_health(connector, status=HEALTH_ERROR, error=detail)
-        raise McpProxyError(
-            f"remote MCP call failed: {detail}",
-            exc.error_code if isinstance(exc, McpRemoteToolError) else "remote_error",
-        ) from exc
+        raise _proxy_error(exc) from exc
     await _record_invoke_health(connector, status=HEALTH_OK, error=None)
 
     try:

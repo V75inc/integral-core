@@ -2,13 +2,14 @@
 
 The access token is handed to ``@softeria/ms-365-mcp-server`` as
 ``MS365_MCP_OAUTH_TOKEN``. That server does not refresh a bring-your-own
-token, so the refresh token stays on the connector and a later spawn must
-mint a new access token. Token values are never logged.
+token, so the refresh token stays on the connector and Integral mints a new
+access token before a later spawn. Token values are never logged.
 """
 
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 from urllib.parse import urlencode, urlparse
 
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 SCOPES = "offline_access User.Read Mail.Read Mail.Read.Shared"
 CATALOG_SLUG = "microsoft_365_mail"
+_TOKEN_SKEW = timedelta(minutes=5)
 
 
 def absolute_redirect(value: str) -> str:
@@ -153,11 +155,163 @@ async def exchange_code(
     return payload
 
 
+def _auth_field(auth_state: Dict[str, Any], name: str, env_key: str) -> str:
+    """Read a credential from the connector row, then from the spawn env."""
+    direct = str(auth_state.get(name) or "").strip()
+    if direct:
+        return direct
+    env = auth_state.get("env")
+    if isinstance(env, dict):
+        return str(env.get(env_key) or "").strip()
+    return ""
+
+
+def _parse_expiry(value: Any) -> Optional[datetime]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def access_token_is_fresh(
+    auth_state: Dict[str, Any], *, now: Optional[datetime] = None
+) -> bool:
+    """True when the stored access token is present and outside the refresh skew.
+
+    A missing expiry is stale. The first mail mount stored the access token
+    without ``access_token_expires_at``, and Graph rejects that token after
+    about an hour.
+    """
+    env = auth_state.get("env")
+    token = ""
+    if isinstance(env, dict):
+        token = str(env.get("MS365_MCP_OAUTH_TOKEN") or "").strip()
+    if not token:
+        return False
+    expires_at = _parse_expiry(auth_state.get("access_token_expires_at"))
+    if expires_at is None:
+        return False
+    current = now or datetime.now(timezone.utc)
+    return expires_at > current + _TOKEN_SKEW
+
+
+def store_refreshed_tokens(
+    auth_state: Dict[str, Any],
+    payload: Dict[str, Any],
+    *,
+    now: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    """Copy ``auth_state`` with the new access token in the spawn env."""
+    updated = dict(auth_state)
+    env = dict(updated.get("env") or {})
+    env["MS365_MCP_OAUTH_TOKEN"] = str(payload.get("access_token") or "")
+    updated["env"] = env
+    rotated = str(payload.get("refresh_token") or "").strip()
+    if rotated:
+        updated["refresh_token"] = rotated
+    expires_in = int(payload.get("expires_in") or 3600)
+    current = now or datetime.now(timezone.utc)
+    updated["access_token_expires_at"] = (
+        current + timedelta(seconds=max(expires_in, 60))
+    ).isoformat()
+    updated.pop("reauth_required", None)
+    return updated
+
+
+async def refresh_access_token(
+    *,
+    tenant: str,
+    client_id: str,
+    client_secret: str,
+    refresh_token: str,
+    http_client: Optional[httpx.AsyncClient] = None,
+) -> Dict[str, Any]:
+    """Mint a new access token. Raises ConnectorAuthError on a rejected refresh.
+
+    A 400 or 401 marks ``reauth_required``. Other statuses stay retryable so a
+    transient Entra failure does not ask the person to connect again.
+    """
+    token_url = f"https://login.microsoftonline.com/{tenant.strip()}/oauth2/v2.0/token"
+    body = {
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+        "scope": SCOPES,
+    }
+    client_ctx = http_client or httpx.AsyncClient(timeout=15.0)
+    try:
+        response = await client_ctx.post(token_url, data=body)
+    finally:
+        if http_client is None:
+            await client_ctx.aclose()
+    if response.status_code != 200:
+        logger.warning(
+            "microsoft_mail_oauth: refresh returned status=%s",
+            response.status_code,
+        )
+        raise ConnectorAuthError(
+            message=f"Microsoft token endpoint returned {response.status_code}",
+            details={
+                "status_code": response.status_code,
+                "reauth_required": response.status_code in {400, 401},
+            },
+        )
+    payload = response.json()
+    if not isinstance(payload, dict) or not payload.get("access_token"):
+        raise ConnectorAuthError(
+            message="Microsoft token response did not include an access token",
+            details={"reauth_required": True},
+        )
+    return payload
+
+
+async def refreshed_auth_state(
+    auth_state: Dict[str, Any],
+    *,
+    http_client: Optional[httpx.AsyncClient] = None,
+    force: bool = False,
+) -> Dict[str, Any]:
+    """Return auth state whose spawn env carries a usable access token."""
+    if str(auth_state.get("catalog_slug") or "") != CATALOG_SLUG:
+        return auth_state
+    if not force and access_token_is_fresh(auth_state):
+        return auth_state
+    # The refresh token stays on the connector. It is not a spawn env var.
+    refresh_token = str(auth_state.get("refresh_token") or "").strip()
+    client_id = _auth_field(auth_state, "client_id", "MS365_MCP_CLIENT_ID")
+    client_secret = _auth_field(auth_state, "client_secret", "MS365_MCP_CLIENT_SECRET")
+    tenant = _auth_field(auth_state, "tenant_id", "MS365_MCP_TENANT_ID")
+    if not refresh_token or not client_id or not client_secret or not tenant:
+        raise ConnectorAuthError(
+            message="Microsoft 365 mail is missing credentials for token refresh",
+            details={"reauth_required": True},
+        )
+    payload = await refresh_access_token(
+        tenant=tenant,
+        client_id=client_id,
+        client_secret=client_secret,
+        refresh_token=refresh_token,
+        http_client=http_client,
+    )
+    return store_refreshed_tokens(auth_state, payload)
+
+
 __all__ = [
     "CATALOG_SLUG",
     "SCOPES",
+    "access_token_is_fresh",
     "build_consent_url",
     "consent_url",
     "exchange_code",
+    "refresh_access_token",
+    "refreshed_auth_state",
     "spawn_env",
+    "store_refreshed_tokens",
 ]

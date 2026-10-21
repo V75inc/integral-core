@@ -1,20 +1,29 @@
 """Microsoft 365 mail catalog entry stays read-only and does not log tokens."""
 
 import json
+from datetime import datetime, timedelta, timezone
 
+import httpx
 import pytest
 
 from app.agentive.api.connectors import (
     _audit_snapshot,
     _catalog_install_microsoft_mail_oauth,
 )
-from app.agentive.connectors.mcp_client import _allowed_spawn_env_keys
-from app.api.errors import BadRequestError
+from app.agentive.connectors.mcp_client import (
+    _allowed_spawn_env_keys,
+    _remote_tool_error,
+)
+from app.agentive.connectors.microsoft_mail import ensure_fresh_access_token
+from app.agentive.services.connector_registry_node import decrypt_auth_state
+from app.api.errors import BadRequestError, ConnectorAuthError
 from app.connectors.catalog_loader import get_catalog_entry
 from app.services.connectors.microsoft_mail_oauth import (
     SCOPES,
     absolute_redirect,
+    access_token_is_fresh,
     consent_url,
+    refresh_access_token,
     spawn_env,
 )
 
@@ -109,6 +118,7 @@ async def test_install_requires_tenant_and_client_id():
 
 def test_audit_snapshot_omits_token_material():
     """Change-event snapshots do not include connector auth state."""
+
     class _Connector:
         owner = "user-1"
         kind = "mcp"
@@ -126,3 +136,130 @@ def test_audit_snapshot_omits_token_material():
     assert "refresh-secret" not in encoded
     assert "access-secret" not in encoded
     assert "auth_state" not in snapshot
+
+
+def _mail_auth(**overrides):
+    auth = {
+        "catalog_slug": "microsoft_365_mail",
+        "refresh_token": "refresh-1",
+        "env": {
+            "MS365_MCP_OAUTH_TOKEN": "old-access",
+            "MS365_MCP_CLIENT_ID": "client-1",
+            "MS365_MCP_CLIENT_SECRET": "secret-1",
+            "MS365_MCP_TENANT_ID": "tenant-1",
+        },
+    }
+    auth.update(overrides)
+    return auth
+
+
+def test_missing_expiry_is_not_treated_as_a_live_token():
+    """A mount that never stored expiry must refresh before the next read."""
+    assert access_token_is_fresh(_mail_auth()) is False
+    later = datetime.now(timezone.utc) + timedelta(hours=1)
+    assert (
+        access_token_is_fresh(
+            _mail_auth(access_token_expires_at=later.isoformat()),
+        )
+        is True
+    )
+
+
+def test_graph_invalid_token_is_an_authentication_failure():
+    """Graph's InvalidAuthenticationToken body is a 401, not a generic read error."""
+
+    class _Block:
+        text = '{"error_code":"InvalidAuthenticationToken","http_status":401}'
+
+    class _Result:
+        content = [_Block()]
+
+    err = _remote_tool_error(_Result())
+    assert err.error_code == "remote_authentication_failed"
+    assert "401" in str(err)
+
+
+@pytest.mark.asyncio
+async def test_refresh_replaces_the_spawn_token_and_keeps_a_rotated_refresh_token():
+    """A stale mailbox read mints a new access token before the stdio spawn."""
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["body"] = request.content.decode()
+        return httpx.Response(
+            200,
+            json={
+                "access_token": "new-access",
+                "expires_in": 3600,
+                "refresh_token": "refresh-2",
+            },
+        )
+
+    class _Connector:
+        id = "n.Connector.mail"
+        auth_state = _mail_auth()
+        saves = 0
+
+        async def save(self):
+            self.saves += 1
+
+    connector = _Connector()
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        updated = await ensure_fresh_access_token(connector, http_client=client)
+    assert seen["url"].endswith("/tenant-1/oauth2/v2.0/token")
+    assert "grant_type=refresh_token" in seen["body"]
+    assert "refresh_token=refresh-1" in seen["body"]
+    assert updated["env"]["MS365_MCP_OAUTH_TOKEN"] == "new-access"
+    assert updated["refresh_token"] == "refresh-2"
+    assert updated["access_token_expires_at"]
+    stored = decrypt_auth_state(connector.auth_state)
+    assert stored["env"]["MS365_MCP_OAUTH_TOKEN"] == "new-access"
+    assert stored["refresh_token"] == "refresh-2"
+    assert connector.saves == 1
+
+
+@pytest.mark.asyncio
+async def test_a_fresh_access_token_is_not_refreshed():
+    """A token outside the skew window does not call Entra."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(request.url)
+
+    later = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+
+    class _Connector:
+        id = "n.Connector.fresh"
+        auth_state = _mail_auth(access_token_expires_at=later)
+
+        async def save(self):
+            raise AssertionError("fresh token must not be rewritten")
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        updated = await ensure_fresh_access_token(_Connector(), http_client=client)
+    assert updated["env"]["MS365_MCP_OAUTH_TOKEN"] == "old-access"
+
+
+@pytest.mark.asyncio
+async def test_rejected_refresh_requires_reauth_and_a_server_error_does_not():
+    """invalid_grant asks for a new consent. A 503 stays retryable."""
+
+    async def _status(status: int):
+        transport = httpx.MockTransport(lambda request: httpx.Response(status, json={}))
+        async with httpx.AsyncClient(transport=transport) as client:
+            with pytest.raises(ConnectorAuthError) as caught:
+                await refresh_access_token(
+                    tenant="tenant-1",
+                    client_id="client-1",
+                    client_secret="secret-1",
+                    refresh_token="refresh-1",
+                    http_client=client,
+                )
+        return caught.value
+
+    rejected = await _status(400)
+    assert rejected.details["reauth_required"] is True
+    unavailable = await _status(503)
+    assert unavailable.details["reauth_required"] is False
