@@ -52,7 +52,9 @@ def _export_value(value: Any) -> Any:
     if hasattr(value, "model_dump"):
         return value.model_dump(mode="json")
     if is_dataclass(value):
-        return to_jsonable_python(asdict(value))
+        # Multimodal checkpoints contain binary image parts. JSON exports
+        # must encode those bytes, never attempt to decode a PNG as UTF-8.
+        return to_jsonable_python(asdict(value), bytes_mode="base64")
     return value
 
 

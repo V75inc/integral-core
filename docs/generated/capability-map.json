@@ -269,6 +269,7 @@
         "integral_attach_uploaded_file_to_entry",
         "integral_attach_uploaded_image_to_entry",
         "integral_begin_batch",
+        "integral_call_workspace_tool",
         "integral_cancel_batch",
         "integral_commit_batch",
         "integral_create_entry",
@@ -281,6 +282,7 @@
         "integral_list_track_attachments",
         "integral_list_tracks",
         "integral_list_workspace_attachments",
+        "integral_list_workspace_tools",
         "integral_query_entries",
         "integral_rank_destinations",
         "integral_resolve_entry",
@@ -290,6 +292,7 @@
         "integral_attach_file",
         "integral_attach_uploaded_file_to_entry",
         "integral_begin_batch",
+        "integral_call_workspace_tool",
         "integral_cancel_batch",
         "integral_commit_batch",
         "integral_create_entry",
@@ -302,6 +305,7 @@
         "integral_list_track_attachments",
         "integral_list_tracks",
         "integral_list_workspace_attachments",
+        "integral_list_workspace_tools",
         "integral_query_entries",
         "integral_rank_destinations",
         "integral_resolve_entry",
@@ -362,6 +366,7 @@
         "integral_add_comment",
         "integral_add_entry_tag",
         "integral_begin_batch",
+        "integral_call_workspace_tool",
         "integral_cancel_batch",
         "integral_commit_batch",
         "integral_create_entry",
@@ -376,6 +381,9 @@
         "integral_list_comments",
         "integral_list_tags",
         "integral_list_tracks",
+        "integral_list_views",
+        "integral_list_workspace_tools",
+        "integral_open_view",
         "integral_query_entries",
         "integral_remove_entry_tag",
         "integral_resolve_entry",
@@ -386,6 +394,7 @@
         "integral_add_comment",
         "integral_add_entry_tag",
         "integral_begin_batch",
+        "integral_call_workspace_tool",
         "integral_commit_batch",
         "integral_create_entry",
         "integral_create_tag",
@@ -397,6 +406,9 @@
         "integral_list_comments",
         "integral_list_tags",
         "integral_list_tracks",
+        "integral_list_views",
+        "integral_list_workspace_tools",
+        "integral_open_view",
         "integral_query_entries",
         "integral_remove_entry_tag",
         "integral_resolve_entry",
@@ -478,6 +490,7 @@
       "allowed_tools": [
         "integral_activity_digest",
         "integral_aggregate",
+        "integral_call_workspace_tool",
         "integral_count_entries",
         "integral_describe_capabilities",
         "integral_describe_substrate",
@@ -491,7 +504,10 @@
         "integral_list_notifications",
         "integral_list_tags",
         "integral_list_tracks",
+        "integral_list_views",
+        "integral_list_workspace_tools",
         "integral_mark_notification_read",
+        "integral_open_view",
         "integral_plan_query",
         "integral_query",
         "integral_query_entries",
@@ -503,14 +519,20 @@
       "body_tools": [
         "integral_activity_digest",
         "integral_aggregate",
+        "integral_call_workspace_tool",
         "integral_count_entries",
+        "integral_describe_capabilities",
         "integral_get_digest",
         "integral_get_feed",
         "integral_get_graph_context",
         "integral_get_track_schema",
+        "integral_governed_query",
         "integral_list_notifications",
         "integral_list_tracks",
+        "integral_list_views",
+        "integral_list_workspace_tools",
         "integral_mark_notification_read",
+        "integral_open_view",
         "integral_query",
         "integral_query_entries",
         "integral_query_spec",
@@ -913,9 +935,11 @@
         "integral_list_conflicts",
         "integral_list_share_links",
         "integral_list_tracks",
+        "integral_list_views",
         "integral_list_workspace_tools",
         "integral_list_workspaces",
         "integral_mint_share_link",
+        "integral_open_view",
         "integral_remove_collaborator",
         "integral_remove_exclusion",
         "integral_resolve_conflict",
@@ -941,7 +965,9 @@
         "integral_list_apps",
         "integral_list_share_links",
         "integral_list_tracks",
+        "integral_list_views",
         "integral_list_workspaces",
+        "integral_open_view",
         "integral_resolve_entry",
         "integral_share",
         "integral_update_track"
@@ -960,15 +986,15 @@
     }
   ],
   "counts": {
-    "advertised": 127,
+    "advertised": 128,
     "apps": 5,
     "by_op_class": {
       "execute": 1,
       "propose": 71,
-      "read": 55
+      "read": 56
     },
     "core_skills": 17,
-    "tools": 129
+    "tools": 130
   },
   "diagnostics": {
     "advertised_tools_without_skill": [
@@ -1046,6 +1072,27 @@
       "policy_action": null,
       "skills": [
         "integral-entries"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.services.agent_navigation.open_view_for_dispatch"
+        ]
+      },
+      "domain": "A_discovery",
+      "http": null,
+      "mcp_min_scope": "integral:read",
+      "name": "integral_open_view",
+      "op_class": "read",
+      "policy_action": null,
+      "skills": [
+        "integral-entries",
+        "integral-insights",
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -2260,6 +2307,9 @@
       "op_class": "read",
       "policy_action": "tool.invoke",
       "skills": [
+        "integral-attachments",
+        "integral-entries",
+        "integral-insights",
         "integral-workspace"
       ],
       "status": "existing"
@@ -2279,6 +2329,9 @@
       "op_class": "propose",
       "policy_action": "tool.invoke",
       "skills": [
+        "integral-attachments",
+        "integral-entries",
+        "integral-insights",
         "integral-workspace"
       ],
       "status": "existing"
@@ -2554,9 +2607,12 @@
       "op_class": "read",
       "policy_action": "view.read",
       "skills": [
+        "integral-entries",
+        "integral-insights",
         "integral-model",
         "integral-review",
-        "integral-scaffold"
+        "integral-scaffold",
+        "integral-workspace"
       ],
       "status": "existing"
     },

@@ -295,8 +295,8 @@ async def execute_blessed_change(
         response["consumed"] = True
         response["staged_change"] = sc.to_dict()
         try:
-            await staging._push_state_and_record_closure(sc)
             await persist_consumed_nav_in_transcript(sc, result)
+            await staging._push_state_and_record_closure(sc)
         except (
             Exception
         ):  # noqa: BLE001 — committed decision/effect cannot be undone by notification failure

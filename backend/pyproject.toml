@@ -44,7 +44,7 @@ classifiers = [
 
 dependencies = [
     # Local launcher: isolated Python provisioning, lifecycle locking, PID identity.
-    "uv>=0.10,<1",
+    "uv>=0.13.4,<1",
     "filelock>=3.16,<4",
     "psutil>=6,<8",
     "fastapi>=0.100.0",
@@ -93,11 +93,15 @@ dependencies = [
     # Keep the 1.x API boundary above; do not suppress the dependency audit.
     "mcp[cli]>=1.30.0,<2",
     # Phase 4 — Hybrid Retrieval substrate (RET-01..04).
-    # fastembed: ONNX-Runtime backend for sentence-transformers/all-MiniLM-L6-v2
-    #            (same model, no torch). embedding_model.py defers the import.
-    # Vector store: MongoDB Atlas Vector Search via motor (transitive via
-    # jvspatial's Mongo backend); non-Mongo deployments use the null driver.
-    "fastembed>=0.4,<1.0",
+    # Direct text-only ONNX inference preserves MiniLM without FastEmbed's
+    # unrelated Pillow<13 cap. Heavy imports remain deferred; no torch.
+    # Governed passage indexing supports pgvector; unsupported stores degrade
+    # to canonical keyword reads, never unscoped model results.
+    "onnxruntime>=1.24.2,<2",
+    "tokenizers>=0.22,<1",
+    "huggingface-hub>=1,<2",
+    "numpy>=2,<3",
+    "certifi>=2026.10.19",
     # Optional production-only error reporting; inert when SENTRY_DSN unset.
     "sentry-sdk[fastapi]>=2.0.0",
     # Ed25519 bundle verification (operational_model_signature / operational_model_plugins).
@@ -130,9 +134,7 @@ dependencies = [
     "openpyxl>=3.1.0",
     "python-pptx>=0.6.21",
     "reportlab>=4.0.0",
-    # FastEmbed currently requires Pillow <13. Constrain file decoding to the
-    # documented raster/PNG inputs while its Pillow 13 compatibility is pending.
-    "Pillow>=12.3.0,<13",
+    "Pillow>=13.0.0,<14",
     "mutagen>=1.47.0",
     "langdetect>=1.0.9",
     "markdown-it-py>=4,<5",
@@ -288,3 +290,11 @@ module = "app.*"
 # for proper stubs where installed; disabling the code here makes the gate
 # deterministic regardless of whether that stub happens to be present.
 disable_error_code = ["attr-defined", "return-value", "arg-type", "assignment", "call-overload", "import-untyped"]
+
+# The app gate targets Python 3.11, while a Python 3.12+ environment resolves
+# newer NumPy stubs using PEP 695. Keep native dependency stubs outside the
+# declared --follow-imports=skip boundary; application files remain checked.
+[[tool.mypy.overrides]]
+module = ["numpy", "numpy.*"]
+follow_imports = "skip"
+follow_imports_for_stubs = true

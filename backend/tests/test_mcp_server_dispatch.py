@@ -140,13 +140,15 @@ async def test_list_tools_returns_catalogue():
     # 124 -> 125: distinct App Home read capability.
     # 125 -> 124: retire the Enhance recommendation tool.
     # 124 -> 127: index status and two approval-gated maintenance capabilities.
-    assert len(tools) == 127, len(tools)
+    # 127 -> 128: permission-checked browser navigation.
+    assert len(tools) == 128, len(tools)
     assert all(isinstance(t, types.Tool) for t in tools)
 
     names = {t.name for t in tools}
     assert "integral_get_graph_context" in names
     assert "integral_query_spec" in names
     assert "integral_list_tracks" in names
+    assert "integral_open_view" in names
     assert "integral_create_entry" in names
 
     # Every tool carries a non-empty JSON-schema inputSchema (camelCase field).

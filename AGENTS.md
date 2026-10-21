@@ -91,7 +91,7 @@ npm run test:run
 ```bash
 git config core.hooksPath .githooks
 ```
-Wires `.githooks/pre-commit`, which fires **eleven** guards:
+Wires `.githooks/pre-commit`, which runs the substrate and packaging guards:
 - `.ci/jvspatial_drift_check.sh` — blocks raw-FastAPI patterns
 - `.ci/graph_contiguousness_check.sh` — blocks `<Node>.create(` without same-function edge wire (I-GRAPH-01)
 - `.ci/substrate_domain_drift_check.sh` — blocks domain references in substrate scope (I-SUBSTRATE-01)
@@ -104,9 +104,13 @@ Wires `.githooks/pre-commit`, which fires **eleven** guards:
 - `.ci/csp_inline_script_hash_check.sh` — reconciles the inline `<script>` blocks in `frontend/index.html` against the CSP `script-src` hashes in the nginx configs (not a substrate guard; it is here because a stale hash breaks the app in the browser only — build, types and every server-side healthcheck stay green)
 - `.ci/node_destroy_check.sh` — blocks `.destroy(` (not a jvspatial API)
 - `.ci/nodes_len_drift_check.sh` — blocks `len(await ….nodes(…))`; use `count_nodes` / `nodes_page` / `limit=`
+- `.ci/core_profiles_only_check.sh` — keeps bundled Core profiles seeds-only
+- `.ci/contracts_boundary_check.sh` — keeps shared contracts dependency-light
+- `.ci/module_boundary_check.sh` — enforces module dependency boundaries
+- `.ci/module_import_cycle_check.sh` — rejects module import cycles
 
-CI runs the first four plus the CSP hash guard; the hook is the stronger gate
-by design, and `make verify` matches the hook. Note most guards scan the
+CI runs the jvspatial, graph, substrate-domain, service-layer, Core/App import
+and CSP guards. The local hook also runs the additional guards above. Note most guards scan the
 **staged** index (`git diff --cached`), so they pass vacuously against an
 unstaged tree — `csp_inline_script_hash_check.sh` is the exception and scans
 the working tree, because a security header either agrees with the app or does
@@ -135,6 +139,21 @@ These rules bind any AI agent working in this repo. They are not optional.
      lint or failing tests.
    - Only commit once lint is clean and tests pass. If a fix is out of scope,
      stop and surface it rather than committing a broken state.
+
+### Chat identity and first-time guidance
+
+- Resolve chat identity through the shared authenticated profile resolver; an
+  `o.User.*` sign-in ID is not a `n.User.*` workspace profile ID. Keep the
+  caller's bounded display name available on both native chat paths, separately
+  from first-turn onboarding. A profile name is data, never instructions or
+  permission authority; do not derive names from email addresses.
+- Keep the welcome brief and explain that Integral can build Apps and set up
+  the workspace as the conversation proceeds. A concrete request takes
+  precedence over the generic introduction. Greeting must not complete
+  onboarding or bypass write approvals.
+- Inline errors should have a readable summary and accessible full-message
+  disclosure. Preserve API message/code across durable chat restoration; do
+  not expose arbitrary tool arguments or server-only diagnostics.
 
 ### Code Quality
 ```bash
@@ -470,7 +489,41 @@ and revisions, and reconcile durable receipts. A late failure can leave partial
 completion; never describe the collection command as atomic. See
 [chat contracts](docs/backend/ai-chat.md#collection-changes-and-retrieved-evidence).
 
+### Chat approvals and registered tools
+
+Ordinary terminal card approvals, denials and cancellations end with the host
+receipt, without a second model run. Resume only for questions and approved
+design/draft workflows that still need agent work. Keep registered App tool
+discovery and invocation available together in skills; registered tool keys are
+not declared query keys. Session exports must encode binary image bytes.
+
+Keep closing receipts useful with local links from execution metadata or the
+staged target; a link never grants access or proves a fresh readback. The
+`integral_open_view` tool is presentation-only: preserve bound chat ownership,
+workspace and live resource/View checks. Use its dedicated public navigation
+event, never expose arbitrary tool results. Apply only to successful live
+foreground turns; history, recovery, changed routes/scopes and composer drafts
+must not move the user's page. Keep the same chat available after navigation.
+
+### Chat image input
+
+Native images use canonical persisted uploads and `attachment_ids`, not duplicate
+browser base64 or remote URLs. Preserve source hashes, scan visibility, current
+thread/owning-entry access and canonical workspace checks before every physical
+model attempt, including retries and image-bearing restored history. Supply
+pixels as typed model input; extracted text does not provide image understanding.
+Text-only system receipts must still pass image preparation so approval and
+other host continuations can run. System receipts cannot introduce new images
+and must stay out of rendered conversation bubbles after reload.
+See [chat lifecycle](docs/backend/ai-chat.md#image-input).
+
 ### Search and indexing
+
+Installed-App record questions must discover the App's registered read tools
+or declared queries. Keep the insights skill and refusal recovery hints aligned;
+do not bypass the governed query boundary. Chat progress uses a single short
+line derived from observable operations, never private reasoning. Preserve both
+stream inactivity and total request deadlines and uncertain-outcome accounting.
 
 Canonical contract: [declarative indexing and retrieval](docs/backend/semantic-indexing.md);
 selection/storage decision: [ADR-016](docs/backend/adr/016-declarative-semantic-indexing.md).
@@ -492,6 +545,10 @@ selection/storage decision: [ADR-016](docs/backend/adr/016-declarative-semantic-
   current configuration authority. Configuration revision, rebuild request and
   audit intent commit together; deliver audit after commit. A queued rebuild is
   not completed indexing. Coverage is bounded and point-in-time.
+- The text encoder uses pinned ONNX artifacts, tokenizer configuration and
+  explicit pooling. Keep artifact/preprocessing identity in the profile hash;
+  do not mask incompatible dependency constraints, use mutable model revisions
+  or silently guess custom-model aliases. Profile changes backfill a separate space.
 - Retrieval changes need the explicit real encoder/pgvector and PostgreSQL
   rollback lanes in the guide, plus the default backend and CI-faithful gates.
   Measure labelled evidence, HTTP latency and actual provider token use

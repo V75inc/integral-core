@@ -52,11 +52,11 @@ assert m.distribution("jvspatial").read_text("direct_url.json") is None'
 
 # Pre-bake the ONNX weights for sentence-transformers/all-MiniLM-L6-v2 so
 # the runtime image never fetches from Hugging Face on cold start. The
-# instantiation pulls the model + tokenizer artifacts into
+# production loader pins and pulls model + tokenizer artifacts into
 # FASTEMBED_CACHE_PATH; the runtime stage copies that directory into the
 # same path under the same env var.
 RUN mkdir -p /opt/fastembed_cache \
- && /opt/venv/bin/python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='sentence-transformers/all-MiniLM-L6-v2')"
+ && /opt/venv/bin/python -c "from app.services.retrieval.embedding_model import load_model; load_model()"
 
 # ---- runtime ---------------------------------------------------------------
 FROM python:3.11-slim AS runtime

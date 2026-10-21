@@ -51,6 +51,8 @@ def _public_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
         "side_effects": spec.get("side_effects") or "read_only",
         "privileged": bool(spec.get("privileged")),
         "write": is_write_tool(spec),
+        "invoke_with": "integral_call_workspace_tool",
+        "input_parameter": "input",
     }
 
 

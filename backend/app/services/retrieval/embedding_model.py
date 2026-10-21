@@ -1,26 +1,10 @@
-"""RET-02 — eager-loaded ONNX embedding singleton + embed helper.
+"""RET-02 — lazily imported, bounded ONNX text encoder singleton.
 
-Wave 1 swap (SaaS-deployment plan, Option B): the embedding runtime moved
-from ``sentence-transformers`` (torch + transformers, ~1–2 GB on disk
-plus a heavy cold-import) to ``fastembed`` (ONNX Runtime). The model
-itself is unchanged — ``sentence-transformers/all-MiniLM-L6-v2``, 384-dim
-output — only the inference backend differs, so existing 384-dim vectors
-remain dimension-compatible.
-
-The ``fastembed`` import still pulls a non-trivial native stack
-(onnxruntime + tokenizers), so RESEARCH Pitfall 5 still applies:
-
-1. Module-load MUST NOT import ``fastembed`` — the import is deferred
-   to inside ``load_model()``. ``test_retrieval_embedding_store.py``
-   Test 12 asserts the deferral.
-2. ``load_model()`` is idempotent and the singleton is held in a
-   module-level ``_MODEL`` variable. App startup calls it eagerly behind
-   ``EMBEDDING_MODEL_EAGER_LOAD=1`` (default ON; tests flip it OFF).
-3. ``embed_entry_text()`` / ``embed_query_text()`` run the encode inside
-   ``asyncio.to_thread`` so the event loop stays responsive.
-4. The singleton exposes a stable ``encode(text, convert_to_numpy=False)``
-   surface via a thin ``_FastembedAdapter`` — so existing test fakes that
-   monkeypatch ``_MODEL`` with that same shape keep working.
+Uses the same MiniLM ONNX model, tokenizer, mean pooling and normalization as
+before, without FastEmbed's unrelated Pillow upper bound. Heavy inference stays
+in worker threads and cold initialization is serialized. Public callers retain
+encode(text, convert_to_numpy=False); tests may inject that same model shape.
+The container prefetches pinned artifacts through load_model().
 
 **Embed input shape (CONTEXT lock #4 — "no-tag-only-reembed"):**
 ``title + body + string-valued custom_fields``. Tags are projected at
@@ -50,60 +34,19 @@ _MODEL: Optional[Any] = None
 _MODEL_LOCK = threading.RLock()
 
 
-class _FastembedAdapter:
-    """Thin compatibility layer over ``fastembed.TextEmbedding``.
-
-    Exposes ``encode(text, convert_to_numpy=False)`` so callers (and test
-    fakes) keep the same surface that ``sentence-transformers`` used.
-    Internally it delegates to ``TextEmbedding.embed([text])`` and pulls
-    the first (only) vector out of the resulting generator.
-    """
-
-    def __init__(self, inner: Any) -> None:
-        self._inner = inner
-
-    def encode(self, text: str, convert_to_numpy: bool = False) -> Any:
-        # fastembed.embed accepts an iterable of strings and yields a
-        # numpy ndarray per input. One input → one vector.
-        gen = self._inner.embed([text])
-        vec = next(iter(gen))
-        if convert_to_numpy:
-            return vec
-        # Cheaper to hand a list of floats over the asyncio boundary
-        # than a numpy array; matches the prior sentence-transformers
-        # convert_to_numpy=False contract.
-        try:
-            return [float(x) for x in vec.tolist()]
-        except AttributeError:
-            return [float(x) for x in vec]
-
-
 def _load_model_unlocked() -> Any:
-    """Idempotent eager loader for the embedding model singleton.
-
-    Called by ``backend/app/main.py`` at startup when
-    ``EMBEDDING_MODEL_EAGER_LOAD=1`` (default ON). Returns the cached
-    model on subsequent calls. The ``fastembed`` import is intentionally
-    inside the function body so module-load stays cheap (RESEARCH Pitfall
-    5). First call downloads the ONNX weights to ``FASTEMBED_CACHE_PATH``
-    if they aren't already present; production images pre-bake the cache
-    in the Docker build to avoid runtime fetches (see backend/Dockerfile).
-    """
+    """Load pinned model artifacts once, with heavy imports deferred."""
 
     global _MODEL
     if _MODEL is not None:
         return _MODEL
 
-    # Deferred import — onnxruntime + tokenizers chain stays off the
-    # cold app-startup path until this function is actually called.
-    from fastembed import TextEmbedding  # noqa: WPS433
+    # Deferred imports keep the ONNX/tokenizer stack off the cold boot path.
+    from .onnx_text_encoder import OnnxTextEncoder, encoder_artifact
 
     logger.info("retrieval: loading embedding model %s", DEFAULT_MODEL_NAME)
-    # Small local embeddings should not consume every application CPU. Bounded
-    # ONNX threads avoid oversubscribing concurrent chat/API/index workers.
     threads = min(16, max(1, int(os.getenv("EMBEDDING_MODEL_THREADS", "1"))))
-    inner = TextEmbedding(model_name=DEFAULT_MODEL_NAME, threads=threads)
-    _MODEL = _FastembedAdapter(inner)
+    _MODEL = OnnxTextEncoder(encoder_artifact(DEFAULT_MODEL_NAME), threads)
     return _MODEL
 
 
@@ -127,7 +70,7 @@ async def passage_tokenizer() -> Any:
     from tokenizers import Tokenizer
 
     model = await _passage_model()
-    tokenizer = model._inner.model.tokenizer
+    tokenizer = model.tokenizer
     clone = Tokenizer.from_str(tokenizer.to_str())
     clone.no_truncation()
     clone.no_padding()
@@ -139,11 +82,11 @@ async def encode_passages(texts: list[str], dimensions: int) -> list[list[float]
     model = await _passage_model()
 
     def encode() -> list[list[float]]:
-        # FastEmbed truncates at the model's limit. Refuse oversized passages
+        # Inference truncates at the model's limit. Refuse oversized passages
         # instead of silently losing their tail, including a misconfigured chunk.
         from tokenizers import Tokenizer
 
-        source = model._inner.model.tokenizer
+        source = model.tokenizer
         tokenizer = Tokenizer.from_str(source.to_str())
         tokenizer.no_padding()
         tokenizer.no_truncation()
@@ -161,8 +104,7 @@ async def encode_passages(texts: list[str], dimensions: int) -> list[list[float]
         if any(len(tokenizer.encode(text).ids) > maximum for text in texts):
             raise ValueError("Text exceeds this embedding model's token limit")
         vectors = [
-            [float(x) for x in vector]
-            for vector in model._inner.embed(texts, batch_size=16)
+            [float(x) for x in vector] for vector in model.embed(texts, batch_size=16)
         ]
         if len(vectors) != len(texts) or any(
             len(v) != dimensions or not all(math.isfinite(x) for x in v)

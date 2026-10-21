@@ -33,6 +33,9 @@ def test_host_task_uses_latest_reconciled_outcome_without_proposal_prose(state):
     assert "Do not repeat the proposal" in instructions
     assert "not a new human request" in instructions
     assert "do not invite approval or restage it" in instructions
+    assert '"entry_ids": ["saved-entry"]' in instructions
+    assert "use integral_resolve_entry" in instructions
+    assert "not access grants or proof of success" in instructions
 
 
 @pytest.mark.parametrize(

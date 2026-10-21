@@ -40,6 +40,35 @@ def test_text_delta_uses_integral_normalized_envelope() -> None:
     assert list(translate_event(event)) == [{"type": "text-delta", "delta": "hello"}]
 
 
+def test_navigation_projects_destination_without_exposing_raw_tool_results():
+    from app.services.chat_turn_events import normalize_public_event
+
+    destination = {
+        "path": "/tracks/n.Track.collection",
+        "thread_id": "thread",
+        "workspace_id": "workspace",
+    }
+    events = list(
+        translate_event(
+            FunctionToolResultEvent(
+                part=ToolReturnPart(
+                    tool_name="integral_open_view",
+                    tool_call_id="navigate-1",
+                    content={
+                        "ok": True,
+                        "navigation": destination,
+                        "private": "not public",
+                    },
+                )
+            )
+        )
+    )
+    public = [normalize_public_event(event) for event in events]
+    assert public[-1] == {"type": "navigation", **destination}
+    assert "result" not in public[0]
+    assert "private" not in str(public)
+
+
 def test_tool_result_uses_pydantic_return_part_content() -> None:
     """The trace must display the actual broker result, not event.content=None."""
     event = FunctionToolResultEvent(
@@ -408,6 +437,9 @@ def test_provider_object_text_is_classified_without_losing_user_json(
 @pytest.mark.parametrize(
     "text",
     [
+        "<function=secret_tool></function>",
+        '<tool_call>{"name":"secret_tool","arguments":{}}</tool_call>',
+        '<tool_use name="secret_tool">{}</tool_use>',
         '{"tool_calls":[{"type":"function","function":{"name":"secret_tool",'
         '"arguments":"{}"}}]}',
         '{"function_call":{"name":"secret_tool","arguments":{}}}',
