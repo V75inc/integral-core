@@ -38,6 +38,8 @@ THUMB_MAX_LONG_EDGE = 512
 THUMB_FORMAT = "JPEG"
 THUMB_QUALITY = 82
 THUMB_FILENAME = "_thumb.jpg"
+THUMB_MIME_TYPES = frozenset({"image/png", "image/jpeg", "image/webp", "image/gif"})
+THUMB_IMAGE_FORMATS = ("PNG", "JPEG", "WEBP", "GIF")
 
 
 def _can_thumbnail(mime: str) -> bool:
@@ -48,7 +50,9 @@ def _can_thumbnail(mime: str) -> bool:
     # browser-native and dependency-free.
     if mime in {"image/svg+xml"}:
         return False
-    return mime.startswith("image/")
+    # Unsupported originals remain downloadable; do not send TIFF/EPS/PPM or
+    # future image types into a general-purpose decoder for automatic previews.
+    return mime in THUMB_MIME_TYPES
 
 
 async def ensure_thumbnail(
@@ -104,7 +108,10 @@ async def ensure_thumbnail(
         resample_filter = getattr(Image, "LANCZOS", 1)  # type: ignore[arg-type] # Pillow stub-version drift
 
     try:
-        with Image.open(io.BytesIO(content)) as im:
+        # Restrict decoded format as well: an image/png MIME label can hide TIFF.
+        # GIF previews use only the first frame. Never reuse a failed image or
+        # seek later frames (the affected Pillow GIF error-recovery path).
+        with Image.open(io.BytesIO(content), formats=THUMB_IMAGE_FORMATS) as im:
             im.thumbnail(
                 (THUMB_MAX_LONG_EDGE, THUMB_MAX_LONG_EDGE),
                 resample=resample_filter,  # type: ignore[arg-type] # Pillow stub-version drift (see resolve above)
