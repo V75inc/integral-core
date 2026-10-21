@@ -11,7 +11,12 @@ from app.api.errors import (
     MissingAuthenticationError,
     ResourceNotFoundError,
 )
-from app.api.utils import attach_author_exports, export_node, resolve_principal_id
+from app.api.utils import (
+    attach_author_exports,
+    export_node,
+    export_nodes,
+    resolve_principal_id,
+)
 from app.models.edges import MENTIONS
 from app.models.nodes import Entry
 from app.schemas.policy import Resource, Subject
@@ -53,7 +58,7 @@ async def get_entry_comments(
         sort=[("context.created_at", 1), ("id", 1)],
         limit=2000,
     )
-    items = [await export_node(c) for c in comments]
+    items = await export_nodes(comments)
     await attach_author_exports(items)
     # nodes_page already sorts; keep a stable Python tie-break only if
     # created_at was missing on older rows.
@@ -213,3 +218,54 @@ async def delete_comment(request: Request, comment_id: str) -> Dict[str, Any]:
         delete=True,
         request=request,
     )
+
+
+async def _comment_reaction(
+    request: Request, comment_id: str, emoji: str, mode: str
+) -> Dict[str, Any]:
+    from app.services.reactions import mutate_reaction
+
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    return await mutate_reaction(
+        user_id=user_id,
+        target_id=comment_id,
+        target_kind="comment",
+        emoji=emoji,
+        mode=mode,
+        request=request,
+    )
+
+
+@endpoint(
+    "/comments/{comment_id}/reactions", methods=["POST"], auth=True, tags=["Comments"]
+)
+async def toggle_comment_reaction(
+    request: Request, comment_id: str, emoji: str
+) -> Dict[str, Any]:
+    """Toggle the current principal's reaction."""
+    return await _comment_reaction(request, comment_id, emoji, "toggle")
+
+
+@endpoint(
+    "/comments/{comment_id}/reactions", methods=["PUT"], auth=True, tags=["Comments"]
+)
+async def select_comment_reaction(
+    request: Request, comment_id: str, emoji: str
+) -> Dict[str, Any]:
+    """Idempotently select a supported reaction."""
+    return await _comment_reaction(request, comment_id, emoji, "select")
+
+
+@endpoint(
+    "/comments/{comment_id}/reactions/{emoji}",
+    methods=["DELETE"],
+    auth=True,
+    tags=["Comments"],
+)
+async def remove_comment_reaction(
+    request: Request, comment_id: str, emoji: str
+) -> Dict[str, Any]:
+    """Retract this principal's reaction with current read authorization."""
+    return await _comment_reaction(request, comment_id, emoji, "remove")

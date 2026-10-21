@@ -303,6 +303,7 @@ class ChangeEventLogger:
         limit: int,
         descending: bool,
         scope: Optional[str] = None,
+        scope_aliases: Optional[List[str]] = None,
         actor_kind: Optional[str] = None,
         workspace_id: Optional[str] = None,
         event_action: Optional[str] = None,
@@ -338,6 +339,8 @@ class ChangeEventLogger:
         ):
             if value:
                 query[field] = value
+        if scope_aliases:
+            query["context.path"] = {"$in": scope_aliases}
         clauses = [query]
         if cursor:
             cursor_id, cursor_ts = decode_cursor(cursor)

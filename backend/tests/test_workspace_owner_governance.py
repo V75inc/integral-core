@@ -153,7 +153,9 @@ async def test_protected_owner_can_toggle_reactions_without_an_ordinary_grant():
     owner.user_id = identity.id
     await owner.save()
     assert await resolve_role(identity.id, "entry", entry.id) is None
-    request = Request({"type": "http", "state": {"user": {"id": identity.id}}})
+    request = Request(
+        {"type": "http", "headers": [], "state": {"user": {"id": identity.id}}}
+    )
     result = await add_reaction(request, entry.id, "thumbs-up")
     assert identity.id in result["reactions"]["thumbs-up"]
 

@@ -1409,8 +1409,12 @@ async def _dispatch_propose(
     # (batch_required) derailed the affirm turn (repeat_guard + prose-only
     # "Building…" with zero apps). Auto-open so the first write stages.
     batch_auto_opened = False
+    native_design_thread = session_id is not None and session_id.startswith(
+        "n.ChatThread."
+    )
     if (
-        session_id is not None
+        not native_design_thread
+        and session_id is not None
         and not is_batch_open(principal_id, session_id)
         and await design_proposed_pending(session_id)
     ):

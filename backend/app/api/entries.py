@@ -15,6 +15,7 @@ from app.api.errors import (
 from app.api.utils import (
     attach_author_exports,
     export_node,
+    export_nodes,
     public_user_view,
     resolve_principal_id,
 )
@@ -275,9 +276,7 @@ async def enrich_entry_page_for_response(
     track_by_id, space_by_track = await prefetch_tracks_and_spaces_for_entries(
         page_entries
     )
-    entry_datas: List[Dict[str, Any]] = list(
-        await asyncio.gather(*(export_node(e) for e in page_entries))
-    )
+    entry_datas: List[Dict[str, Any]] = await export_nodes(page_entries)
 
     await attach_author_exports(entry_datas)
 
@@ -831,68 +830,33 @@ async def remove_tag_from_entry(
     return await _change_entry_tag_request(request, entry_id, tag_id, present=False)
 
 
-@endpoint(
-    "/entries/{entry_id}/reactions", methods=["POST"], auth=True, tags=["Entries"]
-)
-async def add_reaction(
-    request: Request,
-    entry_id: str,
-    emoji: str,
+async def _entry_reaction(
+    request: Request, entry_id: str, emoji: str, mode: str
 ) -> Dict[str, Any]:
-    """Add or toggle a reaction on an entry."""
+    from app.services.reactions import mutate_reaction
+
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    # Substrate gate: reacting requires role ≥ commenter — viewer is
-    # read-only by design (matches comment.create gate in api/comments.py).
-    decision = await policy_evaluate(
-        subject=Subject(kind="human", id=user_id),
-        action="reaction.create",
-        resource=Resource(kind="entry", id=entry_id, scope=f"entry:{entry_id}"),
-    )
-    if not decision.allowed:
-        raise InsufficientPermissionsError(
-            message="You need commenter access or higher to react."
-        )
-
-    entry = await Entry.get(entry_id)
-    if not entry:
-        raise ResourceNotFoundError(message="Entry not found")
-
-    if not entry.reactions:
-        entry.reactions = {}
-
-    prior_snapshot = await export_node(entry)  # D-03 before-snapshot
-
-    if emoji in entry.reactions:
-        if user_id in entry.reactions[emoji]:
-            entry.reactions[emoji].remove(user_id)
-            if not entry.reactions[emoji]:
-                del entry.reactions[emoji]
-        else:
-            entry.reactions[emoji].append(user_id)
-    else:
-        entry.reactions[emoji] = [user_id]
-
-    await entry.save()
-
-    # D-05 single emission path. Sync inline emit before HTTP response (D-06).
-    await emit_change_event(
-        actor_kind="human",
-        actor_id=user_id,
-        action="entry.update",
-        resource_type="Entry",
-        resource_id=entry.id,
-        before=prior_snapshot,
-        after=await export_node(entry),
-        scope=f"track:{entry.track_id or ''}",
+    return await mutate_reaction(
+        user_id=user_id, target_id=entry_id, emoji=emoji, mode=mode, request=request
     )
 
-    return {
-        "reactions": entry.reactions,
-        "message": "Reaction updated",
-        "entry_id": entry_id,
-    }
+
+@endpoint(
+    "/entries/{entry_id}/reactions", methods=["POST"], auth=True, tags=["Entries"]
+)
+async def add_reaction(request: Request, entry_id: str, emoji: str) -> Dict[str, Any]:
+    """Compatibility toggle; selecting another emoji replaces the prior choice."""
+    return await _entry_reaction(request, entry_id, emoji, "toggle")
+
+
+@endpoint("/entries/{entry_id}/reactions", methods=["PUT"], auth=True, tags=["Entries"])
+async def select_reaction(
+    request: Request, entry_id: str, emoji: str
+) -> Dict[str, Any]:
+    """Idempotently select a supported reaction."""
+    return await _entry_reaction(request, entry_id, emoji, "select")
 
 
 @endpoint(
@@ -902,60 +866,10 @@ async def add_reaction(
     tags=["Entries"],
 )
 async def remove_reaction(
-    request: Request,
-    entry_id: str,
-    emoji: str,
+    request: Request, entry_id: str, emoji: str
 ) -> Dict[str, Any]:
-    """Remove a reaction from an entry."""
-    user_id = resolve_principal_id(request)
-    if not user_id:
-        raise MissingAuthenticationError(message="Authentication required")
-    # Deliberately ONE RANK BELOW add_reaction's commenter gate, and not a
-    # bug: the body below only ever removes THIS CALLER's id from the emoji
-    # list, so the only user this admits that the commenter gate would not is
-    # someone demoted commenter→viewer retracting a reaction they legitimately
-    # placed — which should work. It cannot touch anyone else's reaction, and
-    # an EXCLUDED_FROM user fails entry.read (can_view_entry honours the
-    # edge), so there is no write this exposes that read does not already
-    # gate. Pinned by test_reaction_gate_asymmetry_is_self_scoped.
-    _decision = await policy_evaluate(
-        subject=Subject(kind="human", id=user_id),
-        action="entry.read",
-        resource=Resource(kind="entry", id=entry_id, scope=f"entry:{entry_id}"),
-    )
-    if not _decision.allowed:
-        raise InsufficientPermissionsError(message="Access denied")
-
-    entry = await Entry.get(entry_id)
-    if not entry:
-        raise ResourceNotFoundError(message="Entry not found")
-
-    prior_snapshot = await export_node(entry)  # D-03 before-snapshot
-
-    if entry.reactions and emoji in entry.reactions:
-        if user_id in entry.reactions[emoji]:
-            entry.reactions[emoji].remove(user_id)
-            if not entry.reactions[emoji]:
-                del entry.reactions[emoji]
-            await entry.save()
-
-    # D-05 single emission path. Sync inline emit before HTTP response (D-06).
-    await emit_change_event(
-        actor_kind="human",
-        actor_id=user_id,
-        action="entry.update",
-        resource_type="Entry",
-        resource_id=entry.id,
-        before=prior_snapshot,
-        after=await export_node(entry),
-        scope=f"track:{entry.track_id or ''}",
-    )
-
-    return {
-        "reactions": entry.reactions or {},
-        "message": "Reaction removed",
-        "entry_id": entry_id,
-    }
+    """Retract only this caller's reaction; viewers may retract their own."""
+    return await _entry_reaction(request, entry_id, emoji, "remove")
 
 
 @endpoint("/entries/{entry_id}/watchers", methods=["GET"], auth=True, tags=["Entries"])

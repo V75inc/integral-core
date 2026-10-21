@@ -43,3 +43,21 @@ When the routine asks to remain silent if nothing qualifies, the resident may
 return the exact reserved quiet-output signal. Core retains the harness checkpoint,
 execution trace and usage records, but does not append a chat message. A failed
 run is still recorded as a failure; an ordinary answer cannot trigger suppression.
+
+## Find or discard a saved design
+
+Approvals includes saved App designs from the caller's conversations in the
+selected workspace, including designs that have no staged token. Each card
+links to its exact conversation so the user can confirm, revise, or resume the
+saved revision. A pending design does not block unrelated governed resource
+changes.
+
+Discard binds the thread, design ID, revision, and proposal timestamp to the
+current owner and workspace. It retires the marker and its captured legacy
+design tokens together, preserving a tombstone for idempotent retries. A newer
+proposal or draft created after discard is never swept up by session-wide
+cleanup. Unassociated draft batches, active work, partially applied builds,
+and uncertain effects require reconciliation in the original conversation;
+Integral preserves those records instead of silently deleting work. An approved
+but incomplete build is discardable only with its original audited no-effect
+outcome. Discard grants no build authority and never undoes existing records.

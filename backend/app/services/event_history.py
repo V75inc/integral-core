@@ -48,7 +48,10 @@ async def _in_workspace(event: Any, user_id: str, workspace_id: str) -> bool:
             user = await get_user_node(user_id)
             return bool(
                 workspace is not None
-                and workspace.kind == "personal"
+                and (
+                    workspace.kind == "personal"
+                    or str(event.resource_type).casefold() == "notification"
+                )
                 and user is not None
                 and event.scope
                 in {f"user:{user_id}", f"user:{user.id}", f"user:{user.user_id}"}
@@ -91,6 +94,20 @@ async def read_event_history(
         "resource_type": resource_type or "",
     }
     position = decode_history_cursor(cursor, binding=binding) if cursor else None
+    scope_options: dict[str, Any] = {}
+    if scope and scope.startswith("user:"):
+        from app.services.permissions import get_user_node
+
+        caller = await get_user_node(user_id)
+        own_ids = {user_id}
+        if caller is not None:
+            own_ids.update(
+                identity for identity in (caller.id, caller.user_id) if identity
+            )
+        if scope in {f"user:{identity}" for identity in own_ids}:
+            scope_options["scope_aliases"] = sorted(
+                f"user:{identity}" for identity in own_ids
+            )
     exhausted = False
     while len(events) < limit and scanned < MAX_CANDIDATES:
         rows = await logger.find_page(
@@ -103,6 +120,7 @@ async def read_event_history(
             event_action=event_action,
             resource_id=resource_id,
             resource_type=resource_type,
+            **scope_options,
         )
         if not rows:
             exhausted = True

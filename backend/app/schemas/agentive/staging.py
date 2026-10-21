@@ -30,3 +30,12 @@ class TextApproveRequest(BaseModel):
 
     text: str = Field(min_length=1, max_length=2000)
     channel: str = Field(default="text", max_length=32)
+
+
+class DiscardDesignRequest(BaseModel):
+    """The exact saved design selected from the owner's current workspace."""
+
+    thread_id: str = Field(min_length=1, max_length=256)
+    design_id: str = Field(max_length=128)
+    blueprint_revision: int = Field(ge=0)
+    proposed_at: str = Field(min_length=1, max_length=128)

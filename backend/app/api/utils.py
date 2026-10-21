@@ -109,7 +109,27 @@ async def export_node(node) -> dict:
     NOTE: this emits **every** declared model field. Never hand it a user
     record destined for a client response — use :func:`public_user_view`.
     """
-    return await node.export(flat=True)
+    exported = await node.export(flat=True)
+    if node.__class__.__name__ in {"Entry", "Comment"}:
+        from app.services.reactions import reaction_summary
+
+        exported["reactions"] = await reaction_summary(node)
+    return exported
+
+
+async def export_nodes(nodes: list[Any]) -> list[dict[str, Any]]:
+    """Export a page with one authoritative reaction-edge projection query."""
+    from app.services.reactions import reaction_summaries
+
+    targets = [
+        node for node in nodes if node.__class__.__name__ in {"Entry", "Comment"}
+    ]
+    summaries = await reaction_summaries(targets)
+    exports = [await node.export(flat=True) for node in nodes]
+    for node, exported in zip(nodes, exports):
+        if node.id in summaries:
+            exported["reactions"] = summaries[node.id]
+    return exports
 
 
 # Allowlist for user objects embedded in API responses. This is deliberately an

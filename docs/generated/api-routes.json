@@ -519,7 +519,7 @@
     ],
     "source": "backend/app/agentive/api/prompt_queue.py",
     "handler": "cancel_all_endpoint",
-    "line": 186
+    "line": 188
   },
   {
     "path": "/agentive/prompt-queue/mark-write",
@@ -528,7 +528,7 @@
     ],
     "source": "backend/app/agentive/api/prompt_queue.py",
     "handler": "mark_write_endpoint",
-    "line": 148
+    "line": 149
   },
   {
     "path": "/agentive/prompt-queue/resolve-question",
@@ -637,6 +637,24 @@
     "source": "backend/app/agentive/api/staging.py",
     "handler": "bless_token_endpoint",
     "line": 82
+  },
+  {
+    "path": "/agentive/staging/designs",
+    "methods": [
+      "GET"
+    ],
+    "source": "backend/app/agentive/api/staging.py",
+    "handler": "pending_designs_endpoint",
+    "line": 543
+  },
+  {
+    "path": "/agentive/staging/designs/discard",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/agentive/api/staging.py",
+    "handler": "discard_design_endpoint",
+    "line": 560
   },
   {
     "path": "/agentive/staging/pending",
@@ -1347,7 +1365,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "agent_turn",
-    "line": 2831
+    "line": 2832
   },
   {
     "path": "/chat/threads/{thread_id}/cancel",
@@ -1356,7 +1374,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "cancel_thread",
-    "line": 3100
+    "line": 3101
   },
   {
     "path": "/chat/threads/{thread_id}/harness-sessions/{session_id}/export",
@@ -1383,7 +1401,7 @@
     ],
     "source": "backend/app/api/ai_chat.py",
     "handler": "append_system_message",
-    "line": 3151
+    "line": 3152
   },
   {
     "path": "/chat/threads/{thread_id}/work-items/{work_item_id}/cancel",
@@ -2292,7 +2310,7 @@
     ],
     "source": "backend/app/api/comments.py",
     "handler": "delete_comment",
-    "line": 203
+    "line": 208
   },
   {
     "path": "/comments/{comment_id}",
@@ -2301,7 +2319,34 @@
     ],
     "source": "backend/app/api/comments.py",
     "handler": "update_comment",
-    "line": 183
+    "line": 188
+  },
+  {
+    "path": "/comments/{comment_id}/reactions",
+    "methods": [
+      "POST"
+    ],
+    "source": "backend/app/api/comments.py",
+    "handler": "toggle_comment_reaction",
+    "line": 244
+  },
+  {
+    "path": "/comments/{comment_id}/reactions",
+    "methods": [
+      "PUT"
+    ],
+    "source": "backend/app/api/comments.py",
+    "handler": "select_comment_reaction",
+    "line": 254
+  },
+  {
+    "path": "/comments/{comment_id}/reactions/{emoji}",
+    "methods": [
+      "DELETE"
+    ],
+    "source": "backend/app/api/comments.py",
+    "handler": "remove_comment_reaction",
+    "line": 267
   },
   {
     "path": "/entries/{entry_id}/comments",
@@ -2310,7 +2355,7 @@
     ],
     "source": "backend/app/api/comments.py",
     "handler": "get_entry_comments",
-    "line": 27
+    "line": 32
   },
   {
     "path": "/entries/{entry_id}/comments",
@@ -2319,7 +2364,7 @@
     ],
     "source": "backend/app/api/comments.py",
     "handler": "create_comment",
-    "line": 91
+    "line": 96
   },
   {
     "path": "/conflicts",
@@ -2391,7 +2436,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "list_entries",
-    "line": 338
+    "line": 337
   },
   {
     "path": "/entries",
@@ -2400,7 +2445,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "create_entry",
-    "line": 387
+    "line": 386
   },
   {
     "path": "/entries/{entry_id}",
@@ -2409,7 +2454,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "delete_entry",
-    "line": 721
+    "line": 720
   },
   {
     "path": "/entries/{entry_id}",
@@ -2418,7 +2463,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "get_entry",
-    "line": 497
+    "line": 496
   },
   {
     "path": "/entries/{entry_id}",
@@ -2427,7 +2472,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "update_entry",
-    "line": 543
+    "line": 542
   },
   {
     "path": "/entries/{entry_id}/reactions",
@@ -2436,7 +2481,16 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "add_reaction",
-    "line": 837
+    "line": 849
+  },
+  {
+    "path": "/entries/{entry_id}/reactions",
+    "methods": [
+      "PUT"
+    ],
+    "source": "backend/app/api/entries.py",
+    "handler": "select_reaction",
+    "line": 855
   },
   {
     "path": "/entries/{entry_id}/reactions/{emoji}",
@@ -2445,7 +2499,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "remove_reaction",
-    "line": 904
+    "line": 868
   },
   {
     "path": "/entries/{entry_id}/tags",
@@ -2454,7 +2508,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "add_tag_to_entry",
-    "line": 817
+    "line": 816
   },
   {
     "path": "/entries/{entry_id}/tags/{tag_id}",
@@ -2463,7 +2517,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "remove_tag_from_entry",
-    "line": 827
+    "line": 826
   },
   {
     "path": "/entries/{entry_id}/unwatch",
@@ -2472,7 +2526,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "unwatch_entry",
-    "line": 1040
+    "line": 954
   },
   {
     "path": "/entries/{entry_id}/watch",
@@ -2481,7 +2535,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "watch_entry",
-    "line": 1010
+    "line": 924
   },
   {
     "path": "/entries/{entry_id}/watchers",
@@ -2490,7 +2544,7 @@
     ],
     "source": "backend/app/api/entries.py",
     "handler": "get_entry_watchers",
-    "line": 962
+    "line": 876
   },
   {
     "path": "/entries/{entry_id}/precompute",
