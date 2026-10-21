@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import json
 import mimetypes
+import re
 import time
 from html.parser import HTMLParser
 from pathlib import Path
@@ -339,11 +340,32 @@ def extension_frame_ancestors(*raw_origins: str) -> str:
     ancestors = ["'self'"]
     seen: set[str] = set()
     for raw in raw_origins:
-        origin = urlsplit(str(raw or "").strip())
-        if origin.scheme not in ("http", "https") or not origin.hostname:
+        value = str(raw or "").strip()
+        # URL parsing tolerates controls and CSP delimiters; never let them
+        # become a second source or directive in the response header.
+        if not value or any(ord(char) < 33 or char in "\\;," for char in value):
             continue
-        port = f":{origin.port}" if origin.port else ""
-        value = f"{origin.scheme}://{origin.hostname}{port}"
+        try:
+            origin = urlsplit(value)
+            if (
+                origin.scheme not in ("http", "https")
+                or not origin.hostname
+                or origin.username is not None
+                or origin.password is not None
+            ):
+                continue
+            host = origin.hostname.lower()
+            port = origin.port  # Invalid/out-of-range ports raise ValueError.
+        except ValueError:
+            continue
+        # CSP host-source grammar has no IPv6 literal form. Use a configured
+        # DNS name for a separate IPv6 SPA; same-origin remains covered by self.
+        if not re.fullmatch(r"[a-z0-9-]+(?:\.[a-z0-9-]+)*\.?", host):
+            continue
+        if port == {"http": 80, "https": 443}[origin.scheme]:
+            port = None
+        port_suffix = f":{port}" if port is not None else ""
+        value = f"{origin.scheme}://{host}{port_suffix}"
         if value in seen:
             continue
         seen.add(value)

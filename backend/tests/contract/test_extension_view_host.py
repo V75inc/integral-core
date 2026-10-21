@@ -142,7 +142,17 @@ async def test_frame_grant_rechecks_access_and_hashes_scripts(tmp_path):
         "app.services.app_extension_views.serve_extension_view_asset",
         new=AsyncMock(return_value=(html, "text/html")),
     ) as resolve:
-        body, policy = await render_extension_view_frame(token)
+        with (
+            patch(
+                "app.services.app_extension_views.settings.FRONTEND_ORIGIN",
+                "http://localhost:9006",
+            ),
+            patch(
+                "app.services.app_extension_views.settings.APP_BASE_URL",
+                "https://workspace.example/path",
+            ),
+        ):
+            body, policy = await render_extension_view_frame(token)
     resolve.assert_awaited_once_with(
         user_id="u1",
         workspace_id="ws1",
@@ -151,6 +161,10 @@ async def test_frame_grant_rechecks_access_and_hashes_scripts(tmp_path):
         asset_path="",
     )
     assert body == html.read_text()
+    assert (
+        "frame-ancestors 'self' http://localhost:9006 https://workspace.example;"
+        in policy
+    )
     assert "sandbox allow-scripts" in policy
     assert "script-src 'sha256-" in policy
     assert "connect-src 'none'" in policy

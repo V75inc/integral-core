@@ -6,6 +6,9 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Allow hosted package view frames from the configured public SPA URL as well as the OAuth frontend origin; safely normalize configured origins and reject malformed CSP sources without disrupting valid parents.
+- Refresh certifi, uv, follow-redirects and Vite to address dependency audit findings. Pillow remediation remains blocked by FastEmbed's declared Pillow upper bound; this is not release qualification.
+
 ## 0.1.1rc28 — 2026-10-20
 
 - Keep current-origin and recognized placeholder record citations inside the active installation and tab; preserve external website links.

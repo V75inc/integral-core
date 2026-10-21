@@ -127,6 +127,19 @@ The frozen hook catalog contains `entry.transform`, `entry.public_share`, `entry
 
 App-owned declarative composites use registered Core primitives. Sandboxed iframe extension views use declared assets, hosted paths, and the view handshake; a view's `config.min_height` lets a compact view size below the default frame height. This is an implemented extension surface; arbitrary remote React plugins or inline executable manifest code are not substitutes.
 
+Frame responses permit embedding by the API origin (`'self'`) and the explicit
+HTTP(S) origins configured in `FRONTEND_ORIGIN` and `APP_BASE_URL`. Set the latter
+to the public SPA URL when hosting the API and UI separately. Paths are removed,
+default ports and host names are normalized, and duplicate origins are omitted.
+Malformed origins, credentials, wildcards and header delimiters are ignored;
+an invalid setting cannot remove the remaining valid origins or crash rendering.
+Use ASCII (punycode for international domains) DNS host names. For a separate
+IPv6 UI, use a DNS host name: CSP host-source syntax does not
+support IPv6 literals. An invalid configuration alone leaves only `'self'`.
+These parent origins do not grant App access: frame navigation still verifies
+the scoped grant and current workspace/App access; scripts remain hashed and
+network access remains disabled inside the sandbox.
+
 Package App Home uses declared queries/actions under the active definition. Dashboards are instance projections. Unavailable data must remain distinguishable from empty results; action preparation does not silently submit a chat turn.
 
 ## Evidence
