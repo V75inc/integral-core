@@ -108,3 +108,18 @@ export function friendlyChatFailure(code: unknown, message: unknown): string {
     ? message.trim()
     : "I couldn't finish this step. Please try again.";
 }
+
+/** Show only the error's explicit message/code, never arbitrary tool payloads. */
+export function fullErrorMessage(value: unknown): string | null {
+  let parsed = value;
+  if (typeof value === "string") {
+    try { parsed = JSON.parse(value); } catch { return value.trim() || null; }
+  }
+  if (typeof parsed === "string") return parsed.trim() || null;
+  if (!parsed || typeof parsed !== "object") return null;
+  const error = parsed as { message?: unknown; error_code?: unknown; code?: unknown };
+  const message = typeof error.message === "string" ? error.message.trim() : "";
+  const code = typeof (error.error_code ?? error.code) === "string"
+    ? String(error.error_code ?? error.code) : "";
+  return [message, code ? `Error code: ${code}` : ""].filter(Boolean).join("\n\n") || null;
+}

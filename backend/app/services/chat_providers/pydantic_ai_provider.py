@@ -62,6 +62,7 @@ from app.agentive.harness.skill_sources import (
     materialize_standard_skill_library,
 )
 from app.agentive.harness.turn_progress import TurnProgress
+from app.agentive.harness.workspace_orientation import workspace_orientation
 from app.api.errors import (
     InsufficientPermissionsError,
     ResourceConflictError,
@@ -79,6 +80,7 @@ from app.services.harness_sessions import (
     claim_harness_run,
     ensure_harness_session,
 )
+from app.services.user_identity import user_identity_context
 
 logger = logging.getLogger(__name__)
 
@@ -1636,7 +1638,12 @@ class PydanticAIProvider:
 
         time_context = await user_time_context(ctx.user_id)
         started = time.monotonic()
-        result = await build_light_agent(model, time_context=time_context).run(
+        result = await build_light_agent(
+            model,
+            time_context=time_context,
+            orientation_context=await workspace_orientation(ctx, thread),
+            identity_context=await user_identity_context(ctx.user_id),
+        ).run(
             ctx.text,
             message_history=public_dialogue(messages, exclude_id=accepted_id),
             cancellation_token=self._active_tokens.get(ctx.thread_id),
@@ -2062,6 +2069,8 @@ class PydanticAIProvider:
             "assistant-message envelope unless the user explicitly requests "
             "that format."
         )
+        instructions += "\n\n" + await user_identity_context(scope.principal_id)
+        instructions += "\n\n" + await workspace_orientation(ctx, thread)
         from app.services.chat_page_context import page_context_availability_hint
 
         instructions += "\n\n" + page_context_availability_hint(

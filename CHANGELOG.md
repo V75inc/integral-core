@@ -6,6 +6,9 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Personalize chat with the signed-in profile name throughout conversations and welcome new users with a brief explanation that Integral can build Apps and set up their workspace as they chat.
+- Center the workspace setup acknowledgement and make inline message, tool and approval errors expandable, preserving the full API error when reopening a chat.
+
 - Restore external App handler namespaces when replaying compiled references after extraction or restart.
 
 - Update vulnerable backend/frontend dependencies; replace FastEmbed's incompatible Pillow cap with pinned text-only ONNX inference, retain MiniLM semantics and isolate new artifact profiles during backfill.

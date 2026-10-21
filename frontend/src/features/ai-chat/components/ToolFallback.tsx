@@ -1,6 +1,8 @@
 "use client";
 
-import { friendlyToolFailure } from "./assistantMessagePresentation";
+import { ExpandableChatError } from "./ExpandableChatError";
+
+import { friendlyToolFailure, fullErrorMessage } from "./assistantMessagePresentation";
 
 // jvchat-faithful per-tool-call card, ported from jvchat's
 // `components/assistant-ui/tool-fallback.tsx` and retokenized to integral CSS
@@ -256,7 +258,7 @@ function ToolFallbackResult({
     try { parsed = JSON.parse(result); } catch { /* Ordinary text result. */ }
   }
   if (parsed && typeof parsed === "object" && "error" in parsed && parsed.error) {
-    return <p className="px-4 text-[var(--danger-fg)]">{friendlyToolFailure(parsed)}</p>;
+    return <ExpandableChatError className="px-4 text-[var(--danger-fg)]" summary={friendlyToolFailure(parsed)}>{fullErrorMessage(parsed)}</ExpandableChatError>;
   }
 
   return (
@@ -299,9 +301,13 @@ function ToolFallbackError({
       <p className={cn("aui-tool-fallback-error-header font-semibold", isCancelled ? "text-[var(--text-muted)]" : "text-[var(--danger-fg)]")}>
         {headerText}
       </p>
-      <p className={cn("aui-tool-fallback-error-reason whitespace-pre-wrap", isCancelled ? "text-[var(--text-muted)]" : "text-[var(--danger-fg)]")}>
-        {errorText}
-      </p>
+      {isCancelled ? (
+        <p className="aui-tool-fallback-error-reason whitespace-pre-wrap text-[var(--text-muted)]">{errorText}</p>
+      ) : (
+        <ExpandableChatError summary={errorText} className="aui-tool-fallback-error-reason text-[var(--danger-fg)]">
+          {fullErrorMessage(status.error)}
+        </ExpandableChatError>
+      )}
     </div>
   );
 }

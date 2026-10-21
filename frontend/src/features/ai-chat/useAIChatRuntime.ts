@@ -134,6 +134,7 @@ type AssistantMessageDraft = {
   finalContent?: string;
   finalPayload?: Record<string, unknown>;
   errorCode?: string;
+  errorDetail?: string;
 };
 
 function freshDraft(id: string): AssistantMessageDraft {
@@ -246,6 +247,7 @@ function draftToMessage(draft: AssistantMessageDraft): ThreadMessageLike {
         draft.errorCode
           ? {
               ...(draft.errorCode ? { errorCode: draft.errorCode } : undefined),
+              ...(draft.errorDetail ? { errorDetail: draft.errorDetail } : undefined),
               ...(draft.customSteps?.length
                 ? { steps: draft.customSteps }
                 : undefined),
@@ -577,7 +579,7 @@ function persistedToMessage(m: AIChatPersistedMessage): ThreadMessageLike {
     // from older transcripts that persisted it as an error event.
     const persistedError = rawParts.find(
       (part) => (part as { type?: string }).type === "error",
-    ) as { code?: string } | undefined;
+    ) as { code?: string; message?: string } | undefined;
     const errorCode = persistedError?.code ?? pm?.error?.code;
     const isCancelled = errorCode === "work.cancelled";
 
@@ -624,6 +626,9 @@ function persistedToMessage(m: AIChatPersistedMessage): ThreadMessageLike {
               : undefined,
             custom: {
               ...(errorCode ? { errorCode } : undefined),
+              ...(persistedError?.message || pm?.error?.message
+                ? { errorDetail: persistedError?.message || pm?.error?.message }
+                : undefined),
               ...(pmSteps.length > 0 ? { steps: pmSteps } : undefined),
               ...(pmInteract ? { interactPayload: pmInteract } : undefined),
               ...(pmFinalContent
@@ -2226,6 +2231,7 @@ function applyEvent(draft: AssistantMessageDraft, ev: NormalizedEvent) {
       return;
     case "error":
       draft.errorCode = ev.code;
+      draft.errorDetail = ev.message;
       draft.status = ev.code === "work.cancelled"
         ? { type: "incomplete", reason: "cancelled" }
         : {

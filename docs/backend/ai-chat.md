@@ -118,3 +118,33 @@ companion panel. Opening a page does not prove that a mutation succeeded.
 
 Local candidate evidence for images, approvals, navigation and their validation
 limits is recorded in the [October 20 chat qualification](../ops/qualification/2026-10-20-native-image-input-smoke.md).
+
+### Chat identity and first-turn workspace orientation
+
+For an interactive first user turn from an account whose `onboarded_at` is unset,
+the native provider derives a brief orientation from authenticated user state
+and bounded canonical thread-to-message edges. Both the lightweight and
+operational model paths receive the guidance. No client flag grants authority;
+approval continuations, background origins, established conversations and
+onboarded accounts do not trigger it. The greeting does not mark setup complete
+or change records. A specific user task takes precedence over a generic tour.
+
+Inline message and tool errors use a collapsed summary with an explicit
+click/keyboard disclosure. Live and restored assistant metadata retain the
+API-supplied error message for that disclosure. Tool disclosures extract only
+the explicit message/code, not arbitrary result or argument objects. Cancellation
+and model-setup guidance keep their separate presentations.
+
+The orientation check resolves both sign-in account IDs and linked workspace
+profile IDs through the shared authenticated-user resolver. A sign-in ID must
+not be looked up directly as a workspace profile ID.
+
+Every native model turn, on both the lightweight and operational paths, receives
+the current signed-in profile's bounded display name when available, using the
+same identity resolution as `integral_whoami`. This context is separate from the
+first-turn orientation, so established conversations and onboarded accounts can
+also be addressed naturally. The name is quoted data, never instructions or
+permission authority. Missing names and legacy email-shaped names are omitted;
+the assistant must not infer a name from an email address. No identity discovery
+tool or additional model call is needed just to use the name, and later replies
+must not repeatedly greet the user or repeat their name mechanically.

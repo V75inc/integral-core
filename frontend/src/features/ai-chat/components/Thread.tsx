@@ -1,3 +1,4 @@
+import { ExpandableChatError } from "./ExpandableChatError";
 import { KebabMenu } from '../../../components/ui/KebabMenu';
 import './composer.css';
 import { useChatEntityRefsOptional } from '../../../context/ChatEntityRefsContext';
@@ -298,7 +299,7 @@ export function ActivityStrip() {
         data-testid="chat-activity-strip"
       >
         <span className="inline-flex shrink-0" aria-hidden>⚠</span>
-        <span>{streamError}</span>
+        <ExpandableChatError summary={streamError} className="min-w-0 flex-1" />
       </div>
     );
   }
@@ -745,6 +746,9 @@ function InlineAttachmentLists() {
 // ---------------------------------------------------------------------------
 
 function MessageError() {
+  const detail = useAuiState((s) =>
+    (s.message.metadata?.custom as { errorDetail?: string } | undefined)?.errorDetail,
+  );
   const code = useAuiState((s) =>
     (s.message.metadata?.custom as { errorCode?: string } | undefined)?.errorCode,
   );
@@ -759,7 +763,9 @@ function MessageError() {
           bg-[var(--chat-error-bg)] p-3 text-sm text-[var(--chat-error-fg)]
         "
       >
-        <ErrorPrimitive.Message className="line-clamp-2" />
+        <ExpandableChatError summary={<ErrorPrimitive.Message />}>
+          {detail || <ErrorPrimitive.Message />}
+        </ExpandableChatError>
       </ErrorPrimitive.Root>
     </MessagePrimitive.Error>
   );

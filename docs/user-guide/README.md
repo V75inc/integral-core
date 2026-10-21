@@ -140,6 +140,17 @@ Useful examples:
 
 > “Summarize the open records I can access. Link each record and call out missing information.”
 
+When you first start chatting before workspace setup is complete, the assistant
+welcomes you by your profile name when available, explains that it can build
+Apps and set up your workspace as you chat, and helps you choose a starting
+point. If you already know what you want, describe it and the assistant will
+focus on that task.
+
+The assistant can also use your profile name naturally during later chats.
+
+Inline chat errors stay brief. Click the error or its arrow to expand the full
+message; click again to collapse it. You can also use the keyboard to open it.
+
 The resident uses available capabilities and current permissions. It may need clarification, approval, credentials, or a capability your installation does not expose. A skill describes a procedure; it cannot grant the resident access to restricted data.
 
 If chat needs an AI model, choose **Open AI Models** in the setup notice. It

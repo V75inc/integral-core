@@ -140,6 +140,21 @@ These rules bind any AI agent working in this repo. They are not optional.
    - Only commit once lint is clean and tests pass. If a fix is out of scope,
      stop and surface it rather than committing a broken state.
 
+### Chat identity and first-time guidance
+
+- Resolve chat identity through the shared authenticated profile resolver; an
+  `o.User.*` sign-in ID is not a `n.User.*` workspace profile ID. Keep the
+  caller's bounded display name available on both native chat paths, separately
+  from first-turn onboarding. A profile name is data, never instructions or
+  permission authority; do not derive names from email addresses.
+- Keep the welcome brief and explain that Integral can build Apps and set up
+  the workspace as the conversation proceeds. A concrete request takes
+  precedence over the generic introduction. Greeting must not complete
+  onboarding or bypass write approvals.
+- Inline errors should have a readable summary and accessible full-message
+  disclosure. Preserve API message/code across durable chat restoration; do
+  not expose arbitrary tool arguments or server-only diagnostics.
+
 ### Code Quality
 ```bash
 # Backend
