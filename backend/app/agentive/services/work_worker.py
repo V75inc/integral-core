@@ -1122,6 +1122,11 @@ async def _handle_app_tool(
         scope=f"job:{item.work_item_id}",
         bundle_slug=bundle_slug,
     )
+    # Background tools invoke their App's operations. The permit is scoped to
+    # this work item's App, which the tool cannot choose for itself.
+    app_id = str(getattr(item, "app_id", "") or "").strip()
+    if app_id:
+        ctx.app_id = app_id
     ctx.job_id = item.work_item_id
     ctx.job_lease = (item.lease_token, int(item.lease_fence or 0))
     execution = work_execution.build_work_execution_context(
