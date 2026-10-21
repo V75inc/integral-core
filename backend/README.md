@@ -25,7 +25,7 @@ Use the [backend reference](../docs/backend/README.md), [architecture](../docs/p
 
 ## Search and indexing
 
-PostgreSQL uses durable indexing jobs and local FastEmbed/pgvector passages.
+PostgreSQL uses durable indexing jobs and local text-only ONNX/pgvector passages.
 Canonical writes enqueue work; readiness includes the actual encoder, store and
 current-source coverage. `EMBEDDING_STORE_DRIVER=null` selects graph-only reads.
 See [declarative indexing and retrieval](../docs/backend/semantic-indexing.md)

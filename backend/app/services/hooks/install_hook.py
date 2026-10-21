@@ -49,17 +49,21 @@ def _normalize_handler_ref(
     # exact package slug onto the external bundle namespace when the archive
     # path is available; otherwise Python looks for a nonexistent
     # ``app.packages.<slug>`` module in a clean Core install.
-    in_tree_bundle_prefix = f"app.packages.{bundle_slug}."
-    if bundle_dir and bundle_slug and module_part.startswith(in_tree_bundle_prefix):
-        module_part = module_part[len(in_tree_bundle_prefix) :]
+    safe = re.sub(r"[^0-9A-Za-z_]", "_", str(bundle_slug or "bundle"))
+    if not safe or safe[0].isdigit():
+        safe = f"b_{safe}"
+    pkg = f"integral_bundle_{safe}"
+    own_prefixes = (f"app.packages.{bundle_slug}.", f"{pkg}.")
+    own_prefix = next((p for p in own_prefixes if module_part.startswith(p)), None)
+    if bundle_dir and bundle_slug and own_prefix:
+        # Serialized/compiled references still need namespace initialization
+        # after restart or archive extraction; an absolute name is not proof
+        # that its Python package exists in this process.
+        module_part = module_part[len(own_prefix) :]
     elif module_part.startswith("app.") or module_part.startswith("integral_bundle_"):
         return ref
     if bundle_dir:
         root = str(Path(bundle_dir).resolve())
-        safe = re.sub(r"[^0-9A-Za-z_]", "_", str(bundle_slug or "bundle"))
-        if not safe or safe[0].isdigit():
-            safe = f"b_{safe}"
-        pkg = f"integral_bundle_{safe}"
         existing = sys.modules.get(pkg)
         if existing is None:
             mod = types.ModuleType(pkg)

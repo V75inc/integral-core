@@ -530,6 +530,10 @@ selection/storage decision: [ADR-016](docs/backend/adr/016-declarative-semantic-
   current configuration authority. Configuration revision, rebuild request and
   audit intent commit together; deliver audit after commit. A queued rebuild is
   not completed indexing. Coverage is bounded and point-in-time.
+- The text encoder uses pinned ONNX artifacts, tokenizer configuration and
+  explicit pooling. Keep artifact/preprocessing identity in the profile hash;
+  do not mask incompatible dependency constraints, use mutable model revisions
+  or silently guess custom-model aliases. Profile changes backfill a separate space.
 - Retrieval changes need the explicit real encoder/pgvector and PostgreSQL
   rollback lanes in the guide, plus the default backend and CI-faithful gates.
   Measure labelled evidence, HTTP latency and actual provider token use
