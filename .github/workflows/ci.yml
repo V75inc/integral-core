@@ -7,6 +7,8 @@
 name: CI
 
 on:
+  # Recover a missed push event without weakening the exact-revision release gate.
+  workflow_dispatch:
   pull_request:
     branches: [main, dev, ab/dev2, prod, codex/pr-113-staging, codex/core-rc18-jvspatial-022]
     paths:
