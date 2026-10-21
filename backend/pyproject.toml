@@ -130,7 +130,9 @@ dependencies = [
     "openpyxl>=3.1.0",
     "python-pptx>=0.6.21",
     "reportlab>=4.0.0",
-    "Pillow>=10.0.0",
+    # FastEmbed currently requires Pillow <13. Constrain file decoding to the
+    # documented raster/PNG inputs while its Pillow 13 compatibility is pending.
+    "Pillow>=12.3.0,<13",
     "mutagen>=1.47.0",
     "langdetect>=1.0.9",
     "markdown-it-py>=4,<5",

@@ -106,6 +106,14 @@ async def test_native_session_rejects_browser_and_missing_secret(
         ("/api/public/tracks/token", "GET"),
         ("/api/ownership-proposals/x/respond", "POST"),
         ("/api/users/me", "DELETE"),
+        ("/api/users", "POST"),
+        ("/api/users/other/pinned", "POST"),
+        ("/api/users/me/pinned", "PUT"),
+        ("/api/users/me/pinned/extra", "POST"),
+        ("/api/users/me/model-credentials/extra", "POST"),
+        ("/api/users/me/model-credentials/validate/extra", "POST"),
+        ("/api/users/me/unknown-preference", "PATCH"),
+        ("/api/users/me/role", "PUT"),
     ],
 )
 async def test_perimeter_closes_legacy_routes(desktop_profile, path, method):
@@ -122,6 +130,47 @@ async def test_perimeter_closes_legacy_routes(desktop_profile, path, method):
 
 
 @pytest.mark.parametrize(
+    "path,method",
+    [
+        ("/api/users/me/pinned", "POST"),
+        ("/api/users/me/scope", "PUT"),
+        ("/api/users/me/timezone", "PATCH"),
+        ("/api/users/me/notification-preferences", "PATCH"),
+        ("/api/users/me/speech-preferences", "PATCH"),
+        ("/api/users/me/model-credentials", "POST"),
+        ("/api/users/me/model-credentials", "DELETE"),
+        ("/api/users/me/model-credentials/validate", "POST"),
+    ],
+)
+async def test_local_settings_reach_route_authentication(desktop_profile, path, method):
+    """Transport admits local self-settings without granting authentication."""
+    from starlette.responses import JSONResponse
+
+    async def authentication_required(scope, receive, send):
+        assert scope["path"] == path
+        assert not scope.get("state", {}).get("user")
+        await JSONResponse({"detail": "Authentication required"}, status_code=401)(
+            scope, receive, send
+        )
+
+    async with AsyncClient(
+        transport=ASGITransport(
+            app=DesktopPerimeterMiddleware(authentication_required)
+        ),
+        base_url="http://127.0.0.1:19006",
+    ) as client:
+        assert (await client.request(method, path)).status_code == 401
+
+
+@pytest.mark.parametrize(
+    "path,method",
+    [
+        ("/api/meta/deployment", "GET"),
+        ("/api/users/me/pinned", "POST"),
+        ("/api/users/me/model-credentials", "POST"),
+    ],
+)
+@pytest.mark.parametrize(
     "headers",
     [
         {"Host": "attacker.test:19006"},
@@ -131,7 +180,7 @@ async def test_perimeter_closes_legacy_routes(desktop_profile, path, method):
     ],
 )
 async def test_perimeter_rejects_rebinding_and_hostile_origins(
-    desktop_profile, headers
+    desktop_profile, headers, path, method
 ):
     """Loopback transport alone is never browser authority."""
 
@@ -142,9 +191,7 @@ async def test_perimeter_rejects_rebinding_and_hostile_origins(
         transport=ASGITransport(app=DesktopPerimeterMiddleware(forbidden)),
         base_url="http://127.0.0.1:19006",
     ) as client:
-        assert (
-            await client.get("/api/meta/deployment", headers=headers)
-        ).status_code == 403
+        assert (await client.request(method, path, headers=headers)).status_code == 403
 
 
 @pytest.mark.parametrize(
