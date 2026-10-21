@@ -6,8 +6,12 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Restore external App handler namespaces when replaying compiled references after extraction or restart.
+
+- Remove FastEmbed's incompatible Pillow cap by using the same MiniLM artifacts with a pinned text-only ONNX adapter. Require Pillow 13, updated CA roots and uv; include artifact/pooling identity in a new vector profile and retain prior data during backfill.
+
 - Allow hosted package view frames from the configured public SPA URL as well as the OAuth frontend origin; safely normalize configured origins and reject malformed CSP sources without disrupting valid parents.
-- Refresh certifi, uv, follow-redirects and Vite to address dependency audit findings. Pillow remediation remains blocked by FastEmbed's declared Pillow upper bound; this is not release qualification.
+- Refresh certifi, uv, follow-redirects and Vite to address dependency audit findings. The text-only ONNX adapter resolves the Pillow constraint without overriding dependency contracts.
 
 ## 0.1.1rc28 — 2026-10-20
 

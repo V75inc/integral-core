@@ -1,6 +1,6 @@
 # Declarative indexing and retrieval
 
-PostgreSQL deployments use a local FastEmbed ONNX encoder and pgvector. The
+PostgreSQL deployments use a local text-only ONNX encoder and pgvector. The
 registry resolves lazily after `POSTGRES_*` has become
 `JVSPATIAL_POSTGRES_DSN`; API import order cannot permanently select a null store.
 `EMBEDDING_STORE_DRIVER=null` remains an explicit graph-only deployment choice.
@@ -91,8 +91,36 @@ new space; old vectors never answer queries encoded by a different profile.
 The current profile warms through backfill. Old profile data is retained, but
 is not a fallback for a different encoder. Do not claim a new profile is fully
 ready until source coverage is verified. Configure model/weights in the image;
-set `EMBEDDING_MODEL_REVISION` whenever weights change. The revision is an
-operator declaration, not an automatic weight-file integrity attestation.
+the bundled MiniLM artifacts are pinned to Hugging Face commit
+`d13954661f83248295ba75c1ed411eef3b7b936e` in
+`qdrant/all-MiniLM-L6-v2-onnx`. Repository, immutable artifact revision, model
+filename, pooling and additional weight files are included in the profile
+fingerprint automatically. `EMBEDDING_MODEL_REVISION` remains an additional
+operator label, not a separate cryptographic weight-file attestation.
+
+The text-only runtime uses ONNX Runtime, Hugging Face tokenizers and the Hub
+client directly. It does not install FastEmbed, Torch or an image encoder;
+Pillow 13+ is available for Integral's image features without a resolver conflict.
+Set `EMBEDDING_MODEL_CACHE_PATH` for cached artifacts; the historical
+`FASTEMBED_CACHE_PATH` still works as a fallback. Docker prefetches the same
+pinned files through the production loader.
+
+A nondefault `EMBEDDING_MODEL_NAME` now requires explicit
+`EMBEDDING_ONNX_REPOSITORY`, `EMBEDDING_ONNX_REVISION` (40-character commit),
+and `EMBEDDING_ONNX_POOLING` (`mean`, `cls` or already `pooled`).
+`EMBEDDING_ONNX_FILE` defaults to `model.onnx`; models with external weight
+files declare relative paths in JSON `EMBEDDING_ONNX_ADDITIONAL_FILES`.
+The first ONNX output must match the selected pooling contract; supported
+inputs are `input_ids`, `attention_mask` and optional `token_type_ids`.
+No remote Python/model code runs. FastEmbed catalogue aliases are not guessed:
+qualify the chosen artifacts, pooling and dimensions before upgrading a custom
+model deployment.
+
+Profile format 2 includes this artifact identity. Upgrading creates a separate
+space and backfill even though the default MiniLM vectors match the previous
+encoder numerically. Canonical records and old vectors are retained; keyword
+fallback remains available while current-profile coverage warms. Do not delete
+or reuse older vectors solely because their dimensions match.
 
 Defaults: MiniLM L6 v2, 384 dimensions, 160-token chunks and 24-token overlap.
 Chunks use a clone of the actual model tokenizer without truncation, preserve

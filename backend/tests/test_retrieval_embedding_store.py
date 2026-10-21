@@ -2,11 +2,10 @@
 fusion helper, embedding-model deferred import.
 
 The embedding-model import MUST be deferred — the module-load test
-asserts neither ``fastembed`` nor the legacy ``sentence_transformers``
-chain are pulled into ``sys.modules`` on cold import. (Wave 1 of the
-SaaS-deployment plan swapped the runtime from sentence-transformers/torch
-to fastembed/onnxruntime; the deferral discipline applies to either
-backend.)
+asserts the ONNX runtime and retired FastEmbed/sentence-transformers
+chains are not pulled into ``sys.modules`` on cold import. Text inference
+uses the pinned native ONNX adapter; the deferral discipline also protects
+against accidentally restoring a heavy legacy import.
 
 The previously-tested ``sqlite-vec`` driver was removed in Wave 3 of the
 same plan — its driver-specific behaviours (upsert / search round-trip,
@@ -246,9 +245,9 @@ def test_embedding_runtime_import_deferred():
     into sys.modules — keeps the heavy native chain off the cold app path
     (RESEARCH Pitfall 5).
 
-    Covers the current ``fastembed`` backend (onnxruntime + tokenizers)
-    AND the retired ``sentence_transformers`` backend (torch + transformers),
-    so the test stays meaningful if either backend is reinstated.
+    Covers the current ONNX backend and retired FastEmbed and
+    sentence-transformers backends, so reintroducing a legacy import still
+    violates the same cold-start contract.
     """
 
     heavy = ("fastembed", "sentence_transformers", "onnxruntime", "torch")
