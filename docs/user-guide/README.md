@@ -140,7 +140,40 @@ Useful examples:
 
 > “Summarize the open records I can access. Link each record and call out missing information.”
 
+When you first start chatting before workspace setup is complete, the assistant
+welcomes you by your profile name when available, explains that it can build
+Apps and set up your workspace as you chat, and helps you choose a starting
+point. If you already know what you want, describe it and the assistant will
+focus on that task.
+
+The assistant can also use your profile name naturally during later chats.
+
+Inline chat errors stay brief. Click the error or its arrow to expand the full
+message; click again to collapse it. You can also use the keyboard to open it.
+
 The resident uses available capabilities and current permissions. It may need clarification, approval, credentials, or a capability your installation does not expose. A skill describes a procedure; it cannot grant the resident access to restricted data.
+
+If chat needs an AI model, choose **Open AI Models** in the setup notice. It
+opens **Settings → AI Models**, where you can connect your provider or choose a
+local model. Return to the conversation and send your message again once setup
+is complete. Your workspace administrator can help if the connection is managed
+for you. The same link is available when an existing connection needs attention.
+
+You can also ask it to take you to the relevant place:
+
+> “Take me to Internal Projects.”
+
+> “Show me this as a list.”
+
+The resident can open an App, collection, record, or existing saved view you can
+access, keeping the conversation available beside it. Opening a page does not
+change your records. A chat running in the background will not move your page.
+
+To ask about a picture, attach it to your message and say what you want to know,
+such as “What does this chart tell us?” Image understanding needs a model that
+supports pictures. Native chat accepts up to four PNG, JPEG, WebP or GIF images,
+each up to 5 MB. Uploading an image to chat does not file it into a record or
+approve any change.
 
 The default resident uses Integral AI through Pydantic AI. A host can configure another supported binding. Provider availability, model choice, and credential policy affect the experience.
 
@@ -150,6 +183,11 @@ Read the proposed scope and change before approving it. Confirm the target resou
 
 Approval authorizes its execution path. Completion still depends on current permissions, record revisions, dependencies, and provider outcomes. Check the resulting status and open the affected records after application.
 
+After an ordinary change finishes, a short confirmation includes a link to the
+record or the place where you can see it. Rejecting a change gives a brief
+confirmation too. The resident only continues when there is more to do, such as
+using your answer to a question or completing a setup you approved.
+
 If a result is uncertain, avoid repeating the request immediately when it could duplicate an external effect. Inspect receipts or ask for reconciliation. Rejecting or allowing a proposal does not establish blanket authority over later actions.
 
 A public approval route for general bounded autonomous work is not currently a qualified product feature. Do not treat an ordinary chat approval as a grant for unattended work with an unlimited budget.
@@ -158,7 +196,11 @@ A public approval route for general bounded autonomous work is not currently a q
 
 Return to a saved thread to revisit its product transcript. Context may include the page or resource from which the interaction started, but current access is checked again as tools operate.
 
-A provider's internal session, the product transcript, and durable worker state are different things. A conversation surviving reload does not prove an interrupted action resumed. Durable native chat is off by default and requires operator qualification when enabled.
+Where durable chat is supported and enabled, accepted work can finish while the
+tab is closed, and the conversation can reconnect after reload. Seeing a saved
+conversation does not by itself mean an interrupted action finished. Check its
+result before trying the action again. Operators must qualify this behavior for
+their installation; see the [chat lifecycle](../backend/ai-chat.md).
 
 If a running request appears stuck, inspect the supported status and cancellation controls. Reloading the page is not evidence that the backend canceled the work. Use the actual result or work status before deciding whether to retry.
 

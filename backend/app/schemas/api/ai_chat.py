@@ -10,9 +10,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from app.schemas.chat_entity_refs import EntityRef
 
 # Image attachments the user drops in chat for the agent to SEE (vision).
-# Passed inline as base64 into the turn's ``visitor.data["image_urls"]``; the
-# orchestrator vision reflex handles them. Non-image files use a separate
-# persisted-attachment path (not this schema).
+# Legacy inline images use this schema. Native durable chat sends persisted
+# attachment_ids instead; the harness loads verified pixels from those uploads.
 ALLOWED_IMAGE_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
 MAX_IMAGES_PER_MESSAGE = 4
 # Cap the base64 string length (~5 MB decoded; base64 inflates ~1.33x).

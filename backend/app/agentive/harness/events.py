@@ -40,7 +40,14 @@ _TOOL_PREFIX = re.compile(
     r'function_arguments|type)(?:")?\s*:',
     re.IGNORECASE,
 )
+_XML_TOOL_PREFIX = re.compile(
+    r"^\s*<(?:function(?:\s|=|>)|tool_call(?:\s|>)|tool_use(?:\s|>))",
+    re.IGNORECASE,
+)
 _FLATTENED_PREFIXES = (
+    "<function",
+    "<tool_call",
+    "<tool_use",
     '"analysis',
     '"thought',
     '"reasoning',
@@ -103,6 +110,8 @@ def _contains_serialized_tool_call(value: Any) -> bool:
 
 def _classify_text_object(text: str) -> tuple[str, str | None, str | None]:
     """Return (kind, safe answer, reason) for a complete JSON-looking part."""
+    if _XML_TOOL_PREFIX.match(text):
+        return "tool", None, None
     decoded = _candidate_json(text)
     if decoded is None:
         if _PRIVATE_PREFIX.match(text):
@@ -127,6 +136,11 @@ def _classify_text_object(text: str) -> tuple[str, str | None, str | None]:
     if not isinstance(content, str) or not content.strip():
         return "unsafe", None, "missing_final_text"
     return "private", content, None
+
+
+def is_serialized_tool_text(text: str) -> bool:
+    """Recognize printed tool protocols without interpreting or executing them."""
+    return _classify_text_object(text)[0] == "tool"
 
 
 class SettledTextBuffer:
@@ -179,6 +193,8 @@ class PydanticAIEventTranslator:
 
     def _settled_public_text(self, raw_output: str) -> tuple[str | None, str | None]:
         """Return (safe public answer, failure code) for the authoritative result."""
+        if is_serialized_tool_text(raw_output):
+            return None, "undispatched_tool_envelope"
         if (
             self._looks_like_json_start(raw_output)
             or _PRIVATE_PREFIX.match(raw_output)
@@ -397,6 +413,29 @@ def translate_event(event: Any) -> Iterator[dict[str, Any]]:
                 "status": "error" if failed else "complete",
                 **({"diagnostic": diagnostic} if diagnostic else {}),
             }
+            # Raw tool outputs remain private. Project only the typed local
+            # destination from this authorized, presentation-only tool.
+            if (
+                name == "integral_open_view"
+                and not failed
+                and isinstance(content, dict)
+            ):
+                navigation = content.get("navigation")
+                if (
+                    content.get("ok") is True
+                    and isinstance(navigation, dict)
+                    and all(
+                        isinstance(navigation.get(key), str)
+                        for key in ("path", "thread_id", "workspace_id")
+                    )
+                ):
+                    yield {
+                        "type": "navigation",
+                        **{
+                            key: navigation[key]
+                            for key in ("path", "thread_id", "workspace_id")
+                        },
+                    }
         return
 
     if isinstance(event, AgentRunResultEvent):

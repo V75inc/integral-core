@@ -6,12 +6,36 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Allow hosted package view frames from the configured public SPA URL as well as the OAuth frontend origin; normalize configured origins and reject malformed CSP sources without disrupting valid parents.
+
+- Personalize chat with the signed-in profile name throughout conversations and welcome new users with a brief explanation that Integral can build Apps and set up their workspace as they chat.
+- Center the workspace setup acknowledgement and make inline message, tool and approval errors expandable, preserving the full API error when reopening a chat.
+
 - Restore external App handler namespaces when replaying compiled references after extraction or restart.
 
-- Remove FastEmbed's incompatible Pillow cap by using the same MiniLM artifacts with a pinned text-only ONNX adapter. Require Pillow 13, updated CA roots and uv; include artifact/pooling identity in a new vector profile and retain prior data during backfill.
+- Update vulnerable backend/frontend dependencies; replace FastEmbed's incompatible Pillow cap with pinned text-only ONNX inference, retain MiniLM semantics and isolate new artifact profiles during backfill.
 
-- Allow hosted package view frames from the configured public SPA URL as well as the OAuth frontend origin; safely normalize configured origins and reject malformed CSP sources without disrupting valid parents.
-- Refresh certifi, uv, follow-redirects and Vite to address dependency audit findings. The text-only ONNX adapter resolves the Pillow constraint without overriding dependency contracts.
+- Guide unconfigured chat to Settings → AI Models with a friendly setup notice and an in-app link, including after reopening a saved conversation; offer the same help for a model connection that needs attention.
+
+- Let the agent open permitted Apps, collections, records and saved views in the current tab through `integral_open_view`, preserving chat and suppressing navigation from history, background or interrupted turns.
+
+- End completed write approvals, denials and cancellations with the host review receipt; reserve agent continuation for answered questions, approved designs and unpublished profile revisions that need further work.
+- Expose registered App tool discovery and invocation together in record and attachment skills, distinguish registered tool keys from declared queries, and encode binary checkpoint data safely in session exports.
+
+- Refresh chat approvals at committed staging results, reply start and turn completion; retain refresh signals arriving during an active status check so new cards do not wait for idle polling.
+- Use contrasting toast surfaces in both themes, vertically centre messages and controls, and allow up to three message lines with status-coloured left borders.
+
+- Preserve approval and other server continuations through native image-input preparation; keep internal host receipts out of chat bubbles after reload and carry exact receipt IDs into scoped readback.
+
+- Add native image understanding from persisted chat uploads, with live image-access and content checks before every model attempt, durable reload/follow-up support, and clear image-format/model errors.
+
+- Close verified setup workflows with a brief result and current resource links; clear applied design state and avoid repeated summaries of unchanged history consuming the response allowance.
+
+- Highlight short chat invitations to confirm or reply; show stopped requests as neutral status notes in live chat and saved history.
+
+- Describe live chat activity in one short line, including reading, search checks and answer preparation; keep retry and cancellation notices current.
+- Reuse repeated parent-App checks during Track discovery while retaining fresh canonical admission; route installed-App record questions through their registered read tools or declared queries.
+- Bound silent model streams and enforce their full request deadline, preserving uncertain usage and effect receipts during interruption.
 
 ## 0.1.1rc28 — 2026-10-20
 

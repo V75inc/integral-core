@@ -85,22 +85,35 @@ def queue_is_open(thread: ChatThread) -> bool:
 
 
 def _host_resume_required(queue: Dict[str, Any]) -> bool:
-    """A native chat decision already has an owning model continuation.
+    """Resume only when a resolved review unlocks unfinished agent work.
 
-    Only durable terminal decisions made through the chat adapter can suppress
-    another host run. Questions, card decisions and unavailable tokens retain
-    the usual continuation. This does not grant or replay any write authority.
+    The executor and durable staging state already determine ordinary write
+    and denial outcomes. A second model run adds neither authorization nor
+    stronger evidence. Questions, approved designs and unpublished profile
+    revisions still need their explicit continuation. A chat decision already
+    belongs to its running turn and must never start a second one.
     """
-    items = queue.get("items") or []
-    return not (
-        items
-        and all(
+    if queue.get("close_reason") == "cancelled":
+        return False
+    for item in queue.get("items") or []:
+        if item.get("kind") == ITEM_QUESTION and item.get("status") in {
+            STATUS_ANSWERED,
+            STATUS_SKIPPED,
+        }:
+            return True
+        if (
             item.get("kind") == ITEM_STAGED_WRITE
-            and item.get("status") in {STATUS_APPROVED, STATUS_REJECTED}
-            and item.get("decision_source") == "chat"
-            for item in items
-        )
-    )
+            and item.get("status") == STATUS_APPROVED
+            and item.get("decision_source") != "chat"
+            and item.get("write_kind")
+            in {"design_proposal", "propose_profile_revision"}
+        ):
+            if item.get("write_kind") == "propose_profile_revision" and not item.get(
+                "profile_revision_review"
+            ):
+                continue
+            return True
+    return False
 
 
 def _verified_decision_source(
@@ -397,6 +410,66 @@ def build_resume_agent_directive(queue: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _receipt_links(item: Dict[str, Any]) -> List[str]:
+    """Local links from execution metadata, never model-supplied URLs."""
+    if item.get("status") != STATUS_APPROVED:
+        return []
+    nav = item.get("consumed_nav") or {}
+    diff = item.get("diff_machine") or {}
+    if not isinstance(nav, dict) or not isinstance(diff, dict):
+        return []
+    deleting = str(diff.get("op") or item.get("write_kind") or "").startswith("delete_")
+    refs = [] if deleting else list(nav.get("created") or [])
+    if not refs:
+        # Update executors may return only an acknowledgement. Their staged
+        # target still identifies where the confirmed change can be viewed.
+        for kind, key, fallback in (
+            ("entry", "entryId", "entry_id"),
+            ("track", "trackId", "track_id"),
+            ("app", "appId", "app_id"),
+        ):
+            if deleting and (
+                kind == "entry"
+                or (
+                    kind == "track"
+                    and "track" in str(diff.get("op") or item.get("write_kind") or "")
+                )
+                or "app" in str(diff.get("op") or item.get("write_kind") or "")
+            ):
+                continue
+            resource_id = nav.get(key) or diff.get(fallback)
+            if resource_id:
+                refs = [{"kind": kind, "id": resource_id}]
+                break
+    routes = {
+        "entry": ("entries", "Entry", "View record"),
+        "track": ("tracks", "Track", "View collection"),
+        "app": ("apps", "WorkspaceApp", "View app"),
+    }
+    links: List[str] = []
+    for ref in refs:
+        if not isinstance(ref, dict) or ref.get("kind") not in routes:
+            continue
+        route, node, default_label = routes[ref["kind"]]
+        resource_id = str(ref.get("id") or "")
+        if not re.fullmatch(rf"n\.{node}\.[A-Za-z0-9_-]+", resource_id):
+            continue
+        label = str(ref.get("title") or default_label).replace("\n", " ")
+        label = re.sub(r"([\\`*{}_\[\]<>])", r"\\\1", label)
+        path = f"/{route}/{resource_id}"
+        track_id = str(
+            ref.get("trackId") or nav.get("trackId") or diff.get("track_id") or ""
+        )
+        if ref["kind"] == "entry" and re.fullmatch(
+            r"n\.Track\.[A-Za-z0-9_-]+", track_id
+        ):
+            path = f"/tracks/{track_id}?entry={resource_id}"
+        link = f"[{label}]({path})"
+        if link not in links:
+            links.append(link)
+    return links
+
+
 def build_resume_summary(queue: Dict[str, Any]) -> str:
     """User-visible residual state after a Prompt Sheet drains.
 
@@ -420,6 +493,13 @@ def build_resume_summary(queue: Dict[str, Any]) -> str:
     lines = [RESUME_MARKER, title]
     if bullets:
         lines.extend(f"• {b}" for b in bullets)
+    links = list(
+        dict.fromkeys(
+            link for item in queue.get("items") or [] for link in _receipt_links(item)
+        )
+    )
+    if links:
+        lines.append("• " + " · ".join(links))
     # A profile revision approval changes only a private draft. Compute its
     # persisted diff before the continuation can stage the separate publish
     # approval, and put that diff in this user-visible resume message. This
@@ -1030,6 +1110,7 @@ async def cancel_all(*, user_id: str, thread: ChatThread) -> dict:
         "revoked_tokens": revoked,
         "queue": queue,
         "resume_text": resume,
+        "resume_required": _host_resume_required(queue),
         "closed": True,
     }
 
@@ -1162,7 +1243,7 @@ async def get_open_queue_for_thread(*, user_id: str, thread: ChatThread) -> dict
         "open": open_,
         "queue": queue if open_ else empty_queue(),
         "resume_text": result.get("resume_text"),
-        "resume_required": result.get("resume_required", True),
+        "resume_required": result.get("resume_required", _host_resume_required(queue)),
         "closed": bool(result.get("closed")),
     }
 

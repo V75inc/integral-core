@@ -8,6 +8,7 @@ at this seam and qualified by adapter contract tests.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -15,6 +16,7 @@ from typing import Any, Callable
 from pydantic_ai import (
     Agent,
     AgentRunResultEvent,
+    BinaryContent,
     CancellationToken,
     FunctionToolCallEvent,
     FunctionToolResultEvent,
@@ -754,6 +756,7 @@ class IntegralHistorySummary(SummarizingCompaction):
     """
 
     max_history_bytes: int = 96_000
+    _compacted_history_digest: str | None = None
 
     async def before_model_request(self, ctx, request_context):
         # Pydantic AI 2.10 makes request_context.messages request-only.
@@ -762,11 +765,27 @@ class IntegralHistorySummary(SummarizingCompaction):
         before = list(request_context.messages)
         turn_start = _active_turn_start(before)
         history = before[:turn_start] if turn_start is not None else []
-        if len(ModelMessagesTypeAdapter.dump_json(history)) > self.max_history_bytes:
+        history_bytes = ModelMessagesTypeAdapter.dump_json(history)
+        digest = hashlib.sha256(history_bytes).hexdigest()
+        # Only completed-turn history is eligible for summarization. A large
+        # active build must not repeatedly summarize the same older history,
+        # spend the closing-response allowance, or duplicate its receipts.
+        if final_response_reserved(ctx) or digest == self._compacted_history_digest:
+            return request_context
+        if len(history_bytes) > self.max_history_bytes:
             request_context.messages = await self.compact(before, ctx)
-        processed = await super().before_model_request(ctx, request_context)
+            processed = request_context
+        else:
+            processed = await super().before_model_request(ctx, request_context)
         if processed.messages != before:
             ctx.messages[:] = processed.messages
+        processed_start = _active_turn_start(processed.messages)
+        retained_history = (
+            processed.messages[:processed_start] if processed_start is not None else []
+        )
+        self._compacted_history_digest = hashlib.sha256(
+            ModelMessagesTypeAdapter.dump_json(retained_history)
+        ).hexdigest()
         return processed
 
     async def compact(self, messages, ctx):
@@ -869,6 +888,7 @@ __all__ = [
     "build_integral_host_turn",
     "Agent",
     "AgentRunResultEvent",
+    "BinaryContent",
     "CancellationToken",
     "ClearToolResults",
     "build_integral_history_compaction",

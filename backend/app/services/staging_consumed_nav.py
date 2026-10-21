@@ -128,6 +128,26 @@ def extract_consumed_nav(
     op = _staged_op(staged)
     result = _as_record(execute_result)
 
+    # Typed App commands return governed object references rather than CRUD
+    # envelopes. Preserve all of them so a batch receipt can link each record.
+    output = _as_record((result or {}).get("output")) or {}
+    object_refs = (result or {}).get("object_refs") or output.get("object_refs")
+    if isinstance(object_refs, list) and object_refs:
+        refs = [
+            {
+                "kind": ref["kind"],
+                "id": ref["id"],
+                "title": ref.get("title"),
+                "trackId": ref.get("track_id"),
+            }
+            for ref in object_refs
+            if isinstance(ref, dict)
+            and ref.get("kind") in ("entry", "track", "app")
+            and isinstance(ref.get("id"), str)
+        ]
+        if refs:
+            return {"created": refs, "appId": (result or {}).get("app_id")}
+
     sub_results = (
         result.get("results")
         if result and isinstance(result.get("results"), list)
@@ -181,4 +201,5 @@ def extract_consumed_nav(
     return {
         "entryId": (diff or {}).get("entry_id"),
         "trackId": (diff or {}).get("track_id"),
+        "appId": (diff or {}).get("app_id"),
     }

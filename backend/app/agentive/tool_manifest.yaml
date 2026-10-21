@@ -245,6 +245,26 @@ domains:
               only), visible_entries, or visible_tracks.
         returns: { page_context: object }
         privacy: "Self + active chat only. Snapshot is UI state the caller already sent."
+      - name: integral_open_view
+        status: existing
+        op_class: read
+        priority: P0
+        summary: >-
+          Open an accessible app, collection, record or saved collection view in
+          the user's current browser tab, keeping this chat available. Use when
+          showing a result or taking the user to the relevant place helps their
+          request. Discover actual resource and saved view IDs first; never guess
+          URLs or IDs. This changes only the visible page, not data, and needs no
+          approval. It runs after your reply; keep the reply brief. Do not call it
+          for every answer, or claim a page opened if the tool refuses.
+        http: "(conversation context)"
+        policy_action: null
+        params:
+          target_kind: {type: string, enum: [app, track, entry], required: true, desc: "Kind of destination. A collection is a track."}
+          target_id: {type: string, required: true, desc: "Existing destination ID from a read or successful change."}
+          view_id: {type: string, optional: true, desc: "Optional existing saved View ID belonging to the target collection."}
+        returns: { ok: bool, navigation: object, message: str }
+        privacy: "Bound chat principal and workspace only. Live resource and saved-view read checks; no external URLs or data mutation. No browser request outside an active browser chat."
       - name: integral_list_workspaces
         status: existing
         op_class: read
@@ -1613,7 +1633,9 @@ domains:
         summary: >-
           List the workspace-registered bundle tools the caller may invoke from
           chat, including each live tool key and parameter schema. Use this
-          before integral_call_workspace_tool; do not guess a key.
+          before integral_call_workspace_tool; do not guess a key. Registered tool
+          keys are invoked through integral_call_workspace_tool, never as
+          declared query keys in integral_governed_query.
         http: "(service workspace_tools.list_workspace_tools)"
         policy_action: tool.invoke
         params: {}
@@ -2676,11 +2698,11 @@ domains:
 # SUMMARY COUNTS (for review convenience; keep in sync)
 # =============================================================================
 summary:
-  total_tools: 129
-  existing_tools: 127    # status: existing
+  total_tools: 130
+  existing_tools: 128    # status: existing
   gap_tools_proposed: 2  # status: gap (workspace_setup, onboard_user deferred)
-  by_op_class: { read: 55, propose: 73, execute: 1 }
-  by_priority: { P0: 16, P1: 44, P2: 69 }
+  by_op_class: { read: 56, propose: 73, execute: 1 }
+  by_priority: { P0: 17, P1: 44, P2: 69 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
   policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)

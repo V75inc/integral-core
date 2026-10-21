@@ -221,11 +221,15 @@ def _read_refusal(data: Any) -> Optional[ToolResult]:
             "The read was refused; no records were queried. Do not report an "
             "empty result or a zero count. "
             + (
-                "Inspect integral_describe_capabilities for a permitted declared "
-                "query belonging to this App. Use integral_governed_query in "
-                "declared_capability mode only with a verified matching key. If "
-                "none is exposed, report that the App has no available record "
-                "query. A permitted integral_resolve_entry lookup of a known "
+                "Call integral_list_workspace_tools to discover this installed "
+                "App's read tools and their input schemas. Use "
+                "integral_call_workspace_tool with the exact returned tool key "
+                "and matching App scope. If no matching read tool is available, "
+                "inspect integral_describe_capabilities for a declared query "
+                "belonging to this App; integral_governed_query in "
+                "declared_capability mode requires a verified matching key. "
+                "If neither is exposed, explain briefly that the records "
+                "could not be read. A permitted integral_resolve_entry lookup of a known "
                 "record ID remains available; it cannot enumerate unknown records. "
                 "Do not invent keys, try other broad generic queries, or use "
                 "another App's query to work around this refusal. A saved-write "
@@ -234,7 +238,7 @@ def _read_refusal(data: Any) -> Optional[ToolResult]:
                 else "Report the refusal without inferring any record count."
             )
         ),
-        next_tool="integral_describe_capabilities" if declared else "",
+        next_tool="integral_list_workspace_tools" if declared else "",
     )
 
 

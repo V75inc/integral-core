@@ -167,7 +167,13 @@ def conversational_text(text: str) -> str:
     return text
 
 
-def build_light_agent(model: Any, *, time_context: str = "") -> Agent:
+def build_light_agent(
+    model: Any,
+    *,
+    time_context: str = "",
+    orientation_context: str = "",
+    identity_context: str = "",
+) -> Agent:
     """Build a tool-free conversational pass with a typed context request."""
     return Agent(
         model,
@@ -176,7 +182,16 @@ def build_light_agent(model: Any, *, time_context: str = "") -> Agent:
             ToolOutput(OperationalContextRequest, name="request_operational_context"),
             ToolOutput(SimpleReminderRequest, name="propose_simple_reminder"),
         ],
-        instructions=LIGHT_INSTRUCTIONS + "\n\n" + time_context,
+        instructions="\n\n".join(
+            block
+            for block in (
+                LIGHT_INSTRUCTIONS,
+                time_context,
+                identity_context,
+                orientation_context,
+            )
+            if block
+        ),
         retries=0,
         capabilities=[
             InstructionDisclosureGuard(protected_instructions=LIGHT_INSTRUCTIONS)

@@ -54,6 +54,8 @@ is weakened.
   exclusions, foreign scope, stale workers, lease retries, direct Entry grants,
   REST/agent boundaries and canonical transaction rollback.
 - Backend dependency audit: **passed**, no known vulnerabilities reported.
+- Full frontend suite: **341 files / 1,978 tests passed**; TypeScript and
+  production Vite build passed (existing chunk-size warning).
 - Frontend dependency audit: **passed** under the unchanged reviewed policy.
 - Fresh wheel installation with public dependency metadata and outside-checkout
   ASGI import: **passed**.
