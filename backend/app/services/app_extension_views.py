@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import json
 import mimetypes
+import re
 import time
 from html.parser import HTMLParser
 from pathlib import Path
@@ -329,6 +330,49 @@ class _InlineScriptHashes(HTMLParser):
             self.current = None
 
 
+def extension_frame_ancestors(*raw_origins: str) -> str:
+    """Origins allowed to embed a package view frame.
+
+    ``'self'`` covers the API origin. Each configured SPA origin is added
+    once, without a path, so a public web host and the local dev server can
+    both be parents.
+    """
+    ancestors = ["'self'"]
+    seen: set[str] = set()
+    for raw in raw_origins:
+        value = str(raw or "").strip()
+        # URL parsing tolerates controls and CSP delimiters; never let them
+        # become a second source or directive in the response header.
+        if not value or any(ord(char) < 33 or char in "\\;," for char in value):
+            continue
+        try:
+            origin = urlsplit(value)
+            if (
+                origin.scheme not in ("http", "https")
+                or not origin.hostname
+                or origin.username is not None
+                or origin.password is not None
+            ):
+                continue
+            host = origin.hostname.lower()
+            port = origin.port  # Invalid/out-of-range ports raise ValueError.
+        except ValueError:
+            continue
+        # CSP host-source grammar has no IPv6 literal form. Use a configured
+        # DNS name for a separate IPv6 SPA; same-origin remains covered by self.
+        if not re.fullmatch(r"[a-z0-9-]+(?:\.[a-z0-9-]+)*\.?", host):
+            continue
+        if port == {"http": 80, "https": 443}[origin.scheme]:
+            port = None
+        port_suffix = f":{port}" if port is not None else ""
+        value = f"{origin.scheme}://{host}{port_suffix}"
+        if value in seen:
+            continue
+        seen.add(value)
+        ancestors.append(value)
+    return " ".join(ancestors)
+
+
 async def render_extension_view_frame(token: str) -> Tuple[str, str]:
     """Serve a sandbox document using a scoped grant, never a user JWT.
 
@@ -354,11 +398,13 @@ async def render_extension_view_frame(token: str) -> Tuple[str, str]:
     parser = _InlineScriptHashes()
     parser.feed(html)
     scripts = " ".join(parser.scripts) or "'none'"
-    origin = urlsplit(settings.FRONTEND_ORIGIN)
-    ancestors = "'self'"
-    if origin.scheme in ("http", "https") and origin.hostname:
-        port = f":{origin.port}" if origin.port else ""
-        ancestors += f" {origin.scheme}://{origin.hostname}{port}"
+    # FRONTEND_ORIGIN is the OAuth consent host. Hosted deploys also set
+    # APP_BASE_URL to the public SPA and can leave FRONTEND_ORIGIN at the
+    # localhost default, which blocks that SPA from embedding this frame.
+    ancestors = extension_frame_ancestors(
+        settings.FRONTEND_ORIGIN,
+        settings.APP_BASE_URL,
+    )
     policy = (
         "sandbox allow-scripts; default-src 'none'; base-uri 'none'; "
         f"form-action 'none'; frame-ancestors {ancestors}; object-src 'none'; "

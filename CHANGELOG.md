@@ -6,6 +6,8 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+- Allow hosted package view frames from the configured public SPA URL as well as the OAuth frontend origin; normalize configured origins and reject malformed CSP sources without disrupting valid parents.
+
 ## 0.1.1rc29 — 2026-10-21
 
 - Personalize chat with the signed-in profile name throughout conversations and welcome new users with a brief explanation that Integral can build Apps and set up their workspace as they chat.
