@@ -49,3 +49,7 @@ Final production frontend build passed. Guards, pre-commit, pinned formatting, l
 ## CI dependency-audit follow-up
 
 The first remote run on `a49ea444` failed the backend dependency audit: locked `pypdf==6.19.0` had five advisories. The minimum is now `pypdf>=6.21.1`, and `uv.lock` resolves 6.21.2. The unchanged backend audit passes with no known vulnerabilities. PDF attachment extraction, document signatures and Operational Model derivation are rechecked against the updated lock. The earlier full-suite and wheel hashes above describe the QA implementation before this dependency-only follow-up.
+
+## Home AI setup follow-up
+
+The single-user Home card previously rendered a fixed model/API-key setup prompt. It now reads the shared model-credential query used by AI Models settings. An active configuration, including a keyless local model, shows the Home chat composer and Manage AI settings. Saving/removing credentials updates that same query cache immediately. Missing or inactive configuration retains optional setup; loading/failure displays an explicit checking/unavailable state and retry rather than incorrectly asserting setup is missing. A configured model is not a claim of live provider connectivity. Server Home behavior remains unchanged. Existing Integral One UI bundles need a rebuild to receive this upstream change.
