@@ -6,6 +6,8 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc29 — 2026-10-21
+
 - Personalize chat with the signed-in profile name throughout conversations and welcome new users with a brief explanation that Integral can build Apps and set up their workspace as they chat.
 - Center the workspace setup acknowledgement and make inline message, tool and approval errors expandable, preserving the full API error when reopening a chat.
 
