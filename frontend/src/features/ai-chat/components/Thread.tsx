@@ -66,7 +66,7 @@ import { MarkdownText } from "./MarkdownText";
 import { MarkdownContent } from "../../../components/ui/MarkdownContent";
 import { ChatAttachmentList } from "./ChatAttachmentList";
 import { extractAttachmentListsFromParts } from "./extractAttachmentListsFromParts";
-import { MessageObservability, useMessageModelLabel } from "./MessageObservability";
+import { MessageObservability, useMessageModelLabel, useMessageTurnMetrics } from "./MessageObservability";
 import { MessageDebugDialog } from "./MessageDebugDialog";
 import { Reasoning } from "./Reasoning";
 import {
@@ -393,7 +393,7 @@ export function latestActiveTool(parts: readonly {
  * One trail for reasoning and tool steps.
  *
  * Stays collapsed. While the turn runs the label is a one-line status.
- * When the reply lands it becomes "Finished · tools · model". Expanding retraces the
+ * When the reply lands it shows completion, tools, model, duration and tokens. Expanding retraces the
  * activity and the steps. A manual expansion survives completion.
  */
 export function WorkTrail({ children }: { children: ReactNode }) {
@@ -411,6 +411,7 @@ export function WorkTrail({ children }: { children: ReactNode }) {
     (s.message.metadata?.custom as { errorCode?: string } | undefined)?.errorCode,
   ));
   const modelLabel = useMessageModelLabel();
+  const turnMetrics = useMessageTurnMetrics();
   const toolCount = useAuiState(
     (s) => (s.message.parts ?? []).filter((p) => p.type === "tool-call").length,
   );
@@ -437,6 +438,7 @@ export function WorkTrail({ children }: { children: ReactNode }) {
     setupNeeded ? "Setup needed" : interruptedReason === "cancelled" ? "Stopped" : interruptedReason ? "Interrupted" : "Finished",
     toolCount > 0 ? `${toolCount} ${toolCount === 1 ? "tool call" : "tool calls"}` : "",
     modelLabel,
+    turnMetrics,
     toolFailed ? "a step failed" : "",
   ]
     .filter(Boolean)
@@ -465,7 +467,7 @@ export function WorkTrail({ children }: { children: ReactNode }) {
         <span aria-hidden="true" className="relative -top-px inline-flex h-4 w-4 shrink-0 items-center justify-center leading-none">
           <span className={`inline-flex items-center justify-center ${running ? "animate-agent-working motion-reduce:animate-none" : ""}`}><LogoMark size="xs" /></span>
         </span>
-        <span role="status" aria-live="polite" title={label} className="inline-flex min-h-4 min-w-0 items-center leading-4"><span key={label} className="truncate animate-status-reveal motion-reduce:animate-none">{label}</span></span>
+        <span role="status" aria-live="polite" title={label} className="inline-flex min-h-4 min-w-0 items-center leading-4"><span key={label} className="break-words animate-status-reveal motion-reduce:animate-none">{label}</span></span>
       </CollapsibleTrigger>
       <CollapsibleContent className="mt-2 flex max-h-80 flex-col gap-3 overflow-y-auto pl-5 text-xs">
         <p className="text-xs text-[var(--text-muted)]">Activity, tool results, and model usage are shown here.</p>

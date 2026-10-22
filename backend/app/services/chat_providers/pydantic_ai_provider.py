@@ -1626,6 +1626,7 @@ class PydanticAIProvider:
             OperationalContextRequest,
             SimpleReminderRequest,
             build_light_agent,
+            is_printed_context_request,
             public_dialogue,
             recent_public_messages,
             requires_operational_path,
@@ -1738,7 +1739,11 @@ class PydanticAIProvider:
         from app.agentive.harness.events import is_serialized_tool_text
 
         if isinstance(result.output, OperationalContextRequest) or (
-            isinstance(result.output, str) and is_serialized_tool_text(result.output)
+            isinstance(result.output, str)
+            and (
+                is_serialized_tool_text(result.output)
+                or is_printed_context_request(result.output)
+            )
         ):
             # Some providers print an output-tool protocol instead of emitting
             # the typed routing result. Escalate with the original user input;
@@ -1783,6 +1788,12 @@ class PydanticAIProvider:
         if not public_text.strip():
             raise ServiceUnavailableError(
                 message="The assistant returned no usable answer"
+            )
+        if is_printed_context_request(public_text):
+            # Check normalized envelopes too; route using the original input.
+            usage = result.usage
+            return EscalatedTurn(
+                input_tokens=usage.input_tokens, output_tokens=usage.output_tokens
             )
         return LightTurnResult(
             text=public_text,

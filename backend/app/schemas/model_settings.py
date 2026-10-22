@@ -11,8 +11,9 @@ class ModelGenerationSettings(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     reasoning_effort: (
-        Literal["none", "minimal", "low", "medium", "high", "xhigh"] | None
+        Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"] | None
     ) = None
+    thinking_enabled: bool | None = None
     max_tokens: int | None = Field(default=None, ge=1, le=131072)
     temperature: float | None = Field(default=None, ge=0, le=2)
     top_p: float | None = Field(default=None, gt=0, le=1)
@@ -29,6 +30,10 @@ class ModelGenerationSettings(BaseModel):
 
     @model_validator(mode="after")
     def compatible(self):
+        if self.thinking_enabled is not None and (
+            self.reasoning_effort is not None or self.thinking_budget is not None
+        ):
+            raise ValueError("Choose one reasoning control")
         if self.temperature is not None and self.top_p is not None:
             raise ValueError("Choose temperature or top-p, rather than both")
         if self.thinking_budget is not None:

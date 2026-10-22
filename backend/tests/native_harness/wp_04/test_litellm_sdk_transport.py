@@ -1546,3 +1546,67 @@ async def test_shared_budget_guard_precedes_retry_admission_and_dispatch() -> No
     assert isinstance(caught.value.__cause__, UsageLimitExceeded)
     assert events == ["admission", "ready", "dispatch"]
     assert timing.physical_requests == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "provider,configured,expected",
+    [
+        ("ollama_chat", {"reasoning_effort": "max"}, {"think": "max"}),
+        ("ollama_chat", {"reasoning_effort": "none"}, {"think": False}),
+        ("ollama_chat", {"thinking_enabled": False}, {"think": False}),
+        ("ollama_chat", {"thinking_enabled": True}, {"think": True}),
+        ("anthropic", {"reasoning_effort": "none"}, {"thinking": {"type": "disabled"}}),
+        ("openrouter", {"reasoning_effort": "max"}, {"reasoning": {"effort": "max"}}),
+        (
+            "openrouter",
+            {"thinking_budget": 2048, "max_tokens": 4096},
+            {"reasoning": {"max_tokens": 2048}},
+        ),
+    ],
+)
+async def test_provider_native_reasoning_settings_are_preserved(
+    provider, configured, expected
+):
+    captured = {}
+
+    async def completion(**kwargs):
+        captured.update(kwargs)
+        return {
+            "id": "reasoning-settings",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "fixture",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "ok"},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+    route = _route().model_copy(
+        update={
+            "provider": provider,
+            "model": f"{provider}/fixture",
+            "generation_settings": configured,
+            **({"ollama_think": "low"} if provider == "ollama_chat" else {}),
+        }
+    )
+    transport = LiteLLMSDKTransport(
+        route=route, scope=_scope(), observer=_ignore_observation, completion=completion
+    )
+    async with httpx.AsyncClient(transport=transport) as client:
+        response = await client.post(
+            "http://litellm-sdk.invalid/v1/chat/completions",
+            json={
+                "model": route.model,
+                "messages": [{"role": "user", "content": "fixture"}],
+            },
+        )
+    assert response.status_code == 200
+    for key, value in expected.items():
+        assert captured["extra_body"][key] == value
+    assert "reasoning_effort" not in captured
+    assert "thinking_enabled" not in captured

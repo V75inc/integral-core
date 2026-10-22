@@ -8,6 +8,10 @@ import {
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ModelRoutingSection } from "./ModelRoutingSection";
+const showToast = vi.hoisted(() => vi.fn());
+vi.mock("../../../context/ToastContext", () => ({
+  useToast: () => ({ showToast }),
+}));
 import {
   aiConfigurationApi,
   type AIConfiguration,
@@ -117,7 +121,13 @@ describe("Optional light/heavy model routing", () => {
         expect.anything(),
       ),
     );
-    expect(await screen.findByText(/Model routing saved/)).toBeVisible();
+    await waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith(
+        "Model routing saved. Changes apply to the next turn.",
+        "success",
+      ),
+    );
+    expect(screen.queryByText(/Model routing saved/)).not.toBeInTheDocument();
   });
   it("keeps failed saves and selected assignments visible", async () => {
     vi.mocked(aiConfigurationApi.saveRouting).mockRejectedValue(
@@ -126,7 +136,13 @@ describe("Optional light/heavy model routing", () => {
     show();
     fireEvent.click(screen.getByRole("button", { name: "Configure routing" }));
     fireEvent.click(screen.getByRole("button", { name: "Save routing" }));
-    expect(await screen.findByRole("alert")).toBeVisible();
+    await waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith(
+        "Could not save model routing.",
+        "error",
+      ),
+    );
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Main model")).toHaveValue("heavy");
   });
   it("shows effective owner-managed routing without exposing editing", () => {

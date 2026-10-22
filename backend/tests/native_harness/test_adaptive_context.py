@@ -408,6 +408,10 @@ async def test_upload_context_survives_recent_text_window(monkeypatch):
         "<function=request_operational_context></function>",
         '<tool_call>{"name":"some_tool","arguments":{"ignored":true}}</tool_call>',
         '{"function_call":{"name":"some_tool","arguments":{}}}',
+        "OperationalContextRequest",
+        "`OperationalContextRequest()`",
+        "request_operational_context",
+        '{"thought":"PRIVATE", "content":"OperationalContextRequest"}',
     ],
 )
 async def test_printed_routing_protocol_escalates_without_becoming_an_answer(
@@ -423,3 +427,18 @@ async def test_printed_routing_protocol_escalates_without_becoming_an_answer(
     )
     result = await PydanticAIProvider()._try_light_turn(ctx, thread, "owner", None)
     assert isinstance(result, EscalatedTurn)
+
+
+@pytest.mark.asyncio
+async def test_explaining_a_routing_type_is_still_a_conversational_answer(monkeypatch):
+    ctx, thread, _, _ = await setup_turn(monkeypatch)
+    answer = "OperationalContextRequest is an internal routing type."
+    monkeypatch.setattr(
+        "app.services.chat_providers.pydantic_ai_provider.build_litellm_sdk_model",
+        lambda **kwargs: FunctionModel(
+            lambda m, i: ModelResponse(parts=[TextPart(answer)])
+        ),
+    )
+    result = await PydanticAIProvider()._try_light_turn(ctx, thread, "owner", None)
+    assert isinstance(result, LightTurnResult)
+    assert result.text == answer

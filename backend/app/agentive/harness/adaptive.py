@@ -56,8 +56,14 @@ LIGHT_INSTRUCTIONS = (
     "no workspace tools in this conversational pass. For ANY request involving "
     "current facts requiring retrieval, workspace records, the current screen, "
     "files, saved work, scheduling beyond a simple reminder, "
-    "approval, recovery or changes, return OperationalContextRequest instead of "
-    "answering or promising an action. Also request operational context for an "
+    "approval, recovery or changes, call the request_operational_context output "
+    "tool with {} instead of answering or promising an action. Never print the "
+    "tool name or schema name as an answer. Also request operational context for an "
+    "online search or browsing request. The absence of tools in this pass does "
+    "not mean Integral lacks those capabilities: the operational pass discovers "
+    "them. Do not refuse a tool request or claim Integral cannot browse, search, "
+    "or use tools based on this pass's limited context. Request operational "
+    "context so the host can check available capabilities. Also escalate an "
     "ambiguous follow-up whose meaning is missing from this bounded dialogue. "
     "Short messages and greetings followed by commands may need operational "
     "context. Do not claim to have read, changed or verified workspace state. "
@@ -165,6 +171,21 @@ async def recent_public_messages(thread: Any) -> list[Any]:
 def conversational_text(text: str) -> str:
     """Accept plain conversational output without a serialized envelope."""
     return text
+
+
+def is_printed_context_request(text: str) -> bool:
+    """Recover a bare routing marker; it requests governed context, never authority.
+
+    Match the entire output so ordinary explanations mentioning these names
+    remain conversation. Provider-emitted arguments are never executed.
+    """
+    marker = text.strip().strip("`").strip().removesuffix(".")
+    return marker in {
+        "OperationalContextRequest",
+        "OperationalContextRequest()",
+        "request_operational_context",
+        "request_operational_context()",
+    }
 
 
 def build_light_agent(

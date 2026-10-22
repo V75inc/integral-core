@@ -14,6 +14,7 @@ import {
 } from "../../../api/aiConfiguration";
 import { MODEL_CREDENTIALS_QUERY_KEY } from "../../../api/modelCredentials";
 import { errorMessageFromAxios } from "../../../api/helpers";
+import { useToast } from "../../../context/ToastContext";
 import { LINE_ICON_STROKE } from "../../../components/ui/IconWell";
 
 function ModelRoleReadout({
@@ -30,7 +31,17 @@ function ModelRoleReadout({
   onEdit?: () => void;
 }) {
   const rows = [
-    ["Reasoning", settings.reasoning_effort ?? "Provider default"],
+    [
+      "Reasoning",
+      settings.reasoning_effort ??
+        (settings.thinking_enabled != null
+          ? settings.thinking_enabled
+            ? "On"
+            : "Off"
+          : settings.thinking_budget
+            ? `${settings.thinking_budget.toLocaleString()} token budget`
+            : "Provider default"),
+    ],
     [
       "Max output",
       settings.max_tokens
@@ -123,8 +134,7 @@ export function ModelRoutingSection({
   profileEditorOpen?: boolean;
 }) {
   const [draft, setDraft] = useState<ModelRouting | null>(null);
-  const [failure, setFailure] = useState("");
-  const [notice, setNotice] = useState("");
+  const { showToast } = useToast();
   const qc = useQueryClient();
   const [editingProfile, setEditingProfile] = useState(false);
   const returnToRouting = useRef<{
@@ -137,13 +147,19 @@ export function ModelRoutingSection({
     mutationFn: aiConfigurationApi.saveRouting,
     onSuccess: () => {
       setDraft(null);
-      setNotice("Model routing saved. Changes apply to the next turn.");
+      showToast(
+        "Model routing saved. Changes apply to the next turn.",
+        "success",
+      );
       qc.invalidateQueries({ queryKey: AI_CONFIGURATION_QUERY_KEY });
       qc.invalidateQueries({ queryKey: MODEL_CREDENTIALS_QUERY_KEY });
       qc.invalidateQueries({ queryKey: ["conversation-model"] });
     },
     onError: (error) =>
-      setFailure(errorMessageFromAxios(error, "Could not save model routing.")),
+      showToast(
+        errorMessageFromAxios(error, "Could not save model routing."),
+        "error",
+      ),
   });
   const routing = data.routing ?? {
     mode: "single",
@@ -258,7 +274,6 @@ export function ModelRoutingSection({
             className="min-h-11 sm:min-h-9"
             disabled={disabled || !data.profiles.length}
             onClick={() => {
-              setFailure("");
               setDraft({ ...routing });
             }}
           >
@@ -346,11 +361,6 @@ export function ModelRoutingSection({
               : "Your saved model configuration overrides server defaults for this workspace."}
           </Text>
         )}
-        {notice && (
-          <div role="status">
-            <Text variant="body-sm">{notice}</Text>
-          </div>
-        )}
       </Stack>
       <Modal
         open={!!draft && !editingProfile}
@@ -365,7 +375,7 @@ export function ModelRoutingSection({
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              setFailure("");
+
               save.mutate(draft);
             }}
           >
@@ -376,13 +386,6 @@ export function ModelRoutingSection({
                   conversation and a heavier profile when Integral needs its
                   operational context.
                 </Text>
-                {failure && (
-                  <div role="alert">
-                    <Text tone="danger" variant="body-sm">
-                      {failure}
-                    </Text>
-                  </div>
-                )}
                 <Text
                   as="label"
                   variant="body-sm"

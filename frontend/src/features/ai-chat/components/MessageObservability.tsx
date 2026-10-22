@@ -70,6 +70,39 @@ export function useMessageModelLabel(): string | undefined {
   });
 }
 
+/** Whole-turn elapsed time and reported usage, without double-counting final metrics. */
+export function useMessageTurnMetrics(): string {
+  const timing = useMessageTiming();
+  const custom = useAuiState((s) => s.message.metadata?.custom as {
+    latency?: { totalMs?: number };
+    steps?: ObservabilityStep[];
+    finalPayload?: { interaction?: { usage?: FinalUsage; observability_metrics?: FinalMetric[] } };
+  } | undefined);
+  const interaction = custom?.finalPayload?.interaction;
+  const steps = custom?.steps?.length ? custom.steps :
+    (interaction?.observability_metrics ?? []).filter(metric => metric.event_type === "model_call")
+      .map(metric => ({ usage: { inputTokens: metric.data?.usage?.prompt_tokens, outputTokens: metric.data?.usage?.completion_tokens } }));
+  const validTokens = (value: number | undefined): value is number =>
+    value != null && Number.isFinite(value) && value >= 0;
+  const reported = steps.flatMap(step => [step.usage?.inputTokens, step.usage?.outputTokens]).filter(validTokens);
+  const complete = steps.length > 0 && steps.every(step =>
+    !("usageComplete" in step && step.usageComplete === false) &&
+    validTokens(step.usage?.inputTokens) && validTokens(step.usage?.outputTokens));
+  const finalUsage = interaction?.usage;
+  const finalTotal = validTokens(finalUsage?.total_tokens) ? finalUsage.total_tokens :
+    validTokens(finalUsage?.prompt_tokens) && validTokens(finalUsage?.completion_tokens) ?
+      finalUsage.prompt_tokens + finalUsage.completion_tokens : undefined;
+  const tokens = reported.length > 0 ? reported.reduce((sum, value) => sum + value, 0) : finalTotal;
+  const partial = reported.length > 0 && !complete;
+  // Model-call durations exclude queue, preparation and tools; never sum them here.
+  const elapsed = custom?.latency?.totalMs ?? timing?.totalStreamTime;
+  const compactTokens = tokens == null ? undefined : new Intl.NumberFormat("en", {
+    notation: "compact", maximumFractionDigits: 1,
+  }).format(tokens);
+  return [formatTime(elapsed), compactTokens != null ? `${compactTokens} tokens${partial ? " reported" : ""}` : undefined]
+    .filter(Boolean).join(" · ");
+}
+
 export function MessageObservability() {
   const role = useAuiState((s) => s.message.role);
   const statusType = useAuiState((s) =>

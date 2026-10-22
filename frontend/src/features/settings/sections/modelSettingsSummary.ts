@@ -6,6 +6,9 @@ export function profileSummary(
 ): string {
   const parts = [
     settings.reasoning_effort ? `${settings.reasoning_effort} reasoning` : "",
+    settings.thinking_enabled != null
+      ? `Thinking ${settings.thinking_enabled ? "on" : "off"}`
+      : "",
     settings.max_tokens
       ? `${settings.max_tokens.toLocaleString()} max output tokens`
       : "",

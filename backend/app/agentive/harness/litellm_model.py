@@ -706,6 +706,49 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
             if self._route.ollama_clear_thinking is not None:
                 extra_body["clear_thinking"] = self._route.ollama_clear_thinking
             kwargs["extra_body"] = extra_body
+        if (
+            self._route.provider == "ollama_chat"
+            and "reasoning_effort" in self._route.generation_settings
+        ):
+            # The pinned LiteLLM adapter turns non-GPT-OSS effort levels into
+            # bools (and "max" into false). Preserve verified native levels;
+            # the saved profile overrides the deployment's think default.
+            effort = kwargs.pop("reasoning_effort")
+            extra_body = dict(kwargs.get("extra_body") or {})
+            extra_body["think"] = False if effort == "none" else effort
+            kwargs["extra_body"] = extra_body
+        if (
+            self._route.provider == "ollama_chat"
+            and "thinking_enabled" in self._route.generation_settings
+        ):
+            extra_body = dict(kwargs.get("extra_body") or {})
+            extra_body["think"] = self._route.generation_settings["thinking_enabled"]
+            kwargs["extra_body"] = extra_body
+        if (
+            self._route.provider == "anthropic"
+            and self._route.generation_settings.get("reasoning_effort") == "none"
+        ):
+            # Omitting thinking can restore an adaptive model's on default.
+            # An explicit Off choice must reach Anthropic as disabled.
+            kwargs.pop("reasoning_effort", None)
+            extra_body = dict(kwargs.get("extra_body") or {})
+            extra_body["thinking"] = {"type": "disabled"}
+            kwargs["extra_body"] = extra_body
+        if self._route.provider == "openrouter":
+            # OpenRouter's native reasoning object preserves model-defined
+            # effort names and budgets; the pinned adapter rewrites max to xhigh.
+            reasoning = {}
+            if "reasoning_effort" in self._route.generation_settings:
+                reasoning["effort"] = kwargs.pop("reasoning_effort")
+            if "thinking_budget" in self._route.generation_settings:
+                kwargs.pop("thinking", None)
+                reasoning["max_tokens"] = self._route.generation_settings[
+                    "thinking_budget"
+                ]
+            if reasoning:
+                extra_body = dict(kwargs.get("extra_body") or {})
+                extra_body["reasoning"] = reasoning
+                kwargs["extra_body"] = extra_body
         if self._route.api_base is not None:
             kwargs["api_base"] = self._route.api_base
         else:

@@ -442,10 +442,57 @@ def test_capabilities_use_declared_efforts_and_gate_thinking(monkeypatch, reason
         caps = model_capabilities("anthropic", "synthetic-model")
         assert caps["reasoning_efforts"] == (["high", "xhigh"] if reasoning else [])
         assert caps["thinking_budget"] is reasoning
-        assert (
-            model_capabilities("custom_openai", "synthetic-model")["reasoning_efforts"]
-            == []
-        )
+        custom = model_capabilities("custom_openai", "synthetic-model")
+        assert "high" in custom["reasoning_efforts"]
+        assert custom["verified"] is False
+    finally:
+        model_capabilities.cache_clear()
+
+
+@pytest.mark.parametrize(
+    "provider,model,efforts,budget,toggle",
+    [
+        ("openai", "reasoner", ["low", "high"], False, False),
+        ("anthropic", "reasoner", ["low", "high"], True, False),
+        ("openrouter", "openai/reasoner", ["low", "high"], False, False),
+        ("openrouter", "anthropic/reasoner", ["low", "high"], True, False),
+        ("ollama", "deepseek-v4.1-flash", ["none", "low", "high", "max"], False, False),
+        ("ollama", "gpt-oss:120b", ["low", "medium", "high"], False, False),
+        ("ollama_local", "gemma4:26b", [], False, True),
+        (
+            "custom_openai",
+            "endpoint-model",
+            ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+            False,
+            False,
+        ),
+    ],
+)
+def test_each_provider_exposes_its_reasoning_contract(
+    monkeypatch, provider, model, efforts, budget, toggle
+):
+    import litellm
+
+    from app.services.model_settings import model_capabilities
+
+    monkeypatch.setattr(
+        litellm,
+        "get_supported_openai_params",
+        lambda **_: ["reasoning_effort", "thinking", "max_tokens"],
+    )
+
+    def info(**kwargs):
+        if kwargs["custom_llm_provider"] in {"ollama_chat", "openrouter"}:
+            return {}
+        return {"supports_reasoning": True, "reasoning_effort_levels": ["low", "high"]}
+
+    monkeypatch.setattr(litellm, "get_model_info", info)
+    model_capabilities.cache_clear()
+    try:
+        caps = model_capabilities(provider, model)
+        assert caps["reasoning_efforts"] == efforts
+        assert caps["thinking_budget"] is budget
+        assert caps["thinking_enabled"] is toggle
     finally:
         model_capabilities.cache_clear()
 
@@ -496,3 +543,58 @@ async def test_saved_profile_replaces_warmed_lookup_before_next_dispatch():
     active = await service.get_credential_for_user("owner")
     assert active.model == "gpt-4.1"
     assert active.generation_settings == {"max_tokens": 2048}
+
+
+def test_gateway_catalog_preserves_explicit_levels_and_mandatory_reasoning():
+    from app.services.model_settings import model_capabilities
+
+    model_capabilities.cache_clear()
+    try:
+        gpt = model_capabilities("openrouter", "openai/gpt-5")
+        assert gpt["reasoning_efforts"] == ["minimal", "low", "medium", "high"]
+        assert gpt["thinking_budget"] is False
+        claude = model_capabilities("openrouter", "anthropic/claude-opus-4.6")
+        assert "max" in claude["reasoning_efforts"]
+        assert claude["thinking_budget"] is True
+        assert claude["verified"] is True
+    finally:
+        model_capabilities.cache_clear()
+
+
+def test_native_reasoning_controls_validate_without_disappearing():
+    from app.services.model_settings import validate_model_settings
+
+    assert validate_model_settings(
+        "ollama", "deepseek-v4.1-flash", {"reasoning_effort": "max"}
+    ) == {"reasoning_effort": "max"}
+    with pytest.raises(ValueError, match="Reasoning effort"):
+        validate_model_settings(
+            "ollama", "deepseek-v4.1-flash", {"reasoning_effort": "medium"}
+        )
+    assert validate_model_settings(
+        "ollama_local", "gemma4:26b", {"thinking_enabled": False}
+    ) == {"thinking_enabled": False}
+    assert validate_model_settings(
+        "custom_openai", "endpoint-model", {"reasoning_effort": "high"}
+    ) == {"reasoning_effort": "high"}
+    with pytest.raises(ValueError, match="Choose one reasoning control"):
+        ModelGenerationSettings(thinking_enabled=False, reasoning_effort="high")
+    assert "thinking_enabled" not in provider_model_options({"thinking_enabled": False})
+
+
+def test_legacy_claude_alias_keeps_its_thinking_budget(monkeypatch):
+    import litellm
+
+    from app.services.model_settings import model_capabilities
+
+    monkeypatch.setattr(litellm, "get_model_info", lambda **_: {})
+    monkeypatch.setattr(
+        litellm, "get_supported_openai_params", lambda **_: ["max_tokens"]
+    )
+    model_capabilities.cache_clear()
+    try:
+        caps = model_capabilities("anthropic", "claude-3-7-sonnet-latest")
+        assert caps["thinking_budget"] is True
+        assert caps["reasoning_efforts"] == []
+    finally:
+        model_capabilities.cache_clear()

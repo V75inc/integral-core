@@ -10,6 +10,76 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { aiConfigurationApi } from "../../../api/aiConfiguration";
 import { AiConfigurationSection } from "./AiConfigurationSection";
 
+it("shows model-specific Max effort without inventing intermediate levels", async () => {
+  vi.mocked(aiConfigurationApi.capabilities).mockResolvedValue({
+    reasoning_efforts: ["none", "low", "high", "max"],
+    max_tokens: true,
+    temperature: false,
+    top_p: false,
+    verbosity: false,
+    thinking_budget: false,
+    context_window: false,
+    verified: true,
+  });
+  show();
+  fireEvent.click(screen.getByRole("button", { name: "Edit profile" }));
+  const effort = await screen.findByLabelText("Reasoning effort");
+  expect(
+    within(effort)
+      .getAllByRole("option")
+      .map((option) => option.textContent),
+  ).toEqual(["Provider default", "Off", "Low", "High", "Max"]);
+});
+
+it("offers a native thinking toggle and retains an explicit off value", async () => {
+  vi.mocked(aiConfigurationApi.capabilities).mockResolvedValue({
+    reasoning_efforts: [],
+    thinking_enabled: true,
+    max_tokens: true,
+    temperature: true,
+    top_p: true,
+    verbosity: false,
+    thinking_budget: false,
+    context_window: true,
+    verified: false,
+  });
+  vi.mocked(aiConfigurationApi.saveProfile).mockResolvedValue({});
+  show();
+  fireEvent.click(screen.getByRole("button", { name: "Edit profile" }));
+  fireEvent.change(await screen.findByLabelText("Thinking"), {
+    target: { value: "false" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+  await waitFor(() =>
+    expect(aiConfigurationApi.saveProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        generation_settings: expect.objectContaining({
+          thinking_enabled: false,
+        }),
+      }),
+    ),
+  );
+});
+
+it("shows thinking budgets directly when effort levels are unavailable", async () => {
+  vi.mocked(aiConfigurationApi.capabilities).mockResolvedValue({
+    reasoning_efforts: [],
+    max_tokens: true,
+    temperature: false,
+    top_p: false,
+    verbosity: false,
+    thinking_budget: true,
+    context_window: false,
+    verified: true,
+  });
+  show();
+  fireEvent.click(screen.getByRole("button", { name: "Edit profile" }));
+  expect(await screen.findByLabelText("Thinking budget tokens")).toBeVisible();
+  expect(
+    screen.queryByText(/does not expose adjustable reasoning/),
+  ).not.toBeInTheDocument();
+});
+
 const fixture = vi.hoisted(() => ({
   isPending: false,
   isError: false,
@@ -156,6 +226,17 @@ describe("AI connection and model configuration", () => {
       JSON.stringify(vi.mocked(aiConfigurationApi.saveProfile).mock.calls),
     ).not.toContain("api_key");
     expect(screen.queryByLabelText("Temperature")).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(fixture.showToast).toHaveBeenCalledWith(
+        "Default profile updated. Changes apply to the next turn.",
+        "success",
+      ),
+    );
+    expect(
+      screen.queryByText(
+        "Default profile updated. Changes apply to the next turn.",
+      ),
+    ).not.toBeInTheDocument();
   });
   it("explains workspace-owner configuration and keeps connection editing separate", async () => {
     fixture.data.effective.editable = false;
@@ -172,7 +253,7 @@ describe("AI connection and model configuration", () => {
   });
 });
 
-it("keeps failed saves inside the model drawer", async () => {
+it("toasts failed saves while retaining the model drawer and draft", async () => {
   vi.mocked(aiConfigurationApi.saveProfile).mockRejectedValue(
     new Error("Unavailable"),
   );
@@ -183,9 +264,15 @@ it("keeps failed saves inside the model drawer", async () => {
     expect(screen.getByRole("button", { name: "Save profile" })).toBeEnabled(),
   );
   fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+  await waitFor(() =>
+    expect(fixture.showToast).toHaveBeenCalledWith(
+      "Could not save this configuration.",
+      "error",
+    ),
+  );
   expect(
-    await within(screen.getByRole("dialog")).findByRole("alert"),
-  ).toBeVisible();
+    within(screen.getByRole("dialog")).queryByRole("alert"),
+  ).not.toBeInTheDocument();
   expect(screen.getByLabelText("Profile name")).toHaveValue("Everyday");
 });
 it("allows provider defaults when capability metadata is unavailable", async () => {

@@ -73,8 +73,8 @@ export function AiConfigurationSection() {
     name: string;
     connection: boolean;
   } | null>(null);
-  const [notice, setNotice] = useState("");
-  const [failure, setFailure] = useState("");
+  const notifySuccess = (message: string) => showToast(message, "success");
+  const notifyError = (message: string) => showToast(message, "error");
   const [capModel, setCapModel] = useState("");
   const selectedConnection = query.data?.connections.find(
     (c) => c.id === profile?.connection_id,
@@ -95,10 +95,6 @@ export function AiConfigurationSection() {
   });
   const mutation = useMutation({
     mutationFn: async (work: () => Promise<unknown>) => work(),
-    onMutate: () => {
-      setFailure("");
-      setNotice("");
-    },
     onSuccess: async () => {
       await Promise.all([
         qc.invalidateQueries({ queryKey: AI_CONFIGURATION_QUERY_KEY }),
@@ -107,7 +103,7 @@ export function AiConfigurationSection() {
       ]);
     },
     onError: (error) =>
-      setFailure(
+      notifyError(
         errorMessageFromAxios(error, "Could not save this configuration."),
       ),
   });
@@ -175,6 +171,9 @@ export function AiConfigurationSection() {
           generation_settings: {
             ...p.generation_settings,
             [key]: text === "" ? undefined : Number(text),
+            ...(key === "thinking_budget" && text !== ""
+              ? { reasoning_effort: undefined }
+              : {}),
           },
         },
     );
@@ -218,25 +217,18 @@ export function AiConfigurationSection() {
     });
   };
   const showConnection = () => {
-    setFailure("");
     setConnection(freshConnection());
   };
   return (
     <Stack gap="lg">
-      {failure && !connection && !profile && !removeTarget && (
-        <Feedback kind="error">{failure}</Feedback>
-      )}
-      {notice && <Feedback kind="success">{notice}</Feedback>}
       <ModelRoutingSection
         data={data}
         profileEditorOpen={!!profile || mutation.isPending}
         onAddModel={() => {
-          setFailure("");
           if (data.connections.length) addProfile();
           else showConnection();
         }}
         onEdit={(p) => {
-          setFailure("");
           editProfile(p);
         }}
       />
@@ -293,7 +285,6 @@ export function AiConfigurationSection() {
             icon={<Plus size={16} />}
             disabled={disabled}
             onClick={() => {
-              setFailure("");
               if (tab === "connections" || !data.connections.length)
                 showConnection();
               else addProfile();
@@ -380,7 +371,7 @@ export function AiConfigurationSection() {
                         onClick={() =>
                           run(async () => {
                             await aiConfigurationApi.activateProfile(p.id);
-                            setNotice("Default model updated.");
+                            notifySuccess("Default model updated.");
                           })
                         }
                       >
@@ -394,7 +385,6 @@ export function AiConfigurationSection() {
                       icon={<Pencil size={14} />}
                       disabled={disabled}
                       onClick={() => {
-                        setFailure("");
                         editProfile(p);
                       }}
                     >
@@ -526,7 +516,6 @@ export function AiConfigurationSection() {
                       icon={<Pencil size={14} />}
                       disabled={disabled}
                       onClick={() => {
-                        setFailure("");
                         editConnection(c);
                       }}
                     >
@@ -578,7 +567,7 @@ export function AiConfigurationSection() {
           )}
         </div>
       </section>
-      <VoiceConfiguration onError={setFailure} disabled={disabled} />
+      <VoiceConfiguration onError={notifyError} disabled={disabled} />
       <details className="group border-t border-[var(--border-subtle)] pt-4">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-[var(--radius-input)] py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]">
           <span className="flex items-center gap-3">
@@ -616,7 +605,7 @@ export function AiConfigurationSection() {
               run(async () => {
                 await aiConfigurationApi.saveConnection(connection);
                 setConnection(null);
-                setNotice("Provider saved.");
+                notifySuccess("Provider saved.");
               });
             }}
           >
@@ -626,7 +615,7 @@ export function AiConfigurationSection() {
                   One provider setup can serve several models. Your saved key
                   stays on the server.
                 </Text>
-                {failure && <Feedback kind="error">{failure}</Feedback>}
+
                 <Field label="Provider name">
                   <Input
                     required
@@ -751,7 +740,7 @@ export function AiConfigurationSection() {
                   name: profile.name.trim() || profile.model,
                 });
                 setProfile(null);
-                setNotice(
+                notifySuccess(
                   profile.id === data.default_profile_id
                     ? "Default profile updated. Changes apply to the next turn."
                     : "Profile saved. Select Use as default when you want to switch models.",
@@ -761,7 +750,6 @@ export function AiConfigurationSection() {
           >
             <Modal.Body noSpacing>
               <Stack gap="lg">
-                {failure && <Feedback kind="error">{failure}</Feedback>}
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field label="Profile name">
                     <Input
@@ -851,6 +839,12 @@ export function AiConfigurationSection() {
                             generation_settings: {
                               ...profile.generation_settings,
                               reasoning_effort: e.target.value || undefined,
+                              ...(e.target.value
+                                ? {
+                                    thinking_budget: undefined,
+                                    thinking_enabled: undefined,
+                                  }
+                                : {}),
                             },
                           })
                         }
@@ -866,17 +860,64 @@ export function AiConfigurationSection() {
                                 medium: "Medium",
                                 high: "High",
                                 xhigh: "Extra high",
+                                max: "Max",
                               } as Record<string, string>
                             )[e] ?? e}
                           </option>
                         ))}
                       </Select>
                     </Field>
+                  ) : caps.data?.thinking_enabled ? (
+                    <Field label="Thinking">
+                      <Select
+                        value={
+                          profile.generation_settings.thinking_enabled == null
+                            ? ""
+                            : String(
+                                profile.generation_settings.thinking_enabled,
+                              )
+                        }
+                        onChange={(e) =>
+                          setProfile({
+                            ...profile,
+                            generation_settings: {
+                              ...profile.generation_settings,
+                              thinking_enabled:
+                                e.target.value === ""
+                                  ? undefined
+                                  : e.target.value === "true",
+                              reasoning_effort: undefined,
+                              thinking_budget: undefined,
+                            },
+                          })
+                        }
+                      >
+                        <option value="">Provider default</option>
+                        <option value="true">On</option>
+                        <option value="false">Off</option>
+                      </Select>
+                    </Field>
+                  ) : caps.data?.thinking_budget ? (
+                    <Field label="Thinking budget tokens">
+                      <Input
+                        type="number"
+                        min="1024"
+                        placeholder="Provider default"
+                        value={
+                          profile.generation_settings.thinking_budget ?? ""
+                        }
+                        onChange={(e) =>
+                          numeric("thinking_budget", e.target.value)
+                        }
+                      />
+                    </Field>
                   ) : (
                     <Text variant="body-sm" tone="muted">
                       {caps.isFetching
                         ? "Checking model capabilities…"
-                        : "This model uses its default reasoning settings."}
+                        : caps.data?.verified
+                          ? "This model does not expose adjustable reasoning."
+                          : "Reasoning controls could not be verified for this provider/model."}
                     </Text>
                   )}
                   {caps.data?.max_tokens && (
@@ -892,6 +933,15 @@ export function AiConfigurationSection() {
                     </Field>
                   )}
                 </div>
+                {selectedConnection &&
+                  (selectedConnection.provider === "custom_openai" ||
+                    (caps.data?.thinking_enabled && !caps.data.verified)) && (
+                    <Text variant="body-sm" tone="muted">
+                      Optional reasoning settings are sent only when selected.
+                      Confirm the supported values with your endpoint; model
+                      support is unverified.
+                    </Text>
+                  )}
                 <details>
                   <summary className="cursor-pointer rounded-[var(--radius-input)] py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]">
                     <Text as="span" weight="medium">
@@ -967,7 +1017,6 @@ export function AiConfigurationSection() {
       >
         <Modal.Body noSpacing>
           <Stack gap="lg">
-            {failure && <Feedback kind="error">{failure}</Feedback>}
             <Text as="p">
               Remove “{removeTarget?.name}” from Integral? This does not delete
               your provider account.
@@ -992,7 +1041,7 @@ export function AiConfigurationSection() {
                   await aiConfigurationApi.removeConnection(removeTarget.id);
                 else await aiConfigurationApi.removeProfile(removeTarget.id);
                 setRemoveTarget(null);
-                setNotice("Configuration removed.");
+                notifySuccess("Configuration removed.");
               })
             }
           >
@@ -1073,7 +1122,8 @@ function AdvancedOptions({
         [
           "thinking_budget",
           "Thinking token budget",
-          capabilities?.thinking_budget,
+          capabilities?.thinking_budget &&
+            !!capabilities.reasoning_efforts.length,
         ],
         [
           "context_window",
@@ -1185,6 +1235,7 @@ function VoiceConfiguration({
   onError: (message: string) => void;
   disabled: boolean;
 }) {
+  const { showToast } = useToast();
   const qc = useQueryClient();
   const current = useQuery({
     queryKey: MODEL_CREDENTIALS_QUERY_KEY,
@@ -1218,6 +1269,7 @@ function VoiceConfiguration({
     },
     onSuccess: () => {
       setKey("");
+      showToast("Voice settings saved.", "success");
       qc.invalidateQueries({ queryKey: MODEL_CREDENTIALS_QUERY_KEY });
     },
     onError: (error) =>

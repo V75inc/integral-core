@@ -4,6 +4,7 @@ import type { ModelProvider } from "./modelCredentials";
 export const AI_CONFIGURATION_QUERY_KEY = ["ai-configuration"] as const;
 export interface GenerationSettings {
   reasoning_effort?: string;
+  thinking_enabled?: boolean;
   max_tokens?: number;
   temperature?: number;
   top_p?: number;
@@ -38,6 +39,7 @@ export interface ModelProfile {
 }
 export interface ModelCapabilities {
   reasoning_efforts: string[];
+  thinking_enabled?: boolean;
   native_context?: number | null;
   tool_calling?: boolean | null;
   vision?: boolean | null;
