@@ -6,6 +6,15 @@ bump does not establish that a release is available on a package index.
 
 ## Unreleased
 
+## 0.1.1rc30 — 2026-10-22
+
+- Consolidate App discovery, installation review and full package details in Manage Apps; retire the duplicate Operational Models Settings and catalog screens.
+- Keep attachment mosaics consistent between feeds and detail views, with full-image navigation and five outline reactions available on hover, tap or keyboard activation.
+- Reconcile comments and mention notifications across delayed requests and live events, preserving recipient, workspace and read-authority checks.
+- Expose pending App designs with guarded recovery/discard, preserve nested pasted lists and accept harmless numbered labels in moderation.
+- Align local display-name readback and Home AI setup state with saved profile and credential settings, and update the vulnerable PDF dependency.
+- Retain parallel CI lanes while keeping source qualification tied to the exact release revision.
+
 - Allow hosted package view frames from the configured public SPA URL as well as the OAuth frontend origin; normalize configured origins and reject malformed CSP sources without disrupting valid parents.
 
 ## 0.1.1rc29 — 2026-10-21
